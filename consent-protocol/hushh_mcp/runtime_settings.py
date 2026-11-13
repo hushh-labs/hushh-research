@@ -885,7 +885,7 @@ def webauthn_mds_enabled() -> bool:
     ``AAL3-candidate``. When **ON**, an authenticator whose AAGUID is MDS-verified
     (FIDO-certified + uncompromised) elevates to real **AAL3**. Requires a
     provisioned, verified MDS extract at ``WEBAUTHN_MDS_BLOB_PATH``. See
-    docs/architecture/webauthn-aal3-mds.md."""
+    docs/reference/webauthn-aal3-mds.md."""
     return _bool_from_value(_clean_env("WEBAUTHN_MDS_ENABLED"), default=False)
 
 
@@ -897,7 +897,7 @@ def a2a_agent_card_enabled() -> bool:
     When **ON**, Agent One publishes a conformant A2A v1 AgentCard for external
     discovery / marketplace listing. Honest: the card declares the current HTTP+JSON
     invocation-preview transport via a capability extension, not full A2A v1 Tasks.
-    See docs/architecture/a2a-agent-card.md."""
+    See docs/reference/a2a-agent-card.md."""
     return _bool_from_value(_clean_env("A2A_AGENT_CARD_ENABLED"), default=False)
 
 
@@ -1020,7 +1020,7 @@ def kms_key_resolution_enabled() -> bool:
     once at startup via the KEK named in `KMS_KEK_RESOURCE`; the hot path
     (HMAC/AES on the in-memory DEK) is unchanged. Enabling also requires the
     `google-cloud-kms` dependency (lazy-imported). See
-    docs/architecture/kms-key-custody.md."""
+    docs/reference/kms-key-custody.md."""
     return _bool_from_value(_clean_env("KMS_KEY_RESOLUTION_ENABLED"), default=False)
 
 

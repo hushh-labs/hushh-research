@@ -295,7 +295,11 @@ KNOWN_ROOTS = frozenset(
 )
 KNOWN_ROOT_FILES = frozenset(
     {
-        "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        # Recognize removal of retired, tracked documentation generators.
+        "hussh-mega-map.gen.py", "hussh-mega-map-v2.gen.py",
+        "hussh-mega-map.dark.svg", "hussh-mega-map.light.svg",
+        "hussh-mega-map.dark.public.svg", "hussh-mega-map.light.public.svg",
         "REUSE.toml", "SECURITY.md", "TESTING.md", "THIRD_PARTY_NOTICES.md",
         "code_of_conduct.md", "contributing.md", "docker-compose.yml",
         "docker-compose.offline.yml", "getting_started.md", "skills-lock.json",
@@ -417,6 +421,12 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/verify-pr-base-policy.py",
             "scripts/ci/runtime-contract-check.sh",
             "scripts/ci/secret-scan.sh",
+            "scripts/ci/docs-parity-check.sh",
+            "scripts/ci/provision_wallet_pass_certificate.py",
+            "scripts/ci/verify-runtime-config-contract.py",
+            "scripts/ops/data_model_audit.py",
+            "scripts/verify-doc-links.cjs",
+            "scripts/verify-doc-runtime-parity.cjs",
             "scripts/ci/test_secret_scan_ranges.py",
             "scripts/ci/tag-last-known-good.sh",
             "scripts/ci/verify-predecessor-acceptance.py",

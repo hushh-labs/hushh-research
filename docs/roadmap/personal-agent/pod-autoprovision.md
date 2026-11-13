@@ -6,8 +6,8 @@
 
 > **Status:** built, flag-gated **OFF** (`PERSONAL_AGENT_AUTOPROVISION_ENABLED`).
 > Companions: [`POD-HUB-DATA-PATH.md`](pod-hub-data-path.md) (how a pod reads),
-> [`POD-FLEET-LIVE-2026-08-04.md`](pod-fleet-live-2026-08-04.md) (the live fleet),
-> [`BYOC-USER-GCP.md`](byoc-user-gcp.md) (where this is going).
+> [`POD-FLEET-LIVE-2026-08-04.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/POD-FLEET-LIVE-2026-08-04.md) (the live fleet),
+> [`BYOC-USER-GCP.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/BYOC-USER-GCP.md) (where this is going).
 
 ## Visual Context
 

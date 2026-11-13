@@ -10,7 +10,7 @@
 > The log is emitted in **both** shapes: the raw `consent_audit` row and the grouped
 > shape `/api/consent/center/list` returns. Companions:
 > [`MULTI-POD-DEV-SIMULATION.md`](multi-pod-dev-simulation.md),
-> [`CONTROL-PLANE-SPLIT.md`](control-plane-split.md).
+> [`CONTROL-PLANE-SPLIT.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/CONTROL-PLANE-SPLIT.md).
 
 ## Visual Context
 

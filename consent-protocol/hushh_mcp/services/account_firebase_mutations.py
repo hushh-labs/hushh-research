@@ -53,7 +53,7 @@ def _update_identity(app, firebase_uid: str, fields: dict) -> None:
 
     Firebase Admin's default client retries mutation POSTs after read/status
     failures. Use an owned session rather than changing that shared SDK client.
-    https://docs.cloud.google.com/identity-platform/docs/architecture/rest/v1/projects.accounts/update
+    https://docs.cloud.google.com/identity-platform/docs/reference/rest/v1/projects.accounts/update
     """
     project = str(getattr(app, "project_id", ""))
     if not re.fullmatch(r"[a-z][a-z0-9-]{4,62}", project) or not 1 <= len(firebase_uid) <= 128:

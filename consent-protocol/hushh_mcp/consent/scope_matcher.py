@@ -19,7 +19,7 @@ words the model chose are matched first and verbatim by the caller. This ranker
 only resolves the leftovers to catalog rows, every result carries a readable
 ``why``, and a result that matched nothing is marked ``fallback`` so the caller
 presents it as a suggestion to change, never as a confident pick. The person's
-tap is the decision. See ``docs/architecture/backend-semantic-boundary.md``.
+tap is the decision. See ``docs/reference/backend-semantic-boundary.md``.
 
 Deterministic and explainable: same catalog and words in, same order out.
 """

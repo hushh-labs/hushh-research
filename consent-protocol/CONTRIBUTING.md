@@ -86,13 +86,13 @@ Or run individually:
 2. **Agents never call services directly.** The stack is: Agent > Tool > Operon > Service.
 3. **Consent is validated at every layer.** Use `HushhAgent` for agents, `@hushh_tool` for tools.
 4. **No `sessionStorage` or `localStorage` patterns.** The backend is stateless; state management is the frontend's concern.
-5. **Canonical PKM semantics must be agent-derived.** If a backend feature interprets user meaning, it must declare the owning agent, prompt contract, validator rules, and required live-eval phase. See `docs/architecture/pkm-agent-north-star.md`.
+5. **Canonical PKM semantics must be agent-derived.** If a backend feature interprets user meaning, it must declare the owning agent, prompt contract, validator rules, and required live-eval phase. See `docs/reference/pkm-agent-north-star.md`.
 
 ---
 
 ## Adding a New Operon
 
-Operons are the business logic building blocks. See [docs/architecture/agent-development.md](docs/architecture/agent-development.md) for the full guide.
+Operons are the business logic building blocks. See [docs/reference/agent-development.md](docs/reference/agent-development.md) for the full guide.
 
 Quick steps:
 
@@ -104,7 +104,7 @@ Quick steps:
    - `storage.py` -- encrypted vault operations
 2. Add your function with full type annotations
 3. Add tests in `tests/`
-4. Update the operon catalog in `docs/architecture/agent-development.md`
+4. Update the operon catalog in `docs/reference/agent-development.md`
 
 ### Operon Purity Rules
 
@@ -163,9 +163,9 @@ If the feature classifies or restructures user meaning, the PR must declare:
 
 Reference docs:
 
-- `docs/architecture/pkm-agent-north-star.md`
-- `docs/architecture/pkm-prompt-contract.md`
-- `docs/architecture/backend-semantic-boundary.md`
+- `docs/reference/pkm-agent-north-star.md`
+- `docs/reference/pkm-prompt-contract.md`
+- `docs/reference/backend-semantic-boundary.md`
 
 ---
 
@@ -174,7 +174,7 @@ Reference docs:
 1. Create or extend a router in `api/routes/`
 2. Use service classes for all DB operations
 3. Add the route to `server.py` router registration
-4. Update `docs/architecture/consent-protocol.md` if it involves consent
+4. Update `docs/reference/consent-protocol.md` if it involves consent
 5. Update route documentation in `docs/`
 
 ---

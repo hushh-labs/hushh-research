@@ -208,11 +208,11 @@ consent-protocol/
 | Document | Description |
 | -------- | ----------- |
 | [docs/README.md](docs/README.md) | Documentation entry point |
-| [docs/architecture/agent-development.md](docs/architecture/agent-development.md) | How to build agents and operons |
-| [docs/architecture/personal-knowledge-model.md](docs/architecture/personal-knowledge-model.md) | PKM storage and retrieval architecture |
+| [docs/reference/agent-development.md](docs/reference/agent-development.md) | How to build agents and operons |
+| [docs/reference/personal-knowledge-model.md](docs/reference/personal-knowledge-model.md) | PKM storage and retrieval architecture |
 | [docs/architecture/finance-agents.md](docs/architecture/finance-agents.md) | Multi-agent financial analysis |
-| [docs/architecture/consent-protocol.md](docs/architecture/consent-protocol.md) | Consent token lifecycle |
-| [docs/architecture/fcm-notifications.md](docs/architecture/fcm-notifications.md) | FCM push notifications |
+| [docs/reference/consent-protocol.md](docs/reference/consent-protocol.md) | Consent token lifecycle |
+| [docs/reference/fcm-notifications.md](docs/reference/fcm-notifications.md) | FCM push notifications |
 | [docs/mcp-setup.md](docs/mcp-setup.md) | MCP runtime and contributor-local technical companion |
 | [docs/monorepo-integration.md](docs/monorepo-integration.md) | Host monorepo subtree + hook setup |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |

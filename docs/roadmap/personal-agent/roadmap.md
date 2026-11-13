@@ -10,7 +10,7 @@ The [direct-runtime handoff](owner-pod-direct-runtime-handoff-2026-09-10.md) own
 
 ## Visual Context
 
-See the [private-agent documentation map](README.md#visual-map).
+See the [private-agent documentation map](../../architecture/modules/hosting.md).
 
 ## Next milestone
 
@@ -38,4 +38,4 @@ These are deferred or need verification, not automatically missing code. Reinspe
 
 For each retained requirement, inspect existing owners, repair only verified gaps, run the smallest authoritative checks and attach current deployed evidence where behavior requires it. Update the canonical reference and existing ledger, then remove the completed planning row. Unsupported, unavailable and unverified claims remain visibly incomplete.
 
-Historical implementation receipts remain linked from the [index](README.md#historical-provenance); they are not a second work queue.
+Historical implementation receipts remain in Git history; they are not a second work queue.

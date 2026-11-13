@@ -8,9 +8,9 @@
 > and 20 pods**. Ten of eleven probes pass across the fleet; one fails and it is a **real
 > defect**, reproduced independently by a security audit and by the simulation. This
 > document is the catalogue: what must hold, what breaks it, and what is currently
-> unenforced. Companions: [`ARCHITECTURE.md`](architecture.md),
-> [`CONTROL-PLANE-SPLIT.md`](control-plane-split.md),
-> [`BYOC-USER-GCP.md`](byoc-user-gcp.md).
+> unenforced. Companions: [`ARCHITECTURE.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/ARCHITECTURE.md),
+> [`CONTROL-PLANE-SPLIT.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/CONTROL-PLANE-SPLIT.md),
+> [`BYOC-USER-GCP.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/BYOC-USER-GCP.md).
 
 ## Visual Context
 

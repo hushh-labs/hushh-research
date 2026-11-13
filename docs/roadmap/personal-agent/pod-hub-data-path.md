@@ -7,8 +7,8 @@
 > **Status:** seam built and wired; hub-side pod-identity auth is **flag-gated OFF**
 > (`POD_HUB_IDENTITY_AUTH_ENABLED`, default false) and must stay off wherever pods hold
 > real users' holdings, for the identity reason in *The limit* below. Companions:
-> [`POD-FLEET-LIVE-2026-08-04.md`](pod-fleet-live-2026-08-04.md) (the live fleet this
-> extends), [`BYOC-USER-GCP.md`](byoc-user-gcp.md), [`ARCHITECTURE.md`](architecture.md) §7.
+> [`POD-FLEET-LIVE-2026-08-04.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/POD-FLEET-LIVE-2026-08-04.md) (the live fleet this
+> extends), [`BYOC-USER-GCP.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/BYOC-USER-GCP.md), [`ARCHITECTURE.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/ARCHITECTURE.md) §7.
 
 ## Visual Context
 
@@ -40,7 +40,7 @@ pod's own runtime service account. No bearer secret is stored in the pod, nothin
 rotate, nothing to leak from the deploy artifact. The token is **audience-bound to the
 hub**, so it cannot be replayed against another service.
 
-This is the same mechanism [`BYOC-USER-GCP.md`](byoc-user-gcp.md) wants for a
+This is the same mechanism [`BYOC-USER-GCP.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/BYOC-USER-GCP.md) wants for a
 user-hosted pod, so the client works unchanged when the pod runs in the user's own
 project.
 
@@ -69,7 +69,7 @@ Options when this needs to carry real users, cheapest first:
 
 The pod **cannot verify the hub's HMAC**: it holds a different `APP_SIGNING_KEY`, and
 with HMAC the ability to verify would be the ability to forge (see
-[`POD-FLEET-LIVE-2026-08-04.md`](pod-fleet-live-2026-08-04.md)). So the pod does the
+[`POD-FLEET-LIVE-2026-08-04.md`](https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/POD-FLEET-LIVE-2026-08-04.md)). So the pod does the
 check it genuinely can:
 
 - it **recomputes SHA-256** over the received prompt bytes and constant-time-compares it

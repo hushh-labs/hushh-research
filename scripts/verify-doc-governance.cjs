@@ -61,6 +61,11 @@ const tierADocs = [
 
 const failures = [];
 
+for (const retired of ["hussh-mega-map.gen.py", "hussh-mega-map-v2.gen.py",
+  "hussh-mega-map.dark.svg", "hussh-mega-map.light.svg", "hussh-mega-map.dark.public.svg", "hussh-mega-map.light.public.svg"]) {
+  if (fs.existsSync(path.join(repoRoot, retired))) failures.push(`retired static documentation generator: ${retired}`);
+}
+
 // The central tree has one navigation model; generated/shared assets are separate.
 for (const entry of fs.readdirSync(path.join(repoRoot, "docs"), { withFileTypes: true })) {
   if (entry.isDirectory() && !["product", "architecture", "development", "operations", "roadmap", "assets"].includes(entry.name)) {

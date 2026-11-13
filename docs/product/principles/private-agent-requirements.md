@@ -800,3 +800,16 @@ hosting must remain explicit; it is distinct from an owner-controlled cloud.
 
 - Founder directive, 2026-08-06, realigning execution with the intended architecture.
 - Companion records: the plan of record and the interface-to-agent routing map in this same directory; the dev fast-lane runbook in `docs/operations/`.
+
+## Consent freshness and lifecycle boundaries
+
+Partitioned execution must establish current consent. A valid local signature
+alone does not establish that a grant has not been revoked. Admission, bounded
+freshness and reconciliation must follow the current owner/runtime contract.
+
+Reset and deletion are different operations. A reset must preserve the identity
+and vault bindings its reviewed scope promises to keep; deletion must reconcile
+its owned resources and access before final erasure. Verify registered cleanup
+tables and the actual cascade rather than assuming a successful request settled
+every store. The [account lifecycle runbook](../../operations/identity/account-deletion-rollout.md)
+owns operational steps and repair state.

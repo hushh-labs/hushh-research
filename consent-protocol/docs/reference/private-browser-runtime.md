@@ -755,7 +755,7 @@ qualified private preview transports. Timeouts or policy readback cannot establi
 network denial; a further native Azure probe would need correlated `egressDecisions`.
 Never disable Chromium sandboxing or syscall filtering to turn these failures green.
 
-Historical provider contracts: [GCP sandbox CLI](https://docs.cloud.google.com/run/docs/architecture/sandbox-cli),
+Historical provider contracts: [GCP sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli),
 [Google Scion integration](https://github.com/GoogleCloudPlatform/scion/blob/main/pkg/runtime/cloudrun_sandbox_runtime.go),
 [Azure sandbox API](https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/app/data-plane/ContainerApps/preview/2026-09-01-preview/containerappssandbox.json),
 [Azure network controls](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies).

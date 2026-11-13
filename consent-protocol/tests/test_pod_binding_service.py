@@ -734,5 +734,5 @@ async def test_the_binding_and_endpoint_routes_delegate_to_the_service(monkeypat
 def test_the_stale_allowlist_line_is_gone_from_the_env_reference():
     from pathlib import Path
 
-    text = Path(__file__).resolve().parents[1].joinpath("docs/architecture/env-vars.md").read_text()
+    text = Path(__file__).resolve().parents[1].joinpath("docs/reference/env-vars.md").read_text()
     assert "HUSHH_TRUSTED_DEVICE_UAT_ALLOWLIST" not in text
