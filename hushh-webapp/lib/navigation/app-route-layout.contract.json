@@ -4682,7 +4682,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The investing persona assessment dismisses before route navigation. Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace. Stripe returns may open Plan; closing the workspace clears both query fields."
+      "reason": "Advisor recommendations close before parent navigation and consume Back while saving the service choice. The investing persona assessment dismisses before route navigation. Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace. Stripe returns may open Plan; closing the workspace clears both query fields."
     }
   },
   {
@@ -7690,6 +7690,14 @@
           "href": "/people/sample?from=%2Fone%2Fconnect%3Ftab%3Dall%26mutuals%3Dtarget",
           "expected": {
             "href": "/one/connect?tab=all&mutuals=target",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+          "expected": {
+            "href": "/one/kai/portfolio/analysis",
             "mode": "push",
             "transitionMode": "full"
           }

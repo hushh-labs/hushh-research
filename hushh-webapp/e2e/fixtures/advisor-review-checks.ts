@@ -3,6 +3,99 @@ import { expect, test, type Page } from "@playwright/test";
 export function registerAdvisorReviewChecks(
   mount: (page: Page, width: number) => Promise<void>,
 ) {
+  for (const width of [393, 1440]) {
+    test(`Advisor recommendations require opt-in and preserve introduction approval at ${width}px`, async ({
+      page,
+    }) => {
+      await mount(page, width);
+      await page.getByRole("button", { name: "Start sample advisor request" }).click();
+      await page.getByRole("tab", { name: "All", exact: true }).click();
+      expect(await page.evaluate(() => document.body.dataset.advisorRecommendationBody)).toBeUndefined();
+      await page
+        .getByRole("button", { name: "Recommend advisor", exact: true })
+        .click();
+      const dialog = page.getByRole("dialog").last();
+      await expect(
+        dialog.getByText("What do you need help with?"),
+      ).toBeVisible();
+      await expect(dialog.getByText(/not sure/i)).toHaveCount(0);
+      for (const label of [
+        "Managing my investments",
+        "Planning for retirement",
+        "Planning around taxes",
+        "Estate planning",
+      ])
+        await expect(
+          dialog.getByRole("button", { name: label, exact: true }),
+        ).toBeVisible();
+      await dialog
+        .getByRole("button", { name: "Managing my investments" })
+        .click();
+      await expect(page.getByText("Sample matching advisor 1", { exact: true })).toBeVisible();
+      expect(
+        await page.evaluate(() =>
+          JSON.parse(document.body.dataset.advisorRecommendationBody || "{}"),
+        ),
+      ).toEqual({ scope: "recommended", service: "portfolio_management" });
+      expect(
+        await page.evaluate(() => document.body.dataset.portfolioReviewCalls),
+      ).toBeUndefined();
+      expect(
+        await dialog.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+      await test.info().attach(`advisor-matches-${width}`, { body: await page.screenshot(), contentType: "image/png" });
+      const typography = await page.getByTestId("advisor-person-row").first().locator('[data-slot="settings-row-title"]').evaluate(element => {
+        const style = getComputedStyle(element);
+        return { font: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
+      });
+      await test.info().attach("finance-typography", { body: JSON.stringify(typography), contentType: "application/json" });
+      await page.getByRole("button", { name: "Review introduction with Sample matching advisor 1", exact: true }).click();
+      await page.getByText("Preview shared portfolio", { exact: true }).click();
+      await expect(
+        page
+          .getByRole("dialog")
+          .getByRole("heading", { name: "Finance snapshot" }),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByRole("dialog")
+          .getByRole("button", { name: "Send request", exact: true }),
+      ).toBeDisabled();
+      expect(
+        await page.evaluate(() => document.body.dataset.advisorSends),
+      ).toBeUndefined();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: /^Close(?: detail panel)?$/ })
+        .click();
+      await page.getByRole("button", { name: "Start sample advisor request" }).click();
+      await page.getByRole("tab", { name: "All", exact: true }).click();
+      await page.getByRole("button", { name: "Recommend advisor", exact: true }).click();
+      await expect(
+        page.getByRole("dialog").getByText("Sample matching advisor 1"),
+      ).toBeVisible();
+      await expect(page.getByText("What do you need help with?")).toHaveCount(
+        0,
+      );
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Change choice" })
+        .click();
+      await page
+        .getByRole("dialog").last()
+        .getByRole("button", { name: "Planning around taxes" })
+        .click();
+      await expect(
+        page.getByRole("dialog").getByText("Sample matching advisor 3"),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("dialog").getByText("Sample matching advisor 1"),
+      ).toHaveCount(0);
+    });
+  }
+
   test("Finance advisor discovery separates connections, nearby and global search", async ({
     page,
   }) => {
@@ -24,10 +117,11 @@ export function registerAdvisorReviewChecks(
     await expect(
       dialog.getByText("Local advisor", { exact: true }),
     ).toBeVisible();
-    await dialog.getByRole("textbox", { name: "Advisor name" }).fill("Distant");
-    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    await dialog.getByRole("tab", { name: "All", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: /Load more/ })).toHaveCount(0);
+    await dialog.getByRole("textbox", { name: "Advisor name" }).fill("Sample matching advisor 7");
     await expect(
-      dialog.getByText("Distant advisor", { exact: true }),
+      dialog.getByText("Sample matching advisor 7", { exact: true }),
     ).toBeVisible();
     await expect(page.locator("body")).toHaveAttribute(
       "data-advisor-candidate-scope",
@@ -36,7 +130,7 @@ export function registerAdvisorReviewChecks(
     await expect(
       dialog.getByRole("textbox", { name: "Postal code" }),
     ).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Choose", exact: true }).click();
+    await dialog.getByRole("button", { name: "Review introduction with Sample matching advisor 7", exact: true }).click();
     await expect(
       dialog.getByRole("button", { name: "Send request" }),
     ).toBeDisabled();

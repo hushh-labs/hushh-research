@@ -95,6 +95,10 @@ export class AdvisorReviewError extends Error {
             "The advisor has not finished payout setup yet, so payment is not available.",
           ADVISOR_LOCATION_REQUIRED:
             "Enter a postal code or allow your location to search nearby.",
+          ADVISOR_SERVICE_REQUIRED:
+            "Choose an area of help to find matching advisors.",
+          ADVISOR_SERVICE_SCOPE_REQUIRED:
+            "Turn on Recommend advisor to search by service.",
           ADVISOR_LOCATION_INVALID:
             "Enter a valid postal code, or allow your location, and search again.",
           ADVISOR_DIRECTORY_UNAVAILABLE:

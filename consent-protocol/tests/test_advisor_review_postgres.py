@@ -20,13 +20,13 @@ from hushh_mcp.services.advisor_review_service import AdvisorReviewService
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError
 
 
-@pytest.fixture
-def advisor_db(finance_db, monkeypatch):  # noqa: F811
-    db, _ = finance_db
+def _advisor_setup(finance_fixture, monkeypatch, *, stub_directory):
+    db, _ = finance_fixture
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
     from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES
 
-    monkeypatch.setattr(OneLocationAgentService, "is_directory_candidate", lambda *a, **k: True)
+    if stub_directory:
+        monkeypatch.setattr(OneLocationAgentService, "is_directory_candidate", lambda *a, **k: True)
     with db.engine.begin() as conn:
         for table in _IAM_REQUIRED_TABLES:
             if table not in {"actor_profiles", "ria_profiles", "connection_scope_proposals"}:
@@ -73,6 +73,117 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
         }
     )
     return db, AdvisorReviewService(db), approved
+
+
+@pytest.fixture
+def advisor_db(finance_db, monkeypatch):  # noqa: F811
+    return _advisor_setup(finance_db, monkeypatch, stub_directory=True)
+
+
+@pytest.fixture
+def directory_advisor_db(finance_db, monkeypatch):  # noqa: F811
+    """Stored RIA services and real directory admission, with external identity stubbed."""
+    from hushh_mcp.services import advisor_review_directory, one_location_agent_service
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    db, service, approved = _advisor_setup(finance_db, monkeypatch, stub_directory=False)
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("""
+            ALTER TABLE actor_profiles
+              ADD COLUMN public_profile_status text DEFAULT 'active',
+              ADD COLUMN directory_listed boolean,
+              ADD COLUMN role_label text,
+              ADD COLUMN contact_discoverable boolean DEFAULT false,
+              ADD COLUMN contact_sync_consent_enabled_at timestamptz,
+              ADD COLUMN contact_sync_consent_rule_version bigint DEFAULT 0,
+              ADD COLUMN contact_sync_consent_contract_version text;
+            ALTER TABLE actor_identity_cache ADD COLUMN email text,
+              ADD COLUMN email_verified boolean DEFAULT false,
+              ADD COLUMN phone_number text, ADD COLUMN phone_verified boolean DEFAULT false;
+            ALTER TABLE marketplace_public_profiles ADD COLUMN user_id text,
+              ADD COLUMN display_name text, ADD COLUMN is_discoverable boolean,
+              ADD COLUMN metadata jsonb DEFAULT '{}'::jsonb;
+            ALTER TABLE ria_profiles ADD COLUMN display_name text, ADD COLUMN bio text,
+              ADD COLUMN finra_crd text, ADD COLUMN services_offered text[];
+            ALTER TABLE one_location_recipient_keys ADD COLUMN algorithm text;
+            ALTER TABLE vault_keys ADD COLUMN vault_status text DEFAULT 'active',
+              ADD COLUMN environment_enrolled_at timestamptz;
+            INSERT INTO vault_keys(user_id,environment_enrolled_at)
+              SELECT user_id,now() FROM actor_profiles;
+            UPDATE actor_identity_cache SET display_name='Bob Advisor' WHERE user_id='bob';
+            UPDATE ria_profiles SET display_name='Bob Advisor',bio='Portfolio advisor',
+              finra_crd='123456',services_offered=ARRAY['Portfolio Management'] WHERE user_id='bob';
+        """)
+        )
+    monkeypatch.setattr(advisor_review_directory, "get_db", lambda: db)
+    monkeypatch.setattr(one_location_agent_service, "get_db", lambda: db)
+    monkeypatch.setattr(
+        OneLocationAgentService, "_active_directory_user_ids", lambda self, ids: set(ids)
+    )
+    monkeypatch.setattr(OneLocationAgentService, "_directory_auth_profiles", lambda self, ids: {})
+    # Social annotations are unrelated to directory authorization and this handshake.
+    monkeypatch.setattr(
+        OneLocationAgentService,
+        "_apply_kai_circle_recommendations",
+        lambda self, **kwargs: kwargs["recipients"],
+    )
+    return db, service, approved
+
+
+def test_stored_ria_service_discovery_to_approved_request_and_acceptance(directory_advisor_db):
+    from hushh_mcp.services.advisor_review_directory import candidates
+
+    db, service, template = directory_advisor_db
+    found = candidates("alice", service="portfolio_management")["items"]
+    assert len(found) == 1
+    advisor = found[0]
+    assert advisor["name"] == "Bob Advisor"
+    assert advisor["servicesOffered"] == ["Portfolio Management"]
+    assert advisor["ready"] is True
+    assert candidates("alice", service="portfolio_management", query="BOB")["items"] == found
+    assert candidates("alice", service="portfolio_management", query="Another")["items"] == []
+    assert candidates("alice", service="tax_planning")["items"] == []
+    # Enrollment is an actual SQL fence, not a mocked yes/no eligibility answer.
+    with db.engine.begin() as conn:
+        conn.execute(text("UPDATE vault_keys SET environment_enrolled_at=NULL WHERE user_id='bob'"))
+    assert candidates("alice", service="portfolio_management")["items"] == []
+    with pytest.raises(AdvisorReviewError, match="NOT_ELIGIBLE"):
+        service.create("alice", template)
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("UPDATE vault_keys SET environment_enrolled_at=now() WHERE user_id='bob'")
+        )
+    approved = template.model_copy(
+        update={
+            "advisorPersonRef": uuid.UUID(advisor["personRef"]),
+            "envelope": template.envelope.model_copy(update={"recipientKeyId": advisor["keyId"]}),
+        }
+    )
+    created = service.create("alice", approved)
+    assert created["status"] == "pending"
+    assert "envelope" not in service.view("bob", created["id"])
+    assert candidates("alice", service="portfolio_management")["items"] == []
+    service.decide("bob", created["id"], "accept")
+    accepted = service.view("bob", created["id"])
+    assert accepted["status"] == "accepted"
+    assert accepted["envelope"]["recipientKeyId"] == advisor["keyId"]
+    with db.engine.connect() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM connections WHERE user_a_id='alice' AND user_b_id='bob' AND status='active'"
+                )
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM trusted_connections WHERE status='active'")
+            ).scalar_one()
+            == 2
+        )
+        assert conn.execute(text("SELECT count(*) FROM messages")).scalar_one() == 1
 
 
 def test_pending_snapshot_is_unreadable_to_advisor_and_every_third_party(advisor_db):
