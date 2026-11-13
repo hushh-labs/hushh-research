@@ -2112,6 +2112,9 @@ def test_core_provider_requires_complete_scoped_policies_and_preserves_full_mode
     assert gate.qualification_provider(document, "uat", "core") == "vertex"
     assert gate.qualification_provider(document, "uat", "full") == "azure_openai"
     assert gate.qualification_provider(document, "dev", "core") == "vertex"
+    malformed = {**document, "one_chat_text_uat": None, "drive_text_uat": None}
+    with pytest.raises(ValueError, match="complete scoped"):
+        gate.qualification_provider(malformed, "uat", "core")
     del document["one_chat_text_uat"]
     with pytest.raises(ValueError, match="complete scoped"):
         gate.qualification_provider(document, "uat", "core")
