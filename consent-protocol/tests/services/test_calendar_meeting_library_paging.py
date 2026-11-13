@@ -18,6 +18,7 @@ from hushh_mcp.services.google_connection_service import (
     CalendarGrantIdentity,
     GoogleConnectionError,
 )
+from tests.helpers.calendar_meeting_artifact_fixtures import freeze_library_clock
 
 BINDING = ("owner", "calendar", "google-subject", "stamp", "generation", "revision")
 GRANT = CalendarGrantIdentity("owner", "default", "google-subject", BINDING)
@@ -83,6 +84,23 @@ def run(coroutine):
 @pytest.fixture(autouse=True)
 def shared_placement(monkeypatch):
     monkeypatch.setattr(calendar_workspace, "admit_hub_content", AsyncMock())
+    freeze_library_clock(monkeypatch)
+
+
+@pytest.mark.parametrize("date,expired", [("2026-09-15", False), ("2026-09-14", True)])
+def test_provider_retention_keeps_its_thirty_day_boundary(monkeypatch, date, expired):
+    insights, _, _ = setup()
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value=artifacts_module.MEET_SCOPES
+            | {"https://www.googleapis.com/auth/drive.meet.readonly"}
+        ),
+    )
+    result = run(insights.library(user_id="owner", date=date, time_zone="UTC"))
+    assert ("provider_retention" in result["limitations"]) is expired
+    assert result["complete"] is (not expired)
 
 
 def test_sparse_pages_continue_past_twelve_candidates(monkeypatch):

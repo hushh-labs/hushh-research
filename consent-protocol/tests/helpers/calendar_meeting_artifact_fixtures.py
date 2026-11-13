@@ -1,10 +1,13 @@
 """Synthetic selected-account Calendar/Meet/Drive meeting fixtures."""
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
+from hushh_mcp.services import calendar_meeting_library as library_module
+from hushh_mcp.services import calendar_schedule_service as schedule_module
 from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
@@ -28,6 +31,20 @@ RECORD = {
     "startTime": "2026-10-14T10:05:00Z",
     "endTime": "2026-10-14T10:55:00Z",
 }
+
+
+def freeze_library_clock(monkeypatch):
+    """Keep the October fixtures within retention independently of wall time."""
+
+    class FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = cls(2026, 10, 15, tzinfo=UTC)
+            return current.astimezone(tz) if tz else current.replace(tzinfo=None)
+
+    monkeypatch.setattr(library_module, "datetime", FixtureClock)
+    # Cursor expiry must use the same clock as the library that issues it.
+    monkeypatch.setattr(schedule_module, "datetime", FixtureClock)
 
 
 def setup(account_id="default"):

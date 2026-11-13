@@ -19,9 +19,15 @@ from tests.helpers.calendar_meeting_artifact_fixtures import (
     EVENT,
     GRANT,
     RECORD,
+    freeze_library_clock,
     run,
     setup,
 )
+
+
+@pytest.fixture(autouse=True)
+def fixture_clock(monkeypatch):
+    freeze_library_clock(monkeypatch)
 
 
 def test_missing_meet_or_drive_scope_keeps_calendar_meetings_visible(monkeypatch):
