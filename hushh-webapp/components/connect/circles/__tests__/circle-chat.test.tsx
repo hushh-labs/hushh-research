@@ -539,6 +539,15 @@ it("continues reconnect catch-up beyond the first five pages without waiting for
   }
 }, 15_000);
 
+it("uses a 15-second repair interval while long-poll and doorbells provide live updates", async () => {
+  const intervals = vi.spyOn(window, "setInterval");
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  expect(intervals).toHaveBeenCalled();
+  expect(intervals.mock.calls.map(([, delay]) => delay)).toContain(15_000);
+  expect(intervals.mock.calls.map(([, delay]) => delay)).not.toContain(5_000);
+});
+
 it("retains a newer receipt when the committed send response arrives late", async () => {
   const own = { ...message, id: "own", sequence: 2, senderUserId: "alice", receipt: { recipientCount: 1, readCount: 0 } };
   let settle!: (value: unknown) => void;
