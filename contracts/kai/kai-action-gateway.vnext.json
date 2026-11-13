@@ -34322,7 +34322,7 @@
         "service",
         "RIA"
       ],
-      "meaning": "Opens optional advisor service matching. Reuses a saved service choice or presents four fixed choices. Opening or selecting a match never sends a connection request, shares Finance or calls a model.",
+      "meaning": "Opens optional advisor service matching from Finance analysis with an unlocked vault and saved portfolio. Reuses a saved service choice or presents four fixed choices. Opening or selecting a match never sends a connection request, shares Finance or calls a model.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "reachability": {
@@ -34340,7 +34340,8 @@
         "requires_persona_switch_confirmation": false
       },
       "guard_ids": [
-        "auth_signed_in"
+        "auth_signed_in",
+        "vault_unlocked"
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",

@@ -222,9 +222,19 @@ question on the next open; Change choice offers the same four answers.
 
 Show up to five service matches with factual reasons and profile links. Missing
 advisor approach evidence is not described as persona/portfolio compatibility.
+The app reads verified, directory-eligible RIA accounts and their saved services;
+it does not use the sample-preview records. Open reviews remain in the existing
+workspace instead of being offered as new introductions. Profile Back returns
+to Finance analysis. An unlocked vault and a saved portfolio are required.
 Prices, meeting logistics and availability are excluded. Selecting Review
 introduction opens the existing approval flow without sending or sharing.
 Back closes recommendations before route navigation, and is consumed during
 preference persistence. Auth/vault changes retire results and selected advisors.
 The same shared UI and API transport apply on web, iOS and Android; physical
 native verification remains separate from browser evidence.
+
+For a sample-only UI preview, run `node scripts/testing/build-advisor-preview.mjs`
+from `hushh-webapp`, then serve `../tmp/advisor-preview` locally. The fixture aliases
+are confined to this preview and the browser diagnostics. The production matcher
+can be measured independently with `node scripts/testing/benchmark-advisor-matching.mjs`;
+that probe excludes database/network time and recommendation-quality validation.

@@ -7693,6 +7693,14 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+          "expected": {
+            "href": "/one/kai/portfolio/analysis",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "root",

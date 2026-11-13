@@ -81,6 +81,17 @@ def test_advisor_service_and_blocks_filter_the_entire_corpus_before_pagination(c
             text("INSERT INTO direct_message_blocks VALUES(:blocker,:target)"),
             {"blocker": blocker, "target": target},
         )
+    # An existing workspace is managed in history. Expired invitations can be retried.
+    for uid, status, expiry in [
+        (matching[35], "pending", "1 day"),
+        (matching[36], "accepted", "-1 day"),
+        (matching[37], "pending", "-1 day"),
+    ]:
+        connection.execute(
+            text("""INSERT INTO advisor_review_requests VALUES
+                (:owner,:advisor,:status,clock_timestamp()+CAST(:expiry AS interval))"""),
+            {"owner": OWNER, "advisor": uid, "status": status, "expiry": expiry},
+        )
     directory = _Directory(connection)
 
     def page(number):
@@ -95,8 +106,8 @@ def test_advisor_service_and_blocks_filter_the_entire_corpus_before_pagination(c
         )
 
     first, second = page(1), page(2)
-    assert [row["userId"] for row in first["items"]] == matching[35:40]
-    assert [row["userId"] for row in second["items"]] == matching[40:45]
+    assert [row["userId"] for row in first["items"]] == matching[37:42]
+    assert [row["userId"] for row in second["items"]] == matching[42:47]
     assert first["hasMore"] is True
     assert not ({row["userId"] for row in first["items"]} & set(blocked))
     assert not (
@@ -189,6 +200,9 @@ CREATE TABLE vault_keys (
   vault_status TEXT NOT NULL DEFAULT 'active'
     CHECK (vault_status IN ('placeholder', 'active')),
   environment_enrolled_at TIMESTAMPTZ
+);
+CREATE TABLE advisor_review_requests (
+  owner_user_id TEXT, advisor_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ
 );
 """
 

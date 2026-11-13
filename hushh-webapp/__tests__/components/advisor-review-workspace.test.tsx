@@ -138,6 +138,10 @@ it("loads no recommendation information before opt-in, asks four choices, and se
     screen.getByRole("button", { name: "Managing my investments" }),
   );
   await screen.findByText("Service-matched advisor");
+  expect(screen.getByRole("link", { name: "View profile" })).toHaveAttribute(
+    "href",
+    `/people/${suggested.personRef}?from=%2Fria%2Fclients`,
+  );
   expect(mocks.savePreferences).toHaveBeenCalledWith(
     expect.objectContaining({
       updates: { advisor_service: "portfolio_management" },

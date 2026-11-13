@@ -5099,7 +5099,13 @@ class OneLocationAgentService:
                 WHERE (recommendation_block.blocker_user_id = :owner_user_id
                        AND recommendation_block.blocked_user_id = profile.user_id)
                    OR (recommendation_block.blocker_user_id = profile.user_id
-                       AND recommendation_block.blocked_user_id = :owner_user_id))"""
+                       AND recommendation_block.blocked_user_id = :owner_user_id))
+            AND NOT EXISTS (SELECT 1 FROM advisor_review_requests open_review
+                WHERE open_review.owner_user_id = :owner_user_id
+                  AND open_review.advisor_user_id = profile.user_id
+                  AND (open_review.status = 'accepted'
+                       OR (open_review.status = 'pending'
+                           AND open_review.expires_at > clock_timestamp())))"""
 
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,

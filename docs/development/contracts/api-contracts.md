@@ -6187,12 +6187,17 @@ IDs are `retirement_planning`, `tax_planning`, and `estate_planning`.
 Existing Firebase and matching vault-owner authorization remain required.
 Unknown fields, including persona and portfolio payloads, are rejected.
 
-The server applies declared-service aliases, advisor verification, test-profile
-exclusion and bilateral blocks inside the canonical Connect directory query
+The server reads the existing RIA profile's `services_offered` array. It applies
+declared-service aliases, advisor verification, test-profile exclusion, bilateral
+blocks and existing open-review exclusion inside the canonical Connect directory query
 before pagination. Tied service matches use a stable owner/service permutation;
 the order is not a quality assessment. Candidate records add `servicesOffered`;
 missing legacy values become an empty list. Existing discovery scopes retain
 their behavior. Web and native use the same `ApiService` request and endpoint.
+Accepted reviews stay in the existing workspace; unexpired pending requests are
+not suggested again. An expired pending invitation may be retried. A connection
+alone does not exclude an advisor. Off-platform regulatory records are not
+invented as secure in-app recipients; a receiving key is still required to send.
 
 The optional `financial.profile.preferences.advisor_service` is saved through
 the existing encrypted merged-profile writer. It is excluded from the public

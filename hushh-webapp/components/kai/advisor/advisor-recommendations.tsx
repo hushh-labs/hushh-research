@@ -284,7 +284,9 @@ export function AdvisorRecommendations({
                       <div className="flex flex-wrap items-center justify-between gap-3 pl-[52px]">
                         <Link
                           className="ui-text-trailing-action inline-flex min-h-11 items-center"
-                          href={buildPersonProfileRoute(advisor.personRef)}
+                          href={buildPersonProfileRoute(advisor.personRef, {
+                            from: pathname,
+                          })}
                         >
                           View profile
                         </Link>
