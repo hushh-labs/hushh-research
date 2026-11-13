@@ -101,6 +101,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
+        ".gitleaks.toml",
         "consent-protocol/scripts/verify_azure_pwm_runtime.py",
         "consent-protocol/scripts/verify_managed_vertex_runtime.py",
         "consent-protocol/tests/helpers/production_runtime_profile.py",
@@ -319,6 +320,7 @@ def test_bad_or_missing_change_list_fails_conservatively() -> None:
     for env in (
         {"CI_VALIDATION_LEVEL": "focused"},
         {"CI_VALIDATION_LEVEL": "release", "CI_CHANGED_FILES": "unknown-root/file.py"},
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": ".gitleaks.toml.bak"},
         {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "scripts/ci/new-owner-contract.py"},
         {
             "CI_VALIDATION_LEVEL": "focused",
