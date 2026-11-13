@@ -68,7 +68,11 @@ def qualification_provider(document, environment="uat", mode="full"):
     configured = configured_provider(document, environment)
     if environment != "uat" or mode != "core":
         return configured
+    if not any(key in document for key in ("one_chat_text_uat", "drive_text_uat")):
+        return configured
     contract = _runtime_contract()
+    if not callable(getattr(contract, "load_scoped_text_policy", None)):
+        raise ValueError("Candidate runtime does not support declared scoped text policies")
     policies = [
         contract.load_scoped_text_policy(scope, environment=environment, document=document)
         for scope in sorted(SCOPES)

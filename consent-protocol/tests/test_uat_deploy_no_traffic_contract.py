@@ -2050,40 +2050,13 @@ def _managed_provider_gate():
     return module
 
 
-@pytest.mark.parametrize("defect", [None, "image", "scope_binding", "failed_scope"])
-def test_scoped_core_qualifies_actual_models_without_changing_fleet(defect):
+def test_core_provider_preserves_unscoped_runtime_and_refuses_unsupported_policy():
     gate = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
-    document["managed_provider_selection"]["uat"] = "azure_openai"
-    expected, vertex = _provider_fixture(gate, "vertex", document=document)
-    expected["qualification_mode"] = "core"
-    vertex["core"]["activity_planner"] = None
-    vertex.pop("capability_proof")
-    if defect == "image":
-        vertex["execution_image"] = "foreign-image"
-    elif defect == "scope_binding":
-        vertex["core"]["scopes"]["one_text_chat"]["binding_fingerprint"] = "0" * 64
-    elif defect == "failed_scope":
-        vertex["core"]["scopes"]["drive_document_requests"]["ready"] = False
-    result = gate.evaluate({"vertex": vertex}, expected, document=document)
-    assert result["ready"] is (defect is None)
-    assert result["selected_provider"] == ("azure_openai" if defect is None else None)
-    assert result["core_provider"] == "vertex"
-    assert result["providers"]["azure_openai"]["ready"] is False
-    assert result["pwm_trust"] == "unverified"
-
-
-def test_core_provider_requires_complete_scoped_policies_and_preserves_full_mode():
-    gate = _managed_provider_gate()
-    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
-    assert gate.qualification_provider(document, "uat", "core") == "vertex"
-    assert gate.qualification_provider(document, "uat", "full") == "azure_openai"
-    assert gate.qualification_provider(document, "dev", "core") == "vertex"
-    del document["one_chat_text_uat"]
-    with pytest.raises(ValueError, match="complete scoped"):
-        gate.qualification_provider(document, "uat", "core")
-    del document["drive_text_uat"]
     assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
+    document["one_chat_text_uat"] = {"provider": "vertex"}
+    with pytest.raises(ValueError, match="does not support declared scoped"):
+        gate.qualification_provider(document, "uat", "core")
 
 
 @pytest.mark.parametrize("provider", ["vertex", "azure_openai"])
@@ -2118,25 +2091,24 @@ def test_probe_dispatch_uses_scoped_core_policy(provider, mode):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "vertex")
+    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "azure_openai")
 
 
 @pytest.mark.parametrize("defect", [None, "carrier", "fleet"])
-def test_scoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, monkeypatch, defect):
+def test_unscoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, monkeypatch, defect):
     gate = _managed_provider_gate()
-    expected, vertex = _provider_fixture(gate, "vertex")
+    expected, azure = _provider_fixture(gate, "azure_openai")
     expected["qualification_mode"] = "core"
-    vertex["core"]["activity_planner"] = None
-    result = gate.evaluate({"vertex": vertex}, expected)
+    azure.pop("capability_proof")
+    result = gate.evaluate({"azure_openai": azure}, expected)
     if defect == "carrier":
-        result["core_provider"] = "azure_openai"
+        result["core_provider"] = "vertex"
     elif defect == "fleet":
         result["selected_provider"] = "vertex"
     monkeypatch.setenv("READINESS_SERVICE", "consent-protocol")
     monkeypatch.setenv("READINESS_TAG", "account-deletion-12345")
     calls = []
     monkeypatch.setattr(gate, "run_json", lambda args: calls.append(args) or {})
-    # Exact candidate identity/traffic checks have independent boundary coverage.
     monkeypatch.setattr(
         gate, "candidate", lambda *_: ("consent-protocol-candidate", "azure_openai")
     )
@@ -2146,7 +2118,6 @@ def test_scoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, mon
         assert calls == []
     else:
         gate.select(result, expected, tmp_path)
-        assert all(args[:3] == ["run", "services", "describe"] for args in calls)
         assert result["selection"]["provider"] == "azure_openai"
 
 
@@ -2315,11 +2286,7 @@ def test_provider_release_admission_qualifies_the_configured_provider(
         expected,
         document=document,
     )
-    selected = (
-        (configured if vertex else None)
-        if mode == "core"
-        else (configured if (azure if configured == "azure_openai" else vertex) else None)
-    )
+    selected = configured if (azure if configured == "azure_openai" else vertex) else None
     assert result["ready"] is (selected is not None)
     assert result["selected_provider"] == selected
 
