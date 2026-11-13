@@ -567,11 +567,14 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
     sendLock.current = true; setSending(true); setError(null);
     let sealed = pending;
     let local = outgoingRef.current;
-    if (file?.type.startsWith("image/")) {
+    // Keep every outbound message visible while sealing/sending. Text-only
+    // messages need the same retryable local state as image messages; only
+    // the image preview itself needs a local File.
+    if (text.trim() || file?.type.startsWith("image/")) {
       local = local ? { ...local, delivery: "sending" } : {
         id: crypto.randomUUID(), clientMessageId: "", senderUserId: session.userId, senderName: "You",
-        createdAt: new Date().toISOString(), content: { text: text.trim(), attachment: { kind: "photo", type: file.type, name: file.name.slice(0, 160) } },
-        failed: false, localImage: file, delivery: "sending",
+        createdAt: new Date().toISOString(), content: { text: text.trim(), ...(file?.type.startsWith("image/") ? { attachment: { kind: "photo" as const, type: file.type, name: file.name.slice(0, 160) } } : {}) },
+        failed: false, ...(file?.type.startsWith("image/") ? { localImage: file } : {}), delivery: "sending",
       };
       local.clientMessageId ||= local.id;
       outgoingRef.current = local; setOutgoing(local);

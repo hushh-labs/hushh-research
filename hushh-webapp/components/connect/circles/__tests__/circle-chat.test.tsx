@@ -252,6 +252,24 @@ it("shows the photo before preparation, retries identical ciphertext and reconci
   expect(allocate).toHaveBeenCalled();
 });
 
+it("keeps a text message visible before sealing and after an uncertain delivery", async () => {
+  api.messages.mockResolvedValue({ items: [], hasMore: false });
+  api.prepare.mockResolvedValue({ clientMessageId: "text-client", ciphertext: "sealed" });
+  api.send.mockRejectedValueOnce(new ApiError("Timed out", 504)).mockResolvedValueOnce({
+    ...message, id: "sent-text", clientMessageId: "text-client", sequence: 2, senderUserId: "alice",
+  });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Start the conversation. Say hello or share a file.");
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "A message that must not disappear" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(screen.getByRole("log")).toHaveTextContent("A message that must not disappear"));
+  await screen.findByText("Delivery unconfirmed");
+  expect(screen.getByRole("button", { name: "Retry message" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Retry message" }));
+  await waitFor(() => expect(api.send).toHaveBeenCalledTimes(2));
+  expect(api.prepare).toHaveBeenCalledTimes(1);
+});
+
 it("removes a definitely rejected photo and ignores preparation completing after a session change", async () => {
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});

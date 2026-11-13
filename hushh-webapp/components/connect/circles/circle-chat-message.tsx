@@ -20,7 +20,7 @@ import { connectPersonName } from "@/lib/connections/person-label";
 
 export type OpenChatMessage = ChatMessage & { content: ChatContent | null; failed: boolean; localImage?: File };
 export type OutgoingChatMessage = Pick<ChatMessage, "id" | "clientMessageId" | "senderUserId" | "senderName" | "createdAt"> & {
-  content: ChatContent; failed: false; localImage: File; delivery: "sending" | "unconfirmed";
+  content: ChatContent; failed: false; localImage?: File; delivery: "sending" | "unconfirmed";
   replyToMessageId?: string;
   receipt?: never; reactions?: never; senderPhotoUrl?: never;
 };
