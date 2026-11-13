@@ -29,7 +29,8 @@ def legacy_cards_db(projection_db, monkeypatch):  # noqa: F811 - imported pytest
             text("""
 CREATE TABLE pkm_manifests(user_id text,domain text,manifest_version integer,summary_projection jsonb,PRIMARY KEY(user_id,domain));
 CREATE TABLE pkm_domain_commits(commit_id uuid PRIMARY KEY,user_id text,domain text,commit_kind text,result_manifest_revision integer);
-CREATE TABLE one_location_circles(id uuid PRIMARY KEY,owner_user_id text,system_kind text,status text);
+CREATE TABLE IF NOT EXISTS one_location_circles(id uuid PRIMARY KEY,owner_user_id text);
+ALTER TABLE one_location_circles ADD COLUMN system_kind text, ADD COLUMN status text;
 CREATE TABLE one_location_circle_memberships(circle_id uuid,user_id text,status text,metadata jsonb);
 ALTER TABLE actor_identity_cache ADD COLUMN email text;
 INSERT INTO actor_profiles(user_id) VALUES('alice'),('bob'),('charu'),('outsider');
@@ -161,7 +162,10 @@ def test_card_request_is_metadata_only_targeted_and_not_folded_into_later_messag
         feed._grouped_feed_sql(count=False), {"user_id": "alice", "page_size": 20, "cursor": None}
     ).data
     items = [feed._to_item(row) for row in feed._with_wallet_card_requests("alice", rows)]
-    assert len(items) == 2
+    # The ordinary message remains in Chat; it must not displace or duplicate
+    # the wallet decision in Feed under the incoming-only presentation policy.
+    assert len(items) == 1
+    assert DirectMessagesService(db=db).list_conversations("alice")["unreadCount"] == 2
     assert (
         sum(item["metadata"].get("wallet_card_request_id") == result["id"] for item in items) == 1
     )

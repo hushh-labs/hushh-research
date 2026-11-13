@@ -26,6 +26,7 @@ threadpool dispatch offloads the blocking call without a manual
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import math
@@ -57,6 +58,7 @@ from hushh_mcp.services.feed_drive_fold import (
     DRIVE_OUTCOME_EVENT,
     drive_rows_revealed_by_removal,
 )
+from hushh_mcp.services.feed_location_policy import apply_location_feed_policy
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
@@ -147,7 +149,7 @@ WITH keyed AS (
 # size are supplied exclusively through execute_raw's bind-parameter mapping.
 _GROUPED_FEED_PAGE_SELECT = """
   SELECT id, source_domain, event_type, actor_label, metadata, source_row_id, created_at,
-    CASE WHEN thread_unread_count > 0 THEN NULL ELSE read_at END AS read_at,
+    CASE WHEN thread_unread_count > 0 THEN NULL ELSE COALESCE(read_at, created_at) END AS read_at,
     thread_key, thread_message_count, thread_unread_count
   FROM grouped WHERE (CAST(:cursor AS bigint) IS NULL OR id < CAST(:cursor AS bigint))
   ORDER BY id DESC LIMIT :page_size
@@ -517,11 +519,24 @@ class FeedService:
         # newer rows with an older revision, never stale rows with a newer one.
         revision_rows = (
             db.execute_raw(
-                """SELECT md5(concat_ws(':',
+                """SELECT md5(concat_ws(':', 'important-incoming-v1',
                 count(*) FILTER (WHERE m.deleted_for_recipient_at IS NOT NULL),
                 max(m.deleted_for_recipient_at),
                 count(*) FILTER (WHERE m.deleted_for_everyone_at IS NOT NULL),
-                max(m.deleted_for_everyone_at))) AS history_revision
+                max(m.deleted_for_everyone_at),
+                (SELECT concat_ws(':', count(*), max(hidden.dismissed_at))
+                   FROM feed_events hidden
+                  WHERE hidden.user_id = :user_id AND hidden.dismissed_at IS NOT NULL),
+                (SELECT concat_ws(':', count(*), max(g.recipient_cleared_at))
+                   FROM one_location_share_grants g
+                  WHERE g.recipient_user_id = :user_id AND g.recipient_cleared_at IS NOT NULL),
+                (SELECT count(*) - count(DISTINCT peer.counterpart_user_id)
+                   FROM feed_events receipt
+                   JOIN feed_event_counterparts peer ON peer.feed_event_id = receipt.id
+                  WHERE receipt.user_id = :user_id AND receipt.source_domain = 'location'
+                    AND receipt.event_type = 'location_share_created'
+                    AND receipt.metadata->>'feed_audience' = 'recipient'
+                    AND receipt.metadata->>'share_kind' = 'sos'))) AS history_revision
             FROM feed_events f
             JOIN messages m ON m.id = CASE WHEN f.source_row_id ~*
               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -977,12 +992,12 @@ class FeedService:
             return False
 
     def _grouped_feed_sql(self, *, count):
-        cte = (
-            _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
-        )
+        wallet_access = self._wallet_card_access_installed()
+        wallet_requests = self._wallet_card_requests_installed()
+        cte = _WALLET_GROUPED_FEED_CTE if wallet_access else _GROUPED_FEED_CTE
         if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
             cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
-        if self._wallet_card_requests_installed():
+        if wallet_requests:
             cte = cte.replace(
                 "    WHEN f.source_domain = 'connections'",
                 "    WHEN wr.id IS NOT NULL THEN 'wallet-request:' || wr.id::text\n    WHEN f.source_domain = 'connections'",
@@ -990,6 +1005,9 @@ class FeedService:
                 "  WHERE f.user_id = :user_id",
                 "  LEFT JOIN wallet_card_requests wr ON wr.message_id=m.id AND wr.target_user_id=:user_id AND wr.requester_user_id=m.sender_user_id AND c.id IS NOT NULL\n  WHERE f.user_id = :user_id",
             )
+        cte = apply_location_feed_policy(
+            cte, wallet_access=wallet_access, wallet_requests=wallet_requests
+        )
         return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
 
     def _universal_wallet_installed(self):
@@ -1610,6 +1628,13 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        if (
+            row.get("source_domain") == "location"
+            and row.get("event_type") in _LOCATION_GRANT_EVENT_TYPES
+        ):
+            grant_id = metadata.get("grant_id") or _uuid_prefix(str(row.get("source_row_id") or ""))
+            if grant_id:
+                metadata["grant_id"] = grant_id
         if row.get("source_domain") == "calendar_email_followup":
             # Only this owner-scoped reminder may expose its opaque Calendar
             # selector. The shared metadata allowlist still excludes account
@@ -1631,6 +1656,15 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
             metadata["chat_thread_key"] = str(row["thread_key"])
             metadata["chat_message_count"] = min(9999, int(row.get("thread_message_count") or 0))
             metadata["chat_unread_count"] = min(9999, int(row.get("thread_unread_count") or 0))
+        elif str(row.get("thread_key", "")).startswith(
+            ("location-share:", "location-sms:", "circle-membership:", "connection-outcome:")
+        ):
+            # An opaque presentation identity; never expose server-side peer ids.
+            metadata["feed_group_key"] = hashlib.sha256(str(row["thread_key"]).encode()).hexdigest()
+            metadata["feed_silent"] = row.get("event_type") in {
+                "location_share_expired",
+                "location_share_revoked",
+            }
         if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
             card_request = row.get("_wallet_card_request")
             if isinstance(card_request, dict) and _direct_message_source_id(

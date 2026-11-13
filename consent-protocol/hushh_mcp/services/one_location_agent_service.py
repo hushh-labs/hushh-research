@@ -54,6 +54,10 @@ from hushh_mcp.services.directory_identity_service import (
     directory_auth_profiles,
     exclude_retired_account_ids,
 )
+from hushh_mcp.services.feed_location_policy import (
+    RECEIVED_GRANTS_FEED_SQL,
+    with_cleared_feed_receipts,
+)
 from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
@@ -3848,7 +3852,7 @@ class OneLocationAgentService:
         hours = max(1.0, min(float(older_than_hours or LOCATION_TERMINAL_RETENTION_HOURS), 168.0))
         row = (
             self._execute_one(
-                """
+                with_cleared_feed_receipts("""
             WITH stale_grants AS (
               SELECT id
               FROM one_location_share_grants
@@ -4094,10 +4098,18 @@ class OneLocationAgentService:
                 AND (SELECT COUNT(*) FROM deleted_referrals) >= 0
               RETURNING id
             ),
+            feed_clear_candidates AS (
+              SELECT g.id AS grant_id, g.recipient_user_id, g.recipient_cleared_at AS cleared_at
+              FROM one_location_share_grants g
+              WHERE g.id IN (SELECT id FROM stale_grants)
+                AND g.recipient_cleared_at IS NOT NULL
+            ),
+            hidden_cleared_receipts AS (__CLEARED_FEED_RECEIPTS__),
             deleted_grants AS (
               DELETE FROM one_location_share_grants g
               WHERE g.id IN (SELECT id FROM stale_grants)
                 AND (SELECT COUNT(*) FROM deleted_requests) >= 0
+                AND (SELECT COUNT(*) FROM hidden_cleared_receipts) >= 0
               RETURNING id
             ),
             deleted_public_invites AS (
@@ -4138,7 +4150,7 @@ class OneLocationAgentService:
                 AS deleted_named_circle_member_invites,
               (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
               (SELECT COUNT(*) FROM deleted_events) AS deleted_events
-            """,
+            """),
                 {
                     "user_id": user_id,
                     "hours": hours,
@@ -9336,19 +9348,7 @@ class OneLocationAgentService:
             ),
             (
                 "received_grants",
-                """
-                    SELECT
-                      g.*,
-                      o.display_name AS owner_display_name,
-                      o.photo_url AS owner_photo_url,
-                      o.custom_photo_url AS owner_custom_photo_url,
-                      o.phone_number AS owner_phone_number
-                    FROM one_location_share_grants g
-                    LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
-                    WHERE g.recipient_user_id = :user_id
-                    ORDER BY g.created_at DESC
-                    LIMIT :source_limit
-                    """,
+                RECEIVED_GRANTS_FEED_SQL,
                 {"user_id": user_id, "source_limit": None if require_complete else 50},
             ),
             (
@@ -9645,7 +9645,20 @@ class OneLocationAgentService:
             # Only the recipient's own view carries their Feed clear; the
             # owner's grants never say whether or when it was cleared.
             "receivedGrants": [
-                {**payload, "recipientClearedAt": _iso(row.get("recipient_cleared_at"))}
+                {
+                    **payload,
+                    "recipientClearedAt": _iso(row.get("recipient_cleared_at")),
+                    **(
+                        {"feedLatestSms": row["feed_latest_sms"]}
+                        if isinstance(row.get("feed_latest_sms"), bool)
+                        else {}
+                    ),
+                    **(
+                        {"feedSmsConfirmed": row["feed_sms_confirmed"]}
+                        if isinstance(row.get("feed_sms_confirmed"), bool)
+                        else {}
+                    ),
+                }
                 for row in received_grants
                 if (
                     payload := self._grant_payload(
@@ -10005,6 +10018,8 @@ class OneLocationAgentService:
         Presentation state on the recipient's own received grants, so it holds
         on every device. Only the caller's grants are touched, never a live
         share; ``updated_at`` stays as it was, so the owner cannot see a clear.
+        The matching recipient Feed receipt is hidden atomically, so source
+        retention and stale Undo tokens cannot bring the cleared card back.
         Repeating the call returns the same ids: the requested grants that are
         cleared now.
         """
@@ -10012,7 +10027,7 @@ class OneLocationAgentService:
         if not requested:
             return []
         rows = self._execute_many(
-            """
+            with_cleared_feed_receipts("""
             WITH cleared AS (
               UPDATE one_location_share_grants AS g
                  SET recipient_cleared_at = NOW()
@@ -10023,16 +10038,17 @@ class OneLocationAgentService:
                    g.status = 'active'
                    AND COALESCE(g.expires_at > NOW(), g.duration_mode = 'until_stopped', FALSE)
                  )
-              RETURNING g.id
-            )
-            SELECT id::TEXT AS id FROM cleared
-            UNION
-            SELECT g.id::TEXT AS id
-              FROM one_location_share_grants AS g
-             WHERE g.recipient_user_id = :recipient_user_id
-               AND g.id = ANY(CAST(:grant_ids AS UUID[]))
-               AND g.recipient_cleared_at IS NOT NULL
-            """,
+              RETURNING g.id AS grant_id, g.recipient_user_id, g.recipient_cleared_at AS cleared_at
+            ), feed_clear_candidates AS (
+              SELECT grant_id, recipient_user_id, cleared_at FROM cleared
+              UNION
+              SELECT g.id AS grant_id, g.recipient_user_id, g.recipient_cleared_at AS cleared_at FROM one_location_share_grants AS g
+               WHERE g.recipient_user_id = :recipient_user_id
+                 AND g.id = ANY(CAST(:grant_ids AS UUID[]))
+                 AND g.recipient_cleared_at IS NOT NULL
+            ), hidden_receipts AS (__CLEARED_FEED_RECEIPTS__)
+            SELECT grant_id::TEXT AS id FROM feed_clear_candidates
+            """),
             {"recipient_user_id": recipient_user_id, "grant_ids": requested},
         )
         return sorted(str(row["id"]) for row in rows)

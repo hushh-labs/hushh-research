@@ -10,7 +10,7 @@ import {
 } from "./fixtures/product-font";
 
 // Captured from the current real components by verify:feed, never handwritten DOM.
-const WIDTHS = [320, 375, 390, 393, 430, 1280] as const;
+const WIDTHS = [320, 375, 390, 393, 430, 768, 1280, 1440] as const;
 async function buildFixture(dark: boolean): Promise<string> {
   const root = process.cwd();
   const { compile } = await import(
@@ -159,15 +159,13 @@ for (const dark of [false, true]) {
       }
       await expect(page.locator('[data-testid="feed-actionable-android-connection"]').getByRole("button", { name: /^Report/ })).toBeVisible();
       await expect(page.locator("button button, button a, a button")).toHaveCount(0);
-      const sms = page.getByTestId("feed-sms-alert-group");
-      await expect(sms.locator("summary")).toContainText("3 recent SMS alerts · 1 active");
-      await expect(sms.locator("summary time")).toBeVisible();
-      await sms.locator("summary").focus();
-      await page.keyboard.press("Enter");
-      await expect(sms).toHaveAttribute("open", "");
+      const sms = page.getByTestId("feed-actionable-sms-emergency:incident-0");
+      await expect(page.getByTestId("feed-sms-alert-group")).toHaveCount(0);
+      await expect(page.getByTestId("feed-actionable-sms-emergency:incident-1")).toHaveCount(0);
+      await expect(page.getByTestId("feed-actionable-sms-emergency:incident-2")).toHaveCount(0);
       await expect(sms.getByRole("link", { name: /Emergency SMS · Active/ })).toBeVisible();
-      const sentTimes = sms.locator('[data-testid^="feed-actionable-sms-emergency:"] time');
-      await expect(sentTimes).toHaveCount(3);
+      const sentTimes = sms.locator('time');
+      await expect(sentTimes).toHaveCount(1);
       for (const stamp of await sentTimes.all()) {
         await expect(stamp).toBeVisible();
         const box = await stamp.boundingBox();

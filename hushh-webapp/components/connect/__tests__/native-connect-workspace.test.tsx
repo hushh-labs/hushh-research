@@ -135,7 +135,7 @@ describe("Native Feed action parity", () => {
     await act(async () => { await state.actions.get(row.inlineActions![0]!.id)!(); });
     expect(review).toHaveBeenCalledTimes(1); expect(allow).not.toHaveBeenCalled();
   });
-  it("keeps singleton SMS intent direct and expands repeated incidents without replacing Feed", async () => {
+  it("keeps the latest SMS intent direct without resurfacing an older incident", async () => {
     state.path = "/one/feed";
     const active = incident({ href: "/one/location?grantId=public", description: "Active" });
     const records = (items: FeedActionable[]): NativeFeedModel["records"] => [{ key: "sms", lane: "SMS alerts", kind: "sms", value: groupFeedSmsAlerts(items)[0]! }];
@@ -147,10 +147,12 @@ describe("Native Feed action parity", () => {
     row = projection().sections.flatMap(section => section.rows).find(row => row.label === active.title)!;
     expect(row.readOnly).toBe(true); expect(state.actions.has(row.id)).toBe(false);
     rerender(<NativeFeedWorkspace model={feed(records([active, incident({ id: "public-second", title: "Second incident", sortAt: 1 })]))} fallback={<p>React</p>} />);
-    row = projection().sections.flatMap(section => section.rows).find(row => row.expanded === false)!;
-    await act(async () => { await state.actions.get(row.id)!(); });
+    const latestRows = projection().sections.flatMap(section => section.rows).filter(row => row.avatar);
+    expect(latestRows).toHaveLength(1);
+    expect(latestRows[0]!.label).toBe("Second incident");
+    expect(latestRows[0]!.readOnly).toBe(true);
+    expect(state.actions.has(latestRows[0]!.id)).toBe(false);
     expect(projection().title).toBe("Feed");
-    expect(projection().sections.flatMap(section => section.rows).filter(row => row.avatar)).toHaveLength(3);
     expect(validNativeWorkspace(projection())).toBe(true);
     rerender(<NativeFeedWorkspace model={feed(records([incident()]))} fallback={<p>React</p>} />);
     expect(vi.mocked(useBackLayer).mock.calls.at(-1)?.[1]).toBe(0);

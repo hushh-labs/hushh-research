@@ -7,7 +7,7 @@ import { currentFeedPresentationRevision } from "@/lib/cache/feed-invalidation-e
 import { getAppScrollRoot, scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
-import { createFeedPaginationState, reconcileFeedFirstPage, type FeedPaginationState } from "@/lib/feed/feed-pagination";
+import { createFeedPaginationState, feedItemIdentity, reconcileFeedFirstPage, type FeedPaginationState } from "@/lib/feed/feed-pagination";
 
 type HistoryPresentation = { generation: number | null; revision: number; page: FeedListResponse; pagination: FeedPaginationState; scrollTop: number };
 
@@ -48,13 +48,13 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
       restoring.current = false;
       return;
     }
-    const known = new Set(previous?.items.map((item) => item.id));
-    if (previous && scrollTop.current > 100 && data.items.some((item) => !known.has(item.id))) {
+    const known = new Set(previous?.items.map(feedItemIdentity));
+    if (previous && scrollTop.current > 100 && data.items.some((item) => !known.has(feedItemIdentity(item)))) {
       setPending(data);
       // Existing statuses may settle immediately; newly prepended history waits
       // for the reader. Live emergency/actionable lanes have their own owner.
-      const updates = new Map(data.items.map((item) => [item.id, item]));
-      setPage({ ...previous, items: previous.items.map((item) => updates.get(item.id) ?? item) });
+      const updates = new Map(data.items.map((item) => [feedItemIdentity(item), item]));
+      setPage({ ...previous, items: previous.items.map((item) => updates.get(feedItemIdentity(item)) ?? item) });
       return;
     }
     setPage(data);
