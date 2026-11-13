@@ -1,10 +1,12 @@
 """Synthetic selected-account Calendar/Meet/Drive meeting fixtures."""
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
+from hushh_mcp.services import calendar_meeting_library
 from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
@@ -69,3 +71,15 @@ def setup(account_id="default"):
 
 def run(coroutine):
     return asyncio.run(coroutine)
+
+
+def freeze_meeting_clock(monkeypatch):
+    """Keep synthetic October meetings inside the tested discovery window."""
+
+    class MeetingClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2026, 10, 15, tzinfo=UTC)
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr(calendar_meeting_library, "datetime", MeetingClock)
