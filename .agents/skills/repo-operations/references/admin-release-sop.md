@@ -35,14 +35,18 @@ authority. Apply the same precedence on Main, Dev and UAT:
 
 | Change | Review route |
 |---|---|
-| CI, release authority or protected core guidance, including mixed product/docs PRs | `@hushh-labs/pipeline-editors` only |
+| CI, release authority or protected core guidance, including mixed product/docs PRs | `@hushh-labs/pipeline-editors`; ordinary maintainer approval cannot substitute |
 | Ordinary Dev/UAT product work | Request `@hushh-labs/allowed-maintainers-to-approve` for visible routing; eligible maintainer self-service still needs no independent review after required checks |
 | Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
 
 CODEOWNERS supplies the native maintainer default and protected path overrides.
-GitHub combines owners across changed files, so mixed PRs can initially display
-both Teams. Content-based protected edits can initially display the maintainer
-Team. These labels never replace native or queue approval enforcement.
+GitHub combines owners across changed files, so mixed PRs can display both Teams.
+Main's native code-owner review may retain the maintainer request for ordinary
+files even after the CLI requests pipeline editors. The CLI reports retained
+native requests after verifying their origin and the unchanged PR; it does not
+weaken review rules to make the display exclusive. Content-based protected edits
+can initially display the maintainer Team. These labels never replace native or
+queue approval enforcement.
 
 After creating, updating or retargeting a ready PR, run:
 
@@ -51,8 +55,10 @@ After creating, updating or retargeting a ready PR, run:
 ```
 
 The command uses the existing protected-edit classifier and the PR's authored
-merge base. It requests the expected Team, removes only the other managed Team
-and preserves individual review requests. Without `--apply` it is read-only.
+merge base. It requests the expected Team, attempts removal of only the other
+managed Team and preserves individual review requests. An additional managed
+request with unverified native origin still refuses reconciliation. Without
+`--apply` it is read-only.
 A completed eligible current-head review is not requested again merely to force
 a Team badge. GitHub still shows the actual person who approved.
 
@@ -213,7 +219,7 @@ readers remain available; its fixed-source exceptions do not authorize new relea
 Curated UAT requires protected source history and exact-source CI or retained Dev acceptance.
 Production requires canonical functional CI on protected Main and a separate Main smoke; no preceding UAT deployment is mandatory. A distinct `main_approval_sha`
 must incorporate the application with an identical Git tree and Main smoke;
-see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
+see the [promotion contract](../../../../docs/operations/releases/branch-governance.md#dev--uat-branch-preparation).
 
 An Admin landing can create a Main merge SHA carrying smoke while functional CI
 belongs to its tested parent. The coding agent resolves the existing
@@ -233,12 +239,12 @@ gh workflow run deploy-production.yml --ref main -f scope=<frontend|backend|all>
 ```
 
 For a read-only current-release check, follow the
-[Production verification procedure](../../../../docs/reference/operations/ci.md#verify-current-production).
+[Production verification procedure](../../../../docs/operations/releases/ci.md#verify-the-current-production-release).
 
 Production requires an explicit production request and an actor in
 the live `deploy-production` team. UAT success does not authorize production.
 
-Approved manual incidents follow the [incident contract](../../../../docs/reference/operations/branch-governance.md#manual-emergency-production).
+Approved manual incidents follow the [incident contract](../../../../docs/operations/releases/branch-governance.md#manual-emergency-production).
 Only Dev/UAT deployment acceptance is waived; all other release gates remain.
 
 ### 6. Monitor and prove
@@ -253,7 +259,7 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    in their owning workflow/report. Core login, vault, information integrity,
    active-model chat, authority, compatibility and rollback stay blocking. Report
    secondary feature diagnostics separately, including not-run outcomes; use the
-   [CI policy](../../../../docs/reference/operations/ci.md#managed-provider-readiness-policy)
+   [CI policy](../../../../docs/operations/releases/ci.md#managed-provider-readiness-policy)
    and [provider diagnosis](managed-provider-readiness.md). Qualify the completed
    policy-changing candidate once with retained functional/core checks plus affected
    boundaries; reuse unchanged evidence. Measure routine 15–20-minute targets without
@@ -315,7 +321,7 @@ terminal green, actor authority is absent, environment identity is ambiguous,
 provenance does not match, or a rollback target cannot be proved. Ordinary Main
 promotion requires reachability from `main` and successful post-merge smoke;
 curated/incident source exceptions follow section 5. Dev follows
-[Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
+[Dev Fast Lane](../../../../docs/operations/releases/dev-fast-lane.md): its exact
 CI-green SHA must remain in protected Dev history. Dispatch all explicit release
 entrypoints from Main; Dev/UAT select application content from their respective
 protected histories. Historical matching-branch receipts remain evidence, but

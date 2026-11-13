@@ -87,6 +87,9 @@ async def fetch_india_quotes() -> dict[str, dict[str, Any]]:
     except Exception:
         intraday = []
     lines = {str(row.get("ticker") or "").upper(): row.get("sparkline") for row in intraday}
+    intraday_points = {
+        str(row.get("ticker") or "").upper(): row.get("sparkline_points") for row in intraday
+    }
     for symbol in index_symbols:
         row = quotes.get(symbol)
         if row is None:
@@ -96,6 +99,7 @@ async def fetch_india_quotes() -> dict[str, dict[str, Any]]:
         # sit beside a one-day change and contradict it (a red day on a rising line), so with no
         # intraday data the card shows the neutral guide instead.
         row["sparkline"] = line if isinstance(line, list) and len(line) >= 2 else None
+        row["intraday_points"] = intraday_points.get(symbol) if row["sparkline"] else None
     return quotes
 
 
@@ -121,6 +125,7 @@ def build_india_overview(
                 "source": str(quote.get("source") or "Unavailable"),
                 "degraded": not quote or bool(quote.get("is_stale")),
                 "sparkline": quote.get("sparkline") or None,
+                "sparkline_points": quote.get("intraday_points") or None,
             }
         )
     out.append(
@@ -231,11 +236,16 @@ def parse_india_news(xml_text: str) -> list[dict[str, Any]]:
     return [row for _, row in rows[:INDIA_NEWS_LIMIT]]
 
 
-async def fetch_india_news(days_back: int = 7) -> list[dict[str, Any]]:
+async def fetch_india_news(
+    days_back: int = 7, *, symbol: str | None = None
+) -> list[dict[str, Any]]:
     """India edition of Google News for the NIFTY / SENSEX conversation."""
     from hushh_mcp.operons.kai.fetchers import record_provider_request
 
-    query = urllib.parse.quote_plus(f"{INDIA_NEWS_QUERY} when:{max(1, days_back)}d")
+    if symbol is not None and symbol not in NSE_LARGE_CAPS:
+        raise ValueError("unsupported_nse_symbol")
+    search = f'"{symbol}" NSE stock' if symbol else INDIA_NEWS_QUERY
+    query = urllib.parse.quote_plus(f"{search} when:{max(1, days_back)}d")
     url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
@@ -244,7 +254,8 @@ async def fetch_india_news(days_back: int = 7) -> list[dict[str, Any]]:
     ) as client:
         response = await client.get(url)
         response.raise_for_status()
-    return parse_india_news(response.text or "")
+    rows = parse_india_news(response.text or "")
+    return [{**row, "symbol": symbol} for row in rows] if symbol else rows
 
 
 def parse_nse_chart(chart: dict[str, Any], name: str) -> dict[str, Any] | None:
@@ -335,9 +346,12 @@ async def fetch_india_movers() -> dict[str, Any]:
         row = task.result()
         if row:
             rows.append(row)
-    if not rows:
-        raise RuntimeError("india_movers_unavailable")
-    return build_india_movers(rows)
+    if rows:
+        return build_india_movers(rows)
+    # Nothing came back, usually the provider rate limit. The caller keeps showing the last
+    # good list from the shared cache, so this only has to say why.
+    reason = "rate_limited" if throttled.is_set() else "unavailable"
+    raise RuntimeError(f"india_movers_{reason}")
 
 
 def _provider_state(outcome: object) -> str:
@@ -348,6 +362,8 @@ async def load_india_home(
     days_back: int,
     fetch_status: Callable[[], Awaitable[dict[str, Any]]],
     fallback_status: Callable[[], dict[str, Any]],
+    fetch_movers: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+    fetch_news: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
 ) -> dict[str, Any]:
     """Fetch the three India modules together and report each one's provider state.
 
@@ -356,9 +372,9 @@ async def load_india_home(
     """
     quotes_out, news_out, status_out, movers_out = await asyncio.gather(
         fetch_india_quotes(),
-        fetch_india_news(days_back),
+        (fetch_news or (lambda: fetch_india_news(days_back)))(),
         fetch_status(),
-        fetch_india_movers(),
+        (fetch_movers or fetch_india_movers)(),
         return_exceptions=True,
     )
     if isinstance(quotes_out, BaseException) and isinstance(news_out, BaseException):
@@ -389,8 +405,8 @@ async def load_india_home(
 def assemble_india_payload(base: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
     """Overlay the India modules on the shared v2 home skeleton.
 
-    Movers stay empty and degraded: there is no quota-safe NSE/BSE gainers source, so the
-    client hides that section for India rather than showing a US list.
+    Movers come from the NSE large-cap set. When that list is missing the base skeleton's
+    empty, degraded movers stay, and the client shows placeholders rather than a US list.
     """
     provider_status = loaded["provider_status"]
     # Index quotes and the status row drive the whole strip, so only they mark the payload

@@ -22,11 +22,11 @@
     "data-model-audit"
   ],
   "required_reads": [
-    "docs/reference/architecture/architecture.md",
-    "docs/reference/architecture/api-contracts.md",
+    "docs/architecture/system.md",
+    "docs/development/contracts/api-contracts.md",
     "consent-protocol/docs/README.md",
     ".agents/skills/backend-runtime-governance/references/async-runtime-performance.md",
-    "docs/reference/architecture/schema-migration-discipline.md"
+    "docs/architecture/schema-migration-discipline.md"
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/services -q",

@@ -12,6 +12,16 @@
   gap: var(--space-4, 1rem);
   min-width: 0;
 }
+.discoveryAction.discoveryAction {
+  font-family: var(--font-app-body);
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-label-weight);
+}
+.discoveryAction[aria-pressed="true"] {
+  color: var(--app-accent);
+  background: var(--app-accent-tint);
+}
 /* Foundation headings are important rules in the base layer. Keep Finance's
    section roles in that same layer so the approved schema wins in portals. */
 @layer base {

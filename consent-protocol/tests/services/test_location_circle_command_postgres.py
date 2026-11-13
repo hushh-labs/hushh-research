@@ -15,6 +15,9 @@ from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
     OneLocationCircleService,
 )
+from tests.services.test_location_command_postgres import (
+    active_location_provider_accounts as active_location_provider_accounts,
+)
 from tests.services.test_location_command_postgres import db as db  # noqa: F401
 from tests.services.test_location_command_postgres import ready, sms_schema
 

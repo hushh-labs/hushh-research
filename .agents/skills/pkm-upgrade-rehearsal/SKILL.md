@@ -48,8 +48,8 @@ Non-owned surfaces:
 
 1. `.agents/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md`
 2. `.agents/skills/pkm-upgrade-rehearsal/references/reviewer-pkm-upgrade-contract.md`
-3. `docs/reference/architecture/pkm-cutover-runbook.md`
-4. `docs/reference/architecture/pkm-storage-adr.md`
+3. `docs/architecture/pkm-cutover-runbook.md`
+4. `docs/architecture/pkm-storage-adr.md`
 5. `consent-protocol/docs/reference/personal-knowledge-model.md`
 6. `scripts/ci/pkm-upgrade-gate.sh`
 

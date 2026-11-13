@@ -66,7 +66,7 @@ The distribution guard also verifies the exported notification extension and
 matching effective Keychain groups. These native changes require fresh signed
 TestFlight/Android binaries; a hosted UAT web deployment cannot update them.
 Physical receipt, grouping, audible sound and latency remain separate acceptance
-checks in the [device checklist](../../../docs/reference/quality/circle-chat-notification-release-checklist.md).
+checks in the [device checklist](../../../docs/development/quality/circle-chat-notification-release-checklist.md).
 
 Design references: [Apple communication notifications](https://developer.apple.com/documentation/usernotifications/implementing-communication-notifications),
 [Android notification groups](https://developer.android.com/develop/ui/views/notifications/group),
@@ -127,7 +127,7 @@ OS permission, Focus, channel mute, offline state and Android force-stop remain
 platform boundaries. Inactive apps use visible APNs/FCM payloads, not a promise
 that JavaScript or a silent background task will run. Foreground routine Feed
 policy and the dedicated SMS alarm/popup policy remain unchanged. Verify new
-signed builds using the [physical acceptance checklist](../../../docs/reference/quality/circle-chat-notification-release-checklist.md).
+signed builds using the [physical acceptance checklist](../../../docs/development/quality/circle-chat-notification-release-checklist.md).
 
 
 ## Visual Context
@@ -244,7 +244,7 @@ those details after unlock from the owner-scoped pending list. Built by
 
 When the owner approves or declines a person-to-person request, it times out,
 or the owner later ends access, the requester gets one bare alert. This is the
-canonical outcome event documented in `docs/reference/architecture/api-contracts.md`
+canonical outcome event documented in `docs/development/contracts/api-contracts.md`
 (`information_request_updated`), sent exactly once per event (migration 259):
 
 | Field | Value |
@@ -398,7 +398,7 @@ gcloud is used for **GCP resources** that support the FCM-based flow:
 |------|--------------|
 | **Enable APIs** | `gcloud services enable fcm.googleapis.com` (optional; Firebase/Cloud Messaging may already be enabled with Firebase). |
 | **Store service account secret** | Store `FIREBASE_ADMIN_CREDENTIALS_JSON` in Secret Manager so the backend can send FCM: `gcloud secrets create FIREBASE_ADMIN_CREDENTIALS_JSON --data-file=sa.json` (see [env-vars.md](./env-vars.md)). |
-| **Deploy backend/frontend** | Deploy consent-protocol to Cloud Run via `gcloud run deploy` (see [Deployment](#deployment) in the root README). |
+| **Deploy backend/frontend** | Deploy consent-protocol to Cloud Run via `gcloud run deploy` (see [Deployment](#required-setup-firebase-console--env) in the root README). |
 | **Get an OAuth token for FCM HTTP v1 (testing)** | You can obtain an access token (e.g. Application Default Credentials after `gcloud auth application-default login`) and send a **test** message via the FCM HTTP v1 API with `curl`. This does not replace the Firebase Console or the app for normal operation. |
 
 ---

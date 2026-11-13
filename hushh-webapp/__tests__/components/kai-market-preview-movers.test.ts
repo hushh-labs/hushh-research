@@ -31,13 +31,14 @@ describe("India movers", () => {
     active: [],
   };
 
-  it("shows India movers without opening US stock analysis and says what they are ranked from", () => {
-    render(createElement(OneMarketMovers, { groups, linkable: false, note: "Among 50 large NSE stocks" }));
+  it("opens an India mover through the selected-stock handler", () => {
+    const onSelect = vi.fn();
+    render(createElement(OneMarketMovers, { groups, linkable: false, balanced: true, onSelect, note: "Among 50 large NSE stocks" }));
     expect(screen.getByText("TATASTEEL")).toBeTruthy();
     expect(screen.getByText(/Among 50 large NSE stocks/)).toBeTruthy();
-    // No row is a button, so nothing can route an NSE symbol into the US-only analysis screen.
-    expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(0);
-    expect(document.querySelectorAll("div[data-market-mover-rank]").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /TATASTEEL/ }));
+    expect(onSelect).toHaveBeenCalledWith(groups.gain[0]);
+    expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(2);
   });
 
   it("keeps US movers as buttons that open analysis", () => {
@@ -292,9 +293,9 @@ describe("toMoverGroups", () => {
     expect(container.querySelector("time")).toBeNull();
     expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
-    expect(within(screen.getByRole("region", { name: "Gainers" })).getAllByText("Quote unavailable")).toHaveLength(3);
-    expect(within(screen.getByRole("region", { name: "Losers" })).getAllByText("Quote unavailable")).toHaveLength(3);
+    // No text at all: six placeholders shaped like movers.
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
+    expect(screen.queryByText(/unavailable|updating/i)).not.toBeInTheDocument();
     expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(container.textContent).not.toMatch(/cached|[+-]\d/);
   });

@@ -20,6 +20,8 @@ import {
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 interface AnalysisSummaryViewProps {
   entry: AnalysisHistoryEntry;
   onBack?: () => void;
@@ -47,15 +49,6 @@ function pickString(values: unknown[], fallback: string): string {
     }
   }
   return fallback;
-}
-
-function formatCurrency(value: number | null): string {
-  if (value === null) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function formatTimestamp(value: string | undefined): string {
@@ -202,6 +195,7 @@ export function AnalysisSummaryView({
   vaultOwnerToken,
   showHeader = true,
 }: AnalysisSummaryViewProps) {
+  useMarketCurrency();
   const rawCard = useMemo(
     () =>
       entry.raw_card && typeof entry.raw_card === "object"

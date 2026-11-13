@@ -14,6 +14,7 @@ prove it runs inside the SQL, before ``LIMIT``, so pages stay full and
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Iterator
@@ -30,12 +31,166 @@ from sqlalchemy.engine import Connection
 from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
 )
 
 OWNER = "owner"
+
+
+def test_advisor_service_and_blocks_filter_the_entire_corpus_before_pagination(connection):
+    """A matching advisor after many nonmatches/blocks must still fill page one."""
+    connection.execute(
+        text("""
+        ALTER TABLE ria_profiles ADD COLUMN services_offered TEXT[];
+        ALTER TABLE marketplace_public_profiles ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+        CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT);
+    """)
+    )
+    matching = []
+    for index in range(100):
+        uid = f"ria-{index:03}"
+        _person(connection, uid, f"Sample advisor {index:03}", enrolled=index != 99)
+        service = "Portfolio Management" if index >= 40 else "Financial planning"
+        status = "draft" if index == 98 else "verified"
+        connection.execute(
+            text(
+                "INSERT INTO ria_profiles(user_id,verification_status,services_offered) VALUES(:id,:status,ARRAY[:service])"
+            ),
+            {"id": uid, "status": status, "service": service},
+        )
+        if 40 <= index < 98:
+            matching.append(uid)
+    # A test profile is excluded even with a valid service and active account.
+    connection.execute(
+        text(
+            "INSERT INTO marketplace_public_profiles(user_id,metadata) VALUES('ria-097',jsonb_build_object('is_test_profile',true))"
+        )
+    )
+    matching.remove("ria-097")
+    seed = f"{OWNER}:portfolio_management"
+    matching.sort(
+        key=lambda uid: (hashlib.md5((uid + seed).encode(), usedforsecurity=False).hexdigest(), uid)
+    )
+    blocked = matching[:35]
+    for index, uid in enumerate(blocked):
+        blocker, target = (OWNER, uid) if index % 2 else (uid, OWNER)
+        connection.execute(
+            text("INSERT INTO direct_message_blocks VALUES(:blocker,:target)"),
+            {"blocker": blocker, "target": target},
+        )
+    # An existing workspace is managed in history. Expired invitations can be retried.
+    for uid, status, expiry in [
+        (matching[35], "pending", "1 day"),
+        (matching[36], "accepted", "-1 day"),
+        (matching[37], "pending", "-1 day"),
+    ]:
+        connection.execute(
+            text("""INSERT INTO advisor_review_requests VALUES
+                (:owner,:advisor,:status,clock_timestamp()+CAST(:expiry AS interval))"""),
+            {"owner": OWNER, "advisor": uid, "status": status, "expiry": expiry},
+        )
+    directory = _Directory(connection)
+
+    def page(number):
+        return directory.search_directory_candidates(
+            owner_user_id=OWNER,
+            page=number,
+            limit=5,
+            audience="ria",
+            name_only=True,
+            include_recommendations=False,
+            advisor_service="portfolio_management",
+        )
+
+    first, second = page(1), page(2)
+    assert [row["userId"] for row in first["items"]] == matching[37:42]
+    assert [row["userId"] for row in second["items"]] == matching[42:47]
+    assert first["hasMore"] is True
+    assert not ({row["userId"] for row in first["items"]} & set(blocked))
+    assert not (
+        {row["userId"] for row in first["items"]} & {row["userId"] for row in second["items"]}
+    )
+
+
+def test_all_rias_stay_alphabetical_and_search_filters_before_recommendation_limit(connection):
+    connection.execute(
+        text("""
+        ALTER TABLE ria_profiles ADD COLUMN services_offered TEXT[];
+        CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT);
+    """)
+    )
+    for index in range(75):
+        uid = f"all-ria-{index:03}"
+        _person(connection, uid, f"Advisor {index:03}")
+        connection.execute(
+            text(
+                "INSERT INTO ria_profiles(user_id,verification_status,services_offered) VALUES(:id,'verified',:services)"
+            ),
+            {"id": uid, "services": ["Portfolio Management"] if index else []},
+        )
+    # An open review stays in All; the recommendation path excludes it separately.
+    connection.execute(
+        text(
+            "INSERT INTO advisor_review_requests VALUES(:owner,'all-ria-001','pending',clock_timestamp()+interval '1 day')"
+        ),
+        {"owner": OWNER},
+    )
+    directory = _Directory(connection)
+    pages = [
+        directory.search_directory_candidates(
+            owner_user_id=OWNER, audience="ria", name_only=True, page=page, limit=30
+        )
+        for page in (1, 2, 3)
+    ]
+    assert [person["userId"] for page in pages for person in page["items"]] == [
+        f"all-ria-{index:03}" for index in range(75)
+    ]
+    assert [page["hasMore"] for page in pages] == [True, True, False]
+    connection.execute(
+        text(
+            "UPDATE marketplace_public_profiles SET display_name='Sharu Khan' WHERE user_id='all-ria-074'"
+        )
+    )
+    connection.execute(
+        text(
+            "UPDATE actor_identity_cache SET display_name='Sharu Khan' WHERE user_id='all-ria-074'"
+        )
+    )
+    matched = directory.search_directory_candidates(
+        owner_user_id=OWNER,
+        audience="ria",
+        name_only=True,
+        typed_search=True,
+        query="SHARUKHAN",
+        advisor_service="portfolio_management",
+        include_recommendations=False,
+        limit=5,
+    )
+    assert [person["userId"] for person in matched["items"]] == ["all-ria-074"]
+
+
+def test_advisor_service_missing_in_legacy_profile_is_not_inferred(connection):
+    _person(connection, "legacy-ria", "Legacy advisor")
+    connection.execute(
+        text(
+            "INSERT INTO ria_profiles(user_id,verification_status) VALUES('legacy-ria','verified')"
+        )
+    )
+    connection.execute(
+        text("CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT)")
+    )
+    result = _Directory(connection).search_directory_candidates(
+        owner_user_id=OWNER,
+        audience="ria",
+        name_only=True,
+        advisor_service="retirement_planning",
+        include_recommendations=False,
+    )
+    assert result["items"] == []
+
 
 # Only the columns the directory statement reads. vault_status keeps the
 # CHECK that migration 019 put on the real table.
@@ -102,6 +257,9 @@ CREATE TABLE vault_keys (
   vault_status TEXT NOT NULL DEFAULT 'active'
     CHECK (vault_status IN ('placeholder', 'active')),
   environment_enrolled_at TIMESTAMPTZ
+);
+CREATE TABLE advisor_review_requests (
+  owner_user_id TEXT, advisor_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ
 );
 """
 
@@ -221,7 +379,186 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
     )
 
 
-def test_deleted_people_are_excluded_before_connections_pagination(connection, monkeypatch):
+@pytest.mark.parametrize("retirement", ["provider", "local", "during_lookup"])
+def test_location_and_circle_reads_remove_retired_accounts_before_paging(
+    connection, monkeypatch, retirement
+):
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"))
+    connection.execute(
+        text("SELECT set_config('search_path', current_schema() || ',public', true)")
+    )
+    connection.execute(
+        text("""
+        ALTER TABLE connections ADD COLUMN id TEXT DEFAULT gen_random_uuid()::text;
+        ALTER TABLE connections ADD COLUMN created_at TIMESTAMPTZ DEFAULT now();
+        CREATE TABLE connection_origins (connection_id TEXT, status TEXT, origin_kind TEXT, source_ref TEXT);
+        CREATE TABLE account_deletion_tombstones (user_id_hash TEXT PRIMARY KEY);
+        CREATE TABLE one_location_sms_contacts (owner_user_id TEXT, contact_user_id TEXT);
+        CREATE TABLE one_location_circles (
+          id UUID PRIMARY KEY, owner_user_id TEXT, name TEXT, kind TEXT DEFAULT 'friends',
+          status TEXT DEFAULT 'active', system_kind TEXT, is_system BOOLEAN DEFAULT FALSE,
+          photo_url TEXT, metadata JSONB DEFAULT '{}', member_limit INT DEFAULT 100,
+          created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now()
+        );
+        CREATE TABLE one_location_circle_memberships (
+          circle_id UUID, user_id TEXT, status TEXT DEFAULT 'active', role TEXT DEFAULT 'member',
+          joined_at TIMESTAMPTZ DEFAULT now(), metadata JSONB DEFAULT '{}'
+        );
+        CREATE TABLE one_location_circle_invite_codes (
+          id UUID, circle_id UUID, code_hash TEXT, status TEXT, expires_at TIMESTAMPTZ,
+          metadata JSONB, created_at TIMESTAMPTZ
+        );
+        CREATE TABLE one_location_circle_member_invites (
+          circle_id UUID, invitee_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ
+        );
+    """)
+    )
+    circle_id, invite_circle_id = str(uuid4()), str(uuid4())
+    for uid, name in [
+        (OWNER, "Owner"),
+        ("retired", "A Retired"),
+        ("active", "Z Active"),
+        ("circle-only", "Y Circle Only"),
+    ]:
+        _person(connection, uid, name)
+    for uid in ("retired", "active"):
+        _connected(connection, uid)
+    connection.execute(
+        text(
+            "INSERT INTO connection_origins SELECT id, 'active', 'direct_request', NULL FROM connections"
+        )
+    )
+    connection.execute(
+        text(
+            "INSERT INTO one_location_sms_contacts VALUES (:owner, 'retired'), (:owner, 'active')"
+        ),
+        {"owner": OWNER},
+    )
+    for cid in (circle_id, invite_circle_id):
+        connection.execute(
+            text(
+                "INSERT INTO one_location_circles (id, owner_user_id, name) VALUES (CAST(:id AS UUID), :owner, 'Friends')"
+            ),
+            {"id": cid, "owner": OWNER},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships (circle_id,user_id,role) VALUES (CAST(:id AS UUID),:owner,'owner')"
+            ),
+            {"id": cid, "owner": OWNER},
+        )
+    for uid in ("retired", "active", "circle-only"):
+        connection.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships (circle_id,user_id) VALUES (CAST(:id AS UUID),:uid)"
+            ),
+            {"id": circle_id, "uid": uid},
+        )
+
+    def execute_many(sql, params):
+        # The disposable schema owns this test's tombstone table.
+        sql = sql.replace("public.account_deletion_tombstones", "account_deletion_tombstones")
+        return [dict(row) for row in connection.execute(text(sql), params).mappings()]
+
+    service = OneLocationAgentService()
+    monkeypatch.setattr(service, "_execute_many", execute_many)
+    monkeypatch.setattr(service, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
+    enabled = {OWNER, "retired", "active", "circle-only"}
+    retire_during_lookup = False
+
+    def active_accounts(ids, **_):
+        nonlocal retire_during_lookup
+        if retire_during_lookup and "retired" in ids:
+            retire_during_lookup = False
+            mark_retired()
+        return set(ids) & enabled
+
+    def mark_retired():
+        connection.execute(
+            text("INSERT INTO account_deletion_tombstones VALUES (:hash) ON CONFLICT DO NOTHING"),
+            {"hash": account_deletion_user_hash("retired")},
+        )
+
+    monkeypatch.setattr(service, "_active_directory_user_ids", active_accounts)
+    monkeypatch.setattr(
+        "hushh_mcp.services.one_location_circle_service.active_directory_user_ids", active_accounts
+    )
+    circle = OneLocationCircleService(
+        db=SimpleNamespace(
+            execute_raw=lambda sql, params=None: SimpleNamespace(
+                data=execute_many(sql, params or {})
+            ),
+        )
+    )
+    # Negative controls prove these exact statements previously admitted the account.
+    assert (
+        service.list_verified_recipients_page(owner_user_id=OWNER, limit=1)["items"][0]["userId"]
+        == "retired"
+    )
+    assert circle.get_circle(user_id=OWNER, circle_id=circle_id)["memberCount"] == 4
+    if retirement == "provider":
+        enabled.remove("retired")
+    elif retirement == "local":
+        mark_retired()
+    else:
+        retire_during_lookup = True
+    result = service.list_verified_recipients_page(owner_user_id=OWNER, limit=1)
+    assert result["items"][0]["userId"] == "circle-only"
+    assert result["totalCount"] == 2 and result["hasMore"]
+    assert service.list_sms_contact_ids(owner_user_id=OWNER) == ["active"]
+    assert {row["userId"] for row in service.list_verified_recipients(owner_user_id=OWNER)} == {
+        "active",
+        "circle-only",
+    }
+    detail = circle.get_circle(user_id=OWNER, circle_id=circle_id)
+    assert {row["userId"] for row in detail["members"]} == {OWNER, "active", "circle-only"}
+    assert detail["memberCount"] == 3
+    assert circle.get_circle_overview(user_id=OWNER, circle_id=circle_id)["memberCount"] == 3
+    assert (
+        next(row for row in circle.list_circles(user_id=OWNER) if row["id"] == circle_id)[
+            "memberCount"
+        ]
+        == 3
+    )
+    page = circle.list_circle_members_page(user_id=OWNER, circle_id=circle_id, page=1, limit=2)
+    assert page["totalCount"] == 3 and page["hasMore"]
+    assert "retired" not in {row["userId"] for row in page["items"]}
+    assert [
+        row["userId"]
+        for row in circle.list_eligible_direct_connections(
+            actor_user_id=OWNER, circle_id=invite_circle_id
+        )
+    ] == ["active"]
+    page = circle.list_eligible_direct_connections_page(
+        actor_user_id=OWNER, circle_id=invite_circle_id, limit=1
+    )
+    assert page["totalCount"] == 1 and not page["hasMore"]
+    assert page["items"][0]["userId"] == "active"
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
+
+    with pytest.raises(OneLocationAgentError) as failure:
+        service._assert_location_accounts_active(OWNER, "retired")
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+
+    circle._assert_circle_accounts_active([OWNER, "active"])
+    for method, key in [
+        (circle.create_member_invites, "invitee_user_ids"),
+        (circle.add_direct_connections, "user_ids"),
+    ]:
+        with pytest.raises(OneLocationCircleError) as failure:
+            method(actor_user_id=OWNER, circle_id=circle_id, **{key: ["retired"]})
+        assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "retirement",
+    ["local", "provider", "local_during_page", "local_during_legacy", "local_during_profile"],
+)
+async def test_deleted_people_are_excluded_before_connections_pagination(
+    connection, monkeypatch, retirement
+):
     connection.execute(
         text("""
         ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
@@ -256,27 +593,166 @@ def test_deleted_people_are_excluded_before_connections_pagination(connection, m
     monkeypatch.setattr(
         profile, "_execute_one", lambda sql, params: next(iter(execute_many(sql, params)), None)
     )
-    monkeypatch.setattr(
-        "hushh_mcp.services.person_profile_service.active_directory_user_ids",
-        lambda owners, **_: set(owners),
-    )
+    provider_active = {"retired", "active"}
+    retire_on_lookup = False
+
+    def mark_deleted():
+        connection.execute(
+            text("INSERT INTO account_deletion_tombstones (user_id_hash) VALUES (:hash)"),
+            {"hash": account_deletion_user_hash("retired")},
+        )
+
+    def active_accounts(owners, **_):
+        nonlocal retire_on_lookup
+        if retire_on_lookup and "retired" in owners:
+            retire_on_lookup = False
+            mark_deleted()
+        return set(owners) & provider_active
+
+    for service in ("connections_service", "person_profile_service"):
+        monkeypatch.setattr(
+            f"hushh_mcp.services.{service}.active_directory_user_ids", active_accounts
+        )
 
     # An active control proves the same rows and pagination really were eligible.
     assert graph.list_connections_page(OWNER, limit=1)["items"][0]["userId"] == "retired"
     assert profile.get_public_profile(retired_ref)["displayName"] == "Aardvark Person"
-    connection.execute(
-        text("INSERT INTO account_deletion_tombstones (user_id_hash) VALUES (:hash)"),
-        {"hash": account_deletion_user_hash("retired")},
-    )
+    if retirement == "provider":
+        provider_active.remove("retired")
+    elif retirement == "local":
+        mark_deleted()
+    else:
+        retire_on_lookup = True
 
+    if retirement == "local_during_legacy":
+        assert [row["userId"] for row in graph.list_connections(OWNER)] == ["active"]
+    if retirement == "local_during_profile":
+        with pytest.raises(PersonProfileNotFoundError):
+            profile.get_public_profile(retired_ref)
     page = graph.list_connections_page(OWNER, limit=1)
     assert [row["userId"] for row in page["items"]] == ["active"]
     assert page["totalCount"] == 1
     assert page["hasMore"] is False
     assert [row["userId"] for row in graph.list_connections(OWNER)] == ["active"]
+    search = graph.list_connections_page(OWNER, query="aardvark")
+    assert search["items"] == [] and search["totalCount"] == 0
+    assert graph.list_connections_page("unconnected")["items"] == []
     with pytest.raises(PersonProfileNotFoundError):
         profile.get_public_profile(retired_ref)
+    with pytest.raises(PersonProfileNotFoundError):
+        await profile.get_viewer_profile(viewer_user_id=OWNER, public_person_ref=retired_ref)
     assert profile.get_public_profile(active_ref)["displayName"] == "Zebra Person"
+
+
+def test_pending_circle_invite_hides_a_retained_tombstoned_owner(connection, monkeypatch):
+    """Execute the real invite projections while provider cleanup is pending."""
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"))
+    connection.execute(
+        text("SELECT set_config('search_path', current_schema() || ',public', true)")
+    )
+    circle_id, invite_id = str(uuid4()), str(uuid4())
+    connection.execute(
+        text("""
+        CREATE TABLE account_deletion_tombstones(user_id_hash text PRIMARY KEY);
+        CREATE TABLE one_location_circles(id uuid PRIMARY KEY,owner_user_id text,status text,name text,kind text);
+        CREATE TABLE one_location_circle_member_invites(id uuid PRIMARY KEY,circle_id uuid,
+          inviter_user_id text,invitee_user_id text,status text,expires_at timestamptz,
+          created_at timestamptz DEFAULT now(),responded_at timestamptz);
+    """)
+    )
+    for user in (OWNER, "retired"):
+        _person(connection, user, user.title())
+    connection.execute(
+        text(
+            "INSERT INTO one_location_circles VALUES(CAST(:circle AS uuid),'retired','active','Family','family')"
+        ),
+        {"circle": circle_id},
+    )
+    connection.execute(
+        text("""INSERT INTO one_location_circle_member_invites
+        (id,circle_id,inviter_user_id,invitee_user_id,status,expires_at)
+        VALUES(CAST(:invite AS uuid),CAST(:circle AS uuid),'retired',:viewer,'pending',now()+interval '1 hour')"""),
+        {"invite": invite_id, "circle": circle_id, "viewer": OWNER},
+    )
+
+    def execute(sql, params=None):
+        sql = sql.replace("public.account_deletion_tombstones", "account_deletion_tombstones")
+        return SimpleNamespace(
+            data=[dict(row) for row in connection.execute(text(sql), params or {}).mappings()]
+        )
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.one_location_circle_service.active_directory_user_ids",
+        lambda ids, **kwargs: set(ids),
+    )
+    circle = OneLocationCircleService(db=SimpleNamespace(execute_raw=execute))
+    assert len(circle.list_member_invites(user_id=OWNER, expire_stale=False)) == 1
+    assert circle.get_member_invite(user_id=OWNER, invite_id=invite_id)["id"] == invite_id
+    connection.execute(
+        text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),
+        {"hash": account_deletion_user_hash("retired")},
+    )
+    assert circle.list_member_invites(user_id=OWNER, expire_stale=False) == []
+    with pytest.raises(OneLocationCircleError) as missing:
+        circle.get_member_invite(user_id=OWNER, invite_id=invite_id)
+    assert missing.value.status_code == 404
+    assert len(circle.list_member_invites(user_id=OWNER, require_complete=True)) == 1
+    assert (
+        connection.execute(
+            text("SELECT count(*) FROM one_location_circle_member_invites")
+        ).scalar_one()
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_account_visibility_hints_reach_all_connected_peers_after_commit(
+    connection, monkeypatch
+):
+    import asyncio
+    import json
+    from contextlib import nullcontext
+
+    import asyncpg
+
+    from api.consent_listener import USER_STATE_CHANNEL
+    from hushh_mcp.services.connection_graph_service import (
+        publish_connection_account_visibility_changes,
+        publish_connection_graph_events,
+    )
+
+    for a, b, status in (
+        ("a-peer", "retired", "active"),
+        ("retired", "z-peer", "active"),
+        ("ignored-peer", "retired", "revoked"),
+        ("other-peer", "z-peer", "active"),
+    ):
+        _network_edge(connection, a, b, status)
+    connection.commit()
+    monkeypatch.setattr("db.db_client.get_db_connection", lambda: nullcontext(connection))
+    dsn = os.environ["ONE_COMMAND_TEST_DATABASE_URL"].replace("postgresql+psycopg2:", "postgresql:")
+    listener = await asyncpg.connect(dsn)
+    messages: asyncio.Queue = asyncio.Queue()
+
+    def capture(_conn, _pid, _channel, payload):
+        messages.put_nowait(json.loads(payload))
+
+    try:
+        await listener.add_listener(USER_STATE_CHANNEL, capture)
+        publish_connection_graph_events(connection, {"rollback-peer"})
+        connection.rollback()
+        publish_connection_account_visibility_changes({"retired"})
+        assert messages.empty()
+        connection.commit()
+        delivered = [await asyncio.wait_for(messages.get(), timeout=2) for _ in range(2)]
+        assert delivered == [
+            {"type": "connection_graph_changed", "user_id": "a-peer"},
+            {"type": "connection_graph_changed", "user_id": "z-peer"},
+        ]
+    finally:
+        await listener.close()
 
 
 def _network(connection: Connection):
@@ -469,7 +945,7 @@ def test_extended_network_shortest_degrees_require_shared_paths_and_live_account
     directory._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
     network._directory = directory
     assert network.preference(OWNER) == {"shareConnectionList": False}
-    # Mutual existence is retained even when full lists are private.
+    # Third-degree discovery remains opt-in even though direct lists are automatic.
     assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2}
     for uid in ("bob", "carol"):
         network.set_preference(uid, True)
@@ -512,9 +988,15 @@ def test_extended_network_suggests_eligible_people_without_exposing_contact_or_p
                 VALUES ('blocked', 'owner', 'rejected', '{"blocked_by":"blocked"}')""")
     )
     fresh = network.browse(OWNER, degree=3, include_suggestions=True)
-    assert fresh["items"] == []
-    assert [p["displayName"] for p in fresh["suggestions"]] == ["A Third", "Z Advisor"]
-    assert all(p["suggestionReason"] == "verified_advisor" for p in fresh["suggestions"])
+    assert [p["displayName"] for p in fresh["items"]] == [
+        "A First",
+        "A Second",
+        "A Third",
+        "Z Advisor",
+        "Z Ordinary",
+    ]
+    assert all(p["suggestionReason"] == "public_profile" for p in fresh["items"])
+    assert all(p["networkDegree"] is None for p in fresh["items"])
     for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
         _network_edge(connection, a, b)
     network.set_preference("alice", True)
@@ -522,31 +1004,222 @@ def test_extended_network_suggests_eligible_people_without_exposing_contact_or_p
     _requested(connection, OWNER, "advisor")
     established = network.browse(OWNER, degree=3, include_suggestions=True)
     assert [(p["displayName"], p["networkDegree"]) for p in established["items"]] == [
-        ("A Third", 3)
+        ("A Third", 3),
+        ("Z Advisor", None),
+        ("Z Ordinary", None),
     ]
-    [suggested] = established["suggestions"]
+    suggested = established["items"][1]
     assert suggested == {
-        "publicPersonRef": fresh["suggestions"][1]["publicPersonRef"],
+        "publicPersonRef": fresh["items"][3]["publicPersonRef"],
         "displayName": "Z Advisor",
         "photoUrl": None,
         "relationship": "pending_outgoing",
-        "suggestionReason": "verified_advisor",
+        "networkDegree": None,
+        "mutualConnectionCount": 0,
+        "mutualConnectionPreview": None,
+        "mutualConnectionPreviews": [],
+        "suggestionReason": "public_profile",
     }
-    assert "suggestions" not in network.browse(OWNER, degree=3, page=2, include_suggestions=True)
-    assert "suggestions" not in network.browse(OWNER, degree=2, include_suggestions=True)
+    assert network.browse(OWNER, degree=3)["items"] == established["items"][:1]
+    assert all(
+        p["networkDegree"] == 2
+        for p in network.browse(OWNER, degree=2, include_suggestions=True)["items"]
+    )
     private_search = network.browse(
         OWNER, degree=3, query="ordinary@example.test", include_suggestions=True
     )
-    assert private_search["suggestions"] == []
+    assert private_search["items"] == []
     [name_match] = network.browse(OWNER, degree=3, query="Ordinary", include_suggestions=True)[
-        "suggestions"
+        "items"
     ]
     assert (name_match["displayName"], name_match["suggestionReason"]) == (
         "Z Ordinary",
         "name_match",
     )
     _network_edge(connection, OWNER, "advisor")
-    assert network.browse(OWNER, degree=3, include_suggestions=True)["suggestions"] == []
+    assert [
+        p["displayName"] for p in network.browse(OWNER, degree=3, include_suggestions=True)["items"]
+    ] == ["A Third", "Z Ordinary"]
+
+
+def test_extended_network_pages_public_people_after_eligibility_and_live_accounts(connection):
+    network = _network(connection)
+    _person(connection, OWNER, "Viewer")
+    expected = []
+    # Include identical names, recent complete signups, and explicit public
+    # website profiles without a vault. Role/graph proximity is not required.
+    for index in range(23):
+        uid = f"public-{index:02}"
+        _person(connection, uid, f"Person {index // 2:02}", vault=None if index == 0 else "active")
+        expected.append(uid)
+    connection.execute(
+        text("UPDATE actor_profiles SET directory_listed=TRUE WHERE user_id='public-00'")
+    )
+    for uid in (
+        "blocked",
+        "unlisted",
+        "copied",
+        "unfinished",
+        "disabled",
+        "retired",
+        "no-ref",
+        "direct",
+        "mutual",
+    ):
+        _person(
+            connection,
+            uid,
+            f"A {uid}",
+            enrolled=uid != "copied",
+            vault="placeholder" if uid == "unfinished" else "active",
+        )
+    connection.execute(
+        text("UPDATE actor_profiles SET public_person_ref=user_id WHERE user_id <> 'no-ref'")
+    )
+    connection.execute(
+        text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='unlisted'")
+    )
+    connection.execute(
+        text("UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='retired'")
+    )
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES ('blocked','owner','rejected','{\"blocked_by\":\"blocked\"}')"
+        )
+    )
+    _requested(connection, OWNER, "unlisted")
+    _requested(connection, OWNER, "public-01")
+    _requested(connection, "public-02", OWNER)
+    _network_edge(connection, OWNER, "direct")
+    _network_edge(connection, "direct", "mutual")
+    network.directory()._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
+    pages = [
+        network.browse(OWNER, degree=3, include_suggestions=True, page=p, limit=5)
+        for p in range(1, 6)
+    ]
+    assert [[p["publicPersonRef"] for p in page["items"]] for page in pages] == [
+        expected[i : i + 5] for i in range(0, 23, 5)
+    ]
+    assert [p["hasMore"] for p in pages] == [True, True, True, True, False]
+    assert [p["relationship"] for p in pages[0]["items"]][:3] == [
+        "none",
+        "pending_outgoing",
+        "pending_incoming",
+    ]
+    assert network.browse(OWNER, degree=3, include_suggestions=True, page=6, limit=5)["items"] == []
+    [match] = network.browse(OWNER, degree=3, include_suggestions=True, query="Person 11")["items"]
+    assert (match["publicPersonRef"], match["suggestionReason"]) == ("public-22", "name_match")
+    assert all(
+        set(p)
+        <= {
+            "publicPersonRef",
+            "displayName",
+            "photoUrl",
+            "relationship",
+            "networkDegree",
+            "suggestionReason",
+            "mutualConnectionCount",
+            "mutualConnectionPreview",
+            "mutualConnectionPreviews",
+        }
+        for page in pages
+        for p in page["items"]
+    )
+
+
+def test_extended_paging_crosses_graph_and_public_cohorts_with_recovered_names(connection):
+    network = _network(connection)
+    for uid in (OWNER, "first", "second"):
+        _person(connection, uid, uid.title())
+    _network_edge(connection, OWNER, "first")
+    _network_edge(connection, "first", "second")
+    network.set_preference("first", True)
+    network.set_preference("second", True)
+    third_ids = [f"third-{index:02}" for index in range(6)]
+    public_ids = [f"public-{index:03}" for index in range(105)]
+    for uid in third_ids + public_ids:
+        name = uid.replace("third", "Z Third").replace("public", "Public")
+        _person(connection, uid, "" if uid in ("third-00", "public-104") else name)
+        if uid in third_ids:
+            _network_edge(connection, "second", uid)
+    connection.execute(text("UPDATE actor_profiles SET public_person_ref=user_id"))
+    network.directory()._directory_auth_profiles = lambda ids: {
+        uid: {
+            "display_name": uid.replace("third", "Z Third").replace("public", "Public"),
+            "photo_url": "",
+        }
+        for uid in ids
+    }
+    pages = [
+        network.browse(OWNER, degree=3, include_suggestions=True, page=p, limit=5)
+        for p in range(1, 24)
+    ]
+    people = [person for page in pages for person in page["items"]]
+    assert [p["publicPersonRef"] for p in people] == third_ids + public_ids
+    assert [len(p["items"]) for p in pages] == [5] * 22 + [1]
+    assert [p["hasMore"] for p in pages] == [True] * 22 + [False]
+    assert all(p["networkDegree"] == 3 and "suggestionReason" not in p for p in people[:6])
+    assert all(
+        p["networkDegree"] is None and p["suggestionReason"] == "public_profile" for p in people[6:]
+    )
+
+
+@pytest.mark.parametrize(
+    "change", [None, "block", "unlist", "connect", "mutual", "enrollment", "retire"]
+)
+def test_extended_requalifies_suggestions_after_provider_reads(connection, monkeypatch, change):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "suggested", "direct"):
+        _person(connection, uid, uid.title())
+    connection.execute(text("UPDATE actor_profiles SET public_person_ref=user_id"))
+    _network_edge(connection, OWNER, "direct")
+    original = network.directory().search_directory_candidates
+
+    def read_then_change(**kwargs):
+        result = original(**kwargs)
+        if "extended_network_user_ids" in kwargs:
+            if change == "block":
+                connection.execute(
+                    text(
+                        "INSERT INTO connection_requests VALUES ('suggested','owner','rejected','{\"blocked_by\":\"suggested\"}')"
+                    )
+                )
+            elif change == "unlist":
+                connection.execute(
+                    text(
+                        "UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='suggested'"
+                    )
+                )
+            elif change == "connect":
+                _network_edge(connection, OWNER, "suggested")
+            elif change == "mutual":
+                _network_edge(connection, "direct", "suggested")
+            elif change == "enrollment":
+                connection.execute(
+                    text(
+                        "UPDATE vault_keys SET environment_enrolled_at=NULL WHERE user_id='suggested'"
+                    )
+                )
+            elif change == "retire":
+                connection.execute(
+                    text(
+                        "UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='suggested'"
+                    )
+                )
+        return result
+
+    monkeypatch.setattr(network.directory(), "search_directory_candidates", read_then_change)
+    if change:
+        with pytest.raises(ConnectionsError) as failure:
+            network.browse(OWNER, degree=3, include_suggestions=True)
+        assert failure.value.status_code == 503
+    else:
+        assert [
+            p["displayName"]
+            for p in network.browse(OWNER, degree=3, include_suggestions=True)["items"]
+        ] == ["Suggested"]
 
 
 def test_network_cycles_do_not_extend_degrees_or_include_viewer(connection):
@@ -580,6 +1253,48 @@ def test_network_directory_filter_applies_before_pagination(connection):
     )
 
 
+@pytest.mark.parametrize("relationship", ["none", "pending", "revoked", "blocked"])
+def test_connection_list_requires_an_accepted_unblocked_relationship(connection, relationship):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "target", "peer"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    _network_edge(connection, "target", "peer")
+    if relationship == "pending":
+        _requested(connection, OWNER, "target")
+    elif relationship == "revoked":
+        _network_edge(connection, OWNER, "target", "revoked")
+    elif relationship == "blocked":
+        _network_edge(connection, OWNER, "target")
+        connection.execute(
+            text("""INSERT INTO connection_requests VALUES
+              (:viewer, 'target', 'rejected', '{"blocked_by":"viewer"}')"""),
+            {"viewer": OWNER},
+        )
+
+    assert network.can_browse(OWNER, "target") is False
+    with pytest.raises(ConnectionsError) as caught:
+        network.browse(OWNER, person_ref=target_ref)
+    assert caught.value.status_code == 404
+    if relationship != "blocked":
+        summary = network.summary(OWNER, target_ref)
+        assert summary["canBrowseConnections"] is False
+        assert summary["visibleConnectionCount"] is None
+
+
 @pytest.mark.parametrize(
     "change", ["opt_out", "disconnect", "block", "peer_disconnect", "peer_block"]
 )
@@ -610,11 +1325,8 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     _network_edge(connection, OWNER, "target")
     _network_edge(connection, "target", "peer")
     assert network.preference("target") == {"shareConnectionList": False}
-    with pytest.raises(ConnectionsError) as private:
-        network.browse(OWNER, person_ref=target_ref)
-    assert private.value.status_code == 404
-    assert network.summary(OWNER, target_ref)["visibleConnectionCount"] is None
-    network.set_preference("target", True)
+    # Accepted connections see the count and list with the default-false preference.
+    assert network.summary(OWNER, target_ref)["canBrowseConnections"] is True
     page = network.browse(OWNER, person_ref=target_ref)
     assert len(page["items"]) == 1
     assert page["items"][0]["networkDegree"] == 2
@@ -629,6 +1341,7 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         "mutualConnectionPreview",
         "mutualConnectionPreviews",
     }
+    network.set_preference("target", True)
     original = network.directory().search_directory_candidates
 
     def read_then_revoke(**kwargs):
@@ -655,10 +1368,19 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         return result
 
     network.directory().search_directory_candidates = read_then_revoke
-    if operation == "summary" and change in ("opt_out", "peer_disconnect", "peer_block"):
+    if change == "opt_out":
+        if operation == "summary":
+            summary = network.summary(OWNER, target_ref)
+            assert summary["canBrowseConnections"] is True
+            assert summary["visibleConnectionCount"] == 1
+        else:
+            assert len(network.browse(OWNER, person_ref=target_ref)["items"]) == 1
+        return
+
+    if operation == "summary" and change in ("peer_disconnect", "peer_block"):
         summary = network.summary(OWNER, target_ref)
-        assert summary["canBrowseConnections"] is (change != "opt_out")
-        assert summary["visibleConnectionCount"] == (None if change == "opt_out" else 0)
+        assert summary["canBrowseConnections"] is True
+        assert summary["visibleConnectionCount"] == 0
         return
 
     with pytest.raises(ConnectionsError) as caught:
@@ -706,6 +1428,36 @@ def test_shared_network_summary_counts_only_browsable_profiles(connection):
     _network_edge(connection, OWNER, "visible")
     assert network.browse(OWNER, person_ref=target_ref)["items"][0]["relationship"] == "connected"
     assert network.summary(OWNER, target_ref)["visibleConnectionCount"] == 1
+
+
+def test_network_summary_previews_two_mutuals_and_keeps_the_first_as_the_single_preview(connection):
+    network = _network(connection)
+    for uid in (OWNER, "target", "mutual_a", "mutual_b", "mutual_c"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text("""
+        ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID
+          USING public_person_ref::uuid;
+        UPDATE actor_profiles SET public_person_ref = gen_random_uuid();
+        """)
+    )
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id = 'target'")
+        ).scalar_one()
+    )
+    for peer in ("mutual_a", "mutual_b", "mutual_c"):
+        _network_edge(connection, OWNER, peer)
+        _network_edge(connection, peer, "target")
+
+    summary = network.summary(OWNER, target_ref)
+
+    assert summary["mutualConnectionCount"] == 3
+    assert [item["displayName"] for item in summary["mutualConnectionPreviews"]] == [
+        "Person mutual_a",
+        "Person mutual_b",
+    ]
+    assert summary["mutualConnectionPreview"] == summary["mutualConnectionPreviews"][0]
 
 
 def test_shared_network_display_cap_preserves_pagination(connection):

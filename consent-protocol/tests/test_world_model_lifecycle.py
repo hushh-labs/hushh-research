@@ -383,3 +383,103 @@ async def test_public_source_review_preserves_successful_receipts_when_another_p
         client_factory=factory,
     )
     assert [(row.ref, row.url) for row in result] == [("s1", "https://public.example.test/article")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "withdrawn",
+        "expired",
+        "private",
+        "deleted",
+        "private_after_read",
+        "disabled_after_read",
+    ],
+)
+async def test_website_research_preserves_hub_and_grant_authority(
+    monkeypatch, shared_hub_owner, active_account_lifecycle, change
+):
+    from datetime import datetime, timedelta, timezone
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.services import website_pwm_research as website
+
+    grant = website.WebsiteResearchGrant(
+        owner_id="owner",
+        job_id=str(uuid4()),
+        consent_version=website.AZURE_TAVILY_CONSENT_VERSION,
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(seconds=-1 if change == "expired" else 60),
+    )
+    identity = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
+    monkeypatch.setattr(
+        website, "get_app_runtime_settings", lambda: SimpleNamespace(environment="uat")
+    )
+    enabled = {"value": True}
+    monkeypatch.setattr(website, "one_profile_research_enabled", lambda: enabled["value"])
+    monkeypatch.setattr(
+        website,
+        "load_pwm_policy",
+        lambda: {
+            "provider": "azure_openai_tavily",
+            "azure": {
+                "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
+                "primary_deployment": "synthetic",
+                "tenant_id": "synthetic",
+                "client_id": "synthetic",
+            },
+        },
+    )
+    monkeypatch.setattr(website, "azure_openai_token_provider", lambda **_: lambda: "synthetic")
+    monkeypatch.setattr(website, "fresh_owner_record", AsyncMock(return_value=object()))
+
+    async def resolve(*_):
+        if change == "private_after_read":
+            shared_hub_owner.return_value = "byoc"
+        if change == "disabled_after_read":
+            enabled["value"] = False
+        return identity
+
+    monkeypatch.setattr(website, "resolve_profile_research_identity", resolve)
+    if change == "private":
+        shared_hub_owner.return_value = "byoc"
+    if change == "deleted":
+        active_account_lifecycle.add("owner")
+    reserve, checkpoint = AsyncMock(), AsyncMock()
+
+    async def provider(**kwargs):
+        await kwargs["require_access"]()
+        await kwargs["on_attempts_start"]((1,))
+        await kwargs["on_progress"]({"synthetic": True})
+        return {
+            "status": "offered",
+            "pkm_written": False,
+            "report": {"sections": []},
+            "research": {"source_use": "tavily_review_retained"},
+            "private_internal": "omit",
+        }
+
+    runner = AsyncMock(side_effect=provider)
+    monkeypatch.setattr(website, "run_world_model_azure", runner)
+    operation = website.run_website_research_slice(
+        grant,
+        read_active_grant=AsyncMock(return_value=None if change == "withdrawn" else grant),
+        reserve_attempts=reserve,
+        save_checkpoint=checkpoint,
+    )
+    if change:
+        with pytest.raises((PermissionError, HTTPException)):
+            await operation
+        reserve.assert_not_awaited()
+        checkpoint.assert_not_awaited()
+        if change not in {"private_after_read", "disabled_after_read"}:
+            runner.assert_not_awaited()
+    else:
+        result = await operation
+        assert result["status"] == "offered" and result["pkm_written"] is False
+        assert "private_internal" not in result
+        reserve.assert_awaited_once_with((1,))
+        checkpoint.assert_awaited_once_with({"identity": identity, "work": {"synthetic": True}})

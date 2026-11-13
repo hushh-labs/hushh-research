@@ -47,7 +47,7 @@ Non-owned surfaces:
 2. `deploy/README.md`
 3. `deploy/frontend.cloudbuild.yaml`
 4. `deploy/backend.cloudbuild.yaml`
-5. `docs/reference/operations/branch-governance.md`
+5. `docs/operations/releases/branch-governance.md`
 6. `.agents/skills/repo-operations/references/admin-release-sop.md`
 7. `.agents/skills/uat-scoped-deploy/references/deploy-proof.md`
 8. `.agents/skills/uat-scoped-deploy/references/anti-rationalization.md`

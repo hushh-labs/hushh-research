@@ -190,7 +190,7 @@ def test_balanced_leaderboard_limits_routine_operator_dominance() -> None:
                         "body": "Approved after review.",
                     }
                 ],
-                files=["docs/reference/operations/ci.md"],
+                files=["docs/operations/releases/ci.md"],
             ),
         ]
     )
@@ -440,7 +440,7 @@ def test_operating_leaderboard_exposes_raw_maintainer_load_without_hiding_balanc
                         "body": "Approved after release governance review.",
                     }
                 ],
-                files=["docs/reference/operations/ci.md"],
+                files=["docs/operations/releases/ci.md"],
             ),
         ]
     )

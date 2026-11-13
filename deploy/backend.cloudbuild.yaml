@@ -177,7 +177,7 @@ steps:
 
   # Connect Azure (dev only) imports the approved pod digest from the lane's
   # pod-only release repository, the one repository its image reader is granted
-  # (HUSSH_AZURE_POD_IMAGE_REPOSITORY, docs/reference/architecture/byoc-azure.md).
+  # (HUSSH_AZURE_POD_IMAGE_REPOSITORY, docs/architecture/byoc-azure.md).
   # The hub's runtime identity holds no registry write, and widening it or the
   # reader is not approved, so the build identity copies exactly the digest the
   # hub will offer, before deploy-backend can offer it. A digest names exact
@@ -549,8 +549,9 @@ steps:
         if [[ "${_DEPLOY_ENV}" != "uat" ]]; then
           exit 0
         fi
-        if [[ "${_MANAGED_READINESS_MODE}" == core && "$(python3 scripts/ci/managed_provider_readiness.py configured-provider)" != azure_openai ]]; then
-          exit 0
+        if [[ "${_MANAGED_READINESS_MODE}" == core ]]; then
+          core_provider="$(python3 scripts/ci/managed_provider_readiness.py qualification-provider)"
+          if [[ "${core_provider}" != azure_openai ]]; then exit 0; fi
         fi
         pwm_provider="$(python3 - <<'PY'
         import json

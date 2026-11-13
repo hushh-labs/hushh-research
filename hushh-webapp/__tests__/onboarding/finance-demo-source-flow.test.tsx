@@ -12,6 +12,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/import/finance-import-onboarding-setup-client";
 import FinanceOnboardingSetupPage from "@/app/one/setup/finance/page";
 import { PortfolioPersona } from "@/components/kai/advisor/portfolio-persona";
+import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const state = vi.hoisted(() => ({
@@ -293,7 +294,7 @@ it("opens a single 13-question assessment directly and updates the saved badge",
   expect(screen.queryByRole("button", { name: "Open detailed assessment" })).toBeNull();
   for (let index = 0; index < 13; index++) {
     expect(screen.getByText(`Question ${index + 1} of 13`)).toBeVisible();
-    fireEvent.click(screen.getAllByRole("radio")[index < 8 ? 2 : 0]);
+    fireEvent.click(within(screen.getByRole("group")).getAllByRole("button")[index < 8 ? 2 : 0]);
     fireEvent.click(
       screen.getByRole("button", {
         name: index === 12 ? "Save assessment" : "Continue",
@@ -317,5 +318,20 @@ it("opens a single 13-question assessment directly and updates the saved badge",
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   expect(within(screen.getByRole("button", { name: "Refine persona" }).parentElement!).getByText("Growth-oriented")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Refine persona" }));
-  expect(screen.getAllByRole("radio")[2]).toBeChecked();
+  expect(within(screen.getByRole("group")).getAllByRole("button")[2]).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(within(screen.getByRole("group")).getAllByRole("button")[2]);
+  expect(within(screen.getByRole("group")).getAllByRole("button")[2]).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+});
+
+it("saves a toggled-off or unanswered assessment as unknown", async () => {
+  const onSave = vi.fn(async () => ({}));
+  render(<DetailedPersonaForm initial={{}} onSave={onSave} onDone={vi.fn()} onSavingChange={vi.fn()} />);
+  const first = within(screen.getByRole("group")).getAllByRole("button")[0];
+  fireEvent.click(first);
+  fireEvent.click(first);
+  for (let index = 0; index < 13; index++) {
+    fireEvent.click(screen.getByRole("button", { name: index === 12 ? "Save assessment" : "Continue" }));
+  }
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith(Array(13).fill(null)));
 });

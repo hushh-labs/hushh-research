@@ -24,7 +24,7 @@ This folder is the canonical home for signed-in shell primitives, page chrome, a
 1. Top-level page layout belongs here, not inside route files.
 2. Shared headers and semantic app surfaces are the market-route reference implementation.
 3. Base card primitives belong in `lib/morphy-ux/*`, not here.
-4. New shell behavior must update `docs/reference/quality/README.md` and `app-surface-design-system.md`.
+4. New shell behavior must update `docs/development/quality/README.md` and `app-surface-design-system.md`.
 5. Labs components are never imported here directly; they must graduate first.
 6. Routes declare `hidden`, `bar`, or `bar-with-tabs` through the central top-
    shell route model. They must not render their own fixed bar, tab strip, or

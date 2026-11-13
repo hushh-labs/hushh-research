@@ -25,12 +25,12 @@
     "morphy-ax-governance"
   ],
   "required_reads": [
-    "docs/reference/quality/frontend-ui-architecture-map.md",
-    "docs/reference/quality/design-system.md",
+    "docs/development/quality/frontend-ui-architecture-map.md",
+    "docs/development/quality/design-system.md",
     "hushh-webapp/components/README.md",
     "hushh-webapp/lib/services/README.md",
     ".agents/skills/frontend/references/browser-ux-runtime.md",
-    "docs/reference/mobile/render-performance-charter.md"
+    "docs/development/mobile/render-performance-charter.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:docs",

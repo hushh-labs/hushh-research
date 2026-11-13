@@ -72,9 +72,7 @@ def test_the_stale_anypoint_column_text_is_rewritten():
 
 def test_the_data_plane_contract_declares_948():
     contract = json.loads(
-        (
-            _BACKEND.parent / "docs/reference/architecture/runtime-db-data-plane-contract.json"
-        ).read_text()
+        (_BACKEND.parent / "docs/architecture/runtime-db-data-plane-contract.json").read_text()
     )
     family = next(f for f in contract["table_families"] if f["id"] == "personal_agent_registry")
     assert "migration948" in family["primary_access_path"]

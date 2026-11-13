@@ -18,7 +18,7 @@ description: Use when changing SSE events, streaming payload contracts, parser b
 
 Owned repo surfaces:
 
-1. `docs/reference/streaming`
+1. `docs/development/streaming`
 2. `hushh-webapp/lib/streaming`
 3. `hushh-webapp/__tests__/streaming`
 4. `consent-protocol/api/routes/sse.py`
@@ -45,9 +45,9 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/streaming/streaming-contract.md`
-2. `docs/reference/streaming/streaming-implementation-guide.md`
-3. `docs/reference/streaming/vertex-ai-streaming-notes.md`
+1. `docs/development/streaming/streaming-contract.md`
+2. `docs/development/streaming/streaming-implementation-guide.md`
+3. `docs/development/streaming/vertex-ai-streaming-notes.md`
 
 ## Workflow
 

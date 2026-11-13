@@ -62,13 +62,15 @@ export interface MutualConnectionsPage {
 }
 
 export type NetworkDegree = 1 | 2 | 3;
-export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship; suggestionReason?: "verified_advisor" | "name_match" };
+export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship; suggestionReason?: "verified_advisor" | "name_match" | "public_profile" };
 export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; suggestions?: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
 export type NetworkSummary = {
   person: { publicPersonRef: string; displayName: string | null };
   networkDegree: NetworkDegree | null;
   mutualConnectionCount: number;
   mutualConnectionPreview: NetworkPerson | null;
+  /** Up to two, in a stable order; absent from an older server. */
+  mutualConnectionPreviews?: NetworkPerson[];
   canBrowseConnections: boolean;
   visibleConnectionCount?: number | null;
 };
@@ -493,6 +495,7 @@ export class ConnectionsService {
     limit?: number;
     query?: string;
     audience?: ConnectionAudience;
+    accountCheck?: "observe" | "reconcile";
     /** A complete owner-memory scan must reject malformed 2xx pages, never normalize them to empty. */
     sourceRead?: boolean;
   }): Promise<ConnectionPage> {
@@ -502,6 +505,7 @@ export class ConnectionsService {
       audience: opts.audience ?? "all",
     });
     if (opts.query?.trim()) params.set("query", opts.query.trim());
+    if (opts.accountCheck) params.set("account_check", opts.accountCheck);
     const response = await ApiService.apiFetch(
       `/api/one/connections?${params.toString()}`,
       { method: "GET", headers: authHeaders(opts.idToken) },

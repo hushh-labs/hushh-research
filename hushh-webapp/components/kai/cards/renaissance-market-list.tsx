@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
@@ -23,15 +22,12 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatCompactNumber } from "@/lib/kai/market-value-format";
 import type { StockQuoteLoader } from "@/lib/services/public-stock-quote";
 
-
-
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 const ALL_FILTER = "all";
 // One continuous list: this many companies show first, and the next batch is
 // added as the end of the list nears the screen. Company facts load for the
 // rows shown, so a long list never asks the data provider for everything at once.
 const PICKS_BATCH_SIZE = 24;
-
-
 
 function rowSearchText(row: KaiHomeRenaissanceItem): string {
   return [
@@ -76,6 +72,7 @@ export function RiaPicksList({
   loadQuote,
   toolbarActions,
   news = [],
+  loadCompanyNews,
 }: {
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
@@ -89,7 +86,9 @@ export function RiaPicksList({
   loadQuote?: StockQuoteLoader;
   toolbarActions?: ReactNode;
   news?: KaiHomeNewsItem[];
+  loadCompanyNews?: (symbol: string, signal: AbortSignal) => Promise<KaiHomeNewsItem[]>;
 }) {
+  useMarketCurrency();
   const isMobile = useIsMobile();
   void controlMode;
   const [selectedSeed, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
@@ -108,7 +107,6 @@ export function RiaPicksList({
     onSelectedSymbolChange?.(selectedRow?.symbol ?? null);
     return () => onSelectedSymbolChange?.(null);
   }, [onSelectedSymbolChange, selectedRow?.symbol]);
-
 
   const availableSources = useMemo<KaiHomePickSource[]>(
     () =>
@@ -348,7 +346,7 @@ export function RiaPicksList({
           onAnalyze(symbol);
         }}>Analyze {selectedRow.symbol}</Button></div> : undefined}
       >
-        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} /> : null}
+        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} loadCompanyNews={loadCompanyNews} /> : null}
       </KaiControlSurface>
     </div>
   );

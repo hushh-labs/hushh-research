@@ -97,6 +97,24 @@ export const PLACE_CATEGORIES: Array<{
   { value: "other", label: "More" },
 ];
 
+export type CheckedInPlaceCategory = Exclude<OneLocationNearbyPlaceCategory, "all">;
+
+export function normalizeCheckedInPlaceCategory(value: unknown): CheckedInPlaceCategory | null {
+  const category = PLACE_CATEGORIES.find((option) => option.value !== "all" && option.value === value);
+  return category ? category.value as CheckedInPlaceCategory : null;
+}
+
+export function checkedInPlaceCategory(categories: unknown): CheckedInPlaceCategory | null {
+  if (!Array.isArray(categories)) return null;
+  // Cafés can also belong to Food. Keep the more specific cup icon.
+  if (categories.includes("cafes")) return "cafes";
+  for (const category of categories) {
+    const normalized = normalizeCheckedInPlaceCategory(category);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export const NEARBY_RADIUS_METERS = 500;
 
 export function normalizeAutomaticPlaces(

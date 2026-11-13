@@ -20,9 +20,9 @@ Owned repo surfaces:
 
 1. `contracts/kai`
 2. `consent-protocol/hushh_mcp/services/action_gateway.py`
-3. `docs/reference/one/one-voice-runtime-architecture.md`
-4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
-5. `docs/reference/kai`
+3. `docs/architecture/one/one-voice-runtime-architecture.md`
+4. `docs/architecture/one/one-voice-kai-compatibility-runtime.md`
+5. `docs/architecture/finance`
 6. `hushh-webapp/lib/voice`
 7. `hushh-webapp/scripts/voice`
 8. `hushh-webapp/components/kai`
@@ -54,10 +54,10 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/kai/kai-action-gateway-vnext.md`
-2. `docs/reference/one/one-voice-runtime-architecture.md`
-3. `docs/reference/one/one-agent-hierarchy.md`
-4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
+1. `docs/architecture/finance/kai-action-gateway-vnext.md`
+2. `docs/architecture/one/one-voice-runtime-architecture.md`
+3. `docs/architecture/one/one-agent-hierarchy.md`
+4. `docs/architecture/one/one-voice-kai-compatibility-runtime.md`
 5. `.agents/skills/one-voice-governance/references/voice-review-checklist.md`
 
 ## Workflow
@@ -69,7 +69,7 @@ Non-owned surfaces:
 5. Treat One Voice as the product-facing voice contract; keep Kai-era voice routes as compatibility/runtime identifiers until explicitly migrated.
 6. Author workflows only when the UI can move through the same prerequisite chain with settlement between steps.
 7. Treat persona, workspace, vault, consent, onboarding, rollout, and kill-switch gates as hard preconditions.
-8. Keep shared-runtime context consent-scoped and out of plaintext storage. Durable owner-isolated pod experience follows `docs/reference/architecture/private-agent-north-star.md`; it must not become a second PKM authority.
+8. Keep shared-runtime context consent-scoped and out of plaintext storage. Durable owner-isolated pod experience follows `docs/product/principles/private-agent-requirements.md`; it must not become a second PKM authority.
 9. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
 10. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
 11. Route changes that affect any voice-reachable screen must update `deriveVoiceRouteScreen`, local `.voice-action-contract.json` reachability/targets, generated gateway artifacts, typed-search parity, and One Voice context snapshot expectations in the same change.

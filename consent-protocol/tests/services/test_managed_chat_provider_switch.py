@@ -248,7 +248,7 @@ async def test_configured_vertex_chat_preserves_completed_history_signatures_and
 
     vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
     assert vertex.primary_provider == "vertex"
-    assert vertex.model == native.model == "gemini-4-carbon" and vertex.allow_fallback is False
+    assert vertex.model == native.model == "gemini-3.8-flash" and vertex.allow_fallback is False
     sessions = InMemorySessionService()
     session = await sessions.create_session(
         app_name="provider_switch", user_id="synthetic", session_id="conversation"
@@ -356,6 +356,63 @@ async def test_vertex_chat_rechecks_each_delta_and_closes_only_its_owned_model(
         cleanup.assert_awaited_once_with(native)
     else:
         cleanup.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "outcome", ["recovers", "exhausted", "after_output", "during_authority", "slow_authority"]
+)
+async def test_one_vertex_root_retries_a_timeout_only_before_receiving_a_response(
+    monkeypatch, caplog, outcome, advance_model_clock
+):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    calls = []
+    provider_yielded = False
+
+    async def current():
+        if provider_yielded and outcome == "during_authority":
+            raise TimeoutError("owner revalidation stalled")
+        if provider_yielded and outcome == "slow_authority":
+            await advance_model_clock(0.15)
+
+    async def generate(req, stream=False):
+        nonlocal provider_yielded
+        calls.append(req)
+        if outcome == "exhausted" or (outcome == "recovers" and len(calls) == 1):
+            await asyncio.Event().wait()
+        if outcome in {"after_output", "during_authority"}:
+            provider_yielded = True
+            yield LlmResponse(
+                content=types.Content(parts=[types.Part(text="partial")]), partial=True
+            )
+            raise TimeoutError("stream stalled")
+        if outcome == "slow_authority":
+            await advance_model_clock(0.20)
+            provider_yielded = True
+        yield LlmResponse(content=types.Content(parts=[types.Part(text="ready")]))
+
+    native = SimpleNamespace(model="gemini-3.8-flash", generate_content_async=generate)
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", Mock(return_value=native))
+    monkeypatch.setattr(lifecycle, "close_owned_adk_model", AsyncMock())
+    model = managed.build_managed_text_model(scope="one_text_chat", require_current=current)
+    assert not model.retry_vertex_timeout
+    root = managed.one_chat_root_model(model).model_copy(update={"primary_seconds": 0.5})
+    source = root.generate_content_async(request(), stream=True)
+    with caplog.at_level("INFO", logger=managed.__name__):
+        if outcome in {"recovers", "slow_authority"}:
+            assert [response.content.parts[0].text async for response in source] == ["ready"]
+        else:
+            if outcome == "after_output":
+                assert (await anext(source)).content.parts[0].text == "partial"
+            with pytest.raises(TimeoutError):
+                await anext(source)
+
+    retries = int(outcome in {"recovers", "exhausted"})
+    assert len(calls) == 1 + retries
+    assert caplog.text.count("managed_text.retry ") == retries
+    assert all(call.model == "gemini-3.8-flash" for call in calls)
+    if retries:
+        assert calls[0] is not calls[1]
+        assert calls[0].contents == calls[1].contents
 
 
 @pytest.mark.parametrize("scope", ["drive_document_requests", "one_text_chat"])

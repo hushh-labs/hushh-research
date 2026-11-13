@@ -8,21 +8,6 @@ import {
 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { useIsMobile } from "@/hooks/use-mobile";
 // Search is provided globally via Kai layout (bottom bar)
 import {
   KaiHistoryService,
@@ -30,7 +15,6 @@ import {
   type AnalysisHistoryMap,
 } from "@/lib/services/kai-history-service";
 import { AnalysisHistoryList } from "./analysis-history-list";
-import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import type { HistoryEntryWithVersion } from "./columns";
 import { toast } from "sonner";
 import {
@@ -60,7 +44,6 @@ import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboa
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { DebateReadinessChart } from "@/components/kai/charts/debate-readiness-chart";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
-import { VersionOptions } from "./analysis-history-version-options";
 import {
   getTickerUniverseSnapshot,
   preloadTickerUniverse,
@@ -664,7 +647,6 @@ export function AnalysisHistoryDashboard({
   showDebateInputs = true,
   ephemeralEntry,
 }: AnalysisHistoryDashboardProps) {
-  const isMobile = useIsMobile();
   const [entries, setEntries] = useState<HistoryEntryWithVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [debateSnapshot, setDebateSnapshot] = useState<DebateInputsSnapshot | null>(null);
@@ -672,8 +654,6 @@ export function AnalysisHistoryDashboard({
 
   const [historyMap, setHistoryMap] = useState<AnalysisHistoryMap>({});
   const historyMapRef = useRef<AnalysisHistoryMap>({});
-  const [versionsOpen, setVersionsOpen] = useState(false);
-  const [versionsTicker, setVersionsTicker] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteAction>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
 
@@ -891,40 +871,12 @@ export function AnalysisHistoryDashboard({
   }, [pendingDelete, deleteInFlight, executeDeleteEntry, executeDeleteTicker]);
 
   // ----- Columns -----
-  const closeVersions = useCallback(() => {
-    setVersionsOpen(false);
-    setVersionsTicker(null);
-  }, []);
-
-  const openVersions = useCallback((
-    ticker: string,
-    _event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
-  ) => {
-    setVersionsTicker(ticker);
-    setVersionsOpen(true);
-  }, []);
-
-
-
-  const versionsForTicker: HistoryEntryWithVersion[] = useMemo(() => {
-    if (!versionsTicker) return [];
-    const list = historyMap[versionsTicker] || [];
-
-    // Oldest -> newest for version numbering
-    const sortedAsc = [...list].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-
-    const withVersions = sortedAsc.map((entry, index) => ({
-      ...entry,
-      version: index + 1,
-    }));
-
-    // Show newest first in the modal
-    return withVersions.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-  }, [historyMap, versionsTicker]);
+  const versionsFor = useCallback((ticker: string): HistoryEntryWithVersion[] => {
+    const key = normalizeTickerKey(historyMap, ticker);
+    const list = key ? historyMap[key] ?? [] : [];
+    return [...list].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+      .map((entry, index) => ({ ...entry, version: index + 1 })).reverse();
+  }, [historyMap]);
 
   useEffect(() => {
     if (userId && vaultKey) {
@@ -982,7 +934,7 @@ export function AnalysisHistoryDashboard({
   // ----- Populated state -----
   return (
     <div className="w-full space-y-3">
-      <AnalysisHistoryList entries={entries} onOpen={onViewHistory} onVersions={openVersions}
+      <AnalysisHistoryList entries={entries} onOpen={onViewHistory} versionsFor={versionsFor}
         onDelete={handleDeleteEntry} onDeleteTicker={handleDeleteTicker} />
 
       {showDebateInputs ? (
@@ -993,48 +945,6 @@ export function AnalysisHistoryDashboard({
           historyTickers={historyTickers}
         />
       ) : null}
-
-      {isMobile ? (
-        <Sheet open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>
-          <SheetContent side="bottom" className={`${financeStyles.detail} rounded-t-3xl p-0 sm:mx-auto sm:max-w-md`}>
-            <SheetHeader className="border-b border-border/60 px-5 py-4 text-left">
-              <SheetTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</SheetTitle>
-              <SheetDescription>Choose a saved version to review.</SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-[calc(1rem+var(--app-safe-area-bottom-effective))] pt-3">
-              <VersionOptions
-                entries={versionsForTicker}
-                onDeleteAll={versionsTicker ? () => handleDeleteTicker(versionsTicker) : undefined}
-                onOpen={(entry) => {
-                  onViewHistory(entry);
-                  closeVersions();
-                }}
-                onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>
-          <DialogContent className={`${financeStyles.detail} w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md`}>
-            <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
-              <DialogTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</DialogTitle>
-              <DialogDescription>Choose a saved version to review.</DialogDescription>
-            </DialogHeader>
-            <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-3">
-              <VersionOptions
-                entries={versionsForTicker}
-                onDeleteAll={versionsTicker ? () => handleDeleteTicker(versionsTicker) : undefined}
-                onOpen={(entry) => {
-                  onViewHistory(entry);
-                  closeVersions();
-                }}
-                onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
 
       <AlertDialog
         open={Boolean(pendingDelete)}

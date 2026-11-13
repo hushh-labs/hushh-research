@@ -209,7 +209,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     vi.setSystemTime(new Date("2026-08-11T00:00:00Z"));
     receivedGrantsFixture = [
       { ...receivedGrantsFixture[0], expiresAt: "2026-08-10T00:00:01Z" },
-      { ...receivedGrantsFixture[0], id: "still-live", expiresAt: "2026-08-10T01:00:00Z" },
+      { ...receivedGrantsFixture[0], id: "still-live", ownerUserId: "other-sender-user", expiresAt: "2026-08-10T01:00:00Z" },
     ];
     const { result, rerender } = renderHook(() => useFeedActionables());
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });

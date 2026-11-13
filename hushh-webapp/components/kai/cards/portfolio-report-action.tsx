@@ -12,6 +12,7 @@ import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource }: {
   model: DashboardViewModel; source: string; period: string; disabled?: boolean; busy?: boolean; onExport: () => void;
   sharingSource?: FinanceSource;
@@ -23,7 +24,7 @@ export function PortfolioReportAction({ model, source, period, disabled, busy, o
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
   const visible = open && active;
   useBackLayer(pathname, visible ? 1 : 0, () => { setOpen(false); return true; }, pathname === "/one/kai" ? { tab: "portfolio" } : undefined);
-  const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  const { format: money } = useMarketCurrency();
   return <>
     <div className="flex items-center gap-2">
       {sharingSource ? <ShellActionSurface variant="icon" aria-label="Share Finance with connections" disabled={busy} onClick={() => setSharing(true)}><Share2 className="h-4 w-4" /></ShellActionSurface> : null}

@@ -210,6 +210,9 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
     "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
+    "website_pwm_worker_audience": "WEBSITE_PWM_WORKER_AUDIENCE",
+    "website_pwm_worker_identity": "WEBSITE_PWM_WORKER_IDENTITY",
+    "website_pwm_grant_url": "WEBSITE_PWM_GRANT_URL",
     "one_todo_suggestions_enabled": "ONE_TODO_SUGGESTIONS_ENABLED",
     "one_magic_intelligence_phase": "ONE_MAGIC_INTELLIGENCE_PHASE",
     "one_magic_intelligence_inner_team_emails": "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
@@ -549,7 +552,7 @@ def personal_agent_backend() -> str:
 
 # Dev-team-sized fleet ceiling. Deliberately small: every signed-in user gets a
 # pod (founder decision), so the ceiling -- not an eligibility allowlist -- is the
-# cost containment. See docs/reference/architecture/private-agent-north-star.md.
+# cost containment. See docs/product/principles/private-agent-requirements.md.
 _PERSONAL_AGENT_MAX_PODS_DEFAULT = 50
 
 
@@ -923,7 +926,7 @@ def pod_hub_identity_auth_enabled() -> bool:
     The same flag gates the cloud-neutral signed path (``pod_request_verifier``),
     whose per-pod Ed25519 key does distinguish pods; it needs dev-only migration 947.
 
-    See ``docs/future/personal-agent/POD-HUB-DATA-PATH.md``.
+    See ``docs/roadmap/personal-agent/pod-hub-data-path.md``.
     """
     return _bool_from_value(_clean_env("POD_HUB_IDENTITY_AUTH_ENABLED"), default=False)
 
@@ -997,7 +1000,7 @@ def pod_agent_memory_enabled() -> bool:
     ``resolve_pod_memory_service`` checks ``pod_mode()`` before this flag.
 
     Memory is the agent-experience layer, not an information authority: PKM remains the
-    zero-knowledge system of record. See docs/future/personal-agent/ARCHITECTURE.md §7a."""
+    zero-knowledge system of record. See docs/architecture/modules/memory.md."""
     return _bool_from_value(_clean_env("POD_AGENT_MEMORY_ENABLED"), default=False)
 
 

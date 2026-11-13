@@ -166,7 +166,7 @@ Expected coding-agent lifecycle:
 The tool metadata intentionally tells the model only the lifecycle and custody
 boundary. The actual envelope-v2 decryption routine belongs to the trusted
 connector process, using the reference implementation in
-[`reference/developer-api.md`](./reference/developer-api.md#decrypt-an-encrypted-export-locally).
+[`reference/developer-api.md`](./reference/developer-api.md#client-side-connector-example).
 For `continuous_until_expiry`, retain the connector private key in local secure
 storage so later authorized export revisions can be decrypted. Never put that
 key in a prompt, chat message, tool argument or result, MCP configuration, or

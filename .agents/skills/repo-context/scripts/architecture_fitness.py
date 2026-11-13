@@ -236,7 +236,7 @@ def build_report(paths: Iterable[Path] | None = None) -> dict:
     )
     return {
         "status": "advisory",
-        "doctrine": "docs/vision/bacterial-software-architecture.md",
+        "doctrine": "docs/architecture/engineering-principles.md",
         "budgets": {
             "module_lines": MODULE_LINE_BUDGET,
             "class_lines": CLASS_LINE_BUDGET,

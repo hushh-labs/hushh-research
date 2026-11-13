@@ -1,6 +1,6 @@
 """Bounded final graph qualification; each statement has one authority snapshot."""
 
-from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+from hushh_mcp.services.connection_mutuals import PAGE_MUTUAL_CONNECTIONS_SQL
 from hushh_mcp.services.directory_candidate_statement import DIRECTORY_PROFILE_ELIGIBILITY_SQL
 
 QUALIFIED_DEGREES_SQL = """
@@ -56,7 +56,6 @@ SELECT peer.user_id,
       THEN 1 ELSE 2 END AS degree
 FROM actor_profiles target CROSS JOIN actor_profiles peer
 WHERE target.user_id = :target AND target.public_profile_status = 'active'
-  AND target.connection_list_shared = TRUE
   AND peer.user_id = ANY(CAST(:target_peer_ids AS TEXT[])) AND peer.public_profile_status = 'active'
   AND EXISTS (SELECT 1 FROM connections direct WHERE direct.status = 'active'
       AND ((direct.user_a_id = :viewer AND direct.user_b_id = :target)
@@ -72,14 +71,14 @@ WHERE target.user_id = :target AND target.public_profile_status = 'active'
 
 # Only static, module-owned SQL fragments are composed here; values remain bound parameters.
 QUALIFIED_SUMMARY_SQL = f"""
-WITH qualified AS ({QUALIFIED_DEGREES_SQL}), mutual AS ({MUTUAL_CONNECTIONS_SQL})
+WITH qualified AS ({QUALIFIED_DEGREES_SQL}), mutual AS ({PAGE_MUTUAL_CONNECTIONS_SQL})
 SELECT p.connection_list_shared,
        (SELECT degree FROM qualified WHERE user_id = :target) AS degree,
        EXISTS (SELECT 1 FROM qualified WHERE overflow) AS overflow,
-       COALESCE(m.mutual_count, 0) AS mutual_count, m.preview_user_id,
-       EXISTS (SELECT 1 FROM actor_profiles peer WHERE peer.user_id = :preview
-                 AND peer.public_profile_status = 'active') AS preview_active,
-       CASE WHEN p.connection_list_shared AND CAST(:target_peer_ids AS TEXT[]) IS NOT NULL THEN (
+       COALESCE(m.mutual_count, 0) AS mutual_count, m.preview_user_ids,
+       (SELECT COUNT(*) FROM actor_profiles peer WHERE peer.user_id = ANY(CAST(:previews AS TEXT[]))
+                 AND peer.public_profile_status = 'active') AS previews_active,
+       CASE WHEN CAST(:target_peer_ids AS TEXT[]) IS NOT NULL THEN (
            SELECT LEAST(COUNT(*), :connection_count_limit)
            FROM ({QUALIFIED_TARGET_ROWS_SQL}) shared
            JOIN actor_profiles profile ON profile.user_id = shared.user_id

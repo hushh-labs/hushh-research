@@ -35,7 +35,7 @@ grant read without a receipt.
 Sections: [core concepts](#2-core-concepts) · [auth](#3-identity--auth) ·
 [integration paths](#4-the-two-integration-paths) ·
 [scopes](#5-scopes-reference) · [receipts](#6-receipts--verification) ·
-[privacy signals](#7-privacy-signals) ·
+[privacy signals](#7-privacy-signals--the-cookie-banner-replacement) ·
 [limits & errors](#8-rate-limits--error-codes) · [for agents](#9-for-ai-agents).
 
 ## 1. What it is
@@ -279,7 +279,7 @@ plus a READ receipt.
 Fields absent from the current PWM are simply omitted — the subscriber receives
 only what exists now, at its current value. If privacy scopes were granted, the
 response also carries a `privacy_signals` block; see
-[§7, Privacy signals](#7-privacy-signals).
+[§7, Privacy signals](#7-privacy-signals--the-cookie-banner-replacement).
 
 **Step 3 — Owner revokes at any time.**
 

@@ -3,7 +3,7 @@
   "surface_id": "ria_picks",
   "surface_title": "RIA Picks Workspace",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "defaults": {
     "reachability": {

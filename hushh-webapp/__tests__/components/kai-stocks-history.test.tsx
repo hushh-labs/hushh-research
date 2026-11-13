@@ -5,7 +5,6 @@ import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { AnalysisHistoryList } from "@/components/kai/views/analysis-history-list";
-import { VersionOptions } from "@/components/kai/views/analysis-history-version-options";
 import { KaiStocksView } from "@/components/kai/views/kai-stocks-view";
 
 const state = vi.hoisted(() => ({
@@ -103,24 +102,21 @@ describe("Stocks history intent", () => {
 });
 
 
-it("opens the latest saved analysis directly while Versions and delete keep their own actions", () => {
+it("opens versions from a dropdown and keeps deletion in the actions menu", () => {
   const entry = { ticker: "TEST", timestamp: "2026-10-20T14:00:00Z", decision: "hold", confidence: 0.8, consensus_reached: true, agent_votes: {}, final_statement: "Saved analysis", raw_card: {}, version: 2, companyName: "Test Company" };
-  const onOpen = vi.fn(), onVersions = vi.fn(), onDelete = vi.fn(), onDeleteTicker = vi.fn();
-  const { unmount } = render(<AnalysisHistoryList entries={[entry]} onOpen={onOpen} onVersions={onVersions} onDelete={onDelete} onDeleteTicker={onDeleteTicker} />);
+  const previous = { ...entry, timestamp: "2026-10-19T14:00:00Z", version: 1 };
+  const onOpen = vi.fn(), onDelete = vi.fn(), onDeleteTicker = vi.fn();
+  render(<AnalysisHistoryList entries={[entry]} onOpen={onOpen} versionsFor={() => [entry, previous]} onDelete={onDelete} onDeleteTicker={onDeleteTicker} />);
   fireEvent.click(screen.getByRole("button", { name: "Open TEST analysis" }));
   expect(onOpen).toHaveBeenCalledWith(entry);
-  fireEvent.click(screen.getByRole("button", { name: "Versions for TEST" }));
-  expect(onVersions).toHaveBeenCalledWith("TEST");
-  expect(onOpen).toHaveBeenCalledTimes(1);
-  unmount();
-  render(<VersionOptions entries={[entry]} onOpen={onOpen} onDelete={onDelete} onDeleteAll={() => onDeleteTicker("TEST")} />);
-  fireEvent.click(screen.getByRole("button", { name: "Delete this version" }));
+  fireEvent.keyDown(screen.getByRole("button", { name: "Versions for TEST" }), { key: "Enter" });
+  expect(screen.queryByText("Delete this version")).toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: /Version 1/ }));
+  expect(onOpen).toHaveBeenLastCalledWith(previous);
+  fireEvent.keyDown(screen.getByRole("button", { name: "Actions for TEST" }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete this version" }));
   expect(onDelete).toHaveBeenCalledWith(entry);
-  expect(onOpen).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole("button", { name: "Delete all versions" }));
-  expect(onDeleteTicker).toHaveBeenCalledWith("TEST");
 });
-
 
 it("previews a report before export and closes its local layer before route Back", () => {
   state.params = new URLSearchParams("tab=portfolio");

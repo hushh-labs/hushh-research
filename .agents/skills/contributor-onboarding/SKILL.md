@@ -21,7 +21,7 @@ Owned repo surfaces:
 1. `README.md`
 2. `contributing.md`
 3. `.devcontainer`
-4. `docs/guides/getting-started.md`
+4. `docs/development/guides/getting-started.md`
 5. `scripts/env`
 6. `consent-protocol/README.md`
 7. `consent-protocol/CONTRIBUTING.md`
@@ -51,7 +51,7 @@ Non-owned surfaces:
 
 1. `README.md`
 2. `contributing.md`
-3. `docs/guides/getting-started.md`
+3. `docs/development/guides/getting-started.md`
 4. `scripts/env/bootstrap.sh`
 5. `scripts/env/bootstrap_profiles.sh`
 6. `scripts/env/doctor.sh`

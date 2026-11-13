@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Any, Callable
 import urllib.error
 import urllib.request
@@ -32,6 +33,27 @@ class Refused(RuntimeError):
     """Unavailable or mismatched authority is never a passing scan."""
 
 
+class UnavailableRead(Refused):
+    """A failed read returned no authority evidence; denial remains distinct."""
+
+    def __init__(self, status=None):
+        self.status = status
+        detail = f"HTTP {status}" if status is not None else "transport"
+        super().__init__(f"GitHub authority read unavailable ({detail})")
+
+
+def retry_read(operation):
+    """At most three reads for server errors; never retry evidence or mutation."""
+    for attempt in range(3):
+        try:
+            return operation()
+        except UnavailableRead as error:
+            if error.status not in {500, 502, 503, 504} or attempt == 2:
+                raise
+            print(f"GitHub read retry: HTTP {error.status}, attempt {attempt + 2}/3", file=sys.stderr)
+            time.sleep(attempt + 1)
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         fp.close()
@@ -50,6 +72,9 @@ class GitHub:
         return self.read_page(path)[0]
 
     def read_page(self, path: str) -> tuple[Any, str]:
+        return retry_read(lambda: self._read_page(path))
+
+    def _read_page(self, path: str) -> tuple[Any, str]:
         root = f"repos/{self.repository}"
         if path != root and not path.startswith(root + "/"):
             raise Refused("GitHub request left its repository")
@@ -69,6 +94,8 @@ class GitHub:
                 links = response.headers.get("Link", "")
         except urllib.error.HTTPError as error:
             error.close()
+            if error.code in {500, 502, 503, 504}:
+                raise UnavailableRead(error.code) from None
             raise Refused(f"GitHub authority unavailable (HTTP {error.code})") from None
         except (urllib.error.URLError, TimeoutError):
             raise Refused("GitHub authority request failed") from None

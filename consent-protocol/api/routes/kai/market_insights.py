@@ -21,6 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from hushh_mcp.market_data import india_market
+from hushh_mcp.market_data.fx_rate import fetch_usd_inr_rate
 from hushh_mcp.market_data.india_market import assemble_india_payload, load_india_home
 from hushh_mcp.market_data.movers import (
     MIN_MOVERS,
@@ -1958,6 +1960,7 @@ def _build_market_overview(
             "source": str(quote.get("source") or "Unavailable"),
             "degraded": degraded or bool(quote.get("is_stale")),
             "sparkline": quote.get("sparkline") or sparklines.get(symbol) or None,
+            "sparkline_points": quote.get("sparkline_points") if quote.get("sparkline") else None,
         }
 
     out = [
@@ -3140,19 +3143,112 @@ async def get_market_company_facts(
     return {"facts": dict(await asyncio.gather(*(load(symbol) for symbol in requested)))}
 
 
+USD_INR_FRESH_TTL_SECONDS = 6 * 60 * 60
+# Long on purpose: a rate-limited provider keeps serving the last good rate for two weeks
+# rather than dropping the India display mode back to dollars.
+USD_INR_STALE_TTL_SECONDS = 14 * 24 * 60 * 60
+
+
+async def _get_usd_inr_rate() -> dict[str, Any]:
+    value, stale, age_seconds, *_ = await _get_or_refresh_public_module(
+        key="fx:usd_inr:v1",
+        fresh_ttl_seconds=USD_INR_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=USD_INR_STALE_TTL_SECONDS,
+        fetcher=fetch_usd_inr_rate,
+        warm_source="fx_usd_inr",
+    )
+    return {**value, "stale": stale, "cache_age_seconds": age_seconds}
+
+
+@router.get("/market/fx/usd-inr/{user_id}")
+async def get_market_usd_inr_rate(
+    user_id: _UserId,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Rupees per dollar for the India display mode, with the day it was quoted.
+
+    Public market data, never derived from a person's vault. With no cached rate and the
+    provider down it answers 503, so the client keeps showing dollars instead of a guess.
+    """
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        return await _get_usd_inr_rate()
+    except Exception as exc:
+        logger.warning("[Kai Market] USD/INR rate unavailable: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Exchange rate unavailable.") from exc
+
+
 INDIA_HOME_FRESH_TTL_SECONDS = 300
 INDIA_HOME_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
+# Movers have their own cache entry so a rate-limited refresh never overwrites the last good
+# list: the stale copy is served until a refresh succeeds.
+INDIA_MOVERS_FRESH_TTL_SECONDS = 300
+INDIA_MOVERS_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+INDIA_MOVERS_KEY = "india_movers:v1"
+
+
+async def _refresh_india_movers() -> dict[str, Any]:
+    """Fetch the NSE movers, but never replace a complete list with a thin one.
+
+    A rate-limited round answers for only some of the names, and a list with fewer than three
+    gainers or losers would overwrite the last complete one. Raising keeps that list served from
+    the cache, the same rule the US movers follow, so the card always has real entries.
+    """
+    value = await india_market.fetch_india_movers()
+    if complete_movers(value):
+        return value
+    previous: Any = market_insights_cache.peek(INDIA_MOVERS_KEY)
+    previous_value = previous.value if previous else None
+    if previous_value is None:
+        try:
+            entry = await get_market_cache_store_service().get_entry(INDIA_MOVERS_KEY)
+            previous_value = entry.payload if entry else None
+        except Exception:
+            previous_value = None
+    if previous_value is not None and complete_movers(previous_value):
+        raise RuntimeError("india_movers_incomplete_refresh")
+    return value
 
 
 async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, Any]:
     """India market view. Its cache key is outside every US-gated prefix on purpose:
     NSE hours never overlap the US session, so a US-closed pause would freeze it."""
 
+    async def movers() -> dict[str, Any]:
+        value, *_ = await _get_or_refresh_public_module(
+            key=INDIA_MOVERS_KEY,
+            fresh_ttl_seconds=INDIA_MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=INDIA_MOVERS_STALE_TTL_SECONDS,
+            fetcher=_refresh_india_movers,
+            warm_source="india_market",
+        )
+        return dict(value)
+
+    async def news() -> list[dict[str, Any]]:
+        async def fetch() -> list[dict[str, Any]]:
+            rows = await india_market.fetch_india_news(days_back)
+            if not rows:
+                raise RuntimeError("india_news_empty")
+            return rows
+
+        value, *_ = await _get_or_refresh_public_module(
+            key=f"india_news:v1:{days_back}",
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=24 * 60 * 60,
+            fetcher=fetch,
+            warm_source="india_market",
+        )
+        return list(value)
+
     async def build() -> dict[str, Any]:
         loaded = await load_india_home(
             days_back,
             lambda: _fetch_market_status_for_exchange("NS"),
             lambda: _scheduled_market_status_fallback("NS"),
+            movers,
+            news,
         )
         base = _empty_market_home_payload(
             user_id=user_id,
@@ -3185,6 +3281,12 @@ async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, A
         empty["market_overview"] = [_scheduled_market_status_fallback("NS")]
         return empty
     result = dict(value)
+    # News has a separate cache and retry lifecycle: a temporary news failure
+    # must not be frozen inside an otherwise healthy aggregate for five minutes.
+    try:
+        result["news_tape"] = await news()
+    except Exception:
+        pass  # Preserve the aggregate's last available rows and provider status.
     result["stale"] = bool(result.get("stale")) or stale
     result["meta"] = {
         **result.get("meta", {}),
@@ -3345,6 +3447,7 @@ async def get_market_news(
         le=NEWS_FEED_PAGE_MAX,
     ),
     token_data: dict = Depends(hub_content_owner),
+    market: Literal["US", "IN"] = "US",
 ) -> dict[str, Any]:
     """Read one cursor page from a vault-owner's bounded market-news snapshot."""
     if token_data["user_id"] != user_id:
@@ -3358,6 +3461,31 @@ async def get_market_news(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid consent token",
         )
+    if market == "IN":
+        symbol = (symbols or "").strip().upper()
+        if symbol not in india_market.NSE_LARGE_CAPS or cursor:
+            raise HTTPException(status_code=422, detail="Select a supported NSE stock.")
+
+        async def fetch_india_company_news() -> list[dict[str, Any]]:
+            return await india_market.fetch_india_news(days_back, symbol=symbol)
+
+        rows, stale, age, tier, hit = await _get_or_refresh_public_module(
+            key=f"india_company_news:v1:{symbol}:{days_back}",
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=24 * 60 * 60,
+            fetcher=fetch_india_company_news,
+            warm_source="india_market",
+        )
+        return {
+            "items": rows[:limit],
+            "next_cursor": None,
+            "has_more": False,
+            "snapshot_id": f"india:{symbol}",
+            "generated_at": _now_iso(),
+            "stale": stale,
+            "cache": {"tier": tier, "age_seconds": age, "hit": hit},
+            "provider_status": {"india_news": "partial" if stale else "ok"},
+        }
     return await _get_market_news_feed_page(
         user_id=user_id,
         symbols=_select_news_symbols(symbols),

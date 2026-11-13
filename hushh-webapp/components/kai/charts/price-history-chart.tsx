@@ -6,15 +6,16 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, CHART_ANIMATION_ACTI
 import { normalizePriceHistory, priceHistoryRanges, slicePriceHistory, PRICE_RANGE_LABELS, type PriceHistoryPoint, type PriceRange } from "@/lib/kai/price-history";
 import { cn } from "@/lib/utils";
 
-const money = (value: number, compact = false) => new Intl.NumberFormat("en-US", {
-  style: "currency", currency: "USD", notation: compact ? "compact" : "standard", maximumFractionDigits: compact ? 1 : 2,
-}).format(value);
-const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: date.length === 10 ? "UTC" : "America/New_York" }).format(new Date(date));
+import { formatDisplayMoney } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 
 /** Shared, non-smoothed area chart: never manufactures candles or a trend. */
-export function PriceHistoryChart({ data, label, height = 248 }: {
-  data: PriceHistoryPoint[]; label: string; height?: number;
+export function PriceHistoryChart({ data, label, height = 248, currency = "USD", timeZone = "America/New_York" }: {
+  data: PriceHistoryPoint[]; label: string; height?: number; currency?: "USD" | "INR"; timeZone?: string;
 }) {
+  useMarketCurrency();
+  const money = (value: number, compact = false) => formatDisplayMoney(value, { source: currency, notation: compact ? "compact" : "standard", maximumFractionDigits: compact ? 1 : 2 });
+  const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: date.length === 10 ? "UTC" : timeZone }).format(new Date(date));
   const fillId = `price-${useId().replace(/:/g, "")}`;
   const points = useMemo(() => normalizePriceHistory(data), [data]);
   const ranges = useMemo<PriceRange[]>(() => [...priceHistoryRanges(points), "all"], [points]);
@@ -39,12 +40,12 @@ export function PriceHistoryChart({ data, label, height = 248 }: {
       {ranges.map(option => <button key={option} type="button" aria-pressed={selectedRange === option}
         onClick={() => setRange(option)} className={cn("min-h-11 min-w-11 rounded-full px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selectedRange === option ? "bg-accent-surface text-accent-strong" : "text-muted-foreground hover:bg-muted")}>{PRICE_RANGE_LABELS[option]}</button>)}
     </div>
-    <ChartContainer config={{ value: { label: "USD", color } }} className="aspect-auto w-full" style={{ height }}>
+    <ChartContainer config={{ value: { label: currency, color } }} className="aspect-auto w-full" style={{ height }}>
       <AreaChart data={visible} accessibilityLayer margin={{ top: 12, right: 0, left: 2, bottom: 0 }}>
         <defs><linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity={0.24} /><stop offset="100%" stopColor={color} stopOpacity={0.01} /></linearGradient></defs>
         <CartesianGrid vertical={false} strokeDasharray="3 4" />
         <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={36} tickMargin={10}
-          tickFormatter={date => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: String(date).length === 10 ? "UTC" : "America/New_York" }).format(new Date(date))} />
+          tickFormatter={date => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: String(date).length === 10 ? "UTC" : timeZone }).format(new Date(date))} />
         <YAxis orientation="right" tickLine={false} axisLine={false} width={62} tickCount={4}
           domain={([min, max]: [number, number]) => { const padding = Math.max((max - min) * 0.12, max * 0.001); return [Math.max(0, min - padding), max + padding]; }}
           tickFormatter={value => money(Number(value), Number(value) >= 10_000)} />
@@ -55,6 +56,6 @@ export function PriceHistoryChart({ data, label, height = 248 }: {
           activeDot={{ r: 4, stroke: "var(--background)", strokeWidth: 2 }} />
       </AreaChart>
     </ChartContainer>
-    <p className="mt-3 text-xs leading-[18px] text-muted-foreground">{dateLabel(first.date)} – {dateLabel(last.date)} · USD · Tap a point or use arrow keys to inspect</p>
+    <p className="mt-3 text-xs leading-[18px] text-muted-foreground">{dateLabel(first.date)} – {dateLabel(last.date)} · {currency} · Tap a point or use arrow keys to inspect</p>
   </section>;
 }

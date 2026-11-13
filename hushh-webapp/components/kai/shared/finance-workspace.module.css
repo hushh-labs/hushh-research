@@ -68,6 +68,16 @@ button.portfolioListRow { min-height: 44px; }
 }
 
 .insightCard { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.performanceDistribution { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.performanceRing { position: relative; width: 112px; height: 112px; flex: none; }
+.performanceRing > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; pointer-events: none; }
+.performanceRing small { font-size: 11px; font-weight: 400; color: var(--muted-foreground); }
+.performanceLegend { flex: 1; min-width: 0; font-size: 12px; line-height: 18px; }
+.performanceLegend > div { display: flex; justify-content: space-between; gap: 8px; padding-block: 3px; }
+.performanceLegend i { display: inline-block; width: 7px; height: 7px; margin-inline-end: 6px; border-radius: 50%; }
+.performanceMovers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.performanceMovers > div { min-width: 0; }
+.performanceMovers > div > span { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
 .cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; }
 .insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .insightFacts { margin: 0; }
@@ -147,8 +157,9 @@ button.interactiveRow::before {
   min-width: 0;
   table-layout: fixed;
 }
-.reviewTable th:first-child { width: 36%; }
-.reviewTable th:last-child { width: 56px; }
+.reviewTable th:nth-child(1) { width: 84px; }
+.reviewTable th:nth-child(2) { width: 30%; }
+.reviewTable th:nth-child(5) { width: 112px; }
 .reviewTable :is(th, td) {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -232,3 +243,16 @@ button.interactiveRow::before {
 .allocationChips { display: flex; flex-wrap: wrap; gap: 6px; }
 .allocationChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 10px; background: var(--muted); font-size: 12px; line-height: 18px; }
 .allocationPager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+
+/* Finance bottom sheets share the RIA handshake frame: 728px wide and centred on desktop, at most
+   94dvh tall, with the close button and header nudged for the drag handle. A sheet that pages
+   between tabs also fixes its height (see .handshakeTabbedSheet); a list sheet sizes to content. */
+.sheetFrame.sheetFrame {
+  width: min(100%, 728px);
+  margin-inline: auto;
+  max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important;
+}
+@media (min-width: 640px) {
+  .sheetFrame.sheetFrame:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; }
+  .sheetFrame.sheetFrame:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 20px; }
+}

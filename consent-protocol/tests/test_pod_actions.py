@@ -10,6 +10,7 @@ before anything is sent, so a repeat confirmation runs nothing.
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime, timedelta
 from email import policy
 from email.parser import BytesParser
 from types import SimpleNamespace
@@ -582,12 +583,14 @@ async def test_linked_calendar_and_gmail_review_settles_each_provider_once(
 )
 async def test_contact_lookup_to_reviewed_calendar_invite(agent, binding_change, monkeypatch):
     _log, tokens, google = agent
+    # Offered openings must remain future appointments whenever CI runs.
+    day = (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
     google.on("GET", PEOPLE_SEARCH, _contact_response)
     lookup_context = h.tool_context()
     lookup_context.invocation_id = "lookup"
     window = {
-        "start_at": "2026-11-13T12:00:00Z",
-        "end_at": "2026-11-13T14:00:00Z",
+        "start_at": f"{day}T12:00:00Z",
+        "end_at": f"{day}T14:00:00Z",
         "duration_minutes": 30,
         "limit": 2,
     }
@@ -616,9 +619,7 @@ async def test_contact_lookup_to_reviewed_calendar_invite(agent, binding_change,
         f"{h.CALENDAR}/freeBusy",
         {
             "calendars": {
-                "primary": {
-                    "busy": [{"start": "2026-11-13T12:30:00Z", "end": "2026-11-13T13:00:00Z"}]
-                }
+                "primary": {"busy": [{"start": f"{day}T12:30:00Z", "end": f"{day}T13:00:00Z"}]}
             }
         },
     )
@@ -702,8 +703,8 @@ async def test_contact_lookup_to_reviewed_calendar_invite(agent, binding_change,
         assert client.post(route, headers=OWNER_SESSION).status_code == 409
     [sent] = google.calls("POST", EVENTS)
     assert h.body(sent)["attendees"] == [{"email": "Priya@example.com"}]
-    assert h.body(sent)["start"]["dateTime"].startswith("2026-11-13T13:00:00")
-    assert h.body(sent)["end"]["dateTime"].startswith("2026-11-13T13:30:00")
+    assert h.body(sent)["start"]["dateTime"].startswith(f"{day}T13:00:00")
+    assert h.body(sent)["end"]["dateTime"].startswith(f"{day}T13:30:00")
     assert sent.url.params["sendUpdates"] == "all"
     assert sent.url.params["conferenceDataVersion"] == "1"
 

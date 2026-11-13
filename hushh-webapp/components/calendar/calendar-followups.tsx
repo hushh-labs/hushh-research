@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import {
-  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, primaryRequest, shortDate,
+  SYNCED_NOTICE, coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, rememberSyncedNotice, reminderText, rowSummary,
+  primaryRequest, shortDate, syncedNoticeSeen,
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
@@ -217,6 +218,17 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // While the first pass is still catching up, check back a few times so new
   // items appear without a manual refresh. Bounded; the scheduler does the work.
   const catchingUp = status?.monitoring_enabled && (status.coverage?.coverage === "catching_up" || status.scan_state === "pending");
+  // "Catching up" ends with one plain "synced" line, shown the first time the
+  // check is seen finished and not again on later loads. Catching up again (new
+  // mail, a rule change) arms it for the next finish.
+  const emailSynced = Boolean(status?.monitoring_enabled && status.scan_state === "complete" && status.coverage?.coverage === "complete");
+  const [showSynced, setShowSynced] = useState(false);
+  useEffect(() => {
+    if (catchingUp) { rememberSyncedNotice(userId, accountId, false); setShowSynced(false); return; }
+    if (!emailSynced || syncedNoticeSeen(userId, accountId)) return;
+    rememberSyncedNotice(userId, accountId, true);
+    setShowSynced(true);
+  }, [catchingUp, emailSynced, userId, accountId]);
   useEffect(() => {
     if (!catchingUp || progressChecks.current >= PROGRESS_CHECKS_MS.length) return;
     const timer = window.setTimeout(() => {
@@ -506,6 +518,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         <span>{notice.text}</span>
         {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
       </div> : null}
+      {!notice && showSynced && emailSynced ? <p className={styles.muted} role="status">{SYNCED_NOTICE}</p> : null}
       {error ? <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
         {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="text" onClick={onViewAll}>View all</Button> : <span />}

@@ -80,7 +80,7 @@ Every founder-facing PDF or print-style artifact must pass these checks before i
 
 Color, accent, and ground come from ONE place: `hushh-webapp/app/globals.css`, resolved
 through the canonical formatter (`hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs`,
-driven by `scripts/reports/export-markdown-pdf.mjs`) for PDFs, and reproduced from the same
+driven by `hushh-webapp/scripts/reports/export-markdown-pdf.mjs`) for PDFs, and reproduced from the same
 token values for a bespoke HTML artifact. Do not hardcode a parallel palette here; a frozen
 hex list drifts from the source the moment `globals.css` changes, and that is exactly the
 defect this section used to be.

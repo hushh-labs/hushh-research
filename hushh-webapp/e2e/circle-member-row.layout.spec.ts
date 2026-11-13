@@ -882,7 +882,9 @@ test.describe("Circle roster row", () => {
       expect(menuBox[0].left).toBeGreaterThan(selectedRow[0].right);
       expect(menuBox[0].width).toBeCloseTo(280, 0);
       for (const action of await boxesOf(page, '[role="menuitem"]')) {
-        expect(action.height).toBeGreaterThanOrEqual(51.99);
+        // One 44px target per action; 52px rows left the two actions loosely spaced.
+        expect(action.height).toBeGreaterThanOrEqual(43.99);
+        expect(action.height).toBeLessThanOrEqual(44.01);
         expect(action.width).toBeCloseTo(menuBox[0].width - 10, 0);
       }
 

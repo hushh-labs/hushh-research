@@ -30,6 +30,75 @@ def test_unready_payout_account_tells_each_person_their_own_next_step(monkeypatc
     assert owner_view.value.code == "ADVISOR_PAYEE_NOT_READY"
 
 
+def test_recommendation_intake_is_four_services_and_never_accepts_private_context():
+    from api.routes.one.advisor_reviews import Discovery
+    from hushh_mcp.services.advisor_matching import SERVICE_ALIASES
+
+    assert len(SERVICE_ALIASES) == 4
+    for service in SERVICE_ALIASES:
+        assert (
+            Discovery.model_validate({"scope": "recommended", "service": service}).service
+            == service
+        )
+    for body in (
+        {"scope": "recommended", "service": "unsure"},
+        {"scope": "recommended", "service": "tax_planning", "portfolio": {"holdings": []}},
+        {"scope": "recommended", "service": "tax_planning", "persona": "careful"},
+    ):
+        with pytest.raises(ValidationError):
+            Discovery.model_validate(body)
+
+
+def test_directory_scopes_forward_names_and_pages_without_nearby_provider(monkeypatch):
+    import asyncio
+    import inspect
+    from unittest.mock import Mock
+
+    from starlette.requests import Request
+
+    from api.routes.one.advisor_reviews import Discovery, discover
+    from hushh_mcp.services import advisor_review_directory as directory
+    from hushh_mcp.services.advisor_directory_service import AdvisorDirectoryService
+
+    nearby = Mock(side_effect=AssertionError("Nearby provider must not be used"))
+    calls = []
+
+    def candidates(viewer, **kwargs):
+        calls.append((viewer, kwargs))
+        return {"items": [], "hasMore": False}
+
+    monkeypatch.setattr(directory, "candidates", candidates)
+    monkeypatch.setattr(AdvisorDirectoryService, "search", nearby)
+    handler = inspect.unwrap(discover)
+    request = Request({"type": "http", "method": "POST", "path": "/candidates", "headers": []})
+    for body in (
+        {"scope": "global", "query": "", "page": 2},
+        {
+            "scope": "recommended",
+            "service": "portfolio_management",
+            "query": "Sharu Khan",
+            "page": 2,
+        },
+    ):
+        result = asyncio.run(handler(request=request, body=Discovery(**body), viewer="owner"))
+        assert result == {"items": [], "hasMore": False, "directory": None}
+    assert calls == [
+        ("owner", {"query": "", "connected": False, "page": 2}),
+        ("owner", {"service": "portfolio_management", "query": "Sharu Khan", "page": 2}),
+    ]
+    nearby.assert_not_called()
+    with pytest.raises(AdvisorReviewError):
+        asyncio.run(
+            handler(
+                request=request,
+                body=Discovery(scope="recommended", service="tax_planning", postalCode="10001"),
+                viewer="owner",
+            )
+        )
+    with pytest.raises(ValidationError):
+        Discovery(scope="recommended", service="tax_planning", query="x" * 101)
+
+
 def request_body():
     return {
         "requestId": str(uuid4()),

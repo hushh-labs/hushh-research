@@ -13,6 +13,7 @@ import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/cha
 import { HoldingEntryList } from "./holding-entry-list";
 import { HoldingGainLoss } from "./holding-gain-loss";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 function money(value: number | null, currency?: string): string {
   return value === null || !Number.isFinite(value) ? "—" : formatCurrency(value, currency);
 }
@@ -38,6 +39,7 @@ interface HoldingDetailsDrawerProps {
   onEditEntry?: (id: string) => void;
   onToggleDeleteEntry?: (id: string) => void;
   onAddEntry?: () => void;
+  onManageEntries?: () => void;
 }
 
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
@@ -61,7 +63,9 @@ export function HoldingDetailsDrawer({
   onEditEntry,
   onToggleDeleteEntry,
   onAddEntry,
+  onManageEntries,
 }: HoldingDetailsDrawerProps) {
+  useMarketCurrency();
   const hasHistory = Boolean(holding && !holding.isCash && holding.identifierType !== "cusip"
     && /^[A-Z][A-Z0-9.-]{0,15}$/.test(holding.symbol));
 
@@ -114,8 +118,11 @@ export function HoldingDetailsDrawer({
                 <DetailRow label="Valuation source" value={holding?.source || "Not supplied by source"} />
                 <DetailRow label={holding?.valuationKind === "statement" ? "Statement as of" : "Price as of"} value={formatObservationDate(holding?.quoteAsOf || holding?.statementAsOf)} />
               </dl>
-              {entries ? <HoldingEntryList entries={entries} editable={canManageHoldings}
-                onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} /> : null}
+              {entries ? <>
+                <HoldingEntryList entries={entries} compact={Boolean(onManageEntries)} editable={canManageHoldings && !onManageEntries}
+                  onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} />
+                {canManageHoldings && onManageEntries ? <div className="flex justify-end px-5 pb-4"><ShellActionSurface variant="pill" className="min-h-11" onClick={onManageEntries}>Manage</ShellActionSurface></div> : null}
+              </> : null}
             </div>
           </div>
         </div>

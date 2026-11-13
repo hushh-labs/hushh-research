@@ -32,6 +32,7 @@ Non-owned surfaces:
 2. Creating issue-backed board work in `hushh-labs/hushh-research`.
 3. Updating required board metadata and verifying the resulting project-item state.
 4. Normalizing or updating issue labels when the user asks for label hygiene.
+5. Writing implementation-task handoffs for human owners and coding agents.
 
 ## Do Not Use
 
@@ -43,23 +44,26 @@ Non-owned surfaces:
 
 1. `.agents/skills/planning-board/references/engineering-core-board.md`
 2. `.agents/skills/planning-board/references/action-items-board.md`
-3. `docs/project_context_map.md`
-4. `docs/reference/operations/coding-agent-mcp.md`
+3. `docs/development/repository-map.md`
+4. `docs/operations/coding-agent-mcp.md`
+5. `.agents/skills/planning-board/references/task-handoff.md`
 
 ## Workflow
 
-1. Resolve the issue and project-item state dynamically instead of assuming cached IDs.
-2. Create the GitHub issue first, then attach and update the board item.
+1. Resolve live issue/project state and existing work before creating another task.
+2. Verify the active writer identity before mutation; honor the user's CLI/connector preference. A CLI requirement means using the authenticated `gh` identity, not connector credentials.
+3. For implementation tasks, follow `references/task-handoff.md`: link verified owner/lead profiles; require a reasoned human brief with the owner's review reminder and actual review status; use `For coding agents` for implementation mechanics and acceptance evidence.
+4. When creating new work, create the issue before its board item; otherwise edit the canonical issue in place.
    For Action Items, intake starts in `Inbox`; use the selected board reference for acceptance, ownership, and scheduling rules.
-3. Re-read the issue and board state after editing to confirm the change stuck.
-4. When reporting work back to the user, always use the stable task shape `#<number> <title>`.
-5. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.
-6. Do not move sprint or reset dates on existing tasks unless the user explicitly asks for that metadata change.
-7. Do not use bare issue numbers in summaries, status lists, overdue lists, or change logs when the title is available.
-8. When implementation is complete but acceptance remains, use the selected board's review state: `In review` on Project 73 or `Ready for QA` on Project 79. Keep unfinished implementation active; never invent a status option or infer deployment acceptance from source completion.
-9. Use `Done` only when the work is accepted and the issue state or acceptance evidence agrees with completion.
-10. Before and after broad cleanups, run `board_ops.py audit-state` and resolve drift deliberately.
-11. For duplicate or redundant board tasks, consolidate the scope into the canonical issue, leave a traceability comment, then remove the duplicate project item with `board_ops.py remove-task`; do not mark duplicates as `Done` just to clear the board.
+5. Re-read the issue and board state after editing; verify people/reference links, preserved decisions and actual field values rather than trusting cached output.
+6. When reporting work back to the user, always use the stable task shape `#<number> <title>`.
+7. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.
+8. Do not move sprint or reset dates on existing tasks unless the user explicitly asks for that metadata change.
+9. Do not use bare issue numbers in summaries, status lists, overdue lists, or change logs when the title is available.
+10. When implementation is complete but acceptance remains, use the selected board's review state: `In review` on Project 73 or `Ready for QA` on Project 79. Keep unfinished implementation active; never invent a status option or infer deployment acceptance from source completion.
+11. Use `Done` only when the work is accepted and the issue state or acceptance evidence agrees with completion.
+12. Before and after broad cleanups, run `board_ops.py audit-state` and resolve drift deliberately.
+13. For duplicate board tasks, preserve scope and traceability in the canonical issue before removing the duplicate project item with `board_ops.py remove-task`. Use the description when comments are disallowed; do not mark duplicates as `Done`.
 
 ## Handoff Rules
 

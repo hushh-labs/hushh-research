@@ -7,7 +7,7 @@
  * signals (online, focus, visibility, native app state, auth). Frames are
  * reread hints, never authority.
  *
- * Contract (docs/reference/streaming/streaming-implementation-guide.md):
+ * Contract (docs/development/streaming/streaming-implementation-guide.md):
  * - per-attempt AbortController; every await settles: the token lookup within
  *   10 s, response headers within 15 s, and a 45 s watchdog on body bytes
  *   (comments count) aborts a silent attempt, rereads payouts once and

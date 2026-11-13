@@ -137,6 +137,7 @@ import {
 } from "@/lib/services/cache-service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
@@ -373,6 +374,10 @@ const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = styles.utilityLabel;
+/** An icon-only row action: a 44px target whose hover, press and focus feedback
+ *  is a circle centred on the 22px glyph. The glyph itself is never translated.
+ *  Deliberately keeps hover feedback, unlike the unfilled `plain` actions. */
+const CONNECT_ROW_ICON_ACTION_CLASSNAME = cn("!size-11 !min-w-11 !rounded-full !bg-transparent !p-0", styles.rowIconAction);
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 10;
@@ -729,6 +734,7 @@ function ConnectPageClientContent() {
         )
       : null,
   );
+  const verifiedConnectionsFirstPage = useRef(initialFirstPage);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>(
     () => initialFirstPage?.items ?? [],
   );
@@ -758,6 +764,7 @@ function ConnectPageClientContent() {
   const connectionsFirstPageRequestRef = useRef<number | null>(null);
   const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
   const connectionReconcileQueuedRef = useRef(false);
+  const connectionVerificationQueuedRef = useRef(false);
   const directoryReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const suppressNextLocalGraphEventRef = useRef(false);
@@ -777,6 +784,7 @@ function ConnectPageClientContent() {
   }, [mutualPersonRef, userId]);
   const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestPendingRef = useRef(false);
+  const directoryReadGenerationRef = useRef(0);
   const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
   const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
@@ -911,6 +919,7 @@ function ConnectPageClientContent() {
       page: number,
       audience: ConnectionAudience,
       query = "",
+      accountCheck?: "observe" | "reconcile",
     ): Promise<ConnectionPage | null> => {
       if (!user) return null;
       try {
@@ -921,6 +930,7 @@ function ConnectPageClientContent() {
           limit: CONNECTION_PAGE_SIZE,
           query,
           audience,
+          ...(accountCheck ? { accountCheck } : {}),
         });
       } catch {
         // Non-fatal: the directory below remains available.
@@ -955,19 +965,26 @@ function ConnectPageClientContent() {
       audience,
       clearBeforeLoad = false,
       removedConnection = false,
+      background = false,
+      accountCheck = background ? "observe" : undefined,
     }: {
       audience: ConnectionAudience;
       clearBeforeLoad?: boolean;
       removedConnection?: boolean;
+      background?: boolean;
+      accountCheck?: "observe" | "reconcile";
     }) => {
-      const requestId = ++connectionsRequestRef.current;
-      connectionsFirstPageRequestRef.current = requestId;
-      // A first-page refresh supersedes every append in flight. Clear its
-      // affordance synchronously so a page-2 response cannot leave the screen
-      // saying "Loading…" while this new generation owns the list.
-      setConnectionsLoadingMore(false);
-      setConnectionsRefreshingFirstPage(true);
+      const requestId = background
+        ? connectionsRequestRef.current
+        : ++connectionsRequestRef.current;
+      if (!background) {
+        connectionsFirstPageRequestRef.current = requestId;
+        // A first-page refresh supersedes any append already in flight.
+        setConnectionsLoadingMore(false);
+        setConnectionsRefreshingFirstPage(true);
+      }
       if (clearBeforeLoad) {
+        verifiedConnectionsFirstPage.current = null;
         setConnections([]);
         setConnectionsTotalCount(0);
         setConnectionsPage(1);
@@ -979,10 +996,21 @@ function ConnectPageClientContent() {
         : null;
 
       try {
-        const result = await loadConnectionsPage(1, audience);
+        const result = await loadConnectionsPage(1, audience, "", accountCheck);
         if (requestId !== connectionsRequestRef.current) return false;
+        if (background) {
+          if (!result) return false;
+          if (JSON.stringify(result) === JSON.stringify(verifiedConnectionsFirstPage.current)) {
+            setConnectionsRefreshError(false);
+            return true;
+          }
+          ++connectionsRequestRef.current;
+          setConnectionsLoadingMore(false);
+          setDirectoryRefreshNonce((nonce) => nonce + 1);
+        }
 
         if (result) {
+          verifiedConnectionsFirstPage.current = result;
           setConnectionsRefreshError(false);
           setConnections(result.items);
           setConnectionsPage(result.page);
@@ -992,6 +1020,7 @@ function ConnectPageClientContent() {
             CacheService.getInstance().set(cacheKey, result, CACHE_TTL.MEDIUM);
           }
         } else if (removedConnection) {
+          verifiedConnectionsFirstPage.current = null;
           // The cached page still holds the removed row.
           if (cacheKey) CacheService.getInstance().invalidate(cacheKey);
           // Do not keep a page-2 cursor over a shifted server list: the next
@@ -1009,7 +1038,7 @@ function ConnectPageClientContent() {
         }
         return true;
       } finally {
-        if (connectionsFirstPageRequestRef.current === requestId) {
+        if (!background && connectionsFirstPageRequestRef.current === requestId) {
           connectionsFirstPageRequestRef.current = null;
           setConnectionsRefreshingFirstPage(false);
           // Answered, even if the answer was an error: the retry row shows.
@@ -1024,11 +1053,14 @@ function ConnectPageClientContent() {
     ({
       ensureAfterCurrent = false,
       refreshDirectory = true,
+      verifyAccounts = false,
     }: {
       ensureAfterCurrent?: boolean;
       refreshDirectory?: boolean;
+      verifyAccounts?: boolean;
     } = {}) => {
       if (!user) return Promise.resolve();
+      if (verifyAccounts) connectionVerificationQueuedRef.current = true;
       if (refreshDirectory) directoryReconcileQueuedRef.current = true;
       const active = connectionReconcileInFlightRef.current;
       if (active) {
@@ -1039,9 +1071,12 @@ function ConnectPageClientContent() {
       const run = async () => {
         do {
           connectionReconcileQueuedRef.current = false;
+          const verifyAccounts = connectionVerificationQueuedRef.current;
+          connectionVerificationQueuedRef.current = false;
           await Promise.allSettled([
             refreshConnectionsFirstPage({
               audience: connectionAudienceRef.current,
+              accountCheck: verifyAccounts ? "reconcile" : undefined,
             }),
             loadOutgoingRequestIds(),
           ]);
@@ -1061,6 +1096,19 @@ function ConnectPageClientContent() {
       return task;
     },
     [loadOutgoingRequestIds, refreshConnectionsFirstPage, user],
+  );
+
+  // Provider-only changes have no app deletion transaction. Reconcile an
+  // open Connect tab even when a live event was missed or has not been emitted.
+  usePeriodicTask(
+    `connect-account-availability:${userId ?? ""}`,
+    30_000,
+    async () => {
+      if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      if (connectionsLoadingMore || connectionsFirstPageRequestRef.current !== null) return;
+      await refreshConnectionsFirstPage({ audience: connectionAudience, background: true });
+    },
+    { enabled: Boolean(userId && surface === "all" && !mutualPersonRef) },
   );
 
   // The same contact sync the One Location agent offers, on the screen whose
@@ -1157,7 +1205,14 @@ function ConnectPageClientContent() {
         suppressNextLocalGraphEventRef.current = false;
         return;
       }
-      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+      // A prior read can still be in flight against a worker with a warm
+      // account-status cache. Reject it and recheck provider authority.
+      ++connectionsRequestRef.current;
+      ++directoryReadGenerationRef.current;
+      // Directory reads must be fenced immediately too: roster or outgoing
+      // reconciliation can be slow while an older directory page completes.
+      setDirectoryRefreshNonce((nonce) => nonce + 1);
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true, verifyAccounts: true, refreshDirectory: false });
     });
     const directoryIsDueForPassiveRefresh = () =>
       Date.now() - lastDirectoryReadAtRef.current >=
@@ -1339,6 +1394,13 @@ function ConnectPageClientContent() {
   }, [inviteToOneShare]);
 
   const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
+  usePeriodicTask(`connect-directory-availability:${userId ?? ""}`, 30_000, () => {
+    if (navigator.onLine === false || directoryRequestPendingRef.current) return;
+    if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+    if (Date.now() - lastDirectoryReadAtRef.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
+    ++directoryReadGenerationRef.current;
+    setDirectoryRefreshNonce((nonce) => nonce + 1);
+  }, { enabled: Boolean(userId && surface === "all" && connectionView === "discover" && !mutualPersonRef && tab !== "nearby") });
   const directoryScopeKey = `${userId ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const resultSetKey = `${directoryScopeKey}:${directoryRefreshNonce}`;
   const [renderedDirectoryScopeKey, setRenderedDirectoryScopeKey] =
@@ -1371,6 +1433,8 @@ function ConnectPageClientContent() {
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++directoryReadGenerationRef.current;
+    const isCurrent = () => !cancelled && generation === directoryReadGenerationRef.current;
     async function run() {
       if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
       try {
@@ -1382,6 +1446,7 @@ function ConnectPageClientContent() {
         setDirectoryRefused(false);
         lastDirectoryReadAtRef.current = Date.now();
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
         const firstPage = restoreDirectoryReadRef.current ? 1 : currentPage;
         const restoredPeople: DirectoryPerson[] = [];
         let page;
@@ -1391,10 +1456,10 @@ function ConnectPageClientContent() {
             ...(trimmedQuery ? { typedSearch: true } : {}),
           });
           restoredPeople.push(...page.items);
-          if (!page.hasMore || cancelled) break;
+          if (!page.hasMore || !isCurrent()) break;
         }
         if (!page) return;
-        if (!cancelled) {
+        if (isCurrent()) {
           restoreDirectoryReadRef.current = false;
           // Keep server order and a single row per user when an offset page
           // overlaps after a directory update. Page one replaces the generation.
@@ -1427,7 +1492,7 @@ function ConnectPageClientContent() {
           // before anything is sent, so nothing is promised unseen.
         }
       } catch (loadError) {
-        if (!cancelled) {
+        if (isCurrent()) {
           // A refused or failed refresh of a list that is already on screen
           // changes nothing the person can see: the people they were shown are
           // still the best answer, and an error row (or a retry button to
@@ -1452,7 +1517,7 @@ function ConnectPageClientContent() {
           }
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent()) {
           directoryRequestPendingRef.current = false;
           setLoading(false);
         }
@@ -3912,25 +3977,29 @@ function ConnectPageClientContent() {
                                         {connection.publicPersonRef ? (
                                           <Button
                                             type="button"
-                                            variant="plain"
-                                            size="icon-touch"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
                                             aria-label={`Message ${connectionName}`}
+                                            className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                             onClick={() => {
                                               void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                             }}
                                           >
-                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
+                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
                                           </Button>
                                         ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                         <Button
                                           type="button"
-                                          variant="plain"
-                                          size="icon-touch"
+                                          variant="none"
+                                          effect="fade"
+                                          size="compact"
                                           aria-label={`Options for ${connectionName}`}
                                           aria-haspopup="dialog"
+                                          className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                           onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
                                         >
-                                          <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                          <MoreHorizontal aria-hidden="true" className="size-5" />
                                         </Button>
                                       </span>
                                     }

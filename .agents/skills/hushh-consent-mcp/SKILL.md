@@ -51,7 +51,7 @@ Non-owned surfaces:
 
 1. `packages/hushh-mcp/README.md`
 2. `consent-protocol/docs/mcp-setup.md`
-3. `docs/reference/operations/coding-agent-mcp.md`
+3. `docs/operations/coding-agent-mcp.md`
 
 ## Workflow
 

@@ -34,22 +34,25 @@ IGNORE_PARTS = {
 TIER_A = [
     "README.md",
     "docs/README.md",
-    "docs/guides/README.md",
-    "docs/reference/README.md",
-    "docs/reference/architecture/README.md",
-    "docs/reference/iam/README.md",
-    "docs/reference/one/README.md",
-    "docs/reference/kai/README.md",
-    "docs/reference/mobile/README.md",
-    "docs/reference/operations/README.md",
-    "docs/reference/operations/documentation-architecture-map.md",
-    "docs/reference/operations/observability-architecture-map.md",
-    "docs/reference/quality/README.md",
-    "docs/superpowers/README.md",
-    "docs/vision/README.md",
+    "docs/product/README.md",
+    "docs/development/README.md",
+    "docs/roadmap/README.md",
+    "docs/development/guides/README.md",
+    "docs/development/references.md",
+    "docs/architecture/README.md",
+    "docs/architecture/identity/README.md",
+    "docs/architecture/one/README.md",
+    "docs/architecture/finance/README.md",
+    "docs/development/mobile/README.md",
+    "docs/operations/README.md",
+    "docs/development/documentation.md",
+    "docs/operations/observability/observability-architecture-map.md",
+    "docs/development/quality/README.md",
+    "docs/roadmap/implementation/README.md",
+    "docs/product/principles/README.md",
     "consent-protocol/docs/README.md",
     "hushh-webapp/docs/README.md",
-    "docs/project_context_map.md",
+    "docs/development/repository-map.md",
 ]
 EXPLICIT_CLASSIFICATIONS = {
     "README.md": "canonical",
@@ -59,12 +62,11 @@ EXPLICIT_CLASSIFICATIONS = {
     "SECURITY.md": "canonical",
     "code_of_conduct.md": "canonical",
     "docs/README.md": "canonical",
-    "docs/reference/README.md": "pointer/index",
-    "docs/guides/README.md": "pointer/index",
-    "docs/reference/operations/documentation-architecture-map.md": "canonical",
-    "docs/reference/operations/observability-architecture-map.md": "canonical",
-    "docs/reference/operations/docs-governance.md": "canonical",
-    "docs/superpowers/README.md": "planning-archive",
+    "docs/development/references.md": "pointer/index",
+    "docs/development/guides/README.md": "pointer/index",
+    "docs/development/documentation.md": "canonical",
+    "docs/operations/observability/observability-architecture-map.md": "canonical",
+    "docs/roadmap/implementation/README.md": "planning-archive",
     "consent-protocol/docs/README.md": "pointer/index",
     "consent-protocol/docs/reference/README.md": "pointer/index",
     "hushh-webapp/docs/README.md": "pointer/index",
@@ -80,12 +82,11 @@ CURRENT_STATE_DRIFT_MARKERS = (
     "execution plan",
 )
 DRIFT_SCAN_EXEMPTIONS = {
-    "docs/reference/architecture/architecture-view-catalog.md",
-    "docs/reference/architecture/founder-language-matrix.md",
-    "docs/reference/operations/coding-agent-mcp.md",
-    "docs/reference/operations/docs-governance.md",
-    "docs/reference/operations/documentation-architecture-map.md",
-    "docs/reference/operations/hussh-code-persona.md",
+    "docs/architecture/views/README.md",
+    "docs/product/terminology.md",
+    "docs/operations/coding-agent-mcp.md",
+    "docs/development/documentation.md",
+    "docs/development/engineering-principles.md",
 }
 
 
@@ -103,10 +104,10 @@ def classify_doc(r: str) -> str:
     explicit = EXPLICIT_CLASSIFICATIONS.get(r)
     if explicit:
         return explicit
-    if r.startswith("docs/superpowers/plans/") or r.startswith("docs/superpowers/specs/"):
+    if r.startswith("docs/roadmap/implementation/plans/") or r.startswith("docs/roadmap/implementation/specs/"):
         return "planning-archive"
-    if r.startswith("docs/future/"):
-        return "pointer/index" if r.endswith("/README.md") or r == "docs/future/README.md" else "future-plan"
+    if r.startswith("docs/roadmap/"):
+        return "pointer/index" if r.endswith("/README.md") or r == "docs/roadmap/README.md" else "future-plan"
     if "historical" in r or "migration-audit" in r:
         return "historical-provenance"
     if r.endswith("/README.md"):
@@ -125,18 +126,18 @@ def stale_reasons(path: Path, r: str, classification: str) -> list[str]:
     reasons: list[str] = []
     if classification in {"merge-then-delete", "delete"}:
         reasons.append(classification)
-    if r.startswith("docs/superpowers/plans/") or r.startswith("docs/superpowers/specs/"):
-        reasons.append("date-stamped-superpowers-artifact")
-    if classification == "historical-provenance" and r.startswith("docs/reference/"):
+    if r.startswith("docs/roadmap/implementation/plans/") or r.startswith("docs/roadmap/implementation/specs/"):
+        reasons.append("retained-implementation-plan")
+    if classification == "historical-provenance" and r.startswith("docs/architecture/"):
         reasons.append("historical-doc-in-reference")
 
     lines = line_count(path)
-    threshold = SUPERPOWERS_LINE_THRESHOLD if r.startswith("docs/superpowers/") else OVERSIZED_LINE_THRESHOLD
+    threshold = SUPERPOWERS_LINE_THRESHOLD if r.startswith("docs/roadmap/implementation/") else OVERSIZED_LINE_THRESHOLD
     if lines > threshold:
         reasons.append(f"oversized:{lines}-lines")
 
     if (
-        r.startswith("docs/reference/")
+        r.startswith("docs/architecture/")
         and classification == "canonical"
         and r not in DRIFT_SCAN_EXEMPTIONS
     ):

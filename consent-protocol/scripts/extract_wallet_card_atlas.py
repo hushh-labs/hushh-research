@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image
 
-REVIEW = Path(__file__).parents[2] / "docs/reference/one/wallet-card-atlas.manifest.json"
+REVIEW = Path(__file__).parents[2] / "docs/architecture/one/wallet-card-atlas.manifest.json"
 
 
 def decode_raster(image: dict) -> Image.Image:

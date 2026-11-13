@@ -6,17 +6,20 @@ import { PortfolioHistoryChart, type HistoricalDataPoint } from "@/components/ka
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 
-const money = (value: number | null) => value === null ? "Unavailable" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+const money = (value: number | null) => value === null ? "Unavailable" : formatCurrency(value);
 
 export function PortfolioValueCard({ source, value, change, changePct, period, history, action, invested, cash }: {
   source: string; value: number; change: number | null; changePct: number | null;
   period: string; history: HistoricalDataPoint[]; action?: ReactNode;
   invested?: number | null; cash?: number | null;
 }) {
+  useMarketCurrency();
   return <SurfaceCard data-testid="portfolio-value-card" className={styles.detail}>
     <SurfaceCardContent className="flex h-full flex-col justify-between gap-2 p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className={styles.description}>{source} portfolio value</p>
+        <p className="ui-text-section-label">{source} portfolio value</p>
         {action}
       </div>
       <div>

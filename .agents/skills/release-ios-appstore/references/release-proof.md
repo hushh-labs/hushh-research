@@ -2,7 +2,7 @@
 
 Durable detail for the `release-ios-appstore` spoke. The compact kernel (SKILL.md) stays lean;
 this reference holds the proof standard, the two-gate rules, and the non-obvious failure modes.
-Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
+Read alongside `docs/operations/mobile/release-ios-appstore.md` (the full runbook).
 
 ## What this pipeline actually ships
 
@@ -184,5 +184,5 @@ is not authority. ASC receipt fields are read back from Apple, not inferred from
 - Broad or ambiguous intake: back to `repo-operations`.
 
 The durable Gate 2 checklist is the **Publish-safety blockers** section of
-`docs/guides/mobile/release-ios-appstore.md`. Treat that committed runbook as authority; external
+`docs/operations/mobile/release-ios-appstore.md`. Treat that committed runbook as authority; external
 working notes may add evidence but cannot waive or replace it.

@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -41,15 +43,6 @@ interface CashFlowCardProps {
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 // =============================================================================
 // FLOW ROW
@@ -102,6 +95,7 @@ function FlowRow({ label, value, type = "neutral", highlight, icon }: FlowRowPro
 // =============================================================================
 
 export function CashFlowCard({ cashFlow, className }: CashFlowCardProps) {
+  useMarketCurrency();
   if (!cashFlow) {
     return null;
   }

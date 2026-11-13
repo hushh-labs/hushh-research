@@ -3,8 +3,8 @@
   "surface_id": "one_wallet_widgets",
   "surface_title": "One Wallet Widgets",
   "docs_references": [
-    "docs/reference/one/one-agent-hierarchy.md",
-    "docs/reference/iam/consent-scope-catalog.md"
+    "docs/architecture/one/one-agent-hierarchy.md",
+    "docs/architecture/identity/consent-scope-catalog.md"
   ],
   "defaults": {
     "delegate_agent_id": "agent_wallet",

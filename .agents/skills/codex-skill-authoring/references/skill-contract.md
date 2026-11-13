@@ -4,7 +4,7 @@ This is the canonical contract for the Codex operating system under `.agents/ski
 
 The shared truth-first reasoning contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
 
-Documentation-home and stale-knowledge classification lives in `docs/reference/README.md` and `docs/reference/operations/docs-governance.md`. Skill and workflow changes must point to that model instead of duplicating a second taxonomy.
+Documentation-home and stale-knowledge classification lives in `docs/development/references.md` and `docs/development/documentation.md`. Skill and workflow changes must point to that model instead of duplicating a second taxonomy.
 
 ## Machine-readable source of truth
 

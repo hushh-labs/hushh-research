@@ -4,6 +4,7 @@ import { useState } from "react";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ChevronRight } from "@/components/icons";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type {
@@ -21,7 +22,9 @@ import { cn } from "@/lib/utils";
 import { money, signedMoney, signedPercent, tone } from "./performance-strip";
 import styles from "./portfolio-performance.module.css";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function ConcentrationCard({ data, label }: { data: readonly ConcentrationDatum[]; label: string }) {
+  useMarketCurrency();
   if (!data.length) return null;
   const summary = concentrationSummary(data);
   const widest = Math.max(...data.map((row) => row.weightPct), 0.01);
@@ -36,7 +39,14 @@ export function ConcentrationCard({ data, label }: { data: readonly Concentratio
         <div className={styles.rows}>
           {data.map((row) => (
             <div key={row.symbol} className={styles.row}>
-              <span className={styles.rowLabel} title={row.name}>{row.symbol}</span>
+              <Popover>
+                <PopoverTrigger className={cn(styles.rowLabel, styles.concentrationName)} title={`${row.symbol} · ${row.name}`} aria-label={`Show full name for ${row.symbol}`}>
+                  <span>{row.symbol}</span>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-auto max-w-[min(20rem,calc(100vw-2rem))] break-words text-sm">
+                  <p className="font-semibold">{row.name}</p><p className="text-muted-foreground">{row.symbol}</p>
+                </PopoverContent>
+              </Popover>
               <span className={styles.track} aria-hidden="true"><span className={styles.fill} style={{ width: `${(row.weightPct / widest) * 100}%` }} /></span>
               <span className={styles.end}>
                 <span className={cn("block", styles.rowLabel, styles.number)}>{row.weightPct.toFixed(1)}%</span>
@@ -51,6 +61,7 @@ export function ConcentrationCard({ data, label }: { data: readonly Concentratio
 }
 
 export function WinnersLosersCard({ bands }: { bands: readonly GainLossBandDatum[] }) {
+  useMarketCurrency();
   const summary = winnersLosers(bands);
   if (summary.total === 0) return null;
   return (
@@ -95,6 +106,7 @@ function MoverRow({ position, onOpen, className }: { position: DashboardPosition
 
 /** One biggest gain and one biggest loss. Tapping opens the top three of each; each row opens that holding. */
 export function BiggestMoversCard({ positions, onOpenHolding }: { positions: readonly DashboardPosition[]; onOpenHolding: (id: string) => void }) {
+  useMarketCurrency();
   const [open, setOpen] = useState(false);
   const { gains, losses } = rankMovers(positions, 3);
   if (!gains.length && !losses.length) return null;
@@ -113,7 +125,7 @@ export function BiggestMoversCard({ positions, onOpenHolding }: { positions: rea
           </div>
         </SurfaceCardContent>
       </SurfaceCard>
-      <KaiControlSurface open={open} onOpenChange={setOpen} title="Biggest gains and losses" presentation="sheet" surfaceClassName={financeStyles.detail}>
+      <KaiControlSurface open={open} onOpenChange={setOpen} title="Biggest gains and losses" presentation="sheet" surfaceClassName={cn(financeStyles.detail, financeStyles.sheetFrame)}>
         {gains.length ? <p className={cn(styles.sheetSection, styles.positive)}>Gains</p> : null}
         {gains.map((position) => <MoverRow key={position.id} position={position} className={styles.sheetRow} onOpen={() => choose(position.id)} />)}
         {losses.length ? <p className={cn(styles.sheetSection, styles.negative)}>Losses</p> : null}
@@ -125,6 +137,7 @@ export function BiggestMoversCard({ positions, onOpenHolding }: { positions: rea
 
 /** Statement income and fees. Only what the statement reports is shown. */
 export function IncomeFeesCard({ metrics }: { metrics: DashboardSummaryMetrics }) {
+  useMarketCurrency();
   const tiles: Array<{ label: string; value: number; signed: boolean }> = [];
   const add = (label: string, value: number | null, signed = true) => { if (typeof value === "number" && Number.isFinite(value)) tiles.push({ label, value, signed }); };
   add("Income", metrics.totalIncomePeriod);
@@ -135,7 +148,7 @@ export function IncomeFeesCard({ metrics }: { metrics: DashboardSummaryMetrics }
   if (!tiles.length) return null;
   return (
     <SurfaceCard className={cn("min-w-0", financeStyles.detail)} aria-label="Income and fees">
-      <SurfaceCardContent className={financeStyles.insightCard}>
+      <SurfaceCardContent className={cn(financeStyles.insightCard, styles.incomeLayout)}>
         <p className="ui-text-section-label">Income and fees</p>
         <dl className={styles.tiles}>
           {tiles.map((tile) => (

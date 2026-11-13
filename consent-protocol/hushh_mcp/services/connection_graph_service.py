@@ -142,6 +142,7 @@ def list_connection_graph_viewer_ids(
     *,
     user_id: str,
     include_pending_requests: bool = False,
+    include_location_audiences: bool = False,
     table_exists: Callable[[str], bool] | None = None,
 ) -> set[str]:
     """Capture readers to wake after commit; this confers no access authority.
@@ -200,6 +201,58 @@ def list_connection_graph_viewer_ids(
         """,
             )
         )
+    if include_location_audiences:
+        statements.extend(
+            [
+                (
+                    ("one_location_share_grants",),
+                    """SELECT CASE WHEN owner_user_id=:user_id THEN recipient_user_id ELSE owner_user_id END AS user_id
+                    FROM one_location_share_grants WHERE status='active'
+                      AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)
+                      AND (owner_user_id=:user_id OR recipient_user_id=:user_id)""",
+                ),
+                (
+                    ("one_location_access_requests",),
+                    """SELECT owner_user_id AS user_id FROM one_location_access_requests
+                    WHERE status='pending' AND :user_id IN (owner_user_id,requester_user_id,referred_by_user_id)
+                    UNION SELECT requester_user_id AS user_id FROM one_location_access_requests
+                    WHERE status='pending' AND :user_id IN (owner_user_id,requester_user_id,referred_by_user_id)
+                    UNION SELECT referred_by_user_id AS user_id FROM one_location_access_requests
+                    WHERE status='pending' AND :user_id IN (owner_user_id,requester_user_id,referred_by_user_id)""",
+                ),
+                (
+                    ("one_location_network_connections",),
+                    """SELECT user_a_id AS user_id FROM one_location_network_connections
+                    WHERE status='active' AND :user_id IN (user_a_id,user_b_id,inviter_user_id,invitee_user_id)
+                    UNION SELECT user_b_id AS user_id FROM one_location_network_connections
+                    WHERE status='active' AND :user_id IN (user_a_id,user_b_id,inviter_user_id,invitee_user_id)""",
+                ),
+                (
+                    ("one_location_sms_contacts",),
+                    """SELECT CASE WHEN owner_user_id=:user_id THEN contact_user_id ELSE owner_user_id END AS user_id
+                    FROM one_location_sms_contacts WHERE owner_user_id=:user_id OR contact_user_id=:user_id""",
+                ),
+                (
+                    ("one_location_circle_member_invites", "one_location_circles"),
+                    """WITH affected AS (
+                      SELECT invite.inviter_user_id,invite.invitee_user_id,circle.owner_user_id
+                      FROM one_location_circle_member_invites invite
+                      JOIN one_location_circles circle ON circle.id=invite.circle_id
+                      WHERE circle.status='active' AND invite.status='pending'
+                        AND invite.expires_at>CURRENT_TIMESTAMP
+                        AND :user_id IN (circle.owner_user_id,invite.inviter_user_id,invite.invitee_user_id)
+                    ) SELECT inviter_user_id AS user_id FROM affected
+                    UNION SELECT invitee_user_id AS user_id FROM affected
+                    UNION SELECT owner_user_id AS user_id FROM affected""",
+                ),
+                (
+                    ("one_location_public_invite_submissions",),
+                    """SELECT CASE WHEN owner_user_id=:user_id THEN matched_user_id ELSE owner_user_id END AS user_id
+                    FROM one_location_public_invite_submissions
+                    WHERE owner_user_id=:user_id OR matched_user_id=:user_id""",
+                ),
+            ]
+        )
     viewers: set[str] = set()
     for tables, statement in statements:
         if table_exists is not None and not all(table_exists(table) for table in tables):
@@ -209,6 +262,36 @@ def list_connection_graph_viewer_ids(
             if viewer and viewer != user_id:
                 viewers.add(viewer)
     return viewers
+
+
+def publish_connection_graph_events(conn: Any, viewer_ids: set[str]) -> None:
+    """Release a metadata-only invalidation when the transaction commits."""
+    from api.consent_listener import publish_user_state_event_in_transaction
+
+    for viewer_id in sorted(viewer_ids):
+        publish_user_state_event_in_transaction(
+            conn, viewer_id, {"type": "connection_graph_changed"}
+        )
+
+
+def publish_connection_account_visibility_changes(user_ids: set[str]) -> None:
+    """Wake direct peers after a provider-confirmed availability change."""
+    from db.db_client import get_db_connection
+
+    with get_db_connection() as conn:
+        rows = _all(
+            conn.execute(
+                text("""
+                    SELECT user_b_id AS user_id FROM connections
+                    WHERE status = 'active' AND user_a_id = ANY(CAST(:changed_ids AS TEXT[]))
+                    UNION
+                    SELECT user_a_id AS user_id FROM connections
+                    WHERE status = 'active' AND user_b_id = ANY(CAST(:changed_ids AS TEXT[]))
+                """),
+                {"changed_ids": sorted(user_ids)},
+            )
+        )
+        publish_connection_graph_events(conn, {str(row["user_id"]) for row in rows})
 
 
 class ConnectionGraphService:

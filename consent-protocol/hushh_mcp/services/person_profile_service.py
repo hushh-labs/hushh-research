@@ -185,14 +185,18 @@ class PersonProfileService:
             raise PersonProfileNotFoundError("Person profile was not found.")
         return row
 
-    def _live_profile_row(self, public_person_ref: str, *, use_cache: bool) -> dict[str, Any]:
+    def _live_profile_row(self, public_person_ref: str) -> dict[str, Any]:
         # Older provider-side deletions can predate the local tombstone contract.
         # Display reads verify liveness. Other consumers keep the local authority check.
         row = self._profile_row(public_person_ref)
         owner_id = str(row.get("user_id") or "")
-        if owner_id not in active_directory_user_ids([owner_id], use_cache=use_cache):
+        if owner_id not in active_directory_user_ids([owner_id], use_cache=False):
             raise PersonProfileNotFoundError("Person profile was not found.")
-        return row
+        # Local deletion can commit while the provider lookup is in flight.
+        current = self._profile_row(public_person_ref)
+        if str(current.get("user_id") or "") != owner_id:
+            raise PersonProfileNotFoundError("Person profile was not found.")
+        return current
 
     @staticmethod
     def _public_projection(row: dict[str, Any]) -> dict[str, Any]:
@@ -208,7 +212,7 @@ class PersonProfileService:
         }
 
     def get_public_profile(self, public_person_ref: str) -> dict[str, Any]:
-        return self._public_projection(self._live_profile_row(public_person_ref, use_cache=False))
+        return self._public_projection(self._live_profile_row(public_person_ref))
 
     def get_relationship_target(
         self, *, viewer_user_id: str, public_person_ref: str
@@ -560,7 +564,7 @@ class PersonProfileService:
         catalog_query: str = "",
         catalog_domain: str = "",
     ) -> dict[str, Any]:
-        row = await asyncio.to_thread(self._live_profile_row, public_person_ref, use_cache=True)
+        row = await asyncio.to_thread(self._live_profile_row, public_person_ref)
         subject_user_id = str(row.get("user_id") or "")
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
@@ -783,6 +787,11 @@ class PersonProfileService:
                 WHERE edge.status = 'active'
                   AND edge.user_a_id = LEAST(:viewer, :subject)
                   AND edge.user_b_id = GREATEST(:viewer, :subject)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM account_deletion_tombstones deletion
+                    WHERE deletion.user_id_hash =
+                        'sha256:' || encode(sha256(convert_to(:subject, 'UTF8')), 'hex')
+                  )
                 LIMIT 1
                 """,
                 {"viewer": viewer_user_id, "subject": subject_user_id},

@@ -10,6 +10,7 @@ from pydantic import Field
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.finance_sharing import PrivateFinanceRoute, identity
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.services.advisor_matching import AdvisorService
 from hushh_mcp.services.advisor_review_billing import AdvisorBillingService
 from hushh_mcp.services.advisor_review_contract import (
     AdvisorPlan,
@@ -36,7 +37,8 @@ router = APIRouter(
 
 
 class Discovery(StrictObject):
-    scope: Literal["connections", "global", "nearby"] | None = None
+    scope: Literal["connections", "global", "nearby", "recommended"] | None = None
+    service: AdvisorService | None = None
     page: int = Field(default=1, ge=1, le=1000)
     query: str = Field(default="", max_length=100)
     latitude: float | None = Field(default=None, ge=-90, le=90)
@@ -53,6 +55,21 @@ async def discover(request: Request, body: Discovery, viewer: str = Depends(iden
         AdvisorDirectoryService,
     )
     from hushh_mcp.services.advisor_review_directory import candidates
+
+    if body.scope == "recommended":
+        if (
+            body.service is None
+            or body.latitude is not None
+            or body.longitude is not None
+            or body.postalCode is not None
+        ):
+            raise AdvisorReviewError("ADVISOR_SERVICE_REQUIRED", 422)
+        people = await asyncio.to_thread(
+            candidates, viewer, service=body.service, query=body.query, page=body.page
+        )
+        return {**people, "directory": None}
+    if body.service is not None:
+        raise AdvisorReviewError("ADVISOR_SERVICE_SCOPE_REQUIRED", 422)
 
     nearby = body.latitude is not None or body.longitude is not None or body.postalCode is not None
     if body.scope == "nearby" and not nearby:

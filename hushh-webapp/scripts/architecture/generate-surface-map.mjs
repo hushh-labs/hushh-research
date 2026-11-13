@@ -649,8 +649,8 @@ function buildSurfaceMap() {
       physical_pages: "app/**/page.tsx",
       native_inventory: "native-route-inventory.json",
       api_routes: "app/api/**/route.ts",
-      route_docs: "../docs/reference/architecture/route-contracts.md",
-      mobile_docs: "../docs/reference/mobile/capacitor-parity-audit.md",
+      route_docs: "../docs/development/contracts/route-contracts.md",
+      mobile_docs: "../docs/development/mobile/capacitor-parity-audit.md",
     },
     nextjs_api_routes: apiRoutes,
     routes: routes.map((route) => {

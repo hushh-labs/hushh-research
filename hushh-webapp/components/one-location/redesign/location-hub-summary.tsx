@@ -4,7 +4,7 @@ import { TopBarRouteAccessory } from "@/components/app-ui/top-bar-route-accessor
 import { ConnectTypeScale } from "@/lib/morphy-ux/ui/connect-type-scale";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { SectionTitle } from "@/components/app-ui/typography";
+import { RowLabel } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { LocationHubViewModel } from "./location-redesign-hub";
@@ -17,7 +17,7 @@ type LocationHeaderViewModel = Pick<LocationHubViewModel,
 
 /**
  * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text renders beside the switch in the shell,
+ * `useId`: the status text renders under the switch in the shell,
  * and `aria-describedby` resolves by id anywhere in the document. There is
  * exactly one Location header on screen.
  */
@@ -49,7 +49,7 @@ function locationHeaderStatusText(vm: LocationHeaderViewModel): string {
   return status;
 }
 
-/** The status stays with the switch and may wrap rather than clip on a narrow phone. */
+/** The status sits under the switch and may wrap rather than clip on a narrow phone. */
 function LocationHeaderStatus({ vm }: { vm: LocationHeaderViewModel }) {
   return (
     <span
@@ -83,7 +83,6 @@ export function LocationHeaderActions({ vm }: { vm: LocationHeaderViewModel }) {
       data-testid="one-location-header-actions"
     >
       <label htmlFor="one-location-header-toggle" className={LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME}>
-      <LocationHeaderStatus vm={vm} />
       <Switch
         id="one-location-header-toggle"
         size="default"
@@ -107,6 +106,7 @@ export function LocationHeaderActions({ vm }: { vm: LocationHeaderViewModel }) {
         // system green, so this toggle reads the same as every other one.
         className={cn(LOCATION_HEADER_SWITCH_CLASSNAME, acquiring && "animate-pulse")}
       />
+      <LocationHeaderStatus vm={vm} />
       </label>
     </div>
   );
@@ -129,12 +129,11 @@ export function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:gap-4">
           <LocationSharePulseIcon />
           <span className="min-w-0 self-center">
-            <SectionTitle
-              as="span"
-              className="block"
-            >
+            {/* The same row role as the Ask / Check In tiles beneath it, so the
+                card title and the tile labels share one Connect v14 size. */}
+            <RowLabel as="span" className="block">
               You&apos;re not sharing
-            </SectionTitle>
+            </RowLabel>
             <span data-location-share-description="" className="ui-text-row-description mt-0.5 block text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
@@ -142,14 +141,14 @@ export function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         </div>
         <Button
           type="button"
-          size="prominent"
+          size="standard"
           data-voice-control-id="one-location-action-share"
           data-voice-action-id="location.open_share"
           data-voice-label="Share location"
           data-location-action-fit=""
           aria-label="Share location"
           onClick={onClick}
-          className="col-start-2 mr-auto h-auto w-full max-w-[244px] shrink-0 py-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
+          className="col-start-2 mr-auto h-auto w-full max-w-[244px] shrink-0 py-2.5 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
         >
           Share location
         </Button>
