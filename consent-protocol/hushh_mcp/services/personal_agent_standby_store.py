@@ -1,6 +1,6 @@
 """The hub's record of a person's synced standby agent (dev-only migration 950).
 
-Design: ``docs/future/personal-agent/STANDBY-SYNC.md`` (E4, E8, E9, E10). The
+Design: ``docs/roadmap/personal-agent/standby-sync.md`` (E4, E8, E9, E10). The
 registry row stays the PRIMARY's view; this store owns the one standby row a person
 may have, its sync progress, and the switch that swaps the two.
 

@@ -44,7 +44,7 @@ Non-owned surfaces:
 ## Read First
 
 1. `.github/workflows/release-ios-appstore.yml`
-2. `docs/guides/mobile/release-ios-appstore.md`
+2. `docs/operations/mobile/release-ios-appstore.md`
 3. `scripts/release/dispatch-ios-appstore.mjs`
 4. `scripts/ci/submit-appstore-version.py`
 5. `scripts/ci/resolve-ios-build-number.py`
@@ -62,7 +62,7 @@ Non-owned surfaces:
 6. Before packaging, follow `release-proof.md` → Live version and concurrent-release admission. Read current Apple marketing versions/states and other developers' in-flight uploads; a higher build number does not advance the marketing version. Use a supported explicit `--marketing-version` or reviewed source change when needed, verify app/extension/receipt parity, and preserve exact backend provenance. Resolve an approved-but-unreleased public version before preparing its successor; publishing or withdrawing it requires its own authorization.
 7. GATE 2 (manual public submission): irreversible and publishes to real users; requires fresh explicit authorization and every publish-safety blocker cleared, then `--submit --ack-blockers` (workflow input `submit_for_review=true`). Unattended UAT/native cadence is retired; preparation never authorizes submission or publication.
 8. Verify from the ASC API and the run Job summary — uploaded, processed, "What's New" set, build attached, submitted-or-prepared — before reporting done. Never print, paste, or read the ASC `.p8` / Key / Issuer secrets.
-9. A production-backed submit needs the dedicated production reviewer account and its App Review Information, set by hand in App Store Connect (`docs/guides/mobile/release-ios-appstore.md` § *App Review sign-in on a production-backed build*). Production never advertises or mints review mode (`consent-protocol/api/routes/health.py`), so do not "enable" `APP_REVIEW_MODE` there, and never reuse the production reviewer UID as a UAT or dev `REVIEWER_UID`: the lanes share one Firebase authority and UAT mints with no credential.
+9. A production-backed submit needs the dedicated production reviewer account and its App Review Information, set by hand in App Store Connect (`docs/operations/mobile/release-ios-appstore.md` § *App Review sign-in on a production-backed build*). Production never advertises or mints review mode (`consent-protocol/api/routes/health.py`), so do not "enable" `APP_REVIEW_MODE` there, and never reuse the production reviewer UID as a UAT or dev `REVIEWER_UID`: the lanes share one Firebase authority and UAT mints with no credential.
 10. Any verify step shared with the TestFlight sibling must bring the same runtime. Run 36358944003 (2026-09-27) died in `verify:one-voice` on `ModuleNotFoundError: dotenv`: the capability-graph generator needs the consent-protocol package, TestFlight got its Python step in 231c6e50f, and this lane did not. Diff both workflows' setup steps whenever a verify step is shared.
 
 ## Handoff Rules

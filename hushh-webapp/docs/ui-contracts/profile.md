@@ -554,4 +554,4 @@ Update this contract when a panel, CTA, commit boundary, normalization rule,
 platform gate, or Back layer changes. Preserve executable authority in the
 existing route/action/vault owners. Run `./bin/hushh docs verify` for prose;
 UI implementation changes follow the
-[UI contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+[UI contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md).

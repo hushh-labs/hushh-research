@@ -44,8 +44,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/operations/ci.md`
-2. `docs/reference/quality/pr-impact-checklist.md`
+1. `docs/operations/releases/ci.md`
+2. `docs/development/quality/pr-impact-checklist.md`
 3. `.agents/skills/repo-operations/SKILL.md`
 4. `.agents/skills/pr-governance-review/references/review-axes.md`
 5. `.agents/skills/pr-governance-review/references/operator-batch-output-contract.md`

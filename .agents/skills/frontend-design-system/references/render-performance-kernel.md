@@ -2,7 +2,7 @@
 
 Frame pacing is a contract, not an audit. The bar in numbers, the in-app
 probe, the native instruments and the gesture card live in
-`docs/reference/mobile/render-performance-charter.md`; this is the working
+`docs/development/mobile/render-performance-charter.md`; this is the working
 rule set a surface inherits when it is built.
 
 ## Every new surface
@@ -45,7 +45,7 @@ rule set a surface inherits when it is built.
   web, `-CapacitorStorage.hushh_perf_probe 1` as an iOS launch argument;
   `window.__hushhPerf.export()` returns the JSON.
 - Simulator numbers attribute; a phone certifies. The sign-off report is a
-  dated file under `docs/reference/mobile/perf/`.
+  dated file under `docs/development/mobile/perf/`.
 
 ## Do not touch
 

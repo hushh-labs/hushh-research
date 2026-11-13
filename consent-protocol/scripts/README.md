@@ -94,4 +94,4 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 
 - Do not treat this directory as a first-run setup guide.
 - Do not run cleanup or reset scripts on shared environments unless the script is explicitly part of the approved runbook.
-- Do not add new one-time markdown runbooks here. Prefer steady-state docs under `docs/reference/operations/` and keep one-off execution detail in the PR that introduces it.
+- Do not add new one-time markdown runbooks here. Prefer steady-state docs under `docs/operations/` and keep one-off execution detail in the PR that introduces it.

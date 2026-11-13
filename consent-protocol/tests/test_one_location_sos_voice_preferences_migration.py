@@ -57,9 +57,7 @@ def test_every_selected_schema_contract_requires_the_preferences_table() -> None
 
 def test_runtime_data_plane_owns_the_preferences_table() -> None:
     contract = json.loads(
-        (
-            ROOT.parent / "docs/reference/architecture/runtime-db-data-plane-contract.json"
-        ).read_text()
+        (ROOT.parent / "docs/architecture/runtime-db-data-plane-contract.json").read_text()
     )
     family = next(item for item in contract["table_families"] if item["id"] == "one_location_agent")
 

@@ -7,7 +7,7 @@
     "route_layout_contract": "lib/navigation/app-route-layout.contract.json",
     "surface_map": "frontend-native-surface-map.generated.json",
     "native_inventory": "native-route-inventory.json",
-    "cache_reference": "../docs/reference/architecture/cache-coherence.md"
+    "cache_reference": "../docs/development/contracts/cache-coherence.md"
   },
   "summary": {
     "total_screens": 162,
@@ -7292,5 +7292,5 @@
       ]
     }
   ],
-  "content_sha256": "17c240addb207f56e58fd1d355732fa6f1434d68b121016a51b208de58732e22"
+  "content_sha256": "2e6843eb8a8e8a5477e85c4cf7963a36eca49ab54de0c6ea40e1f7b19d5afa96"
 }

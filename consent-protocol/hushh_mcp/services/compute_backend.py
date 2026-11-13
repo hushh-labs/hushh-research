@@ -2,7 +2,7 @@
 
 ``user_gcp`` provisions in the owner's Google Cloud project; ``user_azure`` in the
 owner's own Azure subscription (dev workspace only until its admission gates in
-``docs/reference/architecture/byoc-azure.md`` carry live evidence); ``gcp`` serves
+``docs/architecture/byoc-azure.md`` carry live evidence); ``gcp`` serves
 the gated Hussh-managed tier. ``NullBackend`` is an inert unconfigured state, not a
 deployment provider. Live provisioning still requires explicit configuration and
 owner authority. The backend protocol keeps lifecycle, identity and recovery

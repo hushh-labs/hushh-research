@@ -3,8 +3,8 @@
   "surface_id": "one_calendar",
   "surface_title": "Calendar",
   "docs_references": [
-    "docs/reference/one/one-calendar-knowledge-graph.md",
-    "docs/reference/one/one-voice-runtime-architecture.md"
+    "docs/architecture/one/one-calendar-knowledge-graph.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md"
   ],
   "defaults": {
     "speaker_persona": "one",

@@ -8,7 +8,7 @@
   "affected_surfaces": [
     ".agents/skills",
     ".agents/workflows",
-    "docs/reference/operations",
+    "docs/operations",
     "README.md"
   ],
   "required_reads": [

@@ -45,7 +45,7 @@ Non-owned surfaces:
 
 1. `consent-protocol/api/routes/account.py`
 2. `consent-protocol/hushh_mcp/services/account_service.py`
-3. `docs/reference/kai/kai-action-gateway-vnext.md`
+3. `docs/architecture/finance/kai-action-gateway-vnext.md`
 
 ## Workflow
 

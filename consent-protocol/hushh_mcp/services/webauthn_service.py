@@ -3,7 +3,7 @@
 This is the missing piece that turns hussh's biometric/passkey support from a
 *vault-unlock* PRF device into a real, server-verified **authenticator** — the
 foundation for passkey login, step-up, and hardware keys (Google Titan, YubiKey).
-See docs/future/identity-assurance/README.md.
+See docs/roadmap/identity-assurance/README.md.
 
 It wraps ``py_webauthn`` with two injected stores (a credential repo + a one-time
 challenge store, both Protocols), so the whole engine is hermetically testable

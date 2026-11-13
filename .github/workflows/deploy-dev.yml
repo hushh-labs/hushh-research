@@ -4,7 +4,7 @@ run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'sh
 # Dev Fast Lane: dev deploys are decoupled from main. Normal application
 # deploys must select a SHA in protected dev history; ref is only a lookup
 # hint. The separate pod-publication target keeps its reviewed source rules.
-# Contract: docs/reference/operations/dev-fast-lane.md
+# Contract: docs/operations/releases/dev-fast-lane.md
 on:
   workflow_dispatch:
     inputs:

@@ -26,7 +26,7 @@ Owned repo surfaces:
 
 1. `hushh-webapp/native-route-inventory.json`
 2. `hushh-webapp/scripts/native/verify-native-static-parity.mjs`
-3. `docs/reference/mobile/tri-flow-parity.md`
+3. `docs/development/mobile/tri-flow-parity.md`
 
 Non-owned surfaces:
 
@@ -49,7 +49,7 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/mobile/tri-flow-parity.md`
+1. `docs/development/mobile/tri-flow-parity.md`
 2. `.agents/skills/tri-flow-parity/references/reason-contract.md`
 
 ## Workflow

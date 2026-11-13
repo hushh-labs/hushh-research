@@ -1366,7 +1366,7 @@ without executing them; current implementation results are recorded below):
 No real request, Google linking, upload, payment, consent decision, account
 mutation, or full app server was used for these isolated presentation checks.
 Repository UI changes follow the existing
-[UI contract contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+[UI contract contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md).
 
 
 Profile v16 implementation checks, 21 October 2026:

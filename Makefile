@@ -15,7 +15,7 @@ help: ## List available targets
 #   make ios-prod-release ARGS="--dry-run"     # archive + sign only, no upload
 #   make ios-prod-release ARGS="--sha <sha>"   # pin an explicit green SHA
 #   make ios-prod-release ARGS="--submit --ack-blockers"   # IRREVERSIBLE public submit
-# See docs/guides/mobile/release-ios-appstore.md for the full runbook.
+# See docs/operations/mobile/release-ios-appstore.md for the full runbook.
 ios-prod-release: ## Build → sign → upload → prepare the production iOS App Store release
 	node scripts/release/dispatch-ios-appstore.mjs $(ARGS)
 

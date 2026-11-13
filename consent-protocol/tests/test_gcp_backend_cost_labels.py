@@ -1,4 +1,4 @@
-"""Cost-attribution labels on a per-user pod (docs/reference/architecture/private-agent-north-star.md).
+"""Cost-attribution labels on a per-user pod (docs/product/principles/private-agent-requirements.md).
 
 Two things are being protected here, and they pull in opposite directions.
 

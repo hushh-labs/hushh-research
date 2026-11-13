@@ -13,8 +13,8 @@
     ".agents/skills"
   ],
   "required_reads": [
-    "docs/reference/operations/ci.md",
-    "docs/reference/operations/env-and-secrets.md",
+    "docs/operations/releases/ci.md",
+    "docs/operations/configuration/env-and-secrets.md",
     ".agents/skills/repo-operations/SKILL.md",
     ".agents/skills/quality-contracts/SKILL.md"
   ],

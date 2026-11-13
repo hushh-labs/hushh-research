@@ -16,9 +16,15 @@ from tests.helpers.calendar_meeting_artifact_fixtures import (
     EVENT,
     GRANT,
     RECORD,
+    freeze_meeting_clock,
     run,
     setup,
 )
+
+
+@pytest.fixture(autouse=True)
+def meeting_clock(monkeypatch):
+    freeze_meeting_clock(monkeypatch)
 
 
 def test_missing_meet_or_drive_scope_keeps_calendar_meetings_visible(monkeypatch):
@@ -325,3 +331,11 @@ def test_meet_forbidden_reason_is_closed_and_never_requests_consent(monkeypatch,
         run(svc._meet("synthetic-token", "conferenceRecords"))
     assert caught.value.state == expected
     assert "private provider text" not in str(caught.value)
+
+
+def test_fixed_clock_preserves_provider_retention_refusal(monkeypatch):
+    insights, _, _ = setup()
+    monkeypatch.setattr(artifacts_module, "inspect_token", AsyncMock(return_value=set()))
+    result = run(insights.library(user_id="owner", date="2026-09-01", time_zone="UTC"))
+    assert result["complete"] is False
+    assert "provider_retention" in result["limitations"]

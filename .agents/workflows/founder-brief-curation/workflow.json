@@ -14,7 +14,7 @@
   "required_reads": [
     ".agents/skills/founder-brief-curation/references/brief-curation-rules.md",
     ".agents/skills/docs-governance/references/founder-document-cadence.md",
-    "docs/reference/operations/documentation-architecture-map.md"
+    "docs/development/documentation.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task founder-brief-curation",

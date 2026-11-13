@@ -48,7 +48,7 @@ Non-owned surfaces:
 4. `.agents/skills/founder-brief-curation/references/world-class-artifact-standard.md`
 5. `.agents/skills/founder-brief-curation/references/architecture-diagram-standard.md`
 6. `.agents/skills/docs-governance/references/founder-document-cadence.md`
-7. `docs/reference/operations/documentation-architecture-map.md`
+7. `docs/development/documentation.md`
 
 ## Workflow
 

@@ -18,6 +18,7 @@ from hushh_mcp.services.google_connection_service import (
     CalendarGrantIdentity,
     GoogleConnectionError,
 )
+from tests.helpers.calendar_meeting_artifact_fixtures import freeze_meeting_clock
 
 BINDING = ("owner", "calendar", "google-subject", "stamp", "generation", "revision")
 GRANT = CalendarGrantIdentity("owner", "default", "google-subject", BINDING)
@@ -82,6 +83,7 @@ def run(coroutine):
 
 @pytest.fixture(autouse=True)
 def shared_placement(monkeypatch):
+    freeze_meeting_clock(monkeypatch)
     monkeypatch.setattr(calendar_workspace, "admit_hub_content", AsyncMock())
 
 

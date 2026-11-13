@@ -3,7 +3,7 @@
   "surface_id": "kai_market",
   "surface_title": "Kai Market Home",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "defaults": {
     "reachability": {
@@ -50,7 +50,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+        "docs/architecture/one/one-voice-kai-compatibility-runtime.md"
       ],
       "speaker_persona": "kai"
     },
@@ -94,7 +94,7 @@
         "selected sector performance period"
       ],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "speaker_persona": "kai"
     },
@@ -138,7 +138,7 @@
         "selected sector performance period"
       ],
       "docs_references": [
-        "docs/reference/architecture/api-contracts.md"
+        "docs/development/contracts/api-contracts.md"
       ],
       "speaker_persona": "kai"
     },
@@ -155,7 +155,7 @@
       "execution_target": { "status": "wired", "path": "control", "target": "kai_market_sector_scope" },
       "control_ids": ["kai_market_sector_scope"],
       "state_exposure": ["selected sector list size"],
-      "docs_references": ["docs/reference/architecture/route-contracts.md"],
+      "docs_references": ["docs/development/contracts/route-contracts.md"],
       "speaker_persona": "kai"
     },
     {
@@ -171,7 +171,7 @@
       "execution_target": { "status": "wired", "path": "control", "target": "kai_market_sector_scope" },
       "control_ids": ["kai_market_sector_scope"],
       "state_exposure": ["selected sector list size"],
-      "docs_references": ["docs/reference/architecture/route-contracts.md"],
+      "docs_references": ["docs/development/contracts/route-contracts.md"],
       "speaker_persona": "kai"
     }
   ],

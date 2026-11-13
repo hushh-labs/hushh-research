@@ -3,7 +3,7 @@
   "surface_id": "one_files",
   "surface_title": "Files",
   "docs_references": [
-    "docs/reference/operations/private-files-library.md"
+    "docs/operations/hosting/private-files-library.md"
   ],
   "defaults": {
     "reachability": {

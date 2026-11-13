@@ -12,7 +12,7 @@
       "reachability": { "routes": ["/one/profile/account"], "screens": ["profile_account"], "hidden_navigable": false, "navigation_prerequisites": [] },
       "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct",
       "execution_target": { "status": "wired", "path": "route", "target": "/one/profile/account" },
-      "control_ids": [], "state_exposure": [], "docs_references": ["docs/reference/architecture/api-contracts.md"]
+      "control_ids": [], "state_exposure": [], "docs_references": ["docs/development/contracts/api-contracts.md"]
     },
     {
       "action_id": "profile.email_updates.choose",
@@ -24,7 +24,7 @@
       "guard_ids": ["auth_signed_in", "manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
       "execution_target": { "status": "unwired", "reason": "The owner chooses optional email permission directly on screen.", "intended_handler": "MarketingPreferencePanel" },
       "control_ids": ["one_email_updates_enabled", "one_email_updates_frequency"], "state_exposure": [],
-      "docs_references": ["docs/reference/architecture/api-contracts.md"]
+      "docs_references": ["docs/development/contracts/api-contracts.md"]
     },
     {
       "action_id": "profile.email_updates.save",
@@ -35,7 +35,7 @@
         "navigation_prerequisites": ["The signed-in owner has reviewed the optional email disclosure and chosen their preference."] },
       "guard_ids": ["auth_signed_in", "manual_user_execution"], "risk_level": "high", "execution_policy": "manual_only",
       "execution_target": { "status": "unwired", "reason": "The owner must explicitly save email permission using the visible form.", "intended_handler": "MarketingPreferencePanel" },
-      "control_ids": ["one_email_updates_save"], "state_exposure": [], "docs_references": ["docs/reference/architecture/api-contracts.md"]
+      "control_ids": ["one_email_updates_save"], "state_exposure": [], "docs_references": ["docs/development/contracts/api-contracts.md"]
     },
     {
       "action_id": "profile.email_updates.retry",
@@ -46,7 +46,7 @@
         "navigation_prerequisites": ["The saved email preference could not be loaded."] },
       "guard_ids": ["auth_signed_in", "manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
       "execution_target": { "status": "unwired", "reason": "The visible form owns retry and loading state.", "intended_handler": "MarketingPreferencePanel" },
-      "control_ids": ["one_email_updates_retry"], "state_exposure": [], "docs_references": ["docs/reference/architecture/api-contracts.md"]
+      "control_ids": ["one_email_updates_retry"], "state_exposure": [], "docs_references": ["docs/development/contracts/api-contracts.md"]
     }
   ]
 }

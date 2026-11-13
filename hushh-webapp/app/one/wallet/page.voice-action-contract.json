@@ -3,7 +3,7 @@
   "surface_id": "one_wallet",
   "surface_title": "One Cards",
   "docs_references": [
-    "docs/reference/one/one-agent-hierarchy.md"
+    "docs/architecture/one/one-agent-hierarchy.md"
   ],
   "defaults": {
     "reachability": {

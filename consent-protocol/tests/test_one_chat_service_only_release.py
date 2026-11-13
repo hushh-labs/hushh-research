@@ -62,7 +62,7 @@ def test_service_only_preflight_accepts_only_the_cutover_delta(
             [
                 "consent-protocol/api/routes/one/agent_chat.py",
                 "hushh-webapp/app/one/location/page.tsx",
-                "docs/reference/architecture/api-contracts.md",
+                "docs/development/contracts/api-contracts.md",
             ]
         ),
     )
