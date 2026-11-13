@@ -925,9 +925,15 @@ def test_extended_network_suggests_eligible_people_without_exposing_contact_or_p
                 VALUES ('blocked', 'owner', 'rejected', '{"blocked_by":"blocked"}')""")
     )
     fresh = network.browse(OWNER, degree=3, include_suggestions=True)
-    assert fresh["items"] == []
-    assert [p["displayName"] for p in fresh["suggestions"]] == ["A Third", "Z Advisor"]
-    assert all(p["suggestionReason"] == "verified_advisor" for p in fresh["suggestions"])
+    assert [p["displayName"] for p in fresh["items"]] == [
+        "A First",
+        "A Second",
+        "A Third",
+        "Z Advisor",
+        "Z Ordinary",
+    ]
+    assert all(p["suggestionReason"] == "public_profile" for p in fresh["items"])
+    assert all(p["networkDegree"] is None for p in fresh["items"])
     for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
         _network_edge(connection, a, b)
     network.set_preference("alice", True)
@@ -935,31 +941,222 @@ def test_extended_network_suggests_eligible_people_without_exposing_contact_or_p
     _requested(connection, OWNER, "advisor")
     established = network.browse(OWNER, degree=3, include_suggestions=True)
     assert [(p["displayName"], p["networkDegree"]) for p in established["items"]] == [
-        ("A Third", 3)
+        ("A Third", 3),
+        ("Z Advisor", None),
+        ("Z Ordinary", None),
     ]
-    [suggested] = established["suggestions"]
+    suggested = established["items"][1]
     assert suggested == {
-        "publicPersonRef": fresh["suggestions"][1]["publicPersonRef"],
+        "publicPersonRef": fresh["items"][3]["publicPersonRef"],
         "displayName": "Z Advisor",
         "photoUrl": None,
         "relationship": "pending_outgoing",
-        "suggestionReason": "verified_advisor",
+        "networkDegree": None,
+        "mutualConnectionCount": 0,
+        "mutualConnectionPreview": None,
+        "mutualConnectionPreviews": [],
+        "suggestionReason": "public_profile",
     }
-    assert "suggestions" not in network.browse(OWNER, degree=3, page=2, include_suggestions=True)
-    assert "suggestions" not in network.browse(OWNER, degree=2, include_suggestions=True)
+    assert network.browse(OWNER, degree=3)["items"] == established["items"][:1]
+    assert all(
+        p["networkDegree"] == 2
+        for p in network.browse(OWNER, degree=2, include_suggestions=True)["items"]
+    )
     private_search = network.browse(
         OWNER, degree=3, query="ordinary@example.test", include_suggestions=True
     )
-    assert private_search["suggestions"] == []
+    assert private_search["items"] == []
     [name_match] = network.browse(OWNER, degree=3, query="Ordinary", include_suggestions=True)[
-        "suggestions"
+        "items"
     ]
     assert (name_match["displayName"], name_match["suggestionReason"]) == (
         "Z Ordinary",
         "name_match",
     )
     _network_edge(connection, OWNER, "advisor")
-    assert network.browse(OWNER, degree=3, include_suggestions=True)["suggestions"] == []
+    assert [
+        p["displayName"] for p in network.browse(OWNER, degree=3, include_suggestions=True)["items"]
+    ] == ["A Third", "Z Ordinary"]
+
+
+def test_extended_network_pages_public_people_after_eligibility_and_live_accounts(connection):
+    network = _network(connection)
+    _person(connection, OWNER, "Viewer")
+    expected = []
+    # Include identical names, recent complete signups, and explicit public
+    # website profiles without a vault. Role/graph proximity is not required.
+    for index in range(23):
+        uid = f"public-{index:02}"
+        _person(connection, uid, f"Person {index // 2:02}", vault=None if index == 0 else "active")
+        expected.append(uid)
+    connection.execute(
+        text("UPDATE actor_profiles SET directory_listed=TRUE WHERE user_id='public-00'")
+    )
+    for uid in (
+        "blocked",
+        "unlisted",
+        "copied",
+        "unfinished",
+        "disabled",
+        "retired",
+        "no-ref",
+        "direct",
+        "mutual",
+    ):
+        _person(
+            connection,
+            uid,
+            f"A {uid}",
+            enrolled=uid != "copied",
+            vault="placeholder" if uid == "unfinished" else "active",
+        )
+    connection.execute(
+        text("UPDATE actor_profiles SET public_person_ref=user_id WHERE user_id <> 'no-ref'")
+    )
+    connection.execute(
+        text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='unlisted'")
+    )
+    connection.execute(
+        text("UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='retired'")
+    )
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES ('blocked','owner','rejected','{\"blocked_by\":\"blocked\"}')"
+        )
+    )
+    _requested(connection, OWNER, "unlisted")
+    _requested(connection, OWNER, "public-01")
+    _requested(connection, "public-02", OWNER)
+    _network_edge(connection, OWNER, "direct")
+    _network_edge(connection, "direct", "mutual")
+    network.directory()._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
+    pages = [
+        network.browse(OWNER, degree=3, include_suggestions=True, page=p, limit=5)
+        for p in range(1, 6)
+    ]
+    assert [[p["publicPersonRef"] for p in page["items"]] for page in pages] == [
+        expected[i : i + 5] for i in range(0, 23, 5)
+    ]
+    assert [p["hasMore"] for p in pages] == [True, True, True, True, False]
+    assert [p["relationship"] for p in pages[0]["items"]][:3] == [
+        "none",
+        "pending_outgoing",
+        "pending_incoming",
+    ]
+    assert network.browse(OWNER, degree=3, include_suggestions=True, page=6, limit=5)["items"] == []
+    [match] = network.browse(OWNER, degree=3, include_suggestions=True, query="Person 11")["items"]
+    assert (match["publicPersonRef"], match["suggestionReason"]) == ("public-22", "name_match")
+    assert all(
+        set(p)
+        <= {
+            "publicPersonRef",
+            "displayName",
+            "photoUrl",
+            "relationship",
+            "networkDegree",
+            "suggestionReason",
+            "mutualConnectionCount",
+            "mutualConnectionPreview",
+            "mutualConnectionPreviews",
+        }
+        for page in pages
+        for p in page["items"]
+    )
+
+
+def test_extended_paging_crosses_graph_and_public_cohorts_with_recovered_names(connection):
+    network = _network(connection)
+    for uid in (OWNER, "first", "second"):
+        _person(connection, uid, uid.title())
+    _network_edge(connection, OWNER, "first")
+    _network_edge(connection, "first", "second")
+    network.set_preference("first", True)
+    network.set_preference("second", True)
+    third_ids = [f"third-{index:02}" for index in range(6)]
+    public_ids = [f"public-{index:03}" for index in range(105)]
+    for uid in third_ids + public_ids:
+        name = uid.replace("third", "Z Third").replace("public", "Public")
+        _person(connection, uid, "" if uid in ("third-00", "public-104") else name)
+        if uid in third_ids:
+            _network_edge(connection, "second", uid)
+    connection.execute(text("UPDATE actor_profiles SET public_person_ref=user_id"))
+    network.directory()._directory_auth_profiles = lambda ids: {
+        uid: {
+            "display_name": uid.replace("third", "Z Third").replace("public", "Public"),
+            "photo_url": "",
+        }
+        for uid in ids
+    }
+    pages = [
+        network.browse(OWNER, degree=3, include_suggestions=True, page=p, limit=5)
+        for p in range(1, 24)
+    ]
+    people = [person for page in pages for person in page["items"]]
+    assert [p["publicPersonRef"] for p in people] == third_ids + public_ids
+    assert [len(p["items"]) for p in pages] == [5] * 22 + [1]
+    assert [p["hasMore"] for p in pages] == [True] * 22 + [False]
+    assert all(p["networkDegree"] == 3 and "suggestionReason" not in p for p in people[:6])
+    assert all(
+        p["networkDegree"] is None and p["suggestionReason"] == "public_profile" for p in people[6:]
+    )
+
+
+@pytest.mark.parametrize(
+    "change", [None, "block", "unlist", "connect", "mutual", "enrollment", "retire"]
+)
+def test_extended_requalifies_suggestions_after_provider_reads(connection, monkeypatch, change):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "suggested", "direct"):
+        _person(connection, uid, uid.title())
+    connection.execute(text("UPDATE actor_profiles SET public_person_ref=user_id"))
+    _network_edge(connection, OWNER, "direct")
+    original = network.directory().search_directory_candidates
+
+    def read_then_change(**kwargs):
+        result = original(**kwargs)
+        if "extended_network_user_ids" in kwargs:
+            if change == "block":
+                connection.execute(
+                    text(
+                        "INSERT INTO connection_requests VALUES ('suggested','owner','rejected','{\"blocked_by\":\"suggested\"}')"
+                    )
+                )
+            elif change == "unlist":
+                connection.execute(
+                    text(
+                        "UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='suggested'"
+                    )
+                )
+            elif change == "connect":
+                _network_edge(connection, OWNER, "suggested")
+            elif change == "mutual":
+                _network_edge(connection, "direct", "suggested")
+            elif change == "enrollment":
+                connection.execute(
+                    text(
+                        "UPDATE vault_keys SET environment_enrolled_at=NULL WHERE user_id='suggested'"
+                    )
+                )
+            elif change == "retire":
+                connection.execute(
+                    text(
+                        "UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='suggested'"
+                    )
+                )
+        return result
+
+    monkeypatch.setattr(network.directory(), "search_directory_candidates", read_then_change)
+    if change:
+        with pytest.raises(ConnectionsError) as failure:
+            network.browse(OWNER, degree=3, include_suggestions=True)
+        assert failure.value.status_code == 503
+    else:
+        assert [
+            p["displayName"]
+            for p in network.browse(OWNER, degree=3, include_suggestions=True)["items"]
+        ] == ["Suggested"]
 
 
 def test_network_cycles_do_not_extend_degrees_or_include_viewer(connection):

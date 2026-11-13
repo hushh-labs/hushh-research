@@ -70,7 +70,7 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
           </span>
         ) : null}
         {person.suggestionReason ? <span id={suggestionId} className="basis-full text-xs leading-snug text-muted-foreground">
-          Suggested · {person.suggestionReason === "verified_advisor" ? "Verified advisor" : "Name match"}
+          Suggested · {person.suggestionReason === "verified_advisor" ? "Verified advisor" : person.suggestionReason === "name_match" ? "Name match" : "Discover someone new"}
         </span> : null}
       </span>
     </button>

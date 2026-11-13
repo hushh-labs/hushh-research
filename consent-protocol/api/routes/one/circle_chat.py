@@ -226,9 +226,10 @@ def chat_state(
     request: Request,
     response: Response,
     circle: UUID,
+    includeMessages: bool = Query(False),
     owner: dict = Depends(require_vault_owner_token),
 ):
-    return _call(response, "state", owner, circle)
+    return _call(response, "state", owner, circle, include_messages=includeMessages)
 
 
 @router.put("/{circle}/photo")
