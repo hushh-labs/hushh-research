@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   owner: "owner-a" as string | null,
   ready: true,
+  pathname: "/",
   notifyPresented: true,
   bootstrap: vi.fn(),
   status: vi.fn(),
   seen: new Set<string>(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: state.owner, loading: false }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
 vi.mock("@/lib/agent/agent-runtime-context", () => ({
   useAgentRuntimeState: () => ({ hasVaultAccess: state.ready, onboardingActive: false }),
 }));
@@ -50,6 +52,7 @@ const receipt = {
 beforeEach(() => {
   state.owner = "owner-a";
   state.ready = true;
+  state.pathname = "/";
   state.notifyPresented = true;
   state.seen.clear();
   state.bootstrap.mockReset().mockResolvedValue({ userId: "owner-a", setupCompleted: true, firstLoginAt: Date.parse("2026-09-01") });
@@ -59,6 +62,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); });
 
 describe("Release notices", () => {
+  it.each(["/one/consent", "/one/consent/", "/people/approved-person"])("defers announcements on %s without acknowledging unseen receipts", async (pathname) => {
+    state.pathname = pathname;
+    state.status.mockResolvedValue(receipt);
+    const view = render(<AgentReleaseNotifier />);
+    await act(async () => { await Promise.resolve(); });
+    publishPodUpdateObservation("owner-a", receipt);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(state.seen.size).toBe(0);
+    expect(state.status).not.toHaveBeenCalled();
+
+    state.pathname = "/";
+    view.rerender(<AgentReleaseNotifier />);
+    await screen.findByRole("button", { name: "What’s new in One" });
+    fireEvent.click(screen.getByRole("button"));
+    await screen.findByRole("button", { name: "Agent One is updated" });
+    expect(state.seen.size).toBe(2);
+  });
+
   it("shows existing owners once across sibling instances and refresh", async () => {
     const view = render(<><AgentReleaseNotifier /><AgentReleaseNotifier /></>);
     await screen.findByRole("button", { name: "What’s new in One" });

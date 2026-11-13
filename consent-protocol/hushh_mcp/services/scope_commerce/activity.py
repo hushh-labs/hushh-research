@@ -4,17 +4,15 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
+from hushh_mcp.consent.scope_labels import human_scope_label
+
 from .activity_cursor import decode_cursor, encode_cursor
 from .cost_review import read_negative_net_review
 from .domain import MICRO_PER_CENT, CommerceError, account, integer
 
 
 def scope_label(machine_scope: str) -> str:
-    return " / ".join(
-        part.replace("_", " ")
-        for part in machine_scope.removeprefix("attr.").split(".")
-        if part != "*"
-    )
+    return human_scope_label(machine_scope)
 
 
 def iso(value: datetime | None) -> str | None:

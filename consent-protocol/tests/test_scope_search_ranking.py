@@ -218,6 +218,25 @@ def test_human_scope_labels(scope, stored, expected):
     assert human_scope_label(scope, stored) == expected
 
 
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        ("attr.food.preferences.*", "Food preferences"),
+        ("attr.food.preferences.entities._entities.kind", "Food preferences kind"),
+        ("attr.professional.employment.status", "Employment status"),
+        ("attr.legal_entity.entity.fein", "Federal EIN"),
+        (
+            "attr.professional.agent_memory.scope_access_rehearsal.role",
+            "Scope access rehearsal role",
+        ),
+    ],
+)
+def test_commerce_names_the_exact_information_without_storage_paths(scope, expected):
+    from hushh_mcp.services.scope_commerce.activity import scope_label
+
+    assert scope_label(scope) == expected
+
+
 def test_field_and_value_labels_match_their_shared_truth_table():
     """The client's secure card reads the same contract ("C_CORP" -> "C corporation")."""
     from hushh_mcp.consent.field_labels import human_value_label, known_field_label
