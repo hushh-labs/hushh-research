@@ -113,7 +113,7 @@ LEFT JOIN LATERAL (
      AND raw.event_type IN ('location_share_created','location_share_revoked',
        'location_share_shortened','location_share_duration_changed','location_share_expired')
      AND created.user_id = raw.user_id AND created.source_domain = 'location'
-     AND created.event_type = 'location_share_created'
+     AND created.event_type IN ('location_share_created','location_share_unconfirmed')
      AND created.source_row_id = {grant_key}
    ORDER BY created.id DESC LIMIT 1
 ) origin ON TRUE

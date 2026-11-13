@@ -26,7 +26,7 @@ from tests.test_feed_account_session_postgres import (
     feed_db as feed_db,
 )
 
-MIGRATION = ROOT / "db/migrations/455_location_feed_confirmed_incidents.sql"
+MIGRATION = ROOT / "db/migrations/458_location_feed_confirmed_incidents.sql"
 
 
 @pytest.fixture
@@ -139,6 +139,9 @@ def test_unpublished_sms_draft_cannot_displace_confirmed_alert(publication_db):
     confirmed = create_grant(db, confirmed=True)
     first = listed_ids(session(db), OWNER)
     draft = create_grant(db)
+    with db.begin() as c:
+        audit(c, draft, "location_share_shortened")
+        audit(c, draft, "location_share_duration_changed")
     with db.connect() as c:
         grants = (
             c.execute(text(RECEIVED_GRANTS_FEED_SQL), {"user_id": OWNER, "source_limit": 100})
@@ -152,11 +155,11 @@ def test_unpublished_sms_draft_cannot_displace_confirmed_alert(publication_db):
     assert str(receipts(db)[0]["source_row_id"]).split(":")[0] == confirmed
     with db.begin() as c:
         publish(c, draft)
-    assert len(receipts(db)) == 2
-    assert listed_ids(session(db), OWNER) == [receipts(db)[1]["id"]]
+    assert len(receipts(db)) == 4
+    assert listed_ids(session(db), OWNER) == [receipts(db)[-1]["id"]]
     with db.begin() as c:
         publish(c, draft)
-    assert len(receipts(db)) == 2
+    assert len(receipts(db)) == 4
     assert session(db).unread_count(OWNER) == 1
 
 
@@ -230,7 +233,7 @@ def test_publication_receipt_failure_rolls_back_the_envelope_and_audit(publicati
 
 def test_legacy_draft_backfill_replay_clear_and_source_cleanup(publication_db, monkeypatch):
     db = publication_db
-    apply(db, ROOT / "db/migrations/rollback/455_location_feed_confirmed_incidents.rollback.sql")
+    apply(db, ROOT / "db/migrations/rollback/458_location_feed_confirmed_incidents.rollback.sql")
     confirmed = create_grant(db, confirmed=True)
     draft = create_grant(db)
     apply(db, MIGRATION)
@@ -244,7 +247,7 @@ def test_legacy_draft_backfill_replay_clear_and_source_cleanup(publication_db, m
             == "location_share_unconfirmed"
         )
     assert listed_ids(session(db), OWNER) == [rows[0]["id"]]
-    # Pre455 readers rank plain recipient/SOS creation keys without knowing
+    # Pre458 readers rank plain recipient/SOS creation keys without knowing
     # feed_sms_confirmed. Quarantined drafts must not match that selector.
     with db.connect() as c:
         assert (
@@ -265,7 +268,7 @@ def test_legacy_draft_backfill_replay_clear_and_source_cleanup(publication_db, m
     apply(db, MIGRATION)
     assert receipts(db)[1]["metadata"]["feed_sms_confirmed"] is False
     assert listed_ids(session(db), OWNER) == [newest["id"]]
-    apply(db, ROOT / "db/migrations/rollback/455_location_feed_confirmed_incidents.rollback.sql")
+    apply(db, ROOT / "db/migrations/rollback/458_location_feed_confirmed_incidents.rollback.sql")
     token = session(db).dismiss(OWNER, item_id=newest["id"])["dismissal_token"]
     with db.begin() as c:
         c.execute(
@@ -294,7 +297,7 @@ def test_legacy_draft_backfill_replay_clear_and_source_cleanup(publication_db, m
 def test_replayed_legacy_draft_after_rollback_is_quarantined_without_identity_loss(publication_db):
     db = publication_db
     grant = create_grant(db)
-    rollback = ROOT / "db/migrations/rollback/455_location_feed_confirmed_incidents.rollback.sql"
+    rollback = ROOT / "db/migrations/rollback/458_location_feed_confirmed_incidents.rollback.sql"
     identities = []
     for _ in range(2):
         apply(db, rollback)
@@ -328,7 +331,7 @@ def test_replayed_legacy_draft_after_rollback_is_quarantined_without_identity_lo
 def test_migration_waits_for_old_publisher_before_repairing_its_draft(publication_db):
     db = publication_db
     grant = create_grant(db)
-    apply(db, ROOT / "db/migrations/rollback/455_location_feed_confirmed_incidents.rollback.sql")
+    apply(db, ROOT / "db/migrations/rollback/458_location_feed_confirmed_incidents.rollback.sql")
     with db.connect() as writer, ThreadPoolExecutor(max_workers=1) as pool:
         transaction = writer.begin()
         audit(writer, grant, "location_share_created")
@@ -353,3 +356,16 @@ def test_migration_waits_for_old_publisher_before_repairing_its_draft(publicatio
     with db.begin() as c:
         publish(c, grant)
     assert listed_ids(session(db), OWNER) == [receipts(db)[-1]["id"]]
+
+
+def test_legacy_unconfirmed_sms_duration_is_not_presented_as_an_ordinary_share(publication_db):
+    db = publication_db
+    apply(db, ROOT / "db/migrations/rollback/458_location_feed_confirmed_incidents.rollback.sql")
+    draft = create_grant(db)
+    with db.begin() as c:
+        audit(c, draft, "location_share_shortened")
+    apply(db, MIGRATION)
+    assert listed_ids(session(db), OWNER) == []
+    with db.begin() as c:
+        c.execute(text("DELETE FROM one_location_share_grants; DELETE FROM one_location_events"))
+    assert listed_ids(session(db), OWNER) == []

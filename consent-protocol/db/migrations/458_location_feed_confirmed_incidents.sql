@@ -23,7 +23,7 @@ WHERE f.source_domain='location' AND f.event_type='location_share_created'
 -- Repair only misclassified legacy drafts in the presentation log. Keep their
 -- ids, event times and authoritative Location audit intact; they were never
 -- confirmed shares. The kind change frees the canonical grant publication key
--- and keeps pre455 readers from ranking a dismissed draft as the latest SOS.
+-- and keeps pre458 readers from ranking a dismissed draft as the latest SOS.
 UPDATE feed_events f SET event_type='location_share_unconfirmed',
   source_row_id=CASE WHEN EXISTS (
     SELECT 1 FROM feed_events prior WHERE prior.user_id=f.user_id
@@ -241,8 +241,9 @@ BEGIN
     ELSE '{}'::jsonb
   END;
 
-  feed_metadata := feed_metadata || jsonb_build_object(
-    'actor_is_self', COALESCE(NEW.actor_user_id = NEW.recipient_user_id, FALSE));
+  feed_metadata := feed_metadata || jsonb_strip_nulls(jsonb_build_object(
+    'actor_is_self', COALESCE(NEW.actor_user_id = NEW.recipient_user_id, FALSE),
+    'share_kind', COALESCE(authoritative_kind, share_kind_value)));
 
   INSERT INTO feed_events (
     user_id, source_domain, event_type, metadata, source_row_id

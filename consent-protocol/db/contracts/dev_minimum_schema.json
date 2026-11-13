@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 455,
+  "expected_migration_version": 458,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -4417,5 +4417,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 455
+  "expected_schema_head": 458
 }
