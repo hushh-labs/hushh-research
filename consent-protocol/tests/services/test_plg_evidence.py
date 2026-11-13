@@ -6,6 +6,7 @@ import hmac
 import json
 import time
 import uuid
+from contextlib import asynccontextmanager as _metrics_asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -15,9 +16,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth_read_only
+from api.routes.one import metrics as _metrics_route
 from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
 from hushh_mcp.services import marketing_preferences
+from hushh_mcp.services import metrics_adoption as _metrics_source
 from hushh_mcp.services import plg_audience as audience
 from hushh_mcp.services import plg_customer_cohort as cohort
 from hushh_mcp.services import plg_evidence as evidence
@@ -26,6 +29,7 @@ from hushh_mcp.services import plg_reporting as reporting
 from hushh_mcp.services import product_activity as sink
 from hushh_mcp.services.pkm_mutation_contracts import derive_pkm_mutation_commit_id
 from hushh_mcp.services.plg_catalog import activity_catalog
+from hushh_mcp.services.plg_reporting import ReportingPolicy as _MetricsReportingPolicy
 
 SECRET = "test-only-plg-export-signature-key-with-32-characters"
 NOW = datetime.now(timezone.utc)
@@ -2011,3 +2015,289 @@ def test_slow_measurement_checkout_cannot_stall_product_or_build_an_unbounded_qu
         release.set()
         for future in pending:
             future.result(timeout=2)
+
+
+# Server-only Metrics aggregate uses the existing signed-source verification lane.
+
+_METRICS_NOW = datetime.now(timezone.utc)
+
+
+@pytest.fixture
+def metrics_aggregate_setup(monkeypatch):
+    binding = {
+        "approved": True,
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "populationPolicyRevision": "c" * 64,
+        "reconciliationDigest": "d" * 64,
+        "coverageFrom": (_METRICS_NOW - timedelta(days=7)).date().isoformat(),
+    }
+    body = {
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "period": {
+            "startDate": (_METRICS_NOW - timedelta(days=2)).date().isoformat(),
+            "endDate": (_METRICS_NOW - timedelta(days=1)).date().isoformat(),
+            "timezone": "UTC",
+        },
+    }
+    secret = "synthetic-metrics-signing-fixture-" * 2
+    monkeypatch.setenv("ONE_METRICS_ADOPTION_ENABLED", "true")
+    monkeypatch.setenv("ONE_METRICS_ADOPTION_SECRET", secret)
+    monkeypatch.setenv("ONE_METRICS_ADOPTION_BINDING_JSON", json.dumps(binding))
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setattr(_metrics_route, "current_auth_lane", lambda: "production")
+    app = FastAPI()
+    app.include_router(_metrics_route.router)
+    policy = _MetricsReportingPolicy(
+        frozenset({"staff"}), frozenset(), frozenset({"company.invalid"}), "c" * 64
+    )
+    monkeypatch.setattr(_metrics_source.plg_reporting, "reporting_policy", lambda: policy)
+    return SimpleNamespace(binding=binding, body=body, secret=secret, client=TestClient(app))
+
+
+def _metrics_signed(f, body=None, timestamp=None):
+    raw = json.dumps(body or f.body, separators=(",", ":")).encode()
+    at = str(timestamp or int(time.time() * 1000))
+    signature = hmac.new(
+        f.secret.encode(),
+        b"metrics-one-aggregate-v1:" + at.encode() + b":" + raw,
+        hashlib.sha256,
+    ).hexdigest()
+    return (
+        raw,
+        {
+            "X-Metrics-Timestamp": at,
+            "X-Metrics-Signature": signature,
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def test_metrics_aggregate_signature_and_environment_refuse_before_source_access(
+    metrics_aggregate_setup, monkeypatch
+):
+    run = AsyncMock()
+    monkeypatch.setattr(_metrics_source, "bounded_adoption_aggregate", run)
+    for key, value in [
+        ("ONE_METRICS_ADOPTION_ENABLED", "false"),
+        ("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat"),
+    ]:
+        with monkeypatch.context() as scoped:
+            scoped.setenv(key, value)
+            raw, headers = _metrics_signed(metrics_aggregate_setup)
+            assert (
+                metrics_aggregate_setup.client.post(
+                    "/api/one/metrics/adoption", content=raw, headers=headers
+                ).status_code
+                == 404
+            )
+    raw, headers = _metrics_signed(
+        metrics_aggregate_setup, timestamp=int(time.time() * 1000) - 60001
+    )
+    assert (
+        metrics_aggregate_setup.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers
+        ).status_code
+        == 401
+    )
+    raw, headers = _metrics_signed(metrics_aggregate_setup)
+    headers["X-Metrics-Signature"] = "0" * 64
+    assert (
+        metrics_aggregate_setup.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers
+        ).status_code
+        == 401
+    )
+    with monkeypatch.context() as scoped:
+        scoped.setattr(_metrics_route, "current_auth_lane", lambda: "uat")
+        assert (
+            metrics_aggregate_setup.client.post(
+                "/api/one/metrics/adoption", content=raw, headers=headers
+            ).status_code
+            == 404
+        )
+    assert not run.called
+
+
+def test_metrics_aggregate_wire_contract_has_no_owner_override_and_sanitizes_unavailable(
+    metrics_aggregate_setup, monkeypatch
+):
+    run = AsyncMock(side_effect=_metrics_source.AggregateUnavailable("private source diagnostics"))
+    monkeypatch.setattr(_metrics_source, "bounded_adoption_aggregate", run)
+    raw, headers = _metrics_signed(
+        metrics_aggregate_setup, {**metrics_aggregate_setup.body, "userId": "other-owner"}
+    )
+    assert (
+        metrics_aggregate_setup.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers
+        ).status_code
+        == 400
+    )
+    assert not run.called
+    raw, headers = _metrics_signed(metrics_aggregate_setup)
+    response = metrics_aggregate_setup.client.post(
+        "/api/one/metrics/adoption", content=raw, headers=headers
+    )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Metrics aggregate unavailable"}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert run.await_args.args[0].model_dump() == metrics_aggregate_setup.body
+
+
+class _MetricsConnection:
+    def __init__(self):
+        self.ids = ["customer", "staff"]
+        self.restricted = False
+        self.transactions = []
+
+    @_metrics_asynccontextmanager
+    async def transaction(self, **options):
+        self.transactions.append(options)
+        yield
+
+    async def execute(self, *_args):
+        return None
+
+    async def fetchval(self, query, *_args, **_options):
+        if "row_security_active" in query:
+            return self.restricted
+        assert query == "SELECT transaction_timestamp()"
+        return _METRICS_NOW - timedelta(seconds=1)
+
+    async def fetch(self, query, *_args, **_options):
+        if query == _metrics_source.CANDIDATES_SQL:
+            return [{"user_id": uid} for uid in self.ids]
+        assert query == _metrics_source.MEANINGFUL_REPLIES_SQL
+        return [{"user_id": "customer"}, {"user_id": "customer"}]
+
+
+@pytest.fixture
+def metrics_aggregate_database(metrics_aggregate_setup, monkeypatch):
+    guard, data = (_MetricsConnection(), _MetricsConnection())
+    connections = iter([guard, data])
+
+    @_metrics_asynccontextmanager
+    async def acquire(**_options):
+        yield next(connections)
+
+    before = (
+        {
+            "customer": {"emails": ("person@outside.invalid",)},
+            "staff": {"emails": ("staff@company.invalid",)},
+        },
+        {
+            "customer": {"email": "person@outside.invalid"},
+            "staff": {"email": "staff@company.invalid"},
+        },
+        {},
+    )
+    identity = AsyncMock(return_value=before)
+    monkeypatch.setattr(_metrics_source, "_identity", identity)
+    monkeypatch.setattr(
+        _metrics_source.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={"customer", "staff"}),
+    )
+    summaries = AsyncMock(
+        return_value={"customer": {"supported": True, "limited": False, "count": 3}}
+    )
+    monkeypatch.setattr(_metrics_source.plg_outcomes, "value_summaries", summaries)
+    return SimpleNamespace(
+        pool=SimpleNamespace(acquire=acquire),
+        guard=guard,
+        data=data,
+        identity=identity,
+        summaries=summaries,
+    )
+
+
+@pytest.mark.asyncio
+async def test_metrics_aggregate_aggregate_uses_one_snapshot_and_source_owned_effects_without_identity_export(
+    metrics_aggregate_setup, metrics_aggregate_database
+):
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+        metrics_aggregate_setup.binding,
+        pool=metrics_aggregate_database.pool,
+    )
+    assert result["metrics"]["activeAccounts"]["value"] == 1
+    assert result["metrics"]["confirmedOutcomes"]["value"] == 3
+    assert all((metric["coverage"] == "partial" for metric in result["metrics"].values()))
+    assert metrics_aggregate_database.data.transactions == [
+        {"isolation": "repeatable_read", "readonly": True}
+    ]
+    assert metrics_aggregate_database.guard.transactions == [{"isolation": "read_committed"}]
+    assert metrics_aggregate_database.summaries.await_args.args[1:3] == (["customer"], "agent_one")
+    assert set(result) == {
+        "metrics",
+        "sourceCheckedAt",
+        "sourceWatermark",
+        "sourceGeneration",
+        "scopeDigest",
+        "definitionVersion",
+        "period",
+        "reconciled",
+    }
+    assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fault", ["rls", "overflow", "cohort-change", "revocation", "outcome-limit"]
+)
+async def test_metrics_aggregate_incomplete_or_revoked_source_never_returns_zero_counts(
+    metrics_aggregate_setup, metrics_aggregate_database, fault
+):
+    if fault == "rls":
+        metrics_aggregate_database.guard.restricted = True
+    elif fault == "overflow":
+        metrics_aggregate_database.guard.ids = [f"owner-{i}" for i in range(51)]
+    elif fault == "cohort-change":
+        metrics_aggregate_database.data.ids.append("new-owner")
+    elif fault == "revocation":
+        metrics_aggregate_database.identity.side_effect = [
+            metrics_aggregate_database.identity.return_value,
+            ({}, {}, {}),
+        ]
+    else:
+        metrics_aggregate_database.summaries.return_value["customer"]["limited"] = True
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _metrics_source.adoption_aggregate(
+            _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+            metrics_aggregate_setup.binding,
+            pool=metrics_aggregate_database.pool,
+        )
+
+
+def test_metrics_aggregate_period_is_source_calendar_days_and_generation_bound(
+    metrics_aggregate_setup,
+):
+    request = _metrics_source.AdoptionRequest.model_validate(
+        {
+            **metrics_aggregate_setup.body,
+            "period": {
+                "startDate": "2026-03-08",
+                "endDate": "2026-03-08",
+                "timezone": "America/New_York",
+            },
+        }
+    )
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-03-01"}
+    first, through = _metrics_source.period_bounds(
+        request, binding, datetime(2026, 3, 10, tzinfo=timezone.utc)
+    )
+    assert through + timedelta(microseconds=1) - first == timedelta(hours=23)
+    for change in [
+        {"sourceGeneration": "e" * 64},
+        {"scopeDigest": "e" * 64},
+        {"period": {**request.period.model_dump(), "timezone": "invalid/zone"}},
+    ]:
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(
+                _metrics_source.AdoptionRequest.model_validate({**request.model_dump(), **change}),
+                binding,
+                datetime(2026, 3, 10, tzinfo=timezone.utc),
+            )

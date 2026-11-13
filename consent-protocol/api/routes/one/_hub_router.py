@@ -47,6 +47,7 @@ from .location_settings import router as location_settings_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .messages import router as messages_router
+from .metrics import router as metrics_router
 from .models import router as models_router
 from .opportunity_signals import router as opportunity_signals_router
 from .packet_orders import router as packet_orders_router
@@ -88,6 +89,7 @@ from .world_model import router as world_model_router
 from .world_model_stream import router as world_model_stream_router
 
 router = APIRouter()
+router.include_router(metrics_router)
 router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
 router.include_router(retired_voice_router)
