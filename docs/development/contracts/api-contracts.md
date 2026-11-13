@@ -3887,6 +3887,22 @@ comes from the verified token; item IDs are presentation-row IDs, never an
 authorization grant. All writes are idempotent and leave source domain records
 and audit trails intact.
 
+Location and Connect history selects important incoming events before paging and
+counting. Own receipts, routine activity and ordinary Chat messages are omitted;
+wallet access/request cards keep their existing contract. Pending decisions stay
+in the live actionable projection. Related Location share and Circle membership
+events update one row using an opaque `metadata.feed_group_key`; this key conveys
+no source authority or person identifier. Quiet terminal share updates have
+`metadata.feed_silent=true` and do not add unread counts or sounds.
+
+Only the latest confirmed Save My Soul creation receipt per recipient and sender
+is eligible, including after Clear, dismissal and source retention. Recipient
+Location state grants add optional `feedLatestSms` and `feedSmsConfirmed` booleans
+for Feed presentation; they never remove grants from Location or change access.
+Selection precedes recipient clearing, so older incidents cannot reappear. These
+fields are computed by the server, not accepted from a client or exposed in owner
+grant state. Older servers may omit them.
+
 | Method | Path | Feed history contract |
 | ------ | ---- | --------------------- |
 | GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |

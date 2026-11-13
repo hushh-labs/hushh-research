@@ -61,12 +61,20 @@ describe("Feed row visibility", () => {
     expect(isFeedItemHidden(crm, true)).toBe(false);
   });
 
-  it("never hides other domains", () => {
+  it("keeps own share receipts quiet while preserving incoming shares and Circle additions", () => {
     expect(
       isFeedItemHidden(
         { source_domain: "location", event_type: "location_share_created" },
         false,
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(isFeedItemHidden({ source_domain: "location", event_type: "location_share_created",
+      metadata: { feed_audience: "recipient" } }, false)).toBe(false);
+    expect(isFeedItemHidden({ source_domain: "location", event_type: "location_share_expired" }, false)).toBe(true);
+    expect(isFeedItemHidden({ source_domain: "location", event_type: "circle_member_added" }, false)).toBe(false);
+    expect(isFeedItemHidden({ source_domain: "connections", event_type: "connection_accepted",
+      metadata: { actor_is_self: true } }, false)).toBe(true);
+    expect(isFeedItemHidden({ source_domain: "connections", event_type: "connection_accepted",
+      metadata: { actor_is_self: false } }, false)).toBe(false);
   });
 });

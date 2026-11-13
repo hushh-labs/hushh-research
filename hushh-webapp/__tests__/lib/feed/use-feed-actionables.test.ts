@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { latestFeedSmsGrants } from "@/lib/feed/feed-sms-grants";
 
 import {
   buildDebateFeedAnalysisHref,
@@ -22,6 +23,31 @@ import type {
 
 const ME = "user-me";
 const CONTACT = "user-contact";
+
+describe("latest SMS Feed incident", () => {
+  const grant = (id: string, createdAt: string, extra: Partial<OneLocationGrant> = {}) => ({
+    id, ownerUserId: CONTACT, recipientUserId: ME, shareKind: "sos", status: "active", createdAt,
+    ...extra,
+  } as OneLocationGrant);
+
+  it("selects before Clear and preserves independent senders", () => {
+    const old = grant("a", "2026-11-13T08:00:00Z");
+    const latest = grant("b", "2026-11-13T08:05:00Z", { status: "revoked", recipientClearedAt: "2026-11-13T08:10:00Z" });
+    const other = grant("c", "2026-11-13T08:06:00Z", { ownerUserId: "other" });
+    const selected = latestFeedSmsGrants([old, other, latest, old], ME);
+    expect(selected.map(value => value.id).sort()).toEqual(["b", "c"]);
+    expect(selected.filter(value => !value.recipientClearedAt).map(value => value.id)).toEqual(["c"]);
+  });
+
+  it("does not revive an older retained alert or replace it with an unconfirmed draft", () => {
+    const old = grant("a", "2026-11-13T08:00:00Z", { feedLatestSms: false });
+    const draft = grant("b", "2026-11-13T08:05:00Z", { feedSmsConfirmed: false });
+    expect(latestFeedSmsGrants([old, draft], ME)).toEqual([]);
+    expect(latestFeedSmsGrants([{ ...old, feedLatestSms: true }, draft], ME).map(value => value.id)).toEqual(["a"]);
+    expect(latestFeedSmsGrants([{ ...old, recipientUserId: "another-owner" }], ME)).toEqual([]);
+    expect(latestFeedSmsGrants([{ ...old, ownerUserId: ME }], ME)).toEqual([]);
+  });
+});
 
 function documentRequest(attention: boolean | undefined): ConsentCenterEntry {
   return {
