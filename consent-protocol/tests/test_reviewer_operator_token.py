@@ -188,23 +188,28 @@ def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer
             issuer.verify_shared_dev_runtime(wrong.__getitem__, backend)
 
 
-def test_operator_firebase_authority_uses_serving_version_and_fixed_project(issuer):
+@pytest.mark.parametrize("lane,project", [("dev", "hushh-pda-dev"), ("uat", "hushh-pda")])
+def test_operator_firebase_authority_uses_serving_version_and_fixed_project(issuer, lane, project):
     import json
 
     calls = []
-    certificate = {"project_id": "hushh-pda"}
+    certificate = {"project_id": project}
 
     def secret(name, version):
         calls.append((name, version))
         return json.dumps(certificate)
 
     assert (
-        issuer.firebase_certificate(secret, {"FIREBASE_ADMIN_CREDENTIALS_JSON": "7"}) == certificate
+        issuer.firebase_certificate(secret, {"FIREBASE_ADMIN_CREDENTIALS_JSON": "7"}, lane=lane)
+        == certificate
     )
     assert calls == [("FIREBASE_ADMIN_CREDENTIALS_JSON", "7")]
-    certificate["project_id"] = "foreign"
-    with pytest.raises(ValueError):
-        issuer.firebase_certificate(secret, {})
+    for foreign_project in {"hushh-pda", "hushh-pda-dev", "foreign"} - {project}:
+        certificate["project_id"] = foreign_project
+        with pytest.raises(ValueError, match="reviewer_firebase_authority_refused"):
+            issuer.firebase_certificate(secret, {}, lane=lane)
+    with pytest.raises(ValueError, match="reviewer_firebase_authority_refused"):
+        issuer.firebase_certificate(secret, {}, lane="production")
 
 
 @pytest.mark.parametrize("lane", ["uat", "dev"])

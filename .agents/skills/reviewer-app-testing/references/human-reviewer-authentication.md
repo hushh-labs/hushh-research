@@ -60,7 +60,9 @@ and backend origins, and a ready backend revision serving 100% of traffic with
 `hushh_review_mint=dev`; neither preview nor production claims are substituted.
 The serving revision must bind the approved Dev policy and Firebase secret names;
 the issuer reads their mounted versions and rejects a production runtime profile.
-The Firebase certificate must belong to the approved `hushh-pda` project.
+The Firebase certificate must belong to `hushh-pda-dev` for the verified Dev lane;
+the isolated preview retains its `hushh-pda` binding. Cross-lane certificates and
+unknown lanes refuse admission. ADC quota is explicitly charged to `hushh-pda-dev`.
 Both Firebase subjects must remain enabled and match the private UID-only binding.
 Passphrases remain in process/browser memory. This admission leaves ordinary vault
 setup, unlock, legal, phone, consent and exact financial confirmations in place.
@@ -97,6 +99,21 @@ Supply secrets through private process input; never place them in CLI arguments,
 files, traces, environment dumps or retained browser state. This mode remains
 subject to the canonical mutation guard and exact human financial confirmation.
 It does not create a vault or waive first-run, legal, phone, cloud or consent gates.
+
+### Unattended operation
+
+Use the canonical harness with headless Chromium for unattended checks. Its fresh
+context renders without personal Chrome, foreground focus or an unlocked desktop.
+Keep tokens, vault material and browser authentication state in memory; do not copy
+a personal profile or save `storageState`. Human provider MFA remains a separate
+authorization step when the admitted operator path does not apply.
+
+On AC power, run the bounded command under `caffeinate -is <command>` to prevent
+idle system sleep while allowing display sleep and screen lock. Verify the owned
+assertion and terminal exit; do not use display-wake flags or change global power
+or lock settings. This does not guarantee execution through lid closure, manual
+sleep, power loss or shutdown. Resume from retained operation receipts after an
+interruption; never replay an ambiguous provider or payment request.
 For the schema-only preview, authorized synthetic preparation must use ordinary
 browser encryption and narrowly admitted fixture writes. Physical iOS uses the
 existing native reviewer flow; this web-only provider is not native admission.
