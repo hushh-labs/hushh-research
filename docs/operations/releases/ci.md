@@ -2314,10 +2314,10 @@ Do not grant ordinary contributors broader bypass to solve an owner-only problem
 CODEOWNERS visibly defaults ordinary PRs to `allowed-maintainers-to-approve`
 and overrides protected files with `pipeline-editors`. After PR creation, source
 updates or retargeting, run `./bin/hushh agents review-route --pr <number> --apply`.
-It reconciles mixed and content-based protected changes to **pipeline-editors
-only**, preserving explicit individual requests and completed current-head reviews.
-Native requests can initially show both Teams on mixed PRs; the CLI corrects that
-without adding an Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
+It requests **pipeline-editors** for mixed and content-based protected changes,
+preserving explicit individual requests and completed current-head reviews.
+Main's native code-owner requests may remain and are reported after verification;
+the CLI adds no Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
 This is notification only: ordinary maintainers retain existing self-service;
 outside contributors still need independent authorized review. Labels never waive
 required checks, combined-result admission or protected approval.

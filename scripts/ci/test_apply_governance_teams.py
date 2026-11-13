@@ -239,6 +239,89 @@ def test_review_routing_observes_approval_during_reconciliation(module):
             assert writes == (["POST", "DELETE"] if withdrawn else [])
 
 
+def test_review_routing_reports_only_verified_native_retention(module):
+    import copy
+    from unittest.mock import patch
+    spec = importlib.util.spec_from_file_location("routing_native_retention", REPO_ROOT / ".agents/skills/repo-operations/scripts/pr_review_routing.py")
+    route = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(route)
+    for approved, fault in ((False, None), (True, None), (False, "manual"),
+                            (False, "source"), (False, "missing"), (True, "withdrawn"),
+                            (False, "approval_arrived"), (False, "all_consumed")):
+        pr = {"state": "open", "draft": False, "head": {"sha": "a" * 40},
+              "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": route.REPO}},
+              "requested_teams": [{"slug": "allowed-maintainers-to-approve"}],
+              "requested_reviewers": [{"login": "explicit-human"}]}
+        reviews = [{"state": "APPROVED", "user": {"login": "editor"}, "commit_id": "a" * 40}] if approved else []
+        def read(endpoint):
+            if endpoint == "user": return {"login": "maintainer"}
+            if endpoint.endswith("/permission"): return {"permission": "maintain"}
+            if endpoint.endswith("/heads/main"): return {"object": {"sha": "c" * 40}}
+            if "/reviews?" in endpoint: return copy.deepcopy(reviews)
+            return copy.deepcopy(pr)
+        def write(endpoint, method, body):
+            assert body.get("reviewers", []) == []
+            if method == "POST": pr["requested_teams"].append({"slug": "pipeline-editors"})
+            if method == "DELETE" and fault == "missing":
+                pr["requested_teams"] = [{"slug": "allowed-maintainers-to-approve"}]
+        def native_read(number, captured):
+            assert number == 1 and captured["head"]["sha"] == "a" * 40
+            if fault == "source": pr["head"]["sha"] = "d" * 40
+            if fault == "withdrawn": reviews.clear()
+            if fault in {"approval_arrived", "all_consumed"}:
+                reviews.append({"state": "APPROVED", "user": {"login": "editor"}, "commit_id": "a" * 40})
+                pr["requested_teams"] = ([{"slug": "allowed-maintainers-to-approve"}]
+                                         if fault == "approval_arrived" else [])
+            return set() if fault == "manual" else {"allowed-maintainers-to-approve"}
+        with patch.object(route, "read_teams", return_value={"pipeline-editors": ["editor"]}):
+            try:
+                result = route.route(1, apply=True, read=read, write=write,
+                                     classify=lambda *args: "pipeline-editors", native_read=native_read)
+            except route.Refused:
+                assert fault not in (None, "approval_arrived", "all_consumed"), (approved, fault)
+            else:
+                assert fault in (None, "approval_arrived", "all_consumed"), fault
+                assert result["team"] == "pipeline-editors"
+                assert result.get("retained_native_codeowners", []) == ([] if fault == "all_consumed" else ["allowed-maintainers-to-approve"])
+                assert result["already_approved"] is (approved or fault in {"approval_arrived", "all_consumed"})
+        assert pr["requested_reviewers"] == [{"login": "explicit-human"}]
+
+
+def test_native_review_metadata_requires_complete_current_source(module):
+    import copy
+    from unittest.mock import patch
+    spec = importlib.util.spec_from_file_location("routing_native_metadata", REPO_ROOT / ".agents/skills/repo-operations/scripts/pr_review_routing.py")
+    route = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(route)
+    captured = {"state": "open", "draft": False, "head": {"sha": "a" * 40},
+                "base": {"sha": "b" * 40, "ref": "main"}}
+    pr = {"state": "OPEN", "isDraft": False, "headRefOid": "a" * 40,
+          "baseRefOid": "b" * 40, "baseRefName": "main",
+          "reviewRequests": {"totalCount": 1, "pageInfo": {"hasNextPage": False}, "nodes": [
+              {"asCodeOwner": True, "requestedReviewer": {"__typename": "Team",
+               "slug": "allowed-maintainers-to-approve", "organization": {"login": "hushh-labs"}}}]}}
+    for fault in (None, "head", "base", "draft", "errors", "truncated", "count", "malformed", "manual", "foreign"):
+        payload = {"data": {"repository": {"pullRequest": copy.deepcopy(pr)}}}
+        current = payload["data"]["repository"]["pullRequest"]
+        if fault == "head": current["headRefOid"] = "d" * 40
+        if fault == "base": current["baseRefOid"] = "d" * 40
+        if fault == "draft": current["isDraft"] = True
+        if fault == "errors": payload["errors"] = [{"message": "unavailable"}]
+        if fault == "truncated": current["reviewRequests"]["pageInfo"]["hasNextPage"] = True
+        if fault == "count": current["reviewRequests"]["totalCount"] = 2
+        if fault == "manual": current["reviewRequests"]["nodes"][0]["asCodeOwner"] = False
+        if fault == "foreign": current["reviewRequests"]["nodes"][0]["requestedReviewer"]["organization"]["login"] = "another-org"
+        raw = b"not-json" if fault == "malformed" else json.dumps(payload).encode()
+        with patch.object(route, "bounded_stdout", return_value=raw):
+            try:
+                native = route.native_codeowner_teams(1, captured)
+            except route.Refused:
+                assert fault not in (None, "manual", "foreign"), fault
+            else:
+                assert fault in (None, "manual", "foreign"), fault
+                assert native == ({"allowed-maintainers-to-approve"} if fault is None else set())
+
+
 def _policy() -> dict:
     policy = json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
     from github_team_authority import project_policy
