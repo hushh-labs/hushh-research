@@ -24,10 +24,10 @@ describe("ConnectionsService", () => {
 
   it("sends network discovery, permission and visibility through the authenticated no-store API owner", async () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ person: null, items: [], page: 2, hasMore: false }));
-    await ConnectionsService.listNetwork({ idToken: "token", degree: 3, query: " A & B ", page: 2 });
+    await ConnectionsService.listNetwork({ idToken: "token", degree: 3, query: " A & B ", page: 2, includeSuggestions: true });
     const [href, options] = mockApiFetch.mock.calls[0];
     const params = new URL(href, "https://app.test").searchParams;
-    expect(Object.fromEntries(params)).toEqual({ degree: "3", query: "A & B", page: "2", limit: "20" });
+    expect(Object.fromEntries(params)).toEqual({ degree: "3", query: "A & B", page: "2", limit: "20", include_suggestions: "true" });
     expect(options).toMatchObject({ method: "GET", cache: "no-store", headers: { Authorization: "Bearer token" } });
     mockApiFetch.mockResolvedValue(jsonResponse({ shareConnectionList: true }));
     expect(await ConnectionsService.updateNetworkVisibility({ idToken: "token", shareConnectionList: true })).toEqual({ shareConnectionList: true });

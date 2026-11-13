@@ -24,12 +24,17 @@ type FirstPages = {
 };
 
 function markRequests(page: NetworkPage, requested: ReadonlySet<string>): NetworkPage {
-  if (requested.size === 0) return page;
   const mark = (person: NetworkPage["items"][number]) =>
     requested.has(person.publicPersonRef) && (!person.relationship || person.relationship === "none")
       ? { ...person, relationship: "pending_outgoing" as const }
       : person;
-  return { ...page, items: page.items.map(mark), suggestions: page.suggestions?.map(mark) };
+  const items = new Map<string, NetworkPage["items"][number]>();
+  for (const person of page.items) {
+    const previous = items.get(person.publicPersonRef);
+    // A later public recommendation must not demote a qualified graph row.
+    if (!previous?.networkDegree || person.networkDegree) items.set(person.publicPersonRef, mark(person));
+  }
+  return { ...page, items: [...items.values()], suggestions: page.suggestions?.map(mark) };
 }
 export function networkDegreeLabel(degree: NetworkDegree | null | undefined): string | null {
   return degree === 1 ? "1st" : degree === 2 ? "2nd" : degree === 3 ? "3rd" : null;
@@ -190,7 +195,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
           if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
           const value = mode === "mutuals" && personRef
             ? await ConnectionsService.listMutualConnections({ idToken, personRef, page: next, signal: controller.signal })
-            : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, signal: controller.signal });
+            : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, includeSuggestions: mode === "discovery" && degree === 3, signal: controller.signal });
           pages.push(value);
           if (!value.hasMore) break;
         }
@@ -203,7 +208,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
             const merged = append && current ? [...current.items, ...items] : items;
             return markRequests({
               ...last,
-              items: [...new Map(merged.map(person => [person.publicPersonRef, person])).values()],
+              items: merged,
               suggestions: append ? current?.suggestions : pages[0]?.suggestions,
             }, requestedPeople.current);
           });
@@ -238,7 +243,8 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
       const controls = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("button[data-network-person]") ?? []).filter(element => element.dataset.networkPerson === retained.focusRef);
       const target = controls.find(element => (element.dataset.networkFocus ?? "profile") === (retained.focusControl ?? "profile"))
         ?? controls.find(element => !element.dataset.networkFocus);
-      target?.focus({ preventScroll: true });
+      const fallback = root.current?.querySelector<HTMLInputElement>("input") ?? root.current;
+      (target ?? fallback)?.focus({ preventScroll: true });
     });
     const cancel = !scroll ? restoreConnectListScroll(retained.scrollTop) : undefined;
     return () => { cancelAnimationFrame(frame); cancel?.(); };
@@ -294,7 +300,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     ? [...networkPeople, ...(result?.suggestions ?? []).filter(person => !networkRefs.has(person.publicPersonRef))]
     : networkPeople;
   const Heading = embedded ? "h3" : "h1";
-  return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-3 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:space-y-4 sm:px-5" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
+  return <section ref={root} tabIndex={-1} className="mx-auto w-full max-w-[880px] space-y-3 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:space-y-4 sm:px-5" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
       {!embedded || mode !== "discovery" ? <Heading>{title}</Heading> : null}
       <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "Third-degree connections and suggested people." : "Find people through connections that allow discovery."}</p>
@@ -352,7 +358,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     </ul> : null}
     {result && !people.length ? <div className="py-3 text-sm text-muted-foreground">
       <p role="status">{extended && !query.trim()
-        ? "No people to show yet. Search by name to get started."
+        ? "No people to show right now. Check back as more people join."
         : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>
       {extended && !query.trim() && onDismiss ? <button type="button"
         data-voice-control-id="network-find-people"
@@ -360,6 +366,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
         onClick={onDismiss}>Back to Find people</button> : null}
     </div> : null}
     {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
-    {result?.hasMore && !error ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : "Load more connections"}</button> : null}
+    {extended && result && people.length > 0 && !result.hasMore && !error ? <p role="status" className="text-sm text-muted-foreground">You’ve reached the end of this list.</p> : null}
+    {result?.hasMore && !error ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : extended ? "Load more people" : "Load more connections"}</button> : null}
   </section>;
 }
