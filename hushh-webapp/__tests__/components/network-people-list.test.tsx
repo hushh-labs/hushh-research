@@ -234,7 +234,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
     state.list.mockResolvedValue({ ...page(), hasMore: false, items: [] });
     act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
     expect(screen.queryByRole("button", { name: "Open Peer's profile" })).toBeNull();
-    await screen.findByText("No people to show yet. Search by name to get started.");
+    await screen.findByText("No people to show right now. Check back as more people join.");
   });
 
   it("keeps suggestions after loading more and prefers a newly qualified network row", async () => {
@@ -255,14 +255,55 @@ describe("network permission and journey return @feature_connected_profiles", ()
     render(<NetworkPeopleList mode="discovery" visitKey="extended-pages" />);
     fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
     await screen.findByRole("button", { name: "Open Advisor's profile" });
-    fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Open Now third degree's profile" })).not.toHaveAccessibleDescription());
     expect(screen.getAllByRole("button", { name: /^Open .* profile$/ }).map(
       button => button.getAttribute("aria-label"),
     )).toEqual(["Open Third degree's profile", "Open Now third degree's profile", "Open Advisor's profile"]);
     expect(screen.getByRole("button", { name: "Open Advisor's profile" })).toHaveAccessibleDescription("Suggested · Verified advisor");
     expect(state.list).toHaveBeenCalledWith(expect.objectContaining({ degree: 3, page: 1, includeSuggestions: true }));
-    expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 3, page: 2 }));
+    expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 3, page: 2, includeSuggestions: true }));
+  });
+
+  it("pages unrelated public people with no graph, deduplicates warmed rows, and replays the list on return", async () => {
+    const suggested = (name: string) => ({ ...row(name), networkDegree: null, relationship: "none", suggestionReason: "public_profile" });
+    state.list.mockImplementation(async ({ degree, page: number }) => ({
+      person: null, page: number, hasMore: degree === 3 && number < 3,
+      items: degree !== 3 ? [] : number === 1 ? [suggested("New person"), suggested("New person")]
+        : [suggested(`Unrelated ${number}`)],
+    }));
+    const view = render(<NetworkPeopleList mode="discovery" visitKey="public-pages-return" />);
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    const first = await screen.findByRole("button", { name: "Open New person's profile" });
+    expect(first).toHaveAccessibleDescription("Suggested · Discover someone new");
+    expect(screen.getAllByRole("button", { name: "Open New person's profile" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
+    await screen.findByRole("button", { name: "Open Unrelated 2's profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
+    const last = await screen.findByRole("button", { name: "Open Unrelated 3's profile" });
+    expect(screen.queryByRole("button", { name: "Load more people" })).toBeNull();
+    expect(screen.getByText("You’ve reached the end of this list.")).toBeVisible();
+    fireEvent.click(last);
+    view.unmount();
+    state.list.mockClear();
+    render(<NetworkPeopleList mode="discovery" visitKey="public-pages-return" />);
+    await screen.findByRole("button", { name: "Open Unrelated 3's profile" });
+    expect(state.list.mock.calls.map(([options]) => [options.degree, options.page, options.includeSuggestions]))
+      .toEqual([[3, 1, true], [3, 2, true], [3, 3, true]]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open Unrelated 3's profile" })).toHaveFocus());
+  });
+
+  it("returns focus to search when a remembered public profile becomes unavailable", async () => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Public person"), networkDegree: null, suggestionReason: "public_profile" }] });
+    const view = render(<NetworkPeopleList mode="discovery" visitKey="unlisted-return" />);
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Public person's profile" }));
+    view.unmount();
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [] });
+    render(<NetworkPeopleList mode="discovery" visitKey="unlisted-return" />);
+    await screen.findByText("No people to show right now. Check back as more people join.");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Search people by name" })).toHaveFocus());
+    expect(screen.queryByRole("button", { name: "Open Public person's profile" })).toBeNull();
   });
 
   it("keeps authorized rows and scroll while a next-page request settles", async () => {
