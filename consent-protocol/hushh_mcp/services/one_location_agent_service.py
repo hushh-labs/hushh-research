@@ -4843,6 +4843,7 @@ class OneLocationAgentService:
         network_user_ids: list[str] | None = None,
         exclude_network_user_ids: list[str] | None = None,
         include_recommendations: bool = True,
+        advisor_service: str | None = None,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -5075,6 +5076,37 @@ class OneLocationAgentService:
                 " AND profile.user_id <> ALL(CAST(:exclude_network_user_ids AS TEXT[]))"
             )
 
+        service_aliases = None
+        if advisor_service is not None:
+            from hushh_mcp.services.advisor_matching import advisor_service_aliases
+
+            service_aliases = advisor_service_aliases(advisor_service)
+            # Reuse directory authority, including blocks, live accounts and
+            # environment enrollment. Filter the entire corpus BEFORE paging.
+            mutual_filter_clause += """ AND EXISTS (
+                SELECT 1 FROM ria_profiles service_ria
+                WHERE service_ria.user_id = profile.user_id
+                AND COALESCE(NULLIF(to_jsonb(service_ria)->>'advisory_status', ''),
+                             service_ria.verification_status) IN ('active', 'verified', 'finra_verified')
+                AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(to_jsonb(service_ria)->'services_offered') = 'array'
+                         THEN to_jsonb(service_ria)->'services_offered' ELSE '[]'::jsonb END
+                    ) offered(value)
+                    WHERE LOWER(REGEXP_REPLACE(BTRIM(offered.value), '\\s+', ' ', 'g'))
+                          = ANY(CAST(:advisor_service_aliases AS TEXT[])))
+            ) AND COALESCE(to_jsonb(marketplace)->'metadata'->>'is_test_profile', 'false') <> 'true'
+            AND NOT EXISTS (SELECT 1 FROM direct_message_blocks recommendation_block
+                WHERE (recommendation_block.blocker_user_id = :owner_user_id
+                       AND recommendation_block.blocked_user_id = profile.user_id)
+                   OR (recommendation_block.blocker_user_id = profile.user_id
+                       AND recommendation_block.blocked_user_id = :owner_user_id))
+            AND NOT EXISTS (SELECT 1 FROM advisor_review_requests open_review
+                WHERE open_review.owner_user_id = :owner_user_id
+                  AND open_review.advisor_user_id = profile.user_id
+                  AND (open_review.status = 'accepted'
+                       OR (open_review.status = 'pending'
+                           AND open_review.expires_at > clock_timestamp())))"""
+
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,
             separator_sql=_DIRECTORY_SEPARATOR_SQL,
@@ -5082,6 +5114,11 @@ class OneLocationAgentService:
             verified_email_clause=verified_email_clause,
             mutual_filter_clause=mutual_filter_clause,
             typed_name_sql=typed_name_sql,
+            **(
+                {"secondary_order_sql": "MD5(a.user_id || :advisor_rotation_seed)"}
+                if service_aliases
+                else {}
+            ),
         )
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
@@ -5108,6 +5145,10 @@ class OneLocationAgentService:
             params["verified_emails"] = lookup_emails
         if exclude_network_user_ids:
             params["exclude_network_user_ids"] = exclude_network_user_ids
+
+        if service_aliases:
+            params["advisor_service_aliases"] = list(service_aliases)
+            params["advisor_rotation_seed"] = f"{owner_user_id}:{advisor_service}"
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real
@@ -5178,7 +5219,12 @@ class OneLocationAgentService:
         eligible_rows.sort(
             key=lambda row: (
                 cast(int, match_rank(row)),
-                str(row["display_name"]).strip().lower(),
+                hashlib.md5(
+                    (str(row["user_id"]) + str(params["advisor_rotation_seed"])).encode(),
+                    usedforsecurity=False,
+                ).hexdigest()
+                if service_aliases
+                else str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
             )
         )

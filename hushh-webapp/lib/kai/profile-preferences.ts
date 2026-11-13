@@ -1,5 +1,6 @@
 import { normalizeDetailedPersona } from "./detailed-persona";
 import { normalizeLossCapacity } from "./investing-persona";
+import { normalizeAdvisorService } from "@/lib/advisor-review/matching";
 import type {
   HorizonAnchorChoice,
   InvestmentHorizon,
@@ -97,6 +98,9 @@ export function applyKaiPreferenceUpdates(
     preferences.detailed_assessment_v1 = normalizeDetailedPersona(
       params.updates.detailed_assessment_v1,
     );
+  }
+  if (params.updates.advisor_service !== undefined) {
+    preferences.advisor_service = normalizeAdvisorService(params.updates.advisor_service);
   }
   return preferences;
 }

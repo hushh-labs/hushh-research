@@ -198,4 +198,6 @@ function Fixture() {
     </section>
   </main>;
 }
-createRoot(document.getElementById("root")!).render(document.body.dataset.financeOnboarding ? <FinanceOnboardingFixture /> : <Fixture />);
+createRoot(document.getElementById("root")!).render(document.body.dataset.financeOnboarding ? <FinanceOnboardingFixture />
+  : document.body.dataset.advisorOnly ? <main className={`${financeStyles.workspace} mx-auto max-w-3xl p-4`}><AdvisorReviewFixture /><PortfolioAnalysisFixture /></main>
+  : <Fixture />);

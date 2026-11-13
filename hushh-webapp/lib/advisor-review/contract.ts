@@ -51,6 +51,7 @@ export type AdvisorCandidate = {
   bio: string;
   crd: string | null;
   verified: true;
+  servicesOffered?: string[];
   keyId: string | null;
   publicKeyJwk: JsonWebKey | null;
   ready: boolean;

@@ -53,8 +53,8 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
-        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot", "@/lib/services/google-calendar-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
-        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service", "@/lib/services/kai-profile-service", "@/lib/finance-sharing/portfolio-review-cache"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
+        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot", "@/lib/services/google-calendar-service", "@/lib/services/kai-profile-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service", "@/lib/finance-sharing/portfolio-review-cache"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^next\/navigation$/, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") },
@@ -94,7 +94,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
-        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot", "@/lib/services/google-calendar-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
+        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot", "@/lib/services/google-calendar-service", "@/lib/services/kai-profile-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
         ...[
           "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
           "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
@@ -285,7 +285,7 @@ test.afterAll(() => {
 });
 
 
-async function mount(page: Page, width = 393, onboarding = false) {
+async function mount(page: Page, width = 393, onboarding = false, advisorOnly = false) {
   const runtimeErrors: string[] = [];
   page.on("pageerror", error => runtimeErrors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -296,6 +296,7 @@ async function mount(page: Page, width = 393, onboarding = false) {
   }));
   await page.goto("http://localhost/finance-fixture");
   if (onboarding) await page.evaluate(() => { document.body.dataset.financeOnboarding = "true"; });
+  if (advisorOnly) await page.evaluate(() => { document.body.dataset.advisorOnly = "true"; });
   await page.addScriptTag({ content: script });
   await page.waitForFunction(() => Boolean(document.querySelector("#root > main")), undefined, { timeout: 5000 }).catch(error => {
     throw new Error(runtimeErrors.join("\n") || String(error));
@@ -506,4 +507,4 @@ registerFinanceScreenChecks(mount);
 
 registerFinanceOnboardingChecks((page, width) => mount(page, width, true));
 
-registerAdvisorReviewChecks(mount);
+registerAdvisorReviewChecks((page, width) => mount(page, width, false, true));

@@ -14,6 +14,7 @@ prove it runs inside the SQL, before ``LIMIT``, so pages stay full and
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Iterator
@@ -37,6 +38,159 @@ from hushh_mcp.services.person_profile_service import (
 )
 
 OWNER = "owner"
+
+
+def test_advisor_service_and_blocks_filter_the_entire_corpus_before_pagination(connection):
+    """A matching advisor after many nonmatches/blocks must still fill page one."""
+    connection.execute(
+        text("""
+        ALTER TABLE ria_profiles ADD COLUMN services_offered TEXT[];
+        ALTER TABLE marketplace_public_profiles ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+        CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT);
+    """)
+    )
+    matching = []
+    for index in range(100):
+        uid = f"ria-{index:03}"
+        _person(connection, uid, f"Sample advisor {index:03}", enrolled=index != 99)
+        service = "Portfolio Management" if index >= 40 else "Financial planning"
+        status = "draft" if index == 98 else "verified"
+        connection.execute(
+            text(
+                "INSERT INTO ria_profiles(user_id,verification_status,services_offered) VALUES(:id,:status,ARRAY[:service])"
+            ),
+            {"id": uid, "status": status, "service": service},
+        )
+        if 40 <= index < 98:
+            matching.append(uid)
+    # A test profile is excluded even with a valid service and active account.
+    connection.execute(
+        text(
+            "INSERT INTO marketplace_public_profiles(user_id,metadata) VALUES('ria-097',jsonb_build_object('is_test_profile',true))"
+        )
+    )
+    matching.remove("ria-097")
+    seed = f"{OWNER}:portfolio_management"
+    matching.sort(
+        key=lambda uid: (hashlib.md5((uid + seed).encode(), usedforsecurity=False).hexdigest(), uid)
+    )
+    blocked = matching[:35]
+    for index, uid in enumerate(blocked):
+        blocker, target = (OWNER, uid) if index % 2 else (uid, OWNER)
+        connection.execute(
+            text("INSERT INTO direct_message_blocks VALUES(:blocker,:target)"),
+            {"blocker": blocker, "target": target},
+        )
+    # An existing workspace is managed in history. Expired invitations can be retried.
+    for uid, status, expiry in [
+        (matching[35], "pending", "1 day"),
+        (matching[36], "accepted", "-1 day"),
+        (matching[37], "pending", "-1 day"),
+    ]:
+        connection.execute(
+            text("""INSERT INTO advisor_review_requests VALUES
+                (:owner,:advisor,:status,clock_timestamp()+CAST(:expiry AS interval))"""),
+            {"owner": OWNER, "advisor": uid, "status": status, "expiry": expiry},
+        )
+    directory = _Directory(connection)
+
+    def page(number):
+        return directory.search_directory_candidates(
+            owner_user_id=OWNER,
+            page=number,
+            limit=5,
+            audience="ria",
+            name_only=True,
+            include_recommendations=False,
+            advisor_service="portfolio_management",
+        )
+
+    first, second = page(1), page(2)
+    assert [row["userId"] for row in first["items"]] == matching[37:42]
+    assert [row["userId"] for row in second["items"]] == matching[42:47]
+    assert first["hasMore"] is True
+    assert not ({row["userId"] for row in first["items"]} & set(blocked))
+    assert not (
+        {row["userId"] for row in first["items"]} & {row["userId"] for row in second["items"]}
+    )
+
+
+def test_all_rias_stay_alphabetical_and_search_filters_before_recommendation_limit(connection):
+    connection.execute(
+        text("""
+        ALTER TABLE ria_profiles ADD COLUMN services_offered TEXT[];
+        CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT);
+    """)
+    )
+    for index in range(75):
+        uid = f"all-ria-{index:03}"
+        _person(connection, uid, f"Advisor {index:03}")
+        connection.execute(
+            text(
+                "INSERT INTO ria_profiles(user_id,verification_status,services_offered) VALUES(:id,'verified',:services)"
+            ),
+            {"id": uid, "services": ["Portfolio Management"] if index else []},
+        )
+    # An open review stays in All; the recommendation path excludes it separately.
+    connection.execute(
+        text(
+            "INSERT INTO advisor_review_requests VALUES(:owner,'all-ria-001','pending',clock_timestamp()+interval '1 day')"
+        ),
+        {"owner": OWNER},
+    )
+    directory = _Directory(connection)
+    pages = [
+        directory.search_directory_candidates(
+            owner_user_id=OWNER, audience="ria", name_only=True, page=page, limit=30
+        )
+        for page in (1, 2, 3)
+    ]
+    assert [person["userId"] for page in pages for person in page["items"]] == [
+        f"all-ria-{index:03}" for index in range(75)
+    ]
+    assert [page["hasMore"] for page in pages] == [True, True, False]
+    connection.execute(
+        text(
+            "UPDATE marketplace_public_profiles SET display_name='Sharu Khan' WHERE user_id='all-ria-074'"
+        )
+    )
+    connection.execute(
+        text(
+            "UPDATE actor_identity_cache SET display_name='Sharu Khan' WHERE user_id='all-ria-074'"
+        )
+    )
+    matched = directory.search_directory_candidates(
+        owner_user_id=OWNER,
+        audience="ria",
+        name_only=True,
+        typed_search=True,
+        query="SHARUKHAN",
+        advisor_service="portfolio_management",
+        include_recommendations=False,
+        limit=5,
+    )
+    assert [person["userId"] for person in matched["items"]] == ["all-ria-074"]
+
+
+def test_advisor_service_missing_in_legacy_profile_is_not_inferred(connection):
+    _person(connection, "legacy-ria", "Legacy advisor")
+    connection.execute(
+        text(
+            "INSERT INTO ria_profiles(user_id,verification_status) VALUES('legacy-ria','verified')"
+        )
+    )
+    connection.execute(
+        text("CREATE TABLE direct_message_blocks(blocker_user_id TEXT, blocked_user_id TEXT)")
+    )
+    result = _Directory(connection).search_directory_candidates(
+        owner_user_id=OWNER,
+        audience="ria",
+        name_only=True,
+        advisor_service="retirement_planning",
+        include_recommendations=False,
+    )
+    assert result["items"] == []
+
 
 # Only the columns the directory statement reads. vault_status keeps the
 # CHECK that migration 019 put on the real table.
@@ -103,6 +257,9 @@ CREATE TABLE vault_keys (
   vault_status TEXT NOT NULL DEFAULT 'active'
     CHECK (vault_status IN ('placeholder', 'active')),
   environment_enrolled_at TIMESTAMPTZ
+);
+CREATE TABLE advisor_review_requests (
+  owner_user_id TEXT, advisor_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ
 );
 """
 

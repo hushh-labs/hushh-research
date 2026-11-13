@@ -1,0 +1,59 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "finance_advisor_recommendations",
+  "surface_title": "Finance advisor recommendations",
+  "docs_references": [
+    "hushh-webapp/docs/ui-contracts/finance.md"
+  ],
+  "defaults": {
+    "speaker_persona": "kai",
+    "reachability": {
+      "active_personas": [
+        "investor"
+      ],
+      "routes": [
+        "/one/kai/portfolio/analysis"
+      ],
+      "screens": [
+        "kai_portfolio_analysis"
+      ],
+      "hidden_navigable": false,
+      "navigation_prerequisites": []
+    }
+  },
+  "actions": [
+    {
+      "action_id": "finance.advisor.recommend",
+      "label": "Recommend advisor",
+      "meaning": "Switches All in Finance advisor discovery to optional service matching with an unlocked vault and saved portfolio. Reuses a saved service choice or presents four fixed choices. Opening or selecting a match never sends a connection request, shares Finance or calls a model.",
+      "aliases": [
+        "recommend an advisor",
+        "find matching advisors"
+      ],
+      "search_keywords": [
+        "advisor",
+        "recommendation",
+        "service",
+        "RIA"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "finance_recommend_advisor"
+      },
+      "control_ids": [
+        "finance_recommend_advisor"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ]
+    }
+  ]
+}
