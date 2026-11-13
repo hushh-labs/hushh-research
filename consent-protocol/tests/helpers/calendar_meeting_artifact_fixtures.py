@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
-from hushh_mcp.services import calendar_meeting_library
+from hushh_mcp.services import calendar_meeting_library, calendar_schedule_service
 from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
 from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
@@ -83,3 +83,4 @@ def freeze_meeting_clock(monkeypatch):
             return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
 
     monkeypatch.setattr(calendar_meeting_library, "datetime", MeetingClock)
+    monkeypatch.setattr(calendar_schedule_service, "datetime", MeetingClock)
