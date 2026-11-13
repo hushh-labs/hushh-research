@@ -177,6 +177,7 @@ pyjwt==2.15.1
 pyluach==2.3.0
 pyopenssl==26.4.0
 pyparsing==3.3.3
+pypdf==7.0.1
 pypdfium2==5.11.0
 pytesseract==0.3.13
 python-a2a==0.5.10

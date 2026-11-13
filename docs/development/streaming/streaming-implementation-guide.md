@@ -575,3 +575,24 @@ activity rows and diagnostics. Invalid, repeated or ignored results show nothing
 The tool does not end the answer. Reactions are not sealed in ADK history or
 restored after reload. No new endpoint, SSE event, storage schema or model
 classifier is introduced. Voice instructions remain gated out.
+
+
+### Portfolio import source units
+
+The active import producer uses `hushh_mcp/kai_import/incremental_extract.py`
+through the existing Portfolio Import runtime. CSV uses at most 150 logical
+records / 45,000 source characters per mapping call (LOW, 2,048 output tokens,
+20-second deadline). Python copies numeric/text values from the agent's indexed
+cells. PDF uses `pypdf` in memory to produce one-page PDFs in original order
+(LOW, 16,384 output tokens, 45-second deadline). The 360-second run budget and
+existing 120-second full-document fallback budget remain unchanged. These are
+ceilings, not measured latency promises.
+
+Additive progress fields are documented in the streaming contract. Both fresh
+upload and resumed consumers apply them via `lib/kai/import/extraction-progress.ts`.
+Keep those facts outside persisted background snapshots. Synthetic fixtures must
+cover identical lots, missing versus zero, explicit locale, all-record/page
+coverage, reset/replay, consent revocation and cancellation before terminal output.
+Use terminal `timings_ms` and extraction diagnostics to measure first-results and
+completion on authorized live statements; do not claim performance from a fake
+provider response.

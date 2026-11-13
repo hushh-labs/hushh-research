@@ -20,13 +20,14 @@ export function PortfolioReviewFrame({ actions, status, children, className, des
   </AppPageContentRegion>;
 }
 
-export function PortfolioReviewSection({ value, title, icon, pending, children }: {
-  value: string; title: string; icon: ReactNode; pending?: boolean; children?: ReactNode;
+export function PortfolioReviewSection({ value, title, icon, pending, pendingContent, children }: {
+  value: string; title: string; icon: ReactNode; pending?: boolean; pendingContent?: ReactNode; children?: ReactNode;
 }) {
   return <AccordionItem value={value} className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]">
     <AccordionTrigger disabled={pending} className="ui-text-section-label py-3 hover:no-underline">
       <span className="flex items-center gap-2">{icon}{title}</span>
     </AccordionTrigger>
+    {pending && pendingContent ? <div className="pb-4">{pendingContent}</div> : null}
     <AccordionContent>{children}</AccordionContent>
   </AccordionItem>;
 }
