@@ -26,6 +26,9 @@ export function requireFinanceSession() {}
 const context = { userId: "synthetic-owner", vaultKey: "fixture-only", vaultOwnerToken: "fixture-only", getIdToken: async () => "fixture-only", isCurrent: () => true };
 const capture = () => context;
 export function useFinanceShareContext() { return { capture, session: "synthetic-session", ready: true }; }
+export function requireFinanceSession(value: { isCurrent: () => boolean }) {
+  if (!value.isCurrent()) throw new Error("Synthetic vault session retired");
+}
 export async function readSavedFinance() {
   const updated = document.body.dataset.portfolioReviewChanged === "true";
   const model = document.body.dataset.portfolioReviewFundAndCash === "true" ? fundAndCashModel : analysisModel;

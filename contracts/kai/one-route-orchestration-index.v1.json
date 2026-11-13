@@ -2901,6 +2901,7 @@
       "canonical_screen": "kai_portfolio_analysis",
       "voice_contract_file": null,
       "action_ids": [
+        "finance.advisor.recommend",
         "route.kai_portfolio_analysis"
       ],
       "action_coverage": "inherited",
@@ -2908,7 +2909,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-kai-portfolio-analysis"
     },
     {

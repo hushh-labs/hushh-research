@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  act,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -17,9 +18,20 @@ const mocks = vi.hoisted(() => ({
   billing: vi.fn(),
   sandboxPayout: vi.fn(),
   calendarStatus: vi.fn(),
+  request: vi.fn(),
+  profile: vi.fn(),
+  savePreferences: vi.fn(),
+  send: vi.fn(),
 }));
 vi.mock("@/lib/advisor-review/service", () => ({
   AdvisorReviewService: mocks,
+  advisorRequest: mocks.request,
+}));
+vi.mock("@/lib/services/kai-profile-service", () => ({
+  KaiProfileService: {
+    getProfile: mocks.profile,
+    savePreferences: mocks.savePreferences,
+  },
 }));
 vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { status: mocks.calendarStatus } }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/ria/clients" }));
@@ -28,19 +40,22 @@ vi.mock("@/components/app-ui/kai-control-surface", () => ({
     title,
     children,
     footer,
+    open = true,
   }: {
     title: ReactNode;
     children: ReactNode;
     footer?: ReactNode;
-  }) => (
+    open?: boolean;
+  }) => open ? (
     <section role="dialog" aria-label="Advisor review">
       <h1>{title}</h1>
       {children}
       {footer}
     </section>
-  ),
+  ) : null,
 }));
 import { AdvisorWorkspace } from "@/components/kai/advisor/advisor-workspace";
+import { AdvisorRecommendations } from "@/components/kai/advisor/advisor-recommendations";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const context = {
@@ -70,6 +85,24 @@ const value: AdvisorReview = {
   plan: null,
   planRevision: 0,
 };
+const preferences = {
+  investment_horizon: "long_term",
+  drawdown_response: "stay",
+  volatility_preference: "moderate",
+  advisor_service: null,
+};
+const suggested = {
+  userId: "suggested",
+  personRef: "44444444-4444-4444-8444-444444444444",
+  name: "Service-matched advisor",
+  bio: "",
+  crd: "123",
+  verified: true,
+  servicesOffered: ["Portfolio Management"],
+  ready: true,
+  keyId: "synthetic-key",
+  publicKeyJwk: {},
+};
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(window.matchMedia).mockImplementation((query) => ({
@@ -80,10 +113,97 @@ beforeEach(() => {
   mocks.view.mockResolvedValue({ ...value });
   mocks.sandboxPayout.mockResolvedValue({ mode: "test", setup: "setup_required", latest: null });
   mocks.calendarStatus.mockResolvedValue({ status: "disconnected", connected: false });
+  mocks.profile.mockResolvedValue({ preferences: { ...preferences } });
+  mocks.savePreferences.mockResolvedValue({
+    preferences: { ...preferences, advisor_service: "portfolio_management" },
+  });
+  mocks.request.mockResolvedValue({ items: [suggested] });
   Object.defineProperty(document, "hidden", {
     configurable: true,
     value: false,
   });
+});
+
+it("loads no recommendation information before opt-in, asks four choices, and sends only the service", async () => {
+  const choose = vi.fn();
+  render(<AdvisorRecommendations context={context} onChoose={choose} />);
+  expect(mocks.profile).not.toHaveBeenCalled();
+  expect(mocks.request).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Recommend advisor" }));
+  await screen.findByText(
+    "What do you need help with?",
+  );
+  expect(screen.queryByText(/not sure/i)).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Managing my investments" }),
+  );
+  await screen.findByText("Service-matched advisor");
+  expect(mocks.savePreferences).toHaveBeenCalledWith(
+    expect.objectContaining({
+      updates: { advisor_service: "portfolio_management" },
+      beforeEffect: expect.any(Function),
+    }),
+  );
+  expect(mocks.request).toHaveBeenCalledWith(
+    context,
+    "/candidates",
+    "POST",
+    { scope: "recommended", service: "portfolio_management" },
+    expect.any(AbortSignal),
+  );
+  expect(mocks.send).not.toHaveBeenCalled();
+  expect(choose).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Review introduction" }));
+  expect(choose).toHaveBeenCalledWith(suggested);
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it("reuses a saved choice and closes recommendations before route Back", async () => {
+  mocks.profile.mockResolvedValue({
+    preferences: { ...preferences, advisor_service: "portfolio_management" },
+  });
+  render(<AdvisorRecommendations context={context} onChoose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Recommend advisor" }));
+  await screen.findByText("Service-matched advisor");
+  expect(
+    screen.queryByText("What do you need help with?"),
+  ).toBeNull();
+  expect(mocks.savePreferences).not.toHaveBeenCalled();
+  act(() => {
+    expect(unwindBackLayer("/ria/clients")).toBe(true);
+  });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+it("consumes Back during preference persistence and discards a retired vault's response", async () => {
+  let finish!: (value: unknown) => void;
+  mocks.savePreferences.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  let current = true;
+  const scoped = { ...context, isCurrent: () => current };
+  const rendered = render(
+    <AdvisorRecommendations context={scoped} onChoose={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Recommend advisor" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Managing my investments" }),
+  );
+  act(() => {
+    expect(unwindBackLayer("/ria/clients")).toBe(true);
+  });
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+  current = false;
+  finish({
+    preferences: { ...preferences, advisor_service: "portfolio_management" },
+  });
+  rendered.rerender(
+    <AdvisorRecommendations context={scoped} onChoose={vi.fn()} />,
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(mocks.request).not.toHaveBeenCalled();
 });
 afterEach(() => {
   cleanup();

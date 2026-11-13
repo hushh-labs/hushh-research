@@ -49,6 +49,7 @@
     "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
+    "hushh-webapp/components/kai/advisor/advisor-recommendations.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/cards/stock-quote-header.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
@@ -1390,6 +1391,38 @@
           ]
         },
         "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "finance_advisor_recommendations",
+      "surface_title": "Finance advisor recommendations",
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/advisor/advisor-recommendations.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "kai",
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ],
+          "routes": [
+            "/one/kai/portfolio/analysis"
+          ],
+          "screens": [
+            "kai_portfolio_analysis"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
       },
       "search": {},
       "orchestration": {
@@ -34252,6 +34285,108 @@
             "type": "action",
             "action_id": "document.copy.revoke",
             "label": "Stop One access",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "finance.advisor.recommend",
+      "surface_id": "finance_advisor_recommendations",
+      "label": "Recommend advisor",
+      "aliases": [
+        "recommend an advisor",
+        "find matching advisors"
+      ],
+      "search_keywords": [
+        "advisor",
+        "recommendation",
+        "service",
+        "RIA"
+      ],
+      "meaning": "Opens optional advisor service matching. Reuses a saved service choice or presents four fixed choices. Opening or selecting a match never sends a connection request, shares Finance or calls a model.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/analysis"
+        ],
+        "screens": [
+          "kai_portfolio_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "finance_recommend_advisor"
+      },
+      "control_ids": [
+        "finance_recommend_advisor"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.finance.advisor.recommend",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "finance.advisor.recommend",
+            "label": "Recommend advisor",
             "failure_behavior": "stop"
           }
         ],

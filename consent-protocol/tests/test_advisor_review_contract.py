@@ -29,6 +29,24 @@ def test_unready_payout_account_tells_each_person_their_own_next_step(monkeypatc
     assert advisor_view.value.code == "ADVISOR_CONNECT_STRIPE"
     assert owner_view.value.code == "ADVISOR_PAYEE_NOT_READY"
 
+def test_recommendation_intake_is_four_services_and_never_accepts_private_context():
+    from api.routes.one.advisor_reviews import Discovery
+    from hushh_mcp.services.advisor_matching import SERVICE_ALIASES
+
+    assert len(SERVICE_ALIASES) == 4
+    for service in SERVICE_ALIASES:
+        assert (
+            Discovery.model_validate({"scope": "recommended", "service": service}).service
+            == service
+        )
+    for body in (
+        {"scope": "recommended", "service": "unsure"},
+        {"scope": "recommended", "service": "tax_planning", "portfolio": {"holdings": []}},
+        {"scope": "recommended", "service": "tax_planning", "persona": "careful"},
+    ):
+        with pytest.raises(ValidationError):
+            Discovery.model_validate(body)
+
 
 def request_body():
     return {

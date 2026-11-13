@@ -6177,3 +6177,30 @@ A mount cannot enroll an owner or activate delivery; current
 verified identity, owner epoch, explicit per-attempt choice and the separately
 qualified Matrix worker remain required. Keep the attempt key available for
 generation-bound unsubscribe even when new delivery is disabled.
+
+## Optional advisor service matching
+
+Finance analysis offers **Recommend advisor**. The existing
+`POST /api/one/finance/advisor-reviews/candidates` accepts
+`{"scope":"recommended","service":"portfolio_management"}`. The other service
+IDs are `retirement_planning`, `tax_planning`, and `estate_planning`.
+Existing Firebase and matching vault-owner authorization remain required.
+Unknown fields, including persona and portfolio payloads, are rejected.
+
+The server applies declared-service aliases, advisor verification, test-profile
+exclusion and bilateral blocks inside the canonical Connect directory query
+before pagination. Tied service matches use a stable owner/service permutation;
+the order is not a quality assessment. Candidate records add `servicesOffered`;
+missing legacy values become an empty list. Existing discovery scopes retain
+their behavior. Web and native use the same `ApiService` request and endpoint.
+
+The optional `financial.profile.preferences.advisor_service` is saved through
+the existing encrypted merged-profile writer. It is excluded from the public
+profile summary. The choice is read only after opt-in. Persona and portfolio
+context remain client-side and do not affect ordering without corresponding
+structured advisor evidence. Matching makes no model or advisor-enrichment call; existing live-account checks still apply. Selecting
+a match opens the existing introduction/snapshot review; explicit approval and
+Send remain necessary. Closing, vault retirement and owner changes retire
+pending recommendation results. No schema migration or advisor-flow change is
+required. Removing the launcher rolls back the feature; older profile editors
+preserve the optional preference.

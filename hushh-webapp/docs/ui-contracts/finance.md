@@ -211,3 +211,20 @@ come first, then sharing options; Preview follows those two steps. Back preserve
 selections through preview, options and connections before closing. Continue and
 Preview are right-aligned accent actions. Only the final reviewed confirmation
 publishes a share; amount and private-agent permissions remain off by default.
+
+
+## Optional advisor recommendations
+
+On Finance analysis, **Recommend advisor** starts an optional service match. It
+asks one missing fixed-choice answer: managing investments, retirement, tax, or
+estate planning. Closing leaves recommendations off. A saved answer skips the
+question on the next open; Change choice offers the same four answers.
+
+Show up to five service matches with factual reasons and profile links. Missing
+advisor approach evidence is not described as persona/portfolio compatibility.
+Prices, meeting logistics and availability are excluded. Selecting Review
+introduction opens the existing approval flow without sending or sharing.
+Back closes recommendations before route navigation, and is consumed during
+preference persistence. Auth/vault changes retire results and selected advisors.
+The same shared UI and API transport apply on web, iOS and Android; physical
+native verification remains separate from browser evidence.
