@@ -68,6 +68,45 @@ flowchart LR
 - Producers emit heartbeat-safe `stage` updates roughly every `3-5s` while waiting for model chunks.
 - Terminal behavior is mandatory: every stream ends with one terminal `complete`, `aborted`, or `error`.
 
+## Incremental portfolio extraction
+
+Portfolio import keeps envelope `1.0`. An optional `progress.extraction_update`
+carries a versioned, immutable source unit:
+
+```json
+{"version":1,"revision":1,"unit_id":"pdf:1","unit_index":1,"units_total":2,"source_kind":"pdf","rows":[{"source_id":"pdf:1:1","source_page":1,"symbol":"SYNTH","market_value":0}],"facts":{"cash_balance":0}}
+```
+
+`source_kind` is `csv` or `pdf`. CSV identities use `csv:0:<logical record>`;
+quoted multiline cells remain one logical record. PDF identities use
+`pdf:<page>:<row>`. A unit is applied once per owner/stream, never deduplicated by
+ticker. Known zero differs from missing/null. Facts may include source-declared
+account information, portfolio summary, cash, total and currency. Unknown facts
+remain placeholders; there is no assumed preview currency or partial allocation.
+
+The legacy `holdings_preview` remains a bounded cumulative replacement snapshot.
+The new payload is a per-unit delta, not a growing all-rows snapshot. Older
+consumers ignore it. Native transports already preserve the canonical payload.
+Detailed provisional facts live only in component/process memory, outside
+`StreamingState`, browser storage, assistant text and raw stream logs. The UI
+retains at most 1,000 preview rows and paginates them; final extraction is not
+capped by that display budget.
+
+An explicit unsupported layout, continuation, conflicting account/summary fact,
+or printed securities-count/value mismatch requests the existing whole-document
+extractor once. Before it starts, `progress.extraction_reset: true` clears units
+and provisional facts; its sequence fences earlier replay. Provider/transport
+failure does not invoke this fallback. A failed page cannot yield terminal
+success from earlier pages. Existing final normalization, reconciliation and
+quality rules still own terminal results. Only terminal success enables review
+editing/saving; provisional information is never saved automatically.
+
+Owner consent and current placement are checked around each model call and before
+publishing results. Cancellation settles the owned model task and PDF worker
+before releasing resources. Local run replay can carry units; cross-worker
+recovery remains the existing sealed terminal-only contract and does not promise
+intermediate replay.
+
 ## Transport Format
 
 All streams use Server-Sent Events with explicit event frames:

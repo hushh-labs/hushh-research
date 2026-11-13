@@ -1164,3 +1164,64 @@ async def test_wire_completion_excludes_consumer_hold_and_child_has_parent_span(
     assert root_fields["wire_completed_ms"] == root_fields["wire_first_text_ms"] == "0"
     assert root_fields["dispatches"] == "1"
     assert "Public answer" not in "\n".join(lines)
+
+
+@pytest.mark.parametrize("kind", ["csv", "pdf"])
+async def test_incremental_portfolio_genes_decode_sparse_output_through_real_adk(kind):
+    from hushh_mcp.agents.portfolio_import.runtime import _EXTRACTION_SCHEMA, load_portfolio_gene
+    from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+    from hushh_mcp.kai_import.incremental_contracts import CSV_LAYOUT_SCHEMA, page_extraction_schema
+
+    if kind == "csv":
+        payload = {
+            "decision": "mapped",
+            "header_row": 0,
+            "columns": [{"field": "symbol", "column": 0}],
+            "position_ranges": [{"first": 1, "last": 1}],
+            "other_ranges": [{"first": 0, "last": 0, "purpose": "header"}],
+            "metadata": [],
+            "decimal_separator": ".",
+            "group_separator": ",",
+            "currency": None,
+        }
+        schema = CSV_LAYOUT_SCHEMA
+        gene_id = "agent_portfolio_import_csv_layout"
+    else:
+        payload = {
+            "statement_details": {},
+            "portfolio_summary": dict.fromkeys(
+                [
+                    "beginning_value",
+                    "ending_value",
+                    "change_in_value",
+                    "net_deposits_withdrawals",
+                    "income",
+                    "fees",
+                ]
+            ),
+            "detailed_holdings": [{"symbol": "SYNTH", "market_value": 0}],
+            "cash_balance": None,
+            "total_value": None,
+            "requires_full_document": False,
+            "continuation_pending": False,
+            "continuation_context": "",
+            "currency": None,
+        }
+        schema = page_extraction_schema(_EXTRACTION_SCHEMA)
+        gene_id = "agent_portfolio_import_pdf_page"
+    adapter, client, _, _ = model([response(message(json.dumps(payload)))])
+    gene = load_portfolio_gene(gene_id)
+    agent = build_single_turn_agent(gene, output_schema=schema, model=adapter)
+    result = await run_single_turn(
+        agent,
+        prompt_parts="Synthetic source only",
+        user_id="synthetic-owner",
+        consent_token="synthetic-token",  # noqa: S106 - synthetic test authority
+        timeout_seconds=5,
+    )
+    assert result == payload
+    assert len(client.requests) == 1
+    wire = client.requests[0]
+    assert wire["reasoning"]["effort"] == "low"
+    assert wire["max_output_tokens"] == gene.performance.max_output_tokens
+    assert wire["text"]["format"]["type"] == ("json_schema" if kind == "csv" else "json_object")

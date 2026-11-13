@@ -33,7 +33,7 @@ describe("India movers", () => {
 
   it("opens an India mover through the selected-stock handler", () => {
     const onSelect = vi.fn();
-    render(createElement(OneMarketMovers, { groups, linkable: false, onSelect, note: "Among 50 large NSE stocks" }));
+    render(createElement(OneMarketMovers, { groups, linkable: false, balanced: true, onSelect, note: "Among 50 large NSE stocks" }));
     expect(screen.getByText("TATASTEEL")).toBeTruthy();
     expect(screen.getByText(/Among 50 large NSE stocks/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /TATASTEEL/ }));
