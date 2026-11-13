@@ -211,6 +211,10 @@ def test_important_feed_is_incoming_and_preserves_other_dri_rows(feed_db):
         peer=OTHER,
     )
     other_dri = policy_event(feed_db, OWNER, "kai_analysis_completed", {}, domain="kai")
+    # A self-initiated Circle join is not an incoming addition from someone else.
+    policy_event(
+        feed_db, OWNER, "circle_member_added", {"circle_id": str(uuid.uuid4())}, peer=OWNER
+    )
     for event, meta, domain in [
         ("location_share_created", {}, "location"),
         ("location_share_expired", {}, "location"),
