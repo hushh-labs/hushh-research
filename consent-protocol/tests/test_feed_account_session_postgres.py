@@ -192,7 +192,7 @@ def test_important_feed_is_incoming_and_preserves_other_dri_rows(feed_db):
         feed_db,
         OWNER,
         "location_share_created",
-        {"feed_audience": "recipient"},
+        {"feed_audience": "recipient", "reason": "recipient_revoke"},
         source=grant,
         peer=OTHER,
     )
