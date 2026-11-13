@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { ClipboardList } from "@/components/icons";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
-import { TodoListPkmService, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { Button } from "@/lib/morphy-ux/button";
+import { TodoListPkmService, createTodo, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { TodoAddItemSheet, type EditableTodoFields } from "@/components/todos/todo-add-item-sheet";
 import { TodoRow, DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -33,6 +35,8 @@ export function OneTodoPreview({
   identityRef.current = identity;
   const requestRef = useRef(0);
   const [snapshot, setSnapshot] = useState({ identity, tasks: [] as TodoItem[], loading: true, error: false, savingTaskId: null as string | null });
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const current = ready && snapshot.identity === identity;
   const tasks = useMemo(() => current ? snapshot.tasks : [], [current, snapshot.tasks]);
   const loading = ready && (!current || snapshot.loading);
@@ -120,12 +124,50 @@ export function OneTodoPreview({
   };
   const toggleTask = (task: TodoItem, complete: boolean) => persistTask(task, complete ? "done" : "pending");
   const deleteTask = (task: TodoItem) => persistTask(task, "deleted");
+  const saveManualTask = async (input: EditableTodoFields) => {
+    if (!ready || !vaultKey || !vaultOwnerToken || loading || savingTaskId || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return;
+    const request = ++requestRef.current;
+    const isCurrent = () => identityRef.current === identity && requestRef.current === request && snapshotVaultSessionEpoch() === epoch;
+    setSaveError(false);
+    setSnapshot(previous => ({ ...previous, savingTaskId: "new-item", error: false }));
+    try {
+      const { task, result } = await createTodo(
+        { ...input, type: "manual" },
+        { userId: ownerId, vaultKey, vaultOwnerToken },
+      );
+      if (!result.success) throw new Error("Task could not be saved");
+      if (isCurrent()) {
+        setSnapshot(previous => ({ ...previous, tasks: [task, ...previous.tasks], savingTaskId: null }));
+        setEditorOpen(false);
+      }
+    } catch {
+      if (isCurrent()) {
+        setSnapshot(previous => ({ ...previous, savingTaskId: null }));
+        setSaveError(true);
+      }
+    }
+  };
 
   return (
     <div className={`${styles.todo} profile-home-content`} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
       <div className={styles.sectionHeading}>
         <h3 data-profile-role="header">To-do list</h3>
+        <Button
+          type="button"
+          size="compact"
+          data-todo-add-item="true"
+          disabled={!ready || loading || Boolean(savingTaskId)}
+          onClick={() => setEditorOpen(true)}
+        >
+          Add item
+        </Button>
       </div>
+
+      {ready && saveError ? (
+        <div className={styles.notice} role="status">
+          <p>Task could not be saved. Your list was not changed.</p>
+        </div>
+      ) : null}
 
       {ready && (error || sourceError) ? (
         <div className={styles.notice} role="status">
@@ -204,6 +246,12 @@ export function OneTodoPreview({
           ))}
         </div>
       )}
+      <TodoAddItemSheet
+        open={editorOpen}
+        saving={Boolean(savingTaskId)}
+        onOpenChange={setEditorOpen}
+        onSave={saveManualTask}
+      />
     </div>
   );
 }
