@@ -895,12 +895,12 @@ for (const width of [393, 1440]) {
     await mine.click();
     const discover = tabs.getByRole("tab", { name: "Find people" });
     const refresh = page.getByRole("button", { name: "Refresh contacts" });
-    const message = page.getByRole("button", { name: "Message Jordan Lee", exact: true });
-    const options = page.getByRole("button", { name: "Options for Jordan Lee", exact: true });
     const profile = page.getByRole("button", { name: "Open Jordan Lee's profile", exact: true });
 
     await expect(discover).toHaveAttribute("aria-selected", "false");
-    for (const action of [discover, refresh, message, options]) {
+    // Message and Options are icon actions that keep a centred hover circle;
+    // their geometry is covered by the centering test below.
+    for (const action of [discover, refresh]) {
       await action.hover();
       await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
@@ -913,29 +913,35 @@ for (const width of [393, 1440]) {
     await page.screenshot({ path: test.info().outputPath(`inline-hover-${width}.png`), animations: "disabled" });
   });
 
-  test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
+  test(`Connection icons and their feedback stay centered in 44px targets at ${width}px`, async ({ page }) => {
     await open(page, width, false);
     await settle(page, width);
     await page.getByRole("tab", { name: /My connections/ }).click();
     const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
-    const spacing = await row.evaluate(node => {
-      const message = node.querySelector('button[aria-label="Message Jordan Lee"]')!;
-      const options = node.querySelector('button[aria-label="Options for Jordan Lee"]')!;
-      const first = message.querySelector("svg")!;
-      const second = options.querySelector("svg")!;
-      const gap = () => second.getBoundingClientRect().left - first.getBoundingClientRect().right;
-      const tightened = gap();
-      first.classList.remove("translate-x-1.5");
-      second.classList.remove("-translate-x-1.5");
-      const previous = gap();
-      first.classList.add("translate-x-1.5");
-      second.classList.add("-translate-x-1.5");
-      const a = message.getBoundingClientRect(), b = options.getBoundingClientRect();
-      return { tightened, previous, targets: [a.width, a.height, b.width, b.height], overlap: a.right > b.left };
-    });
-    expect(spacing.tightened / spacing.previous).toBeCloseTo(0.5, 1);
-    expect(spacing.targets).toEqual([44, 44, 44, 44]);
-    expect(spacing.overlap).toBe(false);
+    for (const label of ["Message Jordan Lee", "Options for Jordan Lee"]) {
+      const action = row.getByRole("button", { name: label, exact: true });
+      await action.hover();
+      await expect(action.locator("md-ripple")).not.toHaveCSS("--md-ripple-hover-opacity", "0");
+      const geometry = await action.evaluate(node => {
+        const target = node.getBoundingClientRect();
+        const icon = node.querySelector("svg")!.getBoundingClientRect();
+        const feedback = node.querySelector(".morphy-ripple-host")!.getBoundingClientRect();
+        const centre = (box: DOMRect) => [box.left + box.width / 2, box.top + box.height / 2];
+        const apart = (a: number[], b: number[]) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+        return {
+          target: [target.width, target.height],
+          glyphOffTarget: apart(centre(icon), centre(target)),
+          feedbackOffGlyph: apart(centre(feedback), centre(icon)),
+          feedbackInsideTarget: feedback.width < target.width && feedback.height < target.height,
+        };
+      });
+      expect(geometry.target, label).toEqual([44, 44]);
+      expect(geometry.glyphOffTarget, label).toBeLessThanOrEqual(0.5);
+      expect(geometry.feedbackOffGlyph, label).toBeLessThanOrEqual(1);
+      expect(geometry.feedbackInsideTarget, label).toBe(true);
+    }
+    const [message, options] = await Promise.all(["Message Jordan Lee", "Options for Jordan Lee"].map(label => row.getByRole("button", { name: label, exact: true }).boundingBox()));
+    expect(message!.x + message!.width).toBeLessThanOrEqual(options!.x + 0.5);
   });
   for (const joined of [false, true]) {
     test(`Join with code stays transparent with joined=${joined} at ${width}px`, async ({ page }) => {

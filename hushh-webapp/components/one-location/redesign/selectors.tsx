@@ -496,8 +496,10 @@ export function ReasonChips({
               >
                 <InputValue
                   as="span"
+                  data-connect-role="choice-option"
+                  data-selected={reason === value}
                   className={cn(
-                    "shrink-0 whitespace-nowrap [--type-input-value-size:15px]",
+                    "shrink-0 whitespace-nowrap",
                     reason === value && "[--app-label:var(--app-accent)]",
                   )}
                 >

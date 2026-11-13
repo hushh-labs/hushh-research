@@ -512,6 +512,10 @@ route presence must not restyle unrelated global notifications.
 
 Rows use 14/21/550, supporting text 12/18/400, sections 14/22/600, form labels
 15/22/550, compact actions 12/18/550, and dialog titles 20/28/600 (size/line/weight).
+Options a person taps inside a card (duration ladder and Custom wheel, Reason
+picker) use `data-connect-role="duration-option"` or `"choice-option"`: 14/21/550.
+A flow's step eyebrow ("Step 2 of 2") is supporting text: 12/18/400 in the product
+font, not the shared monospace eyebrow, inside a Location scope.
 Inputs use 16/22 through 620px and 14/22 above it. Geometry, focus rings, hover,
 disabled behavior, destructive treatment, and touch targets remain owned by the
 existing shared controls. Specialized display numerals and icon glyphs retain
