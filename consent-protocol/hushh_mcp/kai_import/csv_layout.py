@@ -160,6 +160,8 @@ def decode_csv_batch(
 
     def value(cell: str, kind: str) -> Any:
         if kind == "number":
+            if not isinstance(decimal, str) or not isinstance(grouping, str):
+                raise CsvLayoutUnsupported("csv_number_format_invalid")
             return parse_csv_number(cell, decimal=decimal, grouping=grouping)
         return cell.strip() or None
 
