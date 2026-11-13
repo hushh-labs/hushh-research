@@ -96,7 +96,7 @@ describe("PortfolioImportView", () => {
       onSkip={vi.fn()} onConnectPlaid={connect} onPreloadSchema={sample} plaidLocalDualEnvironmentEnabled />);
     fireEvent.click(screen.getByRole("button", { name: /Try a sample/ }));
     expect(sample).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: /Connect an account/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect your Plaid account/ }));
     expect(connect).toHaveBeenCalledWith("sandbox");
   });
 
@@ -107,7 +107,7 @@ describe("PortfolioImportView", () => {
     const { rerender } = render(<PortfolioImportView presentation="onboarding" onFileSelect={file}
       onSkip={skip} onConnectPlaid={connect} isConnectingPlaid />);
     expect(screen.getByRole("status")).toHaveTextContent("Opening Plaid…");
-    fireEvent.click(screen.getByRole("button", { name: /Connect an account/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect your Plaid account/ }));
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(connect).not.toHaveBeenCalled();
     expect(skip).not.toHaveBeenCalled();

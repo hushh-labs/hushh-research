@@ -56,7 +56,6 @@ const SHEET_CONSUMERS = [
   "components/connections/contact-invitation-sheet.tsx",
   "components/kai/onboarding/KaiPreferencesSheet.tsx",
   "components/kai/share/portfolio-share-sheet.tsx",
-  "components/kai/views/analysis-history-dashboard.tsx",
   "components/one-location/contact-sync-results-sheet.tsx",
   "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
   "components/one-location/onboarding/onboarding-option-sheet.tsx",

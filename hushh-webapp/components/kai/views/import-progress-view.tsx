@@ -79,8 +79,9 @@ interface ImportProgressViewProps {
   onRetry?: () => void;
 }
 
-export function ImportProgressStatus({ stage, fileName, fileSize, errorMessage }: Pick<ImportProgressViewProps, "stage" | "fileName" | "fileSize" | "errorMessage">) {
-  const { percent, slow } = useImportProgress(stage);
+type ImportStatusProps = Pick<ImportProgressViewProps, "stage" | "fileName" | "fileSize" | "errorMessage">;
+
+function ImportStatusContent({ stage, fileName, fileSize, errorMessage, percent, slow }: ImportStatusProps & { percent: number; slow: boolean }) {
   const failed = stage === "error";
   return <section aria-label="Statement import status" className="space-y-2">
     <div role="status" className="min-h-10 ui-text-row-description text-muted-foreground">
@@ -89,6 +90,18 @@ export function ImportProgressStatus({ stage, fileName, fileSize, errorMessage }
     </div>
     {!failed ? <AppStreamProgressMeter value={percent} label="Statement import progress" className="h-1.5 bg-muted" indicatorClassName="bg-[var(--app-accent)] motion-safe:duration-300 motion-safe:ease-out" /> : null}
   </section>;
+}
+
+function ActiveImportStatus(props: ImportStatusProps) {
+  const progress = useImportProgress(props.stage);
+  return <ImportStatusContent {...props} {...progress} />;
+}
+
+export function ImportProgressStatus(props: ImportStatusProps) {
+  // A completed review (or stopped import) has no running clock to subscribe to.
+  return props.stage === "complete" || props.stage === "error"
+    ? <ImportStatusContent {...props} percent={props.stage === "complete" ? 100 : 0} slow={false} />
+    : <ActiveImportStatus {...props} />;
 }
 
 export function ImportProgressView({ stage, errorMessage, fileName, fileSize, liveHoldings, holdingsTotal, onCancel, onRetry }: ImportProgressViewProps) {
