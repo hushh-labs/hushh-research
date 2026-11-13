@@ -150,8 +150,8 @@ it("keeps matching opt-in and preserves the explicit introduction boundary", asy
   expect(mocks.savePreferences).toHaveBeenCalledWith(expect.objectContaining({
     updates: { advisor_service: "portfolio_management" }, beforeEffect: expect.any(Function),
   }));
-  expect(mocks.request).toHaveBeenCalledWith(context, "/candidates", "POST",
-    { scope: "recommended", service: "portfolio_management" }, expect.any(AbortSignal));
+  await waitFor(() => expect(mocks.request).toHaveBeenCalledWith(context, "/candidates", "POST",
+    { scope: "recommended", service: "portfolio_management" }, expect.any(AbortSignal)));
   fireEvent.click(await screen.findByRole("button", { name: "Open Service-matched advisor profile" }));
   expect(mocks.push).toHaveBeenCalledWith(`/people/${suggested.personRef}?from=%2Fria%2Fclients`);
   expect(mocks.send).not.toHaveBeenCalled();
