@@ -6,6 +6,10 @@ from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_inventory_review import ACCOUNT_ERASURE_SQL_LIMITS
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.account_deletion_release_admission import admit_erasure_transaction
+from hushh_mcp.services.connection_graph_service import (
+    list_connection_graph_viewer_ids,
+    publish_connection_graph_events,
+)
 
 
 def prepare_full_account_cleanup_transaction(
@@ -46,4 +50,19 @@ def prepare_full_account_cleanup_transaction(
         )
         if admission_check is not None:
             admission_check(conn)
-        return prepared
+        # Preparation holds the graph writer barrier and has persisted the
+        # tombstone. Peers must re-read now, even when provider cleanup remains
+        # pending. PostgreSQL releases these metadata-only hints on commit;
+        # a refused admission or rollback never hides an active account.
+        viewers = list_connection_graph_viewer_ids(
+            conn,
+            user_id=user_id,
+            include_pending_requests=True,
+            include_location_audiences=True,
+            table_exists=lambda table: service._table_exists(conn, table),
+        )
+        publish_connection_graph_events(conn, viewers)
+    # The shared feed transports this committed event to foreground web and
+    # native clients. Provider sends stay out of admission's bounded DB work;
+    # final-erasure push and resume repair retain their existing ownership.
+    return prepared

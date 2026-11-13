@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiService } from "@/lib/services/api-service";
-import { mergePersonScopePage, PersonProfileService, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
+import { mergePersonScopePage, PersonProfileService, PersonProfileNotFoundError, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: vi.fn() } }));
 
@@ -56,5 +56,22 @@ describe("recipient-bound catalog pages", () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(new Response(JSON.stringify({ personRef: "other", bundleId: "synthetic" })));
     await expect(PersonProfileService.createInformationRequest({ personRef: "fixture-person", scopeRefs: ["opaque"], purpose: "Synthetic test", durationSeconds: 86400,
       connectorKeyId: "synthetic", idempotencyKey: "synthetic-idempotency", vaultOwnerToken: "synthetic-token" })).rejects.toThrow(/person/);
+  });
+
+  it.each([404, 410])("clears cached identity and fences a delayed public read on authenticated %s", async (status) => {
+    PersonProfileService.invalidatePublicProfiles();
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify(page(1))));
+    await PersonProfileService.getPublic("fixture-person");
+    expect(PersonProfileService.peekPublic("fixture-person")).not.toBeNull();
+    let finishPublic!: (response: Response) => void;
+    vi.mocked(ApiService.apiFetch).mockImplementationOnce(() => new Promise(resolve => { finishPublic = resolve; }));
+    const olderRead = PersonProfileService.getPublic("fixture-person");
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response("{}", { status }));
+    await expect(PersonProfileService.getViewer("fixture-person", "fixture-token")).rejects.toBeInstanceOf(PersonProfileNotFoundError);
+    finishPublic(new Response(JSON.stringify(page(1))));
+    await olderRead;
+    expect(PersonProfileService.peekPublic("fixture-person")).toBeNull();
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response("{}", { status }));
+    await expect(PersonProfileService.getRelationship("fixture-person", "fixture-token")).rejects.toBeInstanceOf(PersonProfileNotFoundError);
   });
 });

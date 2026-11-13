@@ -13,6 +13,8 @@ import { connectPersonName } from "@/lib/connections/person-label";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
+import { DIRECTORY_PASSIVE_REFRESH_AFTER_MS } from "@/lib/connect/directory-first-page-cache";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 
 type Mode = "mutuals" | "connections" | "discovery";
 type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
@@ -80,6 +82,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   }, [generation, owner, memoryKey]);
 
   const refresh = useCallback((preserveRows = false) => {
+    ++requestRef.current;
     const opener = root.current?.contains(document.activeElement) ? document.activeElement?.closest<HTMLElement>("[data-network-person]") : null;
     restoreSnapshot.current = { ...snapshot.current,
       scrollTop: root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop(),
@@ -93,6 +96,9 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     if (!preserveRows) setResult(null);
     setRevision(value => value + 1);
   }, []);
+  usePeriodicTask(`network-people-availability:${owner}:${visitKey}`, DIRECTORY_PASSIVE_REFRESH_AFTER_MS, () => {
+    if (!busy && navigator.onLine !== false) refresh(true);
+  }, { enabled: Boolean(user && owner) });
   useEffect(() => subscribeToConnectionGraphChanges(event => {
     if (event.userId === owner && !notifyingOwnRequest.current) refresh();
   }), [owner, refresh]);
