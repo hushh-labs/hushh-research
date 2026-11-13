@@ -895,12 +895,12 @@ for (const width of [393, 1440]) {
     await mine.click();
     const discover = tabs.getByRole("tab", { name: "Find people" });
     const refresh = page.getByRole("button", { name: "Refresh contacts" });
-    const message = page.getByRole("button", { name: "Message Jordan Lee", exact: true });
-    const options = page.getByRole("button", { name: "Options for Jordan Lee", exact: true });
     const profile = page.getByRole("button", { name: "Open Jordan Lee's profile", exact: true });
 
     await expect(discover).toHaveAttribute("aria-selected", "false");
-    for (const action of [discover, refresh, message, options]) {
+    // Message and Options are icon actions that keep a centred hover circle;
+    // their geometry is covered by the centering test below.
+    for (const action of [discover, refresh]) {
       await action.hover();
       await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
@@ -919,7 +919,10 @@ for (const width of [393, 1440]) {
     await page.getByRole("tab", { name: /My connections/ }).click();
     const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
     for (const label of ["Message Jordan Lee", "Options for Jordan Lee"]) {
-      const geometry = await row.getByRole("button", { name: label, exact: true }).evaluate(node => {
+      const action = row.getByRole("button", { name: label, exact: true });
+      await action.hover();
+      await expect(action.locator("md-ripple")).not.toHaveCSS("--md-ripple-hover-opacity", "0");
+      const geometry = await action.evaluate(node => {
         const target = node.getBoundingClientRect();
         const icon = node.querySelector("svg")!.getBoundingClientRect();
         const feedback = node.querySelector(".morphy-ripple-host")!.getBoundingClientRect();

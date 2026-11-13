@@ -374,9 +374,10 @@ const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = styles.utilityLabel;
-/** An icon-only row action: a 44px target whose press and focus feedback is a
- *  circle centred on the 22px glyph. The glyph itself is never translated. */
-const CONNECT_ROW_ICON_ACTION_CLASSNAME = styles.rowIconAction;
+/** An icon-only row action: a 44px target whose hover, press and focus feedback
+ *  is a circle centred on the 22px glyph. The glyph itself is never translated.
+ *  Deliberately keeps hover feedback, unlike the unfilled `plain` actions. */
+const CONNECT_ROW_ICON_ACTION_CLASSNAME = cn("!size-11 !min-w-11 !rounded-full !bg-transparent !p-0", styles.rowIconAction);
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 10;
@@ -3961,8 +3962,9 @@ function ConnectPageClientContent() {
                                         {connection.publicPersonRef ? (
                                           <Button
                                             type="button"
-                                            variant="plain"
-                                            size="icon-touch"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
                                             aria-label={`Message ${connectionName}`}
                                             className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                             onClick={() => {
@@ -3974,8 +3976,9 @@ function ConnectPageClientContent() {
                                         ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                         <Button
                                           type="button"
-                                          variant="plain"
-                                          size="icon-touch"
+                                          variant="none"
+                                          effect="fade"
+                                          size="compact"
                                           aria-label={`Options for ${connectionName}`}
                                           aria-haspopup="dialog"
                                           className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
