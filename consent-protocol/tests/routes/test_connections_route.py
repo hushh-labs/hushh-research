@@ -40,22 +40,30 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
         )
         service.return_value.browse.reset_mock()
         service.return_value.browse.return_value = {
-            "items": [],
-            "suggestions": [],
-            "page": 1,
+            "items": [
+                {
+                    "publicPersonRef": person_ref,
+                    "networkDegree": None,
+                    "suggestionReason": "public_profile",
+                }
+            ],
+            "page": 2,
             "hasMore": False,
         }
         suggestions = client.get(
-            "/api/one/connections/network", params={"degree": 3, "include_suggestions": True}
+            "/api/one/connections/network",
+            params={"degree": 3, "page": 2, "include_suggestions": True},
         )
         assert suggestions.status_code == 200
-        assert suggestions.json()["suggestions"] == []
+        assert suggestions.headers["cache-control"] == "private, no-store"
+        assert suggestions.json()["items"][0]["networkDegree"] is None
+        assert suggestions.json()["items"][0]["suggestionReason"] == "public_profile"
         service.return_value.browse.assert_called_once_with(
             "user-a",
             person_ref=None,
             degree=3,
             query="",
-            page=1,
+            page=2,
             limit=20,
             include_suggestions=True,
         )

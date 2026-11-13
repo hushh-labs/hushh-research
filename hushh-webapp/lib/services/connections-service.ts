@@ -62,7 +62,7 @@ export interface MutualConnectionsPage {
 }
 
 export type NetworkDegree = 1 | 2 | 3;
-export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship; suggestionReason?: "verified_advisor" | "name_match" };
+export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship; suggestionReason?: "verified_advisor" | "name_match" | "public_profile" };
 export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; suggestions?: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
 export type NetworkSummary = {
   person: { publicPersonRef: string; displayName: string | null };

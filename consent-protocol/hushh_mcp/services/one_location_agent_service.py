@@ -45,6 +45,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     is_account_deletion_write_guard,
 )
+from hushh_mcp.services.connection_discovery_sql import PUBLIC_RECOMMENDATION_FILTER_SQL
 from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.directory_candidate_statement import build_directory_candidate_statement
@@ -4842,6 +4843,7 @@ class OneLocationAgentService:
         mutual_target_user_id: str | None = None,
         network_user_ids: list[str] | None = None,
         exclude_network_user_ids: list[str] | None = None,
+        extended_network_user_ids: list[str] | None = None,
         include_recommendations: bool = True,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
@@ -4985,6 +4987,8 @@ class OneLocationAgentService:
             raise ValueError("Network discovery is limited to 4000 people")
         if exclude_network_user_ids is not None and len(exclude_network_user_ids) > 4000:
             raise ValueError("Network discovery is limited to 4000 exclusions")
+        if extended_network_user_ids is not None and len(extended_network_user_ids) > 4000:
+            raise ValueError("Extended network discovery is limited to 4000 graph people")
 
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -5074,6 +5078,11 @@ class OneLocationAgentService:
             mutual_filter_clause += (
                 " AND profile.user_id <> ALL(CAST(:exclude_network_user_ids AS TEXT[]))"
             )
+        if extended_network_user_ids is not None:
+            mutual_filter_clause += f""" AND (
+                (profile.public_person_ref IS NOT NULL
+                 AND profile.user_id = ANY(CAST(:extended_network_user_ids AS TEXT[])))
+                OR ({PUBLIC_RECOMMENDATION_FILTER_SQL}))"""  # nosec B608 -- module-owned SQL only.
 
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,
@@ -5082,6 +5091,11 @@ class OneLocationAgentService:
             verified_email_clause=verified_email_clause,
             mutual_filter_clause=mutual_filter_clause,
             typed_name_sql=typed_name_sql,
+            priority_order_sql=(
+                "CASE WHEN a.user_id = ANY(CAST(:extended_network_user_ids AS TEXT[])) THEN 0 ELSE 1 END,"
+                if extended_network_user_ids is not None
+                else ""
+            ),
         )
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
@@ -5108,6 +5122,9 @@ class OneLocationAgentService:
             params["verified_emails"] = lookup_emails
         if exclude_network_user_ids:
             params["exclude_network_user_ids"] = exclude_network_user_ids
+        if extended_network_user_ids is not None:
+            params["extended_network_user_ids"] = extended_network_user_ids
+
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real
@@ -5175,8 +5192,10 @@ class OneLocationAgentService:
         eligible_by_id = {str(row["user_id"]): row for row in fallback_rows}
         eligible_by_id.update({str(row["user_id"]): row for row in eligible_rows})
         eligible_rows = list(eligible_by_id.values())
+        extended_ids = set(extended_network_user_ids or [])
         eligible_rows.sort(
             key=lambda row: (
+                0 if extended_network_user_ids is None or row["user_id"] in extended_ids else 1,
                 cast(int, match_rank(row)),
                 str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
