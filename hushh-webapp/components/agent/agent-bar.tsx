@@ -1,5 +1,8 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+import { normalizeStaticExportPathname, resolvePersonRefFromProfilePathname, ROUTES } from "@/lib/navigation/routes";
+import { useOptionalLocationCommand } from "./location-command-provider";
 import { RetainedAgentBar } from "./agent-bar-surface";
 import { useAgentDockSurface } from "./agent-dock";
 import { CommandAgentBar } from "@/components/agent/command-agent-bar";
@@ -16,6 +19,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const readiness = useOneVoiceReadiness();
   const commands = useOneVoiceCommandsEnabled();
   const dock = useAgentDockSurface();
+  const command = useOptionalLocationCommand();
+  const pathname = normalizeStaticExportPathname(usePathname());
+  const sharing = pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS || Boolean(resolvePersonRefFromProfilePathname(pathname));
+  if (sharing && !live && !commands && !dock?.composerVisible &&
+      !command?.active && !command?.recording && (command?.view.phase ?? "idle") === "idle") return null;
+
   const unavailableLabel = commands ? undefined : readiness.status === "unknown" && readiness.microphoneOwner !== "none"
     ? "Checking voice connection…" : "Voice unavailable — check Hosting settings";
   const control = live ? <OneVoiceControl layout={layout} /> : <CommandAgentBar layout={layout} unavailableLabel={unavailableLabel} />;

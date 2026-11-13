@@ -237,6 +237,117 @@ async def test_terminal_history_preserves_accepted_quote_after_tariff_edit(
         assert (await ctx.get(path, "stranger")).status_code == 404
 
 
+async def _connected_people(ctx):
+    owner_ref, payer_ref = uuid4(), uuid4()
+    async with ctx.pool.acquire() as c:
+        await c.execute("""CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,
+          public_person_ref UUID NOT NULL, public_profile_status TEXT NOT NULL);
+          CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY, display_name TEXT);
+          CREATE TABLE connections(user_a_id TEXT,user_b_id TEXT,status TEXT);""")
+        await c.executemany(
+            "INSERT INTO actor_profiles VALUES($1,$2,'active')",
+            [("owner", owner_ref), ("payer", payer_ref)],
+        )
+        await c.executemany(
+            "INSERT INTO actor_identity_cache VALUES($1,$2)",
+            [("owner", "Owner Name"), ("payer", "Buyer Name")],
+        )
+        await c.execute("INSERT INTO connections VALUES('owner','payer','active')")
+    return owner_ref, payer_ref
+
+
+async def test_request_names_and_open_link_follow_connected_owner_and_active_term(
+    paid_contract, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    from api.routes import scope_commerce_reads
+
+    ctx = paid_contract
+    owner_ref, _ = await _connected_people(ctx)
+    monkeypatch.setattr(
+        scope_commerce_reads, "active_directory_user_ids", lambda ids, **_: set(ids)
+    )
+    await ctx.tariff()
+    before = (await ctx.get("/requests/" + ctx.request_id)).json()
+    assert before["counterpart_label"] == "Owner Name"
+    assert before["counterpart_person_ref"] is None
+    reservation = await funded_reservation(ctx)
+    paid = await ctx.stage(reservation, await ctx.prepare(reservation))
+    async with ctx.pool.acquire() as c:
+        await c.execute(
+            "UPDATE contract_clock SET observed_at=$1",
+            datetime.fromtimestamp(paid.context["starts_at_ms"] / 1000, UTC) + timedelta(seconds=1),
+        )
+    payer = (await ctx.get("/requests/" + ctx.request_id)).json()
+    owner = (await ctx.get("/requests/" + ctx.request_id, "owner")).json()
+    assert payer["purchase"]["status"] == "active"
+    assert payer["counterpart_label"] == "Owner Name"
+    assert payer["counterpart_person_ref"] == str(owner_ref)
+    assert owner["counterpart_label"] == "Buyer Name" and owner["counterpart_person_ref"] is None
+    assert (
+        not {"_counterpart_user_id", "owner_user_id", "payer_user_id", "email", "phone"}
+        & payer.keys()
+    )
+    monkeypatch.setattr(scope_commerce_reads, "active_directory_user_ids", lambda ids, **_: set())
+    assert (await ctx.get("/requests/" + ctx.request_id)).json()["counterpart_person_ref"] is None
+
+
+@pytest.mark.parametrize("state", ["pending", "removed", "private", "retired"])
+async def test_connected_commerce_metadata_refuses_ineligible_people(
+    paid_contract, monkeypatch, state
+):
+    from api.routes import scope_commerce_reads
+
+    ctx = paid_contract
+    await _connected_people(ctx)
+    monkeypatch.setattr(
+        scope_commerce_reads, "active_directory_user_ids", lambda ids, **_: set(ids)
+    )
+    async with ctx.pool.acquire() as c:
+        if state in {"pending", "removed"}:
+            await c.execute("UPDATE connections SET status=$1", state)
+        elif state == "private":
+            await c.execute(
+                "UPDATE actor_profiles SET public_profile_status='private' WHERE user_id='owner'"
+            )
+        else:
+            await c.execute(
+                "INSERT INTO account_deletion_tombstones VALUES('sha256:' || encode(sha256(convert_to('owner','UTF8')),'hex'),'complete')"
+            )
+    assert await scope_commerce_reads._connected_counterpart("payer", "owner", can_open=True) == {}
+
+
+@pytest.mark.parametrize("retire", [False, True])
+async def test_connected_commerce_metadata_rechecks_authority_after_provider_read(
+    paid_contract, monkeypatch, retire
+):
+    import asyncio
+
+    from api.routes import scope_commerce_reads
+
+    ctx = paid_contract
+    await _connected_people(ctx)
+    loop = asyncio.get_running_loop()
+
+    async def remove():
+        async with ctx.pool.acquire() as c:
+            if retire:
+                await c.execute(
+                    "INSERT INTO account_deletion_tombstones VALUES('sha256:' || encode(sha256(convert_to('owner','UTF8')),'hex'),'complete')"
+                )
+            else:
+                await c.execute("UPDATE connections SET status='removed'")
+
+    def observe(ids, **_):
+        asyncio.run_coroutine_threadsafe(remove(), loop).result(timeout=5)
+        return set(ids)
+
+    monkeypatch.setattr(scope_commerce_reads, "active_directory_user_ids", observe)
+    result = await scope_commerce_reads._connected_counterpart("payer", "owner", can_open=True)
+    assert result == {"counterpart_person_ref": None}
+
+
 async def test_activity_is_owner_bound_keyset_and_read_only(paid_contract: PaidContract):
     from tests.scope_commerce_contract_harness import reserve_quote
 

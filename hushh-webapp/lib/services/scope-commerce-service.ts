@@ -38,7 +38,7 @@ export type ScopeCommerceRequest = {
   machine_scope: string; scope_handle: string; duration_seconds: number;
   purpose: string; tariff: ScopeTariff | null; purchase: ScopePurchase | null;
   refresh_policy?: string;
-  scope_label?: string; counterpart_label?: string; recipient_label?: string;
+  scope_label?: string; counterpart_label?: string; counterpart_person_ref?: string | null; recipient_label?: string;
   available_balance_cents?: number; shortfall_cents?: number;
   request_deadline?: string | null;
   negative_net_acknowledgement?: NegativeNetTerms | null;
@@ -233,6 +233,10 @@ export const ScopeCommerceService = {
       for (const key of ["activation_at", "expires_at", "fulfillment_deadline"]) if (purchase[key] !== undefined && purchase[key] !== null) timestamp(purchase[key]);
     }
     for (const key of ["scope_label", "counterpart_label", "recipient_label"]) if (result[key] !== undefined && typeof result[key] !== "string") throw new Error("The sharing identities could not be verified.");
+    if (result.counterpart_person_ref !== undefined && result.counterpart_person_ref !== null &&
+        (typeof result.counterpart_person_ref !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.counterpart_person_ref))) {
+      throw new Error("The shared information destination could not be verified.");
+    }
     for (const key of ["available_balance_cents", "shortfall_cents"]) if (result[key] !== undefined) cents(result[key]);
     if (result.request_deadline !== undefined && result.request_deadline !== null) timestamp(result.request_deadline);
     if (result.negative_net_acknowledgement !== undefined && result.negative_net_acknowledgement !== null) {
@@ -325,7 +329,7 @@ export function formatCommerceMoney(value: number): string {
 }
 
 export function formatCommerceMicroUsd(value: number): string {
-  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 6, maximumFractionDigits: 6 }).format(value / 1_000_000);
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value / 1_000_000);
   return commerceCoinAmount(value / (1_000_000 / HUSSH_COINS_PER_USD), usd);
 }
 
@@ -357,7 +361,9 @@ const COMMERCE_STATUS_COPY: Record<string, string> = {
   expired: "Access has ended.",
   approved_awaiting_payment: "Approved. Payment and sharing are still pending.",
 };
-export function scopeCommerceStatusCopy(status: unknown): string {
+export function scopeCommerceStatusCopy(status: unknown, role?: ScopeCommerceRequest["role"]): string {
+  if (role && status === "awaiting_payment") return role === "owner" ? "Waiting for them to confirm the price." : "Review the price to continue.";
+  if (role && status === "reserved") return role === "owner" ? "They’ve confirmed the price. You can now share." : "Waiting for the owner to share.";
   return typeof status === "string" && Object.hasOwn(COMMERCE_STATUS_COPY, status)
     ? COMMERCE_STATUS_COPY[status]! : "Check access and payment status.";
 }
