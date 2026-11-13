@@ -75,7 +75,8 @@ SELECT raw.*, peer.counterpart_user_id AS feed_peer,
       (raw.event_type IN ('location_share_created','location_share_revoked',
           'location_share_shortened','location_share_duration_changed','location_share_expired')
         AND raw.metadata->>'feed_audience' = 'recipient'
-        AND COALESCE(raw.metadata->>'reason','') NOT IN ('recipient_revoke','recipient_shorten')
+        AND (raw.event_type = 'location_share_created' OR
+          COALESCE(raw.metadata->>'reason','') NOT IN ('recipient_revoke','recipient_shorten'))
         AND (raw.event_type <> 'location_share_created' OR
           COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') <> 'sos' OR latest.grant_id = raw.source_row_id)
         AND (COALESCE(raw.metadata->>'share_kind', origin.metadata->>'share_kind','') <> 'sos' OR
