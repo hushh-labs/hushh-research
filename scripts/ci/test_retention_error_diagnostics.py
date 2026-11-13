@@ -17,6 +17,19 @@ DIAGNOSTICS = importlib.import_module("retention_pass_diagnostics")
 
 
 class RetentionErrorDiagnosticTest(unittest.TestCase):
+    def test_worker_preflight_refusal_uses_fixed_codes_without_provider_text(self):
+        for message, reason in (("Drive worker is not ready", "worker_not_ready"),
+                                ("Drive worker serving state is ambiguous", "worker_serving_ambiguous")):
+            with self.subTest(message=message):
+                for suffix in ("", ": private provider payload"):
+                    result = DIAGNOSTICS.safe_failure_diagnostic(
+                        "release_preflight", MAINTENANCE.retention.UnsafeState(message + suffix),
+                        MAINTENANCE.retention)
+                    self.assertEqual("reason=" in result, not suffix)
+                    if not suffix:
+                        self.assertTrue(result.endswith(f"reason={reason}"))
+                    self.assertNotIn("private", result)
+
     def test_known_refusal_exposes_only_an_authored_reason(self):
         message = "GitHub authority lookup exceeded its bounded budget"
         diagnostic = DIAGNOSTICS.safe_failure_diagnostic(
