@@ -991,7 +991,7 @@ def pod_agent_memory_enabled() -> bool:
     ``resolve_pod_memory_service`` checks ``pod_mode()`` before this flag.
 
     Memory is the agent-experience layer, not an information authority: PKM remains the
-    zero-knowledge system of record. See docs/roadmap/personal-agent/architecture.md §7a."""
+    zero-knowledge system of record. See docs/architecture/modules/memory.md."""
     return _bool_from_value(_clean_env("POD_AGENT_MEMORY_ENABLED"), default=False)
 
 

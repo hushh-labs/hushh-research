@@ -15,7 +15,7 @@ resources, so it needs the founder's go. The live deploy -> orchestrate ->
 teardown loop was validated in ``hushh-pda-dev`` on 2026-07-21 (slim-pod surface
 split on 2026-07-22); scope was host lifecycle + access boundary + slim surface,
 NOT per-user routing, the attested tier, or a PKM read through the pod (see
-``docs/roadmap/personal-agent/m4-live-validation.md``).
+``https://github.com/hushh-labs/hushh-research/blob/f7089a394055f1c6408abc6e55968465372cd028/docs/future/personal-agent/M4-LIVE-VALIDATION.md``).
 
 Nothing here touches user data or consent: a spec carries only the opaque
 HusshID/spaceID, the HMAC phone hash, the pod's PUBLIC key, and version pins. No
