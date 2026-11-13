@@ -1,19 +1,23 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { getAppScrollRoot, scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
-import { createFeedPaginationState, feedItemIdentity, reconcileFeedFirstPage, type FeedPaginationState } from "@/lib/feed/feed-pagination";
+import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
+import { createFeedPaginationState, feedItemIdentity, reconcileFeedFirstPage, updateKnownFeedItem, updateLoadedFeedItems, type FeedPaginationState } from "@/lib/feed/feed-pagination";
 
 type HistoryPresentation = { generation: number | null; revision: number; page: FeedListResponse; pagination: FeedPaginationState; scrollTop: number };
 
 /** One bounded, memory-only return position. It never authorizes a Feed action. */
 export function useFeedHistoryPresentation(userId: string | undefined, data: FeedListResponse | null) {
   const generation = getAuthSessionGeneration();
+  const [scope, setScope] = useState({ userId, generation });
+  const scopeCurrent = scope.userId === userId && scope.generation === generation;
   const [revision, setRevision] = useState(() => userId ? currentFeedPresentationRevision(userId) : 0);
   const [saved] = useState(() => {
     if (!userId) return null;
@@ -27,6 +31,19 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
   const restoring = useRef(Boolean(saved));
   const latest = useRef({ page, pagination });
   useLayoutEffect(() => { latest.current = { page, pagination }; }, [page, pagination]);
+
+  useEffect(() => {
+    if (scopeCurrent) return;
+    const empty = createFeedPaginationState();
+    latest.current = { page: null, pagination: empty };
+    setScope({ userId, generation });
+    setRevision(userId ? currentFeedPresentationRevision(userId) : 0);
+    setPage(null);
+    setPagination(empty);
+    setPending(null);
+    scrollTop.current = 0;
+    restoring.current = false;
+  }, [userId, generation, scopeCurrent]);
 
   useEffect(() => {
     if (!data) return;
@@ -48,13 +65,22 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
       restoring.current = false;
       return;
     }
-    const known = new Set(previous?.items.map(feedItemIdentity));
-    if (previous && scrollTop.current > 100 && data.items.some((item) => !known.has(feedItemIdentity(item)))) {
-      setPending(data);
+    const known = new Set([
+      ...(previous?.items ?? []), ...latest.current.pagination.additionalItems,
+    ].map(feedItemIdentity));
+    if (previous && data.items.length > 0 && scrollTop.current > 100) {
+      const hasVisibleArrival = data.items.some(item =>
+        !isFeedItemHidden(item, isLocalCrmBuildEnabled()) && !known.has(feedItemIdentity(item)),
+      );
+      setPending(hasVisibleArrival ? data : null);
       // Existing statuses may settle immediately; newly prepended history waits
       // for the reader. Live emergency/actionable lanes have their own owner.
       const updates = new Map(data.items.map((item) => [feedItemIdentity(item), item]));
-      setPage({ ...previous, items: previous.items.map((item) => updates.get(feedItemIdentity(item)) ?? item) });
+      setPage({
+        ...previous, unread_count: data.unread_count,
+        items: previous.items.map((item) => updateKnownFeedItem(item, updates.get(feedItemIdentity(item)))),
+      });
+      setPagination(current => updateLoadedFeedItems(current, data.items));
       return;
     }
     setPage(data);
@@ -102,12 +128,19 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
   }, [saved, page]);
 
   const showNew = () => {
-    if (!pending) return;
+    if (!pending || !scopeCurrent || getAuthSessionGeneration() !== generation) return;
     setPage(pending);
     setPagination((current) => reconcileFeedFirstPage(current, pending));
     setPending(null);
     scrollAppToTop();
     scrollTop.current = 0;
   };
-  return { page, pagination, setPagination, hasNew: pending !== null, showNew };
+  // Keep raw rows/cursors in the pagination owner. Only presented rows may
+  // contribute a read watermark or a New activity affordance during rollout.
+  const visiblePage = useMemo(() => scopeCurrent && page ? {
+    ...page,
+    items: page.items.filter(item => !isFeedItemHidden(item, isLocalCrmBuildEnabled())),
+  } : null, [page, scopeCurrent]);
+  return { page: visiblePage, pagination: scopeCurrent ? pagination : createFeedPaginationState(),
+    setPagination, hasNew: scopeCurrent && pending !== null, showNew };
 }

@@ -4,6 +4,8 @@ import type {
   OneLocationGrant,
   OneLocationState,
 } from "@/lib/one-location/types";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -13,7 +15,7 @@ import {
 
 const inFlightByUser = new Map<
   string,
-  { revision: number; request: Promise<OneLocationState> }
+  { revision: number; authGeneration: number | null; vaultEpoch: number; request: Promise<OneLocationState> }
 >();
 const revisionByUser = new Map<string, number>();
 const presentationByUser = new Map<string, OneLocationState>();
@@ -31,6 +33,10 @@ function revisionFor(userId: string): number {
  * workspace refreshes its authorization-sensitive state in the background.
  */
 export const OneLocationStateResource = {
+  currentRevision(userId: string): number {
+    return revisionFor(userId);
+  },
+
   key(userId: string): string {
     return CACHE_KEYS.ONE_LOCATION_STATE(userId);
   },
@@ -184,12 +190,14 @@ export const OneLocationStateResource = {
     loader: () => Promise<OneLocationState>,
   ): Promise<OneLocationState> {
     const revision = revisionFor(userId);
+    const authGeneration = getAuthSessionGeneration();
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const existing = inFlightByUser.get(userId);
-    if (existing?.revision === revision) return existing.request;
+    if (existing?.revision === revision && existing.authGeneration === authGeneration && existing.vaultEpoch === vaultEpoch) return existing.request;
 
     const request = loader()
       .then((state) => {
-        if (revisionFor(userId) === revision) this.write(userId, state);
+        if (revisionFor(userId) === revision && getAuthSessionGeneration() === authGeneration && isVaultSessionEpochCurrent(vaultEpoch)) this.write(userId, state);
         return state;
       })
       .finally(() => {
@@ -197,7 +205,7 @@ export const OneLocationStateResource = {
           inFlightByUser.delete(userId);
         }
       });
-    inFlightByUser.set(userId, { revision, request });
+    inFlightByUser.set(userId, { revision, authGeneration, vaultEpoch, request });
     return request;
   },
 
