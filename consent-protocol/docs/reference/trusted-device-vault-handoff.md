@@ -2,9 +2,9 @@
 
 ## Visual Context
 
-Visual owner: [Hussh IAM Reference](../../../docs/reference/iam/README.md).
+Visual owner: [Hussh IAM Reference](../../../docs/architecture/identity/README.md).
 Canonical cross-cutting contract:
-[Hermes Trusted-Device Vault Enrollment](../../../docs/reference/iam/hermes-trusted-device-vault-enrollment.md).
+[Hermes Trusted-Device Vault Enrollment](../../../docs/architecture/identity/hermes-trusted-device-vault-enrollment.md).
 This page documents the narrower backend implementation.
 
 ## Boundary

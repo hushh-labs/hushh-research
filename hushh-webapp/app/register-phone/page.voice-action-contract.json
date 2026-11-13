@@ -3,8 +3,8 @@
   "surface_id": "phone_mandate",
   "surface_title": "Phone Verification",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/quality/one-onboarding-architecture.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md",
+    "docs/development/quality/one-onboarding-architecture.md"
   ],
   "defaults": {
     "reachability": {

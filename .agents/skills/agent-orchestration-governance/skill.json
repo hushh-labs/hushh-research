@@ -10,8 +10,8 @@
     ".agents/skills/agent-orchestration-governance",
     ".agents/workflows/agent-orchestration-governance",
     "AGENTS.md",
-    "docs/reference/operations/README.md",
-    "docs/reference/operations/coding-agent-mcp.md",
+    "docs/operations/README.md",
+    "docs/operations/coding-agent-mcp.md",
     ".agents/routing",
     ".agents/instructions.md",
     ".agents/README.md"
@@ -31,7 +31,7 @@
     ".agents/skills/agent-orchestration-governance/references/delegation-contract.md",
     ".agents/skills/codex-skill-authoring/references/skill-contract.md",
     ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
-    "docs/reference/operations/coding-agent-mcp.md",
+    "docs/operations/coding-agent-mcp.md",
     ".agents/skills/agent-orchestration-governance/references/anti-rationalization.md"
   ],
   "required_commands": [

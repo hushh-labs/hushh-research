@@ -18,7 +18,7 @@ description: Use when working on hussh Research RIA, CRD scraping, or financial 
 
 Owned repo surfaces:
 
-1. `docs/reference/architecture/crd-scraping-api.md`
+1. `docs/architecture/crd-scraping-api.md`
 2. `consent-protocol/api/routes/crd_scraper.py`
 3. `consent-protocol/hushh_mcp/services/crd_scrape_proxy_service.py`
 4. `consent-protocol/tests/test_crd_scraper_routes.py`
@@ -43,8 +43,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/architecture/crd-scraping-api.md`
-2. `docs/reference/architecture/api-contracts.md`
+1. `docs/architecture/crd-scraping-api.md`
+2. `docs/development/contracts/api-contracts.md`
 3. `consent-protocol/api/routes/crd_scraper.py`
 4. `consent-protocol/hushh_mcp/services/crd_scrape_proxy_service.py`
 

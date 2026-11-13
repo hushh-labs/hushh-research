@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-REVIEW = Path(__file__).parents[2] / "docs/reference/one/wallet-card-atlas.manifest.json"
+REVIEW = Path(__file__).parents[2] / "docs/architecture/one/wallet-card-atlas.manifest.json"
 
 
 def rectangle(value: list[float], width: int, height: int) -> tuple[int, int, int, int]:

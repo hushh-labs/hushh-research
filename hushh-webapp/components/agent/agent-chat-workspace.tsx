@@ -882,7 +882,7 @@ type PendingConsentRequestDirectivePayload = {
  * machine with its own model and its own memory; One answers in the cloud.
  * Merging their turns would leave a transcript that cannot say where any given
  * answer came from, which is the one thing this surface must always be able to
- * say (`docs/reference/ai/puppy-one-on-device.md`). So this switches which
+ * say (`docs/architecture/ai/puppy-one-on-device.md`). So this switches which
  * transcript is on screen and nothing else: no message, no conversation and no
  * history row ever crosses between them.
  */

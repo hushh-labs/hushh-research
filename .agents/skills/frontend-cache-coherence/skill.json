@@ -10,8 +10,8 @@
     "hushh-webapp/lib/cache/cache-sync-service.ts",
     "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
     "hushh-webapp/cache-coherence-screen-manifest.generated.json",
-    "docs/reference/architecture/cache-coherence.md",
-    "docs/reference/quality/app-surface-design-system.md"
+    "docs/development/contracts/cache-coherence.md",
+    "docs/development/quality/app-surface-design-system.md"
   ],
   "non_owned_paths": [
     "frontend",
@@ -25,8 +25,8 @@
     "pre-pr-readiness"
   ],
   "required_reads": [
-    "docs/reference/architecture/cache-coherence.md",
-    "docs/reference/quality/app-surface-design-system.md",
+    "docs/development/contracts/cache-coherence.md",
+    "docs/development/quality/app-surface-design-system.md",
     "hushh-webapp/cache-coherence-screen-manifest.generated.json",
     "hushh-webapp/scripts/testing/verify-signed-in-routes.mjs",
     "hushh-webapp/lib/cache/use-stale-resource.ts"

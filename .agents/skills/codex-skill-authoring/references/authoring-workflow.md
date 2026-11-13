@@ -41,8 +41,8 @@ Create a new skill only when all of these are true:
 
 When a repo-local skill becomes a supported entrypoint, update:
 
-1. `docs/reference/operations/README.md`
-2. `docs/reference/operations/coding-agent-mcp.md`
-3. `docs/reference/quality/design-system.md` or `docs/reference/quality/frontend-ui-architecture-map.md` if the skill belongs to the frontend family
+1. `docs/operations/README.md`
+2. `docs/operations/coding-agent-mcp.md`
+3. `docs/development/quality/design-system.md` or `docs/development/quality/frontend-ui-architecture-map.md` if the skill belongs to the frontend family
 4. the matching workflow pack under `.agents/workflows/` when the work is a recurring task shape
 5. canonical discovery: read root `AGENTS.md` and the skill under `.agents/skills/`; run the orchestration validator, which rejects vendor directories and duplicate host fleets; do not generate per-host adapters

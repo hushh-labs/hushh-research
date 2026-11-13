@@ -69,8 +69,8 @@ mode so a day is only compared with a day asked the same question.
 
 The runner, contracts and tests are in the Hermes fork
 (`hermes_cli/hussh_one_routing/exam/jobs.py`, `hermes_cli/puppy_cmd.py`),
-and the jobs themselves are versioned there under `scripts/hussh-one-cron/`
+and the jobs themselves are versioned there under the device repository’s cron scripts
 with a manifest and a sync that the daily updater runs whenever the fork
 fast-forwards. The narrative of the first three judged passes (3 of 8, then
 0 of 2, then 3 of 3 production grade in one day) is in that repository's
-`docs/hussh-one/features/on-device-model-onboarding.md`.
+the device repository’s on-device onboarding guide.

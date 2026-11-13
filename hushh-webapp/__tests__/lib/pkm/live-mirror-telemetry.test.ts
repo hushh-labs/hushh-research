@@ -23,7 +23,7 @@ import {
 } from "@/lib/pkm/live-mirror-telemetry";
 
 const EVENT_MATRIX = path.resolve(
-  __dirname, "../../../../docs/reference/operations/observability-event-matrix.md",
+  __dirname, "../../../../docs/operations/observability/observability-event-matrix.md",
 );
 const STORED = { stored: true };
 const DECLARED_KEYS = ["kind", "lag_bucket", "outcome", "pending_bucket", "retry_bucket"];

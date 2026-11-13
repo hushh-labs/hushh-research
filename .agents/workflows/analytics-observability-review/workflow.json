@@ -6,18 +6,18 @@
   "default_spoke": null,
   "task_type": "analytics-observability-review",
   "affected_surfaces": [
-    "docs/reference/operations",
-    "docs/reference/quality",
+    "docs/operations",
+    "docs/development/quality",
     "hushh-webapp/lib/observability",
     "hushh-webapp/__tests__/services",
     "consent-protocol/scripts/observability",
     ".agents/skills/analytics-observability-governance"
   ],
   "required_reads": [
-    "docs/reference/operations/observability-architecture-map.md",
-    "docs/reference/operations/observability-google-first.md",
-    "docs/reference/operations/observability-event-matrix.md",
-    "docs/reference/quality/analytics-verification-contract.md",
+    "docs/operations/observability/observability-architecture-map.md",
+    "docs/operations/observability/observability-google-first.md",
+    "docs/operations/observability/observability-event-matrix.md",
+    "docs/development/quality/analytics-verification-contract.md",
     ".agents/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md",
     ".agents/skills/analytics-observability-governance/references/event-taxonomy-and-validation.md",
     "consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql"

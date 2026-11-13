@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONSENT_ROOT = REPO_ROOT / "consent-protocol"
 sys.path.insert(0, str(CONSENT_ROOT))
 
-DOC_PATH = REPO_ROOT / "docs/reference/one/one-agent-hierarchy.md"
+DOC_PATH = REPO_ROOT / "docs/architecture/one/one-agent-hierarchy.md"
 DISPATCH_INIT_PATH = CONSENT_ROOT / "hushh_mcp/adk_bridge/__init__.py"
 MANIFEST_ROOT = CONSENT_ROOT / "hushh_mcp/agents"
 CAPABILITIES_PATH = REPO_ROOT / "hushh-webapp/lib/onboarding/one-capabilities.ts"

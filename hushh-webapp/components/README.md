@@ -21,7 +21,7 @@
    `debounce={CHART_RESIZE_DEBOUNCE_MS}` to every raw `ResponsiveContainer`.
    `npm run verify:render-performance` fails
    a violation, and the allowlist beside it only shrinks. The reasoning and the
-   measuring tools are in `docs/reference/mobile/render-performance-charter.md`;
+   measuring tools are in `docs/development/mobile/render-performance-charter.md`;
    a change to the shell scroll engines, sheets, streaming or the chrome masks
    ships with before/after probe numbers (`?perf=1`).
 
@@ -89,8 +89,8 @@ npm run lint
 ```
 
 ## References
-1. `docs/reference/quality/design-system.md`
-2. `docs/reference/quality/frontend-ui-architecture-map.md`
-3. `docs/reference/quality/frontend-pattern-catalog.md`
-4. `docs/reference/architecture/cache-coherence.md`
-5. `docs/reference/mobile/render-performance-charter.md`
+1. `docs/development/quality/design-system.md`
+2. `docs/development/quality/frontend-ui-architecture-map.md`
+3. `docs/development/quality/frontend-pattern-catalog.md`
+4. `docs/development/contracts/cache-coherence.md`
+5. `docs/development/mobile/render-performance-charter.md`

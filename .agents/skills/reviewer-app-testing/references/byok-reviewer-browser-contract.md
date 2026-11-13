@@ -40,7 +40,7 @@ An unlocked browser context is a security state, not merely a signed-in cookie j
 
 ## Reusable harness
 
-`scripts/reviewer-session-harness.mjs` owns identity resolution, encrypted-state/key-commitment observation, memory-only owner-token capture, same-session client navigation, and fresh-context construction. Browser application code owns passphrase-wrapper decryption and vault-key integrity proof.
+`.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs` owns identity resolution, encrypted-state/key-commitment observation, memory-only owner-token capture, same-session client navigation, and fresh-context construction. Browser application code owns passphrase-wrapper decryption and vault-key integrity proof.
 
 Run the read-only baseline:
 
@@ -92,7 +92,7 @@ than changing Firebase or vault persistence.
 
 ### PWM streaming and reviewed-save acceptance
 
-`scripts/verify-reviewer-pwm.mjs` composes this harness for an explicitly
+`.agents/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs` composes this harness for an explicitly
 authorized UAT research-and-save run. It requires the intended verified email,
 matching reviewer UID, bounded mutations, live incremental progress before a
 terminal result, original Azure citations and a supported owner-linked finding.

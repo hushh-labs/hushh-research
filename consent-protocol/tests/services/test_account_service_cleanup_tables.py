@@ -808,7 +808,7 @@ async def test_full_delete_does_not_report_rollback_or_notification_failure_as_r
 def test_live_erasure_catalog_is_documented_and_has_explicit_predicates():
     service = AccountService()
     contract = json.loads(
-        (REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json").read_text(
+        (REPO_ROOT / "docs/architecture/runtime-db-data-plane-contract.json").read_text(
             encoding="utf-8"
         )
     )

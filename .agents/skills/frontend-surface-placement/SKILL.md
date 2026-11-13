@@ -45,8 +45,8 @@ Non-owned surfaces:
 
 1. `hushh-webapp/lib/morphy-ux/README.md`
 2. `hushh-webapp/components/app-ui/README.md`
-3. `docs/reference/quality/design-system.md`
-4. `docs/reference/quality/frontend-ui-architecture-map.md`
+3. `docs/development/quality/design-system.md`
+4. `docs/development/quality/frontend-ui-architecture-map.md`
 
 ## Workflow
 

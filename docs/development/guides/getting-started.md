@@ -1,0 +1,239 @@
+# Getting Started
+
+This is the only supported first-run path for contributors.
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down setup view; this page is the narrower detail beneath it.
+
+## What You Are Booting
+
+Hussh is a monorepo for a consent-and-scope platform:
+
+- `hushh-webapp/`: Next.js + Capacitor client
+- `consent-protocol/`: FastAPI backend, consent protocol, PKM, and agents
+
+The product guarantees you should keep in mind while developing:
+
+- **BYOK**
+- **zero-knowledge**
+- **consent + scoped access**
+- **web / iOS / Android contract parity**
+
+## Prerequisites
+
+Required:
+
+- `git`
+- Node.js 24 recommended; the frontend requires at least 22.12.
+- `npm >= 10`
+- `python3 >= 3.13`
+- `jq`
+- `uv`
+
+Optional, depending on the work:
+
+- `gcloud` for profile hydration, live parity, and deploy work
+- Xcode / Android Studio for native work
+- `cloud-sql-proxy` only for the `local` backend path
+
+### Windows Git Troubleshooting
+
+If PowerShell reports `git` as an unknown command, install Git for Windows and reopen PowerShell so `PATH` refreshes. Keep the installer option that makes Git available from the command line, then verify:
+
+```powershell
+git --version
+```
+
+If `git status` reports `fatal: not a git repository`, you are in a folder without a `.git` directory. Clone the repo or move into the real checkout before running Git commands:
+
+```powershell
+git clone https://github.com/hushh-labs/hushh-research.git hushh-research
+cd hushh-research
+git status
+```
+
+External contributors usually cannot push directly to `hushh-labs/hushh-research`. Push a signed-off branch to your fork and open a pull request:
+
+```powershell
+git checkout -b docs-windows-setup
+git add docs\guides\getting-started.md
+git commit -s -m "Docs: clarify Windows Git setup"
+git remote add fork https://github.com/<your-user>/hushh-research.git
+git push -u fork docs-windows-setup
+```
+
+## First Run
+
+```bash
+git clone https://github.com/hushh-labs/hushh-research.git
+cd hushh-research
+./bin/hushh bootstrap
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
+```
+
+`./bin/hushh bootstrap` is the only supported onboarding entrypoint. It:
+
+- installs frontend and backend dependencies
+- hydrates the selected runtime profile when cloud access is available
+- activates the selected profile into `hushh-webapp/.env.local` and `consent-protocol/.env`
+- runs the environment doctor
+
+Seeded files:
+
+- `consent-protocol/.env`
+- generated frontend profile files beside the tracked examples in `hushh-webapp/`
+- active frontend runtime in `hushh-webapp/.env.local`
+
+`./bin/hushh bootstrap` and `./bin/hushh web` now both default to `local`.
+
+For agent-driven local work, bootstrap prefers refreshable `gcloud` credentials
+and then refreshable Application Default Credentials (ADC). This avoids treating
+an expired interactive CLI session as permission to use stale local values. It
+does not override Google Workspace session policy: reauthenticate ADC with
+`gcloud auth application-default login` when it expires. Do not use local
+service-account key files; hosted deployment uses GitHub OIDC/WIF separately.
+
+That local-first path is the recommended maintainer and contributor baseline:
+
+- local frontend
+- local backend
+- fewer hidden differences from the actual development contract
+
+Use `./bin/hushh web --mode uat` when you want the fastest frontend-only path:
+
+- local frontend
+- deployed UAT backend
+- no local backend boot required
+
+If you are not doing backend work, stop there. Do not start the local backend or Cloud SQL proxy just to work on the app locally.
+
+If you want a reproducible containerized setup, open the repo through `.devcontainer/devcontainer.json`.
+
+## Choose Your Lane
+
+- App contributor:
+  `./bin/hushh terminal backend --mode local --reload` then `./bin/hushh web`
+- Backend contributor in the monorepo:
+  `./bin/hushh terminal backend --mode local --reload`
+- Standalone backend contributor:
+  `cd consent-protocol && uv sync --frozen --group dev && ./bin/consent-protocol dev`
+- Operator or release maintainer:
+  continue into `docs/operations/`
+
+## Canonical Commands
+
+```bash
+./bin/hushh bootstrap
+./bin/hushh doctor --mode local
+./bin/hushh doctor --mode uat
+./bin/hushh doctor --mode prod
+
+./bin/hushh web
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh terminal web --mode local
+./bin/hushh web --mode uat
+./bin/hushh web --mode prod
+./bin/hushh terminal web --mode uat
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
+```
+
+Public docs should not teach legacy root task surfaces or ad hoc env assembly as the normal first-run path.
+
+Contributor contract:
+
+- first-party repo code is Apache-2.0
+- PR commits require `Signed-off-by` (`git commit -s`)
+- `uv` is the canonical Python install path for `consent-protocol`
+
+## Runtime Profiles
+
+Supported modes:
+
+- `local`: local frontend + local backend using UAT-backed resources
+- `uat`: local frontend against deployed UAT backend
+- `prod`: local frontend against deployed production backend
+
+See [environment-model.md](../../operations/environments.md) for the exact rules.
+
+## Doctor Output
+
+`./bin/hushh doctor --mode <mode>` now separates three states:
+
+- `source contract`: the seeded files and profile values are coherent
+- `active profile`: the currently active frontend runtime actually matches the mode you asked for
+- `app ready now`: the selected mode can be run immediately without another profile switch
+
+Typical outcomes:
+
+- `ready`: seeded files are valid and the active profile already matches
+- `activation_required`: seeded files are valid, but you still need `./bin/hushh env use --mode <mode>`
+- `blocked`: the selected mode is missing required files, targets, or secrets
+
+## If You Need the Local Backend
+
+The default contributor path does not require it.
+
+When you do need the full local runtime, use three separate terminals (one
+component each — the Cloud SQL proxy, the backend, and the frontend):
+
+```bash
+# terminal 1
+./bin/hushh proxy --mode local
+# terminal 2
+./bin/hushh backend --mode local --reload
+# terminal 3
+./bin/hushh web --mode local
+```
+
+That three-terminal flow is the canonical local runtime; there is no combined
+`stack` command. The `./bin/hushh terminal proxy|backend|web` wrappers open
+visible OS terminal windows for the same commands if you prefer separate windows
+over in-session terminals.
+
+### Optional Container Backend Support
+
+Use the Docker-backed helper only when you intentionally want local backend
+support services in containers:
+
+```bash
+./bin/hushh compose init
+./bin/hushh compose up dev
+```
+
+The `dev` compose profile starts the backend, Redis, and Mailhog. It does not
+replace `./bin/hushh web`, and it does not switch the repo to a Docker-first
+workflow. The local Postgres profile is standalone and opt-in:
+
+```bash
+./bin/hushh compose up db
+```
+
+The backend continues to follow `consent-protocol/.env` unless an operator
+explicitly changes those values.
+
+The local backend path is the only place that uses:
+
+- `CLOUDSQL_INSTANCE_CONNECTION_NAME=hushh-pda-uat:us-central1:hushh-uat-pg`
+- `CLOUDSQL_PROXY_PORT=6543`
+
+Those keys live only in `consent-protocol/.env`. They are not frontend keys and they are not needed for `uat` or `prod` frontend simulation.
+
+## What Not To Learn On Day One
+
+You do **not** need to understand these to start contributing:
+
+- subtree synchronization for `consent-protocol`
+- release promotion mechanics
+- one-time migration or rollout runbooks
+- manual Firebase/signing artifact fetching
+
+Those exist, but they live in maintainer and operator docs, not the normal contributor path.
+
+## Next Reads
+
+- [environment-model.md](../../operations/environments.md)
+- [../reference/architecture/architecture.md](../../architecture/system.md)
+- [../../contributing.md](../../../contributing.md)

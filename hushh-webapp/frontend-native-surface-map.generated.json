@@ -7,8 +7,8 @@
     "physical_pages": "app/**/page.tsx",
     "native_inventory": "native-route-inventory.json",
     "api_routes": "app/api/**/route.ts",
-    "route_docs": "../docs/reference/architecture/route-contracts.md",
-    "mobile_docs": "../docs/reference/mobile/capacitor-parity-audit.md"
+    "route_docs": "../docs/development/contracts/route-contracts.md",
+    "mobile_docs": "../docs/development/mobile/capacitor-parity-audit.md"
   },
   "nextjs_api_routes": [
     {
@@ -11054,5 +11054,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7842788a4abf61d51d79cdd0de63e80d4a9a2b1839ebe04b1998500d00b5fa32"
+  "content_sha256": "5f915a026d597d2c113460dcee81a4426138309be83d286dbe8bdaff599a0498"
 }

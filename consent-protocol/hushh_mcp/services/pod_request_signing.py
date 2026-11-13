@@ -5,7 +5,7 @@ by the instance metadata server. That token only exists on Google Cloud, so a po
 a person's Azure subscription could not prove anything at all. The hub therefore
 verifies one thing for every cloud: a signature made with a key the pod derives from
 its OWN X25519 private key (``pod_self_registration.pod_signing_key``). No Entra token
-verifier is built, ever (``docs/reference/architecture/byoc-azure.md``).
+verifier is built, ever (``docs/architecture/byoc-azure.md``).
 
 WHAT A SIGNATURE BINDS. The canonical JSON (``pod_session_authority.canonical_json``:
 sorted keys, compact separators, UTF-8) of exactly these fields::

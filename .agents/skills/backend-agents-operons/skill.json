@@ -24,9 +24,9 @@
   ],
   "required_reads": [
     "consent-protocol/docs/reference/agent-development.md",
-    "docs/reference/one/one-agent-hierarchy.md",
+    "docs/architecture/one/one-agent-hierarchy.md",
     "consent-protocol/docs/reference/kai-agents.md",
-    "docs/reference/ai/README.md"
+    "docs/architecture/ai/README.md"
   ],
   "required_commands": [
     "cd consent-protocol && uv run pytest tests/agents -q",

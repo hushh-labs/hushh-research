@@ -275,4 +275,4 @@ Package count: 1
 
 ### Package inventory
 
-- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)
+- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](browser_runtime/azure_host/LICENSE.moby); [Upstream notice](browser_runtime/azure_host/NOTICE.moby)

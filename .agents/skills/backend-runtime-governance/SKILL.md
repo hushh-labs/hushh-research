@@ -44,11 +44,11 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/architecture/architecture.md`
-2. `docs/reference/architecture/api-contracts.md`
+1. `docs/architecture/system.md`
+2. `docs/development/contracts/api-contracts.md`
 3. `consent-protocol/docs/README.md`
 4. `.agents/skills/backend-runtime-governance/references/async-runtime-performance.md`
-5. `docs/reference/architecture/schema-migration-discipline.md`
+5. `docs/architecture/schema-migration-discipline.md`
 
 ## Workflow
 

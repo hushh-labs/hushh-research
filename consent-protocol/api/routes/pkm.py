@@ -671,7 +671,7 @@ async def compute_slice_price(
     Display-only (Phase 1): stateless, reads no ciphertext, persists nothing, and
     does not change any consent scope. The owner sets the real price in a later
     phase; this endpoint keeps the number server-authoritative so the browser
-    cannot fabricate it. See docs/future/pkm-slice-marketplace-plan.md.
+    cannot fabricate it. See docs/roadmap/pkm-slice-marketplace-plan.md.
     """
     breakdown = compute_suggested_price(
         SlicePricingInput(

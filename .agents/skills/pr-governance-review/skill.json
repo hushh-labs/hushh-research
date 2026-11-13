@@ -19,8 +19,8 @@
     "pr-governance-review"
   ],
   "required_reads": [
-    "docs/reference/operations/ci.md",
-    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/operations/releases/ci.md",
+    "docs/development/quality/pr-impact-checklist.md",
     ".agents/skills/repo-operations/SKILL.md",
     ".agents/skills/pr-governance-review/references/review-axes.md",
     ".agents/skills/pr-governance-review/references/operator-batch-output-contract.md",

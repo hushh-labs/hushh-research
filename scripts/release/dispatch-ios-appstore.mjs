@@ -207,7 +207,7 @@ async function main() {
   if (opts.submit && !opts.ackBlockers) {
     fail(
       "--submit requires --ack-blockers. Public App Store review submission is IRREVERSIBLE.\n" +
-        "  Clear every publish-safety blocker in docs/guides/mobile/release-ios-appstore.md first,\n" +
+        "  Clear every publish-safety blocker in docs/operations/mobile/release-ios-appstore.md first,\n" +
         "  then re-run with:  --submit --ack-blockers",
     );
   }

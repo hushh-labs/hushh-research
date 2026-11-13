@@ -543,7 +543,7 @@ def personal_agent_backend() -> str:
 
 # Dev-team-sized fleet ceiling. Deliberately small: every signed-in user gets a
 # pod (founder decision), so the ceiling -- not an eligibility allowlist -- is the
-# cost containment. See docs/reference/architecture/private-agent-north-star.md.
+# cost containment. See docs/product/principles/private-agent-requirements.md.
 _PERSONAL_AGENT_MAX_PODS_DEFAULT = 50
 
 
@@ -917,7 +917,7 @@ def pod_hub_identity_auth_enabled() -> bool:
     The same flag gates the cloud-neutral signed path (``pod_request_verifier``),
     whose per-pod Ed25519 key does distinguish pods; it needs dev-only migration 947.
 
-    See ``docs/future/personal-agent/POD-HUB-DATA-PATH.md``.
+    See ``docs/roadmap/personal-agent/pod-hub-data-path.md``.
     """
     return _bool_from_value(_clean_env("POD_HUB_IDENTITY_AUTH_ENABLED"), default=False)
 
@@ -991,7 +991,7 @@ def pod_agent_memory_enabled() -> bool:
     ``resolve_pod_memory_service`` checks ``pod_mode()`` before this flag.
 
     Memory is the agent-experience layer, not an information authority: PKM remains the
-    zero-knowledge system of record. See docs/future/personal-agent/ARCHITECTURE.md §7a."""
+    zero-knowledge system of record. See docs/architecture/modules/memory.md."""
     return _bool_from_value(_clean_env("POD_AGENT_MEMORY_ENABLED"), default=False)
 
 

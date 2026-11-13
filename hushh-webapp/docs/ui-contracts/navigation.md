@@ -42,7 +42,7 @@ Sources: [bottom action resolver](../../lib/navigation/app-bottom-nav.ts),
 [top app bar](../../components/app-ui/top-app-bar.tsx),
 [pane entry](../../lib/navigation/profile-pane.ts),
 [route layout](../../lib/navigation/app-route-layout.contract.json), and
-[voice runtime](../../../docs/reference/one/one-voice-runtime-architecture.md).
+[voice runtime](../../../docs/architecture/one/one-voice-runtime-architecture.md).
 
 The four bottom items keep their order. A specialist does not append Finance
 or RIA to that bar. Auth, route shell, onboarding, and explicit hide flags
@@ -165,7 +165,7 @@ shared route transition. A nested editor registers its own Back cleanup;
 raw browser history is not the application Back contract. Sources:
 [shell controls](../../components/app-ui/shell-action-surface.tsx),
 [Back layers](../../lib/navigation/back-layers.ts), and
-[app-surface design system](../../../docs/reference/quality/app-surface-design-system.md).
+[app-surface design system](../../../docs/development/quality/app-surface-design-system.md).
 
 An acknowledged supported iOS native bottom bar uses standard UIKit tabs
 with the same four destinations. Unsupported wrappers, web and Android

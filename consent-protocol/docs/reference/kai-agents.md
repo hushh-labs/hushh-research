@@ -121,7 +121,7 @@ The analysis endpoint (`GET /api/kai/analyze/stream`) streams real-time debate p
 Kai streaming now uses one strict canonical contract shared with Import/Optimize.
 
 Contract source of truth:
-- `docs/reference/streaming/streaming-contract.md`
+- `docs/development/streaming/streaming-contract.md`
 
 ### Canonical Envelope
 

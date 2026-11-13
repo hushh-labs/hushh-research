@@ -13,11 +13,9 @@
     ".agents/workflows"
   ],
   "required_reads": [
-    "docs/reference/operations/documentation-architecture-map.md",
-    "docs/reference/operations/docs-governance.md",
-    "docs/reference/README.md",
-    "docs/reference/operations/documentation-recursive-knowledge-model.md",
-    "docs/reference/quality/pr-impact-checklist.md"
+    "docs/development/documentation.md",
+    "docs/development/references.md",
+    "docs/development/quality/pr-impact-checklist.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task docs-sync",

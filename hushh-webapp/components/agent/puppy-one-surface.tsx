@@ -102,7 +102,7 @@ function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: s
  * messages and never reach One's conversation history, because a transcript
  * that mixed them would no longer be able to say where any given answer was
  * generated, and where the answer was generated is the entire claim this
- * tier makes. `docs/reference/ai/puppy-one-on-device.md` records that as an
+ * tier makes. `docs/architecture/ai/puppy-one-on-device.md` records that as an
  * invariant; it is held structurally here, by the two agents keeping separate
  * state, rather than by a rule someone has to remember.
  *
