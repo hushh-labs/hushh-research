@@ -27,11 +27,14 @@ const mocks = vi.hoisted(() => ({
   uid: "viewer",
   epoch: 0,
   unlocked: true,
+  vaultKey: "fixture-key",
+  vaultToken: "fixture-token",
   identityOwner: "viewer",
   preferredName: "Love",
   native: false,
   identityReady: true,
   rereading: false,
+  identityError: null as string | null,
   revision: 0,
   refresh: vi.fn(),
   list: vi.fn(),
@@ -59,12 +62,13 @@ vi.mock("@/lib/vault/session-epoch", async (original) => ({
   snapshotVaultSessionEpoch: () => mocks.epoch,
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? "fixture-key" : null, vaultOwnerToken: mocks.unlocked ? "fixture-token" : null }),
+  useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? mocks.vaultKey : null, vaultOwnerToken: mocks.unlocked ? mocks.vaultToken : null }),
 }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   usePkmDomainResource: () => ({
     refresh: mocks.refresh,
     invalidated: mocks.rereading,
+    error: mocks.identityError,
     data: mocks.identityReady ? { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } : null,
   }),
 }));
@@ -190,11 +194,14 @@ describe("One agent profile feed preview", () => {
     mocks.revision = 0;
     mocks.refresh.mockResolvedValue(null);
     mocks.unlocked = true;
+    mocks.vaultKey = "fixture-key";
+    mocks.vaultToken = "fixture-token";
     mocks.identityOwner = "viewer";
     mocks.preferredName = "Love";
     mocks.native = false;
     mocks.identityReady = true;
     mocks.rereading = false;
+    mocks.identityError = null;
     useChatOnboardingSession.getState().reset(null);
     window.localStorage.clear();
     CacheService.getInstance().clear();
@@ -266,6 +273,100 @@ describe("One agent profile feed preview", () => {
     mocks.preferredName = "Roopmann";
     rerender();
     expect(result.current).toBe("Roopmann");
+  });
+
+  it("keeps only a confirmed saved name through a failed refresh until memory confirms a change", () => {
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    expect(result.current).toBe("Love");
+    mocks.identityReady = false;
+    mocks.rereading = true;
+    rerender();
+    expect(result.current).toBe("Love");
+    mocks.rereading = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("Love");
+
+    mocks.identityReady = true;
+    mocks.identityError = null;
+    mocks.preferredName = "Roopmann";
+    rerender();
+    expect(result.current).toBe("Roopmann");
+    mocks.preferredName = "";
+    rerender();
+    expect(result.current).toBe("One");
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("One");
+  });
+
+  it("drops a retained saved name on lock, owner change or a disabled surface", () => {
+    const { result, rerender } = renderHook(({ enabled }) => useOneDisplayName(enabled), { initialProps: { enabled: true } });
+    expect(result.current).toBe("Love");
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender({ enabled: true });
+    expect(result.current).toBe("Love");
+    mocks.unlocked = false;
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+    mocks.unlocked = true;
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+
+    mocks.identityReady = true;
+    mocks.identityError = null;
+    rerender({ enabled: true });
+    expect(result.current).toBe("Love");
+    mocks.uid = "other-viewer";
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+    mocks.uid = "viewer";
+    rerender({ enabled: false });
+    expect(result.current).toBe("One");
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+  });
+
+  it("does not retain a declined onboarding draft after a failed memory refresh", () => {
+    mocks.preferredName = "";
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    act(() => {
+      session().reset("viewer");
+      session().patch({ machine: onboardingAfter(...PICKED) });
+    });
+    expect(result.current).toBe("Kay");
+    act(() => session().patch({ machine: onboardingAfter(...PICKED, "dont_save") }));
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("One");
+  });
+
+  it("retains through token renewal but clears on a different key or settled missing identity", () => {
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    mocks.vaultToken = "renewed-fixture-token";
+    rerender();
+    expect(result.current).toBe("Love");
+    mocks.vaultKey = "different-fixture-key";
+    rerender();
+    expect(result.current).toBe("One");
+
+    mocks.identityReady = true;
+    mocks.identityError = null;
+    rerender();
+    expect(result.current).toBe("Love");
+    mocks.identityReady = false;
+    rerender();
+    expect(result.current).toBe("One");
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("One");
   });
 
   it("never keeps a declined or unsaved pick, and shows one only to its unlocked owner", () => {
