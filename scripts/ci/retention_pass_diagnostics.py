@@ -70,6 +70,8 @@ def safe_failure_diagnostic(stage: object, error: BaseException, retention: Any)
             "source release artifact is not healthy": "release_not_healthy",
             "production deployment job inventory is incomplete": "release_job_inventory_incomplete",
             "UAT deployment job inventory is incomplete": "release_job_inventory_incomplete",
+            "Drive worker is not ready": "worker_not_ready",
+            "Drive worker serving state is ambiguous": "worker_serving_ambiguous",
             "release artifact inventory is incomplete": "release_artifact_inventory_incomplete",
         }
         if reason := reasons.get(str(error)):
