@@ -27,6 +27,7 @@ from hushh_mcp.services.calendar_email_followup_store import (
     FollowupStateError,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
+from tests.feed_fixture_support import add_feed_presentation_relations
 from tests.google_oauth_postgres_support import OWNER, install_calendar_schema
 from tests.google_oauth_test_support import configure_gmail_oauth
 from tests.services.test_external_connector_lifecycle_postgres import (
@@ -88,6 +89,7 @@ def followup_pg(connector_postgres_url, monkeypatch):  # noqa: F811 - imported p
         connection.exec_driver_sql("""CREATE UNIQUE INDEX feed_events_source_idempotency
         ON feed_events(user_id,source_domain,event_type,source_row_id)
         WHERE source_row_id IS NOT NULL""")
+        add_feed_presentation_relations(connection)
         for name in (
             "442_calendar_mail_read_grant.sql",
             "443_calendar_email_followups.sql",

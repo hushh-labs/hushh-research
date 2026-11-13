@@ -50,6 +50,7 @@ export function isFeedIdAtOrBefore(
 }
 
 export function feedItemIdentity(item: FeedItem): string {
+  if (typeof item.metadata.feed_group_key === "string") return `group:${item.metadata.feed_group_key}`;
   if (["location_circle_message", "direct_message_received"].includes(item.event_type)
       && typeof item.metadata.chat_thread_key === "string") return item.metadata.chat_thread_key;
   return item.id;
