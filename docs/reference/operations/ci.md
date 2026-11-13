@@ -1374,6 +1374,12 @@ run and does not launch another.
 A dispatch intent is recorded before a broker request; an uncertain response stops rather
 than automatically dispatching again. `ci-security` stays Main-only.
 
+Repository HTTP reads, team membership reads and queue REST reads retry HTTP
+500/502/503/504 at most twice, after one and two seconds, retaining their request
+timeouts. Denied access, malformed evidence and failed validation do not retry.
+Each retry reads current state; no earlier authority or successful attempt is
+substituted. Dispatch, merge and provider mutations are outside this retry path.
+
 The same protected job reads release-team membership through the first-party
 Members-read App, verifies the actual operator and rerunner, and rechecks access
 before publishing its decision. This adds no PR observer or recurring worker.

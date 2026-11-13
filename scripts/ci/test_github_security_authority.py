@@ -173,6 +173,49 @@ class SecurityAuthorityTest(unittest.TestCase):
             with self.assertRaisesRegex(authority.Refused, r"HTTP 403") as raised:
                 authority.GitHub(REPOSITORY, "synthetic").read(f"repos/{REPOSITORY}")
         self.assertNotIn("private upstream", str(raised.exception))
+        self.assertNotIsInstance(raised.exception, authority.UnavailableRead)
+
+    def test_read_retries_server_failure_but_never_denial_or_invalid_evidence(self):
+        from unittest.mock import MagicMock
+
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"run_attempt": 2}'
+        response.headers = {}
+        path = f"repos/{REPOSITORY}"
+        for status, expected_calls in ((502, 2), (401, 1), (403, 1), (404, 1), (429, 1)):
+            failure = urllib.error.HTTPError("https://api.github.com/private", status,
+                                             "private upstream detail", {}, None)
+            with self.subTest(status=status), patch("urllib.request.build_opener") as opener, \
+                 patch("time.sleep") as sleep:
+                opener.return_value.open.side_effect = [failure, response]
+                if status == 502:
+                    self.assertEqual(authority.GitHub(REPOSITORY, "synthetic").read(path),
+                                     {"run_attempt": 2})
+                    sleep.assert_called_once_with(1)
+                else:
+                    with self.assertRaises(authority.Refused):
+                        authority.GitHub(REPOSITORY, "synthetic").read(path)
+                    sleep.assert_not_called()
+                self.assertEqual(opener.return_value.open.call_count, expected_calls)
+        response.read.return_value = b'not JSON'
+        with patch("urllib.request.build_opener") as opener, patch("time.sleep") as sleep:
+            opener.return_value.open.return_value = response
+            with self.assertRaisesRegex(authority.Refused, "JSON"):
+                authority.GitHub(REPOSITORY, "synthetic").read(path)
+            self.assertEqual(opener.return_value.open.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_read_server_failure_exhaustion_refuses_without_payload(self):
+        failure = urllib.error.HTTPError("https://api.github.com/private", 503,
+                                         "private upstream detail", {}, None)
+        with patch("urllib.request.build_opener") as opener, patch("time.sleep") as sleep:
+            opener.return_value.open.side_effect = failure
+            with self.assertRaisesRegex(authority.Refused, "HTTP 503") as raised:
+                authority.GitHub(REPOSITORY, "synthetic").read(f"repos/{REPOSITORY}")
+            self.assertEqual(opener.return_value.open.call_count, 3)
+            self.assertEqual([call.args for call in sleep.call_args_list], [(1,), (2,)])
+            self.assertNotIn("private", str(raised.exception))
 
     def test_producer_requires_main_and_records_only_bounded_metadata(self):
         expected, _, responses = source_fixture()
@@ -468,16 +511,35 @@ class ExplicitOperationTeamTest(unittest.TestCase):
         path = f"repos/{team.REPOSITORY}/actions/runs/7"
         for status, expected in ((503, team.UnavailableRead), (403, team.Refused)):
             response = subprocess.CompletedProcess([], 1, "private response", f"private body (HTTP {status})")
-            with self.subTest(status=status), patch.object(team.subprocess, "run", return_value=response):
+            with self.subTest(status=status), patch.object(team.subprocess, "run", return_value=response) as read, \
+                 patch("time.sleep") as sleep:
                 with self.assertRaises(expected) as error:
                     team.cli_read(path)
                 self.assertEqual(type(error.exception), expected)
                 self.assertIn(f"HTTP {status}", str(error.exception))
                 self.assertNotIn("private", str(error.exception))
+                self.assertEqual(read.call_count, 3 if status == 503 else 1)
+                self.assertEqual(sleep.call_count, 2 if status == 503 else 0)
         with patch.object(team.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "not JSON", "")):
             with self.assertRaises(team.Refused) as error:
                 team.cli_read(path)
             self.assertNotIsInstance(error.exception, team.UnavailableRead)
+
+    def test_team_membership_read_recovers_server_error_without_reusing_old_members(self):
+        from unittest.mock import MagicMock
+        import github_team_authority as team
+
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'[]'
+        failure = urllib.error.HTTPError("https://api.github.com/private", 502,
+                                         "private upstream detail", {}, None)
+        with patch("urllib.request.build_opener") as opener, patch("time.sleep") as sleep:
+            opener.return_value.open.side_effect = [failure, response]
+            with self.assertRaisesRegex(team.Refused, "identity"):
+                team.read_teams(team.team_reader("synthetic"))
+            self.assertEqual(opener.return_value.open.call_count, 2)
+            sleep.assert_called_once_with(1)
 
 
 class LiveTeamPolicyTest(unittest.TestCase):
