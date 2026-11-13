@@ -644,6 +644,69 @@ async def test_deleted_people_are_excluded_before_connections_pagination(
     assert profile.get_public_profile(active_ref)["displayName"] == "Zebra Person"
 
 
+def test_pending_circle_invite_hides_a_retained_tombstoned_owner(connection, monkeypatch):
+    """Execute the real invite projections while provider cleanup is pending."""
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"))
+    connection.execute(
+        text("SELECT set_config('search_path', current_schema() || ',public', true)")
+    )
+    circle_id, invite_id = str(uuid4()), str(uuid4())
+    connection.execute(
+        text("""
+        CREATE TABLE account_deletion_tombstones(user_id_hash text PRIMARY KEY);
+        CREATE TABLE one_location_circles(id uuid PRIMARY KEY,owner_user_id text,status text,name text,kind text);
+        CREATE TABLE one_location_circle_member_invites(id uuid PRIMARY KEY,circle_id uuid,
+          inviter_user_id text,invitee_user_id text,status text,expires_at timestamptz,
+          created_at timestamptz DEFAULT now(),responded_at timestamptz);
+    """)
+    )
+    for user in (OWNER, "retired"):
+        _person(connection, user, user.title())
+    connection.execute(
+        text(
+            "INSERT INTO one_location_circles VALUES(CAST(:circle AS uuid),'retired','active','Family','family')"
+        ),
+        {"circle": circle_id},
+    )
+    connection.execute(
+        text("""INSERT INTO one_location_circle_member_invites
+        (id,circle_id,inviter_user_id,invitee_user_id,status,expires_at)
+        VALUES(CAST(:invite AS uuid),CAST(:circle AS uuid),'retired',:viewer,'pending',now()+interval '1 hour')"""),
+        {"invite": invite_id, "circle": circle_id, "viewer": OWNER},
+    )
+
+    def execute(sql, params=None):
+        sql = sql.replace("public.account_deletion_tombstones", "account_deletion_tombstones")
+        return SimpleNamespace(
+            data=[dict(row) for row in connection.execute(text(sql), params or {}).mappings()]
+        )
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.one_location_circle_service.active_directory_user_ids",
+        lambda ids, **kwargs: set(ids),
+    )
+    circle = OneLocationCircleService(db=SimpleNamespace(execute_raw=execute))
+    assert len(circle.list_member_invites(user_id=OWNER, expire_stale=False)) == 1
+    assert circle.get_member_invite(user_id=OWNER, invite_id=invite_id)["id"] == invite_id
+    connection.execute(
+        text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),
+        {"hash": account_deletion_user_hash("retired")},
+    )
+    assert circle.list_member_invites(user_id=OWNER, expire_stale=False) == []
+    with pytest.raises(OneLocationCircleError) as missing:
+        circle.get_member_invite(user_id=OWNER, invite_id=invite_id)
+    assert missing.value.status_code == 404
+    assert len(circle.list_member_invites(user_id=OWNER, require_complete=True)) == 1
+    assert (
+        connection.execute(
+            text("SELECT count(*) FROM one_location_circle_member_invites")
+        ).scalar_one()
+        == 1
+    )
+
+
 @pytest.mark.asyncio
 async def test_account_visibility_hints_reach_all_connected_peers_after_commit(
     connection, monkeypatch

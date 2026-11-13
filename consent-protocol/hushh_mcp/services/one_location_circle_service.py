@@ -3675,6 +3675,21 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("remaining_invite_capacity", exc) from exc
 
+    def _live_member_invite_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        roles = ("circle_owner_user_id", "inviter_user_id", "invitee_user_id")
+        ids = sorted({str(row[key]) for row in rows for key in roles if row.get(key)})
+        if not ids:
+            return rows
+        try:
+            active = active_directory_user_ids(ids, use_cache=False)
+            active = exclude_retired_account_ids(
+                sorted(active),
+                lambda sql, params: self._db.execute_raw(sql, params).data or [],
+            )
+        except DirectoryIdentityUnavailableError as exc:
+            raise OneLocationCircleError(exc.code, exc.message, status_code=503) from None
+        return [row for row in rows if all(not row.get(key) or row[key] in active for key in roles)]
+
     def list_member_invites(
         self,
         *,
@@ -3728,6 +3743,7 @@ class OneLocationCircleService:
                       invite.invitee_user_id, invite.status, invite.expires_at,
                       invite.created_at, invite.responded_at,
                       circle.name AS circle_name, circle.kind AS circle_kind,
+                      circle.owner_user_id AS circle_owner_user_id,
                       inviter.display_name AS inviter_display_name,
                       COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
                       COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
@@ -3755,6 +3771,7 @@ class OneLocationCircleService:
                       invite.invitee_user_id, invite.status, invite.expires_at,
                       invite.created_at, invite.responded_at,
                       circle.name AS circle_name, circle.kind AS circle_kind,
+                      circle.owner_user_id AS circle_owner_user_id,
                       inviter.display_name AS inviter_display_name,
                       COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
                       COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
@@ -3785,7 +3802,13 @@ class OneLocationCircleService:
                     """,
                     {"user_id": user_id, "circle_id": cleaned_circle_id},
                 )
-            return [self._member_invite_payload(row) for row in (result.data or [])]
+            rows = result.data or []
+            # Complete participant inventory retains pending-erasure source
+            # rows for cleanup/consent proof. Ordinary UI reads project only
+            # live identities, even before provider cleanup removes the row.
+            if not require_complete:
+                rows = self._live_member_invite_rows(rows)
+            return [self._member_invite_payload(row) for row in rows]
         except OneLocationCircleError:
             raise
         except Exception as exc:
@@ -3806,6 +3829,7 @@ class OneLocationCircleService:
                   invite.invitee_user_id, invite.status, invite.expires_at,
                   invite.created_at, invite.responded_at,
                   circle.name AS circle_name, circle.kind AS circle_kind,
+                  circle.owner_user_id AS circle_owner_user_id,
                   inviter.display_name AS inviter_display_name,
                   COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
                   COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
@@ -3827,7 +3851,7 @@ class OneLocationCircleService:
                 {"invite_id": cleaned_invite_id, "user_id": user_id},
             )
             row = next(iter(result.data or []), None)
-            if not row:
+            if not row or not self._live_member_invite_rows([row]):
                 raise OneLocationCircleError(
                     "LOCATION_CIRCLE_INVITE_NOT_FOUND",
                     "Circle invitation not found.",

@@ -11,6 +11,8 @@ import {
 import type { ComponentProps, ReactNode, TextareaHTMLAttributes } from "react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
+vi.mock("@/lib/perf/use-periodic-task", async (original) => ({ ...await original<typeof import("@/lib/perf/use-periodic-task")>(), usePeriodicTask: vi.fn() }));
 
 const mocks = vi.hoisted(() => ({
   realDialogs: false,
@@ -222,6 +224,7 @@ vi.mock("@/lib/services/answer-request-service", async (original) => ({
 }));
 
 beforeEach(() => {
+  vi.mocked(usePeriodicTask).mockClear();
   mocks.peekPublic.mockReset().mockReturnValue(null);
   CacheService.getInstance().clear();
   mocks.getRelationship.mockReset().mockImplementation(() => new Promise(() => {}));
@@ -240,14 +243,14 @@ import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-gra
 
 describe("PersonProfilePage native profile route", () => {
   beforeEach(() => {
-    mocks.getPublic.mockResolvedValue({
+    mocks.getPublic.mockReset().mockResolvedValue({
       personRef: "actual-public-ref",
       displayName: "Actual Person",
       photoUrl: null,
       verifiedRole: null,
     });
-    mocks.getViewer.mockResolvedValue(null);
-    mocks.getRequestHistory.mockRejectedValue(
+    mocks.getViewer.mockReset().mockResolvedValue(null);
+    mocks.getRequestHistory.mockReset().mockRejectedValue(
       new Error("History service unavailable in legacy fixture"),
     );
     mocks.pathname = "/people/actual-public-ref";
@@ -374,6 +377,68 @@ describe("PersonProfilePage native profile route", () => {
     expect(screen.queryByRole("heading", { name: "Actual Person" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Share profile" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it.each(["viewer", "relationship"])("retires cached identity on %s not-found and fences every older read", async (source) => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    const { PersonProfileNotFoundError } = await import("@/lib/services/person-profile-service");
+    const cached = { personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null };
+    mocks.peekPublic.mockReturnValue(cached);
+    let finishPublic!: (profile: typeof cached) => void;
+    let finishViewer: ((value: unknown) => void) | undefined;
+    mocks.getPublic.mockImplementationOnce(() => new Promise(resolve => { finishPublic = resolve; }));
+    if (source === "viewer") mocks.getViewer.mockRejectedValueOnce(new PersonProfileNotFoundError("This profile is unavailable."));
+    else {
+      mocks.getRelationship.mockRejectedValueOnce(new PersonProfileNotFoundError("This profile is unavailable."));
+      mocks.getViewer.mockImplementationOnce(() => new Promise(resolve => { finishViewer = resolve; }));
+    }
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("This profile is unavailable.");
+    await act(async () => {
+      finishPublic(cached);
+      finishViewer?.(viewerProfile({ contactEmail: "retired@example.test" }));
+    });
+    expect(screen.queryByRole("heading", { name: "Actual Person" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share profile" })).toBeNull();
+    expect(screen.queryByText("retired@example.test")).toBeNull();
+  });
+
+  it("repairs a public visitor's open profile without a targeted relationship event", async () => {
+    const { PersonProfileNotFoundError } = await import("@/lib/services/person-profile-service");
+    mocks.user = null;
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Actual Person" });
+    mocks.getPublic.mockRejectedValueOnce(new PersonProfileNotFoundError("This profile is unavailable."));
+    const repair = vi.mocked(usePeriodicTask).mock.calls.findLast(([id]) => id.startsWith("person-profile-availability:"));
+    expect(repair?.[3]).toEqual({ enabled: true });
+    await act(async () => { await repair?.[2](); });
+    expect(await screen.findByRole("alert")).toHaveTextContent("This profile is unavailable.");
+    expect(mocks.getViewer).not.toHaveBeenCalled();
+  });
+
+  it("retires a deleted profile when the next catalog page returns not-found", async () => {
+    const { PersonProfileNotFoundError } = await import("@/lib/services/person-profile-service");
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    mocks.getViewer.mockResolvedValueOnce(viewerProfile({ scopeCatalog: {
+      page: 1, nextPage: 2, hasMore: true, limit: 100, totalCount: 101,
+      catalogRevision: "a".repeat(64), paginationReset: false, domains: [],
+    } })).mockRejectedValueOnce(new PersonProfileNotFoundError("This profile is unavailable."));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more", exact: true }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This profile is unavailable.");
+    expect(screen.queryByRole("button", { name: "Share profile" })).toBeNull();
+  });
+
+  it("keeps a cached profile retryable after a transient viewer failure", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    mocks.getViewer.mockRejectedValueOnce(new Error("503 temporarily unavailable"))
+      .mockResolvedValueOnce(viewerProfile({ contactEmail: "active@example.test" }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Actual Person" });
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledOnce());
+    expect(screen.queryByText("This profile is unavailable.")).toBeNull();
+    act(() => window.dispatchEvent(new CustomEvent(CONNECTION_GRAPH_CHANGED_EVENT, { detail: { userId: "viewer", changedAt: 1 } })));
+    expect(await screen.findByRole("link", { name: "active@example.test" })).toBeVisible();
   });
 
   it("uses the real iOS pathname person ref when native serves the static export shell", async () => {
