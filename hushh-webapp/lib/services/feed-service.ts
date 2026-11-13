@@ -149,6 +149,8 @@ export type ProfileDiscoveryEventType =
   | "profile_discovery_cancelled";
 
 export type FeedItem = {
+  /** Client-memory reading anchor, never sent to the API or persisted on disk. */
+  presentationCreatedAt?: string;
   id: string;
   source_domain: FeedSourceDomain;
   event_type: FeedEventType | string;

@@ -68,6 +68,7 @@ import {
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
+import { feedItemPresentationTime } from "@/lib/feed/feed-pagination";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
@@ -109,7 +110,7 @@ function groupItemsByDay(
 ): Array<{ label: string; items: FeedItem[] }> {
   const groups: Array<{ label: string; items: FeedItem[] }> = [];
   for (const item of items) {
-    const label = dayLabel(item.created_at);
+    const label = dayLabel(feedItemPresentationTime(item));
     const current = groups[groups.length - 1];
     if (current && current.label === label) current.items.push(item);
     else groups.push({ label, items: [item] });
@@ -764,6 +765,7 @@ function FeedPageSession({
         previous &&
           previous.read === item.read &&
           previous.created_at === item.created_at &&
+          previous.presentationCreatedAt === item.presentationCreatedAt &&
           previous.source_domain === item.source_domain &&
           previous.event_type === item.event_type &&
           previous.actor_label === item.actor_label &&
@@ -996,7 +998,7 @@ function FeedPageSession({
   const dayGroups = useMemo(() => {
     const sorted = [...items].sort(
       (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        new Date(feedItemPresentationTime(b)).getTime() - new Date(feedItemPresentationTime(a)).getTime(),
     );
     return groupItemsByDay(sorted);
   }, [items]);
