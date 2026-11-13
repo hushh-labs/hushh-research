@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import io
+from contextlib import closing
 from unittest.mock import AsyncMock
 
+import pypdfium2
 import pytest
-from pypdf import PdfReader, PdfWriter
 
 from hushh_mcp.kai_import.csv_layout import CsvLayoutUnsupported, parse_csv_number
 from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
@@ -33,10 +34,10 @@ def layout(first=1, last=1, header=0):
 
 
 def pdf_bytes(count=2):
-    with PdfWriter() as writer, io.BytesIO() as output:
-        for _ in range(count):
-            writer.add_blank_page(width=100, height=100)
-        writer.write(output)
+    with pypdfium2.PdfDocument.new() as writer, io.BytesIO() as output:
+        for index in range(count):
+            writer.new_page(100 + index, 100).close()
+        writer.save(output)
         return output.getvalue()
 
 
@@ -158,7 +159,9 @@ async def test_pdf_each_call_has_exactly_one_page_preserves_identical_lots(monke
     assert final["cash_balance"] == 0
     assert [row["_import_source"]["page"] for row in final["detailed_holdings"]] == [1, 2]
     for call in calls:
-        assert len(PdfReader(io.BytesIO(call["document_parts"][0].inline_data.data)).pages) == 1
+        with pypdfium2.PdfDocument(call["document_parts"][0].inline_data.data) as single:
+            assert len(single) == 1
+            assert single.get_page_size(0) == (100 + calls.index(call), 100)
     fallback.assert_not_awaited()
 
 
@@ -212,6 +215,17 @@ async def test_revoked_authority_after_model_never_publishes_unit(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancel_awaits_owned_provider_task_and_never_completes(monkeypatch):
+    from hushh_mcp.kai_import.pdf_pages import PdfPages
+
+    opened = []
+    original_open = PdfPages.open
+
+    async def capture(content):
+        source = await original_open(content)
+        opened.append(source)
+        return source
+
+    monkeypatch.setattr(PdfPages, "open", capture)
     started, settled = asyncio.Event(), asyncio.Event()
 
     async def waiting(**kwargs):
@@ -229,6 +243,8 @@ async def test_cancel_awaits_owned_provider_task_and_never_completes(monkeypatch
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert settled.is_set()
+    assert len(opened) == 1 and opened[0].closed
+    assert opened[0].process.returncode is not None
     fallback.assert_not_awaited()
 
 
@@ -370,3 +386,152 @@ def test_csv_quoted_multiline_records_and_footer_metadata_keep_source_indices():
     assert rows[0]["_import_source"]["row"] == 2
     assert rows[0]["cost_basis"] is None
     assert facts["total_value"] == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_pdf_split_falls_back_without_retaining_a_child(monkeypatch):
+    stream, calls, fallback = extract(monkeypatch, [], content=b"not a PDF")
+    events = [event async for event in stream]
+    assert [event["kind"] for event in events] == ["reset", "complete"]
+    assert calls == []
+    fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pdf_worker_timeout_is_bounded_and_child_is_joined(monkeypatch):
+    from hushh_mcp.kai_import import pdf_pages
+
+    source = await pdf_pages.PdfPages.open(pdf_bytes(1))
+    original_write = source._write
+
+    async def omit_page_command(value):
+        if value == b"close":
+            await original_write(value)
+
+    monkeypatch.setattr(source, "_write", omit_page_command)
+    monkeypatch.setattr(pdf_pages, "_RESPONSE_SECONDS", 0.02)
+    try:
+        with pytest.raises(pdf_pages.PdfPageSplitUnsupported):
+            await source.page_bytes(0)
+    finally:
+        await source.close()
+    assert source.process.returncode is not None
+
+
+@pytest.mark.asyncio
+async def test_pdf_split_preserves_scanned_page_pixels_and_order():
+    from PIL import Image
+
+    from hushh_mcp.kai_import.pdf_pages import PdfPages
+
+    output = io.BytesIO()
+    with Image.new("RGB", (80, 90), "red") as first, Image.new("RGB", (80, 90), "blue") as second:
+        first.save(output, format="PDF", save_all=True, append_images=[second])
+    content = output.getvalue()
+    source = await PdfPages.open(content)
+    try:
+        assert source.count == 2
+        with pypdfium2.PdfDocument(content) as original:
+            for index in range(2):
+                with pypdfium2.PdfDocument(await source.page_bytes(index)) as single:
+                    assert len(single) == 1
+                    with closing(original[index]) as before, closing(single[0]) as after:
+                        with (
+                            closing(before.render()) as before_bitmap,
+                            closing(after.render()) as after_bitmap,
+                        ):
+                            assert (
+                                before_bitmap.to_pil().tobytes() == after_bitmap.to_pil().tobytes()
+                            )
+    finally:
+        await source.close()
+    assert source.process.returncode == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_response_size_is_rejected_before_reading_payload():
+    import struct
+    from types import SimpleNamespace
+
+    from hushh_mcp.kai_import.pdf_pages import PdfPages, PdfPageSplitUnsupported
+
+    source = PdfPages()
+    reader = asyncio.StreamReader()
+    reader.feed_data(struct.pack("!I", 25 * 1024 * 1024 + 1))
+    source.process = SimpleNamespace(stdout=reader)
+    with pytest.raises(PdfPageSplitUnsupported):
+        await source._read(25 * 1024 * 1024)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_opening_pdf_settles_spawn_and_joins_child(monkeypatch):
+    from hushh_mcp.kai_import.pdf_pages import PdfPages
+
+    started, release = asyncio.Event(), asyncio.Event()
+    original_start = PdfPages._start
+    sources = []
+
+    async def blocked_start(source):
+        await original_start(source)
+        sources.append(source)
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(PdfPages, "_start", blocked_start)
+    pending = asyncio.create_task(PdfPages.open(pdf_bytes(1)))
+    await asyncio.wait_for(started.wait(), 2)
+    pending.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    assert sources[0].closed and sources[0].process.returncode is not None
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_page_io_closes_the_owned_worker(monkeypatch):
+    from hushh_mcp.kai_import.pdf_pages import PdfPages
+
+    source = await PdfPages.open(pdf_bytes(1))
+    reading = asyncio.Event()
+    original_write = source._write
+
+    async def omit_page(value):
+        if value == b"close":
+            await original_write(value)
+        else:
+            reading.set()
+
+    monkeypatch.setattr(source, "_write", omit_page)
+
+    async def read_page():
+        try:
+            await source.page_bytes(0)
+        finally:
+            await source.close()
+
+    pending = asyncio.create_task(read_page())
+    await asyncio.wait_for(reading.wait(), 2)
+    pending.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    assert source.closed and source.process.returncode is not None
+
+
+def test_encrypted_document_signal_never_returns_page_count_or_contents(monkeypatch):
+    import struct
+    from types import SimpleNamespace
+
+    from hushh_mcp.kai_import import pdf_pages
+
+    content = pdf_bytes(1)
+    output = io.BytesIO()
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            pdf_pages.sys,
+            "stdin",
+            SimpleNamespace(buffer=io.BytesIO(struct.pack("!I", len(content)) + content)),
+        )
+        patch.setattr(pdf_pages.sys, "stdout", SimpleNamespace(buffer=output))
+        patch.setattr(pypdfium2.raw, "FPDF_GetSecurityHandlerRevision", lambda source: 3)
+        pdf_pages._worker()
+    assert output.getvalue() == struct.pack("!I", 0)

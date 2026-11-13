@@ -25,7 +25,7 @@ FullExtract = Callable[[], Awaitable[tuple[dict[str, Any], str, int]]]
 
 async def _thread_call(function, *args, on_cancel=None):
     # A cancelled to_thread future does not stop its worker. Join before closing
-    # its PDF reader or releasing the source bytes.
+    # releasing source bytes or abandoning its worker.
     task = asyncio.create_task(asyncio.to_thread(function, *args))
     cancellation = None
     while True:
@@ -210,13 +210,13 @@ async def incremental_statement_extract(
                     first_result_ms = int((time.perf_counter() - started) * 1000)
                 yield _unit(index, len(batches), "csv", rows, facts)
         else:
-            source = await _thread_call(PdfPages, content, on_cancel=lambda opened: opened.close())
+            source = await PdfPages.open(content)
             context = ""
             previous_rows: list[dict] = []
             schema = page_extraction_schema(_EXTRACTION_SCHEMA)
             for page in range(1, source.count + 1):
                 await guard()
-                page_content = await _thread_call(source.page_bytes, page - 1)
+                page_content = await source.page_bytes(page - 1)
                 page_prompt = (
                     prompt
                     + "\n"
@@ -305,7 +305,7 @@ async def incremental_statement_extract(
         fallback_reason = str(exc)
     finally:
         if source is not None:
-            await _thread_call(source.close)
+            await source.close()
 
     if fallback_reason is not None:
         await guard()

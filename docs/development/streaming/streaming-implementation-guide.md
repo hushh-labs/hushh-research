@@ -583,7 +583,7 @@ The active import producer uses `hushh_mcp/kai_import/incremental_extract.py`
 through the existing Portfolio Import runtime. CSV uses at most 150 logical
 records / 45,000 source characters per mapping call (LOW, 2,048 output tokens,
 20-second deadline). Python copies numeric/text values from the agent's indexed
-cells. PDF uses `pypdf` in memory to produce one-page PDFs in original order
+cells. PDF uses the existing `pypdfium2` runtime in a dedicated child process to produce one-page PDFs in original order
 (LOW, 16,384 output tokens, 45-second deadline). The 360-second run budget and
 existing 120-second full-document fallback budget remain unchanged. These are
 ceilings, not measured latency promises.
@@ -596,3 +596,11 @@ coverage, reset/replay, consent revocation and cancellation before terminal outp
 Use terminal `timings_ms` and extraction diagnostics to measure first-results and
 completion on authorized live statements; do not claim performance from a fake
 provider response.
+
+
+The PDF child receives only bounded in-memory frames. Its environment excludes
+service credentials; no statement bytes enter command arguments, files or logs.
+Each response has a ten-second deadline and a 25 MiB bound. Cancellation closes
+and joins the owned child, escalating termination only for that child. This
+keeps PDFium calls separate from concurrent Drive parsing without a new package
+or a change to dependency manifests, workflow authority or permission policy.
