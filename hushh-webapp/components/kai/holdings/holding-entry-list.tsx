@@ -4,6 +4,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { formatCurrency } from "@/lib/kai/market-value-format";
 import type { HoldingMobileCardViewModel } from "./holding-mobile-card";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function HoldingEntryList({ entries, editable, onEdit, onToggleDelete, onAdd, compact = false }: {
   entries: HoldingMobileCardViewModel[];
   editable: boolean;
@@ -12,6 +13,7 @@ export function HoldingEntryList({ entries, editable, onEdit, onToggleDelete, on
   onAdd?: () => void;
   compact?: boolean;
 }) {
+  useMarketCurrency();
   return <section aria-label="Your entries" className="px-5 pb-5">
     <div className="flex min-h-11 items-center justify-between gap-3">
       <h3 className="text-sm font-medium">Your entries <span className="text-muted-foreground">({entries.length})</span></h3>

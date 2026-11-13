@@ -44,6 +44,8 @@ import {
   getRoundCollapseStateForRound,
 } from "./debate-stream-state";
 
+import { formatCurrency as formatHeaderPrice } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // ============================================================================
 // Types
 // ============================================================================
@@ -596,15 +598,6 @@ function getCachedHeaderQuote(userId: string, ticker: string): HeaderMarketQuote
   return best;
 }
 
-function formatHeaderPrice(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export function DebateStreamView({
   ticker,
   userId,
@@ -620,6 +613,7 @@ export function DebateStreamView({
   onDecisionPersisted,
   showHeader = true,
 }: DebateStreamViewProps) {
+  useMarketCurrency();
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
   const normalizedTicker = useMemo(
     () => String(ticker || "").trim().toUpperCase(),

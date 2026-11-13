@@ -22,7 +22,9 @@ import { cn } from "@/lib/utils";
 import { money, signedMoney, signedPercent, tone } from "./performance-strip";
 import styles from "./portfolio-performance.module.css";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function ConcentrationCard({ data, label }: { data: readonly ConcentrationDatum[]; label: string }) {
+  useMarketCurrency();
   if (!data.length) return null;
   const summary = concentrationSummary(data);
   const widest = Math.max(...data.map((row) => row.weightPct), 0.01);
@@ -59,6 +61,7 @@ export function ConcentrationCard({ data, label }: { data: readonly Concentratio
 }
 
 export function WinnersLosersCard({ bands }: { bands: readonly GainLossBandDatum[] }) {
+  useMarketCurrency();
   const summary = winnersLosers(bands);
   if (summary.total === 0) return null;
   return (
@@ -103,6 +106,7 @@ function MoverRow({ position, onOpen, className }: { position: DashboardPosition
 
 /** One biggest gain and one biggest loss. Tapping opens the top three of each; each row opens that holding. */
 export function BiggestMoversCard({ positions, onOpenHolding }: { positions: readonly DashboardPosition[]; onOpenHolding: (id: string) => void }) {
+  useMarketCurrency();
   const [open, setOpen] = useState(false);
   const { gains, losses } = rankMovers(positions, 3);
   if (!gains.length && !losses.length) return null;
@@ -133,6 +137,7 @@ export function BiggestMoversCard({ positions, onOpenHolding }: { positions: rea
 
 /** Statement income and fees. Only what the statement reports is shown. */
 export function IncomeFeesCard({ metrics }: { metrics: DashboardSummaryMetrics }) {
+  useMarketCurrency();
   const tiles: Array<{ label: string; value: number; signed: boolean }> = [];
   const add = (label: string, value: number | null, signed = true) => { if (typeof value === "number" && Number.isFinite(value)) tiles.push({ label, value, signed }); };
   add("Income", metrics.totalIncomePeriod);

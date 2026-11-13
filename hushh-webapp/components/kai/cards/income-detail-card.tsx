@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -53,15 +55,6 @@ interface IncomeDetailCardProps {
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 // =============================================================================
 // INCOME ROW
@@ -108,6 +101,7 @@ export function IncomeDetailCard({
   ytdMetrics,
   className 
 }: IncomeDetailCardProps) {
+  useMarketCurrency();
   // Calculate total income from various sources
   const totalIncome = incomeSummary?.total || 
     ((incomeSummary?.dividends || 0) + (incomeSummary?.interest || 0));

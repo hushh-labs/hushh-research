@@ -38,6 +38,8 @@ import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -96,15 +98,6 @@ function hasValidFinancialShape(value: unknown): value is PortfolioData {
 // HELPER FUNCTIONS
 // =============================================================================
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function _formatPercent(value: number): string {
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
@@ -135,6 +128,7 @@ const SpinningLoader = (props: any) => (
 // =============================================================================
 
 export function ManagePortfolioView() {
+  useMarketCurrency();
   const router = useRouter();
   const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();

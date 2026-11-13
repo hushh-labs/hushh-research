@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/kai/market-value-format";
 import { cn } from "@/lib/utils";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 const usable = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
 const timestamp = (value: string | null | undefined) =>
@@ -19,6 +20,7 @@ export function StockQuoteHeader({ row, loadQuote, currency = "USD" }: {
   loadQuote?: StockQuoteLoader;
   currency?: "USD" | "INR";
 }) {
+  useMarketCurrency();
   const symbol = row.quote_symbol || row.symbol;
   const [quote, setQuote] = useState<PublicStockQuote | null>(null);
   const [loading, setLoading] = useState(Boolean(loadQuote && row.quote_status !== "unsupported"));

@@ -39,7 +39,6 @@ import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
 import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 
-
 import {
   Accordion,
 } from "@/components/ui/accordion";
@@ -83,9 +82,8 @@ import { ImportProgressStatus } from "./import-progress-view";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 
-
-
-
+import { formatCurrency as formatDisplayCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -232,15 +230,8 @@ type ReviewHoldingRow = Holding & {
 // HELPER FUNCTIONS
 // =============================================================================
 
-function formatCurrency(value: number | undefined | null, currency = "USD"): string {
-  if (value === undefined || value === null) return "$0.00";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: /^[A-Z]{3}$/i.test(currency) ? currency : "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+const formatCurrency = (value: number | undefined | null, currency = "USD") =>
+  formatDisplayCurrency(value ?? 0, currency);
 
 function _formatPercent(value: number | undefined | null): string {
   if (value === undefined || value === null) return "0.00%";
@@ -707,6 +698,7 @@ export function PortfolioReviewView({
   importFileName,
   preserveScroll = false,
 }: PortfolioReviewViewProps) {
+  useMarketCurrency();
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const { user } = useAuth();
   const {

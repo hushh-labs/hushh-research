@@ -22,6 +22,7 @@ from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.market_data import india_market
+from hushh_mcp.market_data.fx_rate import fetch_usd_inr_rate
 from hushh_mcp.market_data.india_market import assemble_india_payload, load_india_home
 from hushh_mcp.market_data.movers import (
     MIN_MOVERS,
@@ -3140,6 +3141,41 @@ async def get_market_company_facts(
             return symbol, {"symbol": symbol, "unavailable": True}
 
     return {"facts": dict(await asyncio.gather(*(load(symbol) for symbol in requested)))}
+
+
+USD_INR_FRESH_TTL_SECONDS = 6 * 60 * 60
+# Long on purpose: a rate-limited provider keeps serving the last good rate for two weeks
+# rather than dropping the India display mode back to dollars.
+USD_INR_STALE_TTL_SECONDS = 14 * 24 * 60 * 60
+
+
+async def _get_usd_inr_rate() -> dict[str, Any]:
+    value, stale, age_seconds, *_ = await _get_or_refresh_public_module(
+        key="fx:usd_inr:v1",
+        fresh_ttl_seconds=USD_INR_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=USD_INR_STALE_TTL_SECONDS,
+        fetcher=fetch_usd_inr_rate,
+        warm_source="fx_usd_inr",
+    )
+    return {**value, "stale": stale, "cache_age_seconds": age_seconds}
+
+
+@router.get("/market/fx/usd-inr/{user_id}")
+async def get_market_usd_inr_rate(
+    user_id: _UserId,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Rupees per dollar for the India display mode, with the day it was quoted.
+
+    Public market data, never derived from a person's vault. With no cached rate and the
+    provider down it answers 503, so the client keeps showing dollars instead of a guess.
+    """
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        return await _get_usd_inr_rate()
+    except Exception as exc:
+        logger.warning("[Kai Market] USD/INR rate unavailable: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Exchange rate unavailable.") from exc
 
 
 INDIA_HOME_FRESH_TTL_SECONDS = 300

@@ -10,6 +10,8 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { CHART_ANIMATION_ACTIVE, CHART_TOOLTIP_TRIGGER, CHART_RESIZE_DEBOUNCE_MS } from "@/components/ui/chart";
 
+import { formatCurrencyWhole as formatCurrency, formatCurrencyShort as formatCompact } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -41,12 +43,6 @@ interface ProjectionsCardProps {
 // HELPERS
 // =============================================================================
 
-const formatCurrency = (val: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val);
-
-const formatCompact = (val: number) =>
-  val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : val >= 1000 ? `$${(val / 1000).toFixed(0)}K` : `$${val.toFixed(0)}`;
-
 // =============================================================================
 // COMPONENTS
 // =============================================================================
@@ -76,6 +72,7 @@ function MRDSection({ mrd }: { mrd: MRDEstimate }) {
 }
 
 export function ProjectionsCard({ projections, className, isLoading }: ProjectionsCardProps) {
+  useMarketCurrency();
   const { estimated_cash_flow: cashFlow, mrd_estimate: mrd } = projections || {};
 
   const stats = useMemo(() => {

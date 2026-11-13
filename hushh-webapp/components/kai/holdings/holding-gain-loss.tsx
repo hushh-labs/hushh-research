@@ -2,11 +2,13 @@ import { formatCurrency } from "@/lib/kai/market-value-format";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "./holding-mobile-card";
 
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function HoldingGainLoss({ holding, className, showPercentage = false }: {
   holding: HoldingMobileCardViewModel;
   className?: string;
   showPercentage?: boolean;
 }) {
+  useMarketCurrency();
   const { gainLossValue, gainLossPct, costBasis, currency, isCash, pendingDelete } = holding;
   const gain = gainLossValue ?? gainLossPct;
   const tone = pendingDelete || gain === null || gain === 0 ? "text-muted-foreground"
