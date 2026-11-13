@@ -630,4 +630,4 @@ background durable history, provider availability or native admission. In
 particular, Live memory History covers observed open/unlocked changes only,
 and Today covers in-app actions on this device while open and unlocked.
 Run `./bin/hushh docs verify`; UI edits follow the
-[contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+[contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md).

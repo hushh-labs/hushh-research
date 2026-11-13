@@ -15,7 +15,7 @@ resources, so it needs the founder's go. The live deploy -> orchestrate ->
 teardown loop was validated in ``hushh-pda-dev`` on 2026-07-21 (slim-pod surface
 split on 2026-07-22); scope was host lifecycle + access boundary + slim surface,
 NOT per-user routing, the attested tier, or a PKM read through the pod (see
-``docs/future/personal-agent/M4-LIVE-VALIDATION.md``).
+``docs/roadmap/personal-agent/m4-live-validation.md``).
 
 Nothing here touches user data or consent: a spec carries only the opaque
 HusshID/spaceID, the HMAC phone hash, the pod's PUBLIC key, and version pins. No
@@ -77,7 +77,7 @@ def _label_value(raw: Any, default: str = "") -> str:
     email, phone number, or raw user id must never become a label value. The
     opaque ``billing_space_id`` is the non-PII per-agent identifier; per-developer
     cost attribution is done by joining the Cloud Billing export against the
-    registry server-side (docs/reference/architecture/private-agent-north-star.md), not by labeling the
+    registry server-side (docs/product/principles/private-agent-requirements.md), not by labeling the
     resource. NOTE it is deliberately NOT the spaceID handle the owner chooses;
     a user-facing name must never land in a billing-readable label.
     """
@@ -534,7 +534,7 @@ class GcpBackend:
             "metadata": {
                 "name": name,
                 "namespace": self._project or "",
-                # Cost attribution (docs/reference/architecture/private-agent-north-star.md). Non-PII only:
+                # Cost attribution (docs/product/principles/private-agent-requirements.md). Non-PII only:
                 # the opaque billing-space id identifies the pod, the lane and purpose
                 # identify the spend. No email, phone, or user id ever appears here.
                 "labels": {

@@ -46,8 +46,8 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/operations/ci.md`
-2. `docs/reference/operations/env-and-secrets.md`
+1. `docs/operations/releases/ci.md`
+2. `docs/operations/configuration/env-and-secrets.md`
 3. `.agents/skills/repo-operations/SKILL.md`
 4. `.agents/skills/quality-contracts/SKILL.md`
 

@@ -38,9 +38,11 @@ const SPECULATIVE_PATTERNS = [
 ];
 
 const OPERATIONAL_DOC_TARGETS = [
-  "docs/reference",
-  "docs/guides",
-  "docs/project_context_map.md",
+  "docs/architecture",
+  "docs/development",
+  "docs/operations",
+  "docs/product",
+  "docs/development/repository-map.md",
   "consent-protocol/docs/reference",
   "hushh-webapp/docs",
 ];
@@ -91,7 +93,7 @@ const REQUIRED_CANONICAL_ROUTES = {
 
 const REQUIRED_OPERATIONAL_MARKERS = [
   {
-    file: "docs/reference/architecture/api-contracts.md",
+    file: "docs/development/contracts/api-contracts.md",
     patterns: [
       "/api/kai/market/insights/{user_id}",
       "layout_version",
@@ -103,7 +105,7 @@ const REQUIRED_OPERATIONAL_MARKERS = [
     ],
   },
   {
-    file: "docs/reference/streaming/streaming-contract.md",
+    file: "docs/development/streaming/streaming-contract.md",
     patterns: [
       "\"event\": \"decision\"",
       "short_recommendation",
@@ -130,25 +132,25 @@ const REMOVED_FILE_REFERENCES = [
 ];
 
 const STALE_DOC_REFERENCE_PATTERNS = [
-  "docs/reference/ci.md",
-  "docs/reference/route_contracts.md",
-  "docs/reference/architecture.md",
-  "docs/reference/consent_protocol.md",
-  "docs/reference/database_service_layer.md",
-  "docs/reference/developer_api.md",
-  "docs/guides/mobile_development.md",
+  "docs/architecture/ci.md",
+  "docs/architecture/route_contracts.md",
+  "docs/architecture.md",
+  "docs/architecture/consent_protocol.md",
+  "docs/architecture/database_service_layer.md",
+  "docs/architecture/developer_api.md",
+  "docs/development/guides/mobile_development.md",
   "docs/technical/",
   "docs/business/",
 ];
 
 const REQUIRED_DOMAIN_INDEXES = [
-  "docs/guides/README.md",
-  "docs/reference/architecture/README.md",
-  "docs/reference/quality/README.md",
-  "docs/reference/kai/README.md",
-  "docs/reference/mobile/README.md",
-  "docs/reference/operations/README.md",
-  "docs/reference/streaming/README.md",
+  "docs/development/guides/README.md",
+  "docs/architecture/README.md",
+  "docs/development/quality/README.md",
+  "docs/architecture/finance/README.md",
+  "docs/development/mobile/README.md",
+  "docs/operations/README.md",
+  "docs/development/streaming/README.md",
 ];
 
 const REQUIRED_SOURCE_TREE_INDEXES = [
@@ -160,21 +162,11 @@ const REQUIRED_SOURCE_TREE_INDEXES = [
 ];
 
 const REQUIRED_ROOT_DOC_LINKS = [
-  "./guides/README.md",
-  "./reference/architecture/README.md",
-  "./reference/ai/README.md",
-  "./reference/iam/README.md",
-  "./reference/kai/README.md",
-  "./reference/mobile/README.md",
-  "./reference/operations/README.md",
-  "./reference/quality/README.md",
-  "./reference/streaming/README.md",
-  "./vision/README.md",
-  "../hushh-webapp/components/app-ui/README.md",
-  "../hushh-webapp/components/consent/README.md",
-  "../hushh-webapp/components/kai/README.md",
-  "../hushh-webapp/components/ria/README.md",
-  "../hushh-webapp/lib/services/README.md",
+  "product/README.md",
+  "architecture/README.md",
+  "development/README.md",
+  "operations/README.md",
+  "roadmap/README.md",
 ];
 
 const VISUAL_DOC_TARGETS = [
@@ -190,15 +182,15 @@ const PUBLIC_DOC_CONTRACT_TARGETS = [
   "getting_started.md",
   "contributing.md",
   "docs/README.md",
-  "docs/guides/README.md",
-  "docs/guides/mobile.md",
-  "docs/guides/new-feature.md",
-  "docs/guides/getting-started.md",
-  "docs/guides/environment-model.md",
-  "docs/vision/README.md",
-  "docs/reference/architecture/architecture.md",
-  "docs/reference/operations/cli.md",
-  "docs/reference/operations/branch-governance.md",
+  "docs/development/guides/README.md",
+  "docs/development/guides/mobile.md",
+  "docs/development/guides/new-feature.md",
+  "docs/development/guides/getting-started.md",
+  "docs/operations/environments.md",
+  "docs/product/principles/README.md",
+  "docs/architecture/system.md",
+  "docs/operations/configuration/cli.md",
+  "docs/operations/releases/branch-governance.md",
 ];
 
 const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
@@ -220,7 +212,7 @@ const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
 
 const REQUIRED_DENSITY_MARKERS = [
   {
-    file: "docs/reference/quality/app-surface-design-system.md",
+    file: "docs/development/quality/app-surface-design-system.md",
     patterns: [
       "default to `compact` density",
       "direct page-number navigation",
@@ -228,7 +220,7 @@ const REQUIRED_DENSITY_MARKERS = [
     ],
   },
   {
-    file: "docs/reference/quality/profile-settings-design-system.md",
+    file: "docs/development/quality/profile-settings-design-system.md",
     patterns: [
       "inherit the app-wide compact density contract by default",
       "shared compact density variables",
@@ -237,22 +229,22 @@ const REQUIRED_DENSITY_MARKERS = [
 ];
 
 const VISUAL_TIER_A_EXTRA = new Set([
-  "docs/project_context_map.md",
-  "docs/reference/operations/documentation-architecture-map.md",
-  "docs/reference/operations/observability-architecture-map.md",
-  "docs/reference/architecture/architecture.md",
-  "docs/reference/architecture/api-contracts.md",
-  "docs/reference/architecture/cache-coherence.md",
-  "docs/reference/architecture/route-contracts.md",
-  "docs/reference/iam/architecture.md",
-  "docs/reference/iam/runtime-surface.md",
-  "docs/reference/iam/consent-scope-catalog.md",
-  "docs/reference/kai/kai-interconnection-map.md",
-  "docs/reference/kai/kai-brokerage-connectivity-architecture.md",
-  "docs/guides/mobile.md",
-  "docs/reference/mobile/capacitor-parity-audit.md",
-  "docs/reference/operations/ci.md",
-  "docs/reference/operations/branch-governance.md",
+  "docs/development/repository-map.md",
+  "docs/development/documentation.md",
+  "docs/operations/observability/observability-architecture-map.md",
+  "docs/architecture/system.md",
+  "docs/development/contracts/api-contracts.md",
+  "docs/development/contracts/cache-coherence.md",
+  "docs/development/contracts/route-contracts.md",
+  "docs/architecture/identity/architecture.md",
+  "docs/architecture/identity/runtime-surface.md",
+  "docs/architecture/identity/consent-scope-catalog.md",
+  "docs/architecture/finance/kai-interconnection-map.md",
+  "docs/architecture/finance/kai-brokerage-connectivity-architecture.md",
+  "docs/development/guides/mobile.md",
+  "docs/development/mobile/capacitor-parity-audit.md",
+  "docs/operations/releases/ci.md",
+  "docs/operations/releases/branch-governance.md",
   "hushh-webapp/README.md",
   "consent-protocol/README.md",
 ]);
@@ -579,7 +571,7 @@ function verifyPublicDocContract() {
     }
   }
 
-  const requiredBootstrapDocs = ["README.md", "docs/guides/getting-started.md", "contributing.md"];
+  const requiredBootstrapDocs = ["README.md", "docs/development/guides/getting-started.md", "contributing.md"];
   for (const file of requiredBootstrapDocs) {
     const content = read(file);
     if (!content.includes("./bin/hushh bootstrap")) {
@@ -664,7 +656,7 @@ function verifyRootDocHubLinks() {
 }
 
 function isVisualTierA(file) {
-  if (VISUAL_TIER_A_EXTRA.has(file)) {
+  if (VISUAL_TIER_A_EXTRA.has(file) || file.startsWith("docs/architecture/modules/")) {
     return true;
   }
 
@@ -685,7 +677,7 @@ function extractVisualSection(src, heading) {
   const top = src.split(/\r?\n/).slice(0, 160).join("\n");
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
-    `^## ${escapedHeading}\\n+([\\s\\S]*?)(?=^##\\s|^#\\s|\\Z)`,
+    `^## ${escapedHeading}\\n+([\\s\\S]*?)(?=^##\\s|^#\\s|(?![\\s\\S]))`,
     "m"
   );
   return top.match(pattern);
@@ -714,8 +706,12 @@ function verifyVisualCoverage() {
     const mapMatch = extractVisualSection(src, "Visual Map");
     const contextMatch = extractVisualSection(src, "Visual Context");
     const tierA = isVisualTierA(file);
+    // Module/system views own diagrams; navigation and leaf references may inherit one.
+    const diagramOwner = (file.startsWith("docs/architecture/modules/") && !file.endsWith("/README.md")) ||
+      ["docs/architecture/system.md", "docs/architecture/README.md"].includes(file);
+    if (!mapMatch && !contextMatch && !diagramOwner) continue;
 
-    if (tierA) {
+    if (diagramOwner) {
       if (!mapMatch) {
         offenders.push(`${file}: Tier A doc must contain ## Visual Map near the top`);
         continue;

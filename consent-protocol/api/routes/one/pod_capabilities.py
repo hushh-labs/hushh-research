@@ -3,7 +3,7 @@
 Reported on ``/pod/info`` so the hub and the app can say, before anyone tries,
 which features this agent has. Nothing here is a new flag: every answer is read
 from deployment topology the hub already renders, or from what the platform sets
-(``docs/reference/architecture/byoc-azure.md``, Azure version 1 capabilities):
+(``docs/architecture/byoc-azure.md``, Azure version 1 capabilities):
 
 * **memory recall** comes from Memory Bank only where one is configured (a Google
   Cloud project); everywhere else it is recall from the sealed commit log;

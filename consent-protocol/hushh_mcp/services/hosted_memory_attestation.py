@@ -7,8 +7,8 @@ to the workload (never an HTTP header) and atomically claim the challenge while
 rechecking the current owner/grant generation and paired source authorization.
 
 Google's documented OIDC issuer, signing keys and claims:
-https://docs.cloud.google.com/confidential-computing/confidential-space/docs/reference/token-validation-endpoint-fields
-https://docs.cloud.google.com/confidential-computing/confidential-space/docs/reference/token-claims
+https://docs.cloud.google.com/confidential-computing/confidential-space/docs/architecture/token-validation-endpoint-fields
+https://docs.cloud.google.com/confidential-computing/confidential-space/docs/architecture/token-claims
 https://docs.cloud.google.com/confidential-computing/confidential-space/docs/connect-external-resources
 """
 

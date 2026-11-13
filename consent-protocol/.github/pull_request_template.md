@@ -32,13 +32,13 @@
 - [ ] Consent is validated at agent entry (`HushhAgent.run()`)
 - [ ] Consent is validated at each tool invocation (`@hushh_tool`)
 - [ ] Agent manifest (`agent.yaml`) is created/updated
-- [ ] Documentation updated in `docs/reference/agent-development.md`
+- [ ] Documentation updated in `docs/architecture/agent-development.md`
 
 ### If adding/modifying operons
 - [ ] Purity classification is correct (PURE vs IMPURE)
 - [ ] IMPURE operons validate consent before user data access
 - [ ] Tests cover the new operon
-- [ ] Operon catalog updated in `docs/reference/agent-development.md`
+- [ ] Operon catalog updated in `docs/architecture/agent-development.md`
 
 ### If adding/modifying API routes
 - [ ] Service layer is used (no direct DB access from routes)
@@ -48,7 +48,7 @@
 ### If modifying database schema
 - [ ] SQL migration file added in `db/migrations/`
 - [ ] `db/release_migration_manifest.json` updated
-- [ ] Relevant docs updated, such as `docs/reference/personal-knowledge-model.md`
+- [ ] Relevant docs updated, such as `docs/architecture/personal-knowledge-model.md`
 
 ## Testing
 

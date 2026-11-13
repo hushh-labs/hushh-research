@@ -42,7 +42,7 @@ _HUSHH_ID_CONTEXT = b"hushh.personal-agent.hushh-id.v1"
 _PHONE_HASH_CONTEXT = b"hushh.personal-agent.phone-hash.v1"
 # NOT the spaceID. The spaceID (`personal_agent_registry.space_id`) is the
 # owner's OWN chosen handle for their space -- a product concept, user-facing and
-# user-set, per the spaceID doctrine (docs/future/personal-agent/ARCHITECTURE.md,
+# user-set, per the spaceID doctrine (docs/roadmap/personal-agent/architecture.md,
 # "one per node/instance") and the founder's instruction that space_id is "the
 # nickname/username the user wants to create". This context derives the SEPARATE
 # opaque identifier that makes cloud spend attributable, which is deliberately

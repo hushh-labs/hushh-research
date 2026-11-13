@@ -18,7 +18,7 @@ description: Use when changing IAM, consent scopes, actor model, verification po
 
 Owned repo surfaces:
 
-1. `docs/reference/iam`
+1. `docs/architecture/identity`
 2. `consent-protocol/api/routes/iam.py`
 3. `consent-protocol/api/routes/consent.py`
 4. `hushh-webapp/lib/consent`
@@ -45,11 +45,11 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/iam/README.md`
-2. `docs/reference/iam/architecture.md`
-3. `docs/reference/iam/consent-scope-catalog.md`
-4. `docs/reference/iam/agent-delegation-boundary.md`
-5. `docs/reference/iam/validation-checklist.md`
+1. `docs/architecture/identity/README.md`
+2. `docs/architecture/identity/architecture.md`
+3. `docs/architecture/identity/consent-scope-catalog.md`
+4. `docs/architecture/identity/agent-delegation-boundary.md`
+5. `docs/architecture/identity/validation-checklist.md`
 6. `.agents/skills/iam-consent-governance/references/anti-rationalization.md`
 
 ## Workflow

@@ -7,8 +7,8 @@
     "delegation_policy": "one_action_gate"
   },
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/one/one-voice-runtime-architecture.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md",
+    "docs/architecture/one/one-voice-runtime-architecture.md"
   ],
   "defaults": {
     "reachability": {
@@ -60,7 +60,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "speaker_persona": "one"
     },
@@ -144,7 +144,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "speaker_persona": "one",
       "command": {
@@ -191,7 +191,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "speaker_persona": "one"
     },
@@ -239,7 +239,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
+        "docs/architecture/one/one-voice-runtime-architecture.md"
       ],
       "speaker_persona": "one"
     },
@@ -326,7 +326,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "docs/reference/operations/private-files-library.md"
+        "docs/operations/hosting/private-files-library.md"
       ],
       "speaker_persona": "one"
     }

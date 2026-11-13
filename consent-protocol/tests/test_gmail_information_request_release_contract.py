@@ -30,7 +30,7 @@ def test_uat_deploy_wires_the_personal_gmail_monitor_identity() -> None:
 
     identity = _workflow_identity()
     # The real IAM create contract, rather than an assertion of one chosen name.
-    # https://cloud.google.com/iam/docs/reference/rest/v1/projects.serviceAccounts/create
+    # https://cloud.google.com/iam/docs/architecture/rest/v1/projects.serviceAccounts/create
     assert re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", identity)
     assert f"SCHEDULER_SERVICE_ACCOUNT_NAME:-{identity}" in SETUP.read_text()
     assert "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true" in workflow

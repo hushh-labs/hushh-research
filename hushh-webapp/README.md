@@ -2,8 +2,8 @@
 
 The experience for One, your private agent: chat, specialists, connections and
 consented information. This package combines Next.js, React and Capacitor.
-Hussh’s [Personal Data Agent identity](../docs/vision/agent-ontology.md#personal-data-agent-founder-identity)
-governs the experience; the [readiness decision](../docs/reference/quality/adk-orchestration-docs-audit.md)
+Hussh’s [Personal Data Agent identity](../docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity)
+governs the experience; the [readiness decision](../docs/operations/acceptance/private-agents.md)
 distinguishes source implementation from installed acceptance.
 
 
@@ -30,8 +30,8 @@ From the repository root:
 ./bin/hushh web --mode local
 ```
 
-Use [Getting started](../docs/guides/getting-started.md) for the backend and database
-proxy. [Environment profiles](../docs/guides/environment-model.md) select local,
+Use [Getting started](../docs/development/guides/getting-started.md) for the backend and database
+proxy. [Environment profiles](../docs/operations/environments.md) select local,
 dev or UAT services. Follow the root [AGENTS.md](../AGENTS.md) before changing code.
 The container and web CI baseline use Node 24; report tooling requires Node 22.12 or newer.
 
@@ -45,7 +45,7 @@ The container and web CI baseline use Node 24; report tooling requires Node 22.1
 | `/one/files` | Files explorer; capabilities follow placement and installed support |
 | `/one/kai` | Finance workspace; query tabs select market, portfolio or analysis |
 
-The [route contracts](../docs/reference/architecture/route-contracts.md) own the
+The [route contracts](../docs/development/contracts/route-contracts.md) own the
 complete inventory, Back hierarchy and compatibility redirects. Do not create a
 second route or action catalog in this README.
 
@@ -55,12 +55,12 @@ second route or action catalog in this README.
   Keys and decrypted information stay within their approved processing boundary.
 - Shared and private-pod availability follows verified placement and capabilities.
   A saved provider selection does not establish a working AI connection.
-- [Morphy UX, app-ui and feature ownership](../docs/reference/quality/design-system.md)
+- [Morphy UX, app-ui and feature ownership](../docs/development/quality/design-system.md)
   define shared layout and controls. Reuse the existing shell before adding chrome.
 
 See the [frontend documentation index](docs/README.md),
 [component guide](components/README.md) and
-[UI contract contributor guide](../docs/reference/architecture/ui-contract-contributor-guide.md).
+[UI contract contributor guide](../docs/development/contracts/ui-contract-contributor-guide.md).
 
 ## Verify the change
 
@@ -72,6 +72,6 @@ npm test -- <existing-test-file>
 ```
 
 Follow the repository [testing policy](../TESTING.md) for the completed-candidate
-core mirror. Hosted [CI](../docs/reference/operations/ci.md) owns the full web and
+core mirror. Hosted [CI](../docs/operations/releases/ci.md) owns the full web and
 browser layout gates. Destructive cold native audits require their explicit
 approval; do not run them as an ordinary web verification step.

@@ -94,7 +94,7 @@ GCP_KEY_PEM_NAME = "WALLET_PASS_KEY_PEM"
 GCP_WWDR_PEM_NAME = "WALLET_PASS_WWDR_PEM"
 GCP_PEM_NAMES = (GCP_CERT_PEM_NAME, GCP_KEY_PEM_NAME, GCP_WWDR_PEM_NAME)
 
-RUNBOOK = "docs/superpowers/plans/2026-08-03-hushh-one-wallet-card.md (section 5)"
+RUNBOOK = "docs/roadmap/implementation/plans/2026-08-03-hushh-one-wallet-card.md (section 5)"
 
 # HTTP statuses where a rejected request means "Apple did not like the request
 # shape", i.e. nothing was created and an alternative encoding may be retried.

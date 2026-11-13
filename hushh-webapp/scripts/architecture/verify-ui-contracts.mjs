@@ -44,8 +44,8 @@ export async function verifyUiContracts(root, started = performance.now(), { bac
   ]);
   console.log(`UI contract validation: ${((performance.now() - started) / 1000).toFixed(2)}s (execution target: 5–10s; install and runner startup excluded).`);
   if (!ok) console.error(backOnly
-    ? 'Review authored Back cases first. Then run npm run build:back-contracts and npm run verify:ui-back-contracts. See docs/reference/architecture/ui-contract-contributor-guide.md.'
-    : 'Review authored Back cases and Search actions first. Then run npm run build:ui-contracts and npm run verify:ui-contracts. See docs/reference/architecture/ui-contract-contributor-guide.md.');
+    ? 'Review authored Back cases first. Then run npm run build:back-contracts and npm run verify:ui-back-contracts. See docs/development/contracts/ui-contract-contributor-guide.md.'
+    : 'Review authored Back cases and Search actions first. Then run npm run build:ui-contracts and npm run verify:ui-contracts. See docs/development/contracts/ui-contract-contributor-guide.md.');
   return ok;
 }
 

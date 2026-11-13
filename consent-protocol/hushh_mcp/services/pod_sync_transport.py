@@ -1,6 +1,6 @@
 """How the hub reaches a pod's standby-sync routes, and what it may see on the way.
 
-Design: ``docs/future/personal-agent/STANDBY-SYNC.md`` (E6, E7, E8). The two-token,
+Design: ``docs/roadmap/personal-agent/standby-sync.md`` (E6, E7, E8). The two-token,
 two-audience call is ``pod_migration_transport``'s, reused rather than restated:
 ``Authorization`` carries a Google ID token for the pod's own address, and
 ``X-Hussh-Hub-Proof`` carries one whose audience binds THIS request's exact body

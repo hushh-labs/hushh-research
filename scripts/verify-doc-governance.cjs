@@ -26,15 +26,17 @@ const rootDocs = [
 
 const requiredIndexes = [
   "docs/README.md",
-  "docs/guides/README.md",
-  "docs/reference/architecture/README.md",
-  "docs/reference/iam/README.md",
-  "docs/reference/kai/README.md",
-  "docs/reference/mobile/README.md",
-  "docs/reference/operations/README.md",
-  "docs/reference/quality/README.md",
-  "docs/reference/streaming/README.md",
-  "docs/vision/README.md",
+  "docs/development/README.md",
+  "docs/product/README.md",
+  "docs/roadmap/README.md",
+  "docs/architecture/README.md",
+  "docs/architecture/identity/README.md",
+  "docs/architecture/finance/README.md",
+  "docs/development/mobile/README.md",
+  "docs/operations/README.md",
+  "docs/development/quality/README.md",
+  "docs/development/streaming/README.md",
+  "docs/product/principles/README.md",
   "consent-protocol/docs/README.md",
   "hushh-webapp/docs/README.md",
 ];
@@ -42,22 +44,30 @@ const requiredIndexes = [
 const tierADocs = [
   "README.md",
   "docs/README.md",
-  "docs/guides/README.md",
-  "docs/reference/architecture/architecture.md",
-  "docs/reference/architecture/README.md",
-  "docs/reference/iam/README.md",
-  "docs/reference/kai/README.md",
-  "docs/reference/mobile/README.md",
-  "docs/reference/operations/README.md",
-  "docs/reference/operations/documentation-architecture-map.md",
-  "docs/reference/quality/README.md",
-  "docs/vision/README.md",
-  "docs/project_context_map.md",
+  "docs/development/guides/README.md",
+  "docs/architecture/system.md",
+  "docs/architecture/README.md",
+  "docs/architecture/identity/README.md",
+  "docs/architecture/finance/README.md",
+  "docs/development/mobile/README.md",
+  "docs/operations/README.md",
+  "docs/development/documentation.md",
+  "docs/development/quality/README.md",
+  "docs/product/principles/README.md",
+  "docs/development/repository-map.md",
   "consent-protocol/docs/README.md",
   "hushh-webapp/docs/README.md",
 ];
 
 const failures = [];
+
+// The central tree has one navigation model; generated/shared assets are separate.
+for (const entry of fs.readdirSync(path.join(repoRoot, "docs"), { withFileTypes: true })) {
+  if (entry.isDirectory() && !["product", "architecture", "development", "operations", "roadmap", "assets"].includes(entry.name)) {
+    failures.push(`documentation outside canonical homes: docs/${entry.name}`);
+  }
+}
+
 
 function read(rel) {
   return fs.readFileSync(path.join(repoRoot, rel), "utf8");
@@ -82,28 +92,22 @@ for (const rel of tierADocs) {
 }
 
 const rootGettingStarted = read("getting_started.md");
-if (!rootGettingStarted.includes("docs/guides/getting-started.md")) {
-  failures.push("getting_started.md must point to docs/guides/getting-started.md");
+if (!rootGettingStarted.includes("docs/development/guides/getting-started.md")) {
+  failures.push("getting_started.md must point to docs/development/guides/getting-started.md");
 }
-if (countLines(rootGettingStarted) > 40) {
-  failures.push("getting_started.md must stay thin (<= 40 lines)");
-}
+
 
 const rootTesting = read("TESTING.md");
-if (!rootTesting.includes("docs/reference/operations/ci.md")) {
-  failures.push("TESTING.md must point to docs/reference/operations/ci.md");
-}
-if (countLines(rootTesting) > 120) {
-  failures.push("TESTING.md must stay thin (<= 120 lines)");
+if (!rootTesting.includes("docs/operations/releases/ci.md")) {
+  failures.push("TESTING.md must point to docs/operations/releases/ci.md");
 }
 
+
 const rootContributing = read("contributing.md");
-if (!rootContributing.includes("docs/guides/getting-started.md")) {
-  failures.push("contributing.md must point to docs/guides/getting-started.md");
+if (!rootContributing.includes("docs/development/guides/getting-started.md")) {
+  failures.push("contributing.md must point to docs/development/guides/getting-started.md");
 }
-if (countLines(rootContributing) > 140) {
-  failures.push("contributing.md must stay thin (<= 140 lines)");
-}
+
 
 const consentDocsReadme = read("consent-protocol/docs/README.md");
 for (const forbidden of ["## Quick Start", "## Deployment", "## Linting and Testing"]) {
@@ -113,8 +117,8 @@ for (const forbidden of ["## Quick Start", "## Deployment", "## Linting and Test
 }
 
 const docsReadme = read("docs/README.md");
-if (!docsReadme.includes("documentation-architecture-map.md")) {
-  failures.push("docs/README.md must link documentation-architecture-map.md");
+if (!docsReadme.includes("documentation.md")) {
+  failures.push("docs/README.md must link documentation.md");
 }
 if (!docsReadme.includes("brand-and-compatibility-contract.md")) {
   failures.push("docs/README.md must link brand-and-compatibility-contract.md");

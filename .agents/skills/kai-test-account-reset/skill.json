@@ -20,7 +20,7 @@
   "required_reads": [
     "consent-protocol/api/routes/account.py",
     "consent-protocol/hushh_mcp/services/account_service.py",
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/architecture/finance/kai-action-gateway-vnext.md"
   ],
   "required_commands": [
     "python3 .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help",

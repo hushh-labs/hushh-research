@@ -62,7 +62,7 @@ fi
 # do serially; isolation ACROSS files is what parallelism tests, and
 # tests/conftest.py gives each worker its own offline database for that.
 #
-# Measured 2026-09-26 on the full manifest (see docs/reference/operations/ci.md):
+# Measured 2026-09-26 on the full manifest (see docs/operations/releases/ci.md):
 # serial vs parallel, same pass count, three clean parallel runs.
 #
 # The *_postgres.py files and the legacy-named Drive sharing, trusted-auto, owner

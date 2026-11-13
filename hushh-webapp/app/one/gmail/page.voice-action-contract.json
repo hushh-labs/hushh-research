@@ -2,7 +2,7 @@
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "gmail",
   "surface_title": "Gmail",
-  "docs_references": ["docs/reference/kai/kai-action-gateway-vnext.md"],
+  "docs_references": ["docs/architecture/finance/kai-action-gateway-vnext.md"],
   "defaults": {
     "reachability": {
       "active_personas": ["investor", "ria"]

@@ -1196,7 +1196,7 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   `WorldModelReport` in `one_adk/world_model_contracts.py`. Evidence existence,
   candidate membership, conflict conditions and topic receipt checks validate
   model output; they do not choose queries or generate replacement interpretations.
-- Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).
+- Scope and exact prompt: [Personal World Model KT](../../../docs/architecture/one/personal-world-model.md).
 - Azure UAT: GPT-5 mini owns planning, candidate assessment, attribution and report
   meaning using that same manifest. Adapter instructions select the execution
   stage and conservative citation-only identity boundary; native JSON schema and

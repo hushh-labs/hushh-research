@@ -156,7 +156,7 @@ RiskSnapshot.load(str(manifest))
     _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", "consent-protocol/tests/test_memory_judge.py", groups=("agent",)),
     _check("architecture-fitness-selftest", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--self-test", diagnostic=True),
-    _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/reference/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
+    _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/development/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
     _check("pr-governance-sections", "python3", "scripts/ci/verify-pr-governance-sections.py", groups=("operations",)),
     _check("governance-plan-selection", "python3", "scripts/ci/test_repo_governance_plan.py", groups=("operations",)),
     _check("protected-pipeline-edits", "python3", "scripts/ci/verify-protected-pipeline-edits.py", groups=("operations",)),

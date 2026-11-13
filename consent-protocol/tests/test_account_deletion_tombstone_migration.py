@@ -192,7 +192,7 @@ def test_schema_and_data_plane_contracts_declare_tombstone():
         )
 
     data_plane = json.loads(
-        (REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json").read_text()
+        (REPO_ROOT / "docs/architecture/runtime-db-data-plane-contract.json").read_text()
     )
     family = next(
         item for item in data_plane["table_families"] if item["id"] == "account_deletion_lifecycle"
@@ -210,7 +210,7 @@ def test_schema_and_data_plane_contracts_declare_tombstone():
     assert "one indexed presence lookup" in family["deletion_behavior"]
     assert "READ COMMITTED writers" in family["deletion_behavior"]
 
-    governance = (REPO_ROOT / "docs/reference/architecture/data-model-governance.md").read_text()
+    governance = (REPO_ROOT / "docs/architecture/data-model-governance.md").read_text()
     assert "install_account_deletion_write_guards()" in governance
     normalized_governance = " ".join(governance.split())
     assert "a non-NULL identity reference cannot be re-parented" in normalized_governance
@@ -295,7 +295,7 @@ def test_identity_set_null_fk_inventory_is_explicitly_reviewed():
     ):
         assert f"DELETE FROM {cleanup_table}" in account_service
 
-    governance = (REPO_ROOT / "docs/reference/architecture/data-model-governance.md").read_text()
+    governance = (REPO_ROOT / "docs/architecture/data-model-governance.md").read_text()
     assert "The reviewed identity `ON DELETE SET NULL` inventory" in governance
     assert "deletion-safe transfer protocol" in governance
 
@@ -382,7 +382,7 @@ def test_external_cleanup_scheduler_is_a_durable_release_contract():
         encoding="utf-8"
     )
     cloudbuild = (REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text(encoding="utf-8")
-    runbook = (REPO_ROOT / "docs/reference/operations/account-deletion-rollout.md").read_text(
+    runbook = (REPO_ROOT / "docs/operations/identity/account-deletion-rollout.md").read_text(
         encoding="utf-8"
     )
 

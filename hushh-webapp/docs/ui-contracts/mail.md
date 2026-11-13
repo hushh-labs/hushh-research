@@ -206,7 +206,7 @@ Sources: [capability registry](../../lib/onboarding/one-capabilities.ts),
 [workspace navigation](../../components/gmail/gmail-workspace-navigation.tsx),
 [mounted workspace](../../components/gmail/gmail-receipts-page.tsx),
 [Email handoff](../../app/one/email/email-agent-page-client.tsx),
-[owner-approved Mail architecture](../../../docs/reference/one/gmail-owner-approved-email.md).
+[owner-approved Mail architecture](../../../docs/architecture/one/gmail-owner-approved-email.md).
 
 ## Entry routes, tab selection and shared chrome
 
@@ -661,7 +661,7 @@ Sources: [request UI and state owner](../../components/gmail/gmail-information-r
 [scoped private draft](../../lib/services/gmail-information-request-draft-service.ts),
 [request backend](../../../consent-protocol/api/routes/one/gmail_information_requests.py),
 [monitor/queue service](../../../consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py),
-[personal request architecture](../../../docs/reference/architecture/personal-gmail-information-requests.md).
+[personal request architecture](../../../docs/architecture/personal-gmail-information-requests.md).
 
 ## One handoff, Mail editor and delivery activity
 
@@ -687,7 +687,7 @@ approve sharing or a reply.
 Sources: [handoff](../../app/one/email/email-agent-page-client.tsx),
 [One workspace, source attachment and handlers](../../components/agent/agent-chat-workspace.tsx),
 [in-memory session](../../lib/agent/one-conversation-session.ts),
-[navigation helper directory](../../lib/navigation/) (`navigateToAgentChat` in
+[navigation helper directory](../../lib/navigation) (`navigateToAgentChat` in
 `agent-navigation.ts`).
 
 ### Shared `EmailDraftCard`: every field and CTA
@@ -1219,7 +1219,7 @@ Sources: [page shell](../../components/app-ui/app-page-shell.tsx),
 ### Font schema: what to use where and actual override boundaries
 
 Use existing [Typography](./typography.md) semantic roles and [design-system
-authority](../../../docs/reference/quality/design-system.md). The optimized
+authority](../../../docs/development/quality/design-system.md). The optimized
 WebKit fixture loaded the shipped **Plus Jakarta Sans** through
 `--font-app-body`/`--font-app-display`; requested 550/650 are effective CSS
 weights, not a claim that separate 550/650 files ship. Emoji/OS/provider text

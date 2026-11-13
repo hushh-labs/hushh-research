@@ -3,7 +3,7 @@
 The gate used to be the environment name alone — safe only because the dev
 deployment reported `uat`. Now that dev reports `dev`, the name by itself would open
 this diagnostic on an internet-reachable service. That is precisely the regression
-`docs/reference/dev-environment-setup.md` predicted when it said the string `dev`
+`docs/architecture/dev-environment-setup.md` predicted when it said the string `dev`
 must not be used as `ENVIRONMENT`; the prediction was right, so the gate moved
 rather than the environment name.
 

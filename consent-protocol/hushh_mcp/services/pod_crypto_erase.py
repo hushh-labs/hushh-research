@@ -3,7 +3,7 @@
 WHY THE POD DOES IT
 -------------------
 In a person's own cloud account Hussh holds no storage or key role (the trust matrix
-in ``docs/reference/architecture/byoc-azure.md``). Only the pod's own identity can
+in ``docs/architecture/byoc-azure.md``). Only the pod's own identity can
 delete its wrapped key and its objects, so the hub asks the pod, behind the
 hub-proof erasure fence (``api/routes/one/pod_migration.py``), and revokes access
 only after the pod confirms. Nothing here authenticates a request; the route does.

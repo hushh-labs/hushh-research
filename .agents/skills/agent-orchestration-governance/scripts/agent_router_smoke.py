@@ -56,7 +56,7 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "prompt": "review migration and UAT schema parity for PKM projection",
         "paths": [
             "consent-protocol/db/migrations/example.sql",
-            "docs/reference/architecture/data-model-governance.md",
+            "docs/architecture/data-model-governance.md",
         ],
         "required_agents": {
             "data_model_architect",
@@ -76,7 +76,7 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
             "tracks opaque Source Library share references"
         ),
         "paths": [
-            "docs/reference/iam/consent-scope-catalog.md",
+            "docs/architecture/identity/consent-scope-catalog.md",
             "consent-protocol/docs/reference/personal-knowledge-model.md",
         ],
         "required_agents": {
@@ -93,8 +93,8 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "phase": "start",
         "prompt": "update founder docs for One Kai Nav ontology and roadmap wording",
         "paths": [
-            "docs/vision/agent-ontology.md",
-            "docs/future/one-nav-runtime-plan.md",
+            "docs/product/principles/agent-ontology.md",
+            "docs/roadmap/one-nav-runtime-plan.md",
         ],
         "required_agents": {"product_docs_architect"},
         "forbidden_agents": {"data_model_architect"},
@@ -121,7 +121,7 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "prompt": "verify One Gmail push notifications and encrypted draft storage caveats",
         "paths": [
             "consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
-            "docs/reference/architecture/one-email-kyc.md",
+            "docs/architecture/one-email-kyc.md",
         ],
         "required_agents": {
             "backend_architect",
@@ -139,7 +139,7 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "prompt": "verify GA4 event taxonomy and BigQuery dashboard contract",
         "paths": [
             "hushh-webapp/lib/observability/events.ts",
-            "docs/reference/operations/observability-event-matrix.md",
+            "docs/operations/observability/observability-event-matrix.md",
         ],
         "required_agents": {"analytics_observability_architect"},
         "forbidden_agents": set(),

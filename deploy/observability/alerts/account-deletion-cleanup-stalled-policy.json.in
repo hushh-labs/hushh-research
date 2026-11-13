@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] One Account Deletion Cleanup Stalled",
   "documentation": {
-    "content": "Account deletion provider cleanup is paused while due work has waited at least ten minutes. Read the enumerated `reason` on `account_deletion.cleanup_stalled`. `release_fence_installed` means a failed release retained the deletion fence: follow \"Recovery when a failed deploy leaves the fence installed\" in docs/reference/operations/account-deletion-rollout.md. Do not remove the fence without the boundary check, and do not adopt another release's fence.",
+    "content": "Account deletion provider cleanup is paused while due work has waited at least ten minutes. Read the enumerated `reason` on `account_deletion.cleanup_stalled`. `release_fence_installed` means a failed release retained the deletion fence: follow \"Recovery when a failed deploy leaves the fence installed\" in docs/operations/identity/account-deletion-rollout.md. Do not remove the fence without the boundary check, and do not adopt another release's fence.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",

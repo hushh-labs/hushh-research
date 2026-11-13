@@ -18,7 +18,7 @@ def _is_dev() -> bool:
     This used to be the environment name alone, which was safe only because the dev
     deployment reported `uat`. Now that dev reports `dev`, the name by itself would
     have opened this diagnostic on an internet-reachable service: exactly the
-    regression `docs/reference/dev-environment-setup.md` warned about when it said
+    regression `docs/architecture/dev-environment-setup.md` warned about when it said
     the string `dev` must not be used as `ENVIRONMENT`.
 
     The deploy lane is the signal that separates the two. It is written by the deploy

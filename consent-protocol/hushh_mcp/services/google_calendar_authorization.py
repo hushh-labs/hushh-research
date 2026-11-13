@@ -19,7 +19,7 @@ Nothing here asks for unrestricted Drive, mailbox modification or drafts.
 Gmail read is a Google restricted scope and send a sensitive one. Whether each
 scope is listed on the Google Cloud consent screen and verified is Console
 state this repository cannot prove; see
-docs/reference/iam/gmail-google-verification-readiness.md.
+docs/architecture/identity/gmail-google-verification-readiness.md.
 """
 
 from __future__ import annotations

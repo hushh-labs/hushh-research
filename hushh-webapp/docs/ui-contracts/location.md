@@ -89,7 +89,7 @@ flowchart TD
 | Workspace | [Mounted tabs, Now, map, nearby and settings](#workspace-now-map-nearby-and-settings) |
 | People and delivery | [People, sharing, requests, Links, SOS and recipient decisions](#people-sharing-requests-links-and-emergency-actions) |
 | Circle deep actions | [Create/join/detail, roster and all nested controls](#named-circle-actions-and-connect-handoff) |
-| Private agent | [Location specialist, chat, voice and action semantics](#private-agent-chat-voice-and-action-contract) |
+| Private agent | [Location specialist, chat, voice and action semantics](#private-agent-and-navigation-handoffs) |
 | Wire contract | [API/authentication, payloads, fields, effects and recovery](#api-authority-and-wire-contract) |
 | Visual redesign | [Font schema, phone/desktop/native geometry and layers](#typography-responsive-geometry-and-layering) |
 | QA and limits | [Completeness ledger and verification evidence](#qa-ledger-and-verification-boundary) |
@@ -113,7 +113,7 @@ flowchart TD
   [route layout](../../lib/navigation/app-route-layout.contract.json),
   [local Location actions](../../app/one/location/page.voice-action-contract.json),
   [shared navigation](./navigation.md) and
-  [contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md)
+  [contributor scaffold](../../../docs/development/contracts/ui-contract-contributor-guide.md)
   owners. This Markdown is a product reference, not a second executable registry.
 - The [Connect contract](./connect.md), [Feed contract](./feed.md),
   [Profile contract](./profile.md) and [typography](./typography.md) retain their

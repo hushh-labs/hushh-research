@@ -1,6 +1,6 @@
 """Drive four-group organizing aid: sorts a person's Drive files onto virtual shelves.
 
-A non-generative aid, declared in ``docs/reference/backend-semantic-boundary.md``.
+A non-generative aid, declared in ``docs/architecture/backend-semantic-boundary.md``.
 It uses no model that writes text. Three signals (the text start, its pinned
 embedding and Drive metadata) are fused into one calibrated confidence; below
 the threshold a file is kept, with its text start and embedding, never dropped.

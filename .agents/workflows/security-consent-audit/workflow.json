@@ -6,8 +6,8 @@
   "default_spoke": "iam-consent-governance",
   "task_type": "security-consent-audit",
   "affected_surfaces": [
-    "docs/reference/iam",
-    "docs/reference/streaming",
+    "docs/architecture/identity",
+    "docs/development/streaming",
     "hushh-webapp/lib/consent",
     "hushh-webapp/lib/vault",
     "hushh-webapp/lib/pkm",
@@ -15,10 +15,10 @@
     "consent-protocol/hushh_mcp"
   ],
   "required_reads": [
-    "docs/project_context_map.md",
-    "docs/reference/iam/README.md",
-    "docs/reference/iam/consent-scope-catalog.md",
-    "docs/reference/iam/validation-checklist.md",
+    "docs/development/repository-map.md",
+    "docs/architecture/identity/README.md",
+    "docs/architecture/identity/consent-scope-catalog.md",
+    "docs/architecture/identity/validation-checklist.md",
     "consent-protocol/docs/reference/consent-protocol.md",
     "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],

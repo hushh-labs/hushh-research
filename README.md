@@ -1,4 +1,4 @@
-<h1 align="center">Hussh Research</h1>
+<h1 align="center">Private Agent One</h1>
 
 <p align="center">
   <strong>The Private Agent Platform</strong><br/>
@@ -21,7 +21,7 @@
 **Hussh is your personal agent for the digital world—trusted by design, consent-first by default, and accountable only to you.**
 
 “An agent should work for the person whose life it touches.” The approved
-[Personal Data Agent identity](docs/vision/agent-ontology.md#personal-data-agent-founder-identity)
+[Personal Data Agent identity](docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity)
 guides product decisions: duty of care, discretion, consent and your information
 as your private capital. Hussh is the platform; One is your private agent.
 
@@ -29,9 +29,10 @@ This monorepo contains the web and native apps, agent runtime, consent protocol,
 and deployment tooling. People can use the Shared runtime or connect a private
 agent in their own Google Cloud or Microsoft Azure environment.
 
-Start with the [Founder/CTO readiness decision](docs/reference/quality/adk-orchestration-docs-audit.md)
-for verified journeys, serving evidence, and release prerequisites. Capability
-availability depends on hosting, consent, provider access, and the installed release.
+One helps you remember, understand and act across your digital life. Connect the
+services you choose, work with your private information, and review requests to
+share it. [Explore the product](docs/product/README.md) and its
+[capability boundaries](docs/product/capabilities.md).
 
 ## Visual Map
 
@@ -56,7 +57,7 @@ flowchart TB
   pod <-->|Private relay| puppy
 ```
 
-See the [architecture index](docs/reference/architecture/README.md) for detailed
+See the [architecture index](docs/architecture/README.md) for detailed
 system, runtime, flow, deployment, and information-boundary views.
 
 ## Product boundaries
@@ -72,18 +73,18 @@ system, runtime, flow, deployment, and information-boundary views.
   GCP and explicitly disabled in Azure’s reviewed configuration; the whole owner
   container is the compromise boundary. A configured pod alone is not acceptance.
 
-The [private-agent north star](docs/reference/architecture/private-agent-north-star.md)
+The [private-agent north star](docs/product/principles/private-agent-requirements.md)
 owns custody, processing consent, recovery, revocation, and erasure requirements.
-The readiness decision records their implementation and live verification separately.
+[Operational acceptance](docs/operations/acceptance/private-agents.md) separates source capabilities from installed verification.
 
 ## Repository
 
 | Home | Responsibility |
 | --- | --- |
-| [hushh-webapp](hushh-webapp/) | Next.js, React, and Capacitor experience for Web, iOS, and Android |
-| [consent-protocol](consent-protocol/) | FastAPI, PKM, consent, ADK agents, and MCP |
-| [packages](packages/) | Shared packages and developer integrations |
-| [docs](docs/) | Current contracts, guides, operations, vision, and explicit future designs |
+| [hushh-webapp](hushh-webapp) | Next.js, React, and Capacitor experience for Web, iOS, and Android |
+| [consent-protocol](consent-protocol) | FastAPI, PKM, consent, ADK agents, and MCP |
+| [packages](packages) | Shared packages and developer integrations |
+| [docs](docs) | Product, architecture, development, operations and roadmap |
 | [.agents](.agents/README.md) | Authored development instructions, skills, workflows, and engineering lanes |
 
 ## Quick start
@@ -103,17 +104,17 @@ For local development, run each component in its own terminal:
 ./bin/hushh web --mode local
 ```
 
-See [Getting started](docs/guides/getting-started.md) for prerequisites and
-[environment profiles](docs/guides/environment-model.md) for backend selection.
+See [Getting started](docs/development/guides/getting-started.md) for prerequisites and
+[environment profiles](docs/operations/environments.md) for backend selection.
 The protocol package also supports its [standalone workflow](consent-protocol/README.md).
 
 ## Read next
 
 | Audience | Start here |
 | --- | --- |
-| Founder / CTO | [Readiness decision](docs/reference/quality/adk-orchestration-docs-audit.md) · [architecture](docs/reference/architecture/README.md) · [vision](docs/vision/README.md) |
-| Contributors | [Contributor guide](contributing.md) · [project map](docs/project_context_map.md) · [testing](TESTING.md) |
-| Operators | [Operations index](docs/reference/operations/README.md) · [CI](docs/reference/operations/ci.md) |
+| Understand One | [Product](docs/product/README.md) · [system architecture](docs/architecture/README.md) · [principles](docs/product/principles/README.md) |
+| Contributors | [Contributor guide](contributing.md) · [project map](docs/development/repository-map.md) · [testing](TESTING.md) |
+| Operators | [Operations index](docs/operations/README.md) · [CI](docs/operations/releases/ci.md) |
 | Coding agents | [AGENTS.md](AGENTS.md) · [development system](.agents/README.md) |
 
 First-party code is Apache-2.0. Sign commits with `git commit -s` and follow the

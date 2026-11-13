@@ -3,7 +3,7 @@
  *
  * Builds a schema.org @graph describing the Hussh platform, the website, and
  * the One private agent application. Aligned to the canonical agent ontology
- * (Hussh -> One -> {Kai, Nav, KYC}); see docs/vision/agent-ontology.md.
+ * (Hussh -> One -> {Kai, Nav, KYC}); see docs/product/principles/agent-ontology.md.
  */
 
 import {

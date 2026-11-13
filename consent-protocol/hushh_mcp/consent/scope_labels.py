@@ -13,7 +13,7 @@ is recognisably mechanical: every word it contains already appears in the
 scope's own domain or path, it ends in "Domain", or it repeats a word. A label
 the PKM agent or the owner wrote ("Go-to weeknight spots") is kept verbatim,
 because a label a person reads at the moment they decide to share is a
-semantic judgement (``docs/reference/backend-semantic-boundary.md``) and host
+semantic judgement (``docs/architecture/backend-semantic-boundary.md``) and host
 code does not get to re-derive it.
 
 Pure: no database, no network, no model.
