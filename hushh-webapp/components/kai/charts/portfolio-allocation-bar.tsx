@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
-import { ChartSurfaceCard } from "@/components/app-ui/surfaces";
+import { AllocationSection } from "./allocation-section";
 import {
   ChartContainer,
   ChartTooltip,
@@ -13,7 +13,17 @@ import {
   CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { allocationColor } from "@/lib/kai/allocation-colors";
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: value >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: value >= 1_000_000 ? 1 : 0,
+  }).format(value);
+}
 
 export interface PortfolioAllocationDatum {
   name: string;
@@ -26,15 +36,7 @@ interface PortfolioAllocationBarProps {
   selectedName?: string | null;
   onSelectionChange?: (name: string | null) => void;
   className?: string;
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: value >= 1_000_000 ? "compact" : "standard",
-    maximumFractionDigits: value >= 1_000_000 ? 1 : 0,
-  }).format(value);
+  embedded?: boolean;
 }
 
 function toChartKey(name: string, index: number): string {
@@ -51,6 +53,7 @@ export function PortfolioAllocationBar({
   selectedName = null,
   onSelectionChange,
   className,
+  embedded,
 }: PortfolioAllocationBarProps) {
   const { segments, total, chartConfig, chartRow } = useMemo(() => {
     const eligible = data.filter(
@@ -91,13 +94,13 @@ export function PortfolioAllocationBar({
   if (!segments.length) return null;
 
   return (
-    <ChartSurfaceCard
-      title="Allocation"
+    <AllocationSection
+      title="Asset mix"
       description="Select a category to focus its holdings."
       className={cn("min-w-0", className)}
-      contentClassName="space-y-4"
+      embedded={embedded}
     >
-      <ChartContainer config={chartConfig} className="h-[72px] w-full min-w-0">
+      <ChartContainer config={chartConfig} className="h-8 w-full min-w-0">
         <BarChart
           data={[chartRow]}
           layout="vertical"
@@ -133,7 +136,7 @@ export function PortfolioAllocationBar({
               stackId="allocation"
               fill={`var(--color-${segment.key})`}
               radius={4}
-              maxBarSize={28}
+              maxBarSize={8}
               cursor="pointer"
               fillOpacity={
                 !selectedName || selectedName === segment.name ? 1 : 0.26
@@ -148,10 +151,7 @@ export function PortfolioAllocationBar({
         </BarChart>
       </ChartContainer>
 
-      <div
-        className="divide-y divide-border"
-        aria-label="Portfolio allocation categories"
-      >
+      <div className={styles.allocationRows} aria-label="Portfolio allocation categories">
         {segments.map((segment) => {
           const selected = selectedName === segment.name;
           return (
@@ -162,27 +162,30 @@ export function PortfolioAllocationBar({
                 onSelectionChange?.(selected ? null : segment.name)
               }
               className={cn(
-                "flex min-h-14 w-full items-center gap-3 rounded-sm py-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                selected
-                  ? "bg-accent-surface text-accent-strong"
-                  : "text-muted-foreground hover:text-foreground",
+                styles.allocationRow,
+                styles.interactiveRow,
+                "relative isolate focus-visible:outline-none",
               )}
+              data-finance-selected={selected || undefined}
               aria-pressed={selected}
             >
               <span
                 aria-hidden="true"
-                className="h-2.5 w-2.5 rounded-full"
+                className={styles.allocationDot}
                 style={{ backgroundColor: allocationColor(segment.name) }}
               />
-              <span className="font-medium text-foreground">
-                {segment.name}
+              <span className={styles.allocationText}>
+                <span className={styles.allocationName}>{segment.name}</span>
               </span>
-              <span className="ml-auto text-right tabular-nums"><span className="block font-medium text-foreground">{formatCurrency(segment.value)}</span><span className="block text-xs text-muted-foreground">{segment.percent.toFixed(1)}%</span></span>
+              <span className={styles.allocationAmount}>
+                <span>{formatCurrency(segment.value)}</span>
+                <span className={styles.allocationMeta}>{segment.percent.toFixed(1)}%</span>
+              </span>
             </button>
           );
         })}
       </div>
-      <p className="text-xs leading-[18px] text-muted-foreground">Percentages use {formatCurrency(totalValue ?? total)} total portfolio value.</p>
-    </ChartSurfaceCard>
+      <p className={styles.allocationMeta}>Percentages use {formatCurrency(totalValue ?? total)} total portfolio value.</p>
+    </AllocationSection>
   );
 }

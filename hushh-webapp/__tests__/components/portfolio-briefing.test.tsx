@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
 import { PortfolioAnalysis, PortfolioBriefing } from "@/components/kai/views/portfolio-briefing";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -8,6 +9,23 @@ import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboa
 afterEach(cleanup);
 
 describe("portfolio briefing", () => {
+  it("retains sectors beyond the eighth and pages all underlying holdings", () => {
+    const holdings = Array.from({ length: 10 }, (_, sector) =>
+      Array.from({ length: sector === 0 ? 9 : 1 }, (_, index) => ({
+        sector: `Sector ${sector}`, symbol: `S${sector}${index}`,
+        name: `Security ${sector}-${index}`, market_value: 100,
+      })),
+    ).flat();
+    render(<SectorAllocationChart holdings={holdings} responsive={false} embedded />);
+    expect(screen.getByRole("button", { name: /Sector 9/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Sector 0/ }));
+    expect(screen.getByText("Security 0-0")).toBeVisible();
+    expect(screen.queryByText("Security 0-8")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Security 0-8")).toBeVisible();
+    expect(screen.getByText("S08")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  });
   it("shows an import entry when no portfolio is available", () => {
     const open = vi.fn();
     render(<PortfolioBriefing onOpen={open} />);

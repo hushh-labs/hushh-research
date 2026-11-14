@@ -26,8 +26,9 @@ import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
-import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
+import { Icon } from "@/lib/morphy-ux/ui";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown } from "@/components/icons";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   findAnalysisHistoryEntryByRouteId,
@@ -199,14 +200,6 @@ export function KaiAnalysisPageContent() {
   const workspaceTabRef = useRef<WorkspaceTab>("summary");
   workspaceTabRef.current = workspaceTab;
   const lastFocusedRouteKeyRef = useRef<string | null>(null);
-  const workspaceTabOptions = useMemo(
-    () => [
-      { value: "debate", label: "Debate" },
-      { value: "summary", label: "Summary" },
-      { value: "detailed", label: "Detailed View" },
-    ],
-    [],
-  );
   const [headerSnapshotState, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
   const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
@@ -220,9 +213,11 @@ export function KaiAnalysisPageContent() {
   const [closingRouteKey, setClosingRouteKey] = useState<string | null>(null);
   const closeNavigationRef = useRef(0);
   const previewStartRef = useRef(0);
+  const launchPendingRef = useRef(false);
 
   useEffect(() => {
     setStartingPreviewDebate(false);
+    launchPendingRef.current = false;
     return () => { previewStartRef.current += 1; };
   }, [pathname, searchParams]);
 
@@ -281,9 +276,8 @@ export function KaiAnalysisPageContent() {
         setFocusedRunId(routeIntent.runId);
       }
       setShowHistoryWhileActive(false);
-      // Focusing a run defaults to its debate view, but never overrides a tab
-      // the URL names outright.
-      setWorkspaceTab(routeIntent.workspaceTab ?? "debate");
+      // Start with the overview; explicit legacy view links still open their section.
+      setWorkspaceTab(routeIntent.workspaceTab ?? "summary");
       if (lastFocusedRouteKeyRef.current !== routeKey) {
         lastFocusedRouteKeyRef.current = routeKey;
         requestAnimationFrame(() => {
@@ -429,28 +423,6 @@ export function KaiAnalysisPageContent() {
   useEffect(() => {
     searchParamsRef.current = new URLSearchParams(searchParams.toString());
   }, [searchParams]);
-  const handleSelectTicker = useCallback(
-    (ticker: string, pickSource = previewPickSource) => {
-      const normalizedTicker = String(ticker || "").trim().toUpperCase();
-      if (!normalizedTicker) return;
-      setResolvedEntry(null);
-      setLiveEntry(null);
-      setFocusedRunId(null);
-      setFocusedRunTask(null);
-      setAnalysisParams(null);
-      setHistoryFallbackEntry(null);
-      setShowHistoryWhileActive(false);
-      setWorkspaceTab("debate");
-      setDebateIdParam(null);
-      router.push(
-        buildKaiAnalysisPreviewRoute({
-          ticker: normalizedTicker,
-          pickSource,
-        })
-      );
-    },
-    [previewPickSource, router, setAnalysisParams, setDebateIdParam]
-  );
 
   const handleViewHistory = useCallback(
     (entry: AnalysisHistoryEntry) => {
@@ -579,10 +551,7 @@ export function KaiAnalysisPageContent() {
       const params = new URLSearchParams(searchParamsRef.current.toString());
       if (params.get("view") === value) return;
       params.set("view", value);
-      // Treat this as the optimistic route authority so Embla's settle event
-      // cannot issue the same Next navigation a second time before
-      // useSearchParams catches up. That duplicate navigation was the visible
-      // flash on every Analysis tab switch.
+      // Keep disclosure state and legacy view URLs on the same route authority.
       searchParamsRef.current = new URLSearchParams(params.toString());
       if (value === "debate") {
         // Debate is its own back-navigable route under Analysis.
@@ -603,12 +572,6 @@ export function KaiAnalysisPageContent() {
       }
     },
     [router],
-  );
-  const handleWorkspaceTabChange = useCallback(
-    (value: string) => {
-      setWorkspaceView(value as WorkspaceTab);
-    },
-    [setWorkspaceView],
   );
 
   const handleLiveDecisionReady = useCallback(
@@ -747,10 +710,10 @@ export function KaiAnalysisPageContent() {
   const analysisVoiceSurfaceMetadata = useMemo(() => {
     const workspaceTabLabel =
       workspaceTab === "debate"
-        ? "Debate"
+        ? "Full analysis"
         : workspaceTab === "summary"
-          ? "Summary"
-          : "Detailed View";
+          ? "Overview"
+          : "Detailed record";
     const surfaceMode = showWorkspace ? "workspace" : "history";
     const actions = [
       // Starting an analysis is reachable from this screen in both states: the
@@ -772,8 +735,8 @@ export function KaiAnalysisPageContent() {
       ...(showWorkspace
         ? [
             { id: "analysis.back_to_history", actionId: "analysis.back_to_history", label: "Back to history", purpose: "Return to saved analysis history." },
-            { id: "analysis.open_debate_tab", actionId: "analysis.open_debate_tab", label: "Open debate tab", purpose: "Show the current debate." },
-            { id: "analysis.open_summary_tab", actionId: "analysis.open_summary_tab", label: "Open summary tab", purpose: "Show the analysis summary." },
+            { id: "analysis.open_debate_tab", actionId: "analysis.open_debate_tab", label: "Expand full analysis", purpose: "Expand the live or saved debate and research." },
+            { id: "analysis.open_summary_tab", actionId: "analysis.open_summary_tab", label: "Show overview", purpose: "Show the analysis result and close expanded details." },
             { id: "analysis.open_detailed_tab", actionId: "analysis.open_detailed_tab", label: "Open detailed analysis", purpose: "Show the detailed review." },
             ...(liveIntentReady ? [{ id: "analysis.cancel_active", actionId: "analysis.cancel_active", label: "Cancel analysis", purpose: "Cancel the active analysis." }] : []),
           ]
@@ -809,13 +772,13 @@ export function KaiAnalysisPageContent() {
           },
         ];
     const controls = [
-      ...(showStockBrowser && selectedStockSymbol && vaultKey ? [{ id: "analysis_stock_details_preview", label: `Analyze ${selectedStockSymbol}`, purpose: "Open the selected stock preview before confirming a debate.", actionId: "analysis.start", role: "button" }] : []),
+      ...(showStockBrowser && selectedStockSymbol && vaultKey ? [{ id: "analysis_stock_details_preview", label: `Analyze ${selectedStockSymbol}`, purpose: "Start analysis for the selected stock.", actionId: "analysis.start", role: "button" }] : []),
       ...(showWorkspace
         ? [
             { id: "analysis_back_to_history", label: "Back to history", purpose: "Return to history.", actionId: "analysis.back_to_history", role: "button" },
-            { id: "analysis_tab_debate", label: "Debate tab", purpose: "Show the debate.", actionId: "analysis.open_debate_tab", role: "tab" },
-            { id: "analysis_tab_summary", label: "Summary tab", purpose: "Show the summary.", actionId: "analysis.open_summary_tab", role: "tab" },
-            { id: "analysis_tab_detailed", label: "Detailed tab", purpose: "Show detailed analysis.", actionId: "analysis.open_detailed_tab", role: "tab" },
+            { id: "analysis_tab_debate", label: "Full debate and research", purpose: "Expand the debate.", actionId: "analysis.open_debate_tab", role: "button" },
+            { id: "analysis_tab_summary", label: "Overview", purpose: "Show the summary.", actionId: "analysis.open_summary_tab", role: "button" },
+            { id: "analysis_tab_detailed", label: "Detailed record and sources", purpose: "Expand detailed analysis.", actionId: "analysis.open_detailed_tab", role: "button" },
             ...(liveIntentReady ? [{ id: "analysis_cancel", label: "Cancel analysis", purpose: "Cancel the active analysis.", actionId: "analysis.cancel_active", role: "button" }] : []),
           ]
         : [
@@ -826,7 +789,7 @@ export function KaiAnalysisPageContent() {
     const visibleModules = showWorkspace
       ? [
           "Ticker header",
-          `${workspaceTabLabel} tab`,
+          workspaceTabLabel,
           ...(workspaceTab === "debate"
             ? ["Debate workspace"]
             : workspaceTab === "summary"
@@ -866,7 +829,7 @@ export function KaiAnalysisPageContent() {
       activeTab: showWorkspace ? workspaceTab : null,
       selectedEntity: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       visibleModules,
-      focusedWidget: showWorkspace ? `${workspaceTabLabel} tab` : showStockBrowser ? "Stocks" : "Analysis history",
+      focusedWidget: showWorkspace ? workspaceTabLabel : showStockBrowser ? "Stocks" : "Analysis history",
       availableActions: actions.map((action) => action.label),
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -925,9 +888,9 @@ export function KaiAnalysisPageContent() {
     workspaceTab,
   ]);
   usePublishVoiceSurfaceMetadata(analysisVoiceSurfaceMetadata);
-  const handleStartDebateFromPreview = useCallback(() => {
-    const currentPreviewTicker = previewTickerRaw;
-    if (!currentPreviewTicker || !userId || showWorkspace || !vaultOwnerToken) return;
+  const handleStartAnalysis = useCallback((ticker: string, pickSource = previewPickSource) => {
+    const currentPreviewTicker = String(ticker || "").trim().toUpperCase();
+    if (!currentPreviewTicker || !userId || showWorkspace || !vaultOwnerToken || launchPendingRef.current) return;
     if (activeRunTask?.runId) {
       showDebateAlreadyRunningToast(toast, {
         description: "Open the active debate before starting a new one.",
@@ -935,6 +898,7 @@ export function KaiAnalysisPageContent() {
       router.replace(buildKaiMarketRoute("analysis", { focus: "active" }));
       return;
     }
+    launchPendingRef.current = true;
     const attempt = ++previewStartRef.current;
     setStartingPreviewDebate(true);
     void getStockContext(currentPreviewTicker, vaultOwnerToken)
@@ -946,19 +910,21 @@ export function KaiAnalysisPageContent() {
         setLiveEntry(null);
         setFocusedRunId(null);
         setFocusedRunTask(null);
+        setHistoryFallbackEntry(null);
         setAnalysisParams({
           ticker: currentPreviewTicker,
           userId,
           riskProfile: context.user_risk_profile || "balanced",
           launchConfirmed: true,
           userContext: context,
-          pickSource: previewPickSource,
+          pickSource,
         });
         setShowHistoryWhileActive(false);
-        setWorkspaceTab("debate");
+        setWorkspaceTab("summary");
         router.replace(
           buildKaiMarketRoute("analysis", {
             focus: "active",
+            view: "summary",
             ticker: currentPreviewTicker,
           }),
         );
@@ -967,11 +933,13 @@ export function KaiAnalysisPageContent() {
         if (previewStartRef.current === attempt) toast.error("Could not start debate.");
       })
       .finally(() => {
-        if (previewStartRef.current === attempt) setStartingPreviewDebate(false);
+        if (previewStartRef.current === attempt) {
+          launchPendingRef.current = false;
+          setStartingPreviewDebate(false);
+        }
       });
   }, [
     previewPickSource,
-    previewTickerRaw,
     activeRunTask?.runId,
     router,
     setAnalysisParams,
@@ -979,6 +947,8 @@ export function KaiAnalysisPageContent() {
     userId,
     vaultOwnerToken,
   ]);
+  const handleStartDebateFromPreview = useCallback(() => handleStartAnalysis(previewTickerRaw), [handleStartAnalysis, previewTickerRaw]);
+  const handleSelectTicker = handleStartAnalysis;
   const handleBrowseRecommendations = useCallback(() => {
     setAnalysisParams(null);
     setHistoryFallbackEntry(null);
@@ -1312,82 +1282,9 @@ export function KaiAnalysisPageContent() {
               </div>
               </SurfaceCardContent>
             </SurfaceCard>
-            <div className="w-full min-w-0 max-w-full">
-              <div className="mx-auto flex justify-center w-full" style={APP_MEASURE_STYLES.reading}>
-                <SegmentedTabs
-                  value={workspaceTab}
-                  onValueChange={handleWorkspaceTabChange}
-                  options={workspaceTabOptions}
-                  variant="agent-top"
-                  className="mx-auto w-full"
-                />
-              </div>
-              <SwipeViews
-                tabSetId="analysis-workspace"
-                activeValue={workspaceTab}
-                options={workspaceTabOptions}
-                heightMode="active"
-                viewportMinHeight="fill"
-                onSelectionChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
-                onSelectionCommit={(value) => setWorkspaceView(value as WorkspaceTab)}
-              >
-              <div className="mt-4 min-w-0 max-w-full">
-                {activeRunTask ? (
-                  <DebateStreamView
-                    runId={activeRunTask.runId}
-                    ticker={activeRunTask.ticker}
-                    userId={activeRunTask.userId}
-                    riskProfile={analysisParams?.riskProfile || "balanced"}
-                    vaultOwnerToken={vaultOwnerToken || ""}
-                    vaultKey={vaultKey}
-                    portfolioContextOverride={analysisParams?.portfolioContext || null}
-                    portfolioSource={analysisParams?.portfolioSource}
-                    pickSource={analysisParams?.pickSource}
-                    onClose={handleCloseLiveDebate}
-                    onDecisionReady={handleLiveDecisionReady}
-                    onDecisionPersisted={handleLiveDecisionPersisted}
-                    showHeader={false}
-                  />
-                ) : focusedRunTask ? (
-                  <DebateStreamView
-                    runId={focusedRunTask.runId}
-                    ticker={focusedRunTask.ticker}
-                    userId={focusedRunTask.userId}
-                    riskProfile={analysisParams?.riskProfile || "balanced"}
-                    vaultOwnerToken={vaultOwnerToken || ""}
-                    vaultKey={vaultKey}
-                    portfolioContextOverride={analysisParams?.portfolioContext || null}
-                    portfolioSource={analysisParams?.portfolioSource}
-                    pickSource={analysisParams?.pickSource}
-                    onClose={handleCloseLiveDebate}
-                    onDecisionReady={handleLiveDecisionReady}
-                    onDecisionPersisted={handleLiveDecisionPersisted}
-                    showHeader={false}
-                  />
-                ) : canStartNewRun && analysisParams ? (
-                  <DebateStreamView
-                    ticker={analysisParams.ticker}
-                    userId={analysisParams.userId}
-                    riskProfile={analysisParams.riskProfile}
-                    vaultOwnerToken={vaultOwnerToken || ""}
-                    vaultKey={vaultKey}
-                    portfolioContextOverride={analysisParams?.portfolioContext || null}
-                    portfolioSource={analysisParams?.portfolioSource}
-                    pickSource={analysisParams?.pickSource}
-                    onClose={handleCloseLiveDebate}
-                    onDecisionReady={handleLiveDecisionReady}
-                    onDecisionPersisted={handleLiveDecisionPersisted}
-                    showHeader={false}
-                  />
-                ) : activeEntry ? (
-                  <HistoryDebateReplay entry={activeEntry} />
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
-                    {toInvestorMessage("ANALYSIS_UNAVAILABLE", { ticker: activeTicker })}
-                  </div>
-                )}
-              </div>
-              <div className="mt-4 min-w-0 max-w-full">
+            <div className="min-w-0 space-y-3">
+              <button type="button" data-voice-control-id="analysis_tab_summary" className="min-h-11 text-sm font-semibold" onClick={() => setWorkspaceView("summary")}>Overview</button>
+              <div className="min-w-0 max-w-full">
                 {activeEntry ? (
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
@@ -1424,7 +1321,74 @@ export function KaiAnalysisPageContent() {
                   </div>
                 )}
               </div>
-              <div className="mt-4 min-w-0 max-w-full">
+              <div className="min-w-0 max-w-full">
+                {activeRunTask ? (
+                  <DebateStreamView
+                    runId={activeRunTask.runId}
+                    ticker={activeRunTask.ticker}
+                    userId={activeRunTask.userId}
+                    riskProfile={analysisParams?.riskProfile || "balanced"}
+                    vaultOwnerToken={vaultOwnerToken || ""}
+                    vaultKey={vaultKey}
+                    portfolioContextOverride={analysisParams?.portfolioContext || null}
+                    portfolioSource={analysisParams?.portfolioSource}
+                    pickSource={analysisParams?.pickSource}
+                    onClose={handleCloseLiveDebate}
+                    onDecisionReady={handleLiveDecisionReady}
+                    onDecisionPersisted={handleLiveDecisionPersisted}
+                    showHeader={false}
+                    detailsExpanded={workspaceTab === "debate"}
+                    onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
+                  />
+                ) : focusedRunTask ? (
+                  <DebateStreamView
+                    runId={focusedRunTask.runId}
+                    ticker={focusedRunTask.ticker}
+                    userId={focusedRunTask.userId}
+                    riskProfile={analysisParams?.riskProfile || "balanced"}
+                    vaultOwnerToken={vaultOwnerToken || ""}
+                    vaultKey={vaultKey}
+                    portfolioContextOverride={analysisParams?.portfolioContext || null}
+                    portfolioSource={analysisParams?.portfolioSource}
+                    pickSource={analysisParams?.pickSource}
+                    onClose={handleCloseLiveDebate}
+                    onDecisionReady={handleLiveDecisionReady}
+                    onDecisionPersisted={handleLiveDecisionPersisted}
+                    showHeader={false}
+                    detailsExpanded={workspaceTab === "debate"}
+                    onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
+                  />
+                ) : canStartNewRun && analysisParams ? (
+                  <DebateStreamView
+                    ticker={analysisParams.ticker}
+                    userId={analysisParams.userId}
+                    riskProfile={analysisParams.riskProfile}
+                    vaultOwnerToken={vaultOwnerToken || ""}
+                    vaultKey={vaultKey}
+                    portfolioContextOverride={analysisParams?.portfolioContext || null}
+                    portfolioSource={analysisParams?.portfolioSource}
+                    pickSource={analysisParams?.pickSource}
+                    onClose={handleCloseLiveDebate}
+                    onDecisionReady={handleLiveDecisionReady}
+                    onDecisionPersisted={handleLiveDecisionPersisted}
+                    showHeader={false}
+                    detailsExpanded={workspaceTab === "debate"}
+                    onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
+                  />
+                ) : activeEntry ? (
+                  <Collapsible open={workspaceTab === "debate"} onOpenChange={open => setWorkspaceView(open ? "debate" : "summary")}>
+                    <CollapsibleTrigger asChild><button type="button" data-voice-control-id="analysis_tab_debate" className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-card px-4 text-left text-sm font-medium">Full debate and research<ChevronDown className="size-4" /></button></CollapsibleTrigger>
+                    <CollapsibleContent><HistoryDebateReplay entry={activeEntry} /></CollapsibleContent>
+                  </Collapsible>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
+                    {toInvestorMessage("ANALYSIS_UNAVAILABLE", { ticker: activeTicker })}
+                  </div>
+                )}
+              </div>
+              <Collapsible open={workspaceTab === "detailed"} onOpenChange={open => setWorkspaceView(open ? "detailed" : "summary")}>
+                <CollapsibleTrigger asChild><button type="button" data-voice-control-id="analysis_tab_detailed" className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-card px-4 text-left text-sm font-medium">Detailed record and sources<ChevronDown className="size-4" /></button></CollapsibleTrigger>
+                <CollapsibleContent><div className="mt-3 min-w-0 max-w-full">
                 {activeEntry ? (
                   <HistoryDetailView
                     entry={activeEntry}
@@ -1440,7 +1404,8 @@ export function KaiAnalysisPageContent() {
                   </div>
                 )}
               </div>
-              </SwipeViews>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
               </SurfaceStack>
             </div>
@@ -1470,6 +1435,7 @@ export function KaiAnalysisPageContent() {
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
+          {startingPreviewDebate ? <p role="status" className="py-2 text-sm text-muted-foreground">Preparing analysis…</p> : null}
           <KaiStocksView browseStocks={showStockBrowser} historyRequested={showHistoryWhileActive} onHistoryClose={() => setShowHistoryWhileActive(false)} onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} history={<AnalysisHistoryDashboard
             userId={userId}
             vaultKey={vaultKey}

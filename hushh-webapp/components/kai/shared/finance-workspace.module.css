@@ -65,6 +65,7 @@
 
 /* Portfolio overview follows the value/briefing, composition and holdings rhythm. */
 .portfolioTop, .portfolioInsights { display: grid; gap: 16px; min-width: 0; }
+.portfolioInsights { align-items: start; }
 .portfolioTop > *, .portfolioInsights > * { min-width: 0; }
 .portfolioTop > :global([data-slot="card"]), .portfolioInsights > :global([data-slot="card"]) { height: 100%; }
 .portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
@@ -108,3 +109,35 @@
 
 .importEntry { background: var(--app-accent-surface) !important; border-color: var(--app-accent-border) !important; }
 .bankEntry { background: var(--app-accent-surface); border-radius: var(--app-input-radius); }
+
+.compactInsight { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-height: 224px; }
+.performanceSummary { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.allocationSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; font-size: 12px; line-height: 18px; }
+.allocationSummary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.allocationSummary dt { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.allocationSummary dd { flex: none; margin: 0; font-weight: 550; font-variant-numeric: tabular-nums; }
+
+/* Allocation: every card shares one header (14/22/600 title, 12/18 note) and one row pattern
+   (14/21/550 name, 12/18 muted meta, 14/21/550 amount), with no card nested inside a card. */
+.allocationHeader > :first-child { font-size: 14px; line-height: 22px; font-weight: 600; }
+.allocationHeader > :nth-child(2) { margin-top: 2px; font-size: 12px; line-height: 18px; }
+.allocationSection { min-width: 0; padding: 16px; border-bottom: 1px solid var(--border); }
+.allocationSection:last-child { border-bottom: 0; }
+.allocationSection > .allocationHeader { margin-bottom: 8px; }
+.allocationMeter { width: 64px; height: 4px; flex: none; border-radius: 999px; overflow: hidden; background: var(--muted); }
+.allocationMeter > span { display: block; height: 100%; border-radius: inherit; }
+@media (max-width: 420px) { .allocationMeter { display: none; } }
+.allocationRows { display: grid; min-width: 0; }
+.allocationRows > button.interactiveRow::before, .allocationRows > div > button.interactiveRow::before { inset-inline: -8px; }
+.allocationRow { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 48px; padding-block: 5px; text-align: left; border-bottom: 1px solid var(--border); }
+.allocationRows > :last-child > .allocationRow, .allocationRows > .allocationRow:last-child { border-bottom: 0; }
+.allocationDot { width: 10px; height: 10px; flex: none; border-radius: 999px; }
+.allocationText { display: grid; min-width: 0; flex: 1; }
+.allocationName { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--foreground); overflow-wrap: anywhere; }
+.allocationMeta { font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted-foreground); }
+.allocationAmount { display: grid; flex: none; justify-items: end; text-align: right; font-variant-numeric: tabular-nums; }
+.allocationAmount > :first-child { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--foreground); }
+.allocationDetail { padding: 0 0 12px 22px; }
+.allocationChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.allocationChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 10px; background: var(--muted); font-size: 12px; line-height: 18px; }
+.allocationPager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
