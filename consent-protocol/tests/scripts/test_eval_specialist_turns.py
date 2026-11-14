@@ -133,7 +133,7 @@ async def test_real_adk_callbacks_observe_nested_leaf_and_model_requests():
         _steps: list = PrivateAttr()
 
         def __init__(self, steps):
-            super().__init__(model="gemini-3.7-flash")
+            super().__init__(model="gemini-4-hydrogen")
             self._steps = list(steps)
 
         async def generate_content_async(self, llm_request, stream=False):
@@ -189,7 +189,7 @@ async def test_real_adk_callbacks_observe_nested_leaf_and_model_requests():
     )
     assert trace.tool_calls == ["consent", "list_active_consent_grants"]
     assert trace.leaf_calls == ["list_active_consent_grants"]
-    assert {request["model"] for request in trace.model_requests} == {"gemini-3.7-flash"}
+    assert {request["model"] for request in trace.model_requests} == {"gemini-4-hydrogen"}
     assert {request["agent"] for request in trace.model_requests} == {"nav", "consent"}
 
 
@@ -199,7 +199,7 @@ async def test_adk_missing_callbacks_cannot_report_success(monkeypatch):
 
     class UninstrumentedNav:
         def __init__(self, *, model):
-            assert model == "gemini-3.7-flash"
+            assert model == "gemini-4-hydrogen"
 
         async def handle(self, task):
             return SimpleNamespace(text="Explanation", directive=None)
@@ -210,7 +210,7 @@ async def test_adk_missing_callbacks_cannot_report_success(monkeypatch):
     row = await harness.run_case(
         {"id": "no_call", "family": "explanatory", "prompt": "Explain", "expected": ["no_tool"]},
         mode="adk",
-        model="gemini-3.7-flash",
+        model="gemini-4-hydrogen",
     )
     assert row["failure"] == "NoObservedModelRequest"
     assert not row["first_tool_hit"] and not row["shape_hit"]
@@ -232,7 +232,7 @@ async def test_adk_aggregation_retains_failed_model_attempts(monkeypatch):
 
     monkeypatch.setattr(harness, "run_case", failed)
     report = await harness.evaluate(
-        harness.load_cases(), runs=3, model="gemini-3.7-flash", mode="adk"
+        harness.load_cases(), runs=3, model="gemini-4-hydrogen", mode="adk"
     )
     assert len(report["results"]) == report["model_calls"] == 66
     assert report["first_tool_rate"] == report["shape_rate"] == 0
@@ -252,8 +252,8 @@ def test_live_model_uses_canonical_bridge_and_rejects_native_project(monkeypatch
         )
 
     monkeypatch.setattr(runtime_providers, "build_managed_gemini_adk_model", build)
-    built, project = harness.build_live_model("gemini-3.7-flash")
-    assert selected == ["gemini-3.7-flash"] and project == "hushh-vertex-personal54"
+    built, project = harness.build_live_model("gemini-4-hydrogen")
+    assert selected == ["gemini-4-hydrogen"] and project == "hushh-vertex-personal54"
     assert built.client_kwargs["vertexai"]
     monkeypatch.setattr(
         runtime_providers,
@@ -261,7 +261,7 @@ def test_live_model_uses_canonical_bridge_and_rejects_native_project(monkeypatch
         lambda _: SimpleNamespace(client_kwargs={"vertexai": True, "project": "hushh-pda-uat"}),
     )
     with pytest.raises(ValueError, match="personal54"):
-        harness.build_live_model("gemini-3.7-flash")
+        harness.build_live_model("gemini-4-hydrogen")
 
 
 @pytest.mark.asyncio
@@ -292,7 +292,7 @@ async def test_migrated_public_handle_uses_fixture_services_and_real_callbacks(m
     monkeypatch.setattr(
         harness, "build_live_model", lambda model: (PublicPathModel(model=model), "fixture-bridge")
     )
-    row = await harness.run_case(harness.load_cases()[0], mode="adk", model="gemini-3.7-flash")
+    row = await harness.run_case(harness.load_cases()[0], mode="adk", model="gemini-4-hydrogen")
     assert row["failure"] is None
     assert row["model_calls"] == 3
     assert row["observed"] == "list_active_consent_grants"

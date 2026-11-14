@@ -1826,7 +1826,7 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
                 lambda: {
                     **recovery_policy,
                     "version": "unadmitted-processor-transition",
-                    "model": "gemini-3.7-flash",
+                    "model": "gemini-3.8-flash",
                 },
             )
             with pytest.raises(DriveReadError, match="search_superseded"):
