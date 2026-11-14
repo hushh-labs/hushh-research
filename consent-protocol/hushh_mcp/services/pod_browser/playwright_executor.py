@@ -28,6 +28,7 @@ from .contracts import (
     BrowserRequest,
     BrowserResponse,
 )
+from .origin import public_origin
 from .playwright_actions import _argument, perform_action
 from .playwright_interception import BrowserRedirects, request_from_event
 from .playwright_interception import fulfill_headers as fulfill_headers
@@ -151,6 +152,9 @@ class PlaywrightExecutor:
                 args=[
                     "--disable-quic",
                     "--disable-background-networking",
+                    "--host-resolver-rules=MAP * ~NOTFOUND",
+                    "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+                    "--force-webrtc-ip-handling-policy",
                     "--disk-cache-size=33554432",
                     "--media-cache-size=16777216",
                 ],
@@ -199,12 +203,12 @@ class PlaywrightExecutor:
     async def _navigate_with_download(
         self, page: Page, action: BrowserAction, timeout_ms: float
     ) -> None:
-        self._navigation_target = (action.sequence, _argument(action.url))
+        destination = _argument(action.url)
+        public_origin(destination)
+        self._navigation_target = (action.sequence, destination)
         self._captured_navigation = None
         try:
-            await page.goto(
-                _argument(action.url), wait_until="domcontentloaded", timeout=timeout_ms
-            )
+            await page.goto(destination, wait_until="domcontentloaded", timeout=timeout_ms)
         except Exception as exc:
             # Chromium aborts a navigation acknowledged as a captured
             # attachment. No other aborted navigation becomes success.
@@ -240,6 +244,8 @@ class PlaywrightExecutor:
             await self._settle_requests()
             if self._uncertain:
                 raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN")
+            if page.url != "about:blank":
+                public_origin(page.url.split("#", 1)[0])
             return BrowserFrame(
                 sequence=action.sequence,
                 width=_argument(page.viewport_size)["width"],

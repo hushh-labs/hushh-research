@@ -178,32 +178,54 @@ def byoc_key_env(
 
 
 def byoc_custody_configured() -> bool:
-    """Is this process a BYOC pod that should unwrap rather than read its key?"""
-    return bool((os.getenv(KMS_KEY_ENV) or os.getenv(KEY_VAULT_KEY_ENV) or "").strip())
+    """Is this process a BYOC or ACE envelope pod that unwraps rather than reading env?"""
+    from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
+        CUSTODY_ACE_ENVELOPE,
+        CUSTODY_OWNER_KMS,
+        CUSTODY_OWNER_VAULT,
+    )
+    from hushh_mcp.services.pod_custody_port import (  # noqa: PLC0415
+        CUSTODY_MODE_ENV,
+        ace_custody_configured,
+    )
+
+    explicit = (os.getenv(CUSTODY_MODE_ENV) or "").strip()
+    if explicit in {CUSTODY_OWNER_KMS, CUSTODY_OWNER_VAULT, CUSTODY_ACE_ENVELOPE}:
+        return True
+    return bool(
+        (os.getenv(KMS_KEY_ENV) or os.getenv(KEY_VAULT_KEY_ENV) or "").strip()
+        or ace_custody_configured()
+    )
 
 
-def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> bytes:
-    """The pod's log key, whichever custody model it was provisioned under.
+def _refuse_gcs_after_erasure(*, bucket: str, session: Any, token: str) -> None:
+    """Refuse to mint a replacement DEK in GCS after pod crypto-erasure."""
+    import urllib.parse  # noqa: PLC0415
 
-    Managed pods read ``HUSSH_POD_LOG_KEY``; BYOC pods unwrap from KMS, or on Azure
-    from Key Vault. Resolving all three behind one call is what lets the rest of the
-    pod -- the commit log, the memory service -- stay identical across tiers.
-    """
-    if not byoc_custody_configured():
-        from hushh_mcp.services.pod_commit_log import log_key_from_env  # noqa: PLC0415
+    from hushh_mcp.services.pod_crypto_erase import ERASURE_TOMBSTONE_OBJECT  # noqa: PLC0415
 
-        key: bytes = log_key_from_env()
-        return key
-
-    kms_key = (os.getenv(KMS_KEY_ENV) or "").strip()
-    if (os.getenv(KEY_VAULT_KEY_ENV) or "").strip():
-        if kms_key:
-            raise ByocKeyCustodyError("a pod's log key has exactly one custodian")
-        from hushh_mcp.services.pod_key_vault_custody import (  # noqa: PLC0415
-            resolve_key_vault_log_key,
+    quoted_tombstone = urllib.parse.quote(ERASURE_TOMBSTONE_OBJECT, safe="")
+    probe = _custody_request(
+        session,
+        "get",
+        f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quoted_tombstone}",
+        params={"alt": "media"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=60,
+    )
+    probe_status = getattr(probe, "status_code", 0)
+    if probe_status == 200:
+        raise ByocKeyCustodyError("this agent was erased; refusing to mint a replacement key")
+    if probe_status != 404:
+        raise ByocKeyCustodyError(
+            f"the erasure tombstone could not be checked ({probe_status}); refusing to mint"
         )
 
-        return resolve_key_vault_log_key(session=session)
+
+def _resolve_gcp_kms_log_key(
+    *, session: Any = None, token: Optional[str] = None, store: Any = None
+) -> bytes:
+    kms_key = (os.getenv(KMS_KEY_ENV) or "").strip()
     obj = (os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT).strip()
     bucket = (os.getenv("POD_STORAGE_GCS_BUCKET") or "").strip()
     if not bucket:
@@ -211,6 +233,7 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
             "BYOC custody needs POD_STORAGE_GCS_BUCKET to find the wrapped key"
         )
 
+    check_gcs_tombstone = session is None
     if session is None:
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415
 
@@ -232,6 +255,14 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
     )
     status = getattr(response, "status_code", 0)
     if status == 404:
+        if store is not None:
+            from hushh_mcp.services.pod_custody_port import (  # noqa: PLC0415
+                refuse_store_after_erasure,
+            )
+
+            refuse_store_after_erasure(store)
+        elif check_gcs_tombstone:
+            _refuse_gcs_after_erasure(bucket=bucket, session=session, token=token)
         # First boot. The pod mints its own key here rather than finding one hushh left
         # for it -- hushh's bootstrap account provably cannot encrypt with this key.
         return _create_wrapped_dek(
@@ -249,6 +280,19 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
             "and present it as the same agent."
         )
     return unwrap_dek(response.content, kms_key=kms_key, session=session, token=token)
+
+
+def resolve_pod_log_key(
+    *, session: Any = None, token: Optional[str] = None, store: Any = None
+) -> bytes:
+    """The pod's log key, whichever custody model it was provisioned under.
+
+    Dispatches through ``resolve_key_custody_port`` so env/HKDF, Cloud KMS, Key Vault,
+    and cloud-agnostic ACE envelope custody share one fail-closed interface.
+    """
+    from hushh_mcp.services.pod_custody_port import resolve_key_custody_port  # noqa: PLC0415
+
+    return resolve_key_custody_port(session=session, token=token, store=store).resolve_log_key()
 
 
 def _create_wrapped_dek(
@@ -332,19 +376,13 @@ def derive_memory_key(dek: bytes) -> bytes:
     ).derive(dek)
 
 
-def resolve_pod_memory_key(*, session: Any = None, token: Optional[str] = None) -> bytes:
-    """The pod's memory key, whichever custody model it was provisioned under.
+def resolve_pod_memory_key(
+    *, session: Any = None, token: Optional[str] = None, store: Any = None
+) -> bytes:
+    """The pod's memory key, whichever custody model it was provisioned under."""
+    from hushh_mcp.services.pod_custody_port import resolve_key_custody_port  # noqa: PLC0415
 
-    The mirror of ``resolve_pod_log_key``, and it exists for the same reason: one call
-    site keeps the memory service identical across tiers, so behaviour rehearsed on the
-    managed tier transfers to the one that matters.
-    """
-    if not byoc_custody_configured():
-        raw = (os.getenv("HUSSH_POD_MEMORY_KEY") or "").strip()
-        if not raw:
-            raise ByocKeyCustodyError("HUSSH_POD_MEMORY_KEY is not set")
-        return base64.b64decode(raw)
-    return derive_memory_key(resolve_pod_log_key(session=session, token=token))
+    return resolve_key_custody_port(session=session, token=token, store=store).resolve_memory_key()
 
 
 def _metadata_token(session: Any) -> str:
