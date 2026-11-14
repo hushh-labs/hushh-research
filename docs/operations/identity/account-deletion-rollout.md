@@ -17,6 +17,13 @@ A replacement generation may preserve frozen provenance only with an independent
 Google credential, no deprovisioning marker and no profile, identity or owner
 membership. This does not authorize replacement-generation SSO enrollment.
 
+The UAT iOS build keeps its existing default Analytics registration and named
+identity routing, but both must belong to UAT. Source, runtime and bundled-plist
+checks reject a production identity. Existing Google OAuth identifiers may be
+explicitly allowed by UAT without sharing its Firebase user store. Installed
+clients require an update and fresh sign-in; source validation does not qualify
+physical-device Google sign-in, SMS or push delivery.
+
 Auth isolation is distinct from account erasure. UAT physical account deletion
 remains unqualified; this operator neither imports Dev erasure migrations nor
 removes production identities. Canonical client/server settings select UAT only

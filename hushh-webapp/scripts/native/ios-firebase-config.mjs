@@ -4,7 +4,7 @@ import { get } from "node:https";
 import path from "node:path";
 
 export const UAT_IOS_ANALYTICS_APP_ID = "1:745506018753:ios:efea0fede200b1d1778b40";
-const SHARED_IOS_AUTH_APP_ID = "1:1006304528804:ios:eb2720b5eda7da4bcfd931";
+const SHARED_IOS_AUTH_APP_ID = UAT_IOS_ANALYTICS_APP_ID;
 export const SHARED_IOS_FIREBASE_RESOURCE = "FirebaseIdentity/GoogleService-Info.plist";
 const analyticsPlist = (appRoot) => path.join(appRoot, ".env.local.d/ios/uat-analytics/GoogleService-Info.plist");
 
@@ -27,9 +27,9 @@ export function verifyBundledIosUatFirebase(appPath) {
   const identity = path.join(appPath, SHARED_IOS_FIREBASE_RESOURCE);
   if (installedIosFirebaseField(analytics, "PROJECT_ID") !== "hushh-pda-uat" ||
       installedIosFirebaseField(analytics, "GOOGLE_APP_ID") !== UAT_IOS_ANALYTICS_APP_ID ||
-      installedIosFirebaseField(identity, "PROJECT_ID") !== "hushh-pda" ||
+      installedIosFirebaseField(identity, "PROJECT_ID") !== "hushh-pda-uat" ||
       installedIosFirebaseField(identity, "GOOGLE_APP_ID") !== SHARED_IOS_AUTH_APP_ID ||
-      installedIosFirebaseField(identity, "GCM_SENDER_ID") !== "1006304528804" ||
+      installedIosFirebaseField(identity, "GCM_SENDER_ID") !== "745506018753" ||
       !installedIosFirebaseField(identity, "CLIENT_ID")) {
     throw new Error("UAT iOS bundle does not contain the required Analytics and shared Firebase identities.");
   }
@@ -56,7 +56,7 @@ export function readUatIosAnalyticsPlist(appRoot) {
 
 export function verifySharedIosFirebasePlist(location) {
   verifyIosFirebasePlist(fs.readFileSync(location, "utf8"), {
-    project: "hushh-pda", sender: "1006304528804", appId: SHARED_IOS_AUTH_APP_ID, requiresOAuth: true,
+    project: "hushh-pda-uat", sender: "745506018753", appId: SHARED_IOS_AUTH_APP_ID, requiresOAuth: true,
   });
 }
 
