@@ -2827,3 +2827,74 @@ class ConsentDBService:
         except Exception as e:
             logger.error(f"Failed to cleanup expired exports: {e}")
             return 0
+
+
+def resolve_approval_requester_notification_target_sync(
+    *,
+    bundle_id: str,
+    metadata: Any,
+    subject_user_id: str,
+) -> Optional[dict[str, Any]]:
+    """Resolve person-to-person approval notification context via shared DB client."""
+    requester_user_id: Optional[str] = None
+    clean_bundle_id = str(bundle_id or "").strip()
+    if clean_bundle_id:
+        try:
+            bundle_rows = (
+                get_db()
+                .execute_raw(
+                    "SELECT requester_user_id FROM one_information_request_bundles "
+                    "WHERE bundle_id = CAST(:bundle AS UUID) LIMIT 1",
+                    {"bundle": clean_bundle_id},
+                )
+                .data
+            )
+            if bundle_rows:
+                requester_user_id = str(bundle_rows[0].get("requester_user_id") or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("consent.approve.bundle_lookup_failed error=%s", exc)
+
+    if (
+        not requester_user_id
+        and isinstance(metadata, dict)
+        and metadata.get("requester_actor_type") == "person"
+    ):
+        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
+        if requester_entity_id:
+            try:
+                requester_rows = (
+                    get_db()
+                    .execute_raw(
+                        "SELECT user_id FROM actor_profiles "
+                        "WHERE public_person_ref = CAST(:ref AS UUID) LIMIT 1",
+                        {"ref": requester_entity_id},
+                    )
+                    .data
+                )
+                if requester_rows:
+                    requester_user_id = str(requester_rows[0].get("user_id") or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("consent.approve.requester_lookup_failed error=%s", exc)
+
+    if not requester_user_id:
+        return None
+
+    subject_profile_rows = (
+        get_db()
+        .execute_raw(
+            "SELECT public_person_ref, display_name, photo_url "
+            "FROM actor_profiles WHERE user_id = :subject_user_id LIMIT 1",
+            {"subject_user_id": subject_user_id},
+        )
+        .data
+    )
+    subject_row = subject_profile_rows[0] if subject_profile_rows else {}
+    subject_display_name = str(subject_row.get("display_name") or "Someone").strip() or "Someone"
+    subject_person_ref = str(subject_row.get("public_person_ref") or "").strip()
+    subject_photo_url = str(subject_row.get("photo_url") or "").strip() or None
+    return {
+        "requester_user_id": requester_user_id,
+        "subject_display_name": subject_display_name,
+        "subject_person_ref": subject_person_ref,
+        "subject_photo_url": subject_photo_url,
+    }

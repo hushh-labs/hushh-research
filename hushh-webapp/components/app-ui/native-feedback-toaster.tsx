@@ -11,6 +11,7 @@ import { createNativePresentationIdentity, nativeDrawerOwnerIsCurrent } from "@/
 import { snapshotAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { setNativeShellFeedbackAvailable } from "@/lib/capacitor/native-workspace-presence";
+import { resolvedAccentHex } from "@/lib/theme/accent";
 
 /** Headless Sonner consumer. Native-tagged messages never mount a DOM toaster;
  * native expiry dismisses the same canonical Sonner handle. */
@@ -45,7 +46,7 @@ function useNativeShellFeedbackOwner() {
     const releaseAll = () => { while (releases.length) releases.pop()?.(); };
     const state = { ...identity, family: "shell" as const, privacyGeneration: privacy.generation,
       updateSequence: 1, title: "", sections: [], open: true, enabled: true, backEnabled: false,
-      appearance: "light" as const, accentHex: "#007aff", foregroundHex: "#111111" };
+      appearance: "light" as const, accentHex: resolvedAccentHex(), foregroundHex: "#111111" };
     void (async () => {
       const capabilities = await plugin.getCapabilities();
       if (!active || capabilities.shellFeedback !== true) return;

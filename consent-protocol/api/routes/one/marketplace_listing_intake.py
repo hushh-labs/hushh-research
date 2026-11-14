@@ -10,13 +10,13 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from db.connection import get_pool
 from hushh_mcp.consent.export_envelope import (
     connector_key_fingerprint,
     scope_handle_for_machine_scope,
 )
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.services.person_profile_service import requester_principal
+from hushh_mcp.services.scope_commerce_requests import fetch_active_buyer_connector_and_person_ref
 
 
 class ListingRequestBody(BaseModel):
@@ -45,17 +45,10 @@ async def prepare_listing_intake(
         entries = await get_scope_generator().get_available_scope_entries(owner_user_id)
         if not path or not any(entry.get("scope") == scope for entry in entries):
             raise HTTPException(409, detail="The exact published scope is unavailable.")
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            key = await conn.fetchrow(
-                "SELECT connector_key_id,connector_public_key,connector_wrapping_alg FROM one_kyc_client_connectors WHERE user_id=$1 AND connector_key_id=$2 AND status='active'",
-                buyer_user_id,
-                body.connector_key_id,
-            )
-            person_ref = await conn.fetchval(
-                "SELECT public_person_ref FROM actor_profiles WHERE user_id=$1 AND public_profile_status='active'",
-                buyer_user_id,
-            )
+        key, person_ref = await fetch_active_buyer_connector_and_person_ref(
+            buyer_user_id,
+            body.connector_key_id,
+        )
         if not key or key["connector_wrapping_alg"] != "X25519-AES256-GCM" or not person_ref:
             raise HTTPException(
                 409, detail="Register your recipient connector before requesting access."

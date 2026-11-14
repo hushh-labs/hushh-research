@@ -9,7 +9,6 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
-import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -17,7 +16,6 @@ from pydantic import BaseModel, Field, field_validator
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.account import _verify_phone_claim_id_token
-from db.connection import get_pool
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
@@ -35,6 +33,11 @@ from hushh_mcp.services.ria_claim_service import (
     normalize_nanp_phone,
     validate_claim_ticket,
     verify_test_possession,
+)
+from hushh_mcp.services.ria_dossier_service import (
+    fetch_own_dossier_row,
+    get_pool,
+    retry_failed_dossier_row,
 )
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -1258,28 +1261,12 @@ async def ria_claim_email_confirm(
 # ---------------------------------------------------------------------------
 
 
-_DOSSIER_RETRYABLE_STATUSES = ("scan_failed", "send_failed", "send_blocked_test_unset")
 _DOSSIER_MAIL_STATUSES = {
     "sent": "sent",
     "send_failed": "failed",
     "send_blocked_test_unset": "blocked",
     "blocked_no_email": "blocked",
 }
-
-
-async def _fetch_own_dossier_row(conn: Any, user_id: str, *, for_update: bool = False) -> Any:
-    """Latest dossier row belonging to the caller — never anyone else's."""
-    query = """
-        SELECT id, status, scan_id, result_summary, result_markdown, requested_at,
-               completed_at, mail_recipient, mail_intended_recipient
-        FROM ria_claim_dossiers
-        WHERE user_id = $1
-        ORDER BY requested_at DESC, id DESC
-        LIMIT 1
-    """
-    if for_update:
-        query += " FOR UPDATE"
-    return await conn.fetchrow(query, user_id)
 
 
 def _shape_dossier_row(row: Any) -> dict[str, Any]:
@@ -1423,12 +1410,7 @@ async def ria_dossier_status(
 ):
     """The caller's own dossier row; 404 until a verified claim creates one."""
     _ = request
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            row = await _fetch_own_dossier_row(conn, firebase_uid)
-    except asyncpg.UndefinedTableError:
-        row = None
+    row = await fetch_own_dossier_row(firebase_uid, pool_getter=get_pool)
     if row is None:
         raise HTTPException(status_code=404, detail="No dossier yet.")
     try:
@@ -1451,40 +1433,29 @@ async def ria_dossier_retry(
     """
     _ = request
     context = await _load_dossier_claim_context(firebase_uid)
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                row = await _fetch_own_dossier_row(conn, firebase_uid, for_update=True)
-                if row is None:
-                    raise HTTPException(status_code=404, detail="No dossier yet.")
-                status = str(row["status"] or "")
-                if status not in _DOSSIER_RETRYABLE_STATUSES:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "code": "DOSSIER_NOT_RETRYABLE",
-                            "message": "Only a failed dossier can be retried.",
-                        },
-                    )
-                if context is None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "code": "CLAIM_CONTEXT_MISSING",
-                            "message": "Claim your profile before retrying the dossier.",
-                        },
-                    )
-                await conn.execute(
-                    """
-                    UPDATE ria_claim_dossiers
-                    SET status = 'queued', error = NULL, completed_at = NULL
-                    WHERE id = $1
-                    """,
-                    row["id"],
-                )
-    except asyncpg.UndefinedTableError:
-        raise HTTPException(status_code=404, detail="No dossier yet.") from None
+    outcome, row = await retry_failed_dossier_row(
+        firebase_uid,
+        has_claim_context=context is not None,
+        pool_getter=get_pool,
+    )
+    if outcome == "missing" or row is None:
+        raise HTTPException(status_code=404, detail="No dossier yet.")
+    if outcome == "not_retryable":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DOSSIER_NOT_RETRYABLE",
+                "message": "Only a failed dossier can be retried.",
+            },
+        )
+    if outcome == "missing_context" or context is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CLAIM_CONTEXT_MISSING",
+                "message": "Claim your profile before retrying the dossier.",
+            },
+        )
     _redispatch_dossier(dossier_id=int(row["id"]), user_id=firebase_uid, context=context)
     shaped = _shape_dossier_row(row)
     shaped["status"] = "queued"

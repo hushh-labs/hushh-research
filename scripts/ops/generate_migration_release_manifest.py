@@ -22,11 +22,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
-MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_[a-z0-9_]+\.sql$")
+MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3,})_[a-z0-9_]+\.sql$")
 
 
 def _utc_now_iso() -> str:
@@ -77,32 +76,40 @@ def _extract_backup_evidence(report: dict[str, Any] | None) -> dict[str, Any]:
 
     return {
         "backup_report_status": report.get("status"),
-        "backup_object_uri": latest_dict.get("backup_object_uri") or report.get("backup_object_uri"),
-        "backup_checksum_sha256": latest_dict.get("checksum_sha256") or report.get("checksum_sha256"),
-        "backup_completed_at": latest_dict.get("backup_completed_at") or report.get("backup_completed_at"),
+        "backup_object_uri": latest_dict.get("backup_object_uri")
+        or report.get("backup_object_uri"),
+        "backup_checksum_sha256": latest_dict.get("checksum_sha256")
+        or report.get("checksum_sha256"),
+        "backup_completed_at": latest_dict.get("backup_completed_at")
+        or report.get("backup_completed_at"),
     }
 
 
 def _collect_migrations(migrations_dir: Path) -> tuple[list[dict[str, Any]], str]:
-    files = sorted([p for p in migrations_dir.iterdir() if p.is_file()])
-    records: list[dict[str, Any]] = []
-    digest = hashlib.sha256()
-    for path in files:
+    matched: list[tuple[int, str, Path]] = []
+    for path in migrations_dir.iterdir():
+        if not path.is_file():
+            continue
         match = MIGRATION_PATTERN.match(path.name)
         if not match:
             continue
+        matched.append((int(match.group("version")), path.name, path))
+
+    matched.sort(key=lambda item: (item[0], item[1]))
+    records: list[dict[str, Any]] = []
+    digest = hashlib.sha256()
+    for version, filename, path in matched:
         content = path.read_bytes()
         file_sha = hashlib.sha256(content).hexdigest()
-        version = int(match.group("version"))
         records.append(
             {
                 "version": version,
-                "filename": path.name,
+                "filename": filename,
                 "sha256": file_sha,
                 "bytes": len(content),
             }
         )
-        digest.update(path.name.encode("utf-8"))
+        digest.update(filename.encode("utf-8"))
         digest.update(b"\0")
         digest.update(file_sha.encode("utf-8"))
         digest.update(b"\0")
@@ -112,7 +119,9 @@ def _collect_migrations(migrations_dir: Path) -> tuple[list[dict[str, Any]], str
 def run(args: argparse.Namespace) -> int:
     migrations_dir = Path(args.migrations_dir).resolve()
     output_path = Path(args.output).resolve()
-    backup_report_path = Path(args.backup_report_path).resolve() if args.backup_report_path else None
+    backup_report_path = (
+        Path(args.backup_report_path).resolve() if args.backup_report_path else None
+    )
 
     if not migrations_dir.exists():
         print(f"ERROR: migrations directory not found: {migrations_dir}", file=sys.stderr)
@@ -161,7 +170,9 @@ def run(args: argparse.Namespace) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate release manifest for production DB governance.")
+    parser = argparse.ArgumentParser(
+        description="Generate release manifest for production DB governance."
+    )
     parser.add_argument(
         "--output",
         required=True,

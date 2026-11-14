@@ -289,7 +289,7 @@ def canonical_database(server, monkeypatch, *, database="synthetic_consent_adopt
         migrate,
         "release_migration_files",
         lambda _environment: tuple(
-            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) < 420
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name.split("_", 1)[0]) < 420
         ),
     )
     for key, value in {

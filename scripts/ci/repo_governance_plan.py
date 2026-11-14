@@ -430,6 +430,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/provision_wallet_pass_certificate.py",
             "scripts/ci/verify-runtime-config-contract.py",
             "scripts/ops/data_model_audit.py",
+            "scripts/ops/report_prod_contract_posture.py",
             "scripts/verify-doc-links.cjs",
             "scripts/verify-doc-runtime-parity.cjs",
             "scripts/ci/test_secret_scan_ranges.py",

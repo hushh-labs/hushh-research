@@ -2512,6 +2512,23 @@
       "gmail_read_granted_at",
       "gmail_read_generation"
     ],
+    "google_email_send_actions": [
+      "action_id",
+      "completed_at",
+      "created_at",
+      "error_code",
+      "expires_at",
+      "idempotency_hmac",
+      "payload_hmac",
+      "provider",
+      "provider_message_id",
+      "provider_thread_id",
+      "recipient_count",
+      "sending_at",
+      "status",
+      "updated_at",
+      "user_id"
+    ],
     "google_oauth_attempts": [
       "attempt_id",
       "consumed_at",
