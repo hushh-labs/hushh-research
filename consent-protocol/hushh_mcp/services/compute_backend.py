@@ -35,6 +35,21 @@ RESOURCE_TIER_ECONOMY = "economy"  # minScale 0: scales to zero, silence is heal
 RESOURCE_TIER_WARM = "warm"  # minScale 1: a paid instance is held, silence is a fault
 RESOURCE_TIERS = (RESOURCE_TIER_ECONOMY, RESOURCE_TIER_WARM)
 
+# Cloud-neutral key custody modes (the fifth PodSpec axis). Never spell a cloud
+# vendor name here so Layer 1 stays provider-agnostic (test_deployment_boundary_holds).
+CUSTODY_EPHEMERAL = "ephemeral"
+CUSTODY_FLEET_HKDF = "fleet_hkdf"
+CUSTODY_OWNER_KMS = "owner_kms"
+CUSTODY_OWNER_VAULT = "owner_vault"
+CUSTODY_ACE_ENVELOPE = "ace_envelope"
+CUSTODY_MODES = (
+    CUSTODY_EPHEMERAL,
+    CUSTODY_FLEET_HKDF,
+    CUSTODY_OWNER_KMS,
+    CUSTODY_OWNER_VAULT,
+    CUSTODY_ACE_ENVELOPE,
+)
+
 # Canonical backend ids (the ``PERSONAL_AGENT_BACKEND`` values).
 BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
@@ -260,6 +275,39 @@ class PodSpec:
     # `None` means `hub`. `direct` is refused by the renderer outside the dev lane.
     ingress: Optional[str] = None
 
+    # -- the fifth axis: how THIS person's pod seals durable log & memory keys ----
+    #
+    # Cloud-neutral capability names (`ephemeral`, `fleet_hkdf`, `owner_kms`,
+    # `owner_vault`, `ace_envelope`). `None` preserves existing target inference;
+    # owner-cloud targets always refuse shared `fleet_hkdf` custody.
+    custody_mode: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.custody_mode is None:
+            return
+        mode = str(self.custody_mode).strip()
+        if mode not in CUSTODY_MODES:
+            raise ValueError(
+                f"unrecognized custody_mode '{self.custody_mode}' (expected one of {CUSTODY_MODES})"
+            )
+        target = (self.deployment_target or "").strip()
+        if is_owner_cloud_target(target) and mode == CUSTODY_FLEET_HKDF:
+            raise ValueError("owner-cloud pods cannot use shared fleet_hkdf key custody")
+        if target == BACKEND_USER_GCP and mode == CUSTODY_OWNER_VAULT:
+            raise ValueError("user_gcp pods cannot use owner_vault key custody")
+        if target == BACKEND_USER_AZURE and mode == CUSTODY_OWNER_KMS:
+            raise ValueError("user_azure pods cannot use owner_kms key custody")
+
+    @property
+    def compute_target(self) -> Optional[str]:
+        """North-star triad alias for ``deployment_target``."""
+        return self.deployment_target
+
+    @property
+    def credential_mode(self) -> Optional[str]:
+        """North-star triad alias for ``model_credential_mode``."""
+        return self.model_credential_mode
+
     # -- narrative callbacks: how a stage says it happened ------------------------
     #
     # OPAQUE callables, injected by the provisioning service, defaulting to None.
@@ -449,6 +497,22 @@ def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
     from hushh_mcp.services.compute_backend_resolution import owner_azure_backend
 
     return owner_azure_backend(spec)
+
+
+def effective_custody_mode(spec: PodSpec) -> str:
+    """Resolve explicit or target-inferred cloud-neutral key custody mode."""
+    if spec.custody_mode is not None:
+        return str(spec.custody_mode).strip()
+    target = (spec.deployment_target or "").strip()
+    if target == BACKEND_USER_GCP or spec.private_gcp_deployment is not None:
+        return CUSTODY_OWNER_KMS
+    if target == BACKEND_USER_AZURE:
+        return CUSTODY_OWNER_VAULT
+    if target == BACKEND_GCP:
+        from hushh_mcp.services.pod_key_custody import custody_configured
+
+        return CUSTODY_FLEET_HKDF if custody_configured() else CUSTODY_EPHEMERAL
+    return CUSTODY_EPHEMERAL
 
 
 def is_private_pod_row(row: Any) -> bool:
