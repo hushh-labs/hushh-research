@@ -45,6 +45,7 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
     resolve_serving_owner_hushh_id,
@@ -124,7 +125,12 @@ def _b64url_decode(value: str) -> bytes:
 
 
 def _root_broker_secret() -> bytes:
-    raw = (os.getenv(BROKER_SEAL_SECRET_ENV) or os.getenv("APP_SIGNING_KEY") or "").strip()
+    raw = (os.getenv(BROKER_SEAL_SECRET_ENV) or "").strip()
+    if not raw:
+        try:
+            raw = (get_core_security_settings().app_signing_key or "").strip()
+        except Exception:
+            raw = ""
     if len(raw) < 16:
         raise PodCapabilityBrokerUnavailable("hub custody broker signing material is unconfigured")
     return raw.encode("utf-8")

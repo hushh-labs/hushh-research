@@ -14,7 +14,7 @@ and brokers:
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -92,11 +92,14 @@ async def handle_broker_key(
     if verified is None or not verified.signed:
         raise HTTPException(status_code=401, detail="signed pod identity required")
     try:
-        return await describe_hub_custody_broker_key(
-            verified=verified,
-            registry=registry,
-            owner_tombstoned_fn=owner_tombstoned_fn,
-            secret=secret,
+        return cast(
+            dict[str, str],
+            await describe_hub_custody_broker_key(
+                verified=verified,
+                registry=registry,
+                owner_tombstoned_fn=owner_tombstoned_fn,
+                secret=secret,
+            ),
         )
     except (
         PodCapabilityBrokerUnauthorized,
@@ -137,17 +140,20 @@ async def handle_storage_token(
     if verified is None or not verified.signed:
         raise HTTPException(status_code=401, detail="signed pod identity required")
     try:
-        return await broker_pod_storage_token(
-            verified=verified,
-            ttl_seconds=payload.ttl_seconds,
-            provider=payload.provider,
-            registry=registry,
-            owner_tombstoned_fn=owner_tombstoned_fn,
-            http_session=http_session,
-            gcp_source_token=gcp_source_token,
-            aws_sts_client=aws_sts_client,
-            azure_delegation_key=azure_delegation_key,
-            secret=secret,
+        return cast(
+            dict[str, Any],
+            await broker_pod_storage_token(
+                verified=verified,
+                ttl_seconds=payload.ttl_seconds,
+                provider=payload.provider,
+                registry=registry,
+                owner_tombstoned_fn=owner_tombstoned_fn,
+                http_session=http_session,
+                gcp_source_token=gcp_source_token,
+                aws_sts_client=aws_sts_client,
+                azure_delegation_key=azure_delegation_key,
+                secret=secret,
+            ),
         )
     except (
         PodCapabilityBrokerUnauthorized,
@@ -188,19 +194,22 @@ async def handle_dek_envelope(
     if verified is None or not verified.signed:
         raise HTTPException(status_code=401, detail="signed pod identity required")
     try:
-        return await broker_pod_dek_envelope(
-            verified=verified,
-            operation=payload.operation,
-            sealed_dek_b64=payload.sealed_dek,
-            broker_key_id=payload.broker_key_id,
-            wrapped_dek_b64=payload.wrapped_dek,
-            registry=registry,
-            owner_tombstoned_fn=owner_tombstoned_fn,
-            kms_backend=kms_backend,
-            http_session=http_session,
-            gcp_token=gcp_token,
-            aws_kms_client=aws_kms_client,
-            secret=secret,
+        return cast(
+            dict[str, str],
+            await broker_pod_dek_envelope(
+                verified=verified,
+                operation=payload.operation,
+                sealed_dek_b64=payload.sealed_dek,
+                broker_key_id=payload.broker_key_id,
+                wrapped_dek_b64=payload.wrapped_dek,
+                registry=registry,
+                owner_tombstoned_fn=owner_tombstoned_fn,
+                kms_backend=kms_backend,
+                http_session=http_session,
+                gcp_token=gcp_token,
+                aws_kms_client=aws_kms_client,
+                secret=secret,
+            ),
         )
     except (
         PodCapabilityBrokerUnauthorized,
