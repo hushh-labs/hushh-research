@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, ArrowDown, Plus, Smile, X } from "@/components/icons";
+import { SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
+import { MessageCircle, ImageIcon, ArrowDown, Plus, Play, FileText, Smile, X } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage, type CircleMessageState, type ChatMutationResult } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
@@ -285,6 +286,8 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
   const onReadRef = useRef(onRead); onReadRef.current = onRead;
   const onRevokedRef = useRef(onRevoked); onRevokedRef.current = onRevoked;
   const fileInput = useRef<HTMLInputElement>(null);
+  const videoInput = useRef<HTMLInputElement>(null);
+  const documentInput = useRef<HTMLInputElement>(null);
   const composerEditor = useRef<HTMLTextAreaElement>(null);
   const persistedDraft = useMessageDraft({ userId: session.userId, scope: JSON.stringify([session.userId, "circle", session.circleId]),
     vaultKey: session.vaultKey, binding: membershipJoinedAt ?? null,
@@ -370,7 +373,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
       if (matchesOutgoing) {
         outgoingRef.current = null; setOutgoing(null); setPending(null); setText(""); setReply(null); setFile(null); setValidFile(null); thumbnailRef.current = null;
         setPickerDismissSignal((value) => value + 1);
-        if (fileInput.current) fileInput.current.value = "";
+        clearFileInputs();
       }
     }
     const merged = [...existing.values()].sort((a, b) => a.sequence - b.sequence);
@@ -607,6 +610,27 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
     dispatchCircleChatChanged(session.userId, session.circleId);
   };
 
+  const clearFileInputs = () => {
+    for (const input of [fileInput.current, videoInput.current, documentInput.current]) {
+      if (input) input.value = "";
+    }
+  };
+
+  const chooseAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.files?.[0];
+    if (!next) return;
+    if (!next.size || next.size > MAX_CHAT_IMAGE_BYTES) { setError("Choose a file up to 5 MB."); clearFileInputs(); return; }
+    setValidFile(null); setError(null);
+    try {
+      const kind = validateChatAttachmentBytes(new Uint8Array(await next.arrayBuffer()), next.type);
+      if (event.target.files?.[0] !== next) return;
+      setFile(next);
+      if (kind !== "photo") setValidFile(next);
+    } catch (caught) {
+      setError(errorText(caught)); clearFileInputs();
+    }
+  };
+
   const send = async () => {
     if (sendLock.current || !active.current || loading || jumping || (!pending && file && validFile !== file) || (!pending && !text.trim() && !file)) return;
     sendLock.current = true; setSending(true); setError(null);
@@ -648,7 +672,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
       append(await decrypt([sent]));
       setPending(null); setText(""); setReply(null); setFile(null); setValidFile(null); thumbnailRef.current = null;
       outgoingRef.current = null; setOutgoing(null); setPickerDismissSignal((value) => value + 1);
-      if (fileInput.current) fileInput.current.value = "";
+      clearFileInputs();
     } catch (err) {
       if (!active.current) return;
       // The transcript can confirm delivery before an uncertain POST settles.
@@ -734,22 +758,11 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
       <div className="min-w-0 flex-1 text-sm"><p className="font-semibold"><bdi>{connectPersonName({ displayName: reply.senderName })}</bdi></p><p dir="auto" className="line-clamp-2 break-words">{messages.find((item) => item.id === reply.id)?.content?.text ?? reply.content?.text ?? "Attachment"}</p></div>
       <Button variant="plain" size="icon-touch" aria-label="Cancel reply" disabled={sending || Boolean(pending)} onClick={() => setReply(null)}><X aria-hidden="true" className="size-4" /></Button>
     </div> : null}
-    {file && !outgoing ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onThumbnail={(previewFile, thumbnail) => { if (previewFile === file) thumbnailRef.current = { file: previewFile, thumbnail }; }} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); thumbnailRef.current = null; if (fileInput.current) fileInput.current.value = ""; }} />
-      : <FileAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} /> : null}
-      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="hidden" tabIndex={-1} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onChange={async (event) => {
-        const next = event.target.files?.[0];
-        if (!next) return;
-        if (!next.size || next.size > MAX_CHAT_IMAGE_BYTES) { setError("Choose a file up to 5 MB."); event.target.value = ""; return; }
-        setValidFile(null); setError(null);
-        try {
-          const kind = validateChatAttachmentBytes(new Uint8Array(await next.arrayBuffer()), next.type);
-          if (event.target.files?.[0] !== next) return;
-          setFile(next);
-          if (kind !== "photo") setValidFile(next);
-        } catch (caught) {
-          setError(errorText(caught)); event.target.value = "";
-        }
-      }} />
+    {file && !outgoing ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onThumbnail={(previewFile, thumbnail) => { if (previewFile === file) thumbnailRef.current = { file: previewFile, thumbnail }; }} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); thumbnailRef.current = null; clearFileInputs(); }} />
+      : <FileAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); setValidFile(null); clearFileInputs(); }} /> : null}
+      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" tabIndex={-1} aria-label="Attach photo, video, or document" data-circle-attachment-kind="photo" disabled={sending || Boolean(pending)} onChange={chooseAttachment} />
+      <input ref={videoInput} type="file" accept="video/mp4,video/webm" className="hidden" tabIndex={-1} aria-label="Choose video" data-testid="circle-attachment-video" data-circle-attachment-kind="video" disabled={sending || Boolean(pending)} onChange={chooseAttachment} />
+      <input ref={documentInput} type="file" accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt" className="hidden" tabIndex={-1} aria-label="Choose document" data-testid="circle-attachment-document" data-circle-attachment-kind="document" disabled={sending || Boolean(pending)} onChange={chooseAttachment} />
     <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={persistedDraft.update} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={composerEditor}
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
@@ -762,7 +775,23 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
         requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
       }} /> : undefined}
       emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
-      leadingAction={<ShellActionSurface className={chatLane ? laneStyles.attachButton : "size-11"} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
+      leadingAction={<DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" className={`${SHELL_ICON_BUTTON_CLASSNAME} ${chatLane ? `${laneStyles.attachButton} !h-11 !w-11` : "!h-11 !w-11"}`} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" side="top" className="min-w-40" data-messages-type-scale={chatLane || undefined}>
+          <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
+            <ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => videoInput.current?.click()}>
+            <Play className="h-4 w-4" aria-hidden="true" /> Video
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => documentInput.current?.click()}>
+            <FileText className="h-4 w-4" aria-hidden="true" /> Document
+          </DropdownMenuItem>
+          <p className="px-2 pb-0.5 pt-1 text-[11px] text-muted-foreground">Up to 5 MB</p>
+        </DropdownMenuContent>
+      </DropdownMenu>} />
     {text && persistedDraft.status ? <span className="sr-only" role="status">{persistedDraft.status}</span> : null}
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     </div>
