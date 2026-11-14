@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import ast
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from runpy import run_path
 
-import release_artifact_receipts as receipts
 import production_backend_successor as backend_reference
+import release_artifact_receipts as receipts
 
 retention = receipts.retention
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,7 +59,8 @@ def _unique_object(pairs):
 def _document(archive, name):
     try:
         value = json.loads(
-            receipts._status_bytes(archive, name), object_pairs_hook=_unique_object
+            receipts._status_bytes(archive, name, allow_legacy_production=True),
+            object_pairs_hook=_unique_object,
         )
     except (KeyError, ValueError, TypeError) as error:
         raise retention.UnsafeState(

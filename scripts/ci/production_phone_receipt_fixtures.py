@@ -151,6 +151,14 @@ def archive(fixture, documents):
     return payload
 
 
+def mixed_root_archive(fixture, documents):
+    """The standard upload combines /tmp receipts and runner.temp worker files."""
+    return archive(fixture, {
+        **{f"tmp/{name}": value for name, value in documents.items()},
+        "home/runner/work/_temp/qualified-worker-stage/context.json": {},
+    })
+
+
 def cold_revision(qualified):
     settings = {
         "HUSHH_DEPLOY_ENV": "production",
