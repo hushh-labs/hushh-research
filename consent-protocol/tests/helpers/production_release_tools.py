@@ -20,6 +20,8 @@ DRIVE_PRODUCTION_TOOLS = (
 
 
 CI_PRODUCTION_TOOLS = (
+    "github_team_authority.py",
+    "github_security_receipt.py",
     "capture_managed_provider_receipt.py",
     "production_auth_domain_refresh.py",
     "uat-retention-maintenance.py",
