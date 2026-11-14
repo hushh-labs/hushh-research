@@ -65,6 +65,8 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
     """Pinned current tools must survive checkout of a historical application."""
     return [
         *old_paths,
+        "deploy/frontend-image.cloudbuild.yaml",
+        "deploy/frontend.cloudbuild.yaml",
         *(f"scripts/ci/{name}" for name in CI_PRODUCTION_TOOLS),
         "config/ci-governance.json",
         "config/release-cadence.json",
