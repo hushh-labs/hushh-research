@@ -43,7 +43,7 @@ def readiness(**changes):
             "ephemeral_bridge_verified": True,
             "private_access_denied": True,
             "model_transport_verified": True,
-            "model_name": "gemini-3.7-flash",
+            "model_name": "gemini-4-hydrogen",
             "model_transport": "google.adk.models.google_llm.Gemini",
             **changes,
         }

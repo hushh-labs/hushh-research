@@ -63,7 +63,7 @@ Native Google search suggestions stay displayed with the grounded findings they 
 
 The single authored system instruction is the `one_personal_world_model.system_instruction` block in [the One manifest](../../../consent-protocol/hushh_mcp/agents/one/agent.yaml). Python loads this manifest; it contains no duplicate system prompt. The generated product-agent registries describe the same specialist. The instruction also tells the specialist not to propose again any claim in the owner's confirmed or rejected decisions, or an equivalent of one, and never to infer the opposite of a rejected claim. The model decides equivalence; host code does not.
 
-The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.8-flash`**, with medium thinking and a 32,768-token output ceiling. Gemini uses **native Google Search grounding on Vertex**. No Tavily key is needed. **URL Context on Vertex** remains available for separately supplied owner pages; it is no longer needed to create an invitation. Google research and saved owner knowledge have separate source-use contracts.
+The specialist's `gemini-default` currently resolves to **Gemini `gemini-4-hydrogen`**, with medium thinking and a 32,768-token output ceiling. Gemini uses **native Google Search grounding on Vertex**. No Tavily key is needed. **URL Context on Vertex** remains available for separately supplied owner pages; it is no longer needed to create an invitation. Google research and saved owner knowledge have separate source-use contracts.
 
 All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-runtime.json](../../../consent-protocol/config/managed-ai-runtime.json).
 
@@ -236,11 +236,12 @@ identified provider rates and remains an estimate rather than an invoice total.
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
-| Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| Dev | `hushh-gemini-bridge` | `gemini-3.7-flash` | same | same |
-| UAT / Production | `hushh-gemini-bridge` | `gemini-3.8-flash` | same | same |
+| Local | `hushh-pda-uat` | `gemini-4-hydrogen` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
+| Dev | `hushh-pda-dev` | `gemini-4-hydrogen` | same | same |
+| UAT | `hushh-pda-uat` | `gemini-4-hydrogen` | same | same |
+| Production | `hushh-pda` | `gemini-4-hydrogen` | same | same |
 
-The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. With Azure selected (today), UAT still uses its Vertex row for the release's Vertex readiness job and as the per-call alternate for Drive document requests; One chat, PWM, Live and embeddings use the selected managed Azure account; list its deployments with `python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account`. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
+Each hosted profile selects its own home GCP project and workload identity. UAT defaults to native Vertex (`managed_provider_selection.uat = "vertex"`), while retaining Azure descriptors on standby (`python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account`). This table describes the release configuration; serving state requires revision and runtime-probe evidence.
 
 `ONE_PROFILE_RESEARCH_ENABLED` controls the research kill switch. UAT deployment
 reads `ONE_PROFILE_RESEARCH_ENABLED_UAT` (default false); enabling it still requires
@@ -249,7 +250,7 @@ resumes without deleting encrypted drafts or changing ordinary chat. The
 notification scheduler alone does not stop generation. Drive background
 processing has its separate `DRIVE_WORK_DRAIN_UAT_ENABLED` switch.
 
-The default 3.8 text model uses the verified `global` endpoint; Live remains regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
+The default `gemini-4-hydrogen` text model uses the verified `global` endpoint; Live remains regional `us-central1`. Each hosted environment runs Vertex AI inside its own home GCP project alongside Cloud Run, SQL, and secret infrastructure. BYOK remains a separate explicitly selected runtime.
 
 Change the checked-in environment profile and deploy its revision. The compiler and runtime share validation and a normalized configuration hash. Candidate readiness compares the image's hash and exercises the configured text and enabled Live targets. The runtime config CI contract rejects managed environment reads outside the canonical settings boundary. Local development retains explicit overrides; hosted runtimes use the packaged profile and ignore retired per-surface project overrides.
 

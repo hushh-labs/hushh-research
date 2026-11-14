@@ -20,7 +20,7 @@ def hosted_registry_row(*, owner="owner-a", hushh_id="ha1_hosted_a", project="hu
         "expiresAt": "2020-01-01T00:00:00+00:00",
         "modelBinding": {
             "provider": "gemini",
-            "project": "hushh-gemini-bridge",
+            "project": "hushh-pda-dev",
             "model": "gemini-synthetic",
             "profileHash": "c" * 64,
         },
