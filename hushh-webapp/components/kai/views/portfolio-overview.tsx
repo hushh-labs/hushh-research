@@ -31,7 +31,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
       {briefing}
     </div>
     <div className={styles.portfolioInsights}>
-      <SurfaceCard className={styles.insightShell} data-testid="portfolio-performance"><SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
+      <SurfaceCard data-testid="portfolio-performance"><SurfaceCardContent className={styles.compactInsight}>
         <SectionLabel role="heading" aria-level={2}>Performance</SectionLabel>
         <div className={styles.balanceChange}><p className={styles.insightEyebrow}>Reported balance change</p><p className={facts.change === null ? styles.unavailableChange : styles.insightAmount}>{facts.change === null ? "Unavailable" : money(facts.change)}</p></div>
         <dl className={styles.insightFacts}>
@@ -41,11 +41,11 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
         <p className={styles.description}>Balance changes can include cash flows; investment return is unavailable.</p>
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="show_portfolio_performance" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
-      <SurfaceCard className={styles.insightShell}><SurfaceCardContent className={styles.insightCard}>
+      <SurfaceCard><SurfaceCardContent className={styles.compactInsight}>
         <div className="flex items-baseline justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Allocation</SectionLabel><span className={styles.description}>% of portfolio</span></div>
         {allocations.length && denominator > 0 ? <>
           {allocationTotal <= denominator * 1.001 ? <div className={styles.portfolioAllocation} aria-hidden="true">{allocations.map(item => <span key={item.name} style={{ width: `${item.value / denominator * 100}%`, background: allocationColor(item.name) }} />)}</div> : null}
-          <dl className={styles.portfolioList}>{allocations.map(item => <div className={styles.portfolioListRow} key={item.name}><dt className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ background: allocationColor(item.name) }} />{item.name}</dt><dd className="text-sm font-semibold tabular-nums">{(item.value / denominator * 100).toFixed(1)}%</dd></div>)}</dl>
+          <dl className={styles.allocationSummary}>{allocations.map(item => <div key={item.name}><dt><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ background: allocationColor(item.name) }} />{item.name}</dt><dd className="text-sm font-semibold tabular-nums">{(item.value / denominator * 100).toFixed(1)}%</dd></div>)}</dl>
         </> : <p className={styles.description}>Allocation is unavailable for this source.</p>}
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11" data-voice-control-id="show_portfolio_allocation" onClick={() => onOpenSection("allocation")}>View allocation</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>

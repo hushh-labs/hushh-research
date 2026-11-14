@@ -2102,9 +2102,10 @@ export function DashboardMasterView({
 
         <div className="space-y-5">
           {section === "allocation" ? (
-            <section className="space-y-5">
+            <SurfaceCard className="gap-0">
               {model.quality.allocationReady ? (
                 <PortfolioAllocationBar
+                  embedded
                   data={model.allocation}
                   totalValue={model.hero.totalValue}
                   selectedName={selectedAllocationName}
@@ -2112,26 +2113,26 @@ export function DashboardMasterView({
                 />
               ) : null}
 
-              <section className="space-y-4">
                 {hasEquitySectorAllocation ? (
                   <SectorAllocationChart
+                    embedded
                     className="min-w-0"
                     holdings={equitySectorChartHoldings}
                     title="Equity Sector Allocation"
-                    subtitle={`${(equitySectorCoveragePct * 100).toFixed(0)}% of equity holdings have mapped sector labels. Denominator: ${formatCurrency(model.hero.totalValue)} total portfolio value.`}
+                    subtitle={`${(equitySectorCoveragePct * 100).toFixed(0)}% of equity holdings have mapped sector labels.`}
                   />
                 ) : null}
 
                 {hasNonEquityAllocation ? (
                   <SectorAllocationChart
+                    embedded
                     className="min-w-0"
                     holdings={nonEquityAllocationChartHoldings}
                     title="Non-Equity Allocation"
-                    subtitle={`${(nonEquityCoveragePct * 100).toFixed(0)}% of non-equity holdings are mapped to canonical allocation buckets. Denominator: ${formatCurrency(model.hero.totalValue)} total portfolio value.`}
+                    subtitle={`${(nonEquityCoveragePct * 100).toFixed(0)}% of non-equity holdings are mapped to canonical allocation buckets.`}
                   />
                 ) : null}
-              </section>
-            </section>
+            </SurfaceCard>
           ) : null}
 
           {section === "holdings" ? (
