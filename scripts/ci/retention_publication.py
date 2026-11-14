@@ -159,8 +159,15 @@ def qualify(owner, repository, environment, run, job):
         )
     _legacy_actor(owner, attempt, run, number, environment)
     log = _log(owner, job)
+    static_manual = production is not None and job.get("name") == "Production revision maintenance"
+    view = job
+    if static_manual:
+        profile = importlib.import_module("retention_production_profile_evidence")
+        view = profile._static_cleanup_view(job, manual=True)
+        if view is None:
+            return None
     checkout = (
-        production.actual_checkout(log, job)
+        production.actual_checkout(log, view)
         if production is not None
         else evidence.actual_checkout(log, job)
     )
@@ -176,7 +183,9 @@ def qualify(owner, repository, environment, run, job):
     _require(owner, checkout is not None and re.fullmatch(r"[0-9a-f]{40}", checkout),
              "maintenance runner or checkout is unproved")
     blobs = _source(
-        owner, repository, checkout, production.SOURCE_PATHS if production else None
+        owner, repository, checkout,
+        tuple(production.MANUAL_STATIC_SOURCE_PROFILE) if static_manual
+        else production.SOURCE_PATHS if production else None
     )
     workflow = json.loads(
         owner.command(
