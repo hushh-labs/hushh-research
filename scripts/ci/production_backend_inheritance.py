@@ -139,7 +139,9 @@ def _inherit(repository, run, current, lane, *, api, governed, timestamp, run_co
     original = phone._document(archive, "prod-release-status.json")
     with ZipFile(BytesIO(archive)) as bundle:
         _require(
-            activation.ORIGIN not in bundle.namelist(),
+            not receipts._member_names(
+                activation.ORIGIN, allow_legacy_production=True
+            ).intersection(bundle.namelist()),
             "continuation is not an ordinary backend owner",
         )
     _require(
