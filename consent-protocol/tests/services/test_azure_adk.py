@@ -227,7 +227,8 @@ async def test_structured_contract_is_native_and_remains_subject_to_strict_host_
     assert wire["type"] == "json_schema" and wire["strict"] is True
     assert set(wire["schema"]["properties"]) == {"title", "confidence"}
     assert wire["schema"]["additionalProperties"] is False
-    assert wire["schema"]["properties"]["confidence"]["maximum"] == 100
+    assert "maximum" not in wire["schema"]["properties"]["confidence"]
+    assert Output.model_json_schema()["properties"]["confidence"]["maximum"] == 100
     with pytest.raises(ValidationError):
         Output.model_validate({"title": "Observed", "confidence": 101})
 
@@ -1236,6 +1237,7 @@ async def test_strict_response_schema_strips_validation_keywords_while_preservin
     from hushh_mcp.runtime_providers.azure_call_lifecycle import _failure_details
     from hushh_mcp.runtime_providers.azure_response_schema import response_format
     from hushh_mcp.services.calendar_email_followup_extraction import FollowupChunkAssessmentV1
+    from hushh_mcp.services.one_portfolio_review import PortfolioReview
 
     class StrictMemoryRewriteShape(BaseModel):
         model_config = ConfigDict(extra="forbid")
@@ -1243,6 +1245,7 @@ async def test_strict_response_schema_strips_validation_keywords_while_preservin
 
     fmt_mem, _ = response_format(StrictMemoryRewriteShape)
     fmt_fol, _ = response_format(FollowupChunkAssessmentV1)
+    fmt_review, _ = response_format(PortfolioReview)
     forbidden = {
         "minLength",
         "maxLength",
@@ -1250,6 +1253,9 @@ async def test_strict_response_schema_strips_validation_keywords_while_preservin
         "maxItems",
         "uniqueItems",
         "examples",
+        "minimum",
+        "maximum",
+        "multipleOf",
     }
 
     def collect_keys(node):
@@ -1266,6 +1272,7 @@ async def test_strict_response_schema_strips_validation_keywords_while_preservin
 
     assert not (collect_keys(fmt_mem["schema"]) & forbidden)
     assert not (collect_keys(fmt_fol["schema"]) & forbidden)
+    assert not (collect_keys(fmt_review["schema"]) & forbidden)
 
     # Host-side Pydantic validation in single_turn must still enforce min_length=1.
     adapter, _, _, _ = model([response(message('{"updated_markdown":""}'))])
@@ -1275,6 +1282,25 @@ async def test_strict_response_schema_strips_validation_keywords_while_preservin
         await run_single_turn(
             agent,
             prompt_parts="Synthetic memory rewrite",
+            user_id="synthetic-owner",
+            consent_token="synthetic-token",  # noqa: S106
+            timeout_seconds=5,
+        )
+
+    # Azure's wire limitations must not weaken the portfolio score boundary.
+    invalid_review = {
+        "score": 101,
+        "takeaway": "Synthetic portfolio review",
+        "reason": "Synthetic reason",
+        "next_step": "Review the sample allocation",
+        "advisor_reason": None,
+    }
+    adapter, _, _, _ = model([response(message(json.dumps(invalid_review)))])
+    agent = build_single_turn_agent(gene, output_schema=PortfolioReview, model=adapter)
+    with pytest.raises(ValidationError):
+        await run_single_turn(
+            agent,
+            prompt_parts="Synthetic portfolio review",
             user_id="synthetic-owner",
             consent_token="synthetic-token",  # noqa: S106
             timeout_seconds=5,

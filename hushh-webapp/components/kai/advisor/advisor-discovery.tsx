@@ -213,7 +213,7 @@ export function AdvisorDiscovery({ context, onChoose }: {
       </p> : null}
       {recommending && !recommendations.choosing ? <p className="ui-text-helper-text">Matches are based on stated services. Equal matches are tied.</p> : null}
       {tab !== "all" && result?.hasMore ? <ShellActionSurface variant="pill" className={styles.discoveryAction} disabled={busy} onClick={() => void search(result.search, result.page + 1)}>Load more advisors</ShellActionSurface> : null}
-      {result?.directory ? <div className={styles.notice}>
+      {result?.directory && rows.length > 0 ? <div className={styles.notice}>
         <p className="ui-text-helper-text">Office distances are approximate. {result.directory.meta.radiusAdjusted ? "The directory adjusted the requested radius." : ""} Directory-only profiles cannot receive an in-app request.</p>
         <a href={result.directory.attribution.sourceUrl} target="_blank" rel="noreferrer">{result.directory.attribution.source}</a><span> · </span>
         <a href={result.directory.attribution.termsUrl} target="_blank" rel="noreferrer">Directory terms</a>
