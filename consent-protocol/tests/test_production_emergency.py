@@ -442,7 +442,25 @@ def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch, tm
         path.chmod(0o700)
     cases = (
         ({}, 0, "--no-candidates"),
-        ({"AUTH_DOMAIN_REPAIR": "false"}, 0, "--environment production"),
+        ({"AUTH_DOMAIN_REPAIR": "false"}, 0, "--no-candidates"),
+        ({"AUTH_DOMAIN_REPAIR": "false", "STAGED_WORKER_LOADED": ""}, 0, "--no-candidates"),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "REQUESTED_SCOPE": "backend"},
+            0,
+            "--environment production",
+        ),
+        ({"AUTH_DOMAIN_REPAIR": "false", "REQUESTED_SCOPE": "all"}, 0, "--environment production"),
+        ({"AUTH_DOMAIN_REPAIR": "false", "REQUESTED_SCOPE": "auto"}, 0, "--environment production"),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "STAGED_WORKER_LOADED": "true"},
+            0,
+            "--candidate-service consent-protocol",
+        ),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "RESTORATION_RUN": "42"},
+            0,
+            "--candidate-service consent-protocol",
+        ),
         (
             {"AUTH_DOMAIN_REPAIR": "false", "PHONE_DEPLOY_PHASE": "cold"},
             0,
@@ -476,7 +494,7 @@ def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch, tm
             assert not capture.exists()
         else:
             assert capture.read_text().strip().endswith(suffix)
-            if overrides.get("AUTH_DOMAIN_REPAIR") == "false":
+            if suffix != "--no-candidates":
                 assert "--no-candidates" not in capture.read_text().split()
 
 

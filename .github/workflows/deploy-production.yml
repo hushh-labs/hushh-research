@@ -779,6 +779,10 @@ jobs:
             # every live/retained workload and reserve, without fictional slots.
             [[ "$REQUESTED_SCOPE" == frontend && "$PHONE_DEPLOY_PHASE" == standard && "$STAGED_WORKER_LOADED" == false && -z "$RESTORATION_RUN$PHONE_ROLLBACK_SHA" ]] || exit 1
             extra=(--no-candidates)
+          elif [[ "${REQUESTED_SCOPE:-auto}" == frontend && "$PHONE_DEPLOY_PHASE" == standard && "${STAGED_WORKER_LOADED:-false}" == false && -z "$RESTORATION_RUN$PHONE_ROLLBACK_SHA" ]]; then
+            # Frontend-only rollout adds no database workload. Still account
+            # for every serving/retained revision, job and administrative reserve.
+            extra=(--no-candidates)
           elif [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
             extra=(--candidate-service consent-protocol)
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
