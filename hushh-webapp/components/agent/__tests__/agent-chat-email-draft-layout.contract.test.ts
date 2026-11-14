@@ -37,6 +37,7 @@ function historyCallbacks() {
     toast: { success: vi.fn(), error: vi.fn(), promise: vi.fn() },
     historyInteractionDisabled: false, conversationId: "selected-chat", conversationIdRef: { current: "selected-chat" },
     currentDraftRef: { current: { input: "Unsent synthetic draft", attachment: { text: "Synthetic attachment" } } },
+    chatMemory: { withdrawConversation: vi.fn(async () => undefined) },
     handleHistoryDrawerOpenChange: vi.fn(), handleCreateNewChat: vi.fn(),
   };
   const callbacks = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as {
@@ -90,7 +91,8 @@ describe("History caller authority", () => {
     deps.deleteAgentChatConversation.mockResolvedValueOnce(undefined);
     deps.warmAgentChatHistoryCache.mockResolvedValue({ conversations: [] });
     await callbacks.handleDeleteConversation("selected-chat");
-    expect(deps.handleCreateNewChat).toHaveBeenCalledTimes(1);
+    expect(deps.chatMemory.withdrawConversation).toHaveBeenCalledWith("selected-chat");
+    expect(deps.handleCreateNewChat).toHaveBeenCalledWith({ triggerMemory: false });
     expect(deps.setConversations).toHaveBeenCalledTimes(1);
     expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner");
     expect(deps.clearAgentChatHistoryCache.mock.invocationCallOrder[0]).toBeLessThan(deps.warmAgentChatHistoryCache.mock.invocationCallOrder[0]);
@@ -135,7 +137,7 @@ describe("Initial history warm return", () => {
       await vi.waitFor(() => expect(deps.setHistoryReadyForSlot).toHaveBeenCalledWith(true));
       expect(deps.warmAgentChatHistoryCache).toHaveBeenCalledTimes(1);
       expect(deps.setIsLoadingHistory).not.toHaveBeenCalledWith(true);
-      expect(deps.setMessages.mock.calls[0][0]([])[0]).toEqual({ id: "cached" });
+      expect(deps.setMessages.mock.calls[0][0]([])[0]).toEqual({ id: "cached", restoredFromHistory: true });
       if (watched) {
         expect(deps.setMessages.mock.calls[0][0]([])[1]).toMatchObject({ status: "streaming" });
         watched = false;
@@ -151,7 +153,7 @@ describe("Initial history warm return", () => {
       await pending;
       if (transition === "current" || transition === "watched turn") {
         expect(deps.loadAgentChatConversationHistory).toHaveBeenCalledWith(expect.objectContaining({ force: true }));
-        expect(deps.setMessages.mock.calls[0][0]([])).toEqual([{ id: "refreshed" }]);
+        expect(deps.setMessages.mock.calls[0][0]([])).toEqual([{ id: "refreshed", restoredFromHistory: true }]);
       } else {
         expect(deps.setMessages).not.toHaveBeenCalled();
       }

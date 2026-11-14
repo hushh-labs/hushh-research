@@ -70,9 +70,9 @@ const MAX_BATCH_EVENTS = 120;
 const DUE_PENDING = 20;
 const DUE_OLDEST_MS = 10 * 60_000;
 const MIN_RUN_GAP_MS = 5 * 60_000;
-// Stay clear of memory.md's hard ceilings (256 bullets, 18,000 characters).
+// Stay clear of memory.md's hard ceilings (256 reconciliation bullets, MAX_MARKDOWN_MEMORY_CHARS).
 const MEMORY_FULL_BULLETS = 240;
-const MEMORY_FULL_CHARS = 17_000;
+const MEMORY_FULL_CHARS = MAX_MARKDOWN_MEMORY_CHARS - 1_000;
 
 const inFlight = new Set<string>();
 /** memory.md length at which staging last would have overflowed; no model call until it shrinks. */
