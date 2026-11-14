@@ -6,12 +6,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT / "consent-protocol" / "db") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "consent-protocol" / "db"))
+
+from migration_forward_governance import verify_forward_and_parked_governance  # noqa: E402
+
 MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
 MANIFEST_PATH = REPO_ROOT / "consent-protocol" / "db" / "release_migration_manifest.json"
+DEV_MANIFEST_PATH = REPO_ROOT / "consent-protocol" / "db" / "dev_migration_manifest.json"
 UAT_CONTRACT_PATH = (
     REPO_ROOT / "consent-protocol" / "db" / "contracts" / "uat_integrated_schema.json"
 )
@@ -74,17 +81,13 @@ def build_report() -> dict:
         raw_overlays.get("uat"), label="environment_overlays.uat", violations=violations
     )
 
-    canonical_entries = sorted(
-        ordered + uat_overlay,
-        key=_migration_version,
-    )
-    duplicate_entries = sorted(
-        name for name, count in Counter(canonical_entries).items() if count != 1
-    )
+    canonical_entries = sorted(ordered + uat_overlay, key=_migration_version)
+    duplicate_entries = sorted(name for name, count in Counter(canonical_entries).items() if count != 1)
     if duplicate_entries:
-        violations.append(
-            "release_manifest_duplicate_canonical_entries:" + ",".join(duplicate_entries)
-        )
+        violations.append("release_manifest_duplicate_canonical_entries:" + ",".join(duplicate_entries))
+    violations.extend(
+        verify_forward_and_parked_governance(MIGRATIONS_DIR, DEV_MANIFEST_PATH, canonical_entries)
+    )
 
     groups = manifest.get("groups")
     if not isinstance(groups, dict):
