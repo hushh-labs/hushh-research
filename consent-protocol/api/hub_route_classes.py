@@ -368,6 +368,7 @@ GET /api/one/voice/readiness
 GET /api/pkm/domain-registry
 POST /api/pkm/slice-price
 [OPS]
+POST /api/one/metrics/adoption
 POST /api/one/plg/subscriptions/pull
 POST /api/one/plg/subscriptions/ack
 GET,POST /api/one/plg/activity

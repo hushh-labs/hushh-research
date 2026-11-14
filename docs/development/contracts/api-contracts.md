@@ -58,6 +58,75 @@ flowchart TB
 ```
 
 ---
+## Metrics aggregate source
+
+`POST /api/one/metrics/adoption` is a server-only read for Metrics #184. It is
+not a browser/native owner export, account directory, campaign or mail endpoint.
+The Metrics collector signs its exact JSON bytes with HMAC-SHA256 over
+`metrics-one-aggregate-v1:{timestamp milliseconds}:{body}` in
+`X-Metrics-Timestamp` / `X-Metrics-Signature`. The timestamp must be within one
+minute; the body is bounded to 2,000 bytes. PLG signing credentials are not reused.
+
+The route is default-off. Admission requires all of:
+
+- `ONE_METRICS_ADOPTION_ENABLED=true`, production auth lane and exact
+  `GOOGLE_CLOUD_PROJECT=hushh-pda`; other lanes cannot borrow production records.
+- A separately managed `ONE_METRICS_ADOPTION_SECRET` and explicit approved
+  `ONE_METRICS_ADOPTION_BINDING_JSON`. No setting/key is installed by this code.
+- Binding fields `approved`, `definitionVersion`, `sourceGeneration`,
+  `scopeDigest`, `populationPolicyRevision`, `reconciliationDigest`, `coverageFrom`.
+  The generation/scope/version must match the request and the population revision
+  must match the existing current reporting policy. An evidence digest is not
+  proof that its underlying reconciliation passed; activation requires review.
+
+The request contains exactly `period: {startDate,endDate,timezone}`,
+`definitionVersion`, `sourceGeneration`, `scopeDigest`. Dates use complete source
+calendar days and a half-open timestamp interval, including DST days. Only recent
+windows within seven days and the explicitly reviewed coverage start are admitted.
+There is no owner/account override or source URL/query supplied by the caller.
+
+The proposed meaningful-activity definition is a persisted successful assistant
+reply to a persisted user message, or a confirmed domain effect. Page views,
+health pings, client observations and provider returns alone do not qualify.
+Effects reuse `plg_outcomes.value_summaries(..., 'agent_one', ...)` and its existing
+source-owned proof/deduplication rules; a Mail/KYC effect is not counted twice.
+Accounts are stable source IDs, not devices or inferred unique people.
+
+The backend retains all identity and effect records. It applies existing current
+Firebase eligibility, canonical identities, verified aliases, staff/test
+exclusions and deletion barriers before counting. The first connection retains
+canonical READ COMMITTED lifecycle/identity locks; a second read-only REPEATABLE
+READ transaction supplies one coherent business-record snapshot. Candidate
+membership is rechecked in that snapshot. Identity/policy/binding changes refuse
+the result. No source RLS policy, grant, table, retention or record is modified;
+an RLS-filtered role must fail rather than return a misleading global zero.
+
+Fifty candidate accounts is the existing lifecycle/identity helper boundary, not
+a sample or a new numerical operating target. Overflow or an existing domain
+adapter's limit refuses the whole result. This candidate therefore does not yet
+establish large-population capacity. Five-second SQL/one-second lock bounds and
+the twenty-second overall ceiling are safety bounds requiring native workload
+qualification before activation, not accepted performance objectives. The read
+can reserve two existing pool connections; qualify concurrency accordingly.
+
+The response contains only the two aggregate metric values and their
+`coverage/unit/basis`, source generation/scope/definition, requested period,
+source snapshot/check timestamps and reconciliation status. Coverage remains
+**partial**: retained positive records do not prove complete capture or historical
+deletion/identity coverage. Missing observations never establish inactivity.
+No user ID, email/phone, prompt, result body, effect key or resource handle leaves
+the backend. The database snapshot time is not an all-device ingestion watermark.
+
+All responses are `private, no-store`. Disabled scope is 404, bad signature 401,
+invalid request 400 and unavailable/changed/overflow source 503, with neutral
+messages. No web/native proxy is added: this is the collector-to-backend paired
+contract in Metrics PR #186. There is no collection schedule or sending path.
+
+Source implementation/testing is separate from definition review, independent
+native fixed-period reconciliation, reviewed source activation and exact-source
+backend release. Do not enable the collector binding or claim Metrics live-data
+acceptance from fixture tests alone. BigQuery stays off; CI/CD remains unchanged.
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
