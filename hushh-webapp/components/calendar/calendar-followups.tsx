@@ -27,6 +27,7 @@ import { CalendarFollowupsService, type FollowupConversation, type FollowupDetai
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
   getIdToken: () => Promise<string>; getVaultOwnerToken: () => string | null;
+  recoverVaultOwnerToken?: () => Promise<string | null>;
   onViewAll: () => void; onConnectMail?: (accountId: string) => Promise<boolean>;
   onReviewMeeting: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
   refreshRevision?: number;
@@ -60,7 +61,7 @@ function isVisible(request: FollowupRequest) {
   return isActive(request) && request.bucket !== "history";
 }
 
-export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
+export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, recoverVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
   const [list, setList] = useState<FollowupList | null>(null);
   const [detail, setDetail] = useState<FollowupDetail | null>(null);
@@ -98,6 +99,26 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const rebound = useRef(false);
   const progressChecks = useRef(0);
   const vaultAvailable = Boolean(getVaultOwnerToken());
+  const recovery = useRef(recoverVaultOwnerToken); recovery.current = recoverVaultOwnerToken;
+  const requireOwnerToken = useCallback(async (lockedMessage: string) => {
+    const controller = lifetime.current;
+    let token = ownerTokenGetter.current();
+    if (!token) token = await recovery.current?.() ?? null;
+    if (controller !== lifetime.current || controller?.signal.aborted) {
+      throw new DOMException("Follow-up session changed", "AbortError");
+    }
+    if (!token) throw new Error(lockedMessage);
+    return token;
+  }, []);
+
+  const currentIdToken = async (ownerToken: string) => {
+    const controller = lifetime.current;
+    const idToken = await tokenGetter.current();
+    if (controller !== lifetime.current || controller?.signal.aborted || ownerTokenGetter.current() !== ownerToken) {
+      throw new DOMException("Follow-up session changed", "AbortError");
+    }
+    return idToken;
+  };
 
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
@@ -115,14 +136,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (!nextStatus.mail_connected || !nextStatus.monitoring_enabled) {
         setList(null); setLoading(false); return;
       }
-      const ownerToken = ownerTokenGetter.current();
-      if (!ownerToken) {
-        firstPageRef.current = null;
-        setList(null);
-        if (!quiet) setError("Unlock One to view follow-ups.");
-        setLoading(false);
-        return;
-      }
+      const ownerToken = await requireOwnerToken("Unlock One to view follow-ups.");
+      if (!alive()) return;
       let offset = pageOffsetRef.current;
       const selectedView = viewRef.current;
       let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
@@ -137,11 +152,16 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
       }
     } catch (failure) {
+      if (alive() && !ownerTokenGetter.current()) {
+        firstPageRef.current = null;
+        hasVerifiedRows.current = false;
+        setList(null);
+      }
       // Neither a background refresh nor a failed reload replaces items the owner
       // is already looking at with an error: the last verified list stays.
       if (alive() && !quiet) { if (!hasVerifiedRows.current) setError(followupErrorText(failure)); setLoading(false); }
     }
-  }, [userId, accountId]);
+  }, [userId, accountId, requireOwnerToken]);
 
   useEffect(() => {
     if (expanded) return;
@@ -282,9 +302,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     setSelectedId(conversationId); setDetail(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to review this follow-up.");
-      const value = await CalendarFollowupsService.detail(userId, accountId, conversationId, await getIdToken(), ownerToken);
+      const ownerToken = await requireOwnerToken("Unlock One to review this follow-up.");
+      const value = await CalendarFollowupsService.detail(userId, accountId, conversationId, await currentIdToken(ownerToken), ownerToken);
       if (lifetime.current?.signal.aborted || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
       setDetail(value);
       return true;
@@ -296,11 +315,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     const currentSelection = selectedIdRef.current;
     const seq = detailSeq.current;
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to change this follow-up.");
-      await CalendarFollowupsService.change(userId, accountId, request, action, reminderAt, await getIdToken(), ownerToken);
+      const ownerToken = await requireOwnerToken("Unlock One to change this follow-up.");
+      await CalendarFollowupsService.change(userId, accountId, request, action, reminderAt, await currentIdToken(ownerToken), ownerToken);
       if (currentSelection) {
-        const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await getIdToken(), ownerToken);
+        const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await currentIdToken(ownerToken), ownerToken);
         if (detailSeq.current === seq && selectedIdRef.current === currentSelection) setDetail(next);
       }
       await refresh(lifetime.current?.signal, true);
@@ -317,15 +335,14 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     setBusy(true); setError("");
     try {
       // Asking Google first would waste the owner's consent on a step that cannot finish.
-      if (!getVaultOwnerToken()) throw new Error("Unlock One before turning on email follow-ups.");
+      await requireOwnerToken("Unlock One before turning on email follow-ups.");
       let mailReady = Boolean(status?.mail_connected);
       if (!mailReady) {
         if (!onConnectMail) return;
         mailReady = await onConnectMail(accountId);
         if (!mailReady) { setError("Email access was not allowed. Calendar works as before."); return; }
       }
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One before turning on email follow-ups.");
+      const ownerToken = await requireOwnerToken("Unlock One before turning on email follow-ups.");
       // Renewing access for an account that is already monitored keeps its
       // approved period, timing and reminders; only a first opt-in chooses them.
       const existing = status?.monitoring_enabled ? status : null;
@@ -336,8 +353,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         historical_start_at: historical,
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
-      }, await getIdToken(), ownerToken);
-      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
+      }, await currentIdToken(ownerToken), ownerToken);
+      const first = await CalendarFollowupsService.scan(userId, accountId, await currentIdToken(ownerToken), ownerToken);
       lastCatchUp.set(`${userId}:${accountId}`, Date.now());
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal);
@@ -350,9 +367,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const checkAgain = async () => {
     setBusy(true); setError("");
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to check your email again.");
-      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
+      const ownerToken = await requireOwnerToken("Unlock One to check your email again.");
+      const first = await CalendarFollowupsService.scan(userId, accountId, await currentIdToken(ownerToken), ownerToken, { retry: true });
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal, true);
       if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
@@ -364,7 +380,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!onConnectMail) return;
     setBusy(true); setError("");
     try {
-      if (!getVaultOwnerToken()) throw new Error("Unlock One to renew email access.");
+      await requireOwnerToken("Unlock One to renew email access.");
       const connected = await onConnectMail(accountId);
       if (connected) {
         // Reconnecting changes the Mail grant, so point the monitor at it first;
@@ -385,10 +401,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     const seq = ++requestSeq.current;
     setLoadingPage(true); setError("");
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
+      const ownerToken = await requireOwnerToken("Unlock One to view follow-ups.");
       const page = await CalendarFollowupsService.list(
-        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset, targetView,
+        userId, accountId, await currentIdToken(ownerToken), ownerToken, lifetime.current?.signal, offset, targetView,
       );
       if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
       if (offset === 0 && targetView === "upcoming") firstPageRef.current = page;
@@ -413,9 +428,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     removing.current = true;
     setBusy(true);
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to remove this follow-up.");
-      const idToken = await getIdToken();
+      const ownerToken = await requireOwnerToken("Unlock One to remove this follow-up.");
+      const idToken = await currentIdToken(ownerToken);
       const latest = await CalendarFollowupsService.detail(userId, accountId, removal.conversationId, idToken, ownerToken);
       if (lifetime.current?.signal.aborted) return;
       const request = latest.requests.find(item => item.id === removal.requestId && isVisible(item));
@@ -455,10 +469,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!deepLinkRequestId || !status?.monitoring_enabled || !list || handledIntent.current === deepLinkRequestId) return;
     void (async () => {
       try {
-        const ownerToken = getVaultOwnerToken();
-        if (!ownerToken) throw new Error("Unlock One to open this follow-up.");
+        const ownerToken = await requireOwnerToken("Unlock One to open this follow-up.");
         const target = await CalendarFollowupsService.resolve(
-          userId, accountId, deepLinkRequestId, await getIdToken(), ownerToken, lifetime.current?.signal,
+          userId, accountId, deepLinkRequestId, await currentIdToken(ownerToken), ownerToken, lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
         if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
@@ -472,7 +485,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "upcoming" ? (list?.conversations || []).slice(0, 2) : [];
   const viewCounts = list?.view_counts;
   const hasMoreViews = Boolean(viewCounts && (viewCounts.overdue || viewCounts.snoozed));
-  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
+  const notice = status?.monitoring_enabled && !loading && !error ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
@@ -519,7 +532,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
       </div> : null}
       {!notice && showSynced && emailSynced ? <p className={styles.muted} role="status">{SYNCED_NOTICE}</p> : null}
-      {error ? <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p> : null}
+      {error ? <div className="space-y-2">
+        <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p>
+        {error === "Your secure connection could not be restored. Try again." ? <Button size="compact" disabled={loading} onClick={() => void refresh(lifetime.current?.signal)}>Try again</Button> : null}
+      </div> : null}
       <div className="flex items-center justify-between gap-2">
         {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="text" onClick={onViewAll}>View all</Button> : <span />}
       </div>

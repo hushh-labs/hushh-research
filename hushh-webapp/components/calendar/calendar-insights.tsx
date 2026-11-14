@@ -60,10 +60,10 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   </div>;
 }
 
-export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
+export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, recoverVaultOwnerToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
   connectionRevision?: number; refreshRevision?: number; refreshControl?: "inline" | "external"; initialLibrary?: CalendarMeetingReturnContext | null;
-  getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null;
+  getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null; recoverVaultOwnerToken?: () => Promise<string | null>;
   onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
   onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
   onReviewFollowupMeeting?: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
@@ -474,7 +474,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     {view === "overview" || view === "followups" ? <CalendarFollowups
       userId={userId} accountId={account.account_id} accountEmail={account.google_email || "this account"}
       zone={zone} expanded={view === "followups"} getIdToken={getIdToken}
-      getVaultOwnerToken={getVaultOwnerToken} onConnectMail={onFollowupMailConnect}
+      getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onConnectMail={onFollowupMailConnect}
       refreshRevision={refreshRevision} onViewAll={() => setView("followups")} onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
       deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled} /> : null}
     {view === "overview" ? <>
