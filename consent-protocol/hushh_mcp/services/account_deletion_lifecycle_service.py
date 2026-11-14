@@ -1194,12 +1194,14 @@ class AccountDeletionLifecycleService:
         user_id: str,
         *,
         expected_phone_digest: str,
+        firebase_app=None,
     ) -> FirebaseCleanupAttempt | None:
         """Re-fetch the exact UID and fail safe unless its phone proof still matches."""
         try:
             from firebase_admin import auth as firebase_auth
 
-            firebase_app = get_firebase_auth_app()
+            if firebase_app is None:
+                firebase_app = get_firebase_auth_app()
             user_record = await asyncio.wait_for(
                 asyncio.to_thread(
                     firebase_auth.get_user,
@@ -1266,7 +1268,6 @@ class AccountDeletionLifecycleService:
         for attempt_number in range(1, _FIREBASE_DELETE_MAX_ATTEMPTS + 1):
             try:
                 firebase_app = get_firebase_auth_app()
-                assert_firebase_identity_mutation_allowed(firebase_app)
                 if intent_kind == "phone_orphan":
                     if expected_phone_digest is None:
                         return FirebaseCleanupAttempt(
@@ -1276,9 +1277,11 @@ class AccountDeletionLifecycleService:
                     validation_result = await self._revalidate_phone_orphan_cleanup(
                         normalized,
                         expected_phone_digest=expected_phone_digest,
+                        firebase_app=firebase_app,
                     )
                     if validation_result is not None:
                         return validation_result
+                assert_firebase_identity_mutation_allowed(firebase_app)
                 from firebase_admin import auth as firebase_auth
 
                 await asyncio.wait_for(

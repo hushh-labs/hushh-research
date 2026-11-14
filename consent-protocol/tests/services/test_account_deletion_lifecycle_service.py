@@ -52,6 +52,20 @@ def _guarded_inventory_row(table_name: str, *identity_columns: str) -> dict:
     }
 
 
+@pytest.fixture(autouse=True)
+def isolate_firebase_cleanup_app(monkeypatch):
+    from hushh_mcp import runtime_settings
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
+    runtime_settings.clear_runtime_settings_caches()
+    monkeypatch.setattr(
+        lifecycle_module,
+        "get_firebase_auth_app",
+        lambda: SimpleNamespace(project_id="hushh-pda-uat"),
+    )
+
+
 def test_account_deletion_hash_is_stable_and_does_not_retain_uid():
     user_id = "firebase-sensitive-uid"
 

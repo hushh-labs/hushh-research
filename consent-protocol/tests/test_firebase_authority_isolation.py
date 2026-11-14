@@ -54,6 +54,49 @@ def test_existing_default_app_cannot_override_canonical_credentials(monkeypatch)
         authority.ensure_firebase_admin()
 
 
+@pytest.mark.parametrize("exists", [False, True])
+def test_shared_uat_phone_cleanup_observes_absence_without_mutation(monkeypatch, exists):
+    from firebase_admin import auth
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
+    app = SimpleNamespace(project_id="hushh-pda")
+    monkeypatch.setattr(lifecycle, "get_firebase_auth_app", lambda: app)
+    uid, phone = "old-phone-proof", "+16505550101"
+    lookup = MagicMock(
+        return_value=SimpleNamespace(
+            uid=uid,
+            phone_number=phone,
+            email=None,
+            provider_data=[SimpleNamespace(provider_id="phone")],
+        )
+    )
+    if not exists:
+        lookup.side_effect = auth.UserNotFoundError("Synthetic absent identity")
+    delete, update, revoke = MagicMock(), MagicMock(), MagicMock()
+    monkeypatch.setattr(auth, "get_user", lookup)
+    monkeypatch.setattr(auth, "delete_user", delete)
+    monkeypatch.setattr(auth, "update_user", update)
+    monkeypatch.setattr(auth, "revoke_refresh_tokens", revoke)
+
+    result = asyncio.run(
+        lifecycle.AccountDeletionLifecycleService().delete_or_quarantine_firebase_identity(
+            uid,
+            intent_kind="phone_orphan",
+            expected_phone_digest=lifecycle.account_deletion_phone_digest(phone),
+        )
+    )
+
+    lookup.assert_called_once_with(uid, app=app)
+    assert result.outcome == ("retry_pending" if exists else "not_found")
+    assert result.classification == (
+        "firebase_authority_mismatch" if exists else "firebase_user_not_found"
+    )
+    delete.assert_not_called()
+    update.assert_not_called()
+    revoke.assert_not_called()
+
+
 def test_adc_project_mismatch_cannot_fall_back_to_an_existing_app(monkeypatch):
     import firebase_admin
     from firebase_admin import credentials
