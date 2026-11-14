@@ -16,6 +16,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "docs/architecture/runtime-db-data-plane-contract.json"
 MIGRATIONS_DIR = REPO_ROOT / "consent-protocol/db/migrations"
+LEGACY_INIT_SCHEMA_PATH = REPO_ROOT / "consent-protocol/db/legacy/init_legacy_schema.sql"
 RUNTIME_SCAN_ROOTS = [
     REPO_ROOT / "consent-protocol/api",
     REPO_ROOT / "consent-protocol/hushh_mcp",
@@ -38,6 +39,155 @@ DYNAMIC_SQL_PREFIX_RE = re.compile(
 )
 SQL_WRITE_TEMPLATE = r"\b(?:INSERT\s+INTO|UPDATE)\s+(?:public\.)?{table}\b"
 DB_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
+IDENTITY_COLUMN_RE = re.compile(
+    r"^(?:user_id|firebase_uid|user_[a-z0-9]+_id|.*_user_id|.*_firebase_uid)$"
+)
+CREATE_TABLE_HEAD_RE = re.compile(
+    rf"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    rf"(?:(?P<schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<table>{_SQL_IDENTIFIER})\s*\(",
+    re.IGNORECASE,
+)
+DROP_TABLE_DDL_RE = re.compile(
+    rf"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"
+    rf"(?:(?P<schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<table>{_SQL_IDENTIFIER})\b",
+    re.IGNORECASE,
+)
+ALTER_TABLE_DDL_RE = re.compile(
+    rf"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?"
+    rf"(?:(?P<schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<table>{_SQL_IDENTIFIER})\s+(?P<ops>[^;]+);",
+    re.IGNORECASE,
+)
+CREATE_INDEX_HEAD_RE = re.compile(
+    rf"\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"
+    rf"(?:(?P<idx>{_SQL_IDENTIFIER})\s+)?ON\s+(?:ONLY\s+)?"
+    rf"(?:(?P<schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<table>{_SQL_IDENTIFIER})"
+    rf"(?:\s+USING\s+{_SQL_IDENTIFIER})?\s*\(",
+    re.IGNORECASE,
+)
+DROP_INDEX_DDL_RE = re.compile(
+    rf"\bDROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?"
+    rf"(?:(?P<schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<idx>{_SQL_IDENTIFIER})\b",
+    re.IGNORECASE,
+)
+CONSTRAINT_START_RE = re.compile(
+    rf"^(?:CONSTRAINT\s+{_SQL_IDENTIFIER}\s+)?"
+    r"(?:PRIMARY\s+KEY|UNIQUE|CHECK|FOREIGN\s+KEY|EXCLUDE)\b",
+    re.IGNORECASE,
+)
+PK_OR_UNIQUE_TABLE_RE = re.compile(
+    rf"^(?:CONSTRAINT\s+{_SQL_IDENTIFIER}\s+)?(?:PRIMARY\s+KEY|UNIQUE)\s*\((.+)\)",
+    re.IGNORECASE | re.DOTALL,
+)
+COLUMN_DEFINITION_RE = re.compile(
+    rf"^(?P<col>{_SQL_IDENTIFIER})\s+(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+FROZEN_PROVIDER_CACHE_TABLES: frozenset[str] = frozenset(
+    {
+        "calendar_attendance_reviews",
+        "crm_schema_catalog_cache",
+        "crm_schema_mapping_cache",
+        "drive_group_index",
+        "drive_group_index_state",
+        "google_calendar_action_proposals",
+        "google_calendar_additional_accounts",
+        "google_oauth_attempts",
+        "google_provider_connections",
+        "google_service_grants",
+        "kai_gmail_connections",
+        "kai_gmail_receipts",
+        "kai_gmail_sync_runs",
+        "kai_receipt_memory_artifacts",
+    }
+)
+
+FROZEN_UNINDEXED_IDENTITY_COLUMNS: frozenset[str] = frozenset(
+    {
+        "account_phone_transfers.previous_user_id",
+        "calendar_attendance_reviews.user_id",
+        "chat_push_device_deliveries.recipient_user_id",
+        "circle_chat_membership_events.actor_user_id",
+        "circle_chat_membership_events.subject_user_id",
+        "circle_chat_preferences.user_id",
+        "circle_chat_reactions.user_id",
+        "connected_system_intent_approval_challenges.user_id",
+        "connection_scope_proposal_events.actor_user_id",
+        "developer_oauth_audit_events.subject_firebase_uid",
+        "developer_oauth_authorizations.subject_firebase_uid",
+        "developer_oauth_tokens.subject_firebase_uid",
+        "direct_message_push_outbox.recipient_user_id",
+        "direct_message_reactions.user_id",
+        "document_delivery_activity.actor_user_id",
+        "document_delivery_background_activity.actor_user_id",
+        "document_delivery_contracts.owner_user_id",
+        "document_delivery_key_challenges.user_id",
+        "drive_bulk_share_effects.recipient_user_id",
+        "drive_bulk_share_effects.user_id",
+        "drive_bulk_share_notifications.recipient_user_id",
+        "drive_bulk_share_notifications.user_id",
+        "drive_bulk_share_recipients.recipient_user_id",
+        "drive_bulk_share_recipients.user_id",
+        "drive_document_fact_pages.user_id",
+        "drive_document_facts.user_id",
+        "drive_document_rules.recipient_user_id",
+        "drive_owner_search_results.user_id",
+        "drive_packet_listings.user_id",
+        "drive_packet_versions.user_id",
+        "drive_query_events.user_id",
+        "drive_request_bulk_removals.recipient_user_id",
+        "drive_request_bulk_removals.user_id",
+        "drive_request_payment_orders.user_id",
+        "drive_share_events.user_id",
+        "drive_share_file_claims.bulk_recipient_user_id",
+        "drive_share_management_contexts.user_id",
+        "drive_share_reviews.user_id",
+        "email_auth_challenges.user_id",
+        "fabric_consent_requests.user_id",
+        "google_oauth_attempts.user_id",
+        "kai_analyze_runs.user_id",
+        "marketplace_access_requests.buyer_user_id",
+        "marketplace_delivery_envelopes.buyer_user_id",
+        "marketplace_delivery_envelopes.owner_user_id",
+        "one_adk_sessions.user_id",
+        "one_location_access_requests.referred_by_user_id",
+        "one_location_circle_invite_codes.created_by_user_id",
+        "one_location_circle_member_invites.inviter_user_id",
+        "one_location_envelopes.owner_user_id",
+        "one_location_envelopes.recipient_user_id",
+        "one_location_events.actor_user_id",
+        "one_location_network_connections.invitee_user_id",
+        "one_location_network_connections.inviter_user_id",
+        "one_location_onboarding_drafts.user_id",
+        "one_location_onboarding_interactions.user_id",
+        "one_location_pkm_finalize_authorizations.user_id",
+        "one_location_public_invite_submissions.matched_user_id",
+        "one_location_referrals.referred_user_id",
+        "one_location_referrals.referring_user_id",
+        "one_profile_discovery_events.user_id",
+        "one_profile_discovery_feed_outbox.user_id",
+        "one_referral_circle_contributions.user_id",
+        "one_referral_leaderboard_snapshot_entries.user_id",
+        "one_referral_network_members.parent_user_id",
+        "one_referral_scoring_jobs.user_id",
+        "pwm_claim_invitations.recipient_user_id",
+        "relationship_share_events.provider_user_id",
+        "relationship_share_events.receiver_user_id",
+        "ria_client_invites.accepted_by_user_id",
+        "ria_pick_share_artifacts.provider_user_id",
+        "scope_commerce_provider_operations.user_id",
+        "scope_commerce_purchases.owner_user_id",
+        "scope_commerce_purchases.payer_user_id",
+        "scope_commerce_quotes.owner_user_id",
+        "scope_commerce_quotes.payer_user_id",
+        "scope_commerce_withdrawals.user_id",
+        "system_push_outbox.recipient_user_id",
+        "trusted_device_authorizations.user_id",
+        "trusted_device_challenges.user_id",
+        "wallet_card_access_audit.actor_user_id",
+        "webauthn_challenges.user_id",
+    }
+)
 
 PKM_PROBE_COLUMNS = {
     "pkm_blobs": {
@@ -397,6 +547,194 @@ def _table_classification(
     return classified, unclassified
 
 
+def _find_balanced_parens(code: str, open_index: int) -> tuple[str, int]:
+    depth = 1
+    index = open_index + 1
+    in_quotes = False
+    while index < len(code) and depth > 0:
+        if code[index] == '"':
+            in_quotes = not in_quotes
+        elif not in_quotes:
+            if code[index] == "(":
+                depth += 1
+            elif code[index] == ")":
+                depth -= 1
+        index += 1
+    return code[open_index + 1 : index - 1], index
+
+
+def _split_top_level_commas(body: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    in_quotes = False
+    for index, ch in enumerate(body):
+        if ch == '"':
+            in_quotes = not in_quotes
+        elif not in_quotes:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth = max(0, depth - 1)
+            elif ch == "," and depth == 0:
+                piece = body[start:index].strip()
+                if piece:
+                    parts.append(piece)
+                start = index + 1
+    tail = body[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _extract_leading_index_column(expr_list: str) -> str | None:
+    items = _split_top_level_commas(expr_list)
+    if not items:
+        return None
+    match = re.match(rf"^({_SQL_IDENTIFIER})(?:\s|$)", items[0])
+    return _sql_identifier(match.group(1)) if match else None
+
+
+def _is_array_type(type_tail: str) -> bool:
+    tokens = type_tail.split()
+    if not tokens:
+        return False
+    return (
+        "[]" in tokens[0]
+        or re.match(r"^[a-z0-9_]+\s*\[\s*\]|^ARRAY\b", type_tail, re.IGNORECASE) is not None
+    )
+
+
+def _unindexed_identity_columns() -> list[str]:
+    """Return sorted ``table.column`` scalar identity columns lacking a leading index."""
+    tables: dict[str, dict[str, set[str]]] = {}
+    indexes: dict[str, tuple[str, str]] = {}
+    for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        code = _strip_sql_comments_and_literals(
+            migration.read_text(encoding="utf-8", errors="ignore")
+        )
+        pos = 0
+        while match := CREATE_TABLE_HEAD_RE.search(code, pos):
+            body, pos = _find_balanced_parens(code, match.end() - 1)
+            schema = _sql_identifier(match.group("schema")) if match.group("schema") else "public"
+            if schema != "public":
+                continue
+            table_name = _sql_identifier(match.group("table"))
+            table_info = tables.setdefault(table_name, {"cols": set(), "inline_indexed": set()})
+            for item in _split_top_level_commas(body):
+                if pku := PK_OR_UNIQUE_TABLE_RE.match(item):
+                    if leading := _extract_leading_index_column(pku.group(1)):
+                        table_info["inline_indexed"].add(leading)
+                    continue
+                if CONSTRAINT_START_RE.match(item):
+                    continue
+                if col_match := COLUMN_DEFINITION_RE.match(item):
+                    col_name = _sql_identifier(col_match.group("col"))
+                    rest = col_match.group("rest")
+                    if _is_array_type(rest):
+                        continue
+                    table_info["cols"].add(col_name)
+                    if re.search(r"\b(?:PRIMARY\s+KEY|UNIQUE)\b", rest, re.IGNORECASE):
+                        table_info["inline_indexed"].add(col_name)
+
+        for drop_match in DROP_TABLE_DDL_RE.finditer(code):
+            schema = (
+                _sql_identifier(drop_match.group("schema"))
+                if drop_match.group("schema")
+                else "public"
+            )
+            if schema == "public":
+                dropped_table = _sql_identifier(drop_match.group("table"))
+                tables.pop(dropped_table, None)
+                indexes = {k: v for k, v in indexes.items() if v[0] != dropped_table}
+
+        for alter_match in ALTER_TABLE_DDL_RE.finditer(code):
+            schema = (
+                _sql_identifier(alter_match.group("schema"))
+                if alter_match.group("schema")
+                else "public"
+            )
+            if schema != "public":
+                continue
+            table_name = _sql_identifier(alter_match.group("table"))
+            if table_name not in tables:
+                continue
+            for op in _split_top_level_commas(alter_match.group("ops")):
+                add_col = re.match(
+                    rf"^ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?({_SQL_IDENTIFIER})\s+(.+)$",
+                    op,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if add_col and not re.match(r"^CONSTRAINT\b", add_col.group(1), re.IGNORECASE):
+                    col_name = _sql_identifier(add_col.group(1))
+                    rest = add_col.group(2)
+                    if not _is_array_type(rest):
+                        tables[table_name]["cols"].add(col_name)
+                        if re.search(r"\b(?:PRIMARY\s+KEY|UNIQUE)\b", rest, re.IGNORECASE):
+                            tables[table_name]["inline_indexed"].add(col_name)
+                drop_col = re.match(
+                    rf"^DROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?({_SQL_IDENTIFIER})\b",
+                    op,
+                    re.IGNORECASE,
+                )
+                if drop_col and not re.match(r"^CONSTRAINT\b", drop_col.group(1), re.IGNORECASE):
+                    tables[table_name]["cols"].discard(_sql_identifier(drop_col.group(1)))
+                add_pku = re.search(
+                    rf"\bADD\s+(?:CONSTRAINT\s+{_SQL_IDENTIFIER}\s+)?"
+                    r"(?:PRIMARY\s+KEY|UNIQUE)\s*\((.+)\)",
+                    op,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if add_pku and (leading := _extract_leading_index_column(add_pku.group(1))):
+                    tables[table_name]["inline_indexed"].add(leading)
+
+        pos = 0
+        while idx_match := CREATE_INDEX_HEAD_RE.search(code, pos):
+            cols_expr, pos = _find_balanced_parens(code, idx_match.end() - 1)
+            schema = (
+                _sql_identifier(idx_match.group("schema"))
+                if idx_match.group("schema")
+                else "public"
+            )
+            if schema != "public":
+                continue
+            table_name = _sql_identifier(idx_match.group("table"))
+            idx_name = (
+                _sql_identifier(idx_match.group("idx"))
+                if idx_match.group("idx")
+                else f"anon_{migration.name}_{idx_match.start()}"
+            )
+            if leading := _extract_leading_index_column(cols_expr):
+                indexes[idx_name] = (table_name, leading)
+
+        for drop_idx in DROP_INDEX_DDL_RE.finditer(code):
+            indexes.pop(_sql_identifier(drop_idx.group("idx")), None)
+
+    unindexed: list[str] = []
+    for table_name in sorted(tables):
+        if table_name == "account_deletion_tombstones":
+            continue
+        indexed_cols = tables[table_name]["inline_indexed"] | {
+            lead for tbl, lead in indexes.values() if tbl == table_name
+        }
+        for col_name in sorted(tables[table_name]["cols"]):
+            if IDENTITY_COLUMN_RE.match(col_name) and col_name not in indexed_cols:
+                unindexed.append(f"{table_name}.{col_name}")
+    return unindexed
+
+
+def _validate_enforced_handler(raw_handler: Any) -> bool:
+    handler = str(raw_handler or "").strip()
+    if not handler or Path(handler).is_absolute():
+        return False
+    resolved = (REPO_ROOT / handler).resolve()
+    try:
+        resolved.relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return False
+    return resolved.is_file()
+
+
 def _validate_contract(contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     allowed = set(contract.get("allowed_data_classes", []))
@@ -425,6 +763,12 @@ def _validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"{family_id}:invalid_data_class:{family.get('data_class')}")
         if not family.get("exact_tables") and not family.get("glob_tables"):
             errors.append(f"{family_id}:missing_table_matcher")
+        if family.get("data_class") == "provider_cache":
+            if family.get("glob_tables"):
+                errors.append(f"{family_id}:provider_cache_glob_forbidden")
+            for table_name in family.get("exact_tables", []):
+                if table_name not in FROZEN_PROVIDER_CACHE_TABLES:
+                    errors.append(f"{family_id}:unapproved_provider_cache_table:{table_name}")
     required_retention_families = {
         "kai_gmail_receipts_provider_cache",
         "pkm_encrypted_memory",
@@ -446,12 +790,80 @@ def _validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"retention_registry:duplicate_family:{family_id}")
         if not job_id or job_id in seen_jobs:
             errors.append(f"retention_registry:invalid_job:{job_id or 'missing'}")
-        if entry.get("mode") != "report_only":
-            errors.append(f"retention_registry:non_report_only:{family_id}")
+        mode = entry.get("mode")
+        if mode not in {"report_only", "enforced"}:
+            errors.append(f"retention_registry:invalid_mode:{family_id}")
+        elif mode == "enforced":
+            days = entry.get("retention_days")
+            if type(days) is not int or days <= 0:
+                errors.append(f"retention_registry:invalid_retention_days:{family_id}")
+            if not _validate_enforced_handler(entry.get("handler")):
+                errors.append(f"retention_registry:missing_enforced_handler:{family_id}")
         registered_families.add(family_id)
         seen_jobs.add(job_id)
     for missing in sorted(required_retention_families - registered_families):
         errors.append(f"retention_registry:missing_family:{missing}")
+    return errors
+
+
+def _net_bootstrap_tables() -> set[str]:
+    if not LEGACY_INIT_SCHEMA_PATH.exists():
+        return set()
+    bootstrap: set[str] = set()
+    init_text = _strip_sql_comments_and_literals(
+        LEGACY_INIT_SCHEMA_PATH.read_text(encoding="utf-8", errors="ignore")
+    )
+    for match in TABLE_EVENT_RE.finditer(init_text):
+        schema = match.group("create_schema") or match.group("drop_schema")
+        if schema and _sql_identifier(schema) != "public":
+            continue
+        if match.group("create"):
+            bootstrap.add(_sql_identifier(match.group("create")))
+        elif match.group("drop"):
+            bootstrap.discard(_sql_identifier(match.group("drop")))
+    for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        mig_text = _strip_sql_comments_and_literals(
+            migration.read_text(encoding="utf-8", errors="ignore")
+        )
+        for match in TABLE_EVENT_RE.finditer(mig_text):
+            schema = match.group("create_schema") or match.group("drop_schema")
+            if schema and _sql_identifier(schema) != "public":
+                continue
+            if match.group("drop"):
+                bootstrap.discard(_sql_identifier(match.group("drop")))
+    return bootstrap
+
+
+def _validate_growth_watch_tables(
+    contract: dict[str, Any],
+    tables: OrderedDict[str, list[str]],
+    classified: OrderedDict[str, dict[str, Any]],
+) -> list[str]:
+    errors: list[str] = []
+    raw_watch = contract.get("growth_watch_tables", [])
+    if not isinstance(raw_watch, list):
+        return ["growth_watch_tables:invalid_list"]
+    known_tables = set(tables) | _net_bootstrap_tables()
+    families = contract.get("table_families", [])
+    seen: set[str] = set()
+    for item in raw_watch:
+        table_name = str(item or "").strip()
+        if not table_name:
+            errors.append("growth_watch_tables:blank_entry")
+            continue
+        if table_name in seen:
+            errors.append(f"growth_watch_tables:duplicate:{table_name}")
+            continue
+        seen.add(table_name)
+        if table_name not in known_tables:
+            errors.append(f"growth_watch_tables:unknown_table:{table_name}")
+            continue
+        matched = classified.get(table_name) or _match_family(
+            table_name, families if isinstance(families, list) else []
+        )
+        lifecycle = str((matched or {}).get("lifecycle_status") or "")
+        if lifecycle.startswith("legacy"):
+            errors.append(f"growth_watch_tables:legacy_table:{table_name}")
     return errors
 
 
@@ -621,6 +1033,11 @@ def build_report(
     tables = _migration_tables()
     classified, unclassified = _table_classification(tables, contract)
     contract_errors = _validate_contract(contract)
+    growth_watch_errors = _validate_growth_watch_tables(contract, tables, classified)
+    unindexed_identity = _unindexed_identity_columns()
+    unapproved_unindexed_identity = [
+        entry for entry in unindexed_identity if entry not in FROZEN_UNINDEXED_IDENTITY_COLUMNS
+    ]
     legacy_write_findings = _scan_legacy_writes(_legacy_tables(contract))
     duplicate_creates = {
         table: migrations for table, migrations in tables.items() if len(migrations) > 1
@@ -634,7 +1051,9 @@ def build_report(
         for finding in live_observation["pkm_structure"].get("findings", [])
     )
     failures.extend(contract_errors)
+    failures.extend(growth_watch_errors)
     failures.extend(f"unclassified_table:{table}" for table in unclassified)
+    failures.extend(f"unindexed_identity_column:{entry}" for entry in unapproved_unindexed_identity)
     failures.extend(
         f"legacy_write:{item['table']}:{item['path']}:{item['line']}"
         for item in legacy_write_findings
@@ -649,6 +1068,7 @@ def build_report(
         family_summary=_family_summary(classified),
         duplicate_create_table_occurrences=duplicate_creates,
         growth_watch_tables=contract.get("growth_watch_tables", []),
+        unindexed_identity_debt_count=len(unindexed_identity),
         legacy_write_findings=legacy_write_findings,
         live_stats=live_observation.pop("rows"),
         live_observation=live_observation,

@@ -26,7 +26,6 @@
     "messages",
     "one_action_directive_ledger",
     "one_capability_runs",
-    "one_kyc_workflows",
     "one_public_profile_entities",
     "one_public_profile_findings",
     "one_profile_discovery_feed_outbox",
@@ -632,9 +631,9 @@
         "gmail_mailbox_action_proposals"
       ],
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services; reviewed Gmail mailbox changes (archive, labels, read state, trash) proposed in One's chat and executed on the owner's confirmation",
-      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration. Mailbox-change proposals are unusable after ten minutes, deleted after execution, and purged (with failed ones) on the owner's next mailbox change. Scheduled sends (migration 275) wait until send_at, at most 30 days out, and stay sendable until send_at + 24 hours; the scheduled-mail drain sends a due row once, records a row past that window as failed (schedule_window_passed) and a row whose recipient disconnected as failed (recipient_disconnected), so the Feed keeps a lasting record of every unsent email, and clears payload_sealed and subject on every terminal state, with a bounded sweep of terminal scheduled rows at the start of each run. A voice cancel clears payload_sealed at once. Account reset deletes the owner's rows.",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration. Mailbox-change proposals are unusable after ten minutes, deleted after execution, and purged (with failed ones) on the owner's next mailbox change. Scheduled sends (migration 275) wait until send_at, at most 30 days out, and stay sendable until send_at + 24 hours; the scheduled-mail drain sends a due row once, records a row past that window as failed (schedule_window_passed) and a row whose recipient disconnected as failed (recipient_disconnected), so the Feed keeps a lasting record of every unsent email, and clears payload_sealed and subject on every terminal state (plus recipient_display on cancel, expiry, or once notified_at is claimed), with a bounded sweep of terminal scheduled rows at the start of each run. A voice cancel clears payload_sealed, subject, and recipient_display at once. Account reset deletes the owner's rows.",
       "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement. Mailbox-change proposals cascade-delete with the actor profile and are bound to the Gmail account they were resolved in, so a disconnect or account switch makes them unusable.",
-      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes for immediate, reply and voice draft sends; those rows never store recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information. Scheduled sends (migration 275) additionally store payload_sealed (AES-GCM under a key derived from the app signing key, with the owner and action bound as associated data; it holds the address, subject, body, the recipient's user id and the sending Google account subject, is opened only by the scheduled-mail drain at send time, and is cleared on cancel and on every terminal state) and two display-only plaintext columns, subject and recipient_display (the confirmed connection's name), shown in the owner's scheduled list on the owner's screen and never used as HMAC inputs. recipient_display may be spoken back to the owner by the Live model in the schedule and cancel confirmations, since it is the name the owner already said; subject and payload_sealed never reach the Live model. Every terminal scheduled row has payload_sealed and subject cleared; recipient_display stays for the owner's outcome notification. Mailbox-change proposals store only Gmail message and label identifiers, the bound Google account subject, the action and lifecycle state; never subject, sender, body or tokens.",
+      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes for immediate, reply and voice draft sends; those rows never store recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information. Scheduled sends (migration 275) additionally store payload_sealed (AES-GCM under a key derived from the app signing key, with the owner and action bound as associated data; it holds the address, subject, body, the recipient's user id and the sending Google account subject, is opened only by the scheduled-mail drain at send time, and is cleared on cancel and on every terminal state) and two display-only plaintext columns, subject and recipient_display (the confirmed connection's name), shown in the owner's scheduled list on the owner's screen and never used as HMAC inputs. recipient_display may be spoken back to the owner by the Live model in the schedule and cancel confirmations, since it is the name the owner already said; subject and payload_sealed never reach the Live model. Every terminal scheduled row has payload_sealed and subject cleared; recipient_display stays only until the owner's outcome notification is claimed (and is cleared immediately on cancel or expiry, and atomically when notified_at is recorded). Mailbox-change proposals store only Gmail message and label identifiers, the bound Google account subject, the action and lifecycle state; never subject, sender, body or tokens.",
       "plaintext_posture": "short_lived_hmac_and_delivery_metadata_with_sealed_scheduled_payload_and_owner_display_subject",
       "expected_row_growth": "low_per_user_action"
     },
@@ -1085,19 +1084,33 @@
       "id": "one_email_kyc_workflow",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
-      "lifecycle_status": "current",
+      "lifecycle_status": "legacy_migration",
       "exact_tables": [
         "one_email_mailbox_state",
         "one_email_kyc_preferences",
-        "one_kyc_workflows",
+        "one_kyc_workflows"
+      ],
+      "primary_access_path": "Retired legacy one@hushh.ai mailbox KYC workflow tables retained solely for migration replay compatibility and AccountService erasure; runtime readers and writers were removed and legacy-write scanning blocks any new INSERT or UPDATE.",
+      "retention_policy": "No new rows are written. Migration 050 redacted draft_body and migration 459 scrubbed and null-constrained sender_email, sender_name, participant_emails, subject, snippet, counterparty_label, draft_subject, and last_error_message on one_kyc_workflows.",
+      "deletion_behavior": "AccountService explicitly deletes user-linked one_kyc_workflows and one_email_kyc_preferences rows on account deletion; no runtime feature writes to these retired tables.",
+      "trust_boundary": "Retired workflow identifiers, status enums, and hashes only. Database CHECK constraints enforce NULL/empty values on draft_body and all legacy plaintext sender, subject, snippet, counterparty, and error-message columns.",
+      "plaintext_posture": "retired_metadata_only_legacy_plaintext_scrubbed_with_null_checks",
+      "expected_row_growth": "none_retired"
+    },
+    {
+      "id": "one_kyc_client_connector_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
         "one_kyc_client_connectors"
       ],
-      "primary_access_path": "One mailbox intake, account-scoped automatic-preparation preference, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
-      "retention_policy": "Active workflow metadata retained while open; legacy dev/UAT draft_body rows are redacted by migration and terminal metadata is compacted by retention jobs.",
-      "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
-      "trust_boundary": "Metadata only plus public connector metadata and send/writeback hashes; no raw full email threads, connector private keys, consent export plaintext, vault contents, broad decrypted PKM, or review draft plaintext. Approved outgoing email body may be handled transiently only for Gmail send and must not be logged or persisted.",
-      "plaintext_posture": "metadata_public_connector_and_hashes_only",
-      "expected_row_growth": "medium_workflow"
+      "primary_access_path": "ClientConnectorService registration, rotation, and revocation of per-owner X25519-AES256-GCM public keys consumed by Document Delivery, Scope Commerce, and Information Request recipient key resolution.",
+      "retention_policy": "Retain active public connector-key registrations while the account exists; retain rotated or revoked public-key metadata for bounded delivery and receipt verification.",
+      "deletion_behavior": "Cascade-delete with actor_profiles and explicit AccountService cleanup on account deletion.",
+      "trust_boundary": "Public X25519 key material, wrapping algorithm enum, public-key fingerprint, and lifecycle timestamps only; connector private keys remain strictly client-held.",
+      "plaintext_posture": "public_connector_key_metadata_only",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "connected_system_workflows",
