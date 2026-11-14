@@ -44,10 +44,10 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
       if (hosting.rebuildable && hosting.rebuild?.retryable !== false) current.push(read("hosting-rebuild-website", "Rebuild hosting", website));
     }
     sections.push({ id: "hosting-status-section", rows: current });
-    const canChoose = ["shared", "pending", "byoc", "unplaced"].includes(mode);
+    const canChoose = status?.featureEnabled === true && ["shared", "pending", "byoc", "unplaced"].includes(mode);
     sections.push({ id: "hosting-choices-section", title: "Hosting choices", rows: [
       { ...action("hosting-shared", "Hussh Shared", model.chooseHosting, mode !== "unplaced"), detail: mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically.", ...(mode === "shared" ? { trailing: "Current" } : {}) },
-      { ...action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting, !canChoose), detail: "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : mode === "pending" ? { trailing: "Continue" } : {}) },
+      { ...(canChoose ? action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting) : read("hosting-own-cloud", "Bring your own cloud")), detail: status && !status.featureEnabled ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged." : "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : status && !status.featureEnabled ? { trailing: "Unavailable" } : mode === "pending" ? { trailing: "Continue" } : {}) },
       { ...read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? "Your dedicated Hussh-hosted pod. You approve updates." : "Dedicated hosting is unavailable for new setups."), trailing: mode === "hussh_pods" ? "Current" : "Unavailable" },
     ] });
     const actions = [action("hosting-check", "Check hosting", model.checkStatus, busy)];
@@ -84,7 +84,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
       { ...action("updates-browser-review", "Review Browser setup", browser.inspect, browser.busy || busy || working), detail: "Research public pages with Agent One. Review access before enabling." },
       ...(!browser.review && browser.notice ? [read("updates-browser-outcome", browser.notice)] : []),
     ] });
-    pages.push({ id: "software-updates", title: "Software updates", sections });
+    pages.push({ id: "software-updates", title: "Agent updates", sections });
     if (browser.review) {
       const offer = browser.review.offer;
       pages.push({ id: "browser-review", title: "Browser setup", sections: [

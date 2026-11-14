@@ -110,7 +110,7 @@ class Runtime:
             WORKFLOW: ("deploy", "Deploy Production Scope"),
             ".github/workflows/capacity-maintenance.yml": (
                 "cleanup",
-                "Production bounded revision cleanup",
+                "Production revision maintenance",
             ),
         }.get(owner.get("path"))
         if (
