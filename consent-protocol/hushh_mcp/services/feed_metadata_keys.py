@@ -64,6 +64,7 @@ FEED_METADATA_KEYS = frozenset(
         "current_payment_state",
         "new_status",
         "actor_is_self",
+        "feed_sms_confirmed",
         # Which lane a location share belongs to ("sos" vs everything else).
         # Without it the Feed cannot tell an emergency apart from an ordinary
         # share and narrates both as "shared location, then stopped" -- the

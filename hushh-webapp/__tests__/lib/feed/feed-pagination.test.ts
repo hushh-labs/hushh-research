@@ -12,6 +12,7 @@ import {
   isFeedIdAtOrBefore,
   latestFeedId,
   reconcileFeedFirstPage,
+  feedItemPresentationTime,
 } from "@/lib/feed/feed-pagination";
 import type { FeedItem, FeedListResponse } from "@/lib/services/feed-service";
 
@@ -49,6 +50,71 @@ describe("Feed history reading continuity", () => {
     document.body.append(root);
   });
   afterEach(() => { cleanup(); root.remove(); CacheService.getInstance().clear(); });
+
+  it("clears an authoritative empty result while scrolled, including loaded older rows", () => {
+    const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: page([3, 2], "older") } });
+    act(() => {
+      result.current.setPagination(state => appendFeedPage(state, page([1], null), "older"));
+      root.scrollTop = 600; root.dispatchEvent(new Event("scroll"));
+    });
+    rerender({ data: page([], null) });
+    expect(result.current.page!.items).toEqual([]);
+    expect(result.current.pagination.additionalItems).toEqual([]);
+    expect(result.current.hasNew).toBe(false);
+  });
+
+  it("ignores an outgoing-only arrival without offering new activity or raising the read watermark", () => {
+    const initial = page([3, 2], "older");
+    const { result, rerender } = renderHook(
+      ({ data }) => useFeedHistoryPresentation("reader", data),
+      { initialProps: { data: initial } },
+    );
+    act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
+    const outgoing: FeedItem = {
+      ...item(4), source_domain: "location", event_type: "location_access_request",
+      metadata: { feed_audience: "requester" },
+    };
+    rerender({ data: { ...page([], "new-cursor"), items: [outgoing, ...initial.items] } });
+    expect(result.current.hasNew).toBe(false);
+    expect(result.current.page!.items.map(row => row.id)).toEqual(["3", "2"]);
+    expect(latestFeedId(result.current.page!.items)).toBe("3");
+    act(() => result.current.showNew());
+    expect(root.scrollTop).toBe(600);
+    expect(result.current.pagination.nextCursor).toBe("older");
+  });
+
+  it("settles a quiet status in its loaded older-page position without new activity", () => {
+    const initial = page(range(100, 81), "81");
+    const { result, rerender } = renderHook(
+      ({ data }) => useFeedHistoryPresentation("reader", data),
+      { initialProps: { data: initial } },
+    );
+    const older = page(range(80, 61), "61");
+    const receivedShare = older.items.find(row => row.id === "70")!;
+    receivedShare.source_domain = "location";
+    receivedShare.event_type = "location_share_created";
+    receivedShare.metadata = { feed_group_key: "loaded-share", feed_audience: "recipient" };
+    act(() => {
+      result.current.setPagination(state => appendFeedPage(state, older, "81"));
+      root.scrollTop = 600;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    const ended: FeedItem = {
+      ...item(101), source_domain: "location", event_type: "location_share_expired",
+      metadata: { feed_group_key: "loaded-share", feed_audience: "recipient", feed_silent: true },
+    };
+    rerender({ data: { ...page([], "82"), items: [ended, ...range(100, 82).map(item)] } });
+    expect(result.current.hasNew).toBe(false);
+    expect(result.current.page!.items.map(row => row.id)).toEqual(range(100, 81).map(String));
+    expect(result.current.pagination.additionalItems[10]?.id).toBe("101");
+    expect(result.current.pagination.additionalItems[10]?.event_type).toBe("location_share_expired");
+    const renderedOrder = [...result.current.page!.items, ...result.current.pagination.additionalItems]
+      .sort((a, b) => Date.parse(feedItemPresentationTime(b)) - Date.parse(feedItemPresentationTime(a)));
+    expect(renderedOrder[30]?.id).toBe("101");
+    expect(renderedOrder[30]?.created_at).toBe(ended.created_at);
+    expect(result.current.pagination.nextCursor).toBe("61");
+    expect(root.scrollTop).toBe(600);
+  });
 
   it("updates a grouped interaction in place while unrelated new activity waits", () => {
     const initial = page([3, 2], "older");
@@ -103,6 +169,23 @@ describe("Feed history reading continuity", () => {
     CacheService.getInstance().invalidateUser("reader");
     first.unmount();
     expect(CacheService.getInstance().peek(CACHE_KEYS.FEED_PRESENTATION("reader"))).toBeNull();
+  });
+
+  it("never presents the previous account's rows while the next account is loading", () => {
+    const initial = page([3, 2], "older");
+    const view = renderHook(
+      ({ owner, data }: { owner: string; data: FeedListResponse | null }) =>
+        useFeedHistoryPresentation(owner, data),
+      { initialProps: { owner: "reader", data: initial as FeedListResponse | null } },
+    );
+    act(() => {
+      view.result.current.setPagination(state => appendFeedPage(state, page([1], null), "older"));
+      publishValidatedAuthSessionOwner("other-reader");
+    });
+    view.rerender({ owner: "other-reader", data: null });
+    expect(view.result.current.page).toBeNull();
+    expect(view.result.current.pagination.additionalItems).toEqual([]);
+    expect(view.result.current.hasNew).toBe(false);
   });
 
   it("drops deleted chat previews from saved and mounted paginated history", () => {

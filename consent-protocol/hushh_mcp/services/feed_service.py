@@ -453,7 +453,7 @@ class FeedService:
         # newer rows with an older revision, never stale rows with a newer one.
         revision_rows = (
             db.execute_raw(
-                """SELECT md5(concat_ws(':', 'important-incoming-v1',
+                """SELECT md5(concat_ws(':', 'important-incoming-v2',
                 count(*) FILTER (WHERE m.deleted_for_recipient_at IS NOT NULL),
                 max(m.deleted_for_recipient_at),
                 count(*) FILTER (WHERE m.deleted_for_everyone_at IS NOT NULL),
@@ -470,7 +470,15 @@ class FeedService:
                   WHERE receipt.user_id = :user_id AND receipt.source_domain = 'location'
                     AND receipt.event_type = 'location_share_created'
                     AND receipt.metadata->>'feed_audience' = 'recipient'
-                    AND receipt.metadata->>'share_kind' = 'sos'))) AS history_revision
+                    AND receipt.metadata->>'share_kind' = 'sos'
+                    AND receipt.metadata->'feed_sms_confirmed' = 'true'::jsonb),
+                (SELECT count(*) FROM feed_events settled
+                  WHERE settled.user_id = :user_id
+                    AND settled.metadata->>'actor_is_self' = 'true'
+                    AND ((settled.source_domain = 'location' AND settled.event_type IN
+                      ('location_share_revoked','location_share_shortened')) OR
+                      (settled.source_domain = 'connections' AND settled.event_type IN
+                      ('connection_accepted','connection_rejected','connection_revoked')))))) AS history_revision
             FROM feed_events f
             JOIN messages m ON m.id = CASE WHEN f.source_row_id ~*
               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -943,7 +951,12 @@ class FeedService:
         cte = apply_location_feed_policy(
             cte, wallet_access=wallet_access, wallet_requests=wallet_requests
         )
-        return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
+        select = _GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT
+        # A quiet latest outcome replaces its earlier unread creation in place.
+        select = select.replace(
+            "thread_unread_count > 0", "thread_unread_count > 0 AND NOT feed_silent"
+        )
+        return cte + select
 
     def _universal_wallet_installed(self):
         try:
