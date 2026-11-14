@@ -91,7 +91,10 @@ class FundingCheckout(ProviderContext):
                 require_payer=True,
                 connection=connection,
             )
-            if binding["metadata"].get("request_source") != "marketplace":
+            if binding["metadata"].get("request_source") not in {
+                "marketplace",
+                "one_person_profile",
+            }:
                 raise CommerceError("purchase_unavailable")
             self.store._admit_actors(purchase["owner_user_id"], payer_user_id)
             await self.store._registered_key(connection, purchase)
@@ -352,6 +355,7 @@ class FundingReceipt(ProviderContext):
             except (CommerceError, CommerceRequestError) as error:
                 if str(error) not in {
                     "commerce_unavailable",
+                    "provider_sandbox_reviewer_required",
                     "owner_approval_required",
                     "purchase_unavailable",
                     "reservation_closed",
