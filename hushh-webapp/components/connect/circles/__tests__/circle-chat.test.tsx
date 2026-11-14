@@ -199,6 +199,20 @@ it("preserves Alerts after a failed save and recovers through Reconnect", async 
   await waitFor(() => expect(screen.getByRole("switch", { name: "Chat alerts" })).toHaveAttribute("aria-checked", "false"));
 });
 
+it("offers photo, video, and document choices from the circle attachment action", async () => {
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+
+  const attachmentAction = screen.getByRole("button", { name: "Attach photo, video, or document" });
+  fireEvent.keyDown(attachmentAction, { key: "Enter", code: "Enter" });
+
+  expect(await screen.findByRole("menuitem", { name: "Photo" })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Video" })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Document" })).toBeInTheDocument();
+  expect(screen.getByTestId("circle-attachment-video")).toHaveAttribute("accept", "video/mp4,video/webm");
+  expect(screen.getByTestId("circle-attachment-document")).toHaveAttribute("accept", "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt");
+});
+
 it("shows the photo before preparation, retries identical ciphertext and reconciles a transcript confirmation before POST", async () => {
   const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
