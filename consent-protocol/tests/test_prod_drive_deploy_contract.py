@@ -394,7 +394,10 @@ def test_first_production_worker_release_snapshots_absent_fixed_jobs(monkeypatch
         module.verify(snapshot, worker_origin=None)
 
 
-def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, monkeypatch):
+@pytest.mark.parametrize("frontend_mode", ["ordinary", "recovery", "auth-domain"])
+def test_older_target_keeps_release_tooling_but_cannot_enable_drive(
+    tmp_path, monkeypatch, frontend_mode
+):
     """Run the actual checkout steps against an old commit without production Drive."""
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
     steps = {step["name"]: step for step in workflow["jobs"]["deploy"]["steps"]}
@@ -415,6 +418,19 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     git("init", "-q")
     git("config", "user.name", "Drive Release Test")
     git("config", "user.email", "drive-release@example.test")
+    frontend_paths = ("deploy/frontend-image.cloudbuild.yaml", "deploy/frontend.cloudbuild.yaml")
+    recovery_sha = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+    recipe_source = (
+        "00507b68ea293524f73ad42b1839984bcaa46c98"
+        if frontend_mode == "auth-domain"
+        else recovery_sha
+    )
+    old_frontend = {
+        path: subprocess.check_output(  # noqa: S603 -- fixed recorded source, read-only Git.
+            ["git", "show", f"{recipe_source}:{path}"], cwd=ROOT, text=True
+        )
+        for path in frontend_paths
+    }
     old_paths = (
         "scripts/ci/resolve-cloud-run-deploy-revision.py",
         "scripts/ci/resolve-uat-verified-image.py",
@@ -437,6 +453,10 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         elif path in {"deploy/drive/verify_hashcoin_config.sh", "deploy/sso/bind_workos.sh"}:
             contents = (ROOT / path).read_text()
         write(path, contents)
+    for path, contents in old_frontend.items():
+        write(path, contents)
+    application_path = "hushh-webapp/recorded-application.ts"
+    write(application_path, "export const source = 'sealed application';\n")
     git("add", ".")
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
@@ -444,6 +464,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     current_paths = production_release_tools(ROOT, old_paths)
     for path in current_paths:
         write(path, (ROOT / path).read_text())
+    write(application_path, "export const source = 'newer application';\n")
     registry = "consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py"
     write(registry, "# Production Drive runtime support\n")
     git("add", ".")
@@ -464,6 +485,22 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
+    restore = steps["Restore reviewed frontend recipes for recorded recovery"]
+    assert restore["if"] == (
+        f"inputs.sha == '{recovery_sha}' && !inputs.frontend_auth_domain_refresh "
+        "&& inputs.restoration_validation_run == ''"
+    )
+    if frontend_mode == "recovery":
+        subprocess.run(  # noqa: S603 -- actual authored step, isolated historical checkout.
+            ["bash", "-c", restore["run"]],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    assert git("rev-parse", "HEAD") == old_sha
+    assert (repo / application_path).read_text() == "export const source = 'sealed application';\n"
     for companion in (
         "resolve-deploy-scope.py",
         "production_recovery_ci.py",
@@ -477,6 +514,12 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
             ROOT / "scripts/ci" / companion
         ).read_text()
     for path in current_paths:
+        if path in frontend_paths:
+            expected = (
+                (ROOT / path).read_text() if frontend_mode == "recovery" else old_frontend[path]
+            )
+            assert (repo / path).read_text() == expected
+            continue
         # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(
             (
