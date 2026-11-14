@@ -69,6 +69,8 @@ def test_pod_readiness_does_not_require_the_hub_database(monkeypatch):
         # The data-door broker READS a DB-backed specialist for a pod. A pod
         # holds no DB credential and must never proxy this to other pods.
         "/api/one/pod/specialist",
+        # The Hub custody/capability broker holds regional KEK & STS minting authority.
+        "/api/one/pod/custody",
     ],
 )
 def test_pod_does_not_mount_central_or_unrelated_surface(forbidden_prefix):

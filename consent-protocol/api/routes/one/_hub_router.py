@@ -61,6 +61,7 @@ from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
 from .plg import router as plg_router
 from .pod_browser_approval import router as pod_browser_approval_router
+from .pod_capability_broker import router as pod_capability_broker_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
 from .pod_lifecycle import router as pod_lifecycle_router
@@ -156,6 +157,7 @@ router.include_router(people_router)
 # NEVER mount this -- a pod serving the relay could proxy to other pods. The
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_consent_router)
+router.include_router(pod_capability_broker_router)
 router.include_router(pod_mcp_approval_router)
 router.include_router(pod_browser_approval_router)
 router.include_router(pod_owner_feed_router)
