@@ -506,13 +506,14 @@ def _clock_proof(owner, repository, worker_run, candidate):
     return record, proof
 
 
-def _static_cleanup_view(job):
+def _static_cleanup_view(job, *, manual=False):
     """Adapt only the exact authored labels for existing pure transcript checks."""
     from retention_production_clock_evidence import CLOCK_BOUND_STEP_NAMES
 
     steps = job.get("steps")
     modes = ("Maintenance mode: inspection", "Maintenance mode: cleanup")
-    names = (CLOCK_BOUND_STEP_NAMES[0], *modes, *CLOCK_BOUND_STEP_NAMES[1:])
+    expected = production.STEP_NAMES if manual else CLOCK_BOUND_STEP_NAMES
+    names = (expected[0], *modes, *expected[1:])
     if not isinstance(steps, list) or len(steps) != len(names):
         return None
     if any(not isinstance(step, dict) for step in steps):
@@ -525,7 +526,7 @@ def _static_cleanup_view(job):
             or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]):
         return None
     view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
-    return view if production._steps_match(view, clock_bound=True) else None
+    return view if production._steps_match(view, clock_bound=not manual) else None
 
 
 def qualify_source_refusal(
