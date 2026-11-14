@@ -5,10 +5,13 @@
 import copy
 import hashlib
 import importlib.util
+import io
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from zipfile import ZipFile
 
 import pytest
 
@@ -182,6 +185,7 @@ def release_plan(monkeypatch, tmp_path):
     )
     args.current_json.write_text(json.dumps(state.revision))
     state.args = args
+    _production_evidence(state)
     monkeypatch.setattr(plan.subprocess, "run", _source_gate)
     monkeypatch.setattr(
         plan.qualify_image, "run", lambda command, **kwargs: _command_port(state, command, **kwargs)
@@ -203,6 +207,21 @@ def release_plan(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(production_receipt, "run", lambda command: _production_port(state, command))
+    owner = production_receipt._continuation_owners()[2]
+    monkeypatch.setattr(
+        owner,
+        "api",
+        lambda repository, endpoint: json.loads(
+            _production_port(state, ["gh", "api", f"repos/{repository}/actions/{endpoint}"])
+        ),
+    )
+    monkeypatch.setattr(
+        owner.retention,
+        "run_command",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command, 0, _production_port(state, command), b""
+        ),
+    )
     monkeypatch.setattr(plan, "_operational", lambda: None)
     state.service = {
         "metadata": {"name": "consent-protocol"},
@@ -224,48 +243,86 @@ def release_plan(monkeypatch, tmp_path):
     return state
 
 
-def _production_port(state, command):
-    state.calls.append(command)
-    if command[:2] == ["gh", "api"]:
-        if "/artifacts?" in command[-1]:
-            return json.dumps(
+def _production_evidence(state):
+    state.production_run = {
+        "id": 41,
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "path": ".github/workflows/deploy-production.yml",
+        "head_branch": "main",
+        "head_sha": "a" * 40,
+        "run_attempt": 1,
+        "run_started_at": "2026-10-26T00:00:00Z",
+        "repository": {"id": 7, "full_name": "hushh-labs/hushh-research"},
+        "head_repository": {"id": 7, "full_name": "hushh-labs/hushh-research"},
+    }
+    stream = io.BytesIO()
+    with ZipFile(stream, "w") as bundle:
+        bundle.writestr(
+            "prod-release-status.json",
+            json.dumps(
                 {
-                    "total_count": 1,
-                    "artifacts": [
-                        {
-                            "id": 4,
-                            "name": "prod-release-41",
-                            "expired": False,
-                            "created_at": "2026-10-26T01:00:00Z",
-                        }
-                    ],
+                    "status": "healthy",
+                    "sha": FALLBACK,
+                    "candidate": {"backend_revision": REVISION},
+                    "final": {"backend_revision": REVISION},
                 }
-            ).encode()
-        return json.dumps(
+            ),
+        )
+    state.production_archive = stream.getvalue()
+    state.production_artifact = {
+        "id": 4,
+        "name": "prod-release-41",
+        "expired": False,
+        "created_at": "2026-10-26T01:00:00Z",
+        "size_in_bytes": len(state.production_archive),
+        "digest": "sha256:" + hashlib.sha256(state.production_archive).hexdigest(),
+        "workflow_run": {
+            "id": 41,
+            "repository_id": 7,
+            "head_repository_id": 7,
+            "head_sha": "a" * 40,
+            "head_branch": "main",
+        },
+    }
+    state.production_jobs = {
+        "total_count": 1,
+        "jobs": [
             {
-                "id": 41,
+                "name": "Deploy Production Scope",
+                "run_id": 41,
+                "run_attempt": 1,
+                "head_sha": "a" * 40,
+                "head_branch": "main",
                 "status": "completed",
                 "conclusion": "success",
-                "event": "workflow_dispatch",
-                "path": ".github/workflows/deploy-production.yml",
-                "head_branch": "main",
-                "run_attempt": 1,
-                "run_started_at": "2026-10-26T00:00:00Z",
+                "steps": [
+                    {
+                        "name": "Upload production deploy artifacts",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "started_at": "2026-10-26T01:00:00Z",
+                        "completed_at": "2026-10-26T01:00:01Z",
+                    }
+                ],
             }
-        ).encode()
-    assert command[:3] == ["gh", "run", "download"]
-    destination = Path(command[command.index("--dir") + 1])
-    (destination / "prod-release-status.json").write_text(
-        json.dumps(
-            {
-                "status": "healthy",
-                "sha": FALLBACK,
-                "candidate": {"backend_revision": REVISION},
-                "final": {"backend_revision": REVISION},
-            }
-        )
-    )
-    return b""
+        ],
+    }
+
+
+def _production_port(state, command):
+    state.calls.append(command)
+    assert command[:2] == ["gh", "api"], "only immutable API receipt reads are allowed"
+    endpoint = command[-1].removeprefix("repos/hushh-labs/hushh-research/actions/")
+    if endpoint == "artifacts/4/zip":
+        return state.production_archive
+    if endpoint == "runs/41/artifacts?per_page=100":
+        return json.dumps({"total_count": 1, "artifacts": [state.production_artifact]}).encode()
+    if endpoint == "runs/41/attempts/1/jobs?per_page=100":
+        return json.dumps(state.production_jobs).encode()
+    assert endpoint == "runs/41"
+    return json.dumps(state.production_run).encode()
 
 
 def _verify_args(state):

@@ -159,9 +159,7 @@ def production_case(monkeypatch):
 def _original_port(case):
     def command(arguments):
         if arguments[:3] == ["gh", "run", "download"]:
-            directory = Path(arguments[arguments.index("--dir") + 1])
-            (directory / "prod-release-status.json").write_text(json.dumps(case.original.release))
-            return b""
+            raise AssertionError("extracted status is not immutable receipt authority")
         endpoint = arguments[-1].removeprefix("repos/hushh-labs/hushh-research/actions/")
         if re.fullmatch(r"runs/[1-9][0-9]*", endpoint):
             return json.dumps(case.original.run).encode()
@@ -191,6 +189,22 @@ def test_completed_continuation_retains_original_runtime_provenance(production_c
     assert production_case.case.original.documents == before
     assert "runs/400/artifacts?per_page=100" in production_case.case.original.calls
     assert production_case.reads.call_count == 2
+
+
+def test_final_rollback_qualifies_original_mixed_root_receipt(production_case):
+    from production_phone_receipt_fixtures import mixed_root_archive
+
+    case = production_case.case
+    case.original.payload = mixed_root_archive(case.original, case.original.documents)
+    case.origin = case.load()
+    case.documents["prod-activation-origin.json"] = case.origin
+    case.payload = mixed_root_archive(case, case.documents)
+    result = production_case.qualify()
+    assert result["artifact_id"] == case.original.artifact["id"]
+    assert result["activation_continuation"]["context"]["backend"]["run_id"] == 400
+    case.original.artifact["digest"] = "sha256:" + "0" * 64
+    with pytest.raises(case.fixture.maintenance.retention.UnsafeState):
+        production_case.qualify()
 
 
 @pytest.mark.parametrize("defect", ["uid", "source", "run", "malformed", "absent"])
@@ -252,6 +266,7 @@ def test_only_current_stable_healthy_reference_can_qualify(production_case, defe
 
 def test_ordinary_healthy_receipt_does_not_consult_continuation_authority(production_case):
     production_case.case.original.release["status"] = "healthy"
+    production_case.case.original.pack()
     production_case.reads.side_effect = AssertionError("ordinary healthy must stay local")
     result = production_case.qualify()
     assert result == {
