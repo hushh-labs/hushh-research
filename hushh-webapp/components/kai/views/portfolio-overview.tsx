@@ -21,7 +21,7 @@ import type { PortfolioData } from "@/components/kai/types/portfolio";
 import type { KaiPortfolioSection } from "@/lib/navigation/routes";
 import { overviewFacts } from "./portfolio-display-facts";
 import { signedMoney, signedPercent, tone } from "@/components/kai/performance/performance-strip";
-import { rankMovers, sinceBought, winnersLosers } from "@/lib/kai/portfolio-performance";
+import { sinceBought, winnersLosers } from "@/lib/kai/portfolio-performance";
 
 import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export function PortfolioOverview({ model, portfolio, source, period, action, briefing, sharing, valuationKind, loadHistory, onImport, onOpenSection }: {
@@ -40,15 +40,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
   }));
   const since = sinceBought(model.canonicalModel.positions);
   const distribution = winnersLosers(model.gainLossDistribution);
-  const movers = rankMovers(model.canonicalModel.positions, 1);
   const colors = ["var(--finance-negative)", "color-mix(in srgb, var(--finance-negative) 50%, transparent)", "var(--chart-4)", "color-mix(in srgb, var(--finance-positive) 50%, transparent)", "var(--finance-positive)"];
-  const metrics = model.summaryMetrics;
-  const reported = (label: string, value: number | null) => typeof value === "number" && Number.isFinite(value) ? [{ label, value: formatCurrency(value) }] : [];
-  const performanceRows = [
-    ...reported("Reported balance change", facts.change),
-    ...reported("Income", metrics.totalIncomePeriod),
-    ...reported("Fees", metrics.totalFees === null ? null : -Math.abs(metrics.totalFees)),
-  ];
   const totalValue = model.hero.totalValue;
   const allocations = model.allocation.filter(item => item.value > 0 && Number.isFinite(item.value));
   const allocationTotal = allocations.reduce((sum, item) => sum + item.value, 0);
@@ -59,35 +51,31 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
       {briefing}
     </div>
     <div className={styles.portfolioInsights}>
-      <SurfaceCard data-testid="portfolio-performance"><SurfaceCardContent className={styles.insightCard}>
+      <SurfaceCard data-testid="portfolio-performance"><SurfaceCardContent className={styles.compactInsight}>
         <SectionLabel role="heading" aria-level={2}>Performance</SectionLabel>
-        {since ? <div>
+        <div className={styles.performanceSummary}>
+        {since ? <div className="min-w-0">
           <p className={styles.insightEyebrow}>Since you bought</p>
           <p className={cn(styles.insightAmount, tone(since.gain))}>{signedMoney(since.gain)}{since.pct !== null ? ` · ${signedPercent(since.pct)}` : ""}</p>
           {since.covered < since.eligible ? <p className={styles.description}>Unrealized, on {since.covered} of {since.eligible} positions</p> : null}
-        </div> : null}
-        {model.quality.gainLossReady && distribution.total ? <>
-          <div className={styles.performanceDistribution}>
-            <div className={styles.performanceRing} role="img" aria-label={`${distribution.total} positions with reported gain or loss`}>
-              <PieChart width={112} height={112}><Pie data={distribution.segments} dataKey="count" cx="50%" cy="50%" innerRadius={39} outerRadius={54} stroke="none" isAnimationActive={false}>
+        </div> : facts.change !== null ? <div className="min-w-0"><p className={styles.insightEyebrow}>Reported balance change</p><p className={styles.insightAmount}>{formatCurrency(facts.change)}</p></div> : null}
+        {model.quality.gainLossReady && distribution.total ? (
+            <div className={styles.performanceRing} role="img" aria-label={`${distribution.total} positions with reported gain or loss. ${distribution.segments.map(segment => `${segment.label}: ${segment.count}`).join(". ")}`}>
+              <PieChart width={80} height={80}><Pie data={distribution.segments} dataKey="count" cx="50%" cy="50%" innerRadius={27} outerRadius={39} stroke="none" isAnimationActive={false}>
                 {distribution.segments.map((segment, index) => <Cell key={segment.tone} fill={colors[index]} />)}
               </Pie></PieChart>
               <span>{distribution.total}<small>positions</small></span>
             </div>
-            <dl className={styles.performanceLegend}>{distribution.segments.map((segment, index) => <div key={segment.tone}><dt><i style={{ background: colors[index] }} />{segment.label}</dt><dd>{segment.count}</dd></div>)}</dl>
-          </div>
-          <div className={styles.performanceMovers}>{[{ label: "Biggest gain", position: movers.gains[0] }, { label: "Biggest loss", position: movers.losses[0] }].map(({ label, position }) => position ? <div key={label}><p className={styles.description}>{label}</p><span><SymbolAvatar symbol={position.displaySymbol} name={position.name} size="md" className="size-7 rounded-lg" /><span className="truncate" title={position.name || position.displaySymbol}>{position.name || position.displaySymbol}</span></span></div> : null)}</div>
-        </> : null}
-        {performanceRows.length ? <dl className={styles.insightFacts}>
-          {performanceRows.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
-        </dl> : since ? null : <p className={styles.description}>No performance figures in this statement.</p>}
+        ) : null}
+        </div>
+        {!since ? <p className={styles.description}>{facts.change === null ? "No performance figures in this statement." : "Balance changes may include cash flows."}</p> : null}
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
-      <SurfaceCard><SurfaceCardContent className={styles.insightCard}>
+      <SurfaceCard><SurfaceCardContent className={styles.compactInsight}>
         <div className="flex items-baseline justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Allocation</SectionLabel><span className={styles.description}>% of portfolio</span></div>
         {allocations.length && denominator > 0 ? <>
           {allocationTotal <= denominator * 1.001 ? <div className={styles.portfolioAllocation} aria-hidden="true">{allocations.map(item => <span key={item.name} style={{ width: `${item.value / denominator * 100}%`, background: allocationColor(item.name) }} />)}</div> : null}
-          <dl className={styles.portfolioList}>{allocations.map(item => <div className={styles.portfolioListRow} key={item.name}><dt className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ background: allocationColor(item.name) }} />{item.name}</dt><dd className="text-sm font-semibold tabular-nums">{(item.value / denominator * 100).toFixed(1)}%</dd></div>)}</dl>
+          <dl className={styles.allocationSummary}>{allocations.map(item => <div key={item.name}><dt><span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ background: allocationColor(item.name) }} />{item.name}</dt><dd>{(item.value / denominator * 100).toFixed(1)}%</dd></div>)}</dl>
         </> : <p className={styles.description}>Allocation is unavailable for this source.</p>}
         <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => onOpenSection("allocation")}>View allocation</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>

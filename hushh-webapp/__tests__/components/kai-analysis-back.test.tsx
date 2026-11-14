@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Children, type ReactNode } from "react";
+import { Children, useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
@@ -16,7 +16,7 @@ const state = vi.hoisted(() => {
     router: { push: navigate, replace: navigate },
     tasks: [] as { runId: string; ticker: string; userId: string; status: string; startedAt: string }[],
     taskListeners: new Set<(value: { tasks: unknown[] }) => void>(),
-    cancel: vi.fn(), setAnalysisParams: vi.fn(), setBusy: vi.fn(), context: vi.fn(), actions: new Map<string, () => unknown>(),
+    cancel: vi.fn(), setAnalysisParams: vi.fn(), setBusy: vi.fn(), context: vi.fn(), controllerMounts: 0, actions: new Map<string, () => unknown>(),
     analysisParams: null as Record<string, unknown> | null, analysisParamsUpdatedAt: 0,
     entry: { ticker: "TEST", timestamp: "2026-10-20T14:00:00Z", final_statement: "Saved result", raw_card: { debate_run_id: "run-1" } },
   };
@@ -33,7 +33,7 @@ vi.mock("next/navigation", async () => {
     },
   };
 });
-vi.mock("@/components/icons", () => ({ ArrowLeft: () => null, X: () => null, MessageCircle: () => null, Laptop: () => null, LayoutDashboard: () => null }));
+vi.mock("@/components/icons", () => ({ ArrowLeft: () => null, X: () => null, ChevronDown: () => null, MessageCircle: () => null, Laptop: () => null, LayoutDashboard: () => null }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { dismiss: vi.fn(), success: vi.fn(), loading: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button onClick={onClick} disabled={disabled}>{children}</button> }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" }, userId: "synthetic-owner" }) }));
@@ -77,10 +77,13 @@ vi.mock("@/components/kai/views/kai-analysis-preview-view", () => ({ KaiAnalysis
 vi.mock("@/components/kai/views/history-detail-view", () => ({ HistoryDetailView: () => <p>Saved detail</p> }));
 vi.mock("@/components/kai/views/analysis-summary-view", () => ({ AnalysisSummaryView: () => <p>Saved summary</p> }));
 vi.mock("@/components/kai/views/analysis-history-dashboard", () => ({ AnalysisHistoryDashboard: () => <p>History entries</p> }));
-vi.mock("@/components/kai/views/kai-stocks-view", () => ({ KaiStocksView: ({ browseStocks, historyRequested }: { browseStocks: boolean; historyRequested: boolean }) => <>{browseStocks ? <p>Stock browser</p> : null}{historyRequested ? <p>Stock history</p> : null}</> }));
+vi.mock("@/components/kai/views/kai-stocks-view", () => ({ KaiStocksView: ({ browseStocks, historyRequested, onAnalyze }: { browseStocks: boolean; historyRequested: boolean; onAnalyze: (ticker: string, source: string) => void }) => <>{browseStocks ? <><p>Stock browser</p><button onClick={() => onAnalyze("TEST", "default")}>Analyze TEST</button></> : null}{historyRequested ? <p>Stock history</p> : null}</> }));
 vi.mock("@/components/kai/cards/stock-comparison-preview", () => ({ StockComparisonPreview: () => <p>Preview details</p> }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, children, footer, onOpenChange }: { open: boolean; children: ReactNode; footer: ReactNode; onOpenChange: (open: boolean) => void }) => open ? <div role="dialog" data-state="open" onKeyDown={event => { if (event.key === "Escape") onOpenChange(false); }}>{children}{footer}</div> : null }));
-vi.mock("@/components/kai/debate-stream-view", () => ({ DebateStreamView: ({ onDecisionReady }: { onDecisionReady: (entry: unknown, meta: unknown) => void }) => <button onClick={() => onDecisionReady(state.entry, { runId: "run-1" })}>Finish synthetic analysis</button> }));
+vi.mock("@/components/kai/debate-stream-view", () => ({ DebateStreamView: ({ onDecisionReady }: { onDecisionReady: (entry: unknown, meta: unknown) => void }) => {
+  useEffect(() => { state.controllerMounts += 1; }, []);
+  return <button onClick={() => onDecisionReady(state.entry, { runId: "run-1" })}>Finish synthetic analysis</button>;
+} }));
 
 function back() {
   act(() => {
@@ -101,11 +104,38 @@ beforeEach(() => {
     state.analysisParamsUpdatedAt = value ? Date.now() : 0;
   });
   state.context.mockReset();
+  state.controllerMounts = 0;
   state.actions.clear();
   state.navigate("/one/kai?tab=analysis");
 });
 
 describe("Finance shared Back with the mounted analysis page", () => {
+  it("starts from a stock click without a second preview and ignores repeated pending clicks", async () => {
+    let finish!: (value: { user_risk_profile: string }) => void;
+    state.context.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    render(<KaiAnalysisPageContent />);
+    const analyze = await screen.findByRole("button", { name: "Analyze TEST" });
+    fireEvent.click(analyze);
+    fireEvent.click(analyze);
+    expect(state.context).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => { finish({ user_risk_profile: "balanced" }); });
+    await waitFor(() => expect(state.setAnalysisParams).toHaveBeenCalledWith(expect.objectContaining({ ticker: "TEST", launchConfirmed: true, pickSource: "default" })));
+    expect(new URL(state.getHref(), "https://app.test").searchParams.get("view")).toBe("summary");
+  });
+
+  it("keeps the active analysis controller mounted while opening and closing the detailed record", async () => {
+    state.tasks = [{ runId: "run-1", ticker: "TEST", userId: "synthetic-owner", status: "running", startedAt: "2026-10-20T14:00:00Z" }];
+    state.navigate("/one/kai?tab=analysis&focus=active&run_id=run-1");
+    render(<KaiAnalysisPageContent />);
+    await screen.findByRole("button", { name: "Finish synthetic analysis" });
+    const mounts = state.controllerMounts;
+    fireEvent.click(screen.getByRole("button", { name: "Detailed record and sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    expect(state.controllerMounts).toBe(mounts);
+    expect(screen.getByRole("button", { name: "Finish synthetic analysis" })).toBeVisible();
+    expect(state.cancel).not.toHaveBeenCalled();
+  });
   it("still commits a confirmed preview launch while its screen remains selected", async () => {
     state.context.mockResolvedValue({ user_risk_profile: "balanced" });
     state.navigate("/one/kai?tab=analysis&ticker=TEST");

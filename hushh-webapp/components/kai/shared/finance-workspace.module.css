@@ -52,6 +52,7 @@
 
 /* Portfolio overview follows the value/briefing, composition and holdings rhythm. */
 .portfolioTop, .portfolioInsights { display: grid; gap: 12px; min-width: 0; }
+.portfolioInsights { align-items: start; }
 .portfolioTop > *, .portfolioInsights > * { min-width: 0; }
 .portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
 .portfolioAllocation > span { min-width: 0; }
@@ -62,14 +63,18 @@ button.portfolioListRow { min-height: 44px; }
 @media (min-width: 768px) {
   .portfolioTop { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
   .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .portfolioTop > :global([data-slot="card"]) > div,
-  .portfolioInsights > :global([data-slot="card"]) > div,
-  .insightCard { height: 100%; }
+  .portfolioTop > :global([data-slot="card"]) > div { height: 100%; }
 }
 
 .insightCard { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.compactInsight { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-height: 224px; }
+.performanceSummary { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.allocationSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; font-size: 12px; line-height: 18px; }
+.allocationSummary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.allocationSummary dt { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.allocationSummary dd { flex: none; margin: 0; font-weight: 550; font-variant-numeric: tabular-nums; }
 .performanceDistribution { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.performanceRing { position: relative; width: 112px; height: 112px; flex: none; }
+.performanceRing { position: relative; width: 80px; height: 80px; flex: none; }
 .performanceRing > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; pointer-events: none; }
 .performanceRing small { font-size: 11px; font-weight: 400; color: var(--muted-foreground); }
 .performanceLegend { flex: 1; min-width: 0; font-size: 12px; line-height: 18px; }
@@ -229,9 +234,15 @@ button.interactiveRow::before {
    (14/21/550 name, 12/18 muted meta, 14/21/550 amount), with no card nested inside a card. */
 .allocationHeader > :first-child { font-size: 14px; line-height: 22px; font-weight: 600; }
 .allocationHeader > :nth-child(2) { margin-top: 2px; font-size: 12px; line-height: 18px; }
+.allocationSection { min-width: 0; padding: 16px; border-bottom: 1px solid var(--border); }
+.allocationSection:last-child { border-bottom: 0; }
+.allocationSection > .allocationHeader { margin-bottom: 8px; }
+.allocationMeter { width: 64px; height: 4px; flex: none; border-radius: 999px; overflow: hidden; background: var(--muted); }
+.allocationMeter > span { display: block; height: 100%; border-radius: inherit; }
+@media (max-width: 420px) { .allocationMeter { display: none; } }
 .allocationRows { display: grid; min-width: 0; }
 .allocationRows > button.interactiveRow::before, .allocationRows > div > button.interactiveRow::before { inset-inline: -8px; }
-.allocationRow { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 56px; padding-block: 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.allocationRow { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 48px; padding-block: 5px; text-align: left; border-bottom: 1px solid var(--border); }
 .allocationRows > :last-child > .allocationRow, .allocationRows > .allocationRow:last-child { border-bottom: 0; }
 .allocationDot { width: 10px; height: 10px; flex: none; border-radius: 999px; }
 .allocationText { display: grid; min-width: 0; flex: 1; }

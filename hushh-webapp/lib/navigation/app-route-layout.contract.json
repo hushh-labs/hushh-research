@@ -3020,6 +3020,30 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/one/kai?tab=analysis&focus=active&ticker=TEST&view=summary",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&run_id=sample&view=debate",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&analysis_id=sample&view=detailed",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
         }
       ],
       "kind": "parent",
