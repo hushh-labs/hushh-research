@@ -15,7 +15,7 @@ async def record_processor_history(store, monkeypatch, *, source, request_id, jo
             if source == "other_flash_binding"
             else "drive-vertex-flash-v2"
         )
-        profiles.append({**flash, "version": version})
+        profiles.append({**flash, "version": version, "model": "gemini-3.8-flash"})
     if source == "previously_migrated_carbon":
         profiles.append(carbon)
 
