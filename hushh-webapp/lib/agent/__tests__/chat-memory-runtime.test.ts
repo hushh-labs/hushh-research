@@ -220,4 +220,93 @@ describe("incremental owner chat memory", () => {
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(durable).toMatchObject({ messages: [{ id: "a" }], requests: [{ requestId: "r1", inputTokens: 50 }] });
   });
+
+  it("survives vaultOwnerToken renewal on the same unlock epoch and commits with the fresh token", async () => {
+    mocks.rewrite.mockResolvedValueOnce({ markdown: "- Consolidated after token renewal\n" });
+    let liveToken = "token-initial";
+    const epoch = snapshotVaultSessionEpoch();
+    const first = ownerChatMemory({
+      userId: session.userId,
+      vaultKey: session.vaultKey,
+      vaultEpoch: epoch,
+      token: liveToken,
+      readToken: () => liveToken,
+    });
+    await first.registerSnapshot({ conversationId: "chat", messages: [source("turn-1")] });
+
+    liveToken = "token-rotated";
+    const rotated = ownerChatMemory({
+      userId: session.userId,
+      vaultKey: session.vaultKey,
+      vaultEpoch: epoch,
+      token: liveToken,
+      readToken: () => liveToken,
+    });
+    expect(rotated).toBe(first);
+    expect(await rotated.trigger("switch")).toBe(true);
+    expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ vaultOwnerToken: "token-rotated" }));
+  });
+
+  it("exposes uncommitted sibling-chat turns immediately and withdraws deleted conversations before commit", async () => {
+    const { runtime, rewrite } = create();
+    await runtime.registerSnapshot({
+      conversationId: "chat-a",
+      messages: [{ id: "m1", conversationId: "chat-a", role: "user", content: "Planning Tokyo trip in April" }],
+    });
+    await runtime.registerSnapshot({
+      conversationId: "chat-b",
+      messages: [{ id: "m2", conversationId: "chat-b", role: "user", content: "Drafting budget" }],
+    });
+    expect(runtime.peekPendingMessages("chat-b").map(m => m.id)).toEqual(["m1"]);
+
+    let release!: (value: { markdown: string }) => void;
+    const abortedSignals: boolean[] = [];
+    rewrite.mockImplementationOnce(({ signal }: ChatMemoryRewriteInput) => new Promise((resolve, reject) => {
+      signal?.addEventListener("abort", () => {
+        abortedSignals.push(true);
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+      release = resolve;
+    }));
+
+    const inflight = runtime.trigger("switch");
+    await vi.waitFor(() => expect(rewrite).toHaveBeenCalledOnce());
+    await runtime.withdrawConversation("chat-a");
+    expect(abortedSignals).toEqual([true]);
+    await expect(inflight).rejects.toThrow();
+    expect(mocks.replace).not.toHaveBeenCalled();
+
+    // Late snapshot registration for the deleted chat is ignored, while chat-b still consolidates cleanly.
+    await runtime.registerSnapshot({
+      conversationId: "chat-a",
+      messages: [{ id: "m1-late", conversationId: "chat-a", role: "user", content: "Should never resurrect" }],
+    });
+    expect(runtime.peekPendingMessages().map(m => m.id)).toEqual(["m2"]);
+    expect(await runtime.trigger("switch")).toBe(true);
+    expect(rewrite.mock.calls.at(-1)![0].messages.map((m: ChatMemoryMessage) => m.id)).toEqual(["m2"]);
+    void release;
+  });
+
+  it("arms the idle consolidation timer when hydrating uncommitted turns after reload", async () => {
+    vi.useFakeTimers();
+    mocks.rewrite.mockResolvedValueOnce({ markdown: "- Hydrated memory\n" });
+    durable = {
+      version: 1,
+      editGeneration: 0,
+      messages: [{ id: "hydrated-turn", conversationId: "chat-prev", role: "user", content: "Recovered after reload" }],
+      requests: [],
+      withdrawn: [],
+    };
+    const runtime = createChatMemoryRuntime({
+      getSession: () => session,
+      rewrite: mocks.rewrite,
+      idleMs: 1_000,
+    });
+    runtimes.push(runtime);
+    await runtime.recordUsage({ requestId: "req-1", inputTokens: 10 });
+    expect(mocks.rewrite).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_100);
+    await vi.waitFor(() => expect(mocks.rewrite).toHaveBeenCalledOnce());
+    expect(mocks.rewrite.mock.calls[0]![0].messages.map((m: ChatMemoryMessage) => m.id)).toEqual(["hydrated-turn"]);
+  });
 });
