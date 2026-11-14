@@ -418,7 +418,16 @@ class AwsKmsCustodyAdapter:
                 import boto3  # type: ignore[import-not-found]
             except ImportError as exc:
                 raise ByocKeyCustodyError("boto3 is required for live AWS KMS custody") from exc
-            client = boto3.client("kms")
+            from hushh_mcp.services.pod_s3_object_store import (  # noqa: PLC0415
+                PodMultiCloudStorageError,
+                resolve_aws_boto3_client_kwargs,
+            )
+
+            try:
+                kms_kwargs = resolve_aws_boto3_client_kwargs("kms")
+            except PodMultiCloudStorageError as exc:
+                raise ByocKeyCustodyError(str(exc)) from None
+            client = boto3.client("kms", **kms_kwargs)
         obj = (os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT).strip()
         context = {"custody_mode": CUSTODY_OWNER_KMS, "hushh_id": owner_id}
         return store, client, arn, context, obj
