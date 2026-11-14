@@ -1452,6 +1452,8 @@ class ScheduleLedgerConn(_PrepareConn):
             row.update(state="cancelled", payload_sealed=None)
             if "subject = NULL" in query:
                 row["subject"] = None
+            if "recipient_display = NULL" in query:
+                row["recipient_display"] = None
             # Renamed only when the SQL renames it, so a cancel that keeps its
             # key keeps blocking the same schedule here exactly as in Postgres.
             if "idempotency_hmac = idempotency_hmac || $3 || action_id" in query:
@@ -1680,11 +1682,11 @@ async def test_cancel_is_a_compare_and_set_that_reports_the_state_it_lost_to(mon
 
     first = await service.cancel_scheduled_send(user_id="owner", action_id=action_id)
     assert first == {"cancelled": True, "state": "cancelled", "sent_at": None}
-    # The sealed mail and the plaintext subject (display-only, for the waiting
-    # list) leave with the cancel; the name stays for the honest replies.
+    # The sealed mail, subject, and recipient display label leave with the cancel;
+    # voice confirmations snapshot the name during prepare() before cancelling.
     assert conn.rows[action_id]["payload_sealed"] is None
     assert conn.rows[action_id]["subject"] is None
-    assert conn.rows[action_id]["recipient_display"] == "Priya Sharma"
+    assert conn.rows[action_id]["recipient_display"] is None
     again = await service.cancel_scheduled_send(user_id="owner", action_id=action_id)
     assert (again["cancelled"], again["state"]) == (False, "cancelled")
 
