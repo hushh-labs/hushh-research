@@ -234,8 +234,18 @@ def capacity_args(mode: str, decision: Any | None, target_sha: str | None = None
     if decision.deploy_backend:
         if target_sha is not None:
             args += ["--target-sha", target_sha]
-        return [*args, "--candidate-service", "consent-protocol",
-                "--candidate-service", "consent-protocol-drive-worker"]
+        preserve = os.environ.get("PRESERVE_PAUSED_DRIVE_WORKER") == "true"
+        drain = os.environ.get("DRIVE_V1_WORK_DRAIN_UAT_ENABLED", "")
+        if drain not in {"", "true", "false"}:
+            raise AdmissionError("UAT V1 processing mode is invalid")
+        services = ["consent-protocol"]
+        if not preserve:
+            services.append("consent-protocol-drive-worker")
+        if preserve or os.environ.get("DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED") == "true" or drain:
+            services.append("consent-protocol-drive-v1-worker")
+        for service in services:
+            args += ["--candidate-service", service]
+        return args
     if decision.deploy_frontend:
         return [*args, "--frontend-only"]
     raise AdmissionError("UAT deploy scope has no candidate lane")

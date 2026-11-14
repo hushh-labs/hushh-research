@@ -8,7 +8,6 @@ import importlib
 import json
 import re
 import sys
-import tempfile
 from pathlib import Path
 
 from qualify_image import run
@@ -36,46 +35,23 @@ def _require_authority(authority: dict, run_id: str) -> None:
 
 
 def _original_receipt(authority: dict, run_id: str) -> tuple[dict, dict]:
-    inventory = json.loads(
-        run(
-            [
-                "gh",
-                "api",
-                f"repos/{REPOSITORY}/actions/runs/{run_id}/artifacts?per_page=100",
-            ]
-        )
+    _proof, continuation, owner = _continuation_owners()
+    artifact, _job = continuation.receipts.current_attempt_artifact(
+        REPOSITORY,
+        authority,
+        owner.LANES["production"],
+        api=owner.api,
+        timestamp=owner._github_timestamp,
     )
-    rows = [
-        row
-        for row in inventory.get("artifacts", [])
-        if row.get("name") == f"prod-release-{run_id}" and row.get("expired") is False
-    ]
-    if (
-        inventory.get("total_count", 101) > 100
-        or len(rows) != 1
-        or rows[0].get("created_at", "") < authority["run_started_at"]
-    ):
-        raise ValueError("phone_rollback_production_attempt_receipt_missing")
-    with tempfile.TemporaryDirectory(prefix="phone-production-receipt-") as directory:
-        run(
-            [
-                "gh",
-                "run",
-                "download",
-                run_id,
-                "--repo",
-                REPOSITORY,
-                "--name",
-                rows[0]["name"],
-                "--dir",
-                directory,
-            ]
-        )
-        receipt_file = Path(directory) / "prod-release-status.json"
-        if receipt_file.stat().st_size > 1024 * 1024:
-            raise ValueError("phone_rollback_production_receipt_exceeds_bound")
-        receipt = json.loads(receipt_file.read_text())
-    return receipt, rows[0]
+    archive = continuation.receipts.immutable_archive(
+        REPOSITORY, artifact, run_command=owner.retention.run_command, timeout=30
+    )
+    body = continuation.receipts._status_bytes(
+        archive, "prod-release-status.json", allow_legacy_production=True
+    )
+    if len(body) > 1024 * 1024:
+        raise ValueError("phone_rollback_production_receipt_exceeds_bound")
+    return continuation.phone._document(archive, "prod-release-status.json"), artifact
 
 
 def _continuation_owners():

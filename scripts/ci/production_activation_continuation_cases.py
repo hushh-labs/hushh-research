@@ -10,7 +10,7 @@ import production_backend_successor_proof as proof
 import production_activation_continuation as continuation
 import production_phone_receipt as phone
 from production_pending_activation_cases import _pending_case
-from production_phone_receipt_fixtures import archive, healthy_tag
+from production_phone_receipt_fixtures import archive, healthy_tag, mixed_root_archive
 
 
 class _ContinuationCase:
@@ -258,6 +258,27 @@ class ActivationFrontendContinuationCases:
 
 
 class ActivationContinuationCases(ActivationFrontendContinuationCases):
+    def test_continuation_reuses_mixed_root_pending_and_healthy_receipt_layouts(self):
+        with _continuation_case(self) as case:
+            case.original.payload = mixed_root_archive(
+                case.original, case.original.documents
+            )
+            case.origin = case.load()
+            case.documents[continuation.ORIGIN] = case.origin
+            case.payload = mixed_root_archive(case, case.documents)
+            context = case.read()
+            self.assertEqual(context["status"], "activated")
+            self.assertEqual(context["backend"]["run_id"], 400)
+            self.assertEqual(context["cold_rollback"]["runtime_run_id"], "300")
+            self.assertEqual(
+                case.origin["original"]["artifact_digest"],
+                case.original.artifact["digest"],
+            )
+            case.documents[continuation.ORIGIN] = None
+            case.payload = mixed_root_archive(case, case.documents)
+            with self.assertRaises(phone.retention.UnsafeState):
+                case.read()
+
     def test_continuation_loads_original_pending_archive_and_keeps_backend_owner(self):
         with _continuation_case(self) as case:
             before = copy.deepcopy(case.original.documents)

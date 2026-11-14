@@ -417,7 +417,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
     helper.parent.mkdir(parents=True)
     helper.write_text(
         "import sys\n"
-        "if sys.argv[1:] != ['configured-provider']: raise SystemExit(2)\n"
+        "if sys.argv[1:] != ['qualification-provider']: raise SystemExit(2)\n"
         "print('azure_openai')\n",
         encoding="utf-8",
     )
@@ -998,11 +998,11 @@ def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
     assert "steps.rollback-targets.outputs.frontend_revision" in rollback_block
 
 
-def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
+def test_uat_deploy_pins_the_isolated_firebase_authority() -> None:
     workflow_source = _read(".github/workflows/deploy-uat-implementation.yml")
     workflow = yaml.safe_load(workflow_source)
 
-    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
+    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda-uat"
     assert (
         workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
         == 2
@@ -2083,6 +2083,123 @@ def _managed_provider_gate():
     return module
 
 
+@pytest.mark.parametrize("defect", [None, "image", "scope_binding", "failed_scope"])
+def test_scoped_core_qualifies_actual_models_without_changing_fleet(defect):
+    gate = _managed_provider_gate()
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    document["managed_provider_selection"]["uat"] = "azure_openai"
+    expected, vertex = _provider_fixture(gate, "vertex", document=document)
+    expected["qualification_mode"] = "core"
+    vertex["core"]["activity_planner"] = None
+    vertex.pop("capability_proof")
+    if defect == "image":
+        vertex["execution_image"] = "foreign-image"
+    elif defect == "scope_binding":
+        vertex["core"]["scopes"]["one_text_chat"]["binding_fingerprint"] = "0" * 64
+    elif defect == "failed_scope":
+        vertex["core"]["scopes"]["drive_document_requests"]["ready"] = False
+    result = gate.evaluate({"vertex": vertex}, expected, document=document)
+    assert result["ready"] is (defect is None)
+    assert result["selected_provider"] == ("azure_openai" if defect is None else None)
+    assert result["core_provider"] == "vertex"
+    assert result["providers"]["azure_openai"]["ready"] is False
+    assert result["pwm_trust"] == "unverified"
+
+
+def test_core_provider_requires_complete_scoped_policies_and_preserves_full_mode():
+    gate = _managed_provider_gate()
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    assert gate.qualification_provider(document, "uat", "core") == "vertex"
+    assert gate.qualification_provider(document, "uat", "full") == "azure_openai"
+    assert gate.qualification_provider(document, "dev", "core") == "vertex"
+    malformed = {**document, "one_chat_text_uat": None, "drive_text_uat": None}
+    with pytest.raises(ValueError, match="complete scoped"):
+        gate.qualification_provider(malformed, "uat", "core")
+    del document["one_chat_text_uat"]
+    with pytest.raises(ValueError, match="complete scoped"):
+        gate.qualification_provider(document, "uat", "core")
+    del document["drive_text_uat"]
+    assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
+
+
+def test_core_provider_preserves_historical_unscoped_runtime(monkeypatch):
+    gate = _managed_provider_gate()
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    contract = gate._runtime_contract()
+    monkeypatch.delattr(contract, "load_scoped_text_policy")
+    monkeypatch.setattr(gate, "_runtime_contract", lambda: contract)
+    for key in ("one_chat_text_uat", "drive_text_uat"):
+        document.pop(key)
+    assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
+    document["one_chat_text_uat"] = {"provider": "vertex"}
+    with pytest.raises(ValueError, match="does not support declared scoped"):
+        gate.qualification_provider(document, "uat", "core")
+
+
+@pytest.mark.parametrize("provider", ["vertex", "azure_openai"])
+@pytest.mark.parametrize("mode", ["core", "full"])
+def test_probe_dispatch_uses_scoped_core_policy(provider, mode):
+    if provider == "vertex":
+        shell = _read("scripts/deploy/verify-managed-vertex-runtime.sh")
+        prefix = shell[: shell.index('genai_project_id="')]
+    else:
+        steps = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
+        shell = next(step["args"][-1] for step in steps if step["id"] == "verify-azure-pwm-runtime")
+        prefix = shell[: shell.index('pwm_provider="')]
+    # Run the real dispatch helper. Intercept only the finalizer's evidence write;
+    # no Cloud Run job or external operation is executed by this boundary test.
+    command = (
+        'python3() { if [[ "${2:-}" == record ]]; then return 0; fi; '
+        'command python3 "$@"; };\n' + prefix + '\nprintf "required-probe\\n"; trap - EXIT\n'
+    )
+    result = subprocess.run(  # noqa: S603 - reviewed dispatcher prefix; no cloud commands execute.
+        ["bash", "-euc", command],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "_DEPLOY_ENV": "uat",
+            "_VERIFY_MANAGED_VERTEX_RUNTIME": "true",
+            "_MANAGED_READINESS_MODE": mode,
+            "READINESS_ENVIRONMENT": "uat",
+            "READINESS_QUALIFICATION_MODE": mode,
+        },
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "vertex")
+
+
+@pytest.mark.parametrize("defect", [None, "carrier", "fleet"])
+def test_scoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, monkeypatch, defect):
+    gate = _managed_provider_gate()
+    expected, vertex = _provider_fixture(gate, "vertex")
+    expected["qualification_mode"] = "core"
+    vertex["core"]["activity_planner"] = None
+    result = gate.evaluate({"vertex": vertex}, expected)
+    if defect == "carrier":
+        result["core_provider"] = "azure_openai"
+    elif defect == "fleet":
+        result["selected_provider"] = "vertex"
+    monkeypatch.setenv("READINESS_SERVICE", "consent-protocol")
+    monkeypatch.setenv("READINESS_TAG", "account-deletion-12345")
+    calls = []
+    monkeypatch.setattr(gate, "run_json", lambda args: calls.append(args) or {})
+    # Exact candidate identity/traffic checks have independent boundary coverage.
+    monkeypatch.setattr(
+        gate, "candidate", lambda *_: ("consent-protocol-candidate", "azure_openai")
+    )
+    if defect:
+        with pytest.raises(ValueError, match="qualified configured processor"):
+            gate.select(result, expected, tmp_path)
+        assert calls == []
+    else:
+        gate.select(result, expected, tmp_path)
+        assert all(args[:3] == ["run", "services", "describe"] for args in calls)
+        assert result["selection"]["provider"] == "azure_openai"
+
+
 def _capability_results_fixture(policy):
     capabilities = {
         name: {"ready": True, "elapsed_ms": 1} for name in policy["required_capabilities"]
@@ -2281,7 +2398,11 @@ def test_provider_release_admission_qualifies_the_configured_provider(
         expected,
         document=document,
     )
-    selected = configured if (azure if configured == "azure_openai" else vertex) else None
+    selected = (
+        (configured if vertex else None)
+        if mode == "core"
+        else (configured if (azure if configured == "azure_openai" else vertex) else None)
+    )
     assert result["ready"] is (selected is not None)
     assert result["selected_provider"] == selected
 

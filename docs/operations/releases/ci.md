@@ -1035,7 +1035,7 @@ rehearsal; it does not change the existing advisory rollback policy.
 
 ### Managed-provider readiness policy
 
-Ordinary deployment requires the configured provider's **core** proof. UAT verifies One chat
+Ordinary deployment requires **core** proof for the effective providers of its required scopes. UAT verifies One chat
 and Drive text scopes, current authority, structured output, attribution/schema,
 candidate health, compatibility and rollback. The exact candidate image, runtime
 identity, run/attempt and configuration bind that proof. Trust failures always block;
@@ -1043,6 +1043,12 @@ an HTTP 200 is not sufficient. Core mode neither probes an unused alternate nor
 changes runtime fallback authority.
 
 Core text proof retains both configured scope/provider/structured-output roundtrips.
+When both UAT text scopes explicitly use Vertex, core qualification runs their
+Vertex proof even if the fleet default remains Azure. The receipt records
+`core_provider` separately from `selected_provider`; qualification leaves the
+fleet flags and worker inheritance unchanged. Missing, stale or mismatched scoped
+proof still blocks release. An independent Azure PWM probe is not a prerequisite
+for those Vertex scopes; full diagnostics retain its existing checks.
 The Drive activity planner's semantic quality scenarios belong to explicit `full`
 diagnostics; core reports that planner result as unrun. Full diagnostics retain
 the authored cases, graders and blocking semantic-failure verdicts.
@@ -2308,10 +2314,10 @@ Do not grant ordinary contributors broader bypass to solve an owner-only problem
 CODEOWNERS visibly defaults ordinary PRs to `allowed-maintainers-to-approve`
 and overrides protected files with `pipeline-editors`. After PR creation, source
 updates or retargeting, run `./bin/hushh agents review-route --pr <number> --apply`.
-It reconciles mixed and content-based protected changes to **pipeline-editors
-only**, preserving explicit individual requests and completed current-head reviews.
-Native requests can initially show both Teams on mixed PRs; the CLI corrects that
-without adding an Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
+It requests **pipeline-editors** for mixed and content-based protected changes,
+preserving explicit individual requests and completed current-head reviews.
+Main's native code-owner requests may remain and are reported after verification;
+the CLI adds no Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
 This is notification only: ordinary maintainers retain existing self-service;
 outside contributors still need independent authorized review. Labels never waive
 required checks, combined-result admission or protected approval.
