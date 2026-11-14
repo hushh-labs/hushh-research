@@ -5,16 +5,169 @@ import os
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
+from hushh_mcp.services import metrics_adoption as metrics_source
 from hushh_mcp.services.feed_service import FeedService
+from tests.services.test_plg_evidence import metrics_aggregate_setup  # noqa: F401 -- owning fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/269_feed_agent_outcomes.sql"
 ROLLBACK = ROOT / "db/migrations/rollback/269_feed_agent_outcomes.rollback.sql"
+
+
+@pytest.mark.asyncio
+async def test_metrics_native_source_deduplicates_and_retains_one_snapshot(
+    metrics_aggregate_setup,  # noqa: F811 -- imported owning pytest fixture
+    monkeypatch,
+):
+    from datetime import datetime, timedelta, timezone
+
+    import asyncpg
+
+    from tests.helpers.isolated_postgres import is_isolated_command_url
+
+    configured = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not configured:
+        pytest.skip("Admitted disposable PostgreSQL required")
+    try:
+        url = make_url(configured)
+        admitted = is_isolated_command_url(url)
+    except (ValueError, TypeError):
+        admitted = False
+    if not admitted:
+        pytest.fail("Metrics source test refused a non-disposable PostgreSQL target")
+    args = {"host": url.host, "port": url.port, "user": url.username, "password": url.password}
+    name = "metrics_aggregate_" + uuid.uuid4().hex
+    admin = await asyncpg.connect(**args, database="command_test")
+    pool = None
+    created = False
+    try:
+        await admin.execute(f'CREATE DATABASE "{name}"')
+        created = True
+        pool = await asyncpg.create_pool(**args, database=name, min_size=1, max_size=4)
+        # Only metadata columns used by the real source adapters exist. Any
+        # accidental prompt/body/vault read fails rather than passing a mock.
+        await pool.execute("""
+          CREATE TABLE actor_profiles(user_id text PRIMARY KEY);
+          CREATE TABLE actor_identity_cache(user_id text PRIMARY KEY, display_name text,
+            email text,phone_number text,photo_url text,custom_photo_url text,
+            email_verified bool,phone_verified bool,source text,last_synced_at timestamptz,
+            created_at timestamptz,updated_at timestamptz);
+          CREATE TABLE actor_verified_email_aliases(user_id text,email_normalized text,
+            verification_status text,revoked_at timestamptz);
+          CREATE TABLE account_deletion_tombstones(user_id_hash text);
+          CREATE TABLE agent_chat_messages(id uuid,user_id text,conversation_id uuid,role text,
+            status text,error_code text,created_at timestamptz,completed_at timestamptz);
+          CREATE TABLE pkm_domain_commits(user_id text,commit_id uuid,created_at timestamptz,
+            domain text,result_content_revision bigint,commit_kind text);
+          CREATE TABLE pkm_events(user_id text,domain text,operation_type text,metadata jsonb);
+          CREATE TABLE gmail_owner_send_actions(action_id uuid,user_id text,state text,
+            send_at timestamptz,gmail_message_id text,sent_at timestamptz,gmail_thread_id text);
+          CREATE TABLE gmail_personal_information_requests(user_id text,status text,
+            reply_send_action_id uuid,gmail_thread_id text);
+          CREATE TABLE one_product_activity_epochs(user_id text,generation uuid);
+          CREATE TABLE one_product_value_receipts(effect_id text,user_id text,agent_id text,
+            proof text,occurred_at timestamptz,expires_at timestamptz,generation uuid);
+          CREATE TABLE one_action_directive_ledger(operation_id uuid,user_id text,
+            settled_at timestamptz,channel text,command_effect text,state text,settlement_status text,
+            effect_request_hmac text,effect_receipt jsonb,action_id text,settlement_reason_code text,
+            membership_receipts jsonb,directive_id text,document_request_id uuid,
+            document_request_revision bigint,confirmed_at timestamptz,consumed_at timestamptz);
+          CREATE TABLE connected_system_intents(intent_id text,user_id text,status text,
+            result_class text,approval_id text);
+          CREATE TABLE connected_system_audit_events(intent_id text,user_id text,approval_id text,
+            created_at timestamptz,status text,mcp_result_class text,readback_result_class text,action text);
+          CREATE TABLE drive_share_permission_operations(operation_id uuid,user_id text,
+            settled_at timestamptz,kind text,state text,receipt_envelope jsonb,batch_id uuid,
+            request_id uuid,review_revision bigint);
+          CREATE TABLE drive_share_reviews(directive_id text,request_id uuid,revision bigint,
+            user_id text,decision text);
+          CREATE TABLE wallet_card_registrations(owner_user_id text,source_commit_id uuid,
+            activated_at timestamptz,origin text);
+        """)
+        fixture = metrics_aggregate_setup
+        at = datetime.fromisoformat(fixture.body["period"]["startDate"]).replace(
+            tzinfo=timezone.utc
+        ) + timedelta(hours=12)
+        epoch, action, conversation = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        await pool.execute("INSERT INTO actor_profiles VALUES('customer'),('staff')")
+        await pool.execute("""INSERT INTO actor_identity_cache(user_id,email,email_verified,source)
+          VALUES('customer','person@outside.invalid',true,'firebase'),('staff','staff@company.invalid',true,'firebase')""")
+        await pool.execute("INSERT INTO one_product_activity_epochs VALUES('customer',$1)", epoch)
+        await pool.execute(
+            """INSERT INTO agent_chat_messages VALUES
+          ($1,'customer',$2,'user','complete',NULL,$3,NULL),
+          ($4,'customer',$2,'assistant','complete',NULL,$3,$3)""",
+            uuid.uuid4(),
+            conversation,
+            at,
+            uuid.uuid4(),
+        )
+        await pool.execute(
+            """INSERT INTO gmail_owner_send_actions VALUES
+          ($1,'customer','sent',NULL,'synthetic-message',$2,'synthetic-thread'),
+          ($3,'staff','sent',NULL,'synthetic-staff-message',$2,'synthetic-staff-thread')""",
+            action,
+            at,
+            uuid.uuid4(),
+        )
+        await pool.execute(
+            "INSERT INTO gmail_personal_information_requests VALUES('customer','sent',$1,'synthetic-thread')",
+            action,
+        )
+        await pool.execute(
+            """INSERT INTO one_product_value_receipts VALUES
+          ('calendar-effect','customer','agent_calendar','calendar.provider_effect.v1',$1,$2,$3)""",
+            at,
+            datetime.now(timezone.utc) + timedelta(days=1),
+            epoch,
+        )
+        auth = AsyncMock(
+            return_value={
+                "customer": {"emails": ("person@outside.invalid",)},
+                "staff": {"emails": ("staff@company.invalid",)},
+            }
+        )
+        monkeypatch.setattr(metrics_source.plg_reporting, "current_reporting_records", auth)
+        original = metrics_source.plg_outcomes.value_summaries
+        writes = 0
+
+        async def late_effect(*args):
+            nonlocal writes
+            if not writes:
+                writes += 1
+                await pool.execute(
+                    "INSERT INTO gmail_owner_send_actions VALUES($1,'customer','sent',NULL,'late-message',$2,'late-thread')",
+                    uuid.uuid4(),
+                    at,
+                )
+            return await original(*args)
+
+        monkeypatch.setattr(metrics_source.plg_outcomes, "value_summaries", late_effect)
+        request = metrics_source.AdoptionRequest.model_validate(fixture.body)
+        first = await metrics_source.adoption_aggregate(request, fixture.binding, pool=pool)
+        # One send + its KYC reply is one effect, plus one Calendar effect.
+        # The later committed send is outside the active MVCC snapshot.
+        assert first["metrics"]["confirmedOutcomes"]["value"] == 2
+        assert first["metrics"]["activeAccounts"]["value"] == 1
+        second = await metrics_source.adoption_aggregate(request, fixture.binding, pool=pool)
+        reference = await pool.fetchval("""SELECT
+          (SELECT COUNT(DISTINCT action_id) FROM gmail_owner_send_actions WHERE user_id='customer' AND state='sent')
+          +(SELECT COUNT(*) FROM one_product_value_receipts WHERE user_id='customer' AND agent_id='agent_calendar')""")
+        assert reference == second["metrics"]["confirmedOutcomes"]["value"] == 3
+        assert all(metric["coverage"] == "partial" for metric in second["metrics"].values())
+        assert all(set(call.args[0]) == {"customer", "staff"} for call in auth.await_args_list)
+    finally:
+        if pool is not None:
+            await pool.close()
+        if created:
+            await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
 
 
 @pytest.fixture
