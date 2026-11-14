@@ -1698,3 +1698,6 @@ tests/test_migration_ledger_atomicity_postgres.py
 # Wave 3 pod process dumpable/core hardening, SSRF browser guardrails, and ACE custody port.
 tests/test_pod_browser_ssrf_and_dumpable_hardening.py
 tests/test_pod_custody_port_and_ace.py
+
+# Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
+tests/test_provider_capability_registry_and_aws_parity.py

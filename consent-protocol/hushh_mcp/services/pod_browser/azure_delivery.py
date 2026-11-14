@@ -6,6 +6,7 @@ import os
 import time
 from urllib.parse import urlsplit
 
+from hushh_mcp.services.pod_custody_port import ace_custody_configured
 from hushh_mcp.services.pod_platform import workload_platform
 from hushh_mcp.services.pod_queue_transport import OwnerAzureQueue, OwnerQueueRefused
 
@@ -34,7 +35,7 @@ def browser_queue_url() -> str:
         or queue.query
         or queue.fragment
         or queue.username
-        or not os.getenv("HUSSH_POD_KEY_VAULT_KEY")
+        or not (os.getenv("HUSSH_POD_KEY_VAULT_KEY") or ace_custody_configured())
     ):
         raise BrowserRefused("BROWSER_TASK_DELIVERY_UNAVAILABLE")
     return queue.geturl()

@@ -63,10 +63,12 @@ def is_immutable_image_reference(reference: object) -> bool:
 
 
 def qualified_owner_update_host(deployment_target: object, metadata: object) -> bool:
-    """Only known owner-cloud rows without VM host state qualify for this gate."""
+    """Only qualified owner-cloud rows without VM host state pass this gate."""
+    from hushh_mcp.services.provider_capability_registry import is_owner_update_qualified_target
+
     return bool(
         isinstance(deployment_target, str)
-        and deployment_target in _OWNER_TARGETS
+        and is_owner_update_qualified_target(deployment_target)
         and isinstance(metadata, dict)
         and "hostKind" not in metadata
         and "vmHost" not in metadata

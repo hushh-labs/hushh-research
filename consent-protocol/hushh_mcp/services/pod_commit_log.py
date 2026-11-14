@@ -374,10 +374,13 @@ class LocalObjectStore:
         with self._lock():
             return read_local_bounded(self._path(key), max_bytes=max_bytes)
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+    def get_with_generation_blocking(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         with self._lock():
             data, generation = self._read_pair(self._path(key))
         return data, decimal_version(generation)
+
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        return self.get_with_generation_blocking(key)
 
     async def get_bounded_with_generation(
         self, key: str, *, max_bytes: int
@@ -407,7 +410,7 @@ class LocalObjectStore:
                 raise FileExistsError(f"record object already exists: {key}")
             self._commit_pair(key, data, current, generation)
 
-    async def put_if_generation(
+    def put_if_generation_blocking(
         self, key: str, data: bytes, expected: ObjectVersion
     ) -> Optional[ObjectVersion]:
         wanted = decimal_generation(expected)
@@ -416,6 +419,11 @@ class LocalObjectStore:
             if generation != wanted:
                 return None
             return decimal_version(self._commit_pair(key, data, current, generation))
+
+    async def put_if_generation(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        return self.put_if_generation_blocking(key, data, expected)
 
     async def delete(self, key: str) -> bool:
         with self._lock():
@@ -637,9 +645,12 @@ class GcsObjectStore:
         data, _ = await self.get_with_generation(key)
         return data
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
-        data, generation = await asyncio.to_thread(self._get_with_generation, key)
+    def get_with_generation_blocking(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        data, generation = self._get_with_generation(key)
         return data, decimal_version(generation)
+
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        return await asyncio.to_thread(self.get_with_generation_blocking, key)
 
     async def get_bounded_with_generation(
         self, key: str, *, max_bytes: int
@@ -701,11 +712,15 @@ class GcsObjectStore:
         if created is None:
             raise FileExistsError(f"record object already exists: {key}")
 
+    def put_if_generation_blocking(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        return self._put_if_generation(key, data, decimal_generation(expected))
+
     async def put_if_generation(
         self, key: str, data: bytes, expected: ObjectVersion
     ) -> Optional[ObjectVersion]:
-        generation = decimal_generation(expected)
-        return await run_write_to_completion(self._put_if_generation, key, data, generation)
+        return await run_write_to_completion(self.put_if_generation_blocking, key, data, expected)
 
     def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[ObjectVersion]:
         name = self._key(key)
