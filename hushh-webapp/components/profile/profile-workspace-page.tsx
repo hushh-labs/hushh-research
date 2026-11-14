@@ -2389,7 +2389,7 @@ function ProfilePageContent({
           activePanel === "hosting"
             ? "Hosting"
             : activePanel === "software-updates"
-              ? "Software updates"
+              ? "Agent updates"
               : PROFILE_LABELS.support,
         purpose: "opens support routing and compose flows.",
         actionId: "route.profile_support_panel",
@@ -2481,7 +2481,7 @@ function ProfilePageContent({
           PROFILE_LABELS.account,
           PROFILE_LABELS.preferences,
           "Hosting",
-          "Software updates",
+          "Agent updates",
           "Payments and earnings",
           "Request pricing",
           "Memory",
@@ -2573,7 +2573,7 @@ function ProfilePageContent({
                       : activePanel === "hosting"
                         ? "Hosting"
                         : activePanel === "software-updates"
-                          ? "Software updates"
+                          ? "Agent updates"
                           : PROFILE_LABELS.support
           : "Profile",
         purpose:
@@ -4275,7 +4275,7 @@ function ProfilePageContent({
   ) {
     profileStackEntries.push({
       key: `panel:${activePanel}`,
-      title: activePanel === "hosting" ? "Hosting" : "Software updates",
+      title: activePanel === "hosting" ? "Hosting" : "Agent updates",
       description:
         activePanel === "hosting"
           ? "Where your private agent runs."

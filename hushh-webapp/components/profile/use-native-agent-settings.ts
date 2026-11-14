@@ -44,10 +44,10 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
       if (hosting.rebuildable && hosting.rebuild?.retryable !== false) current.push(read("hosting-rebuild-website", "Rebuild hosting", website));
     }
     sections.push({ id: "hosting-status-section", rows: current });
-    const canChoose = ["shared", "pending", "byoc", "unplaced"].includes(mode);
+    const canChoose = status?.featureEnabled === true && ["shared", "pending", "byoc", "unplaced"].includes(mode);
     sections.push({ id: "hosting-choices-section", title: "Hosting choices", rows: [
       { ...action("hosting-shared", "Hussh Shared", model.chooseHosting, mode !== "unplaced"), detail: mode === "byoc" ? "To switch, remove your current cloud below. Your account stays." : "Hussh runs and updates it for you.", ...(mode === "shared" ? { trailing: "Current" } : {}) },
-      { ...action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting, !canChoose), detail: "Runs in your cloud. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : mode === "pending" ? { trailing: "Continue" } : {}) },
+      { ...(canChoose ? action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting) : read("hosting-own-cloud", "Bring your own cloud")), detail: status && !status.featureEnabled ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged." : "Runs in your cloud. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : status && !status.featureEnabled ? { trailing: "Unavailable" } : mode === "pending" ? { trailing: "Continue" } : {}) },
       { ...read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? "Your dedicated pod. You approve updates." : "Closed to new setups."), trailing: mode === "hussh_pods" ? "Current" : "Unavailable" },
     ] });
     const actions = [action("hosting-check", "Check hosting", model.checkStatus, busy)];
@@ -84,7 +84,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
       { ...action("updates-browser-review", "Review Browser setup", browser.inspect, browser.busy || busy || working), detail: "Research public pages with Agent One. Review access before enabling." },
       ...(!browser.review && browser.notice ? [read("updates-browser-outcome", browser.notice)] : []),
     ] });
-    pages.push({ id: "software-updates", title: "Software updates", sections });
+    pages.push({ id: "software-updates", title: "Agent updates", sections });
     if (browser.review) {
       const offer = browser.review.offer;
       pages.push({ id: "browser-review", title: "Browser setup", sections: [

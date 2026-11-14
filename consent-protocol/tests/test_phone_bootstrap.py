@@ -219,16 +219,23 @@ def test_unowned_lock_refuses_without_mutation(bootstrap_case):
 
 
 @pytest.mark.parametrize(
+    "workflow,job_key",
+    [
+        (".github/workflows/deploy-production.yml", "deploy"),
+        (".github/workflows/capacity-maintenance.yml", "cleanup"),
+    ],
+)
+@pytest.mark.parametrize(
     "misroute",
-    ["workflow", "job", "attempt", "job-replay", "actor", "triggering-actor", None],
+    ["workflow", "job", "job-name", "attempt", "job-replay", "actor", "triggering-actor", None],
 )
 def test_runtime_requires_the_exact_running_canonical_production_job(
-    bootstrap_case, monkeypatch, misroute
+    bootstrap_case, monkeypatch, misroute, workflow, job_key
 ):
     state = bootstrap_case
     owner = {
         **state.owner,
-        "path": state.module.WORKFLOW,
+        "path": workflow,
         "status": "in_progress",
         "head_branch": "main",
         "event": "workflow_dispatch",
@@ -241,7 +248,7 @@ def test_runtime_requires_the_exact_running_canonical_production_job(
     }
     monkeypatch.setenv("GITHUB_RUN_ID", "42")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
-    monkeypatch.setenv("GITHUB_JOB", "deploy")
+    monkeypatch.setenv("GITHUB_JOB", job_key)
     if misroute == "workflow":
         owner["path"] = ".github/workflows/deploy-uat.yml"
     elif misroute == "job":
@@ -253,13 +260,15 @@ def test_runtime_requires_the_exact_running_canonical_production_job(
     elif misroute == "triggering-actor":
         owner["triggering_actor"]["type"] = "Bot"
     job = {
-        "name": "Deploy Production Scope",
+        "name": yaml.safe_load((ROOT / workflow).read_text())["jobs"][job_key]["name"],
         "status": "in_progress",
         "run_id": 42,
         "run_attempt": 99 if misroute == "job-replay" else 2,
         "head_sha": PRIMARY,
         "head_branch": "main",
     }
+    if misroute == "job-name":
+        job["name"] = "Production bounded revision cleanup"
     ports_module = __import__("bootstrap_ports")
     monkeypatch.setattr(
         ports_module,

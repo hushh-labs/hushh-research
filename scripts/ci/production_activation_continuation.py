@@ -439,7 +439,9 @@ def archive_context(
             "activation continuation status and immutable archive differ",
         )
         with ZipFile(BytesIO(archive)) as bundle:
-            if ORIGIN not in bundle.namelist():
+            if not receipts._member_names(
+                ORIGIN, allow_legacy_production=True
+            ).intersection(bundle.namelist()):
                 return None
         return _archive_context(
             copy.deepcopy(run),
