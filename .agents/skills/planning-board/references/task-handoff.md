@@ -14,15 +14,14 @@ the implementer does not have to reconstruct decisions from chat.
    consent, supported runtimes, dependencies, acceptance and deviation protocol.
 4. Resolve discoverable facts yourself. Ask only for a remaining product/authority
    decision; do not substitute an invented deadline, SLO, scope or release grant.
-5. Ground delivery in the target repository's actual branch, runtime and deployment
-   contracts. A reference project supplies patterns to assess, not an environment
-   matrix, release procedure, workload size or tuning policy to import.
+5. Ground delivery in the target repository's branch, runtime and provisioning
+   contracts. Translate examples into capabilities; a product analogy does not itself require new infrastructure.
+   Reference projects supply patterns, not another product's environment or limits.
 
 ## Phased planning and alignment
 
 Every implementation plan starts with **Phase 0 — planning and alignment report**;
-number later phases consistently for both audiences. Scale phases to the work;
-ordinary questions and board summaries need no implementation-plan ritual.
+number later phases consistently for both audiences and scale them to the work. Ordinary questions and board summaries need no phase ritual.
 The owner inspects current evidence, reports the problem/outcome, reuse, boundaries,
 dependencies, proof and unresolved decisions to the lead before implementation.
 Include per-phase effort ranges, assumptions, uncertainty and access/review needs;
@@ -46,8 +45,8 @@ Concision removes repetition, not reasons, directions, references or safety boun
   technical terms at first use through their purpose and user effect.
 - State the important decisions and tradeoffs in human terms, including what stays
   authoritative, privacy/consent boundaries and the effect on the person's experience.
-- Explain the components' roles when their distinction matters. Keep low-level
-  wiring in the agent section, not the rationale people need to assess it.
+- Explain roles through purpose and user effect. Technical detail must change a human decision or tradeoff.
+  Keep flags, paths, runtime matrices and inventories in agent guidance or canonical evidence.
 - Give numbered phase checkboxes starting with Phase 0 and its alignment report,
   then a deliverable and observable exit for each implementation phase.
 - Show requested references and canonical sources here too, with what the reader
@@ -116,9 +115,8 @@ parameters when meaningful; do not invent wire schemas or thresholds for appeara
 ## Decision and evidence quality
 
 Make the human brief explain **verified condition → problem → chosen direction
-→ reason/tradeoff → observable outcome**. A component inventory or checklist alone
-does not explain a design. Keep writer identity, tooling, skill invocation and
-conversation history out of solution prose unless they affect a real constraint.
+→ reason/tradeoff → observable outcome**. State what to achieve, why it fits, what to preserve and how to judge success.
+An inventory alone does not explain a design. Keep writer identity, tooling, skills and chat history out of solution prose unless they affect a real constraint.
 
 Separate approved requirements, protective starting defaults, measured results
 and decisions still owned by the lead. Preserve exact agreed limits with units,
@@ -188,9 +186,11 @@ visible with their decision owner; accepted details must not become open choices
 
 - Compare the proposed edit with the freshly read body; reconcile concurrent work
   instead of overwriting it. Use structured request bodies or properly quoted files.
-- Verify the rendered body, linked owner/lead/reviewer identities, descriptive
-  references, author, assignee, native relationships and live project fields.
-  Confirm requested non-changes, including dates, status and unrelated work.
+- Read the human section alone: can the owner explain the problem, chosen path,
+  reasons, phase outcomes and next action without translating implementation jargon?
+  Check every update; move technical receipts to their evidence owner.
+- Verify links, author, assignees, linked owner/lead/reviewers, relationships and project fields. Preserve dates,
+  status and unrelated work unless their change was requested.
 - Keep sensitive payloads and private evidence outside issues; link only references
   appropriate for the destination's audience and the user's sharing authorization.
 - A passing source check, completed implementation and accepted release are
