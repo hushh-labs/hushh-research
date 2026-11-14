@@ -17,6 +17,15 @@ vi.mock("@/lib/services/kai-service", () => ({ setKaiVaultOwnerToken: () => {} }
 import { DebateStreamView } from "@/components/kai/debate-stream-view";
 
 describe("Finance detailed analysis", () => {
+  it("keeps the active run status visible after streaming has attached", async () => {
+    render(<DebateStreamView ticker="TEST" userId="snapshot-owner" riskProfile="balanced" vaultKey="" vaultOwnerToken="fixture-token" onClose={() => {}} showHeader={false} />);
+    await waitFor(() => expect(streamMocks.listener).toBeTypeOf("function"));
+    act(() => streamMocks.listener!({ seq: 1, event: "start", payload: { message: "Research started" } }));
+    expect(screen.getByRole("status")).toHaveTextContent("Round 1");
+    expect(screen.queryByText("Analysis stopped.")).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Stock analysis progress" })).toBeVisible();
+  });
+
   it("keeps the analysis quote and its provenance when the display quote is newer", async () => {
     const onDecisionReady = vi.fn();
     render(<DebateStreamView ticker="TEST" userId="snapshot-owner" riskProfile="balanced" vaultKey="" vaultOwnerToken="fixture-token" onClose={() => {}} onDecisionReady={onDecisionReady} />);
