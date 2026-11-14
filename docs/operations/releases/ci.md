@@ -358,7 +358,13 @@ a new apply can publish a version-3 `preparing` journal before looking up the la
 deployment. Its observation is explicitly unknown, it remains due, and it never
 certifies completion or replaces orphaned state. Existing custody is retained.
 Failures before this boundary still require verified pre-mutation evidence; a
-missing checkpoint never establishes successful cleanup.
+missing checkpoint never establishes successful cleanup. A reviewed manual guard
+refusal can establish absence of revision cleanup only from its exact immutable
+controller source, complete failed-attempt transcript and skipped checkpoint save.
+It grants no release clearance, checkpoint boundary or drain credit; earlier
+custody must still be verified. Phone activation is separately proved as
+a nonproducer of cold-backend leases; its lifecycle activation remains governed
+and never substitutes for ordinary lease retirement.
 
 ## Recorded production restoration — 26 October 2026
 
