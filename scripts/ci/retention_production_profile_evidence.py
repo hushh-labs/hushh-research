@@ -20,6 +20,9 @@ APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
 # This reviewed contract reaches publication admission before provider mutation.
 # Compare its actual blobs, not a mutable Main ref or an invented historical profile.
 STATIC_GUARD_SOURCE = "b31636cee1f7281688d58b54e0445ddf717e825e"
+# The reviewed activation/worker readers changed the owner tuple, while
+# publication admission still precedes every provider mutation.
+STATIC_GUARD_SOURCES = (STATIC_GUARD_SOURCE, "619e37615f35d11b79909420f23cf0d5a75b679b")
 STATIC_GUARD_PATHS = (*production.SOURCE_PATHS, records.PASS_DIAGNOSTICS)
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
 PROFILE_NAME = "publication-aec6-blobless-v2"
@@ -554,14 +557,14 @@ def qualify_source_refusal(
         )
     }
     if static:
-        approved = source_reader(owner, repository, STATIC_GUARD_SOURCE, STATIC_GUARD_PATHS)
-        _require(owner, isinstance(approved, dict) and set(approved) == set(STATIC_GUARD_PATHS),
-                 "reviewed static guard source is incomplete")
-        current_profiles = {
-            STATIC_GUARD_SOURCE: {
+        current_profiles = {}
+        for reference in STATIC_GUARD_SOURCES:
+            approved = source_reader(owner, repository, reference, STATIC_GUARD_PATHS)
+            _require(owner, isinstance(approved, dict) and set(approved) == set(STATIC_GUARD_PATHS),
+                     "reviewed static guard source is incomplete")
+            current_profiles[reference] = {
                 path: (blob["sha"], blob["size"]) for path, blob in approved.items()
             }
-        }
     checkout = run["head_sha"]
     core = source_reader(owner, repository, checkout, production.SOURCE_PATHS)
     _require(
