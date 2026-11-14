@@ -309,18 +309,18 @@ class FundingReceipt(ProviderContext):
 
         # App ownership was checked when reserving the persisted funding row.
         # Never reconstruct authority from provider-supplied metadata.
-        async def app(connection: Any) -> str | None:
-            return await connection.fetchval(
-                """SELECT w.buyer_app_id FROM scope_commerce_fundings f
-                JOIN scope_commerce_wallets w ON w.wallet_id=f.wallet_id WHERE f.funding_id=$1::uuid""",
+        async def settle(connection: Any) -> None:
+            funding = await connection.fetchrow(
+                """SELECT w.buyer_app_id, w.erased_at, f.status FROM scope_commerce_fundings f
+                JOIN scope_commerce_wallets w ON w.wallet_id=f.wallet_id
+                WHERE f.funding_id=$1::uuid""",
                 operation_id,
             )
-
-        async def settle(connection: Any) -> None:
-            buyer_app_id = await app(connection)
+            if funding is None:
+                raise CommerceError("funding_binding_mismatch")
             receipt_fields = dict(
                 payer_user_id=operation["user_id"],
-                buyer_app_id=buyer_app_id,
+                buyer_app_id=funding["buyer_app_id"],
                 funding_id=operation_id,
                 payment_intent_id=receipt.payment_intent_id,
                 charge_id=receipt.charge_id,
@@ -331,7 +331,7 @@ class FundingReceipt(ProviderContext):
                 livemode=receipt.livemode,
                 conn=connection,
             )
-            if not bank_quote_id:
+            if not bank_quote_id or funding["erased_at"] or funding["status"] != "reserved":
                 await self.store.settle_funding(**receipt_fields)
                 return
 
@@ -351,6 +351,8 @@ class FundingReceipt(ProviderContext):
                     )
             except (CommerceError, CommerceRequestError) as error:
                 if str(error) not in {
+                    "commerce_unavailable",
+                    "owner_approval_required",
                     "purchase_unavailable",
                     "reservation_closed",
                     "request_unavailable",
