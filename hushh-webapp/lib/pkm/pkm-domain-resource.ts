@@ -630,6 +630,42 @@ export class PkmDomainResourceService {
       deviceEvictions.set(revisionKey, tracked);
     }
   }
+
+  static invalidateAllForUser(
+    userId: string,
+    options?: { includeDevice?: boolean; includeBackingCaches?: boolean }
+  ): void {
+    if (!userId) return;
+    const cache = CacheService.getInstance();
+    const prefix = `${userId}:`;
+    for (const [key, rev] of domainRevisions.entries()) {
+      if (key.startsWith(prefix)) {
+        domainRevisions.set(key, rev + 1);
+      }
+    }
+    for (const domain of ["financial", "one_memory", "identity"]) {
+      const revisionKey = domainRevisionKey(userId, domain);
+      if (!domainRevisions.has(revisionKey)) {
+        domainRevisions.set(revisionKey, 1);
+      }
+    }
+    cache.invalidatePattern(`pkm_domain_resource_${userId}_`);
+    if (options?.includeBackingCaches !== false) {
+      cache.invalidatePattern(`domain_manifest_${userId}_`);
+      cache.invalidatePattern(`domain_data_${userId}_`);
+      cache.invalidatePattern(`domain_blob_${userId}_`);
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
+      cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(userId));
+    }
+    if (options?.includeDevice) {
+      void SecureResourceCacheService.invalidateResourcePrefix(
+        userId,
+        "pkm_domain:",
+      ).catch(() => undefined);
+    }
+  }
 }
 
 export function usePkmDomainResource(

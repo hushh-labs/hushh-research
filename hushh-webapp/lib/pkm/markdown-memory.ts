@@ -549,6 +549,8 @@ export async function appendMarkdownMemoryFacts(params: {
   let sourceSummaries: SourceSummaries = {};
   let deletedFactLabels = peekMarkdownMemory(params.userId)?.deletedFactLabels ?? [];
   let pwmClaims = peekMarkdownMemory(params.userId)?.pwmClaims ?? {};
+  let chatMemoryCheckpoint: ChatMemoryCheckpoint | undefined =
+    peekMarkdownMemory(params.userId)?.chatMemoryCheckpoint;
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
@@ -560,6 +562,9 @@ export async function appendMarkdownMemoryFacts(params: {
     mayPublish,
     build: (context) => {
       const stored = readStoredDocument(context.currentDomainData);
+      if (stored?.chatMemoryCheckpoint) {
+        chatMemoryCheckpoint = stored.chatMemoryCheckpoint;
+      }
       const appended = applyMemoryFacts(stored?.markdown ?? seed, stored?.sourceSummaries ?? seedSourceSummaries, facts, params.replaceSource);
       if (params.replaceSource) assertReceiptMemoryBudget(appended.sourceSummaries);
       sourceSummaries = appended.sourceSummaries;
@@ -606,6 +611,7 @@ export async function appendMarkdownMemoryFacts(params: {
       sourceSummaries: pending.sourceSummaries,
       deletedFactLabels: deletedLabelsAfter(writtenMarkdown, pending.markdown, deletedFactLabels),
       pwmClaims,
+      chatMemoryCheckpoint,
       updatedAt: result.updatedAt ?? new Date().toISOString(),
       dataVersion: result.dataVersion,
       persisted: true,

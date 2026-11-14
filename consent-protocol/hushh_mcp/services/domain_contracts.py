@@ -420,11 +420,18 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 # These domains are protocol-reserved and writable only through first-party
 # owner-authorized PKM paths.  They must never be invented or repurposed by the
 # semantic structure agent as arbitrary user domains.
-OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"secrets", "source_library", "wallet"})
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"one_wiki", "secrets", "source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
     "one_memory": DomainSharingPolicy(
         domain_key="one_memory",
+        allow_domain_wildcard=False,
+        allowed_manifest_path_prefixes=(),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
+    "one_wiki": DomainSharingPolicy(
+        domain_key="one_wiki",
         allow_domain_wildcard=False,
         allowed_manifest_path_prefixes=(),
         requestable_scopes=frozenset(),

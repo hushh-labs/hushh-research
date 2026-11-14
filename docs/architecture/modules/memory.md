@@ -35,3 +35,4 @@ Operational state, provider caches and discovery metadata are not durable person
 
 - [PKM storage and contracts](../../../consent-protocol/docs/reference/personal-knowledge-model.md)
 - [Memory workspace](../memory-workspace.md)
+- [Personal Wiki Memory roadmap plan](../../roadmap/personal-wiki-memory-plan.md)
