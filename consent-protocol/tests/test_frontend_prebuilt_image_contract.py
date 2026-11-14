@@ -117,6 +117,36 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
             assert combined_config["substitutions"][name] == default, name
 
 
+def test_recorded_recovery_frontend_recipes_only_change_the_reviewed_sdk_runtime():
+    """The recovery overlay keeps every application build/deploy instruction."""
+    source = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+    runtime = _steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]
+    assert re.fullmatch(
+        r"gcr.io/google.com/cloudsdktool/google-cloud-cli:[\w.-]+@sha256:[0-9a-f]{64}",
+        runtime["name"],
+    )
+    assert any(
+        value.startswith("PATH=") and "/platform/bundledpythonunix/bin" in value
+        for value in runtime["env"]
+    )
+    changed = 0
+    for path in (FRONTEND_IMAGE_BUILD, FRONTEND_BUILD):
+        relative = path.relative_to(ROOT).as_posix()
+        historical = yaml.safe_load(
+            subprocess.check_output(  # noqa: S603 -- fixed Git source.
+                ["git", "show", f"{source}:{relative}"], cwd=ROOT, text=True
+            )
+        )
+        reviewed = yaml.safe_load(path.read_text())
+        for step in historical["steps"]:
+            if step["name"] == "gcr.io/google.com/cloudsdktool/cloud-sdk":
+                assert "env" not in step
+                step["name"], step["env"] = runtime["name"], runtime["env"]
+                changed += 1
+        assert historical == reviewed
+    assert changed == 3
+
+
 @pytest.mark.parametrize(
     "environment,prefix", [("dev", "dev.one"), ("uat", "uat.one"), ("production", "one")]
 )
