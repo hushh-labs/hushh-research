@@ -32,6 +32,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -78,6 +79,42 @@ def hub_base_url() -> Optional[str]:
     return (os.getenv("HUSSH_HUB_BASE_URL") or "").strip().rstrip("/") or None
 
 
+_SIGNING_IN_PROGRESS = threading.local()
+
+
+def _resolve_request_signing_epoch(path: str) -> Optional[int]:
+    """Resolve `signing_epoch()` without chicken-and-egg storage/DEK bootstrap recursion.
+
+    Custody/storage bootstrap endpoints (`/api/one/pod/custody/*`) mint the very
+    storage bearer or DEK that `read_pod_role()` would otherwise need to read
+    `keys/pod-role.bin`. On those paths (or if re-entered on the same thread),
+    consult the in-memory `cached_role()` first and fall back to an explicit
+    `HUSSH_POD_PLACEMENT_EPOCH` (> 0) without triggering recursive storage I/O.
+    """
+    from hushh_mcp.services.pod_role import (  # noqa: PLC0415
+        PRIMARY_AT_ZERO,
+        cached_role,
+        signing_epoch,
+    )
+
+    hit = cached_role()
+    if hit is not None:
+        return None if hit is PRIMARY_AT_ZERO else hit.epoch
+
+    if getattr(_SIGNING_IN_PROGRESS, "active", False) or path.startswith("/api/one/pod/custody/"):
+        raw_env_epoch = (os.getenv("HUSSH_POD_PLACEMENT_EPOCH") or "").strip()
+        if raw_env_epoch.isdigit() and int(raw_env_epoch) > 0:
+            return int(raw_env_epoch)
+        return None
+
+    _SIGNING_IN_PROGRESS.active = True
+    try:
+        ep = signing_epoch()
+        return int(ep) if isinstance(ep, int) else None
+    finally:
+        _SIGNING_IN_PROGRESS.active = False
+
+
 def _signature_headers(
     aud: str, method: str, url: str, query_pairs: list[tuple[str, str]], body: bytes
 ) -> dict[str, str]:
@@ -87,19 +124,20 @@ def _signature_headers(
         return {}
     try:
         from hushh_mcp.services.pod_request_signing import sign_pod_request  # noqa: PLC0415
-        from hushh_mcp.services.pod_role import signing_epoch  # noqa: PLC0415
         from hushh_mcp.services.pod_self_registration import pod_signing_key  # noqa: PLC0415
 
-        return sign_pod_request(
+        path = urlsplit(url).path
+        signed = sign_pod_request(
             pod_signing_key(),
             aud=aud,
             hushh_id=hushh_id,
             method=method,
-            path=urlsplit(url).path,
+            path=path,
             query_pairs=query_pairs,
             body=body,
-            epoch=signing_epoch(),
+            epoch=_resolve_request_signing_epoch(path),
         )
+        return {str(k): str(v) for k, v in signed.items()}
     except Exception as exc:  # noqa: BLE001 - an unsignable request keeps the token path
         logger.warning("pod_hub_client.signing_unavailable %s", type(exc).__name__)
         return {}
@@ -332,3 +370,80 @@ class PodHubClient:
             except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 raise PodHubUnavailable("hub did not confirm requested calendar coverage") from exc
         return state
+
+    def get_custody_broker_key(self) -> dict[str, str]:
+        """Fetch the Hub Custody Broker X25519 public key (`GET /api/one/pod/custody/broker-key`)."""
+        response = self.get("/api/one/pod/custody/broker-key")
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(f"hub refused custody broker key status={status}")
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON custody broker key") from exc
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("brokerPublicKey"), str)
+            or not isinstance(body.get("brokerKeyId"), str)
+        ):
+            raise PodHubUnavailable("hub returned malformed custody broker key")
+        return {
+            "brokerPublicKey": body["brokerPublicKey"],
+            "brokerKeyId": body["brokerKeyId"],
+            "wrappingAlg": str(body.get("wrappingAlg") or ""),
+        }
+
+    def mint_storage_prefix_token(self, *, ttl_seconds: int = 900) -> dict[str, Any]:
+        """Mint a 15-minute `pods/{hushh_id}/*` storage capability via the Hub Broker."""
+        response = self.post(
+            "/api/one/pod/custody/storage-token",
+            json={"ttlSeconds": int(ttl_seconds)},
+        )
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(f"hub refused storage capability status={status}")
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON storage capability") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("expiresInSeconds"), int):
+            raise PodHubUnavailable("hub returned malformed storage capability")
+        return body
+
+    def mint_storage_prefix_bearer(self, *, ttl_seconds: int = 900) -> tuple[str, int]:
+        """Return `(bearer_token, expires_in_seconds)` for `PrefixTokenObjectStore` refresh."""
+        body = self.mint_storage_prefix_token(ttl_seconds=ttl_seconds)
+        token = body.get("bearerToken")
+        if not isinstance(token, str) or not token.strip():
+            raise PodHubUnavailable("hub storage capability omitted bearerToken")
+        return token.strip(), int(body["expiresInSeconds"])
+
+    def broker_dek_envelope(
+        self,
+        *,
+        operation: str,
+        sealed_dek: Optional[str] = None,
+        broker_key_id: Optional[str] = None,
+        wrapped_dek: Optional[str] = None,
+    ) -> dict[str, str]:
+        """Wrap or unwrap a pod DEK via `POST /api/one/pod/custody/dek` (zero plaintext DEK)."""
+        payload: dict[str, Any] = {"operation": operation}
+        if sealed_dek is not None:
+            payload["sealedDek"] = sealed_dek
+        if broker_key_id is not None:
+            payload["brokerKeyId"] = broker_key_id
+        if wrapped_dek is not None:
+            payload["wrappedDek"] = wrapped_dek
+        response = self.post("/api/one/pod/custody/dek", json=payload)
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(
+                f"hub refused DEK custody operation={operation} status={status}"
+            )
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON DEK custody body") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("sealedDek"), str):
+            raise PodHubUnavailable("hub returned malformed DEK custody body")
+        return {str(k): str(v) for k, v in body.items() if isinstance(v, str)}

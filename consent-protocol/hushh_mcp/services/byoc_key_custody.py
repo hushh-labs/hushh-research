@@ -82,7 +82,28 @@ class ByocKeyCustodyError(RuntimeError):
 
 
 def _kms_endpoint(kms_key: str, verb: str) -> str:
-    return f"https://cloudkms.googleapis.com/v1/{kms_key}:{verb}"
+    from hushh_mcp.services.pod_emulator_endpoints import (  # noqa: PLC0415
+        PodEmulatorEndpointError,
+        resolve_gcp_kms_origin,
+    )
+
+    try:
+        origin, _ = resolve_gcp_kms_origin()
+    except PodEmulatorEndpointError as exc:
+        raise ByocKeyCustodyError(str(exc)) from None
+    return f"{origin}/v1/{kms_key}:{verb}"
+
+
+def _gcs_origin() -> tuple[str, bool]:
+    from hushh_mcp.services.pod_emulator_endpoints import (  # noqa: PLC0415
+        PodEmulatorEndpointError,
+        resolve_gcp_storage_origin,
+    )
+
+    try:
+        return resolve_gcp_storage_origin()
+    except PodEmulatorEndpointError as exc:
+        raise ByocKeyCustodyError(str(exc)) from None
 
 
 def _custody_request(session: Any, method: str, url: str, **kwargs: Any) -> Any:
@@ -112,7 +133,14 @@ def generate_dek() -> bytes:
     return secrets.token_bytes(_KEY_LEN)
 
 
-def wrap_dek(dek: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
+def wrap_dek(
+    dek: bytes,
+    *,
+    kms_key: str,
+    session: Any,
+    token: str,
+    aad: Optional[bytes] = None,
+) -> bytes:
     """Encrypt the DEK under the user's KMS key. Returns the ciphertext to store.
 
     ``session`` and ``token`` are injected rather than resolved here so this module
@@ -122,12 +150,15 @@ def wrap_dek(dek: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
     """
     if len(dek) != _KEY_LEN:
         raise ByocKeyCustodyError(f"the log DEK must be exactly {_KEY_LEN} bytes")
+    body: dict[str, str] = {"plaintext": base64.b64encode(dek).decode("ascii")}
+    if aad is not None:
+        body["additionalAuthenticatedData"] = base64.b64encode(aad).decode("ascii")
     response = _custody_request(
         session,
         "post",
         _kms_endpoint(kms_key, "encrypt"),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"plaintext": base64.b64encode(dek).decode("ascii")},
+        json=body,
         timeout=60,
     )
     if response.status_code != 200:
@@ -138,18 +169,28 @@ def wrap_dek(dek: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
     return _decode_key_response(response, "ciphertext")
 
 
-def unwrap_dek(wrapped: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
+def unwrap_dek(
+    wrapped: bytes,
+    *,
+    kms_key: str,
+    session: Any,
+    token: str,
+    aad: Optional[bytes] = None,
+) -> bytes:
     """Open the wrapped DEK. Raises rather than returning anything on failure.
 
     A pod that cannot unwrap its key must not continue with a fresh one: that would
     silently start a second history beside the first and present it as the same agent.
     """
+    body: dict[str, str] = {"ciphertext": base64.b64encode(wrapped).decode("ascii")}
+    if aad is not None:
+        body["additionalAuthenticatedData"] = base64.b64encode(aad).decode("ascii")
     response = _custody_request(
         session,
         "post",
         _kms_endpoint(kms_key, "decrypt"),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"ciphertext": base64.b64encode(wrapped).decode("ascii")},
+        json=body,
         timeout=60,
     )
     if response.status_code != 200:
@@ -178,9 +219,10 @@ def byoc_key_env(
 
 
 def byoc_custody_configured() -> bool:
-    """Is this process a BYOC or ACE envelope pod that unwraps rather than reading env?"""
+    """Is this process a BYOC, ACE envelope, or Hub-brokered pod that unwraps rather than reading env?"""
     from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
         CUSTODY_ACE_ENVELOPE,
+        CUSTODY_HUB_BROKER,
         CUSTODY_OWNER_KMS,
         CUSTODY_OWNER_VAULT,
     )
@@ -190,7 +232,12 @@ def byoc_custody_configured() -> bool:
     )
 
     explicit = (os.getenv(CUSTODY_MODE_ENV) or "").strip()
-    if explicit in {CUSTODY_OWNER_KMS, CUSTODY_OWNER_VAULT, CUSTODY_ACE_ENVELOPE}:
+    if explicit in {
+        CUSTODY_OWNER_KMS,
+        CUSTODY_OWNER_VAULT,
+        CUSTODY_ACE_ENVELOPE,
+        CUSTODY_HUB_BROKER,
+    }:
         return True
     return bool(
         (os.getenv(KMS_KEY_ENV) or os.getenv(KEY_VAULT_KEY_ENV) or "").strip()
@@ -198,7 +245,7 @@ def byoc_custody_configured() -> bool:
     )
 
 
-def _refuse_gcs_after_erasure(*, bucket: str, session: Any, token: str) -> None:
+def _refuse_gcs_after_erasure(*, bucket: str, session: Any, token: str, gcs_origin: str) -> None:
     """Refuse to mint a replacement DEK in GCS after pod crypto-erasure."""
     import urllib.parse  # noqa: PLC0415
 
@@ -208,7 +255,7 @@ def _refuse_gcs_after_erasure(*, bucket: str, session: Any, token: str) -> None:
     probe = _custody_request(
         session,
         "get",
-        f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quoted_tombstone}",
+        f"{gcs_origin}/storage/v1/b/{bucket}/o/{quoted_tombstone}",
         params={"alt": "media"},
         headers={"Authorization": f"Bearer {token}"},
         timeout=60,
@@ -233,14 +280,29 @@ def _resolve_gcp_kms_log_key(
             "BYOC custody needs POD_STORAGE_GCS_BUCKET to find the wrapped key"
         )
 
-    check_gcs_tombstone = session is None
+    from hushh_mcp.services.pod_emulator_endpoints import (  # noqa: PLC0415
+        PodEmulatorEndpointError,
+        resolve_gcp_kms_origin,
+    )
+
+    gcs_origin, is_gcs_emulator = _gcs_origin()
+    try:
+        _, is_kms_emulator = resolve_gcp_kms_origin()
+    except PodEmulatorEndpointError as exc:
+        raise ByocKeyCustodyError(str(exc)) from None
+    check_gcs_tombstone = session is None or is_gcs_emulator
     if session is None:
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415
 
         session = requests
 
     if token is None:
-        token = _metadata_token(session)
+        if (is_gcs_emulator or is_kms_emulator) and not (
+            os.getenv("GCE_METADATA_HOST") or ""
+        ).strip():
+            token = "floci-gcp-emulator-token"  # noqa: S105
+        else:
+            token = _metadata_token(session)
 
     import urllib.parse  # noqa: PLC0415
 
@@ -248,7 +310,7 @@ def _resolve_gcp_kms_log_key(
     response = _custody_request(
         session,
         "get",
-        f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quoted}",
+        f"{gcs_origin}/storage/v1/b/{bucket}/o/{quoted}",
         params={"alt": "media"},
         headers={"Authorization": f"Bearer {token}"},
         timeout=60,
@@ -262,7 +324,9 @@ def _resolve_gcp_kms_log_key(
 
             refuse_store_after_erasure(store)
         elif check_gcs_tombstone:
-            _refuse_gcs_after_erasure(bucket=bucket, session=session, token=token)
+            _refuse_gcs_after_erasure(
+                bucket=bucket, session=session, token=token, gcs_origin=gcs_origin
+            )
         # First boot. The pod mints its own key here rather than finding one hushh left
         # for it -- hushh's bootstrap account provably cannot encrypt with this key.
         return _create_wrapped_dek(
@@ -272,6 +336,7 @@ def _resolve_gcp_kms_log_key(
             kms_key=kms_key,
             session=session,
             token=token,
+            gcs_origin=gcs_origin,
         )
     if status != 200:
         raise ByocKeyCustodyError(
@@ -296,7 +361,14 @@ def resolve_pod_log_key(
 
 
 def _create_wrapped_dek(
-    *, bucket: str, obj: str, quoted: str, kms_key: str, session: Any, token: str
+    *,
+    bucket: str,
+    obj: str,
+    quoted: str,
+    kms_key: str,
+    session: Any,
+    token: str,
+    gcs_origin: str = "https://storage.googleapis.com",
 ) -> bytes:
     """Mint, wrap and store this pod's log key -- exactly once, ever.
 
@@ -312,7 +384,7 @@ def _create_wrapped_dek(
     created = _custody_request(
         session,
         "post",
-        f"https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o",
+        f"{gcs_origin}/upload/storage/v1/b/{bucket}/o",
         params={"uploadType": "media", "name": obj, "ifGenerationMatch": 0},
         headers={
             "Authorization": f"Bearer {token}",
@@ -331,7 +403,7 @@ def _create_wrapped_dek(
         winner = _custody_request(
             session,
             "get",
-            f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quoted}",
+            f"{gcs_origin}/storage/v1/b/{bucket}/o/{quoted}",
             params={"alt": "media"},
             headers={"Authorization": f"Bearer {token}"},
             timeout=60,
