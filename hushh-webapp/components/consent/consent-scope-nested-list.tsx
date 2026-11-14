@@ -22,7 +22,6 @@
  */
 
 import { useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 import { ChevronLeft, Search, SlidersHorizontal } from "@/components/icons";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
@@ -69,6 +68,8 @@ export type ConsentScopeNestedListProps = {
   showDomainFilter?: boolean;
   /** Keep overview rows quiet while retaining bulk selection inside the category. */
   categorySelectionInDetail?: boolean;
+  /** Optional explicit route pathname for Back-layer scoping; defaults to client location pathname. */
+  pathname?: string;
 };
 
 export function ConsentScopeNestedList({
@@ -85,6 +86,7 @@ export function ConsentScopeNestedList({
   searchPlaceholder = "Search",
   showDomainFilter = false,
   categorySelectionInDetail = false,
+  pathname,
 }: ConsentScopeNestedListProps) {
   const [pathStack, setPathStack] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -113,9 +115,8 @@ export function ConsentScopeNestedList({
   );
 
   const atRoot = pathStack.length === 0;
-  const rawPathname = usePathname();
   const backPathname = normalizeStaticExportPathname(
-    rawPathname || (typeof window !== "undefined" ? window.location.pathname : "/") || "/",
+    pathname || (typeof window !== "undefined" ? window.location.pathname : "/") || "/",
   );
   useBackLayer(backPathname, atRoot ? 0 : 10, () => {
     setPathStack((stack) => stack.slice(0, -1));

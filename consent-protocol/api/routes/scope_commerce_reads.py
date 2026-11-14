@@ -123,6 +123,7 @@ async def _request_state(request_id: str, user_id: str) -> dict:
     )
     purchase = await service.lookup_by_request(request_id)
     mapped_purchase = _purchase(purchase) if purchase else None
+    deadline = binding.get("request_deadline")
     return {
         "_counterpart_user_id": binding["payer_user_id"]
         if binding["owner_user_id"] == user_id
@@ -136,9 +137,7 @@ async def _request_state(request_id: str, user_id: str) -> dict:
         else binding["duration_seconds"],
         "purpose": binding["purpose"],
         "refresh_policy": binding["refresh_policy"],
-        "request_deadline": binding.get("request_deadline").isoformat()
-        if binding.get("request_deadline")
-        else None,
+        "request_deadline": deadline.isoformat() if deadline else None,
         "recipient_label": "One"
         if binding["buyer_app_id"] == "agent_one"
         else "Registered application " + binding["buyer_app_id"],

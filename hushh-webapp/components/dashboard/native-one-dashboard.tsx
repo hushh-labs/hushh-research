@@ -76,7 +76,7 @@ export function nativeLauncherAgent(mode: OneAgentMode, id: string, accentHex: s
   return { id, label: mode.title, description: mode.description, metricValue: mode.primaryMetric.value,
     metricLabel: mode.primaryMetric.label, artworkId: `roster-${Object.hasOwn(AGENT_ICON_MAP, mode.id) ? mode.id : "default"}`,
     // Fixed glyph colors are generated from the authored SVG, not app tones.
-    iconHex: mode.id === "location" ? nativeColorTokenHex("--agent-location-blue") ?? resolvedAccentHex() : accentHex };
+    iconHex: mode.id === "location" ? nativeColorTokenHex("--agent-location-blue") ?? resolvedAccentHex().toUpperCase() : accentHex };
 }
 function LauncherBody({ roster, discovery, tasks, frame, presentation, openDiscovery, activationRevision }: LauncherModel & {
   presentation: ReturnType<typeof useNativeWorkspacePresentation>; openDiscovery: () => Promise<void>; activationRevision: number;
