@@ -53,6 +53,44 @@ from production_worker_basis_cases import WorkerBasisCases
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
+class ProductionMemberSafetyTest(unittest.TestCase):
+    def test_prefixed_phone_receipt_preserves_archive_and_json_safety(self):
+        import production_phone_receipt as phone
+
+        name = "phone-rollback/plan.json"
+        for defect in (
+            "unlisted", "suffix", "duplicate", "traversal", "absolute", "symlink",
+            "member_size", "total_size", "count", "json_fields",
+        ):
+            with self.subTest(defect=defect):
+                output = io.BytesIO()
+                with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+                    member = "tmp/" + name
+                    if defect == "unlisted":
+                        member = "tmp/initial-lease.json"
+                    elif defect == "suffix":
+                        member = "elsewhere/" + member
+                    entry = zipfile.ZipInfo(member)
+                    if defect == "symlink":
+                        entry.external_attr = 0o120777 << 16
+                    body = '{"source":"one","source":"two"}' if defect == "json_fields" else '{}'
+                    if defect == "member_size":
+                        body = ' ' * (2 * 1024 * 1024) + '{}'
+                    bundle.writestr(entry, body)
+                    if defect == "duplicate":
+                        bundle.writestr(name, '{}')
+                    elif defect in {"traversal", "absolute"}:
+                        bundle.writestr('../escape' if defect == "traversal" else '/escape', '{}')
+                    elif defect == "total_size":
+                        bundle.writestr('other', ' ' * (20 * 1024 * 1024))
+                    elif defect == "count":
+                        for number in range(500):
+                            bundle.writestr(f'other-{number}', '{}')
+                requested = "initial-lease.json" if defect == "unlisted" else name
+                with self.assertRaises(phone.retention.UnsafeState):
+                    phone._document(output.getvalue(), requested)
+
+
 class ReplayedReleaseFixture:
     environment = "uat"
 
