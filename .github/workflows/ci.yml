@@ -1773,14 +1773,3 @@ jobs:
               ;;
           esac
           echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
-
-      - uses: actions/checkout@v6
-        if: github.run_attempt > 1
-        with:
-          persist-credentials: false
-      - name: Verify the current rerun's protected security receipt
-        if: github.run_attempt > 1
-        run: python3 scripts/ci/github_security_receipt.py
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

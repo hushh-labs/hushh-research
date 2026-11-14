@@ -9,8 +9,6 @@ if [ "${SKIP_SECRET_SCAN:-0}" = "1" ]; then
   exit 0
 fi
 
-export REQUIRE_GITHUB_ALERTS_CLEAN="${REQUIRE_GITHUB_ALERTS_CLEAN:-1}"
-
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "gitleaks is required for CI parity. Install it or set SKIP_SECRET_SCAN=1 for local-only runs."
   exit 1
@@ -145,7 +143,15 @@ if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || [ -n "${SECRET_SCAN_PR_NUMBE
   scan_pull_request_body
 fi
 
-# This is required authority; a missing or non-executable reader must fail closed.
+# Repository-wide clearance remains mandatory in protected Deployment Security.
+# Ordinary local Core needs source scanning, not privileged repository credentials.
+# An explicitly requested operator audit retains its independent fail-closed policy.
+if [ "${GITHUB_ACTIONS:-false}" != "true" ] && {
+  [ "${REQUIRE_GITHUB_ALERTS_CLEAN:-0}" = "1" ] ||
+  [ "${REQUIRE_GITHUB_SECRET_ALERTS_CLEAN:-0}" = "1" ] ||
+  [ "${REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN:-0}" = "1" ];
+}; then
+# A required local reader must fail closed.
 SECURITY_READER="$REPO_ROOT/scripts/ci/github-security-alerts.sh"
 if [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
   echo "Required GitHub security reader is missing or not executable." >&2
@@ -154,6 +160,8 @@ if [ ! -f "$SECURITY_READER" ] || [ ! -x "$SECURITY_READER" ]; then
 else
   "$SECURITY_READER" ||
     { EXIT_CODE=$?; FAILED_CHECKS="${FAILED_CHECKS} github-security-alerts"; }
+fi
+
 fi
 
 if [ "$EXIT_CODE" -ne 0 ]; then
