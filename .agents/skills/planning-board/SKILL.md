@@ -52,7 +52,7 @@ Non-owned surfaces:
 
 1. Resolve live issue/project state and existing work before creating another task.
 2. Verify the active writer identity before mutation; honor the user's CLI/connector preference. A CLI requirement means using the authenticated `gh` identity, not connector credentials.
-3. For implementation tasks, follow `references/task-handoff.md`: link verified owner/lead profiles; require a reasoned human brief with the owner's review reminder and actual review status; use `For coding agents` for implementation mechanics and acceptance evidence.
+3. For implementation tasks, follow `references/task-handoff.md`: use numbered phases starting with Phase 0 planning and an alignment report back; link verified people; write a reasoned human decision brief with actual review status, and phase-matched agent instructions. Keep technical inventories in agent guidance or canonical evidence; recheck audience placement on every edit.
 4. When creating new work, create the issue before its board item; otherwise edit the canonical issue in place.
    For Action Items, intake starts in `Inbox`; use the selected board reference for acceptance, ownership, and scheduling rules.
 5. Re-read the issue and board state after editing; verify people/reference links, preserved decisions and actual field values rather than trusting cached output.

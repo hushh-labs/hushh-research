@@ -14,9 +14,22 @@ the implementer does not have to reconstruct decisions from chat.
    consent, supported runtimes, dependencies, acceptance and deviation protocol.
 4. Resolve discoverable facts yourself. Ask only for a remaining product/authority
    decision; do not substitute an invented deadline, SLO, scope or release grant.
-5. Ground delivery in the target repository's actual branch, runtime and deployment
-   contracts. A reference project supplies patterns to assess, not an environment
-   matrix, release procedure, workload size or tuning policy to import.
+5. Ground delivery in the target repository's branch, runtime and provisioning
+   contracts. Translate examples into capabilities; a product analogy does not itself require new infrastructure.
+   Reference projects supply patterns, not another product's environment or limits.
+
+## Phased planning and alignment
+
+Every implementation plan starts with **Phase 0 — planning and alignment report**;
+number later phases consistently for both audiences and scale them to the work. Ordinary questions and board summaries need no phase ritual.
+The owner inspects current evidence, reports the problem/outcome, reuse, boundaries,
+dependencies, proof and unresolved decisions to the lead before implementation.
+Include per-phase effort ranges, assumptions, uncertainty and access/review needs;
+separate effort from elapsed waiting and operating cost where relevant. The lead
+reviews estimates and tradeoffs; never invent dates or treat a draft as this report.
+Carry forward explicit approval; pause only work affected by an unresolved decision.
+Each phase names deliverable, dependencies, exit evidence and accepting reviewer.
+Revise estimates with reasons when findings change scope or commitments.
 
 ## Two audiences, one source
 
@@ -28,11 +41,14 @@ Concision removes repetition, not reasons, directions, references or safety boun
 
 - State the outcome in plain language, with linked owner/lead profiles and branch/environment.
 - Explain the problem found, the chosen direction and why it is preferable.
+- Connect problem → direction → reason/tradeoff → observable outcome; explain
+  technical terms at first use through their purpose and user effect.
 - State the important decisions and tradeoffs in human terms, including what stays
   authoritative, privacy/consent boundaries and the effect on the person's experience.
-- Explain the components' roles when their distinction matters. Keep low-level
-  wiring in the agent section, not the rationale people need to assess it.
-- Give ordered phase checkboxes with a deliverable and observable exit for each.
+- Explain roles through purpose and user effect. Technical detail must change a human decision or tradeoff.
+  Keep flags, paths, runtime matrices and inventories in agent guidance or canonical evidence.
+- Give numbered phase checkboxes starting with Phase 0 and its alignment report,
+  then a deliverable and observable exit for each implementation phase.
 - Show requested references and canonical sources here too, with what the reader
   should learn or reuse and the limits of the analogy. Do not hide them below.
 - State the next action, who reviews decisions, material blockers and completion
@@ -59,6 +75,11 @@ draft. Keep pending review visible; owner, author and lead are distinct roles.
   unknown outcomes, cancellation/revocation, derived-state invalidation and recovery.
 - **Decisions by phase:** dependency ordering, per-phase implementation obligations,
   outputs, migration/cutover/rollback boundaries and acceptance evidence.
+- **Direction boundaries:** each phase names outcome, included/excluded work,
+  authoritative modules, permitted changes, preserved contracts and checks. Reuse
+  existing mechanisms; report material contradictions, evidence and the smallest
+  correction/impact before changing direction. Pause affected work only; routine
+  choices within the accepted contract need no new approval.
 - **Verification:** positive and negative cases, runtime/client coverage, measurement
   protocol and applicable existing checks. Distinguish source tests from live proof.
 - **Coordination:** preserved issue relationships, who accepts each exit, and what
@@ -94,9 +115,8 @@ parameters when meaningful; do not invent wire schemas or thresholds for appeara
 ## Decision and evidence quality
 
 Make the human brief explain **verified condition → problem → chosen direction
-→ reason/tradeoff → observable outcome**. A component inventory or checklist alone
-does not explain a design. Keep writer identity, tooling, skill invocation and
-conversation history out of solution prose unless they affect a real constraint.
+→ reason/tradeoff → observable outcome**. State what to achieve, why it fits, what to preserve and how to judge success.
+An inventory alone does not explain a design. Keep writer identity, tooling, skills and chat history out of solution prose unless they affect a real constraint.
 
 Separate approved requirements, protective starting defaults, measured results
 and decisions still owned by the lead. Preserve exact agreed limits with units,
@@ -114,7 +134,7 @@ change, verification impact and decision needed; pause only affected work.
 
 Calibration examples, not additional policy or implementation sources:
 
-- [#9370 Dev: personal wiki memory, consent-safe PKM projections, and ADK recall](https://github.com/hushh-labs/hushh-research/issues/9370): linked people, human rationale, component roles, a concrete journey, phase dependencies and custody/acceptance boundaries.
+- [#9370 Dev: personal wiki memory, consent-safe PKM projections, and ADK recall](https://github.com/hushh-labs/hushh-research/issues/9370): linked people, human rationale, Phase 0 design/baseline/estimates report to the lead, phase dependencies and custody/acceptance boundaries.
 - [#184 Rebuild Metrics as a small, accurate internal dashboard on Next.js](https://github.com/hushh-labs/hussh-matrix-dashboard/issues/184): a problem-led design, evidence-derived operating limits, phase exits and separate accuracy, performance, cost and cleanup evidence.
 
 Reuse the writing pattern, not the examples' domain rules. Comparing briefs must
@@ -166,9 +186,11 @@ visible with their decision owner; accepted details must not become open choices
 
 - Compare the proposed edit with the freshly read body; reconcile concurrent work
   instead of overwriting it. Use structured request bodies or properly quoted files.
-- Verify the rendered body, linked owner/lead/reviewer identities, descriptive
-  references, author, assignee, native relationships and live project fields.
-  Confirm requested non-changes, including dates, status and unrelated work.
+- Read the human section alone: can the owner explain the problem, chosen path,
+  reasons, phase outcomes and next action without translating implementation jargon?
+  Check every update; move technical receipts to their evidence owner.
+- Verify links, author, assignees, linked owner/lead/reviewers, relationships and project fields. Preserve dates,
+  status and unrelated work unless their change was requested.
 - Keep sensitive payloads and private evidence outside issues; link only references
   appropriate for the destination's audience and the user's sharing authorization.
 - A passing source check, completed implementation and accepted release are
@@ -182,21 +204,17 @@ visible with their decision owner; accepted details must not become open choices
 ## For humans
 **Owner:** [Full Name](https://github.com/verified-owner)
 **Lead:** [Full Name](https://github.com/verified-lead)
-**Human review:** Pending — the owner must review, edit, validate and approve the
-decisions they own; record the actual reviewer and evidence when completed.
-Branch / environment
-Problem found, intended outcome and component roles.
-Important decisions, why we chose them and the tradeoffs people must understand.
-One concrete journey where useful; phase dependencies and the owner's next action.
-Visible references with what to learn or reuse from each.
-- [ ] Phase 0: reviewed contract, baseline and estimates.
-- [ ] Next phases: deliverable and measurable exit for each.
+**Human review:** Pending — owner must review, edit, validate and approve owned decisions; record reviewer/evidence.
+Branch / environment; problem, outcome and component roles.
+Chosen direction, reasons/tradeoffs, concrete journey, visible references, phase dependencies and the owner's next action.
+- [ ] Phase 0 — report alignment, gaps, dependencies and evidence-based estimates to the lead; resolve material decisions.
+- [ ] Phase 1 — first complete outcome: deliverable, dependencies, evidence, reviewer.
+- [ ] Phase 2 onward — remaining outcomes and acceptance, sized to the work.
 
 ## For coding agents
-Verified starting point and approved decisions.
-Implementation mechanics and per-phase obligations.
-Failure boundaries, migration/rollback and acceptance cases.
-References, dependencies, evidence requirements and lead-review protocol.
+Verified starting point and approved decisions; Phase 0 evidence/report-back, then matching numbered phases.
+For each: outcome, scope, authoritative modules, permitted changes, contracts, dependencies, mechanics and exit proof.
+Failure boundaries, migration/rollback and acceptance cases; references and lead-review/deviation protocol.
 ```
 
 This is a navigation shape, not a fixed length cap or permission to omit specifics.
