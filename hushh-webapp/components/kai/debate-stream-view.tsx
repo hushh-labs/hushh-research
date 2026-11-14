@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { type DecisionResult } from "./views/decision-card";
 import { RoundTabsCard } from "./views/round-tabs-card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown } from "@/components/icons";
 import { toast } from "sonner";
 import {
   Card as MorphyCard,
@@ -449,6 +450,8 @@ interface DebateStreamViewProps {
   onDecisionReady?: (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => void;
   onDecisionPersisted?: (entry: AnalysisHistoryEntry, meta: { runId: string }) => void;
   showHeader?: boolean;
+  detailsExpanded?: boolean;
+  onDetailsExpandedChange?: (open: boolean) => void;
 }
 
 type HeaderMarketQuote = {
@@ -612,6 +615,8 @@ export function DebateStreamView({
   onDecisionReady,
   onDecisionPersisted,
   showHeader = true,
+  detailsExpanded,
+  onDetailsExpandedChange,
 }: DebateStreamViewProps) {
   useMarketCurrency();
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
@@ -621,6 +626,7 @@ export function DebateStreamView({
   );
   // State
   const [loading, setLoading] = useState(true);
+  const [localDetailsExpanded, setLocalDetailsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<ErrorType>("unknown");
   const [kaiThinking, setKaiThinking] = useState<string>("");
@@ -702,6 +708,7 @@ export function DebateStreamView({
 
   const [currentRunId, setCurrentRunId] = useState<string | null>(runId ?? null);
   const [managerTask, setManagerTask] = useState<DebateRunTask | null>(null);
+  const analysisInProgress = managerTask ? managerTask.status === "running" : loading;
   const [reloadNonce, setReloadNonce] = useState(0);
   const processedSeqRef = useRef(0);
   const decisionNotifiedRef = useRef(false);
@@ -1606,20 +1613,18 @@ export function DebateStreamView({
         </div>
       ) : null}
 
-      <ScrollArea className={cn("flex-1 px-2 pb-4 sm:px-3", !showHeader && "pt-0")}>
-        <div className="mx-auto w-full space-y-4 px-0 pb-8">
-          {decision ? (
-            <MorphyCard>
-              <MorphyCardContent className="p-0">
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Analysis complete.
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Use Summary or Detailed View tabs to review the recommendation outputs.
-                </p>
-              </MorphyCardContent>
-            </MorphyCard>
-          ) : null}
+      <div className="min-w-0 space-y-3">
+        <div role="status" className="space-y-2 px-1 text-xs text-muted-foreground">
+          <p>{decision ? decision.analysis_degraded ? "Limited analysis. Some research is unavailable." : "Analysis complete." : analysisInProgress ? progressLabel : "Analysis stopped."}</p>
+          {!decision && analysisInProgress ? <Progress value={overallProgress} className="h-1" aria-label="Stock analysis progress" /> : null}
+          {AGENTS.some(agent => round1States[agent]?.stage === "error" || round2States[agent]?.stage === "error") ? <p role="alert">Some findings are unavailable. Open the full analysis to review the reported errors.</p> : null}
+        </div>
+        <Collapsible open={detailsExpanded ?? localDetailsExpanded} onOpenChange={open => { setLocalDetailsExpanded(open); onDetailsExpandedChange?.(open); }}>
+          <CollapsibleTrigger asChild><button type="button" data-voice-control-id="analysis_tab_debate" className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-card px-4 text-left text-sm font-medium">
+            {decision ? "Full debate and research" : "Live analysis and research"}<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </button></CollapsibleTrigger>
+          <CollapsibleContent>
+        <div className="mx-auto w-full space-y-4 px-4 py-3">
 
           {!decision ? (
             <RoundTabsCard
@@ -1673,7 +1678,9 @@ export function DebateStreamView({
             </>
           ) : null}
         </div>
-      </ScrollArea>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
     </div>
   );
 }

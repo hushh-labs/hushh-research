@@ -58,7 +58,7 @@ describe("Kai stream presentation", () => {
     expect(screen.queryByText(/<analysis>|<claim|<portfolio_impact/)).not.toBeInTheDocument();
   });
 
-  it("uses the canonical segmented tab contract for analyst selection", () => {
+  it("keeps every analyst result available through independent disclosures", () => {
     render(
       <RoundTabsCard
         roundNumber={1}
@@ -73,9 +73,12 @@ describe("Kai stream presentation", () => {
       />,
     );
 
-    expect(screen.getByRole("tablist", { name: "Initial Deep Analysis analysts" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Sentiment" }));
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sentiment · round 1" }));
     expect(screen.getByText("Sentiment result")).toBeInTheDocument();
     expect(screen.queryByText("Fundamental result")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Fundamental · round 1" }));
+    expect(screen.getByText("Fundamental result")).toBeInTheDocument();
+    expect(screen.getByText("Sentiment result")).toBeInTheDocument();
   });
 });

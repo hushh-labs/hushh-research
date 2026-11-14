@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
-import { ChartSurfaceCard } from "@/components/app-ui/surfaces";
+import { AllocationSection } from "./allocation-section";
 import {
   ChartContainer,
   ChartTooltip,
@@ -29,6 +29,7 @@ interface PortfolioAllocationBarProps {
   selectedName?: string | null;
   onSelectionChange?: (name: string | null) => void;
   className?: string;
+  embedded?: boolean;
 }
 
 function toChartKey(name: string, index: number): string {
@@ -45,6 +46,7 @@ export function PortfolioAllocationBar({
   selectedName = null,
   onSelectionChange,
   className,
+  embedded,
 }: PortfolioAllocationBarProps) {
   useMarketCurrency();
   const { segments, total, chartConfig, chartRow } = useMemo(() => {
@@ -86,14 +88,13 @@ export function PortfolioAllocationBar({
   if (!segments.length) return null;
 
   return (
-    <ChartSurfaceCard
-      title="Allocation"
+    <AllocationSection
+      title="Asset mix"
       description="Select a category to focus its holdings."
       className={cn("min-w-0", className)}
-      headerClassName={styles.allocationHeader}
-      contentClassName="space-y-4"
+      embedded={embedded}
     >
-      <ChartContainer config={chartConfig} className="h-[72px] w-full min-w-0">
+      <ChartContainer config={chartConfig} className="h-8 w-full min-w-0">
         <BarChart
           data={[chartRow]}
           layout="vertical"
@@ -129,7 +130,7 @@ export function PortfolioAllocationBar({
               stackId="allocation"
               fill={`var(--color-${segment.key})`}
               radius={4}
-              maxBarSize={28}
+              maxBarSize={8}
               cursor="pointer"
               fillOpacity={
                 !selectedName || selectedName === segment.name ? 1 : 0.26
@@ -179,6 +180,6 @@ export function PortfolioAllocationBar({
         })}
       </div>
       <p className={styles.allocationMeta}>Percentages use {formatCurrency(totalValue ?? total)} total portfolio value.</p>
-    </ChartSurfaceCard>
+    </AllocationSection>
   );
 }
