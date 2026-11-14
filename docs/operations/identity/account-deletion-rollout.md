@@ -273,6 +273,38 @@ journals. Email alone must not merge or replace an owner. Firebase documents
 imports can overwrite existing identifiers, so target collision checks and exact
 readback are required before importing a retained cohort.
 
+### UAT isolation completion — 14 November 2026
+
+UAT still serves the shared production Firebase realm; its isolated cutover is
+not yet accepted. `uat.id.hussh.ai` and `dev.id.hussh.ai` both pass strict HTTPS
+handler checks. UAT's existing SDK service identity now has a staged UAT-only
+credential; tested Auth permissions in production and Dev are empty. Staging a
+credential does not select it in any live service.
+
+The reported historical Parth phone-cleanup UID is natively absent in its original
+shared realm. Its exact provisional UAT job settled through the unchanged guarded
+lifecycle producer as `completed/not_found`, with UID, proof and claim scrubbed.
+No production identity was deleted. Seven additional provisional intents settled under that original realm: two
+confirmed absent and five existing production identities protected and retained.
+No legacy phone intent remains pending at this observation; the migration fence
+rechecks this before dispatch. Protected identities are never reported erased.
+
+The existing Auth operator now has an explicit UAT v2 manifest and operation
+context. It preserves the two reviewed, credential-free target identities without
+updates. Absent identities import in ordered batches of at most 1,000 with
+`allowOverwrite=false`. Every request is hashed and persisted before dispatch in
+both the private receipt and existing native trigger comments. Observation never
+replays a provider request; `continue-stage` and `continue-activation` explicitly
+continue only after exact readback settles prior requests. UAT adds a temporary
+INSERT fence on cleanup tombstones and requires zero unresolved legacy phone
+intents before provider dispatch. It preserves unresolved app owners and their
+identity/generation bindings; email does not confer migration authority.
+
+UAT login isolation qualifies its existing release/journal guards and attested SQL
+session. It does not apply Dev-only physical-erasure migrations 987/988 or certify
+UAT physical erasure. Exact-source checks, reviewed import and activation receipts,
+client/admin selection and normal owner sign-in remain release acceptance gates.
+
 ### Environment-specific sign-in domains
 
 | Environment | Intended callback domain | Firebase Auth status |

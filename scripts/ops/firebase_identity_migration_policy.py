@@ -9,6 +9,7 @@ import json
 SOURCE = "hushh-pda"
 
 TARGET = "hushh-pda-dev"
+UAT_TARGET = "hushh-pda-uat"
 
 MARKER = "hussh_auth_migration"
 
@@ -45,6 +46,50 @@ class Refused(RuntimeError):
 def require(condition, code):
     if not condition:
         raise Refused(code)
+
+
+def manifest_target(manifest):
+    target = manifest.get("targetProject")
+    require(manifest.get("sourceProject") == SOURCE, "SOURCE_PROJECT_CHANGED")
+    require(
+        (target == TARGET and manifest.get("schema") == "hussh.dev-auth-import.v1")
+        or (
+            target == UAT_TARGET
+            and manifest.get("schema") == "hussh.uat-auth-import.v2"
+        ),
+        "MIGRATION_REALM_UNQUALIFIED",
+    )
+    return target
+
+
+def retained_preimages(selected, actual):
+    """Adopt only existing, credential-free app-owned UIDs; never overwrite them."""
+    result = {}
+    for native in actual:
+        uid = native["localId"]
+        require(uid in selected, "FOREIGN_TARGET_IDENTITY")
+        for user in (native, selected[uid]):
+            normalized = record(user)
+            require(
+                not normalized["disabled"]
+                and json.loads(normalized["customAttributes"]) == {}
+                and not any(
+                    normalized.get(key)
+                    for key in (
+                        "email",
+                        "phoneNumber",
+                        "providerUserInfo",
+                        "passwordHash",
+                        "salt",
+                        "mfaInfo",
+                    )
+                ),
+                "RETAINED_TARGET_HAS_INDEPENDENT_AUTHORITY",
+            )
+        digest = identity_hash(uid)
+        require(digest not in result, "TARGET_DUPLICATE_UID")
+        result[digest] = {"recordSha256": sha(record(native))}
+    return result
 
 
 def canonical(value):

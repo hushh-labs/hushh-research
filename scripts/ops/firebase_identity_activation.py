@@ -12,8 +12,9 @@ from uuid import uuid4
 
 from scripts.ops.firebase_identity_migration_policy import (
     MARKER,
-    SOURCE,
     TARGET,
+    UAT_TARGET,
+    manifest_target,
     canonical,
     identity_hash,
     matches_staged,
@@ -23,11 +24,10 @@ from scripts.ops.firebase_identity_migration_policy import (
     unexpected_credentials,
 )
 from scripts.ops.firebase_identity_migration_fence import (
-    FENCES,
+    operation_fences,
     RELEASE_KEY,
     fences_absent,
     install_fences,
-    owner_snapshot,
     remove_fences,
     trigger_comments,
     validate_operation,
@@ -119,9 +119,17 @@ def activation_plan(staging, manifest, selected, actual, *, workos=None):
         len(by_uid) == len(actual) and by_uid.keys() == selected.keys(),
         "TARGET_COHORT_CHANGED",
     )
+    target_project = manifest_target(manifest)
+    retained = manifest.get("retainedTargets", {})
     targets = {}
     for uid, wanted in selected.items():
         current = by_uid[uid]
+        if identity_hash(uid) in retained:
+            require(
+                sha(record(current)) == retained[identity_hash(uid)]["recordSha256"],
+                "RETAINED_TARGET_CHANGED",
+            )
+            continue
         require(
             matches_staged(current, wanted, staging["operation"]),
             "STAGED_RECORD_CHANGED",
@@ -137,7 +145,9 @@ def activation_plan(staging, manifest, selected, actual, *, workos=None):
             "validSince": expected.get("validSince"),
         }
     return {
-        "schema": "hussh.dev-auth-activation.v1",
+        "schema": "hussh.dev-auth-activation.v1"
+        if target_project == TARGET
+        else "hussh.uat-auth-activation.v2",
         "stagingReceiptSha256": sha(staging),
         "stagingOperation": staging["operation"],
         "ownerManifest": manifest,
@@ -166,19 +176,41 @@ def observed_state(user, wanted, target, staging_operation):
 
 
 def observe_activation(conn, session, plan, history):
-    from scripts.ops.firebase_identity_migration import export_users
+    from scripts.ops.firebase_identity_migration import (
+        export_users,
+        snapshot_for_manifest,
+    )
 
-    manifest, selected = owner_snapshot(conn, export_users(session, SOURCE))
+    manifest, selected = snapshot_for_manifest(conn, session, plan["ownerManifest"])
     require(manifest == plan["ownerManifest"], "OWNER_OR_SOURCE_CHANGED")
     require(
         workos_snapshot(conn, selected, manifest) == plan.get("workos", {}),
         "WORKOS_ATTRIBUTION_CHANGED",
     )
-    actual = export_users(session, TARGET)
+    actual = export_users(session, manifest_target(manifest))
     by_uid = {u["localId"]: u for u in actual}
     require(
         len(by_uid) == len(actual) and by_uid.keys() == selected.keys(),
         "TARGET_COHORT_CHANGED",
+    )
+    by_hash = {identity_hash(uid): user for uid, user in selected.items()}
+    require(
+        all(
+            set(row) == {"identityHash", "requestSha256"}
+            and row["identityHash"] in plan["targets"]
+            and row["requestSha256"]
+            == sha(
+                {
+                    "localId": by_hash[row["identityHash"]]["localId"],
+                    "disableUser": by_hash[row["identityHash"]]["disabled"],
+                    "customAttributes": by_hash[row["identityHash"]][
+                        "customAttributes"
+                    ],
+                }
+            )
+            for row in history
+        ),
+        "ACTIVATION_HISTORY_INVALID",
     )
     dispatched = {row["identityHash"] for row in history}
     require(
@@ -187,6 +219,13 @@ def observe_activation(conn, session, plan, history):
     )
     for uid, wanted in selected.items():
         digest = identity_hash(uid)
+        if digest in manifest.get("retainedTargets", {}):
+            require(
+                sha(record(by_uid[uid]))
+                == manifest["retainedTargets"][digest]["recordSha256"],
+                "RETAINED_TARGET_CHANGED",
+            )
+            continue
         state = observed_state(
             by_uid[uid], wanted, plan["targets"][digest], plan["stagingOperation"]
         )
@@ -202,6 +241,8 @@ def checkpoint_operation(receipt, history):
         "operation": receipt["operation"],
         "manifestSha256": receipt["manifestSha256"],
     }
+    if receipt.get("version") == 2:
+        operation.update(version=2, targetProject=UAT_TARGET)
     if history:
         operation["requestSha256"] = sha(history)
     validate_operation(operation)
@@ -211,7 +252,7 @@ def checkpoint_operation(receipt, history):
 def publish_checkpoint(conn, previous, current):
     verify_fences(conn, previous)
     validate_operation(current)
-    for table, name in FENCES.items():
+    for table, name in operation_fences(current).items():
         conn.exec_driver_sql(
             f"COMMENT ON TRIGGER {name} ON public.{table} IS '{canonical(current)}'"
         )
@@ -222,8 +263,10 @@ def publish_checkpoint(conn, previous, current):
 
 def adopt_checkpoint(conn, receipt):
     operation = checkpoint_operation(receipt, receipt["history"])
-    comments = trigger_comments(conn)
-    if comments == dict.fromkeys(FENCES.values(), canonical(operation)):
+    comments = trigger_comments(conn, operation)
+    if comments == dict.fromkeys(
+        operation_fences(operation).values(), canonical(operation)
+    ):
         verify_fences(conn, operation)
     elif receipt["history"]:
         previous = checkpoint_operation(receipt, receipt["history"][:-1])
@@ -235,17 +278,52 @@ def adopt_checkpoint(conn, receipt):
     return operation
 
 
+def activation_user(session, target_project, uid, *, password_record):
+    from scripts.ops.firebase_identity_migration import export_users
+
+    if password_record:
+        # accounts:lookup redacts passwordHash/salt even for an administrator.
+        # Only the native export can establish these preserved fields.
+        users = [
+            u for u in export_users(session, target_project) if u["localId"] == uid
+        ]
+    else:
+        response = session.post(
+            f"https://identitytoolkit.googleapis.com/v1/projects/{target_project}/accounts:lookup",
+            json={"localId": [uid]},
+            timeout=25,
+            allow_redirects=False,
+        )
+        require(response.status_code == 200, "NATIVE_INVENTORY_UNAVAILABLE")
+        users = response.json().get("users", [])
+    require(
+        len(users) == 1 and users[0]["localId"] == uid, "ACTIVATION_IDENTITY_MISSING"
+    )
+    return users[0]
+
+
 def dispatch_activation(conn, session, plan, path, receipt, selected, operation):
     from scripts.ops.firebase_identity_migration import export_users, save_receipt
 
     attempted = {row["identityHash"] for row in receipt["history"]}
     for uid in sorted(selected):
         digest = identity_hash(uid)
-        if digest in attempted:
+        if digest not in plan["targets"] or digest in attempted:
             continue
         # An administrator update cannot recreate a missing UID, and only these
         # two attributes are changed. Password/provider/MFA/cutoff are untouched.
-        users = {u["localId"]: u for u in export_users(session, TARGET)}
+        target_project = manifest_target(plan["ownerManifest"])
+        password_record = bool(
+            selected[uid].get("passwordHash") or selected[uid].get("salt")
+        )
+        if target_project == UAT_TARGET:
+            users = {
+                uid: activation_user(
+                    session, target_project, uid, password_record=password_record
+                )
+            }
+        else:
+            users = {u["localId"]: u for u in export_users(session, TARGET)}
         require(uid in users, "ACTIVATION_IDENTITY_MISSING")
         require(
             observed_state(
@@ -274,13 +352,25 @@ def dispatch_activation(conn, session, plan, path, receipt, selected, operation)
         # attribution rows across HTTP; a lost session still cannot authorize
         # replay or settlement against a changed membership. Absent bindings
         # cannot be captured while the generation INSERT fence is installed.
+        scoped_selected = (
+            {uid: selected[uid]} if target_project == UAT_TARGET else selected
+        )
+        expected_workos = (
+            (
+                {digest: plan["workos"][digest]}
+                if digest in plan.get("workos", {})
+                else {}
+            )
+            if target_project == UAT_TARGET
+            else plan.get("workos", {})
+        )
         require(
-            workos_snapshot(conn, selected, plan["ownerManifest"], lock=True)
-            == plan.get("workos", {}),
+            workos_snapshot(conn, scoped_selected, plan["ownerManifest"], lock=True)
+            == expected_workos,
             "WORKOS_ATTRIBUTION_CHANGED",
         )
         response = session.post(
-            f"https://identitytoolkit.googleapis.com/v1/projects/{TARGET}/accounts:update",
+            f"https://identitytoolkit.googleapis.com/v1/projects/{target_project}/accounts:update",
             json=payload,
             timeout=25,
             allow_redirects=False,
@@ -288,18 +378,39 @@ def dispatch_activation(conn, session, plan, path, receipt, selected, operation)
         receipt["lastHttpStatus"] = response.status_code
         save_receipt(path, receipt)
         require(response.status_code == 200, "ACTIVATION_OUTCOME_UNCONFIRMED")
-        # Full mixed-cohort readback settles this UID before the next request.
-        observe_activation(conn, session, plan, receipt["history"])
+        if target_project == UAT_TARGET:
+            native = activation_user(
+                session, target_project, uid, password_record=password_record
+            )
+            require(
+                observed_state(
+                    native,
+                    selected[uid],
+                    plan["targets"][digest],
+                    plan["stagingOperation"],
+                )
+                == "active",
+                "ACTIVATION_OUTCOME_UNCONFIRMED",
+            )
+        else:
+            observe_activation(conn, session, plan, receipt["history"])
         conn.commit()
     return operation
 
 
-def activate(conn, session, plan, path, *, resume):
+def activate(conn, session, plan, path, *, resume, observe_only=False):
     from sqlalchemy import text
     from scripts.ops.firebase_identity_migration import save_receipt
 
+    target_project = manifest_target(plan["ownerManifest"])
     if resume:
         receipt = private_receipt(path)
+        require(
+            (type(receipt.get("version")) is int and receipt["version"] == 2)
+            if target_project == UAT_TARGET
+            else "version" not in receipt,
+            "RECEIPT_CONTEXT_CHANGED",
+        )
         require(receipt["manifestSha256"] == sha(plan), "RECEIPT_MANIFEST_CHANGED")
     else:
         require(not path.exists(), "RECEIPT_ALREADY_EXISTS")
@@ -309,6 +420,8 @@ def activate(conn, session, plan, path, *, resume):
             "phase": "fence_intent",
             "history": [],
         }
+        if target_project == UAT_TARGET:
+            receipt["version"] = 2
         save_receipt(path, receipt)
     require(
         conn.execute(
@@ -322,8 +435,12 @@ def activate(conn, session, plan, path, *, resume):
     try:
         selected = observe_activation(conn, session, plan, receipt["history"])
         conn.commit()
-        if receipt["phase"] == "activated_verified" and fences_absent(conn):
-            require(len(receipt["history"]) == len(selected), "ACTIVATION_INCOMPLETE")
+        if receipt["phase"] == "activated_verified" and fences_absent(
+            conn, target_project=target_project
+        ):
+            require(
+                len(receipt["history"]) == len(plan["targets"]), "ACTIVATION_INCOMPLETE"
+            )
             receipt["fencesRemoved"] = True
             save_receipt(path, receipt)
             return receipt
@@ -331,9 +448,12 @@ def activate(conn, session, plan, path, *, resume):
         conn.commit()
         observe_activation(conn, session, plan, receipt["history"])
         conn.commit()
-        operation = dispatch_activation(
-            conn, session, plan, path, receipt, selected, operation
-        )
+        if observe_only and len(receipt["history"]) != len(plan["targets"]):
+            return receipt
+        if not observe_only:
+            operation = dispatch_activation(
+                conn, session, plan, path, receipt, selected, operation
+            )
         observe_activation(conn, session, plan, receipt["history"])
         conn.commit()
         receipt["phase"] = "activated_verified"
