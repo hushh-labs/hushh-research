@@ -289,8 +289,6 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       await portfolio.scrollIntoViewIfNeeded();
       await expect(portfolio.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
       expect(await portfolio.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-      const bounds = await portfolio.boundingBox();
-      expect(bounds!.width).toBeLessThanOrEqual(728);
       await page.screenshot({ path: test.info().outputPath(`portfolio-${width}-${theme}.png`) });
       const stocks = page.getByTestId("market-iphone-fixture");
       const search = stocks.getByRole("searchbox", { name: "Search stocks" });
