@@ -1,6 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useAgentSettingsController } from "@/components/profile/use-agent-settings-controller";
+import { useNativeAgentSettings } from "@/components/profile/use-native-agent-settings";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -204,6 +206,7 @@ describe("owner hosting and software settings", () => {
 
   it("keeps a confirmed BYOC pod selected and presents the three hosting choices", () => {
     status("byoc", {
+      featureEnabled: true,
       cloudProject: "owner-project",
       cloudRegion: "us-central1",
     });
@@ -221,6 +224,32 @@ describe("owner hosting and software settings", () => {
       screen.getByRole("button", { name: /Bring your own cloud/ }),
     );
     expect(mocks.push).toHaveBeenCalledWith("/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting");
+  });
+
+  it.each(["shared", "unplaced", "pending"])("keeps disabled BYOC non-actionable for %s without blocking Shared setup", (mode) => {
+    status(mode, { featureEnabled: false });
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.getByText("Bring your own cloud")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Bring your own cloud/ })).toBeNull();
+    expect(mocks.push).not.toHaveBeenCalled();
+    if (mode === "unplaced") {
+      fireEvent.click(screen.getByRole("button", { name: /Hussh Shared/ }));
+      expect(mocks.push).toHaveBeenCalledOnce();
+    }
+  });
+
+  it.each([false, true])("native Hosting respects setup availability %s while Shared remains reachable", (featureEnabled) => {
+    status("unplaced", { featureEnabled });
+    const { result } = renderHook(() => useNativeAgentSettings(
+      useAgentSettingsController({ kind: "hosting", userId: "owner" }), true, "owner",
+    ));
+    const choices = result.current.pages[0].sections.find(section => section.id === "hosting-choices-section")!.rows;
+    const cloud = choices.find(row => row.id === "hosting-own-cloud")!;
+    expect(cloud.readOnly === true).toBe(!featureEnabled);
+    expect(Boolean(cloud.chevron)).toBe(featureEnabled);
+    expect(result.current.rows.has("hosting-own-cloud")).toBe(featureEnabled);
+    act(() => { void result.current.rows.get("hosting-shared")!(); });
+    expect(mocks.push).toHaveBeenCalledOnce();
   });
 
   it("shows automatic Shared updates without pod install controls or duplicate build fields", () => {
@@ -311,7 +340,7 @@ describe("owner hosting and software settings", () => {
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
 
     expect(await screen.findByText("Approved. Waiting for your Microsoft sign-in")).toBeTruthy();
-    expect(screen.queryByRole("status", { name: /Software update/ })).toBeNull();
+    expect(screen.queryByRole("status", { name: /Agent update/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
     // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
     const open = vi.spyOn(window, "open").mockReturnValue(null);
