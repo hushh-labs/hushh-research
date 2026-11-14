@@ -20,11 +20,19 @@ from typing import Literal
 
 from hushh_mcp.services.pod_azure_vm_identity import active_vm_installation
 
-WorkloadPlatform = Literal["gcp", "azure", "local"]
+WorkloadPlatform = Literal["gcp", "azure", "aws", "ace", "local"]
 
 # (service, revision) as each platform names them.
 _GCP_NAMES = ("K_SERVICE", "K_REVISION")
 _AZURE_NAMES = ("CONTAINER_APP_NAME", "CONTAINER_APP_REVISION")
+_AWS_NAMES = ("HUSSH_AWS_SERVICE_NAME", "HUSSH_AWS_TASK_REVISION")
+_ACE_NAMES = ("ACE_SANDBOX_ID", "ACE_SANDBOX_REVISION")
+_PLATFORM_NAME_PAIRS: dict[str, tuple[str, str]] = {
+    "gcp": _GCP_NAMES,
+    "azure": _AZURE_NAMES,
+    "aws": _AWS_NAMES,
+    "ace": _ACE_NAMES,
+}
 
 
 def _env(name: str) -> str:
@@ -37,13 +45,17 @@ def workload_platform() -> WorkloadPlatform:
         return "azure"
     if _env(_AZURE_NAMES[0]):
         return "azure"
+    if _env(_ACE_NAMES[0]) or _env("GOOGLE_ACE_SANDBOX_ID"):
+        return "ace"
+    if _env("ECS_CONTAINER_METADATA_URI_V4") or _env("AWS_EXECUTION_ENV"):
+        return "aws"
     if _env(_GCP_NAMES[0]):
         return "gcp"
     return "local"
 
 
 def _platform_names() -> tuple[str, str]:
-    return _AZURE_NAMES if workload_platform() == "azure" else _GCP_NAMES
+    return _PLATFORM_NAME_PAIRS.get(workload_platform(), _GCP_NAMES)
 
 
 def pod_service_name() -> str:

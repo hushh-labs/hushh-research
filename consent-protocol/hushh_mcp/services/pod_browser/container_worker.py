@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import errno
 import json
 import os
+import platform
 import resource
 import signal
 import socket
@@ -17,6 +19,7 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from .launch_protocol import MAX_PACKET, LaunchRefused, connected_socket
 
@@ -28,6 +31,42 @@ ENVIRONMENT = {
     "PYTHONDONTWRITEBYTECODE": "1",
     "PLAYWRIGHT_BROWSERS_PATH": ROOT + "/browsers",
 }
+
+_SYS_LANDLOCK_CREATE_RULESET = 444
+_SYS_LANDLOCK_ADD_RULE = 445
+_SYS_LANDLOCK_RESTRICT_SELF = 446
+_LANDLOCK_CREATE_RULESET_VERSION = 1 << 0
+_LANDLOCK_RULE_PATH_BENEATH = 1
+_LANDLOCK_READ_EXEC_FS = (1 << 0) | (1 << 2) | (1 << 3)
+_LANDLOCK_ABI_RIGHTS = {
+    1: (1 << 13) - 1,
+    2: (1 << 14) - 1,
+    3: (1 << 15) - 1,
+}
+_LANDLOCK_READ_ONLY_PATHS = (
+    ROOT,
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib64",
+    "/etc",
+    "/proc",
+    "/sys",
+)
+_LANDLOCK_READ_WRITE_PATHS = ("/dev",)
+
+
+class _LandlockRulesetAttr(ctypes.Structure):
+    _fields_ = [("handled_access_fs", ctypes.c_uint64)]
+
+
+class _LandlockPathBeneathAttr(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("allowed_access", ctypes.c_uint64),
+        ("parent_fd", ctypes.c_int32),
+    ]
 
 
 def execution_ack(chromium_sandbox: bool) -> bytes:
@@ -118,8 +157,109 @@ def supervise(descriptor: int, mode: str) -> None:
         serve(connection, worker=worker, settle=reap_owned_children)
 
 
+def apply_landlock_worker_confinement(
+    scratch_dir: str | None = None,
+    *,
+    native_lib: Any = None,
+) -> str:
+    """Confine the Browser worker's filesystem view on Landlock-capable Linux kernels.
+
+    Restricts worker + Chromium descendants to ``/opt/browser``, OS runtime libraries,
+    and the ephemeral ``MemoryScratch`` directory — excluding ``/app`` and ``/opt/venv``
+    even on container runtimes (Azure Container Apps, AWS Fargate) where unprivileged
+    user namespaces (``CLONE_NEWUSER``) are disabled. Cleanly returns ``"unsupported"``
+    only when the kernel lacks Landlock (``ENOSYS`` / ``EOPNOTSUPP``, e.g. gVisor).
+    """
+    if sys.platform != "linux" or platform.machine().lower() not in {
+        "x86_64",
+        "amd64",
+        "aarch64",
+        "arm64",
+    }:
+        return "unsupported"
+    native = native_lib if native_lib is not None else ctypes.CDLL(None, use_errno=True)
+    ctypes.set_errno(0)
+    abi = int(
+        native.syscall(
+            _SYS_LANDLOCK_CREATE_RULESET,
+            ctypes.c_void_p(0),
+            ctypes.c_size_t(0),
+            ctypes.c_uint32(_LANDLOCK_CREATE_RULESET_VERSION),
+        )
+    )
+    if abi < 0:
+        err = ctypes.get_errno()
+        if err in {errno.ENOSYS, errno.EOPNOTSUPP}:
+            return "unsupported"
+        raise LaunchRefused()
+    effective_abi = min(max(abi, 1), 3)
+    handled = _LANDLOCK_ABI_RIGHTS[effective_abi]
+    ruleset_attr = _LandlockRulesetAttr(handled_access_fs=handled)
+    ctypes.set_errno(0)
+    ruleset_fd = int(
+        native.syscall(
+            _SYS_LANDLOCK_CREATE_RULESET,
+            ctypes.byref(ruleset_attr),
+            ctypes.c_size_t(ctypes.sizeof(ruleset_attr)),
+            ctypes.c_uint32(0),
+        )
+    )
+    if ruleset_fd < 0:
+        err = ctypes.get_errno()
+        if err in {errno.ENOSYS, errno.EOPNOTSUPP}:
+            return "unsupported"
+        raise LaunchRefused()
+    o_path = getattr(os, "O_PATH", 0o10000000)
+    open_flags = o_path | os.O_CLOEXEC
+    rw_paths = list(_LANDLOCK_READ_WRITE_PATHS)
+    resolved_scratch = scratch_dir or os.environ.get("TMPDIR") or os.environ.get("HOME") or ""
+    if resolved_scratch and resolved_scratch not in rw_paths:
+        rw_paths.append(resolved_scratch)
+    try:
+        for path, rights in (
+            *(
+                (candidate, _LANDLOCK_READ_EXEC_FS & handled)
+                for candidate in _LANDLOCK_READ_ONLY_PATHS
+            ),
+            *((candidate, handled) for candidate in rw_paths),
+        ):
+            if not path or not os.path.exists(path):
+                continue
+            parent_fd = os.open(path, open_flags)
+            try:
+                rule_attr = _LandlockPathBeneathAttr(allowed_access=rights, parent_fd=parent_fd)
+                if (
+                    int(
+                        native.syscall(
+                            _SYS_LANDLOCK_ADD_RULE,
+                            ctypes.c_int(ruleset_fd),
+                            ctypes.c_int(_LANDLOCK_RULE_PATH_BENEATH),
+                            ctypes.byref(rule_attr),
+                            ctypes.c_uint32(0),
+                        )
+                    )
+                    < 0
+                ):
+                    raise LaunchRefused()
+            finally:
+                os.close(parent_fd)
+        if (
+            int(
+                native.syscall(
+                    _SYS_LANDLOCK_RESTRICT_SELF, ctypes.c_int(ruleset_fd), ctypes.c_uint32(0)
+                )
+            )
+            < 0
+        ):
+            raise LaunchRefused()
+    finally:
+        os.close(ruleset_fd)
+    return f"enforced:abi{effective_abi}"
+
+
 def run_worker(descriptor: int, mode: str) -> None:
     require_owner_process()
+    apply_landlock_worker_confinement()
     from .connected_executor import ConnectedBrowserWorker
     from .contracts import BrowserBinding
     from .playwright_executor import PlaywrightExecutor

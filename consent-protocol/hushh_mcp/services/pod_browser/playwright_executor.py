@@ -150,6 +150,10 @@ class PlaywrightExecutor:
                 headless=True,
                 chromium_sandbox=self._chromium_sandbox,
                 args=[
+                    "--site-per-process",
+                    "--disable-extensions",
+                    "--disable-sync",
+                    "--no-first-run",
                     "--disable-quic",
                     "--disable-background-networking",
                     "--host-resolver-rules=MAP * ~NOTFOUND",

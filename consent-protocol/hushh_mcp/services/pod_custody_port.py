@@ -37,6 +37,7 @@ from hushh_mcp.services.pod_object_version import ABSENT
 logger = logging.getLogger(__name__)
 
 CUSTODY_MODE_ENV = "HUSSH_POD_CUSTODY_MODE"
+AWS_KMS_KEY_ENV = "HUSSH_POD_AWS_KMS_KEY_ARN"
 ACE_SEAL_SCALAR_ENV = "HUSSH_POD_ACE_SEAL_SCALAR"
 ACE_KEY_ID_ENV = "HUSSH_POD_ACE_KEY_ID"
 ACE_OWNER_ID_ENV = "HUSSH_POD_ID"
@@ -51,7 +52,8 @@ _KEY_LEN = 32
 class KeyCustodyPort(Protocol):
     """Cloud-neutral interface every pod custody implementation satisfies."""
 
-    custody_mode: str
+    @property
+    def custody_mode(self) -> str: ...
 
     def resolve_log_key(self) -> bytes: ...
 
@@ -380,11 +382,117 @@ class AceEnvelopeCustodyAdapter:
         return derive_memory_key(self.resolve_log_key())
 
 
+@dataclass(frozen=True)
+class AwsKmsCustodyAdapter:
+    """Owner AWS KMS wrap/unwrap custody with AAD encryption context and tombstone guard."""
+
+    kms_client: Any = None
+    store: Any = None
+    key_arn: Optional[str] = None
+    hushh_id: Optional[str] = None
+    custody_mode: str = CUSTODY_OWNER_KMS
+
+    def _resolve_inputs(self) -> tuple[Any, Any, str, dict[str, str], str]:
+        from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
+            WRAPPED_KEY_OBJECT_ENV,
+            WRAPPED_LOG_KEY_OBJECT,
+            ByocKeyCustodyError,
+        )
+
+        arn = (self.key_arn or os.getenv(AWS_KMS_KEY_ENV) or "").strip()
+        if not arn:
+            raise ByocKeyCustodyError(f"AWS KMS custody requires {AWS_KMS_KEY_ENV}")
+        owner_id = (
+            self.hushh_id or os.getenv("HUSSH_ID") or os.getenv(ACE_OWNER_ID_ENV) or ""
+        ).strip()
+        if not owner_id:
+            raise ByocKeyCustodyError("AWS KMS custody requires HUSSH_ID for encryption context")
+        store = self.store
+        if store is None:
+            from hushh_mcp.services.pod_storage import resolve_pod_object_store  # noqa: PLC0415
+
+            store = resolve_pod_object_store()
+        client = self.kms_client
+        if client is None:
+            try:
+                import boto3  # type: ignore[import-not-found]
+            except ImportError as exc:
+                raise ByocKeyCustodyError("boto3 is required for live AWS KMS custody") from exc
+            client = boto3.client("kms")
+        obj = (os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT).strip()
+        context = {"custody_mode": CUSTODY_OWNER_KMS, "hushh_id": owner_id}
+        return store, client, arn, context, obj
+
+    @staticmethod
+    def _unwrap(client: Any, ciphertext: bytes, *, arn: str, context: dict[str, str]) -> bytes:
+        from hushh_mcp.services.byoc_key_custody import ByocKeyCustodyError  # noqa: PLC0415
+
+        try:
+            resp = client.decrypt(
+                CiphertextBlob=ciphertext,
+                KeyId=arn,
+                EncryptionContext=context,
+            )
+            dek = bytes(resp["Plaintext"])
+        except Exception:  # noqa: BLE001
+            raise ByocKeyCustodyError(
+                "AWS KMS unwrap failed; refusing to run with a substitute key"
+            ) from None
+        if len(dek) != _KEY_LEN:
+            raise ByocKeyCustodyError("the unwrapped AWS KMS log DEK is not 32 bytes")
+        return dek
+
+    def resolve_log_key(self) -> bytes:
+        from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
+            ByocKeyCustodyError,
+            generate_dek,
+        )
+
+        store, client, arn, context, obj = self._resolve_inputs()
+        stored, _ = store.get_with_generation_blocking(obj)
+        if stored is not None:
+            return self._unwrap(client, stored, arn=arn, context=context)
+
+        refuse_store_after_erasure(store)
+        dek = generate_dek()
+        try:
+            wrapped = bytes(
+                client.encrypt(
+                    KeyId=arn,
+                    Plaintext=dek,
+                    EncryptionContext=context,
+                )["CiphertextBlob"]
+            )
+        except Exception:  # noqa: BLE001
+            raise ByocKeyCustodyError("AWS KMS wrap failed") from None
+
+        if not hmac.compare_digest(self._unwrap(client, wrapped, arn=arn, context=context), dek):
+            raise ByocKeyCustodyError("AWS KMS round-trip verification failed")
+
+        if store.put_if_generation_blocking(obj, wrapped, ABSENT) is not None:
+            logger.info("aws_kms_custody.log_key_created")
+            return dek
+
+        logger.info("aws_kms_custody.log_key_race_lost")
+        winner, _ = store.get_with_generation_blocking(obj)
+        if winner is None:
+            raise ByocKeyCustodyError(
+                "another boot claimed the AWS KMS log key, then it could not be read"
+            )
+        return self._unwrap(client, winner, arn=arn, context=context)
+
+    def resolve_memory_key(self) -> bytes:
+        from hushh_mcp.services.byoc_key_custody import derive_memory_key  # noqa: PLC0415
+
+        return derive_memory_key(self.resolve_log_key())
+
+
 def resolve_key_custody_port(
     *,
     session: Any = None,
     token: Optional[str] = None,
     store: Any = None,
+    kms_client: Any = None,
 ) -> KeyCustodyPort:
     """Resolve the single active ``KeyCustodyPort`` for this pod process."""
     from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
@@ -397,17 +505,22 @@ def resolve_key_custody_port(
     if explicit_mode and explicit_mode not in CUSTODY_MODES:
         raise ByocKeyCustodyError(f"unsupported {CUSTODY_MODE_ENV}: {explicit_mode}")
 
-    has_kms = bool((os.getenv(KMS_KEY_ENV) or "").strip())
+    has_gcp_kms = bool((os.getenv(KMS_KEY_ENV) or "").strip())
+    has_aws_kms = bool((os.getenv(AWS_KMS_KEY_ENV) or "").strip())
     has_vault = bool((os.getenv(KEY_VAULT_KEY_ENV) or "").strip())
     has_ace = ace_custody_configured()
-    active_envelopes = int(has_kms) + int(has_vault) + int(has_ace)
+    active_envelopes = int(has_gcp_kms) + int(has_aws_kms) + int(has_vault) + int(has_ace)
     if active_envelopes > 1:
         raise ByocKeyCustodyError("a pod's log key has exactly one custodian")
 
-    if explicit_mode == CUSTODY_OWNER_KMS or (not explicit_mode and has_kms):
-        if not has_kms:
-            raise ByocKeyCustodyError(f"{CUSTODY_OWNER_KMS} requires {KMS_KEY_ENV}")
-        return GcpKmsCustodyAdapter(session=session, token=token, store=store)
+    if explicit_mode == CUSTODY_OWNER_KMS or (not explicit_mode and (has_gcp_kms or has_aws_kms)):
+        if has_aws_kms:
+            return AwsKmsCustodyAdapter(kms_client=kms_client, store=store)
+        if has_gcp_kms:
+            return GcpKmsCustodyAdapter(session=session, token=token, store=store)
+        raise ByocKeyCustodyError(
+            f"{CUSTODY_OWNER_KMS} requires {KMS_KEY_ENV} or {AWS_KMS_KEY_ENV}"
+        )
 
     if explicit_mode == CUSTODY_OWNER_VAULT or (not explicit_mode and has_vault):
         if not has_vault:

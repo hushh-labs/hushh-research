@@ -56,6 +56,9 @@ class UserCloud:
     tenant_id: Optional[str] = None
     subscription_id: Optional[str] = None
     resource_group: Optional[str] = None
+    #: Owner AWS account id and IAM role ARN when addressed by account + role.
+    account_id: Optional[str] = None
+    role_arn: Optional[str] = None
 
     @property
     def is_user_owned(self) -> bool:
@@ -72,7 +75,9 @@ class UserCloud:
         Collapsing them would make "I chose hussh" indistinguishable from "I have
         not been asked yet", which is exactly the ambiguity the choice exists to end.
         """
-        return (self.deployment_target or "").strip() == "gcp"
+        from hushh_mcp.services.provider_capability_registry import is_hosted_pod_target
+
+        return is_hosted_pod_target(self.deployment_target)
 
     @property
     def is_ready_to_provision(self) -> bool:
@@ -90,6 +95,8 @@ class UserCloud:
             "tenant_id": self.tenant_id,
             "subscription_id": self.subscription_id,
             "resource_group": self.resource_group,
+            "account_id": self.account_id,
+            "role_arn": self.role_arn,
         }
         return (
             self.is_user_owned
@@ -165,6 +172,8 @@ def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
         tenant_id=(row.get("user_cloud_tenant_id") or None),
         subscription_id=(row.get("user_cloud_subscription_id") or None),
         resource_group=(row.get("user_cloud_resource_group") or None),
+        account_id=(row.get("user_cloud_account_id") or None),
+        role_arn=(row.get("user_cloud_role_arn") or None),
     )
 
 
@@ -176,6 +185,8 @@ _SPEC_COORDINATE_COLUMNS: tuple[str, ...] = (
     "user_cloud_tenant_id",
     "user_cloud_subscription_id",
     "user_cloud_resource_group",
+    "user_cloud_account_id",
+    "user_cloud_role_arn",
 )
 
 
@@ -197,6 +208,8 @@ def spec_coordinates(cloud: Optional[UserCloud]) -> dict[str, Optional[str]]:
         "user_cloud_tenant_id": getattr(cloud, "tenant_id", None),
         "user_cloud_subscription_id": getattr(cloud, "subscription_id", None),
         "user_cloud_resource_group": getattr(cloud, "resource_group", None),
+        "user_cloud_account_id": getattr(cloud, "account_id", None),
+        "user_cloud_role_arn": getattr(cloud, "role_arn", None),
     }
 
 

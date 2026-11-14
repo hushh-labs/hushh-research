@@ -21,14 +21,19 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE, BACKEND_USER_GCP
+from hushh_mcp.services.compute_backend import (
+    BACKEND_USER_AWS,
+    BACKEND_USER_AZURE,
+    BACKEND_USER_GCP,
+)
 
 _GCP_KEY_ENV = "HUSSH_POD_KMS_KEY"
 _AZURE_KEY_ENV = "HUSSH_POD_KEY_VAULT_KEY"
+_AWS_KEY_ENV = "HUSSH_POD_AWS_KMS_KEY_ARN"
 
 
 def owner_cloud_provider() -> Optional[str]:
-    """``user_gcp`` or ``user_azure`` inside an owner-cloud agent; None anywhere else."""
+    """``user_gcp``, ``user_azure`` or ``user_aws`` inside an owner-cloud agent; None elsewhere."""
     from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
 
     if not pod_mode():
@@ -52,12 +57,19 @@ def owner_cloud_provider() -> Optional[str]:
                 return None
         except ValueError:
             return None
-    gcp = bool((os.environ.get(_GCP_KEY_ENV) or "").strip())
-    azure = bool((os.environ.get(_AZURE_KEY_ENV) or "").strip())
-    if gcp == azure:
-        # Neither, or a contradictory pair: not provably an owner cloud.
+    candidates = [
+        target
+        for env_name, target in (
+            (_GCP_KEY_ENV, BACKEND_USER_GCP),
+            (_AZURE_KEY_ENV, BACKEND_USER_AZURE),
+            (_AWS_KEY_ENV, BACKEND_USER_AWS),
+        )
+        if (os.environ.get(env_name) or "").strip()
+    ]
+    if len(candidates) != 1:
+        # None, or a contradictory pair: not provably an owner cloud.
         return None
-    return str(BACKEND_USER_GCP if gcp else BACKEND_USER_AZURE)
+    return str(candidates[0])
 
 
 def owner_cloud_agent() -> bool:
