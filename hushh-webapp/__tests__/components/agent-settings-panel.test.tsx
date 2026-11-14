@@ -221,6 +221,7 @@ describe("owner hosting and software settings", () => {
 
   it("keeps a confirmed BYOC pod selected and presents the three hosting choices", () => {
     status("byoc", {
+      featureEnabled: true,
       cloudProject: "owner-project",
       cloudRegion: "us-central1",
     });
@@ -328,7 +329,7 @@ describe("owner hosting and software settings", () => {
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
 
     expect(await screen.findByText("Approved. Waiting for your Microsoft sign-in")).toBeTruthy();
-    expect(screen.queryByRole("status", { name: /Software update/ })).toBeNull();
+    expect(screen.queryByRole("status", { name: /Agent update/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
     // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
     const open = vi.spyOn(window, "open").mockReturnValue(null);

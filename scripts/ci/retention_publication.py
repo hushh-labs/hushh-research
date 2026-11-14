@@ -252,6 +252,23 @@ def _attempt(owner, repository, run, number, environment):
     steps = _steps(owner, job)
     if job.get("conclusion") == "skipped" and not steps:
         return False
+    # GitHub can materialize a cancelled dependent job before assigning a
+    # runner. It executed no steps and owes no resource-mutation checkpoint;
+    # this is absence-of-execution evidence, never release health or clearance.
+    runner_fields = ("runner_id", "runner_group_id", "runner_name", "runner_group_name")
+    if (job.get("conclusion") == "cancelled" and job.get("steps") == []
+            and type(job.get("run_id")) is int and type(job.get("run_attempt")) is int
+            and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
+            and run.get("head_branch") == "main"
+            and all(key in job for key in runner_fields)
+            and all(job[key] is None or type(job[key]) is int and job[key] == 0
+                    for key in runner_fields[:2])
+            and all(job[key] in (None, "") for key in runner_fields[2:])
+            and job.get("run_id") == run.get("id")
+            and job.get("run_attempt") == number
+            and job.get("head_sha") == run.get("head_sha")
+            and job.get("head_branch") == run.get("head_branch")):
+        return False
     if job.get("name") == current_name:
         mode = maintenance_mode(steps)
         _require(owner, mode is not None, "maintenance mode is missing or ambiguous")

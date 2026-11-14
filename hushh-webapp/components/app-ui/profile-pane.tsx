@@ -355,7 +355,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
             : location.panel === "hosting"
               ? "Hosting"
               : location.panel === "software-updates"
-                ? "Software updates"
+                ? "Agent updates"
                 : location.panel === "preferences"
                   ? "Appearance & preferences"
                   : location.panel === "security"
