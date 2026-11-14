@@ -5,6 +5,7 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -277,6 +278,47 @@ def test_workspace_release_tool_overlay_preserves_repository_relative_phone_path
     assert workspace_receipt._constant("reader_probe.py", "SOURCE_MODULES")
     with pytest.raises(FileNotFoundError):
         flat_receipt._constant("reader_probe.py", "SOURCE_MODULES")
+
+    # An older application has no team-admission modules. Exercise the trusted
+    # overlay in a fresh interpreter so repository imports cannot mask the gap.
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    tools = (
+        "github_team_authority.py",
+        "github_security_receipt.py",
+        "github_security_authority.py",
+        "process_group.py",
+    )
+    for step_name in ("Preserve current release tooling", "Checkout deployment SHA"):
+        script = next(step["run"] for step in steps if step.get("name") == step_name)
+        assert all(tool in script for tool in tools)
+    for tool in tools:
+        shutil.copy2(ROOT / "scripts/ci" / tool, workspace_scripts / tool)
+    probe = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "from github_team_authority import _request_authority; "
+        "_request_authority({'GITHUB_REPOSITORY': 'foreign/repository'}, {})"
+    )
+    checked = subprocess.run(  # noqa: S603 - fixed interpreter and authored probe
+        [sys.executable, "-I", "-c", probe, str(workspace_scripts)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert checked.returncode != 0
+    assert "Only canonical workflows request team admission" in checked.stderr
+    assert "ModuleNotFoundError" not in checked.stderr
+    (workspace_scripts / "github_team_authority.py").unlink()
+    missing = subprocess.run(  # noqa: S603 - fixed interpreter and authored probe
+        [sys.executable, "-I", "-c", probe, str(workspace_scripts)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert missing.returncode != 0
+    assert "ModuleNotFoundError" in missing.stderr
 
 
 def test_auth_domain_refresh_requires_explicit_frontend_incident(monkeypatch):
