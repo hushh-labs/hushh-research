@@ -106,7 +106,7 @@ env:
   PREPROMOTION_UAT_GATES: ${{ inputs.source_branch == 'uat-isolated' || inputs.verify_candidate_before_promotion }}
   LEGACY_UAT_ANALYTICS_REQUIRED: ${{ inputs.source_branch == 'uat-isolated' }}
   GCP_PROJECT_ID: hushh-pda-uat
-  UAT_FIREBASE_PROJECT_ID: hushh-pda
+  UAT_FIREBASE_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com
