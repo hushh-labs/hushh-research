@@ -1427,6 +1427,9 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json-output "$RUNNER_TEMP/ci-verification-plan.json"
 
+      - name: Install integration search prerequisite
+        run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
+
       - name: Run integration check script (single source of truth)
         run: bash scripts/ci/integration-check.sh --ci-linux-document
         env:
