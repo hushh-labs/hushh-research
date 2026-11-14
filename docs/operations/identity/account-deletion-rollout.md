@@ -443,6 +443,10 @@ owner retirement and foreign records refuse. Unknown outcomes retain fences. The
 WorkOS attribution or explicit absence. Active membership rows are locked across
 the native update and readback; retirement and offboarding refuse. No membership
 is created or inferred from email.
+UAT replacement generations may preserve frozen WorkOS provenance only with an
+independent Google credential, no deprovisioning marker and no captured profile,
+identity or owner membership. The activation plan pins that absence and generation;
+each update rechecks it. Replacement-generation SSO enrollment remains refused.
 These operations require exclusive target-Auth administrator custody; SQL fences
 do not constrain an unrelated Firebase administrator.
 

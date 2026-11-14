@@ -65,6 +65,26 @@ def workos_snapshot(conn, selected, manifest, *, lock=False):
         profile = membership_hash(claims["workosOrgId"], claims["workosUserId"])
         digest = identity_hash(uid)
         binding = bindings[digest]
+        replacement = binding["generation"] > 0
+        if replacement:
+            # Preserve independent sign-in and historical provenance, without
+            # enrolling a replacement in its deleted generation's WorkOS access.
+            require(
+                manifest_target(manifest) == UAT_TARGET
+                and not claims.get("workosDeprovisionedAt")
+                and any(
+                    p.get("providerId") == "google.com" and p.get("rawId")
+                    for p in user.get("providerUserInfo", [])
+                ),
+                "WORKOS_ATTRIBUTION_CHANGED",
+            )
+        predicate = "m.profile_hash=:profile"
+        if replacement:
+            predicate = (
+                "("
+                + predicate
+                + " OR m.identity_hash=:identity OR m.owner_hash=:owner)"
+            )
         rows = (
             conn.execute(
                 text(
@@ -73,16 +93,18 @@ def workos_snapshot(conn, selected, manifest, *, lock=False):
             FROM public.account_workos_memberships m
             LEFT JOIN public.account_generations g ON g.identity_hash=m.identity_hash
              AND g.owner_hash=m.owner_hash AND g.generation=m.generation
-            WHERE m.profile_hash=:profile"""
+            WHERE """
+                    + predicate
                     + (" FOR SHARE OF m" if lock else "")
                 ),
-                {"profile": profile},
+                {"profile": profile, "identity": digest, "owner": binding["ownerHash"]},
             )
             .mappings()
             .all()
         )
         require(
-            len(rows) <= 1 and binding["generation"] == 0, "WORKOS_ATTRIBUTION_CHANGED"
+            len(rows) <= 1 and (not replacement or not rows),
+            "WORKOS_ATTRIBUTION_CHANGED",
         )
         membership = None
         if rows:
@@ -104,6 +126,8 @@ def workos_snapshot(conn, selected, manifest, *, lock=False):
             "origin": claims["workosOrigin"],
             "membershipSha256": sha(membership),
         }
+        if replacement:
+            result[digest]["preservedReplacementGeneration"] = binding["generation"]
     return result
 
 
