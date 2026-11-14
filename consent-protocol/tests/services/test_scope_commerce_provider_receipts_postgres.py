@@ -10,6 +10,10 @@ import pytest
 
 from hushh_mcp.services.scope_commerce.domain import CommerceError
 from hushh_mcp.services.scope_commerce.provider_contracts import _derived_id
+from hushh_mcp.services.scope_commerce.provider_sandbox import (
+    SandboxPolicy,
+    reserve_reviewer_funding,
+)
 from hushh_mcp.services.scope_commerce.stripe_adapter import (
     CommerceProviderError,
 )
@@ -22,7 +26,7 @@ from tests.helpers.scope_commerce_provider import (
     _payout_service,
     _signed_event,
 )
-from tests.helpers.scope_commerce_provider_db import _seller_credit
+from tests.helpers.scope_commerce_provider_db import _approve_fixture_purchase, _seller_credit
 from tests.helpers.scope_commerce_provider_db import provider_postgres as provider_postgres
 
 
@@ -95,6 +99,84 @@ async def test_postgres_bank_checkout_replays_and_refunds_late_debit(
             == 1
         )
         assert await connection.fetchval("SELECT count(*) FROM scope_commerce_reservations") == 0
+
+
+@pytest.mark.parametrize("invalidated_by", ["seller_erasure", "reviewer_removal"])
+async def test_postgres_late_bank_payment_refunds_ineligible_seller_purchase(
+    provider_postgres, invalidated_by, monkeypatch
+):
+    store, pool = provider_postgres
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    policy = SandboxPolicy("acct_platform", ("payer", "owner"))
+    store.provider_config = replace(store.provider_config, sandbox_policy=policy)
+    quote, purchase = await _approve_fixture_purchase(store, 100)
+    quote_id = quote["quoteId"]
+    funding_id = _derived_id(quote_id, "bank_checkout")
+    adapter = _FundingAdapter()
+    service = _funding_service(store, adapter)
+    await reserve_reviewer_funding(
+        store,
+        policy,
+        payer_user_id="payer",
+        buyer_app_id="app",
+        funding_id=funding_id,
+        amount_cents=100,
+    )
+    await service.funding_checkout(
+        payer_user_id="payer",
+        buyer_app_id="app",
+        amount_cents=100,
+        operation_id=funding_id,
+        bank_quote_id=quote_id,
+    )
+    [session] = adapter.sessions.values()
+    session.update(status="complete", payment_status="unpaid", payment_intent="pi_bank")
+    raw, signature = _signed_event(session)
+    await service.process_webhook(payload=raw, signature=signature)
+
+    expected_purchase_status = "awaiting_payment"
+    if invalidated_by == "seller_erasure":
+        assert (await store.erase_account("owner"))["revokedPurchases"] == 1
+        expected_purchase_status = "revoked"
+    else:
+        store.provider_config = replace(
+            store.provider_config,
+            sandbox_policy=SandboxPolicy("acct_platform", ("payer", "replacement")),
+        )
+
+    async with pool.acquire() as connection:
+        assert await connection.fetchval("SELECT status FROM scope_commerce_fundings") == "reserved"
+        assert await connection.fetchval("SELECT count(*) FROM scope_commerce_funding_lots") == 0
+        assert await connection.fetchval("SELECT count(*) FROM scope_commerce_reservations") == 0
+
+    session.update(payment_status="paid")
+    raw, signature = _signed_event(session, event_type="checkout.session.async_payment_succeeded")
+    assert (await service.process_webhook(payload=raw, signature=signature))[
+        "status"
+    ] == "processed"
+    assert (await service.process_webhook(payload=raw, signature=signature))[
+        "status"
+    ] == "duplicate"
+    await service._settle_funding_session(session, event_id="reconcile:late-bank")
+
+    async with pool.acquire() as connection:
+        [lot] = await connection.fetch(
+            "SELECT frozen, gross_micro_usd FROM scope_commerce_funding_lots"
+        )
+        assert lot["frozen"] is True
+        assert lot["gross_micro_usd"] == 1_000_000
+        [refund] = await connection.fetch(
+            "SELECT kind, status, amount_micro_usd, source_id FROM scope_commerce_obligations"
+        )
+        assert tuple(refund) == ("source_refund", "queued", 1_000_000, "pi_bank")
+        assert await connection.fetchval("SELECT count(*) FROM scope_commerce_reservations") == 0
+        persisted = await connection.fetchrow(
+            """SELECT status, activation_at, export_id
+            FROM scope_commerce_purchases WHERE purchase_id=$1::uuid""",
+            purchase["purchaseId"],
+        )
+        assert tuple(persisted) == (expected_purchase_status, None, None)
 
 
 @pytest.mark.asyncio
