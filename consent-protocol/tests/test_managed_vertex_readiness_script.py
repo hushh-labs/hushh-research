@@ -819,7 +819,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
             self.project = project
 
         async def generate_content_async(self, *_args, **_kwargs):
-            if self.project == "hushh-gemini-bridge" and scenario == "billing_denied":
+            if self.project == "hushh-pda-uat" and scenario == "billing_denied":
                 raise RuntimeError("Billing is not enabled")
             if scenario == "resource_exhausted":
                 error = RuntimeError("Synthetic structured provider response")
@@ -846,7 +846,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     chat_probe = next(p for p in report["probes"] if str(p["probe"]).startswith("one_chat:"))
     chat_available = scenario == "success"
 
-    assert report["one_chat_project"] == "hushh-gemini-bridge"
+    assert report["one_chat_project"] == "hushh-pda-uat"
     assert report["one_chat_probe_ok"] is chat_available
     assert chat_probe["ok"] is chat_available
     assert report["ok"] is chat_available
@@ -893,7 +893,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
         yield None
 
     def build_client(**kwargs):
-        assert kwargs["vertex_project"] == "hushh-gemini-bridge"
+        assert kwargs["vertex_project"] == "hushh-pda-uat"
         return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
 
     from unittest.mock import AsyncMock
@@ -903,7 +903,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     monkeypatch.setattr(module, "_probe_adk_response", AsyncMock())
     monkeypatch.setattr(factory, "build_managed_live_client", build_client)
     report = await module.main()
-    assert report["one_voice_project"] == "hushh-gemini-bridge"
+    assert report["one_voice_project"] == "hushh-pda-uat"
     assert report["one_voice_probe_ok"] is connects
     assert report["ok"] is connects
     assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"

@@ -354,9 +354,9 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_DEPLOY_ENV=${TARGET_ENV}##_DEPLOY_SOURCE=${DEPLOY_SOURCE}"
   SUBS="${SUBS}##_DEPLOY_SHA=${DEPLOY_SHA}##_GITHUB_RUN_ID=${RUN_ID}"
 
-  # Preserve the managed-AI billing split in the fallback release path too.
+  # Compile managed-AI substitutions from the checked-in runtime profile.
   if [[ "$TARGET_ENV" == "production" || "$TARGET_ENV" == "uat" || "$TARGET_ENV" == "dev" ]]; then
-    SUBS="${SUBS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
+    SUBS="${SUBS}##$(python3 scripts/ops/managed_ai_config.py --environment "$TARGET_ENV" --format substitutions)"
   fi
 
   if [[ "$TARGET_ENV" == "production" ]]; then

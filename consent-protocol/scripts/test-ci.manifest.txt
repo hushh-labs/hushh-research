@@ -1705,7 +1705,8 @@ tests/test_provider_capability_registry_and_aws_parity.py
 # Wave 5 active control-plane TTL runner, enforced retention parity, and Floci wire conformance.
 tests/test_control_plane_retention_runner.py
 tests/test_floci_aws_wire_conformance.py
-
 # Wave 6 Hub Zero-Role Capability & Custody Broker and Tri-Cloud Floci (GCP + Azure) wire conformance.
 tests/test_floci_gcp_azure_wire_conformance.py
 tests/test_pod_capability_broker.py
+
+tests/scripts/test_db_data_health.py
