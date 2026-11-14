@@ -756,13 +756,18 @@ jobs:
       - name: Enforce production database connection budget before deployment
         shell: bash
         env:
+          REQUESTED_SCOPE: ${{ inputs.scope }}
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           STAGED_WORKER_LOADED: ${{ steps.staged-worker.outputs.loaded }}
         run: |
           set -euo pipefail
           extra=()
-          if [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
+          if [[ "${REQUESTED_SCOPE:-auto}" == frontend && "$PHONE_DEPLOY_PHASE" == standard && "${STAGED_WORKER_LOADED:-false}" == false && -z "$RESTORATION_RUN$PHONE_ROLLBACK_SHA" ]]; then
+            # Frontend-only rollout adds no database workload. Retain all real
+            # workload and reserve accounting without hypothetical candidates.
+            extra=(--no-candidates)
+          elif [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
             extra=(--candidate-service consent-protocol)
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
