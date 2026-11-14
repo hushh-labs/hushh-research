@@ -7,7 +7,7 @@ Canonical visual owner: [Hussh Webapp Docs](README.md). Use that map for the top
 
 ## Finance portfolio and analysis presentation
 
-- Portfolio home keeps an 80px gain/loss ring and one primary performance figure. The distribution legend, movers, income and fees remain on Performance detail. Allocation uses a compact category list rather than stretching to the Performance card's height.
+- Portfolio home presents the reported balance change and explains when investment return is unavailable. Allocation uses a compact category list rather than stretching to the Performance card's height.
 - Allocation detail presents asset mix, equity sectors and non-equity buckets as sections of one surface. Sector rows retain their full holding names, symbols, values and paging; categories are not limited to the former top eight. Each section labels its actual percentage denominator.
 - Analyze on a selected stock uses the existing confirmed-start handler directly. Legacy ticker-preview entrypoints keep their confirmation path. Required owner/unlock checks, active-run handling and pending-navigation cancellation remain in place.
 - Stock analysis leads with its existing result. Full debate/research and the detailed record expand in place; legacy `view` query values and action IDs remain supported. Opening details keeps the active stream controller mounted.

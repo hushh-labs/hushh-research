@@ -67,7 +67,7 @@
 .portfolioTop, .portfolioInsights { display: grid; gap: 16px; min-width: 0; }
 .portfolioInsights { align-items: start; }
 .portfolioTop > *, .portfolioInsights > * { min-width: 0; }
-.portfolioTop > :global([data-slot="card"]), .portfolioInsights > :global([data-slot="card"]) { height: 100%; }
+.portfolioTop > :global([data-slot="card"]) { height: 100%; }
 .portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
 .portfolioAllocation > span { min-width: 0; }
 .portfolioList { display: grid; gap: 0; }

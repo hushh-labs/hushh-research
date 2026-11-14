@@ -164,7 +164,8 @@ export function PortfolioAllocationBar({
               className={cn(
                 styles.allocationRow,
                 styles.interactiveRow,
-                "relative isolate focus-visible:outline-none",
+                "relative isolate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                selected ? "bg-accent-surface text-accent-strong" : "hover:text-foreground",
               )}
               data-finance-selected={selected || undefined}
               aria-pressed={selected}
