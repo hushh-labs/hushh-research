@@ -23,13 +23,13 @@ enum HushhFirebaseIdentity {
         guard let file = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist",
                                           inDirectory: "FirebaseIdentity"),
               let options = FirebaseOptions(contentsOfFile: file),
-              options.projectID == "hushh-pda", options.gcmSenderID == "1006304528804",
-              options.googleAppID == "1:1006304528804:ios:eb2720b5eda7da4bcfd931",
+              options.projectID == "hushh-pda-uat", options.gcmSenderID == "745506018753",
+              options.googleAppID == uatAnalyticsAppID,
               let clientID = options.clientID, !clientID.isEmpty else {
             preconditionFailure("UAT iOS shared Firebase identity is missing or invalid")
         }
         if shared == nil { FirebaseApp.configure(name: sharedName, options: options) }
-        // The default sender owns UAT Analytics only. The notification bridge
+        // Analytics stays on the default app. The notification bridge
         // explicitly requests and unregisters tokens for the shared sender.
         Messaging.messaging().isAutoInitEnabled = false
     }
