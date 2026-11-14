@@ -200,7 +200,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
   it("reviews exact selected calendar, warns of overlap, and confirms once without a second OAuth", async () => {
     render(view());
     fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
-    expect(screen.getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=owner%40example.test");
+    expect(screen.getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=owner%40example.test&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Downer%2540example.test");
     fireEvent.click(screen.getByRole("button", { name: "Accept", exact: true }));
     expect(await screen.findByText("This time is already booked")).toBeInTheDocument();
     expect(mutations()).toHaveLength(0);

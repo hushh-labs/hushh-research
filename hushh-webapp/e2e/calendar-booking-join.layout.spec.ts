@@ -58,14 +58,11 @@ test("Board books account B in one click and refreshes its event and free time",
 
   const work = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
   const joinTrigger = work.getByRole("link", { name: "Join meeting: QA Client Call 1" });
-  await joinTrigger.click();
-  const join = page.getByRole("dialog", { name: "Check Google account" });
-  await expect(join).toContainText("Use qa-work@example.com in Google Meet.");
-  await expect(join.getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-work%40example.com");
-  await expect(join.getByRole("link", { name: "Choose account" })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij");
-  await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, "calendar-meet-account-mobile-393.png") });
-  await join.getByRole("button", { name: "Cancel" }).click();
-  await expect(joinTrigger).toBeFocused();
+  const handoff = new URL((await joinTrigger.getAttribute("href"))!);
+  expect(handoff.origin + handoff.pathname).toBe("https://accounts.google.com/AccountChooser");
+  expect(handoff.searchParams.get("Email")).toBe("qa-work@example.com");
+  expect(handoff.searchParams.get("continue")).toBe("https://meet.google.com/abc-defg-hij?authuser=qa-work%40example.com");
+  await expect(joinTrigger).toHaveAttribute("target", "_blank");
 
   let created: Record<string, unknown> | null = null;
   let reviewed: Record<string, unknown> | null = null;

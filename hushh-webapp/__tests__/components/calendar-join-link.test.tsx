@@ -1,26 +1,24 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CalendarJoinLink } from "@/components/calendar/calendar-join-link";
 
 describe("Calendar-scoped Join", () => {
-  it("opens the clicked event as its connected account and lets Google choose another session", () => {
+  it("hands the clicked account directly to Google without intercepting navigation", () => {
     const url = "https://meet.google.com/meet/abc-defg-hij?foo=bar&authuser=0#details";
-    const hintedUrl = "https://meet.google.com/meet/abc-defg-hij?foo=bar&authuser=account-b%40example.com#details";
-    const view = render(<CalendarJoinLink url={url} accountEmail="account-b@example.com" />);
+    const view = render(<CalendarJoinLink url={url} accountEmail=" account-b@example.com " />);
     const join = screen.getByRole("link", { name: "Join meeting" });
-    expect(join).toHaveAttribute("href", hintedUrl);
-    fireEvent.click(join);
-    const dialog = screen.getByRole("dialog", { name: "Check Google account" });
-    expect(within(dialog).getByText(/Use account-b@example.com in Google Meet/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", hintedUrl);
-    const chooser = new URL((within(dialog).getByRole("link", { name: "Choose account" }) as HTMLAnchorElement).href);
-    expect(chooser.origin + chooser.pathname).toBe("https://accounts.google.com/AccountChooser");
-    expect(chooser.searchParams.get("continue")).toBe("https://meet.google.com/meet/abc-defg-hij?foo=bar#details");
+    const handoff = new URL((join as HTMLAnchorElement).href);
+    expect(handoff.origin + handoff.pathname).toBe("https://accounts.google.com/AccountChooser");
+    expect(handoff.searchParams.get("Email")).toBe("account-b@example.com");
+    expect(handoff.searchParams.get("continue")).toBe("https://meet.google.com/meet/abc-defg-hij?foo=bar&authuser=account-b%40example.com#details");
+    expect(join).toHaveAttribute("target", "_blank");
+    expect(join).toHaveAttribute("rel", "noopener noreferrer");
+    expect(fireEvent.click(join)).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
     view.rerender(<CalendarJoinLink url="https://meet.google.com/xyz-wxyz-xyz" accountEmail="account-c@example.com" />);
-    expect(within(dialog).getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", hintedUrl);
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("link", { name: "Join meeting" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent("Use account-c@example.com in Google Meet");
+    const next = new URL((screen.getByRole("link") as HTMLAnchorElement).href);
+    expect(next.searchParams.get("Email")).toBe("account-c@example.com");
+    expect(next.searchParams.get("continue")).toBe("https://meet.google.com/xyz-wxyz-xyz?authuser=account-c%40example.com");
   });
 
   it("opens the verified Meet URL without claiming an account when the event account is unavailable", () => {

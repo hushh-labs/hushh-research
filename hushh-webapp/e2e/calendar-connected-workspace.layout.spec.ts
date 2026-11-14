@@ -237,7 +237,7 @@ for (const width of [320, 390, 1440]) {
     const selectedSurface = await page.locator("[data-highlighted]").evaluate(element => getComputedStyle(element).backgroundColor);
     const inactiveSurface = await page.getByRole("tab", { name: "Free time", exact: true }).evaluate(element => getComputedStyle(element).backgroundColor);
     await expect(page.getByRole("tab", { name: "Today", exact: true })).toHaveCSS("background-color", selectedSurface);
-    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-owner%40example.com");
+    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=qa-owner%40example.com&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Dqa-owner%2540example.com");
     await expect(page.getByRole("link", { name: "Join meeting: QA Design Review", exact: true })).toHaveAttribute("href", "https://zoom.us/j/123456789");
     await expect(page.getByRole("link", { name: "Join meeting: QA Client Call – Acme", exact: true })).toHaveAttribute("href", "https://teams.microsoft.com/l/meetup-join/19%3ameeting_qa/0");
     await expect(page.locator('[data-calendar-event="primary:shared-id"] img[src="/one-calendar/providers/google-meet-reference.png"]')).toBeVisible();
@@ -485,7 +485,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See more in Google Calendar")).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-list-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
-    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=qa-owner%40example.com");
+    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=qa-owner%40example.com&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Dqa-owner%2540example.com");
     const dialog = page.getByRole("dialog", { name: "Invitation details", exact: true });
     await expect(dialog).toBeVisible();
     await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
@@ -907,10 +907,10 @@ for (const width of [320, 390, 480, 481, 768, 1440]) {
     const back = dialog.getByRole("button", { name: "Back", exact: true });
     await expect(decline).toBeEnabled();
     expect((await join.boundingBox())!.x).toBe(joinBounds.x);
-    await join.click();
-    const accountPrompt = page.getByRole("dialog", { name: "Check Google account" });
-    await expect(accountPrompt).toContainText("Use qa-work@example.com in Google Meet.");
-    await accountPrompt.getByRole("button", { name: "Cancel", exact: true }).click();
+    const handoff = new URL((await join.getAttribute("href"))!);
+    expect(handoff.origin + handoff.pathname).toBe("https://accounts.google.com/AccountChooser");
+    expect(handoff.searchParams.get("Email")).toBe("qa-work@example.com");
+    await expect(join).toHaveAttribute("target", "_blank");
     await back.click();
     await expect(decline).toBeVisible();
     await expect(accept).toBeVisible();
