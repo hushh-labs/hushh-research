@@ -333,7 +333,7 @@ Sources: [nested list](../../components/consent/consent-scope-nested-list.tsx),
 | UI / CTA | Current contract |
 | --- | --- |
 | Category row / chevron | Enters that category locally. Root label is “All”; deeper views show ancestor orientation and current heading. Counts come from loaded scopes. |
-| Parent-labelled **Back** | Pops one local tree level. It is not a route change. Page/tree do not register a `useBackLayer`; shell/system Back is not proven to unwind this local path. |
+| Parent-labelled **Back** | Pops one local tree level via shared `useBackLayer` (depth 10) and the inline parent button without changing the route. |
 | **Search categories** | Appears only with more than six loaded scope items. Case-insensitive local matching across loaded items, flattened with breadcrumb context. It does not search unloaded server pages. |
 | **Filter categories** | Same search threshold; radio **All categories** or a loaded domain. Changes filter and resets local path while retaining query and selection. |
 | Individual row / checkbox | Toggles opaque scope reference. Already granted scopes are disabled. Selection alone performs no request. |

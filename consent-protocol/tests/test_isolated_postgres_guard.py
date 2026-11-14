@@ -40,3 +40,23 @@ def test_core_preflight_refuses_other_database_overrides_before_connecting(monke
     )
     with pytest.raises(ValueError, match="Separate database overrides"):
         isolated_postgres.preflight()
+
+
+def test_template_database_helpers_refuse_unattested_targets_and_unsafe_names(monkeypatch):
+    monkeypatch.delenv("ONE_COMMAND_TEST_PG_MANIFEST", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+
+    with pytest.raises(ValueError, match="not an admitted disposable service"):
+        isolated_postgres.ensure_template_database(
+            "postgresql://command_test@127.0.0.1:5432/command_test",
+            "tpl_schema",
+        )
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(ValueError, match="Unsafe disposable PostgreSQL identifier"):
+        isolated_postgres.ensure_template_database(
+            "postgresql://command_test@127.0.0.1:5432/command_test",
+            "bad-name;drop",
+        )

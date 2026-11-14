@@ -23,7 +23,9 @@ def apply_release_successors(conn, cp, *, retained_consumer=False):
             seed_consumer_connections(cur.execute)
             cur.execute("SELECT to_jsonb(c) FROM consumer_mcp_connections c ORDER BY connection_id")
             before = cur.fetchall()
-        files = [name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) > 417]
+        files = [
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name.split("_", 1)[0]) > 417
+        ]
         for entry in build_manifest_entries(cp / "db/migrations", files):
             if retained_consumer and entry.migration_id == "420":
                 import psycopg2

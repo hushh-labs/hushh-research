@@ -612,3 +612,70 @@ class RIADossierService:
                 )
         except asyncpg.UndefinedTableError:
             logger.warning("ria.dossier_table_missing")
+
+
+DOSSIER_RETRYABLE_STATUSES = ("scan_failed", "send_failed", "send_blocked_test_unset")
+
+
+async def _fetch_own_dossier_row_on_conn(
+    conn: Any,
+    user_id: str,
+    *,
+    for_update: bool = False,
+) -> Any:
+    """Latest dossier row belonging to the caller — never anyone else's."""
+    query = """
+        SELECT id, status, scan_id, result_summary, result_markdown, requested_at,
+               completed_at, mail_recipient, mail_intended_recipient
+        FROM ria_claim_dossiers
+        WHERE user_id = $1
+        ORDER BY requested_at DESC, id DESC
+        LIMIT 1
+    """
+    if for_update:
+        query += " FOR UPDATE"
+    return await conn.fetchrow(query, user_id)
+
+
+async def fetch_own_dossier_row(user_id: str, *, pool_getter: Any = None) -> Any:
+    """Read the caller's latest dossier row; missing table resolves to None."""
+    getter = pool_getter or get_pool
+    pool = await getter()
+    try:
+        async with pool.acquire() as conn:
+            return await _fetch_own_dossier_row_on_conn(conn, user_id)
+    except asyncpg.UndefinedTableError:
+        return None
+
+
+async def retry_failed_dossier_row(
+    user_id: str,
+    *,
+    has_claim_context: bool,
+    pool_getter: Any = None,
+) -> tuple[str, Any]:
+    """Atomically flip a failed dossier row back to queued under FOR UPDATE."""
+    getter = pool_getter or get_pool
+    pool = await getter()
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await _fetch_own_dossier_row_on_conn(conn, user_id, for_update=True)
+                if row is None:
+                    return ("missing", None)
+                status = str(row["status"] or "")
+                if status not in DOSSIER_RETRYABLE_STATUSES:
+                    return ("not_retryable", row)
+                if not has_claim_context:
+                    return ("missing_context", row)
+                await conn.execute(
+                    """
+                    UPDATE ria_claim_dossiers
+                    SET status = 'queued', error = NULL, completed_at = NULL
+                    WHERE id = $1
+                    """,
+                    row["id"],
+                )
+                return ("queued", row)
+    except asyncpg.UndefinedTableError:
+        return ("missing", None)

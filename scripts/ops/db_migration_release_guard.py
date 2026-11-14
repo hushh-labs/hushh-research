@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections import Counter
 import json
 import os
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,18 +27,15 @@ from urllib.parse import quote_plus
 import asyncpg
 from dotenv import load_dotenv
 
-
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
 DEFAULT_CONTRACT_FILE = (
     REPO_ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
 )
-DEFAULT_MANIFEST_FILE = (
-    REPO_ROOT / "consent-protocol" / "db" / "release_migration_manifest.json"
-)
+DEFAULT_MANIFEST_FILE = REPO_ROOT / "consent-protocol" / "db" / "release_migration_manifest.json"
 load_dotenv(REPO_ROOT / "consent-protocol" / ".env")
-MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_[a-z0-9_]+\.sql$")
+MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3,})_[a-z0-9_]+\.sql$")
 VALID_VERSION_POLICIES = {"exact", "minimum"}
 RELEASE_ENVIRONMENTS = {"production", "uat"}
 
@@ -103,10 +100,7 @@ def _load_contract(contract_file: Path) -> tuple[dict[str, Any], list[str]]:
     if not isinstance(expected_version, int):
         violations.append("contract_expected_migration_version_missing_or_invalid")
     version_policy = payload.get("migration_version_policy", "exact")
-    if (
-        not isinstance(version_policy, str)
-        or version_policy not in VALID_VERSION_POLICIES
-    ):
+    if not isinstance(version_policy, str) or version_policy not in VALID_VERSION_POLICIES:
         violations.append("contract_migration_version_policy_invalid")
     required_functions = payload.get("required_functions", [])
     if required_functions:
@@ -173,9 +167,7 @@ def _load_release_lane(
         base_names + overlay_names,
         key=lambda name: int(name.split("_", 1)[0]),
     )
-    duplicates = sorted(
-        name for name, count in Counter(canonical_names).items() if count != 1
-    )
+    duplicates = sorted(name for name, count in Counter(canonical_names).items() if count != 1)
     if duplicates:
         violations.append("release_manifest_duplicate_entries:" + ",".join(duplicates))
 
@@ -185,9 +177,7 @@ def _load_release_lane(
             violations.append(f"release_manifest_missing_file:{name}")
 
     if migration_files and migration_files[-1].filename not in set(canonical_names):
-        violations.append(
-            f"release_manifest_repo_head_unaccounted:{migration_files[-1].filename}"
-        )
+        violations.append(f"release_manifest_repo_head_unaccounted:{migration_files[-1].filename}")
 
     base_set = set(base_names)
     if not isinstance(groups, dict):
@@ -200,8 +190,7 @@ def _load_release_lane(
             outside_base = sorted(set(entries) - base_set)
             if outside_base:
                 violations.append(
-                    f"release_manifest_group_outside_base:{group_name}:"
-                    + ",".join(outside_base)
+                    f"release_manifest_group_outside_base:{group_name}:" + ",".join(outside_base)
                 )
 
     selected_names = base_names
@@ -316,13 +305,9 @@ async def _run_db_contract_check(
                 continue
 
             actual_columns = columns_by_table.get(table_name, set())
-            missing_columns = sorted(
-                c for c in required_columns if c not in actual_columns
-            )
+            missing_columns = sorted(c for c in required_columns if c not in actual_columns)
             if missing_columns:
-                violations.append(
-                    f"missing_columns:{table_name}:{','.join(missing_columns)}"
-                )
+                violations.append(f"missing_columns:{table_name}:{','.join(missing_columns)}")
 
             table_results[table_name] = {
                 "exists": True,
@@ -366,22 +351,14 @@ def _run(args: argparse.Namespace) -> int:
     highest_repo_version = migration_files[-1].version if migration_files else None
     expected_contract_version = contract_payload.get("expected_migration_version")
     version_policy = contract_payload.get("migration_version_policy", "exact")
-    if isinstance(selected_lane_head, int) and isinstance(
-        expected_contract_version, int
-    ):
-        if (
-            version_policy == "exact"
-            and selected_lane_head != expected_contract_version
-        ):
+    if isinstance(selected_lane_head, int) and isinstance(expected_contract_version, int):
+        if version_policy == "exact" and selected_lane_head != expected_contract_version:
             violations.append(
                 "contract_version_mismatch:"
                 f"policy=exact:selected_lane={selected_lane_head:03d}:"
                 f"expected={expected_contract_version:03d}"
             )
-        elif (
-            version_policy == "minimum"
-            and selected_lane_head < expected_contract_version
-        ):
+        elif version_policy == "minimum" and selected_lane_head < expected_contract_version:
             violations.append(
                 "contract_version_mismatch:"
                 f"policy=minimum:selected_lane={selected_lane_head:03d}:"
@@ -391,9 +368,7 @@ def _run(args: argparse.Namespace) -> int:
     db_check_results: dict[str, Any] | None = None
     if not args.skip_db_check and not contract_violations:
         try:
-            db_check_results, db_violations = asyncio.run(
-                _run_db_contract_check(contract_payload)
-            )
+            db_check_results, db_violations = asyncio.run(_run_db_contract_check(contract_payload))
             violations.extend(db_violations)
         except Exception as exc:  # noqa: BLE001
             violations.append(f"db_contract_check_failed:{type(exc).__name__}")
@@ -422,9 +397,7 @@ def _run(args: argparse.Namespace) -> int:
         },
         "db_contract": db_check_results,
         "violations": violations,
-        "duration_ms": round(
-            (datetime.now(timezone.utc) - started_at).total_seconds() * 1000.0, 2
-        ),
+        "duration_ms": round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000.0, 2),
     }
 
     if args.report_path:

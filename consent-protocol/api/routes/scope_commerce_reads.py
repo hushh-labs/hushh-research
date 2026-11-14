@@ -15,14 +15,18 @@ from api.routes.scope_commerce_contracts import (
     _service,
     _snake,
 )
-from db.connection import get_pool
 from hushh_mcp.services.directory_identity_service import (
     DirectoryIdentityUnavailableError,
     active_directory_user_ids,
 )
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.scope_commerce.activity import scope_label
-from hushh_mcp.services.scope_commerce_requests import resolve_commerce_request
+from hushh_mcp.services.scope_commerce_requests import (
+    fetch_connected_counterpart_row,
+    get_pool,
+    inspect_request_financial_history,
+    resolve_commerce_request,
+)
 
 router = APIRouter(tags=["scope-commerce"])
 logger = logging.getLogger(__name__)
@@ -32,22 +36,12 @@ async def _connected_counterpart(viewer: str, counterpart: str | None, *, can_op
     """Name and navigation only; destination consent still governs every export."""
     if not counterpart:
         return {}
-    pool = await get_pool()
-    sql = """SELECT p.user_id,p.public_person_ref,i.display_name
-        FROM connections c JOIN actor_profiles p ON p.user_id=$2
-        LEFT JOIN actor_identity_cache i ON i.user_id=p.user_id
-        WHERE c.user_a_id=LEAST($1::text,$2::text)
-          AND c.user_b_id=GREATEST($1::text,$2::text) AND c.status='active'
-          AND p.public_profile_status='active'
-          AND NOT EXISTS (SELECT 1 FROM account_deletion_tombstones t
-            WHERE t.user_id_hash='sha256:' || encode(sha256(convert_to(p.user_id,'UTF8')),'hex'))
-        LIMIT 1"""
-    async with pool.acquire() as conn:
-        available = await conn.fetchval("""SELECT to_regclass('connections') IS NOT NULL
-            AND to_regclass('actor_profiles') IS NOT NULL
-            AND to_regclass('actor_identity_cache') IS NOT NULL
-            AND to_regclass('account_deletion_tombstones') IS NOT NULL""")
-        row = await conn.fetchrow(sql, viewer, counterpart) if available else None
+    row = await fetch_connected_counterpart_row(
+        viewer,
+        counterpart,
+        check_tables=True,
+        pool_getter=get_pool,
+    )
     if not row:
         return {}
     # Provider work must not hold the financial service's advisory lock or a DB lease.
@@ -64,8 +58,12 @@ async def _connected_counterpart(viewer: str, counterpart: str | None, *, can_op
     if counterpart not in live:
         return {"counterpart_person_ref": None}
     # Connection removal or local retirement may commit during the provider read.
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(sql, viewer, counterpart)
+    row = await fetch_connected_counterpart_row(
+        viewer,
+        counterpart,
+        check_tables=False,
+        pool_getter=get_pool,
+    )
     if not row:
         return {"counterpart_person_ref": None}
     return {
@@ -78,19 +76,15 @@ async def _connected_counterpart(viewer: str, counterpart: str | None, *, can_op
 
 async def _request_state(request_id: str, user_id: str) -> dict:
     service = _service()
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        financial_schema = await conn.fetchval(
-            "SELECT to_regclass('scope_commerce_purchases') IS NOT NULL"
-        )
-        if not financial_schema:
-            return await _legacy_free_request_state(conn, service, request_id, user_id)
-        historical = await conn.fetchrow(
-            """SELECT purchase_id,owner_user_id,payer_user_id FROM scope_commerce_purchases
-               WHERE request_id=$1 AND (owner_user_id=$2 OR payer_user_id=$2)""",
-            request_id,
-            user_id,
-        )
+    historical, legacy_state = await inspect_request_financial_history(
+        request_id,
+        user_id,
+        service=service,
+        legacy_fallback=_legacy_free_request_state,
+        pool_getter=get_pool,
+    )
+    if legacy_state is not None:
+        return legacy_state
     if historical:
         # Financial receipts remain readable after revocation/key rotation.
         # This grants no export authority and preserves the accepted quote.

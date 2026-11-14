@@ -22,9 +22,12 @@
  */
 
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { ChevronLeft, Search, SlidersHorizontal } from "@/components/icons";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
@@ -110,6 +113,14 @@ export function ConsentScopeNestedList({
   );
 
   const atRoot = pathStack.length === 0;
+  const rawPathname = usePathname();
+  const backPathname = normalizeStaticExportPathname(
+    rawPathname || (typeof window !== "undefined" ? window.location.pathname : "/") || "/",
+  );
+  useBackLayer(backPathname, atRoot ? 0 : 10, () => {
+    setPathStack((stack) => stack.slice(0, -1));
+    return true;
+  });
   const showSearch = items.length > searchThreshold;
 
   const branchIds = (segment: string) =>

@@ -10,6 +10,7 @@ coordinates 948) judge every statement the store sends. Used by
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,17 +63,57 @@ class Db:
         return SimpleNamespace(data=rows)
 
 
+def _chain_paths() -> list[Path]:
+    paths: list[Path] = [
+        postgres_harness.PRELUDE,
+        ROOT / "db/legacy/init_legacy_schema.sql",
+        ROOT / "db/migrations/201_account_deletion_tombstones.sql",
+        PARKED / "915_personal_agent_renewal_authority.sql",
+    ]
+    for name in (
+        "900_personal_agent_registry.sql", "905_personal_agent_liveness.sql",
+        "906_personal_agent_user_cloud.sql", "907_pod_lifecycle_events.sql",
+        "908_personal_agent_tombstone_metadata.sql", "911_pod_migration_jobs.sql",
+        "912_personal_agent_status_migrating.sql", "914_personal_agent_billing_space_id.sql",
+        "916_personal_agent_erasure_admission.sql", "917_personal_agent_provision_admission.sql",
+        "909_byoc_setup_jobs.sql",
+    ):  # fmt: skip
+        paths.append(PARKED / name)
+    for path in sorted(PARKED.glob("*.sql")):
+        if 918 <= int(path.name.split("_", 1)[0]) <= 943:
+            paths.append(path)
+    for name in (
+        "947_pod_request_signing.sql",
+        "948_personal_agent_user_azure.sql",
+        "949_personal_agent_owner_access_erasure.sql",
+        "950_personal_agent_standby_placements.sql",
+    ):
+        paths.append(PARKED / name)
+    return paths
+
+
+def _standby_recipe_key() -> str:
+    digest = hashlib.sha256()
+    for path in _chain_paths():
+        digest.update(str(path.relative_to(ROOT)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return f"standby-chain:{digest.hexdigest()}"
+
+
 def start_server():
     """Start a disposable server with migrations 900-950 applied; yields it, then stops."""
-    old = postgres_harness.MIGRATIONS
-    postgres_harness.MIGRATIONS = []
     pg = TempPostgres()
     try:
-        pg.start()
-        _apply_chain(pg)
+
+        def _populate(cluster: TempPostgres) -> None:
+            cluster.apply_file(postgres_harness.PRELUDE)
+            _apply_chain(cluster)
+
+        pg.start_with_recipe(_standby_recipe_key(), _populate)
         yield pg
     finally:
-        postgres_harness.MIGRATIONS = old
         pg.stop()
 
 

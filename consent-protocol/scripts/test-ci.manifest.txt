@@ -225,6 +225,7 @@ tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
 tests/test_mcp_log_redaction.py
 
+tests/quality/test_architecture_compliance.py
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_developer_oauth.py

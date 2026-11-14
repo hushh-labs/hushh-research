@@ -96,14 +96,13 @@ async def selected_information(
     import base64
 
     from api.routes.one.pod_owner_feed import _resolve_owner
-    from db.connection import get_pool
-    from hushh_mcp.consent.paid_admission import verify_source_revisions
     from hushh_mcp.services.consent_db import ConsentDBService
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
     from hushh_mcp.services.pod_browser.contracts import BrowserRefused
     from hushh_mcp.services.pod_browser.information_export import (
         require_export_grant,
         selected_export,
+        verify_export_source_revisions,
     )
 
     if not personal_agent_enabled():
@@ -128,17 +127,12 @@ async def selected_information(
         row = await service.get_consent_export_by_grant(body.field.grant_ref, app_id="agent_one")
         await require_export_grant(service, row, body)
         result = selected_export(row, body, base64.b64encode(original[1]).decode())
-        pool = await get_pool()
-        async with pool.acquire() as conn, conn.transaction():
-            await verify_source_revisions(
-                conn,
-                body.owner_id,
-                body.field.scope,
-                {
-                    "contentRevision": body.field.source_content_revision,
-                    "manifestRevision": body.field.source_manifest_revision,
-                },
-            )
+        await verify_export_source_revisions(
+            body.owner_id,
+            body.field.scope,
+            content_revision=body.field.source_content_revision,
+            manifest_revision=body.field.source_manifest_revision,
+        )
         # Export admission may take the commerce lock. It must never run while
         # holding PKM's domain lock (refresh uses commerce -> PKM ordering).
         current = await service.get_consent_export_by_grant(
