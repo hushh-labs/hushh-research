@@ -87,10 +87,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // Local, per-view confirmation of the owner's own last preparation attempt.
-  // `requestStatus` legitimately stays "approved" after a successful prepare
-  // (it only advances on payment), so this is the only signal the owner gets
-  // that writing the answer actually worked, rather than nothing happening.
+  // Local confirmation also supports older backends without staged readiness.
   const [prepareOutcome, setPrepareOutcome] = useState<
     "delivered" | "empty" | "failed" | null
   >(null);
@@ -135,6 +132,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       if (!valid()) return;
       if (requestState.role === "owner") answerStageTiming(requestId, "owner_projection", projectionStarted);
       setState(requestState);
+      if (requestState.role === "owner" && requestState.answerPrepared === true) setError(null);
       setLoadedIdentity(`${owner ?? ""}:${requestId}`);
       setPending(inbox.find((entry) => entry.requestId === requestId) ?? null);
       setPayment(paid);
@@ -207,8 +205,13 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const PREPARE_ATTEMPTS = 3;
   const prepare = () => run(async (token, epoch, current) => {
     if (!user || !userId || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to prepare this answer.");
-    const latest = await AnswerRequestService.state(token, requestId);
+    let latest = await AnswerRequestService.state(token, requestId);
     if (!current()) return;
+    setState(latest);
+    if (latest.answerPrepared === true) {
+      setPrepareOutcome("delivered");
+      return;
+    }
     if (latest.requesterKeyReady === false) {
       setState(latest);
       throw new Error("The requester needs to open this question and enable secure receiving before you can prepare the answer.");
@@ -221,14 +224,18 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         firebaseIdToken: token, requestId, ownerIdentity: { displayName: user.displayName, photoUrl: user.photoURL } }, epoch);
       if (!current()) return;
       if (result.delivered || result.empty) break;
+      latest = await AnswerRequestService.state(token, requestId);
+      if (!current()) return;
+      setState(latest);
+      if (latest.answerPrepared === true) {
+        setPrepareOutcome("delivered");
+        return;
+      }
       if (attempt < PREPARE_ATTEMPTS) await new Promise(resolve => window.setTimeout(resolve, 500 * attempt));
     }
     if (!result || (!result.delivered && !result.empty)) {
       if (!current()) return;
-      const refreshed = await AnswerRequestService.state(token, requestId);
-      if (!current()) return;
-      setState(refreshed);
-      if (refreshed.requesterKeyReady === false)
+      if (latest.requesterKeyReady === false)
         throw new Error("Waiting for the requester to enable secure receiving. Your approval and price are saved.");
       setPrepareOutcome("failed");
       throw new Error("Preparation could not finish. Keep your memory unlocked and retry preparation.");
@@ -306,25 +313,29 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   }
 
   if (state?.role === "owner") {
+    const prepared = state.answerPrepared === true ||
+      (state.answerPrepared === undefined && prepareOutcome === "delivered");
     return (
       <div className="consent-presentation-surface space-y-4">
         <BodyText>{state.question}</BodyText>
         <HelperText as="p" role="status">
-          {state.requestStatus === "answering"
+          {prepared && ["approved", "answering"].includes(state.requestStatus)
+            ? state.requestStatus === "approved"
+              ? "Answer prepared. Waiting for payment."
+              : "Answer prepared. Payment verified."
+            : state.requestStatus === "answering"
             ? "Payment verified. Unlock and choose Write answer. Failed attempts can be retried until the 72-hour deadline; then a full refund is due."
             : state.requestStatus === "approved" && state.requesterKeyReady === false
               ? "Waiting for the requester to open this question and enable secure receiving. Your approval and price are saved."
             : state.requestStatus === "approved"
               ? busy
                 ? "Preparing answer…"
-                : prepareOutcome === "delivered"
-                  ? "Answer prepared. They can pay once they see it."
-                  : prepareOutcome === "empty"
+                : prepareOutcome === "empty"
                     ? "Answer not present in their memory. They will not be charged."
                     : "Your device prepares the approved answer while your memory is unlocked."
               : `Request ${state.requestStatus}.`}
         </HelperText>
-        {["approved", "answering"].includes(state.requestStatus) ? (
+        {["approved", "answering"].includes(state.requestStatus) && !prepared ? (
           <Button data-consent-role="compact-action" data-voice-control-id="answer-request-prepare"
             disabled={busy || !isVaultUnlocked || state.requesterKeyReady === false}
             onClick={() => void prepare()}

@@ -8,6 +8,56 @@ import {
 import { expect, it, vi } from "vitest";
 import { m, REQUEST, OTHER_REQUEST, FULL_COVERAGE, PARTIAL_COVERAGE, deferred } from "./fixtures/answer-request-card";
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
+
+it("recognizes a server-verified prepared answer on reopening without owner payment reads", async () => {
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question", answerPrepared: true });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByText("Answer prepared. Waiting for payment.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: /Prepare answer/ })).toBeNull();
+  expect(m.sweep).not.toHaveBeenCalled();
+  expect(m.payment).not.toHaveBeenCalled();
+});
+
+it("reconciles concurrent staging after an empty sweep without repeating preparation", async () => {
+  const state = { role: "owner", requestStatus: "approved", question: "Fixture question", answerPrepared: false };
+  m.state.mockResolvedValue(state);
+  m.sweep.mockImplementationOnce(async () => {
+    m.state.mockResolvedValue({ ...state, answerPrepared: true });
+    return { delivered: 0, empty: 0, skipped: 0, retry: 0 };
+  });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare answer" }));
+  expect(await screen.findByText("Answer prepared. Waiting for payment.")).toBeVisible();
+  expect(m.sweep).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it.each([undefined, false])("does not infer preparation from an empty queue with readiness %s", async answerPrepared => {
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question", answerPrepared });
+  m.sweep.mockResolvedValue({ delivered: 0, empty: 0, skipped: 0, retry: 0 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare answer" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Preparation could not finish"), { timeout: 3000 });
+  expect(screen.queryByText(/Answer prepared/)).toBeNull();
+});
+
+it.each(["owner", "request"])("discards a late preparation read after %s replacement", async change => {
+  const state = { role: "owner", requestStatus: "approved", question: "Fixture question", answerPrepared: false };
+  const read = deferred<unknown>();
+  m.state.mockResolvedValue(state);
+  m.sweep.mockImplementationOnce(async () => {
+    m.state.mockReturnValueOnce(read.promise);
+    return { delivered: 0, empty: 0, skipped: 0, retry: 0 };
+  });
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare answer" }));
+  await waitFor(() => expect(m.state).toHaveBeenCalledTimes(3));
+  if (change === "owner") { m.uid = "owner-b"; m.epoch++; }
+  view.rerender(<AnswerRequestCard requestId={change === "request" ? OTHER_REQUEST : REQUEST} />);
+  await act(async () => read.resolve({ ...state, answerPrepared: true }));
+  expect(screen.queryByText(/Answer prepared/)).toBeNull();
+});
+
 it("explains that preparation is waiting on the requester rather than retrying owner memory", async () => {
   m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question", requesterKeyReady: false, deliveryRecipientKeyId: null });
   render(<AnswerRequestCard requestId={REQUEST} />);
@@ -463,4 +513,16 @@ it("offers Retry preparation only after automatic attempts are exhausted", async
   expect(m.sweep).toHaveBeenCalledTimes(3);
   expect(screen.getByRole("button", { name: "Retry preparation" })).toBeVisible();
   expect(screen.getByRole("alert")).toHaveTextContent("Preparation could not finish");
+});
+
+it("keeps a genuine refresh failure visible beside verified prepared status", async () => {
+  const state = { role: "owner", requestStatus: "approved", question: "Fixture question", answerPrepared: true };
+  m.state.mockResolvedValue(state);
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await screen.findByText("Answer prepared. Waiting for payment.");
+  m.state.mockRejectedValueOnce(new Error("Request unavailable"));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh question" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Request unavailable");
+  expect(screen.getByText("Answer prepared. Waiting for payment.")).toBeVisible();
+  expect(m.sweep).not.toHaveBeenCalled();
 });
