@@ -998,11 +998,11 @@ def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
     assert "steps.rollback-targets.outputs.frontend_revision" in rollback_block
 
 
-def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
+def test_uat_deploy_pins_the_isolated_firebase_authority() -> None:
     workflow_source = _read(".github/workflows/deploy-uat-implementation.yml")
     workflow = yaml.safe_load(workflow_source)
 
-    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
+    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda-uat"
     assert (
         workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
         == 2
