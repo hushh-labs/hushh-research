@@ -281,7 +281,11 @@ def _steps(job, current=False, source_gated=False, nonproducer=False):
 
 
 def _current(repository, attempt, job, trusted, restoration=False):
-    jobs = {RESTORATION_JOB} if restoration else {"deploy", "complete-phone-activation"}
+    if restoration:
+        phone = job.get("name") == nonproducer.PRODUCTION_JOB_NAMES[nonproducer.PHONE_JOB_ID]
+        jobs = {nonproducer.PHONE_JOB_ID} if phone else {RESTORATION_JOB}
+    else:
+        jobs = {"deploy", "complete-phone-activation"}
     return (
         trusted
         and os.environ.get("GITHUB_JOB") in jobs
