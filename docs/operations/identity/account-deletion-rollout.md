@@ -2,6 +2,27 @@
 
 [Operations](../README.md)
 
+## UAT Auth isolation operator
+
+`scripts/ops/firebase_identity_migration.py --environment uat` reuses the existing
+UID-preserving operator with a reviewed `hussh.uat-auth-import.v2` manifest.
+It binds native source preimages, current application owners/generations and both
+retained target records. Ordered disabled imports never overwrite an identity.
+Durable per-request checkpoints and qualified SQL fences survive interruption;
+uncertain outcomes allow observation, never blind replay. Activation preserves
+credentials and uses the same original database session and owner resolver.
+
+WorkOS attribution or explicit absence is pinned and rechecked before activation.
+A replacement generation may preserve frozen provenance only with an independent
+Google credential, no deprovisioning marker and no profile, identity or owner
+membership. This does not authorize replacement-generation SSO enrollment.
+
+Auth isolation is distinct from account erasure. UAT physical account deletion
+remains unqualified; this operator neither imports Dev erasure migrations nor
+removes production identities. Canonical client/server settings select UAT only
+after import and activation receipts qualify. Fresh sign-in must retain the exact
+UID and owner generation; email alone never reconnects accounts.
+
 ## Visual Map
 
 ```mermaid
