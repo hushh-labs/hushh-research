@@ -69,6 +69,14 @@ Shared web and WebView product text defaults to self-hosted **Plus Jakarta Sans*
 Calendar's connected content, invitation portal and Insights now use the
 product family through their local presentation context. Its prior Inter
 overrides are recorded for comparison in the Calendar contract.
+The three Calendar dialogs (Board event detail, Schedule meeting, Invitation
+details) name Connect's `surface` class beside `presentationStyles.portal`.
+Next's CSS Modules drop the external `scale` class from a `.portal` -> `.scope`
+-> `scale` composes chain, so a portal that relied on it rendered the global
+17/15/13 scale. Verified in a Next render at 1440 and 393: title 20/28/600, row
+14/21/550, description 12/18/400, label 15/22/550, action 12/18/550, input
+14/22 (16 at 620 and below). The Vite layout harness cannot see this class of
+defect.
 Display
 and body aliases resolve to that same family. Shipped normal and italic faces
 are 400, 600, and 700 with `font-display: swap`. Emoji/unsupported glyphs use

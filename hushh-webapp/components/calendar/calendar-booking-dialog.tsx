@@ -16,6 +16,7 @@ import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { GoogleCalendarService, type CalendarExecution, type GoogleCalendarAccount, type CalendarOpening } from "@/lib/services/google-calendar-service";
 import styles from "./calendar-booking-dialog.module.css";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { CalendarSelect } from "./calendar-select";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 
@@ -185,7 +186,7 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
   };
 
   return <Dialog modal open onOpenChange={open => { if (!open) close(); }}>
-    <DialogContent className={`${styles.dialog} ${presentationStyles.portal}`} data-connect-type-scale="page" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
+    <DialogContent className={`${styles.dialog} ${presentationStyles.portal} ${connectTypography.surface}`} data-connect-type-scale="page" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
       <DialogHeader className={styles.header}><DialogTitle>Schedule meeting</DialogTitle><DialogDescription>Nothing is scheduled yet.</DialogDescription></DialogHeader>
       <div className={styles.body} data-calendar-booking-body aria-busy={busy}>
       <div className={styles.fields}>

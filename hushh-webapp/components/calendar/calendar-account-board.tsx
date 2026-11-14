@@ -42,6 +42,7 @@ import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } 
 import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider, occasionDateLabel, occasionNote } from "./calendar-schedule-presentation";
 import { declineReason, invitationDescription } from "./calendar-invitation-detail";
 import styles from "./calendar-account-board.module.css";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 
 type Props = {
   userId: string;
@@ -430,7 +431,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         </DialogContent>
       </Dialog>
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
-        <DialogContent className={`${styles.detail} ${presentationStyles.portal}`} data-connect-type-scale="page" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
+        <DialogContent className={`${styles.detail} ${presentationStyles.portal} ${connectTypography.surface}`} data-connect-type-scale="page" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
             <DialogHeader className={styles.detailHeader}>
               <div className={styles.detailTitleRow}>
