@@ -227,7 +227,7 @@ export function cloudCleanupErrorMessage(error: unknown): string {
 export function cloudCleanupAttentionMessage(code: string | null): string {
   switch (code) {
     case "POD_ERASURE_COMPATIBILITY_REQUIRED":
-      return "Update your agent in Software updates before cloud cleanup.";
+      return "Update your agent in Agent updates before cloud cleanup.";
     case "AZURE_CLEANUP_NOT_AVAILABLE":
     case "CLOUD_REMOVAL_NOT_AVAILABLE":
       return "Cloud removal is not available on this version yet. Your account and resources are retained.";
