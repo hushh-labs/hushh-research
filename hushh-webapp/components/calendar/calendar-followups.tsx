@@ -438,7 +438,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         toast.info("This follow-up is no longer available.", { className: presentationStyles.toast });
         return;
       }
-      await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, idToken, ownerToken);
+      await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, await currentIdToken(ownerToken), ownerToken);
       if (lifetime.current?.signal.aborted) return;
       toast.success("Removed from Follow-ups", { className: presentationStyles.toast });
       await refresh(lifetime.current?.signal);
