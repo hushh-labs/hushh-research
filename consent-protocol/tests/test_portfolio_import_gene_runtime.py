@@ -172,6 +172,7 @@ async def test_extraction_budget_reaches_the_model_client(monkeypatch):
     )
 
     assert seen["timeout_seconds"] == 120.0
+    assert seen["processing_scope"] == "one_text_chat"
 
 
 def test_managed_azure_text_model_honours_a_caller_timeout(monkeypatch):

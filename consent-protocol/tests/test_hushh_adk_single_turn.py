@@ -54,6 +54,42 @@ def _manifest():
     )
 
 
+def test_finance_genes_share_chat_profile_instead_of_global_azure(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.managed_ai_config import load_scoped_text_policy
+    from hushh_mcp.runtime_providers import factory, managed_azure_text
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    policy = load_scoped_text_policy("one_text_chat")
+    assert policy is not None
+    azure_calls = []
+
+    def global_azure_model(*args, **kwargs):
+        azure_calls.append(args)
+        return ScriptedLlm("{}")
+
+    monkeypatch.setattr(managed_azure_text, "build_azure_text_model", global_azure_model)
+    monkeypatch.setattr(
+        factory.ManagedGeminiRuntimeBinding,
+        "from_environment",
+        lambda **kwargs: SimpleNamespace(build_regional_adk_model=lambda model: model),
+    )
+    agents_path = Path(__file__).resolve().parents[1] / "hushh_mcp" / "agents"
+    one = ManifestLoader.load(str(agents_path / "one" / "agent.yaml"))
+    imports = ManifestLoader.load(str(agents_path / "portfolio_import" / "agent.yaml"))
+    review = next(gene for gene in one.subagents if gene.id == "one_portfolio_review")
+    for gene in [review, *imports.subagents]:
+        agent = build_single_turn_agent(gene, output_schema=Decision)
+        assert agent.model == policy["model"], gene.id
+        assert agent.generate_content_config.max_output_tokens == gene.performance.max_output_tokens
+    assert not azure_calls
+
+    # An unrelated gene must still reach its existing global provider policy.
+    build_single_turn_agent(_manifest(), output_schema=Decision)
+    assert len(azure_calls) == 1
+
+
 @pytest.mark.asyncio
 async def test_single_turn_uses_none_history_and_returns_pydantic_value():
     agent = build_single_turn_agent(

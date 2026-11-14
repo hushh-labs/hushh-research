@@ -15,9 +15,6 @@ _STRICT_UNSUPPORTED_KEYWORDS = frozenset(
     {
         "minLength",
         "maxLength",
-        "minimum",
-        "maximum",
-        "multipleOf",
         "minItems",
         "maxItems",
         "uniqueItems",

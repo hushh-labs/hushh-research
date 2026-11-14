@@ -60,6 +60,17 @@ def _manifest_instruction(manifest_or_subagent: AgentManifestV2 | AgentSubagentC
     return instruction
 
 
+def single_turn_processing_scope(agent_id: str) -> str | None:
+    """Bind authored gene families to their existing managed text profile."""
+    if agent_id == "agent_documents" or agent_id.startswith("agent_documents_"):
+        return "drive_document_requests"
+    if agent_id in {"one_conversation_title", "one_portfolio_review"} or agent_id.startswith(
+        "agent_portfolio_import_"
+    ):
+        return "one_text_chat"
+    return None
+
+
 def build_single_turn_agent(
     manifest_or_subagent: AgentManifestV2 | AgentSubagentConfig,
     *,
@@ -73,18 +84,13 @@ def build_single_turn_agent(
     config = _manifest_config(manifest_or_subagent)
     configured_model = resolve_fleet_model_name(config.name)
     agent_id = str(getattr(manifest_or_subagent, "id", "single_turn") or "single_turn")
-    # Authored Documents identities own this scope; model output never selects it.
-    scope = (
-        {"processing_scope": "drive_document_requests"}
-        if agent_id == "agent_documents" or agent_id.startswith("agent_documents_")
-        else {"processing_scope": "one_text_chat"}
-        if agent_id == "one_conversation_title"
-        else {}
-    )
+    # Authored identities own this scope; model output never selects it.
+    processing_scope = single_turn_processing_scope(agent_id)
+    scope = {"processing_scope": processing_scope} if processing_scope else {}
     from hushh_mcp.managed_ai_config import load_scoped_text_policy
 
     policy = load_scoped_text_policy(scope["processing_scope"]) if scope else None
-    # Managed policy defaults to Azure in UAT; Vertex retains regional failover.
+    # Scoped profiles own provider selection; Vertex retains regional failover.
     # Azure failures do not silently switch this turn to Vertex.
     resolved = (
         model
