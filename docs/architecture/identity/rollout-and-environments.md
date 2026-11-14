@@ -15,7 +15,7 @@ Define environment policy for IAM changes without risking production behavior.
 | --- | --- | --- |
 | local | Developer iteration and contract validation | Local-only tests; no production resources |
 | dev | Admin-authorized shared Dev rehearsals | CI-green scoped deployment; no live payments or production identity changes |
-| uat | Integration validation for actor flows and verification gates | Auto-deploy from the latest green `main` SHA |
+| uat | Integration validation for actor flows and verification gates | Explicit Main-owned deployment of an exact, qualified protected UAT source; merging does not deploy |
 | production | Live user traffic | No IAM contract change without explicit promotion gate |
 
 ## UAT managed text processing policy
@@ -139,23 +139,36 @@ the initialized app, including reused apps and ADC initialization. Production
 `hushh-pda`; this change does not recreate accounts or change UIDs, providers,
 vault records or encryption keys.
 
-While legacy UAT clients still authenticate against that shared production
-authority, non-production backends retain token verification for compatibility.
-Account deletion, disable/revoke, and enterprise SSO identity, claim and token
-mutations now refuse shared-PROD writes. Refused cleanup remains pending
-for retry instead of disabling a production identity. Web Admin initialization
-also requires an explicit client project and matching credentials.
+Each web environment selects its own Firebase user store and Auth handler:
 
-These guards do not complete the Auth migration. Existing native clients retain
-embedded backend/Auth settings, and client SDK identity changes still reach the
-shared realm. Before changing UAT authority, inventory customer-bearing legacy
-builds and data, prove cross-realm token rejection, and reconcile recovery paths.
-Inventory the remaining profile, account-claim and email-auth callers before
-declaring the shared directory fully isolated; these guards cover the named
-lifecycle/SSO paths, not every identity operation.
-Legacy account-cleanup intents contain only a UID: park or resolve them under
-their original authority before switching credentials, so a reused UID cannot
-target a different registry.
+| Environment | Firebase project | Auth domain |
+| --- | --- | --- |
+| Production | `hushh-pda` | `id.hussh.ai` |
+| Dev | `hushh-pda-dev` | `dev.id.hussh.ai` |
+| UAT | `hushh-pda-uat` | `uat.id.hussh.ai` |
+
+UAT's [qualified web/backend/worker release](https://github.com/hushh-labs/hushh-research/actions/runs/43599237555)
+completed the web cutover on 14 November 2026. Google sign-in retained the exact
+UID, application owner and generation; a cold vault unlock recovered Memory and
+an older conversation. A valid production-project session was rejected by UAT.
+The reviewed cohort retained 1,030 identities, including two existing target
+records. Migration never reconnects accounts by email alone.
+
+Client and Admin credentials must agree on the selected project. The six old
+UAT-local production-SDK versions are disabled; production's IAM key was not
+revoked. Existing lifecycle/SSO guards still refuse shared-production writes.
+The historical phone-cleanup intents were reconciled under their original
+authority before cutover, without deleting production identities. UAT phone
+verification no longer requires first changing the production account; live SMS
+delivery remains a separate acceptance check.
+
+Installed native clients keep their embedded Auth settings until updated and
+signed in again. The qualified UAT native source selects UAT for both its default
+Analytics registration and named identity app; old production-realm tokens do
+not gain UAT compatibility. Physical-device sign-in, SMS and push delivery are
+not established by web acceptance. Other products may still use production
+Firebase: absence from a non-production registry never authorizes their erasure.
+Auth isolation does not qualify UAT physical account deletion.
 
 Public iOS submission requires the production backend target. Production iOS
 Firebase and native plist inputs come from production Secret Manager rather than
