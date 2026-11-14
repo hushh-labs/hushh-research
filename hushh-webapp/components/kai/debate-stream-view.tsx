@@ -708,6 +708,7 @@ export function DebateStreamView({
 
   const [currentRunId, setCurrentRunId] = useState<string | null>(runId ?? null);
   const [managerTask, setManagerTask] = useState<DebateRunTask | null>(null);
+  const analysisInProgress = managerTask ? managerTask.status === "running" : loading;
   const [reloadNonce, setReloadNonce] = useState(0);
   const processedSeqRef = useRef(0);
   const decisionNotifiedRef = useRef(false);
@@ -1614,8 +1615,8 @@ export function DebateStreamView({
 
       <div className="min-w-0 space-y-3">
         <div role="status" className="space-y-2 px-1 text-xs text-muted-foreground">
-          <p>{decision ? decision.analysis_degraded ? "Limited analysis. Some research is unavailable." : "Analysis complete." : loading ? progressLabel : "Analysis stopped."}</p>
-          {!decision && loading ? <Progress value={overallProgress} className="h-1" aria-label="Stock analysis progress" /> : null}
+          <p>{decision ? decision.analysis_degraded ? "Limited analysis. Some research is unavailable." : "Analysis complete." : analysisInProgress ? progressLabel : "Analysis stopped."}</p>
+          {!decision && analysisInProgress ? <Progress value={overallProgress} className="h-1" aria-label="Stock analysis progress" /> : null}
           {AGENTS.some(agent => round1States[agent]?.stage === "error" || round2States[agent]?.stage === "error") ? <p role="alert">Some findings are unavailable. Open the full analysis to review the reported errors.</p> : null}
         </div>
         <Collapsible open={detailsExpanded ?? localDetailsExpanded} onOpenChange={open => { setLocalDetailsExpanded(open); onDetailsExpandedChange?.(open); }}>
