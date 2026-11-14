@@ -19,7 +19,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
-_AUTH_SPEC = importlib.util.spec_from_file_location("auth_reliability", ROOT / "auth_reliability.py")
+_AUTH_SPEC = importlib.util.spec_from_file_location(
+    "auth_reliability", ROOT / "auth_reliability.py"
+)
 assert _AUTH_SPEC and _AUTH_SPEC.loader
 _AUTH = importlib.util.module_from_spec(_AUTH_SPEC)
 _AUTH_SPEC.loader.exec_module(_AUTH)
@@ -29,7 +31,7 @@ _CAPACITY_SPEC = importlib.util.spec_from_file_location(
 assert _CAPACITY_SPEC and _CAPACITY_SPEC.loader
 _CAPACITY = importlib.util.module_from_spec(_CAPACITY_SPEC)
 _CAPACITY_SPEC.loader.exec_module(_CAPACITY)
-DEFAULT_EMAILS = ("manish@hushh.ai", "ankit@hushh.ai", "kushal@hushh.ai")
+DEFAULT_EMAILS = ("dev-ops@hushh.ai",)
 METRICS = (
     "obs_request_summary_count",
     "obs_agent_stream_failure_count",
@@ -83,7 +85,8 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--console-only", action="store_true")
     parser.add_argument("--dashboard-id", default="hushh-observability-managed")
     parser.add_argument(
-        "--provider-only", action="store_true",
+        "--provider-only",
+        action="store_true",
         help="Manage provider availability alerts/dashboard without SQL or log-metric changes",
     )
     parser.add_argument(
@@ -108,23 +111,44 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     )
     if args.commerce_only and args.voice_only:
         parser.error("--commerce-only and --voice-only select different provisioners")
-    if args.provider_only and (args.voice_only or args.sql_instance or args.commerce_only or args.include_commerce):
-        parser.error("--provider-only cannot be combined with application or commerce provisioners")
+    if args.provider_only and (
+        args.voice_only
+        or args.sql_instance
+        or args.commerce_only
+        or args.include_commerce
+    ):
+        parser.error(
+            "--provider-only cannot be combined with application or commerce provisioners"
+        )
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
     for key in ("sql_instance", "backend_service", "frontend_service", "dashboard_id"):
-        if key == "sql_instance" and (args.auth_only or args.provider_only or args.release_probe_only or (args.commerce_only and not args.sql_instance)):
+        if key == "sql_instance" and (
+            args.auth_only
+            or args.provider_only
+            or args.release_probe_only
+            or (args.commerce_only and not args.sql_instance)
+        ):
             continue
         if not NAME_RE.fullmatch(getattr(args, key)):
             parser.error(f"--{key.replace('_', '-')} must be a resource name")
     if args.console_only and args.email:
         parser.error("--console-only cannot be combined with --email")
-    args.email = [] if _AUTH.delivery_disabled(args) else list(dict.fromkeys(args.email or DEFAULT_EMAILS))
+    args.email = (
+        []
+        if _AUTH.delivery_disabled(args)
+        else list(dict.fromkeys(args.email or DEFAULT_EMAILS))
+    )
     if not all(
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
-    if not args.auth_only and not args.provider_only and not args.commerce_only and not args.release_probe_only:
+    if (
+        not args.auth_only
+        and not args.provider_only
+        and not args.commerce_only
+        and not args.release_probe_only
+    ):
         try:
             _CAPACITY.sql_alert_thresholds(
                 json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
@@ -138,7 +162,9 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
 
 def run(*command: str, allow_missing: bool = False) -> Any:
     try:
-        result = subprocess.run(command, text=True, capture_output=True, check=False, timeout=60)
+        result = subprocess.run(
+            command, text=True, capture_output=True, check=False, timeout=60
+        )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{' '.join(command[:4])} timed out") from None
     if result.returncode:
@@ -154,8 +180,17 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
-    thresholds = {} if args.auth_only or args.provider_only or args.commerce_only or args.release_probe_only else _CAPACITY.sql_alert_thresholds(
-        json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
+    thresholds = (
+        {}
+        if args.auth_only
+        or args.provider_only
+        or args.commerce_only
+        or args.release_probe_only
+        else _CAPACITY.sql_alert_thresholds(
+            json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
+            args.project,
+            args.sql_instance,
+        )
     )
     substitutions = {
         "__PROJECT_ID__": args.project,
@@ -163,8 +198,12 @@ def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
         "__BACKEND_SERVICE__": args.backend_service,
         "__FRONTEND_SERVICE__": args.frontend_service,
     }
-    substitutions.update({f"__SQL_CONNECTION_{key.upper()}__": str(value)
-                          for key, value in thresholds.items()})
+    substitutions.update(
+        {
+            f"__SQL_CONNECTION_{key.upper()}__": str(value)
+            for key, value in thresholds.items()
+        }
+    )
     for before, after in substitutions.items():
         source = source.replace(before, after)
     if re.search(r"__[A-Z_]+__", source):
@@ -215,6 +254,7 @@ def same_log_metric(current: dict[str, Any], desired: dict[str, Any]) -> bool:
         for field in ("metricKind", "valueType", "unit")
     ):
         return False
+
     def authored_labels(labels: list[dict[str, Any]]) -> list[tuple[Any, Any, Any]]:
         return sorted(
             (
@@ -225,6 +265,7 @@ def same_log_metric(current: dict[str, Any], desired: dict[str, Any]) -> bool:
             )
             for label in labels
         )
+
     return authored_labels(actual_descriptor.get("labels", [])) == authored_labels(
         expected_descriptor["labels"]
     )
@@ -232,15 +273,23 @@ def same_log_metric(current: dict[str, Any], desired: dict[str, Any]) -> bool:
 
 def reconcile_dashboard(args: argparse.Namespace) -> None:
     project = args.project
-    template = "dashboard-provider.json.in" if args.provider_only else "dashboard-observability.json.in"
+    template = (
+        "dashboard-provider.json.in"
+        if args.provider_only
+        else "dashboard-observability.json.in"
+    )
     desired_dashboard = render(ROOT / template, args)
     if not args.provider_only:
         desired_dashboard["name"] = f"projects/{project}/dashboards/{args.dashboard_id}"
         desired_dashboard["gridLayout"]["widgets"] = [
-            widget for widget in desired_dashboard["gridLayout"]["widgets"]
-            if (widget.get("title", "").startswith("Scope Commerce:")
+            widget
+            for widget in desired_dashboard["gridLayout"]["widgets"]
+            if (
+                widget.get("title", "").startswith("Scope Commerce:")
                 if args.commerce_only
-                else args.include_commerce or not widget.get("title", "").startswith("Scope Commerce:"))
+                else args.include_commerce
+                or not widget.get("title", "").startswith("Scope Commerce:")
+            )
         ]
     dashboard_name = desired_dashboard["name"]
     current_dashboard = run(
@@ -295,14 +344,38 @@ def reconcile_dashboard(args: argparse.Namespace) -> None:
             write_config(desired_dashboard, command)
 
 
-def selected_resources(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def selected_resources(
+    args: argparse.Namespace,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     if args.release_probe_only:
-        return ("obs_azure_release_probe_timeout_count",), ("azure-release-probe-timeout-policy",)
-    metrics = _AUTH.METRICS if args.auth_only else () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
-    policies = _AUTH.selected_policies(args) if args.auth_only else ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
+        return ("obs_azure_release_probe_timeout_count",), (
+            "azure-release-probe-timeout-policy",
+        )
+    metrics = (
+        _AUTH.METRICS
+        if args.auth_only
+        else ()
+        if args.provider_only or args.commerce_only
+        else VOICE_METRICS
+        if args.voice_only
+        else METRICS
+    )
+    policies = (
+        _AUTH.selected_policies(args)
+        if args.auth_only
+        else ("scope-commerce-policy",)
+        if args.commerce_only
+        else PROVIDER_POLICIES
+        if args.provider_only
+        else POLICIES
+    )
     if not args.release_probe_alerts:
-        metrics = tuple(name for name in metrics if name != "obs_azure_release_probe_timeout_count")
-        policies = tuple(name for name in policies if name != "azure-release-probe-timeout-policy")
+        metrics = tuple(
+            name for name in metrics if name != "obs_azure_release_probe_timeout_count"
+        )
+        policies = tuple(
+            name for name in policies if name != "azure-release-probe-timeout-policy"
+        )
     if args.include_commerce and not args.commerce_only:
         policies += ("scope-commerce-policy",)
     return metrics, policies
@@ -311,18 +384,22 @@ def selected_resources(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple
 def reconcile(args: argparse.Namespace) -> None:
     project = args.project
     metric_names, selected_policies = selected_resources(args)
-    current_metrics = {} if args.provider_only else {
-        item["name"].split("/")[-1]: item
-        for item in run(
-            "gcloud",
-            "logging",
-            "metrics",
-            "list",
-            "--project",
-            project,
-            "--format=json",
-        )
-    }
+    current_metrics = (
+        {}
+        if args.provider_only
+        else {
+            item["name"].split("/")[-1]: item
+            for item in run(
+                "gcloud",
+                "logging",
+                "metrics",
+                "list",
+                "--project",
+                project,
+                "--format=json",
+            )
+        }
+    )
     for name in metric_names:
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
@@ -416,9 +493,13 @@ def reconcile(args: argparse.Namespace) -> None:
         if purpose not in {"actionable", "diagnostic"}:
             raise ValueError(f"Missing incident purpose: {desired['displayName']}")
         if desired.get("enabled") is not (purpose == "actionable"):
-            raise ValueError(f"Incident purpose disagrees with enabled: {desired['displayName']}")
+            raise ValueError(
+                f"Incident purpose disagrees with enabled: {desired['displayName']}"
+            )
         # Diagnostic metrics remain available, but cannot open incidents or send mail.
-        desired["notificationChannels"] = channel_names if purpose == "actionable" else []
+        desired["notificationChannels"] = (
+            channel_names if purpose == "actionable" else []
+        )
         current = current_matches[0] if current_matches else None
         fields = (
             "documentation",
@@ -440,7 +521,8 @@ def reconcile(args: argparse.Namespace) -> None:
                 # Monitoring omits the default double value (0) on readback.
                 if "conditionThreshold" in condition:
                     condition["conditionThreshold"] = {
-                        "thresholdValue": 0, **condition["conditionThreshold"]
+                        "thresholdValue": 0,
+                        **condition["conditionThreshold"],
                     }
             if same_config(
                 {**current, "conditions": current_conditions}, desired, fields

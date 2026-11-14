@@ -4,8 +4,8 @@ The deployment environment names a *default*, never the only possibility. Anythi
 needs to know which models exist asks here, so adding a generation is one registry row
 plus one line in ``FLEET_TEXT_MODEL_CHOICES`` -- not a redeploy of every lane.
 
-The provider registry supports two text releases. Owner decision 2026-10-15
-selects Gemini 3.8 Flash after bounded runtime and quality checks. The catalog
+The provider registry supports two text releases. Owner decision 2026-11-14
+selects Gemini 4 Hydrogen across home Vertex projects on global. The catalog
 continues to offer one model, preserving the existing no-picker experience.
 """
 
@@ -19,10 +19,10 @@ from hushh_mcp.runtime_providers.registry import resolve_model_entry
 # once the registry knows it AND at least one lane's Vertex allowed-models policy admits
 # it; the catalog reports availability per entry rather than hiding a model the lane
 # cannot serve.
-FLEET_TEXT_MODEL_CHOICES: tuple[str, ...] = ("gemini-3.8-flash",)
+FLEET_TEXT_MODEL_CHOICES: tuple[str, ...] = ("gemini-4-hydrogen",)
 
 _LABELS: dict[str, str] = {
-    "gemini-3.8-flash": "Gemini 3.8 Flash",
+    "gemini-4-hydrogen": "Gemini 4 Hydrogen",
 }
 
 

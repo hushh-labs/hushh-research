@@ -45,8 +45,11 @@ def _admitted_vertex_transition(source: dict, target: dict) -> bool:
     original_flash = binding("drive-vertex-flash-v2", "gemini-3.8-flash")
     carbon = binding("drive-vertex-carbon-v2", "gemini-4-carbon")
     recovery_flash = binding("drive-vertex-flash-v3", "gemini-3.8-flash")
-    return (source == original_flash and target in (carbon, recovery_flash)) or (
-        source == carbon and target == recovery_flash
+    hydrogen = binding("drive-vertex-hydrogen-v1", "gemini-4-hydrogen")
+    return (
+        (source == original_flash and target in (carbon, recovery_flash, hydrogen))
+        or (source == carbon and target in (recovery_flash, hydrogen))
+        or (source == recovery_flash and target == hydrogen)
     )
 
 
