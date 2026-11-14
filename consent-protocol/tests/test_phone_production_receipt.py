@@ -114,8 +114,9 @@ def _healthy_tag(case, reference, *, run_id="500", source=None, revision=None):
         f"{key}: {value}\n" for key, value in fields.items()
     )
     return reference.tag_identity(
-        f"object {source}\ntype commit\ntag deployed/production-latest\n"
-        "tagger Fixture <fixture@example.test> 1793001000 +0000\n\n" + message
+        f"object {source}\ntype commit\ntag deployed/production/{source[:8]}-20261027T010000Z\n"
+        "tagger Fixture <fixture@example.test> 1793001000 +0000\n\n" + message,
+        ref=f"refs/tags/deployed/production/{source[:8]}-20261027T010000Z",
     )
 
 
@@ -137,8 +138,14 @@ def production_case(monkeypatch):
     with cases._continuation_case(fixture) as case:
         case.original.run["run_started_at"] = "2026-10-21T03:00:00Z"
         tag = _healthy_tag(case, proof.reference)
-        reads = Mock(side_effect=lambda: copy.deepcopy(tag))
-        monkeypatch.setattr(proof, "read_original", reads)
+        reads = Mock(side_effect=lambda *args, **kwargs: copy.deepcopy(tag))
+        monkeypatch.setattr(
+            proof,
+            "read_original",
+            Mock(side_effect=AssertionError("moving latest is not historical authority")),
+        )
+        monkeypatch.setattr(proof, "read_tag", reads)
+        monkeypatch.setattr(cases.continuation, "publication_tag", reads)
         monkeypatch.setattr(fixture.maintenance, "api", case.api)
         monkeypatch.setattr(fixture.maintenance.retention, "run_command", case.download)
         monkeypatch.setattr(receipt, "run", _original_port(case))
@@ -174,7 +181,15 @@ def test_completed_continuation_retains_original_runtime_provenance(production_c
         raw = production_case.tag["tag_object"].replace(
             "frontend_url: https://app.example.test\n", "frontend_url:\n"
         )
-        production_case.tag.update(production_case.proof.reference.tag_identity(raw))
+        production_case.tag.update(
+            production_case.proof.reference.tag_identity(
+                raw,
+                ref=production_case.proof.reference.REF.removesuffix("production-latest")
+                + "production/"
+                + production_case.case.release["sha"][:8]
+                + "-20261027T010000Z",
+            )
+        )
     before = copy.deepcopy(production_case.case.original.documents)
     result = production_case.qualify()
     assert result["run_id"] == "400"
@@ -328,3 +343,78 @@ def test_frontend_status_emits_only_actual_backend_selector(tmp_path, monkeypatc
         assert report["backend_origin"] == expected
         assert "phone_rollback" not in report
         assert report["status"] == "healthy"
+
+
+def test_published_activation_failure_preserves_original_native_authority(
+    production_case, monkeypatch
+):
+    case = production_case.case
+    production_case.tag.update(case.published_failure())
+    result = production_case.qualify()
+    assert result["run_id"] == "400"
+    assert (
+        result["activation_continuation"]["context"]["publication_reconciliation"]["run_id"] == 500
+    )
+    case.jobs["jobs"][-1]["conclusion"] = "failure"
+    with pytest.raises(case.fixture.maintenance.retention.UnsafeState):
+        production_case.qualify()
+
+
+def test_production_tag_reader_ignores_stale_local_inspection_ref(tmp_path, monkeypatch):
+    import subprocess
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    proof = importlib.import_module("production_backend_successor_proof")
+    origin, checkout = tmp_path / "origin.git", tmp_path / "checkout"
+    subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True)  # noqa: S603 - exact Git fixture command
+    subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)  # noqa: S603 - exact Git fixture command
+
+    def git(*args, data=None):
+        return subprocess.run(  # noqa: S603 - test-authored arguments, no shell
+            ["git", "-C", str(checkout), *args],
+            input=data,
+            text=True,
+            check=True,
+            capture_output=True,
+        ).stdout.strip()
+
+    git("config", "user.name", "Fixture")
+    git("config", "user.email", "fixture@example.test")
+    git("remote", "add", "origin", str(origin))
+    git("commit", "--allow-empty", "-m", "fixture")
+    git("tag", "-a", "old", "-m", "old")
+    old = git("rev-parse", "old")
+    local = "refs/codex/phone-operational-healthy"
+    git("update-ref", local, old)
+    source = git("rev-parse", "HEAD")
+    message = "Last known good — production\n" + "".join(
+        f"{key}: {value}\n"
+        for key, value in {
+            "sha": source,
+            "backend_revision": "consent-protocol-fixture",
+            "backend_url": "https://api.example.test",
+            "frontend_revision": "hushh-webapp-fixture",
+            "frontend_url": "https://app.example.test",
+            "run": "https://github.com/hushh-labs/hushh-research/actions/runs/500",
+            "actor": "fixture",
+            "tagged_at": "20261027T010000Z",
+        }.items()
+    )
+    git("tag", "-a", "deployed/production-latest", "-m", message)
+    git("push", "origin", "refs/tags/deployed/production-latest")
+    monkeypatch.chdir(checkout)
+    result = proof.read_original()
+    assert result["tag_oid"] == git("rev-parse", "deployed/production-latest")
+    assert git("rev-parse", local) == old
+    immutable = f"refs/tags/deployed/production/{source[:8]}-20261027T010000Z"
+    git("tag", "-a", immutable.removeprefix("refs/tags/"), "-m", message)
+    git("push", "origin", immutable)
+    assert proof.read_tag(immutable)["commit"] == source
+    assert git("rev-parse", local) == old
+    with pytest.raises(ValueError, match="original_tag_invalid"):
+        proof.reference.tag_identity(proof.read_tag(immutable)["tag_object"])
+    actual_remote = proof.reference.remote_oid
+    values = iter([actual_remote(), "0" * 40])
+    monkeypatch.setattr(proof.reference, "remote_oid", lambda: next(values))
+    with pytest.raises(ValueError, match="original_tag_changed"):
+        proof.read_original()

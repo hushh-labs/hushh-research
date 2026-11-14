@@ -176,24 +176,49 @@ def _healthy_reference(bundle: dict, schema: dict) -> tuple[dict, dict]:
     return original, serving
 
 
-def read_original() -> dict:
-    oid = reference.remote_oid()
-    local = "refs/codex/phone-operational-healthy"
-    reference.git(["fetch", "--no-tags", "origin", f"{reference.REF}:{local}"])
+def read_tag(ref: str) -> dict:
+    """Read an annotated reference without moving another reader's local ref."""
     reference.require(
-        reference.git(["rev-parse", local]).strip() == oid
-        and reference.remote_oid() == oid,
-        "operational_backend_original_tag_changed",
+        isinstance(ref, str)
+        and (
+            ref == reference.REF
+            or re.fullmatch(
+                r"refs/tags/deployed/production/[0-9a-f]{8}-[0-9]{8}T[0-9]{6}Z", ref
+            )
+        ),
+        "operational_backend_tag_reference_invalid",
     )
+
+    def remote():
+        if ref == reference.REF:
+            return reference.remote_oid()
+        rows = reference.git(["ls-remote", "--refs", "origin", ref]).splitlines()
+        reference.require(
+            len(rows) == 1, "operational_backend_remote_reference_ambiguous"
+        )
+        oid, name = rows[0].split("\t")
+        reference.require(
+            name == ref and reference.HEX40.fullmatch(oid),
+            "operational_backend_remote_reference_invalid",
+        )
+        return oid
+
+    oid = remote()
+    reference.git(["fetch", "--no-tags", "origin", oid])
+    reference.require(remote() == oid, "operational_backend_original_tag_changed")
     reference.require(
         reference.git(["cat-file", "-t", oid]).strip() == "tag",
         "operational_backend_original_tag_not_annotated",
     )
-    result = reference.tag_identity(reference.git(["cat-file", "tag", oid]))
+    result = reference.tag_identity(reference.git(["cat-file", "tag", oid]), ref=ref)
     reference.require(
         result["tag_oid"] == oid, "operational_backend_original_tag_binding_invalid"
     )
     return result
+
+
+def read_original() -> dict:
+    return read_tag(reference.REF)
 
 
 def load(

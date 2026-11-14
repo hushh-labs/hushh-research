@@ -200,6 +200,23 @@ def verify_post_release_failure(repository: str, run: dict, release: dict) -> bo
             or result.get("total_count") != len(jobs)
             or any(not isinstance(job, dict) for job in jobs)):
         raise retention.UnsafeState("production deployment job inventory is incomplete")
+    activation = [job for job in jobs if job.get("name") == "Deploy Production Scope · Phone activation"]
+    if len(activation) == 1 and activation[0].get("conclusion") == "failure":
+        if any(job.get("status") != "completed" or job.get("conclusion") not in {"success", "skipped"}
+               for job in jobs if job is not activation[0]):
+            raise retention.UnsafeState("activation publication failure includes another job")
+        for name in ("Validate Production dispatch mode", "Deployment security / Verify repository secret clearance"):
+            matched = [job for job in jobs if job.get("name") == name]
+            if len(matched) != 1 or matched[0].get("conclusion") != "success":
+                raise retention.UnsafeState("activation publication mandatory preflight did not succeed")
+        context = importlib.import_module("production_activation_continuation").archive_context(
+            repository, run, release, LANES["production"], api=api,
+            governed=governed_dispatch, timestamp=_github_timestamp,
+            run_command=retention.run_command, timeout=60,
+        )
+        if context is None or "publication_reconciliation" not in context:
+            raise retention.UnsafeState("activation publication is unproved")
+        return True
     deploy = [job for job in jobs if job.get("name") == "Deploy Production Scope"]
     if len(deploy) != 1 or any(
         job.get("status") != "completed"
