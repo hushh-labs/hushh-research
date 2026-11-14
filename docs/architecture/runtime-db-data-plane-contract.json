@@ -57,14 +57,18 @@
     {
       "family_id": "kai_gmail_receipts_provider_cache",
       "owner": "backend-runtime-governance",
-      "mode": "report_only",
-      "job_id": "gmail_retention_report"
+      "mode": "enforced",
+      "job_id": "gmail_retention_report",
+      "retention_days": 30,
+      "handler": "consent-protocol/hushh_mcp/services/control_plane_retention_runner.py"
     },
     {
       "family_id": "google_integrations_provider_state",
       "owner": "backend-runtime-governance",
-      "mode": "report_only",
-      "job_id": "google_integrations_retention_report"
+      "mode": "enforced",
+      "job_id": "google_integrations_retention_report",
+      "retention_days": 1,
+      "handler": "consent-protocol/hushh_mcp/services/control_plane_retention_runner.py"
     },
     {
       "family_id": "gmail_owner_approved_delivery",
@@ -87,8 +91,10 @@
     {
       "family_id": "one_capability_runtime",
       "owner": "backend-runtime-governance",
-      "mode": "report_only",
-      "job_id": "capability_runtime_retention_report"
+      "mode": "enforced",
+      "job_id": "capability_runtime_retention_report",
+      "retention_days": 1,
+      "handler": "consent-protocol/hushh_mcp/services/control_plane_retention_runner.py"
     },
     {
       "family_id": "one_location_agent",
@@ -113,6 +119,22 @@
       "owner": "iam-consent-governance",
       "mode": "report_only",
       "job_id": "kyc_retention_report"
+    },
+    {
+      "family_id": "direct_call_control",
+      "owner": "iam-consent-governance",
+      "mode": "enforced",
+      "job_id": "direct_call_retention_sweep",
+      "retention_days": 1,
+      "handler": "consent-protocol/hushh_mcp/services/control_plane_retention_runner.py"
+    },
+    {
+      "family_id": "one_product_activity_observations",
+      "owner": "backend-runtime-governance",
+      "mode": "enforced",
+      "job_id": "product_activity_retention_sweep",
+      "retention_days": 7,
+      "handler": "consent-protocol/hushh_mcp/services/control_plane_retention_runner.py"
     }
   ],
   "table_families": [

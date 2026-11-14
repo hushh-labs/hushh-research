@@ -32,12 +32,15 @@ from hushh_mcp.services.pod_object_version import (
 )
 
 S3_URI_ENV = "POD_STORAGE_S3_URI"
+FLOCI_ENDPOINT_URL_ENV = "FLOCI_ENDPOINT_URL"
 PREFIX_TOKEN_URL_ENV = "POD_STORAGE_PREFIX_TOKEN_URL"  # noqa: S105 - env var name
 PREFIX_BEARER_TOKEN_ENV = "POD_STORAGE_PREFIX_BEARER_TOKEN"  # noqa: S105 - env var name
 
 _S3_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _ETAG_RE = re.compile(r'^"?[A-Za-z0-9._:-]{1,254}"?$')
 _TIMEOUT_SECONDS = 60
+_FORBIDDEN_EMULATOR_ENVS = frozenset({"production", "prod", "uat", "staging"})
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class PodMultiCloudStorageError(RuntimeError):
@@ -46,6 +49,44 @@ class PodMultiCloudStorageError(RuntimeError):
 
 class PodMultiCloudStorageForbidden(PodMultiCloudStorageError):
     """Caller identity was refused (401/403/AccessDenied). Never treated as absence."""
+
+
+def resolve_aws_boto3_client_kwargs(service_name: str) -> dict[str, Any]:
+    """Resolve optional local Floci/AWS wire-emulator kwargs; fail closed in UAT/prod."""
+    floci_url = (os.getenv(FLOCI_ENDPOINT_URL_ENV) or "").strip()
+    aws_url = (os.getenv("AWS_ENDPOINT_URL") or "").strip()
+    endpoint = floci_url or aws_url
+    if not endpoint:
+        return {}
+
+    deploy_env = (
+        (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "")
+        .strip()
+        .lower()
+    )
+    if deploy_env in _FORBIDDEN_EMULATOR_ENVS:
+        raise PodMultiCloudStorageError(
+            "custom AWS/Floci endpoint overrides are refused in UAT and production"
+        )
+
+    parsed = urllib.parse.urlsplit(endpoint)
+    host = (parsed.hostname or "").strip().lower()
+    if parsed.scheme == "http" and host not in _LOOPBACK_HOSTS:
+        raise PodMultiCloudStorageError(
+            "unencrypted HTTP AWS/Floci endpoints must bind strictly to loopback"
+        )
+
+    kwargs: dict[str, Any] = {"endpoint_url": endpoint}
+    if host in _LOOPBACK_HOSTS:
+        kwargs["region_name"] = (os.getenv("AWS_DEFAULT_REGION") or "us-east-1").strip()
+        if floci_url and not (os.getenv("AWS_ACCESS_KEY_ID") or "").strip():
+            kwargs["aws_access_key_id"] = "test"
+            kwargs["aws_secret_access_key"] = "test"  # noqa: S105 - Floci loopback auth-less token
+        if service_name == "s3":
+            from botocore.config import Config  # type: ignore[import-not-found]  # noqa: PLC0415
+
+            kwargs["config"] = Config(s3={"addressing_style": "path"})
+    return kwargs
 
 
 @dataclass(frozen=True)
@@ -93,7 +134,7 @@ class S3ObjectStore:
             raise PodMultiCloudStorageError(
                 "boto3 is required for live S3 pod object storage"
             ) from exc
-        self._client = boto3.client("s3")
+        self._client = boto3.client("s3", **resolve_aws_boto3_client_kwargs("s3"))
         return self._client
 
     def _key(self, key: str) -> str:
@@ -113,8 +154,9 @@ class S3ObjectStore:
 
     def get_with_generation_blocking(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         full_key = self._key(key)
+        client = self._s3()
         try:
-            resp = self._s3().get_object(Bucket=self._location.bucket, Key=full_key)
+            resp = client.get_object(Bucket=self._location.bucket, Key=full_key)
         except Exception as exc:  # noqa: BLE001
             code, status = self._error_code(exc)
             if status in {401, 403} or code in {"AccessDenied", "InvalidAccessKeyId"}:
@@ -129,6 +171,7 @@ class S3ObjectStore:
         self, key: str, data: bytes, expected: ObjectVersion
     ) -> Optional[ObjectVersion]:
         full_key = self._key(key)
+        client = self._s3()
         kwargs: dict[str, Any] = {
             "Bucket": self._location.bucket,
             "Key": full_key,
@@ -142,7 +185,7 @@ class S3ObjectStore:
         else:
             raise ValueError("object version was not issued by this store")
         try:
-            resp = self._s3().put_object(**kwargs)
+            resp = client.put_object(**kwargs)
         except Exception as exc:  # noqa: BLE001
             code, status = self._error_code(exc)
             if status in {401, 403} or code in {"AccessDenied", "InvalidAccessKeyId"}:
@@ -162,8 +205,9 @@ class S3ObjectStore:
         existing, _ = self.get_with_generation_blocking(key)
         if existing is None:
             return False
+        client = self._s3()
         try:
-            self._s3().delete_object(Bucket=self._location.bucket, Key=full_key)
+            client.delete_object(Bucket=self._location.bucket, Key=full_key)
         except Exception as exc:  # noqa: BLE001
             code, status = self._error_code(exc)
             if status in {401, 403} or code == "AccessDenied":

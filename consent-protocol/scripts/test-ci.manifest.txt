@@ -1701,3 +1701,7 @@ tests/test_pod_custody_port_and_ace.py
 
 # Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
 tests/test_provider_capability_registry_and_aws_parity.py
+
+# Wave 5 active control-plane TTL runner, enforced retention parity, and Floci wire conformance.
+tests/test_control_plane_retention_runner.py
+tests/test_floci_aws_wire_conformance.py
