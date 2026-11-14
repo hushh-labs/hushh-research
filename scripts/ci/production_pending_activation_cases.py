@@ -10,7 +10,7 @@ import production_backend_successor_proof as proof
 import production_pending_activation as pending
 import production_phone_receipt as phone
 from production_backend_successor_control_cases import _control_case
-from production_phone_receipt_fixtures import archive, phone_documents
+from production_phone_receipt_fixtures import archive, mixed_root_archive, phone_documents
 
 
 class _PendingCase:
@@ -183,6 +183,26 @@ def _pending_case(fixture):
 
 
 class PendingActivationCases:
+    def test_pending_retirement_accepts_immutable_mixed_root_upload_without_repack(self):
+        with _pending_case(self) as case:
+            before = copy.deepcopy(case.documents)
+            case.payload = mixed_root_archive(case, case.documents)
+            context = case.read()
+            self.assertEqual(context["kind"], "production-pending-retirement")
+            self.assertEqual(context["artifact_digest"], case.artifact["digest"])
+            self.assertEqual(context["candidate"]["run_id"], "400")
+            self.assertEqual(context["cold_rollback"]["uid"], case.anchor["uid"])
+            self.assertEqual(case.documents, before)
+            # Identical root and tmp copies are still ambiguous evidence.
+            for name, value in case.documents.items():
+                with self.subTest(duplicate=name):
+                    case.payload = archive(case, {
+                        **{f"tmp/{key}": body for key, body in case.documents.items()},
+                        name: value,
+                    })
+                    with self.assertRaises(phone.retention.UnsafeState):
+                        case.read()
+
     def test_pending_receipt_is_a_distinct_bound_context_without_healthy_fabrication(
         self,
     ):
