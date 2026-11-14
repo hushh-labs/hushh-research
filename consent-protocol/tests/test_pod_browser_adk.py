@@ -61,7 +61,7 @@ async def test_native_adk_task_keeps_authored_instruction_png_and_finish_output(
         return await execute(action, scope=scope)
 
     monkeypatch.setattr(driver, "execute", record)
-    model_name = "gemini-3.7-flash" if first_tool == "open_web_browser" else "gemini-3.8-flash"
+    model_name = "gemini-4-hydrogen" if first_tool == "open_web_browser" else "gemini-3.8-flash"
     runtime = control(
         ready=readiness(model_name=model_name), auth=Authority(approved=True), driver=driver
     )
