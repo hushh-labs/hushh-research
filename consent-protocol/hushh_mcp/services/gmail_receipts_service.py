@@ -4041,7 +4041,7 @@ class GmailReceiptsService:
         await self._execute_raw_async(
             """
             UPDATE kai_gmail_connections
-            SET auto_sync_enabled = FALSE, last_sync_status = 'canceled',
+            SET auto_sync_enabled = FALSE, last_sync_status = 'idle',
                 last_sync_error = :reason, status_refreshed_at = NOW(), updated_at = NOW()
             WHERE user_id = :user_id AND auto_sync_enabled = TRUE
             """,

@@ -4,7 +4,7 @@
 Usage:
     GENAI_GOOGLE_CLOUD_PROJECT=<project> GOOGLE_GENAI_USE_VERTEXAI=true \\
       PYTHONPATH=. python scripts/eval_one_consent_tool_selection.py <instruction_a.txt> <instruction_b.txt>
-    AB_MODEL=gemini-3.7-flash ... to run against another model pin.
+    AB_MODEL=gemini-4-hydrogen ... to run against another model pin.
 
 This is a thin wrapper over scripts/eval_one_first_tool.py, which now owns
 the roster, the case fixture (scripts/eval_cases/one_first_tool.v1.json,

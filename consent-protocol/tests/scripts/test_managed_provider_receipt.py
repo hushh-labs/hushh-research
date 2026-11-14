@@ -306,8 +306,8 @@ def test_collector_keeps_azure_failure_stage_without_claiming_recovery(stage):
 def test_receipt_preserves_only_actual_same_candidate_retry_history(monkeypatch, history_kind):
     collector, expected, document, label, entries, _ = _provider_capture_fixture(monkeypatch)
     gate = _managed_provider_gate()
-    _, azure = _provider_fixture(gate, "azure_openai")
-    _, vertex = _provider_fixture(gate, "vertex")
+    _, azure = _provider_fixture(gate, "azure_openai", document=document)
+    _, vertex = _provider_fixture(gate, "vertex", document=document)
     history = recovery_history()
     if history_kind == "clean":
         history[0]["attempts"] = history[0]["attempts"][1:]
@@ -324,7 +324,9 @@ def test_receipt_preserves_only_actual_same_candidate_retry_history(monkeypatch,
     )
     if history_kind == "foreign_context":
         vertex["context"] = {**expected, "source_sha": "f" * 40}
-    aggregate = gate.evaluate({"azure_openai": azure, "vertex": vertex}, expected)
+    aggregate = gate.evaluate(
+        {"azure_openai": azure, "vertex": vertex}, expected, document=document
+    )
     for entry in entries[:2]:
         entry["textPayload"] = label + ": " + json.dumps({"managed_provider_readiness": aggregate})
     result = collector.from_entries(entries, expected, document, label)
