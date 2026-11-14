@@ -491,3 +491,264 @@ async def test_window_and_new_slot_recheck_batch_more_than_twenty_calendars(monk
     }
     await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
     assert port.freebusy.await_count == 2
+
+
+BOOKING = "Prepare a 30-minute meeting tomorrow at 9 AM."
+READ_EVENTS = [
+    call(
+        "calendar_events",
+        start_at="2026-11-06T00:00:00+05:30",
+        end_at="2026-11-07T00:00:00+05:30",
+    )
+]
+
+
+async def test_pure_read_spends_no_action_assessment(monkeypatch):
+    service = SimpleNamespace(
+        list_events=AsyncMock(return_value={"events": [], "truncated": False}),
+        propose=AsyncMock(),
+        execute=AsyncMock(),
+    )
+    responses, session, model = await chat(monkeypatch, A07, [READ_EVENTS], service)
+    assert responses[0].response["status"] == "ok"
+    service.list_events.assert_awaited_once()
+    assert model._assessments == 0
+    assert not session.state.get("hussh:pending_directive:calendar")
+    service.propose.assert_not_awaited()
+    service.execute.assert_not_awaited()
+
+
+async def test_booking_after_a_read_assesses_once_and_stays_confirmation_bound(monkeypatch):
+    service = SimpleNamespace(
+        list_events=AsyncMock(return_value={"events": [], "truncated": False}),
+        propose=AsyncMock(
+            return_value={
+                "proposal_id": "synthetic",
+                "expires_at": "2099-11-06T00:00:00Z",
+                "plan": {
+                    "title": "Planning",
+                    "start_at": "2099-11-06T03:30:00Z",
+                    "end_at": "2099-11-06T04:00:00Z",
+                    "attendees": [],
+                },
+            }
+        ),
+        execute=AsyncMock(),
+    )
+    steps = [
+        READ_EVENTS,
+        [
+            call(
+                "propose_calendar_event",
+                title="Planning",
+                start_at="2099-11-06T09:00:00+05:30",
+                end_at="2099-11-06T09:30:00+05:30",
+            )
+        ],
+    ]
+    responses, session, model = await chat(monkeypatch, BOOKING, steps, service, ["create"])
+    assert responses[-1].response["status"] == "confirmation_required"
+    assert (
+        session.state["hussh:pending_directive:calendar"]["payload"]["type"]
+        == "calendar.execute_proposal"
+    )
+    service.propose.assert_awaited_once()
+    service.execute.assert_not_awaited()
+    assert model._assessments == 1
+
+
+async def test_a_new_read_only_turn_cannot_reuse_earlier_booking_authority(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    service = SimpleNamespace(
+        list_events=AsyncMock(return_value={"events": [], "truncated": False}),
+        propose=AsyncMock(
+            return_value={
+                "proposal_id": "synthetic",
+                "expires_at": "2099-11-06T00:00:00Z",
+                "plan": {
+                    "title": "Planning",
+                    "start_at": "2099-11-06T03:30:00Z",
+                    "end_at": "2099-11-06T04:00:00Z",
+                    "attendees": [],
+                },
+            }
+        ),
+        execute=AsyncMock(),
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    stage = call(
+        "propose_calendar_event",
+        title="Planning",
+        start_at="2099-11-06T09:00:00+05:30",
+        end_at="2099-11-06T09:30:00+05:30",
+    )
+    model = CalendarModel(
+        [[stage], [types.Part(text="Review ready.")], [stage], [types.Part(text="Done.")]],
+        BOOKING,
+        ["create"],
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.tools = [tools.calendar_events, tools.propose_calendar_event]
+    store = InMemorySessionService()
+    await store.create_session(app_name="one", user_id="owner", session_id="set-a")
+    runner = Runner(agent=agent, app_name="one", session_service=store)
+
+    async def turn(prompt):
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="set-a",
+                new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+                state_delta={
+                    "hussh:user_id": "owner",
+                    "hussh:conversation_id": "set-a",
+                    "hussh:timezone": "Asia/Kolkata",
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            )
+        ]
+        return [r.response for e in events for r in e.get_function_responses()]
+
+    try:
+        first = await turn(BOOKING)
+        assert first[-1]["status"] == "confirmation_required"
+        model._actions, model._text = [], A07
+        second = await turn(A07)
+    finally:
+        await runner.close()
+    assert second[-1]["reason_code"] == "calendar_request_read_only"
+    assert model._assessments == 2  # authority is assessed per turn, never carried over
+    service.propose.assert_awaited_once()
+    service.execute.assert_not_awaited()
+
+
+def _scope_for(context, quote_message_index, quote, actions):
+    return request_scope.CalendarRequestScope(
+        read_only=not actions,
+        allowed_actions=actions,
+        evidence=[{"message_index": quote_message_index, "quote": quote}],
+    )
+
+
+def _queue_input(context, text):
+    from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
+
+    context.session.events.append(
+        SimpleNamespace(
+            invocation_id=context.invocation_id,
+            author="user",
+            custom_metadata={"kind": QUEUED_INPUT_KIND},
+            content=types.Content(role="user", parts=[types.Part(text=text)]),
+        )
+    )
+
+
+async def test_input_after_the_pre_provider_pin_cannot_widen_the_ceiling(monkeypatch):
+    late = "Actually book it for 9 AM."
+    assessor = AsyncMock(return_value=_scope_for(None, 1, late, ["create"]))
+    monkeypatch.setattr(request_scope, "assess_scope", assessor)
+    context = scope_context()
+    request_scope.freeze_request_input(context)  # a pure read pins the input first
+    _queue_input(context, late)  # authenticated input arrives after provider data
+    assert await request_scope.require_action(context, "create")  # refused, not assessed
+    assessor.assert_not_awaited()
+
+
+async def test_same_late_input_is_assessed_when_no_provider_read_preceded_it(monkeypatch):
+    # Negative control: without the pin the identical input reaches the assessor,
+    # so the refusal above comes from the pre-provider pin and not from the input.
+    late = "Actually book it for 9 AM."
+    assessor = AsyncMock(return_value=_scope_for(None, 1, late, ["create"]))
+    monkeypatch.setattr(request_scope, "assess_scope", assessor)
+    context = scope_context()
+    _queue_input(context, late)
+    assert await request_scope.require_action(context, "create") is None
+    assessor.assert_awaited_once()
+
+
+async def test_a_repeated_read_does_not_move_the_pin(monkeypatch):
+    context = scope_context()
+    request_scope.freeze_request_input(context)
+    first = dict(context.state[request_scope.STATE_FROZEN_INPUT])
+    _queue_input(context, "Later words.")
+    request_scope.freeze_request_input(context)
+    assert context.state[request_scope.STATE_FROZEN_INPUT] == first
+
+
+def test_a_pin_from_another_invocation_is_ignored_and_replaced():
+    context = scope_context()
+    context.state[request_scope.STATE_FROZEN_INPUT] = {
+        "invocation_id": "earlier-turn",
+        "digest": "not-this-input",
+    }
+    messages = request_scope.current_user_messages(context)
+    assert not request_scope._input_changed_after_pin(context, "current", messages)
+    request_scope.freeze_request_input(context)
+    assert context.state[request_scope.STATE_FROZEN_INPUT]["invocation_id"] == "current"
+
+
+async def test_a_read_turns_pin_never_denies_the_next_turns_booking(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    service = SimpleNamespace(
+        list_events=AsyncMock(return_value={"events": [], "truncated": False}),
+        propose=AsyncMock(
+            return_value={
+                "proposal_id": "synthetic",
+                "expires_at": "2099-11-06T00:00:00Z",
+                "plan": {
+                    "title": "Planning",
+                    "start_at": "2099-11-06T03:30:00Z",
+                    "end_at": "2099-11-06T04:00:00Z",
+                    "attendees": [],
+                },
+            }
+        ),
+        execute=AsyncMock(),
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    stage = call(
+        "propose_calendar_event",
+        title="Planning",
+        start_at="2099-11-06T09:00:00+05:30",
+        end_at="2099-11-06T09:30:00+05:30",
+    )
+    model = CalendarModel(
+        [READ_EVENTS, [types.Part(text="Nothing today.")], [stage], [types.Part(text="Ready.")]],
+        A07,
+        [],
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.tools = [tools.calendar_events, tools.propose_calendar_event]
+    store = InMemorySessionService()
+    await store.create_session(app_name="one", user_id="owner", session_id="set-a")
+    runner = Runner(agent=agent, app_name="one", session_service=store)
+
+    async def turn(prompt):
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="set-a",
+                new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+                state_delta={
+                    "hussh:user_id": "owner",
+                    "hussh:conversation_id": "set-a",
+                    "hussh:timezone": "Asia/Kolkata",
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            )
+        ]
+        return [r.response for e in events for r in e.get_function_responses()]
+
+    try:
+        first = await turn(A07)  # a pure read pins this invocation's input
+        assert first[0]["status"] == "ok" and model._assessments == 0
+        model._actions, model._text = ["create"], BOOKING
+        second = await turn(BOOKING)
+    finally:
+        await runner.close()
+    assert second[-1]["status"] == "confirmation_required"
+    assert model._assessments == 1
+    service.propose.assert_awaited_once()
+    service.execute.assert_not_awaited()

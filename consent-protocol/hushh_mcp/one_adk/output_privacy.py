@@ -98,6 +98,7 @@ _PRIVATE_STATE_KEYS = frozenset(
         "hussh:calendar_guest_clarification",
         "temp:hussh:calendar_guest_recovery",
         "temp:hussh:calendar_request_scope",
+        "temp:hussh:calendar_frozen_input",
         "temp:hussh:turn_started_at",
         "hussh:calendar_events_page",
         "hussh:calendar_event_attendees",

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -38,11 +39,13 @@ ACTIONS = [
 ]
 
 
-async def sdk_turn(monkeypatch, prompt, steps, port, actions=(), restored=False):
+async def sdk_turn(
+    monkeypatch, prompt, steps, port, actions=(), restored=False, model_factory=CalendarModel
+):
     """Restore ordinary SDK session state/history, then admit a fresh owner turn."""
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: port)
-    model = CalendarModel(
+    model = model_factory(
         [*steps, [types.Part(text="Verified calendar read remains available.")]], prompt, actions
     )
     root = agent_tree.build_one_text_agent(model=model)
@@ -435,3 +438,157 @@ def test_all_day_dates_are_not_shifted_by_display_conversion():
     )
     assert result["events"][0]["local_start_date"] == "2030-11-06"
     assert result["events"][0]["local_end_date"] == "2030-11-07"
+
+
+def _window_context(zone, utc):
+    return SimpleNamespace(
+        invocation_id="new",
+        state={"hussh:timezone": zone, "temp:hussh:turn_started_at": instant(utc).timestamp()},
+        session=SimpleNamespace(events=[]),
+    )
+
+
+@pytest.mark.parametrize(
+    "zone,now,days,start,end",
+    [
+        # Today and tomorrow in Asia/Kolkata: local midnight to the midnight after tomorrow.
+        ("Asia/Kolkata", "2030-11-05T11:05:00Z", 2, "2030-11-04T18:30:00Z", "2030-11-06T18:30:00Z"),
+        # One second before and exactly at local midnight: the civil day changes with the turn clock.
+        ("Asia/Kolkata", "2030-11-05T18:29:59Z", 2, "2030-11-04T18:30:00Z", "2030-11-06T18:30:00Z"),
+        ("Asia/Kolkata", "2030-11-05T18:30:00Z", 2, "2030-11-05T18:30:00Z", "2030-11-07T18:30:00Z"),
+        # Spring forward: Sunday 10 March is a 23-hour local day, never a fixed 24-hour step.
+        (
+            "America/New_York",
+            "2030-03-09T17:00:00Z",
+            2,
+            "2030-03-09T05:00:00Z",
+            "2030-03-11T04:00:00Z",
+        ),
+        # Fall back: Sunday 3 November is a 25-hour local day.
+        (
+            "America/New_York",
+            "2030-11-02T17:00:00Z",
+            2,
+            "2030-11-02T04:00:00Z",
+            "2030-11-04T05:00:00Z",
+        ),
+        ("Asia/Kolkata", "2030-11-05T11:05:00Z", 1, "2030-11-04T18:30:00Z", "2030-11-05T18:30:00Z"),
+    ],
+)
+def test_whole_days_cover_the_local_calendar_days(zone, now, days, start, end):
+    window = tools._iso_window(_window_context(zone, now), days, zone, whole_days=True)
+    assert window == (start, end)
+    # Every instant of the last local day is inside the half-open interval; the next midnight is not.
+    assert instant(window[1]) - instant(window[0]) in {
+        timedelta(hours=24 * days - 1),
+        timedelta(hours=24 * days),
+        timedelta(hours=24 * days + 1),
+    }
+
+
+def test_rolling_window_keeps_its_documented_next_n_days_semantics():
+    context = _window_context("Asia/Kolkata", "2030-11-05T11:05:30Z")
+    assert tools._iso_window(context, 2, "Asia/Kolkata") == (
+        "2030-11-05T11:05:00Z",
+        "2030-11-07T11:05:00Z",
+    )
+
+
+async def test_summary_whole_days_reads_exact_local_days_and_logs_content_free_timing(
+    monkeypatch, caplog
+):
+    port = port_with_event(monkeypatch)
+    with caplog.at_level("INFO", logger=tools.logger.name):
+        responses, _, _ = await sdk_turn(
+            monkeypatch,
+            "Show my meetings today and tomorrow in Asia/Kolkata.",
+            [[call("calendar_summary", days=2, time_zone="Asia/Kolkata", whole_days=True)]],
+            port,
+        )
+    assert responses[-1].response["status"] == "ok"
+    # The admitted turn clock is 2030-11-06 00:00 Asia/Kolkata.
+    assert port.list_events.await_args.kwargs["start_at"] == "2030-11-05T18:30:00Z"
+    assert port.list_events.await_args.kwargs["end_at"] == "2030-11-07T18:30:00Z"
+    lines = [r.getMessage() for r in caplog.records if "calendar.read.latency" in r.getMessage()]
+    assert len(lines) == 1
+    assert re.fullmatch(
+        r"calendar\.read\.latency total_ms=\d+ provider_ms=\d+ status=ok", lines[0]
+    ), lines[0]
+    assert "Planning" not in lines[0] and "example" not in lines[0]
+
+
+class RequestSpyModel(CalendarModel):
+    """Records what the model is actually given: tool declarations and instruction."""
+
+    def __init__(self, steps, text, actions=()):
+        super().__init__(steps, text, actions)
+        self.__dict__["seen"] = []
+
+    async def generate_content_async(self, llm_request, stream=False):
+        if not llm_request.config.response_schema:
+            declarations = {
+                declaration.name: declaration
+                for tool in llm_request.config.tools or []
+                for declaration in tool.function_declarations or []
+            }
+            self.__dict__["seen"].append((declarations, str(llm_request.config.system_instruction)))
+        async for response in super().generate_content_async(llm_request, stream=stream):
+            yield response
+
+
+TODAY_TOMORROW = (
+    "For the same account, show my meetings today and tomorrow in Asia/Kolkata. "
+    "Write the exact date for each day."
+)
+
+
+async def test_today_and_tomorrow_prompt_gets_whole_local_days_through_the_model_schema(
+    monkeypatch,
+):
+    port = port_with_event(monkeypatch)
+    responses, _, _ = await sdk_turn(
+        monkeypatch,
+        TODAY_TOMORROW,
+        [[call("calendar_summary", days=2, time_zone="Asia/Kolkata", whole_days=True)]],
+        port,
+        model_factory=RequestSpyModel,
+    )
+    assert responses[0].name == "calendar_summary" and responses[0].response["status"] == "ok"
+    assert port.list_events.await_args.kwargs["start_at"] == "2030-11-05T18:30:00Z"
+    assert port.list_events.await_args.kwargs["end_at"] == "2030-11-07T18:30:00Z"
+    assert responses[0].response["events"][0]["local_start_at"] == "2030-11-06T23:00:00+05:30"
+
+
+async def test_model_receives_the_whole_days_option_and_the_local_dates(monkeypatch):
+    port = port_with_event(monkeypatch)
+    captured = []
+
+    class Capture(RequestSpyModel):
+        def __init__(self, steps, text, actions=()):
+            super().__init__(steps, text, actions)
+            captured.append(self)
+
+    await sdk_turn(
+        monkeypatch,
+        TODAY_TOMORROW,
+        [[call("calendar_summary", days=2, time_zone="Asia/Kolkata", whole_days=True)]],
+        port,
+        model_factory=Capture,
+    )
+    declarations, instruction = captured[0].__dict__["seen"][0]
+    summary = declarations["calendar_summary"]
+    # ADK exposes the Python signature as JSON schema; this is what the provider receives.
+    schema = summary.parameters_json_schema or summary.parameters.model_dump()
+    properties = schema["properties"]
+    assert str(properties["whole_days"]["type"]).lower() == "boolean"
+    assert "whole_days" not in schema.get("required", [])
+    assert "today and tomorrow" in summary.description.lower()
+    assert "midnight" in summary.description.lower()
+    # The same step also carries the admitted turn's local dates the model must name.
+    assert "Today=2030-11-06; tomorrow=2030-11-07 [Asia/Kolkata]" in instruction
+
+
+def test_production_agent_registers_the_model_facing_summary_tool():
+    agent = agent_tree.build_one_text_agent(model=CalendarModel([], "x"))
+    names = {getattr(t, "__name__", getattr(t, "name", None)) for t in agent.tools}
+    assert "calendar_summary" in names and "calendar_events" in names
