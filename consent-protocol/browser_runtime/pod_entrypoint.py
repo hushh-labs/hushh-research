@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import errno
 import os
+import resource
 import stat
 import sys
 
@@ -33,6 +34,7 @@ def host_secret() -> None:
 def drop(uid: int) -> None:
     if sys.platform != "linux":
         raise RuntimeError("BROWSER_BOOTSTRAP_REFUSED")
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     native = ctypes.CDLL(None, use_errno=True)
     # Drop the capability bounding set while CAP_SETPCAP is still available.
     for capability in range(64):

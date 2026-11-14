@@ -10,6 +10,7 @@ import asyncio
 import ctypes
 import json
 import os
+import resource
 import signal
 import socket
 import sys
@@ -41,6 +42,10 @@ def require_owner_process() -> None:
     if sys.platform != "linux" or os.geteuid() == 0 or os.getuid() != os.geteuid():
         raise LaunchRefused()
     os.umask(0o077)
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    native = ctypes.CDLL(None, use_errno=True)
+    if native.prctl(38, 1, 0, 0, 0) or native.prctl(4, 0, 0, 0, 0):
+        raise LaunchRefused()
 
 
 def reap_owned_children() -> None:
