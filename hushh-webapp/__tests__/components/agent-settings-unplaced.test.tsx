@@ -1,7 +1,9 @@
 /** A person who never chose a tier reads "Not chosen yet" and is sent to choose, never "Shared". */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useAgentSettingsController } from "@/components/profile/use-agent-settings-controller";
+import { useNativeAgentSettings } from "@/components/profile/use-native-agent-settings";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
@@ -11,6 +13,8 @@ vi.mock("@/lib/feed/use-agent-deployment-follow", async (original) => ({
   ...(await original<object>()),
   useAgentDeploymentFollow: mocks.follow,
 }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: null }) }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
 
 beforeEach(() => {
@@ -37,4 +41,30 @@ it("labels an unplaced person honestly and opens the tier chooser", () => {
 it("tells an unplaced person updates come after setup", () => {
   render(<AgentSettingsPanel kind="software-updates" userId="owner" />);
   expect(screen.getByText("Available after setup finishes")).toBeInTheDocument();
+});
+
+it.each(["shared", "unplaced", "pending"])("keeps disabled BYOC non-actionable for %s without blocking Shared setup", (mode) => {
+  mocks.follow.mockReturnValue({ status: { hostingMode: mode, featureEnabled: false }, update: NO_UPDATE, refresh: vi.fn() });
+  render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+  expect(screen.getByText("Bring your own cloud")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Bring your own cloud/ })).toBeNull();
+  expect(mocks.push).not.toHaveBeenCalled();
+  if (mode === "unplaced") {
+    fireEvent.click(screen.getByRole("button", { name: /Hussh Shared/ }));
+    expect(mocks.push).toHaveBeenCalledOnce();
+  }
+});
+
+it.each([false, true])("native Hosting respects setup availability %s while Shared remains reachable", (featureEnabled) => {
+  mocks.follow.mockReturnValue({ status: { hostingMode: "unplaced", featureEnabled }, update: NO_UPDATE, refresh: vi.fn() });
+  const { result } = renderHook(() => useNativeAgentSettings(
+    useAgentSettingsController({ kind: "hosting", userId: "owner" }), true, "owner",
+  ));
+  const choices = result.current.pages[0].sections.find(section => section.id === "hosting-choices-section")!.rows;
+  const cloud = choices.find(row => row.id === "hosting-own-cloud")!;
+  expect(cloud.readOnly === true).toBe(!featureEnabled);
+  expect(Boolean(cloud.chevron)).toBe(featureEnabled);
+  expect(result.current.rows.has("hosting-own-cloud")).toBe(featureEnabled);
+  act(() => { void result.current.rows.get("hosting-shared")!(); });
+  expect(mocks.push).toHaveBeenCalledOnce();
 });
