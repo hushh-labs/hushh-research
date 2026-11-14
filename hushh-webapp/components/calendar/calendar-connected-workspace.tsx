@@ -64,23 +64,41 @@ type Props = {
   connectionNotice?: ReactNode;
   getIdToken: () => Promise<string>;
   getVaultOwnerToken?: () => string | null;
+  recoverVaultOwnerToken?: () => Promise<string | null>;
   connectionRevision?: number;
 };
 
 /** First-party Calendar reviews use the signed-in owner's Google grant. */
 export function CalendarConnectedWorkspace(props: Props) {
-  const { vaultOwnerToken, getVaultOwnerToken } = useVault();
+  const { vaultOwnerToken, getVaultOwnerToken, getVaultKey, retryOwnerTokenRenewal } = useVault();
+  const currentOwner = useRef<string | null>(props.userId);
+  useEffect(() => {
+    currentOwner.current = props.userId;
+    return () => { currentOwner.current = null; };
+  }, [props.userId]);
+  const recoverVaultOwnerToken = useCallback(async () => {
+    const token = getVaultOwnerToken();
+    if (token) return token;
+    const key = getVaultKey();
+    if (!key) return null;
+    const owner = props.userId;
+    await retryOwnerTokenRenewal();
+    if (currentOwner.current !== owner || getVaultKey() !== key) return null;
+    const renewed = getVaultOwnerToken();
+    if (!renewed) throw new Error("FOLLOWUPS_SESSION_UNAVAILABLE");
+    return renewed;
+  }, [props.userId, getVaultOwnerToken, getVaultKey, retryOwnerTokenRenewal]);
   const accountKey = (props.status.accounts || []).map(account => `${account.account_id}:${account.google_email}:${account.status}:${account.grant_generation || ""}`).join("|") || props.status.google_email || "";
   const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });
   if (props.status.accounts?.length && props.onAddAccount && props.onDisconnectAccount && props.onReconnectAccount) {
-    return <CalendarAccountBoard key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} onAddAccount={props.onAddAccount}
+    return <CalendarAccountBoard key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAddAccount={props.onAddAccount}
       onReconnectAccount={props.onReconnectAccount} calendarPeople={calendarPeople}
       onDisconnectAccount={props.onDisconnectAccount} token={vaultOwnerToken} />;
   }
-  return <ConnectedSchedule key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} calendarPeople={calendarPeople} />;
+  return <ConnectedSchedule key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} calendarPeople={calendarPeople} />;
 }
 
-function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, onAllowMeetingFiles, onChat, onDisconnect, onMailConnect, connectionNotice, getIdToken, getVaultOwnerToken, connectionRevision }: Props & { calendarPeople: CalendarHusshPeople }) {
+function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, onAllowMeetingFiles, onChat, onDisconnect, onMailConnect, connectionNotice, getIdToken, getVaultOwnerToken, recoverVaultOwnerToken, connectionRevision }: Props & { calendarPeople: CalendarHusshPeople }) {
   const getIdTokenRef = useRef(getIdToken);
   getIdTokenRef.current = getIdToken;
   const [tab, setTab] = useState("schedule");
@@ -417,7 +435,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
       </>} />
       {connectionNotice}
       <TopShellTabs disabled={submitting || busy} tabSet={{ id: "calendar", label: "Calendar", queryParam: null, activeValue: tab, tabs: MAIN_TABS }} onValueChange={setTab} />
-      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout calendarPeople={calendarPeople} userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} account={status.accounts?.find(account => account.account_id === "default") || { account_id: "default", google_email: status.google_email || null, connected: status.connected, status: status.status, access_level: status.access_level ?? null, calendar_list_access: status.calendar_list_access ?? false, scope_csv: status.scope_csv }} today={today} zone={zone} connectionRevision={connectionRevision} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" className="space-y-3">
+      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout calendarPeople={calendarPeople} userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} account={status.accounts?.find(account => account.account_id === "default") || { account_id: "default", google_email: status.google_email || null, connected: status.connected, status: status.status, access_level: status.access_level ?? null, calendar_list_access: status.calendar_list_access ?? false, scope_csv: status.scope_csv }} today={today} zone={zone} connectionRevision={connectionRevision} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" className="space-y-3">
         <div className="py-1"><SegmentedTabs disabled={submitting || busy} variant="filter" ariaLabel="Schedule views" options={SCHEDULE_TABS} value={view} onValueChange={setView} /></div>
         <CalendarDateNavigation date={date} today={today} disabled={submitting || busy} onChange={setDate} todayRef={refreshButton} />
         {view === "today" ? <section aria-label="Today's events" aria-busy={eventsLoading} className="space-y-3">

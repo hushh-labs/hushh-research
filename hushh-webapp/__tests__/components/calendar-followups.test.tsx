@@ -533,6 +533,58 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan).toHaveBeenCalledTimes(20);
   });
 
+  it("renews missing owner authority before reading without asking to unlock again", async () => {
+    let token: string | null = null;
+    service.status.mockResolvedValue(status("account_renewal"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_renewal" });
+    const recover = vi.fn(async () => { token = "renewed-owner-token"; return token; });
+    render(<CalendarFollowups {...props("account_renewal")} getVaultOwnerToken={() => token} recoverVaultOwnerToken={recover} />);
+    await screen.findByText("Send the research document");
+    expect(recover).toHaveBeenCalledOnce();
+    expect(service.list).toHaveBeenCalledWith("owner", "account_renewal", "synthetic-id-token", "renewed-owner-token", expect.any(AbortSignal), 0, "upcoming");
+    expect(screen.queryByText(/Unlock One/)).toBeNull();
+  });
+
+  it("does not open protected details after locking during ID-token retrieval", async () => {
+    let token: string | null = "synthetic-owner-token";
+    const getIdToken = vi.fn(async () => "synthetic-id-token");
+    service.status.mockResolvedValue(status("account_delayed_id"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_delayed_id" });
+    render(<CalendarFollowups {...props("account_delayed_id")} getIdToken={getIdToken} getVaultOwnerToken={() => token} />);
+    await screen.findByText("Send the research document");
+    await waitFor(() => expect(service.scan).toHaveBeenCalled());
+    let finish!: (value: string) => void;
+    getIdToken.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: /^Review / }));
+    await waitFor(() => expect(finish).toBeDefined());
+    token = null;
+    finish("synthetic-id-token");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(service.detail).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable renewal without claiming the unlocked vault is locked", async () => {
+    service.status.mockResolvedValue(status("account_unavailable"));
+    const recover = vi.fn(async () => { throw new Error("FOLLOWUPS_SESSION_UNAVAILABLE"); });
+    render(<CalendarFollowups {...props("account_unavailable")} getVaultOwnerToken={() => null} recoverVaultOwnerToken={recover} />);
+    await screen.findByText("Your secure connection could not be restored. Try again.");
+    expect(screen.queryByText(/Unlock One/)).toBeNull();
+    expect(service.list).not.toHaveBeenCalled();
+    expect(service.scan).not.toHaveBeenCalled();
+  });
+
+  it("does not read the old account after pending recovery is unmounted", async () => {
+    service.status.mockResolvedValue(status("account_departed"));
+    let finish!: (token: string) => void;
+    const recover = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
+    const view = render(<CalendarFollowups {...props("account_departed")} getVaultOwnerToken={() => null} recoverVaultOwnerToken={recover} />);
+    await waitFor(() => expect(recover).toHaveBeenCalledOnce());
+    view.unmount();
+    finish("renewed-owner-token");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(service.list).not.toHaveBeenCalled();
+  });
+
   it("says to unlock One instead of offering a Mail reconnect that cannot help", async () => {
     // UAT: with the vault locked the card never listed or scanned, yet showed
     // "Reconnect email" and a generic failure, sending the owner through Google twice.
@@ -541,7 +593,7 @@ describe("Calendar Insights Follow-ups card", () => {
         coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
         exhausted_source_count: 0, unreadable_count: 0 } }));
     render(<CalendarFollowups {...props("account_locked")} getVaultOwnerToken={() => null} />);
-    expect(await screen.findByText("Unlock One to check your email.")).toBeInTheDocument();
+    expect(await screen.findByText("Unlock One to view follow-ups.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument();
     expect(service.list).not.toHaveBeenCalled();
     expect(service.scan).not.toHaveBeenCalled();

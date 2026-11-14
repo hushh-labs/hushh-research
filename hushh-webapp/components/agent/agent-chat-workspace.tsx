@@ -4130,7 +4130,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         kind === "calendar"
           ? connectCalendarInPlace({
               owner, accountId,
-              accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true,
+              accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true, includeMailAccess: true,
               ...controls,
               vaultOwnerCapability: vaultOwnerToken ?? undefined,
               confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),

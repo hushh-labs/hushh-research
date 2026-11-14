@@ -315,6 +315,20 @@ Owners: [coordinator](../../components/onboarding/setup/setup-capability-coordin
 
 ### Connect and permission upgrades
 
+First shared-web Calendar connections from setup, chat cards and the connector
+drawer request Follow-ups Mail access in the same Google consent. The in-place
+paths check the selected account before requesting those scopes; an existing
+connection or targeted renewal does not add Mail permission. Google may decline
+a requested scope, and Follow-ups still verifies the saved account-bound grant.
+Monitoring remains separately enabled through its existing control.
+
+Follow-ups recovers expired owner authority through the existing vault renewal
+when the local vault remains unlocked. It rechecks the account lifetime before
+reading or changing a request, and clears protected rows when authority is lost.
+Failed renewal offers secure-connection recovery; only a genuinely locked vault
+requires unlocking. No key or token is persisted to avoid that boundary.
+
+
 | Path/control | Actual operation, cancel and acknowledgement boundary |
 | --- | --- |
 | Connect/reconnect/upgrade | Ignore without user or while busy. Preserve existing manage and list grants; do not silently downgrade. Capture owner/generation before awaiting token and reject old-owner completions. |

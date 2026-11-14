@@ -153,6 +153,7 @@ export function rememberSyncedNotice(userId: string, accountId: string, seen: bo
  * and says so; it is never reported as a failed check.
  */
 export function followupErrorText(error: unknown): string {
+  if (error instanceof Error && error.message === "FOLLOWUPS_SESSION_UNAVAILABLE") return "Your secure connection could not be restored. Try again.";
   if (error instanceof Error && error.message.startsWith("Unlock One")) return error.message;
   if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
   if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";
