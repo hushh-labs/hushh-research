@@ -241,6 +241,27 @@ async def test_funding_receipt_rejects_wrong_binding_and_never_estimates_fee(mut
         assert receipt.amount_cents == 50
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "status"),
+    [("us_bank_account", "succeeded"), ("card", "succeeded"), ("us_bank_account", "processing")],
+)
+async def test_bank_receipt_requires_a_successful_bank_debit(method, status):
+    intent, expected = _receipt_fixture()
+    intent["status"] = status
+    intent["latest_charge"]["payment_method_details"] = {"type": method}
+    expected["payment_method_type"] = "us_bank_account"
+    api = SimpleNamespace(PaymentIntent=SimpleNamespace(retrieve=lambda *_args, **_kwargs: intent))
+    adapter = StripeScopeCommerceAdapter("test-only", "test-only", stripe_api=api)
+
+    if method == "us_bank_account" and status == "succeeded":
+        receipt = await adapter.funding_receipt("pi_fixture", expected=expected)
+        assert receipt.amount_cents == expected["amount_cents"]
+    else:
+        with pytest.raises(CommerceProviderError, match="provider_receipt_mismatch"):
+            await adapter.funding_receipt("pi_fixture", expected=expected)
+
+
 def test_unsigned_webhook_rejected_before_parsing_and_valid_input_uses_raw_bytes():
     observed = []
 

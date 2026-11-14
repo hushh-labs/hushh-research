@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 from urllib.parse import urlencode
+from uuid import UUID
 
 from .domain import MICRO_PER_CENT as _MICRO_PER_CENT
+from .domain import CommerceError
 from .provider_contracts import ProviderContext, _derived_id, _hosted_url, _opaque, _operation_id
 from .provider_return_surfaces import resolve_return_surface
 from .provider_sandbox import reserve_reviewer_funding
@@ -56,6 +58,74 @@ class FundingCheckout(ProviderContext):
         await self.store._transaction(bind)
         return response["id"]
 
+    async def bank_checkout(self, *, payer_user_id: str, quote_id: str) -> dict[str, Any]:
+        from hushh_mcp.services.scope_commerce_requests import resolve_commerce_request
+
+        if self.config.livemode or self.config.sandbox_policy is None:
+            raise CommerceProviderError("provider_sandbox_only")
+        self._admit_actor(payer_user_id)
+        await self._admit()
+        operation_id = _derived_id(quote_id, "bank_checkout")
+
+        async def reserve(connection: Any) -> dict[str, Any]:
+            purchase = await connection.fetchrow(
+                """SELECT p.*, q.expires_at > clock_timestamp() AS quote_valid,
+                          p.fulfillment_deadline > clock_timestamp() AS request_valid
+                   FROM scope_commerce_purchases p JOIN scope_commerce_quotes q USING (quote_id)
+                   WHERE p.quote_id=$1 AND p.payer_user_id=$2 FOR UPDATE OF p""",
+                UUID(quote_id),
+                payer_user_id,
+            )
+            if (
+                not purchase
+                or purchase["status"] != "awaiting_payment"
+                or not purchase["quote_valid"]
+                or not purchase["request_valid"]
+                or purchase["buyer_app_id"] != "agent_one"
+                or not 50 <= purchase["price_cents"] <= 100_000
+            ):
+                raise CommerceError("purchase_unavailable")
+            binding = await resolve_commerce_request(
+                str(purchase["request_id"]),
+                payer_user_id,
+                require_payer=True,
+                connection=connection,
+            )
+            if binding["metadata"].get("request_source") not in {
+                "marketplace",
+                "one_person_profile",
+            }:
+                raise CommerceError("purchase_unavailable")
+            self.store._admit_actors(purchase["owner_user_id"], payer_user_id)
+            await self.store._registered_key(connection, purchase)
+            if not await connection.fetchval(
+                "SELECT eligible FROM scope_commerce_seller_accounts WHERE user_id=$1 FOR SHARE",
+                purchase["owner_user_id"],
+            ):
+                raise CommerceError("seller_onboarding_required")
+            reservation = await reserve_reviewer_funding(
+                self.store,
+                self.config.sandbox_policy,
+                payer_user_id=payer_user_id,
+                buyer_app_id=purchase["buyer_app_id"],
+                funding_id=operation_id,
+                amount_cents=purchase["price_cents"],
+                conn=connection,
+            )
+            if reservation["status"] != "reserved":
+                raise CommerceError("purchase_unavailable")
+            return dict(purchase)
+
+        purchase = await self.store._transaction(reserve)
+        return await self.funding_checkout(
+            payer_user_id=payer_user_id,
+            buyer_app_id=purchase["buyer_app_id"],
+            amount_cents=purchase["price_cents"],
+            operation_id=operation_id,
+            return_surface="website",
+            bank_quote_id=quote_id,
+        )
+
     async def funding_checkout(
         self,
         *,
@@ -64,6 +134,7 @@ class FundingCheckout(ProviderContext):
         amount_cents: int,
         operation_id: str,
         return_surface: str = "one",
+        bank_quote_id: str | None = None,
     ) -> dict[str, Any]:
         if type(amount_cents) is not int or not 50 <= amount_cents <= 100_000:
             raise CommerceProviderError("funding_amount_invalid")
@@ -80,13 +151,16 @@ class FundingCheckout(ProviderContext):
             funding_id=operation_id,
             amount_cents=amount_cents,
         )
-        if self.config.sandbox_policy is not None:
-            await reserve_reviewer_funding(self.store, self.config.sandbox_policy, **parameters)
-        else:
-            await self.store.reserve_funding(**parameters)
+        if bank_quote_id is None:
+            if self.config.sandbox_policy is not None:
+                await reserve_reviewer_funding(self.store, self.config.sandbox_policy, **parameters)
+            else:
+                await self.store.reserve_funding(**parameters)
         customer = await self._customer(payer_user_id)
         metadata = self._metadata(operation_id, payer_user_id)
         metadata["buyer_app_ref"] = _opaque(buyer_app_id or "person")
+        if bank_quote_id is not None:
+            metadata["bank_quote_id"] = bank_quote_id
         return_path = (
             return_origin
             + return_route
@@ -113,6 +187,11 @@ class FundingCheckout(ProviderContext):
             "success_url": return_path,
             "cancel_url": return_path,
         }
+
+        if bank_quote_id is not None:
+            del request["allowed_payment_method_types"]
+            request["payment_method_types"] = ["us_bank_account"]
+            request["line_items"][0]["price_data"]["product_data"]["name"] = "Information access"
 
         def validate(session: dict[str, Any]) -> None:
             self._validate_object(session, object_type="checkout.session", metadata=metadata)
@@ -217,6 +296,9 @@ class FundingReceipt(ProviderContext):
             raise CommerceProviderError("provider_invalid_event")
         metadata, amount = session["metadata"], session["amount_total"]
         operation_id = str(operation["operation_id"])
+        bank_quote_id = metadata.get("bank_quote_id")
+        if bank_quote_id and _derived_id(bank_quote_id, "bank_checkout") != operation_id:
+            raise CommerceProviderError("provider_invalid_event")
         receipt = await self.adapter.funding_receipt(
             session["payment_intent"],
             expected={
@@ -224,31 +306,73 @@ class FundingReceipt(ProviderContext):
                 "amount_cents": amount,
                 "customer_id": session["customer"],
                 "livemode": self.config.livemode,
+                **({"payment_method_type": "us_bank_account"} if bank_quote_id else {}),
             },
         )
 
         # App ownership was checked when reserving the persisted funding row.
         # Never reconstruct authority from provider-supplied metadata.
-        async def app(connection: Any) -> str | None:
-            return await connection.fetchval(
-                """SELECT w.buyer_app_id FROM scope_commerce_fundings f
-                JOIN scope_commerce_wallets w ON w.wallet_id=f.wallet_id WHERE f.funding_id=$1::uuid""",
+        async def settle(connection: Any) -> None:
+            funding = await connection.fetchrow(
+                """SELECT w.buyer_app_id, w.erased_at, f.status FROM scope_commerce_fundings f
+                JOIN scope_commerce_wallets w ON w.wallet_id=f.wallet_id
+                WHERE f.funding_id=$1::uuid""",
                 operation_id,
             )
+            if funding is None:
+                raise CommerceError("funding_binding_mismatch")
+            receipt_fields = dict(
+                payer_user_id=operation["user_id"],
+                buyer_app_id=funding["buyer_app_id"],
+                funding_id=operation_id,
+                payment_intent_id=receipt.payment_intent_id,
+                charge_id=receipt.charge_id,
+                provider_event_id=event_id,
+                amount_cents=receipt.amount_cents,
+                fee_micro_usd=receipt.fee_micro_usd,
+                balance_transaction_id=receipt.balance_transaction_id,
+                livemode=receipt.livemode,
+                conn=connection,
+            )
+            if not bank_quote_id or funding["erased_at"] or funding["status"] != "reserved":
+                await self.store.settle_funding(**receipt_fields)
+                return
 
-        buyer_app_id = await self.store._transaction(app)
-        await self.store.settle_funding(
-            payer_user_id=operation["user_id"],
-            buyer_app_id=buyer_app_id,
-            funding_id=operation_id,
-            payment_intent_id=receipt.payment_intent_id,
-            charge_id=receipt.charge_id,
-            provider_event_id=event_id,
-            amount_cents=receipt.amount_cents,
-            fee_micro_usd=receipt.fee_micro_usd,
-            balance_transaction_id=receipt.balance_transaction_id,
-            livemode=receipt.livemode,
-        )
+            from hushh_mcp.consent.paid_admission import record_paid_funded
+            from hushh_mcp.services.scope_commerce_requests import CommerceRequestError
+
+            try:
+                async with connection.transaction():
+                    await self.store.settle_funding(**receipt_fields)
+                    await self.store.reserve_purchase(
+                        payer_user_id=operation["user_id"],
+                        quote_id=bank_quote_id,
+                        idempotency_key=operation_id,
+                        on_reserved=record_paid_funded,
+                        bank_funding_id=operation_id,
+                        conn=connection,
+                    )
+            except (CommerceError, CommerceRequestError) as error:
+                if str(error) not in {
+                    "commerce_unavailable",
+                    "provider_sandbox_reviewer_required",
+                    "owner_approval_required",
+                    "purchase_unavailable",
+                    "reservation_closed",
+                    "request_unavailable",
+                    "seller_onboarding_required",
+                    "recipient_key_changed",
+                    "registered_recipient_key_required",
+                    "funding_provenance_unavailable",
+                    "scope_unavailable",
+                    "recipient_or_scope_unavailable",
+                }:
+                    raise
+                # Record late funds through the existing frozen original-source refund path.
+                await self.store.cancel_funding(funding_id=operation_id, conn=connection)
+                await self.store.settle_funding(**receipt_fields)
+
+        await self.store._transaction(settle)
 
 
 class SourceRefundAccess(ProviderContext):

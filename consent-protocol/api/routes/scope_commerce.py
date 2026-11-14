@@ -265,6 +265,17 @@ async def purchase(body: PurchaseBody, response: Response, user_id: Payer):
         raise _error(error) from None
 
 
+@router.post("/purchases/bank-checkout")
+async def purchase_bank_checkout(body: PurchaseBody, response: Response, user_id: Payer):
+    response.headers.update(NO_STORE)
+    if body.confirmed is not True:
+        raise HTTPException(422, detail={"code": "human_confirmation_required"}, headers=NO_STORE)
+    try:
+        return await _provider().bank_checkout(payer_user_id=user_id, quote_id=str(body.quote_id))
+    except Exception as error:
+        raise _error(error) from None
+
+
 @router.get("/purchases/{purchase_id}")
 async def purchase_status(purchase_id: UUID, response: Response, user_id: Payer):
     response.headers.update(NO_STORE)
