@@ -19,13 +19,15 @@ def _authority(run_id: str) -> dict:
     return json.loads(run(["gh", "api", f"repos/{REPOSITORY}/actions/runs/{run_id}"]))
 
 
-def _require_authority(authority: dict, run_id: str) -> None:
+def _require_authority(
+    authority: dict, run_id: str, *, reconciled_publication=False
+) -> None:
     if any(
         authority.get(key) != value
         for key, value in {
             "id": int(run_id),
             "status": "completed",
-            "conclusion": "success",
+            "conclusion": "failure" if reconciled_publication else "success",
             "event": "workflow_dispatch",
             "path": ".github/workflows/deploy-production.yml",
             "head_branch": "main",
@@ -69,18 +71,14 @@ def _continuation_owners():
 
 
 def _healthy_tag(proof, sha: str, revision: str) -> tuple[dict, str]:
-    tag = proof.read_original()
-    healthy, _operational = proof.reference.split(tag["message"], tag["commit"])
-    fields = proof.reference.healthy_fields(healthy, tag["commit"])
+    _proof, continuation, _owner = _continuation_owners()
+    tag = continuation.publication_tag(sha, revision)
+    fields = proof.reference.healthy_fields(tag["message"], tag["commit"])
     match = re.fullmatch(
         rf"https://github\.com/{re.escape(REPOSITORY)}/actions/runs/([1-9][0-9]*)",
         fields["run"],
     )
-    if (
-        tag["commit"] != sha
-        or fields["backend_revision"] != revision
-        or match is None
-    ):
+    if tag["commit"] != sha or fields["backend_revision"] != revision or match is None:
         raise ValueError("phone_rollback_production_healthy_reference_mismatch")
     return tag, match[1]
 
@@ -91,7 +89,6 @@ def _activated_continuation(authority: dict, artifact: dict, sha: str, revision:
     if healthy_run_id == str(authority["id"]):
         raise ValueError("phone_rollback_production_continuation_missing")
     current = owner.api(REPOSITORY, f"runs/{healthy_run_id}")
-    _require_authority(current, healthy_run_id)
     lane = owner.LANES["production"]
     arguments = {
         "api": owner.api,
@@ -111,13 +108,22 @@ def _activated_continuation(authority: dict, artifact: dict, sha: str, revision:
         REPOSITORY, current, release, lane, **arguments
     )
     _require_continuation(context, authority, artifact, current_artifact, sha, revision)
-    refreshed = owner.api(REPOSITORY, f"runs/{healthy_run_id}?exclude_pull_requests=true")
+    _require_authority(
+        current,
+        healthy_run_id,
+        reconciled_publication=current.get("conclusion") == "failure"
+        and context.get("publication_reconciliation", {}).get("run_id")
+        == current["id"],
+    )
+    refreshed = owner.api(
+        REPOSITORY, f"runs/{healthy_run_id}?exclude_pull_requests=true"
+    )
     if (
         any(
             refreshed.get(key) != current.get(key)
             for key in ("id", "run_attempt", "head_sha", "status", "conclusion")
         )
-        or proof.read_original() != tag
+        or proof.read_tag(continuation.publication_ref(tag)) != tag
     ):
         raise ValueError("phone_rollback_production_continuation_changed")
     return {
@@ -130,7 +136,9 @@ def _activated_continuation(authority: dict, artifact: dict, sha: str, revision:
     }
 
 
-def _require_continuation(context, authority, artifact, current_artifact, sha, revision):
+def _require_continuation(
+    context, authority, artifact, current_artifact, sha, revision
+):
     if (
         context is None
         or context["original"]["run_id"] != authority["id"]
