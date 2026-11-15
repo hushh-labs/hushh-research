@@ -80,19 +80,19 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
           type="button"
           disabled={disabled}
           onClick={() => onSelect(suggestion)}
-          className={`relative inline-flex !h-auto max-w-full !justify-start overflow-hidden !rounded-lg !border-0 !bg-transparent text-left text-sm font-medium !shadow-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 active:!scale-100 disabled:pointer-events-none disabled:opacity-60 ${layout === "starter-grid"
+          className={`agent-suggestion-item group relative inline-flex !h-auto max-w-full !justify-start overflow-hidden !rounded-lg !border-0 !bg-transparent text-left text-sm font-medium !shadow-none transition-[color,background-color,opacity,transform] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 active:!scale-100 active:enabled:opacity-80 disabled:pointer-events-none disabled:opacity-60 ${layout === "starter-grid"
             ? "!min-h-11 w-full items-start gap-3 !px-0 !py-1 sm:!py-1.5 text-foreground"
-            : "!min-h-11 items-center gap-2 !px-2 !py-2 text-muted-foreground hover:text-foreground"}`}
+            : "!min-h-11 items-center gap-2 !px-2 !py-2 text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground"}`}
         >
           {layout === "starter-grid" ? (
             <span aria-hidden className="flex h-6 w-8 shrink-0 items-center gap-1 text-current">
               <span data-profile-role="group-label" className="text-xs font-medium tabular-nums">{String(index + 1).padStart(2, "0")}</span>
-              <ChevronRight className="h-3 w-3" />
+              <ChevronRight className="h-3 w-3 transition-transform duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:translate-x-0.5" />
             </span>
           ) : null}
           <span data-profile-role={layout === "starter-grid" ? "label" : undefined} className="min-w-0 whitespace-normal leading-6 [overflow-wrap:anywhere]">{suggestion}</span>
           {layout === "list" ? <ChevronRight
-            className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
+            className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)] transition-transform duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:translate-x-0.5"
             aria-hidden
           /> : null}
           <MaterialRipple variant="none" effect="glass" disabled={disabled} disableHover={layout === "starter-grid"} />

@@ -527,8 +527,8 @@ function AgentGridItem({
       title={mode.description}
       className={cn(
         "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
-        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
+        "transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)]",
+        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
         className,
       )}
     >
@@ -543,7 +543,7 @@ function AgentGridItem({
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
-        className="relative z-10"
+        className="relative z-10 transition-transform duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:-translate-y-[1px]"
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
@@ -570,8 +570,8 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
         "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
-        "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
+        "transition-colors duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none",
+        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
     >
@@ -605,7 +605,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <CaretRightIcon
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC]"
+        className="relative z-10 h-4 w-4 text-[#C7C7CC] transition-transform duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover/agent-row:translate-x-0.5"
       />
       <span
         aria-hidden
@@ -627,18 +627,28 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
+      className="relative inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
     >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute left-[3px] top-[3px] h-[26px] w-7 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-transform duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none dark:bg-white/[0.16] dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+        style={{
+          transform:
+            value === "list"
+              ? "translate3d(calc(100% + 2px), 0, 0)"
+              : "translate3d(0, 0, 0)",
+        }}
+      />
       <ShellActionSurface
         aria-label="Show agent grid view"
         aria-pressed={value === "grid"}
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
+          "h-[26px] w-7 rounded-full border-0 bg-transparent shadow-none transition-colors duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-transparent dark:bg-transparent",
           value === "grid"
-            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
-            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
+            ? "text-neutral-900 dark:text-white"
+            : "text-muted-foreground/75 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         )}
       >
         <GridIcon className="h-3.5 w-3.5" aria-hidden />
@@ -649,10 +659,10 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
+          "h-[26px] w-7 rounded-full border-0 bg-transparent shadow-none transition-colors duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-transparent dark:bg-transparent",
           value === "list"
-            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
-            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
+            ? "text-neutral-900 dark:text-white"
+            : "text-muted-foreground/75 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         )}
       >
         <ListIcon className="h-3.5 w-3.5" aria-hidden />

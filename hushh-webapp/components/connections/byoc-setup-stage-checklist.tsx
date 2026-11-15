@@ -50,17 +50,23 @@ export function SetupStageChecklist({
           const isDone = stage.state === "complete";
           return (
             <li key={stage.id} className="flex items-center gap-2 text-sm" aria-current={isCurrent ? "step" : undefined}>
-              <span aria-hidden className="w-4 text-center">
-                {isDone ? "✓" : isCurrent ? "•" : ""}
+              <span aria-hidden className="inline-flex w-4 items-center justify-center text-center">
+                {isDone ? (
+                  <span key="done" className="hosting-check-enter inline-block text-[color:var(--app-accent)]">✓</span>
+                ) : isCurrent ? (
+                  <span key="current" className="motion-safe:animate-pulse">•</span>
+                ) : (
+                  ""
+                )}
               </span>
               <span
-                className={
+                className={`transition-[color,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none ${
                   isDone
                     ? "text-[var(--app-text-secondary)]"
                     : isCurrent
                       ? "font-medium"
                       : "text-[var(--app-text-secondary)] opacity-60"
-                }
+                }`}
               >
                 {stage.label}
                 {isCurrent ? "…" : ""}
