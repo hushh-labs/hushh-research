@@ -8,6 +8,7 @@ from hushh_mcp.consent.pkm_scope_policy import (
     is_external_requestable_pkm_scope,
     is_externalizable_pkm_manifest_path,
     is_private_pkm_export_scope,
+    is_public_pkm_projection_allowed,
 )
 from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
 from hushh_mcp.services.domain_contracts import (
@@ -383,3 +384,87 @@ async def test_developer_export_rejects_forged_source_library_export_row(monkeyp
         "error_code": "SCOPE_RETIRED",
         "message": "This encrypted export is no longer externally shareable.",
     }
+
+
+def test_one_wiki_and_source_library_reserved_and_answer_projection_boundary() -> None:
+    from hushh_mcp.consent.reserved_branches import (
+        evaluate_reserved_write,
+        reserved_entry_for,
+    )
+    from hushh_mcp.services.answer_projection_contract import valid_source_freshness
+    from hushh_mcp.services.domain_contracts import is_owner_managed_reserved_domain
+
+    assert is_owner_managed_reserved_domain("one_wiki") is True
+    with pytest.raises(ValueError, match="owner_managed_domain_slug"):
+        validate_dynamic_top_level_domain("one_wiki")
+    assert validate_dynamic_top_level_domain("one_wiki", allow_internal=True) == "one_wiki"
+    for scope in (
+        "attr.one_wiki.*",
+        "attr.one_wiki.pages.*",
+        "attr.one_wiki.pages.career",
+        "attr.one_wiki.claims.claim_1",
+    ):
+        assert is_external_requestable_pkm_scope(scope) is False
+        assert is_private_pkm_export_scope(scope) is True
+    assert is_public_pkm_projection_allowed("one_wiki") is False
+
+    for domain, branch in (("source_library", "catalog"), ("one_wiki", "pages.career")):
+        entry = reserved_entry_for(domain, branch)
+        assert entry is not None
+        assert entry.shareable == "never"
+        assert entry.send_to_model == "never"
+        refusals = evaluate_reserved_write(
+            domain=domain,
+            paths=[branch],
+            writer_id="agent_chat_owner_request",
+        )
+        assert len(refusals) == 1
+        assert refusals[0].reason == "memory_agent"
+
+    base_entry = {
+        "derivedOn": None,
+        "builtAt": "2026-11-14T12:00:00Z",
+    }
+    approved_scopes = ["attr.travel.seat_preferences.*"]
+    approved_values = {"attr.travel.seat_preferences.*": {"summary": "Aisle"}}
+    assert (
+        valid_source_freshness(
+            {
+                "attr.travel.seat_preferences.*": {
+                    **base_entry,
+                    "sources": [
+                        {
+                            "domain": "travel",
+                            "contentRevision": 1,
+                            "manifestRevision": 1,
+                            "absent": False,
+                        }
+                    ],
+                }
+            },
+            approved_scopes,
+            approved_values,
+        )
+        is True
+    )
+    for forbidden_domain in ("one_wiki", "source_library"):
+        assert (
+            valid_source_freshness(
+                {
+                    "attr.travel.seat_preferences.*": {
+                        **base_entry,
+                        "sources": [
+                            {
+                                "domain": forbidden_domain,
+                                "contentRevision": 1,
+                                "manifestRevision": 1,
+                                "absent": False,
+                            }
+                        ],
+                    }
+                },
+                approved_scopes,
+                approved_values,
+            )
+            is False
+        )

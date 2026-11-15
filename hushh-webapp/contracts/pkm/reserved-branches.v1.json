@@ -323,6 +323,30 @@
       "offer_action": null,
       "shareable": "never",
       "send_to_model": "never"
+    },
+    {
+      "$comment": "Owner-selected private source library catalog, locators, policies and audit receipts. Never requestable or exported through attr.* scopes.",
+      "domain": "source_library",
+      "branch_prefix": "*",
+      "except": [],
+      "owner_feature": "source_library",
+      "writer_ids": [],
+      "agent_memory_sibling": null,
+      "offer_action": null,
+      "shareable": "never",
+      "send_to_model": "never"
+    },
+    {
+      "$comment": "Personal wiki memory workspace (pages, claim ledgers, sources and indexes). Never directly shareable through attr.* scopes; outward sharing occurs only through explicit owner-approved PKM projections.",
+      "domain": "one_wiki",
+      "branch_prefix": "*",
+      "except": [],
+      "owner_feature": "one_wiki",
+      "writer_ids": [],
+      "agent_memory_sibling": null,
+      "offer_action": null,
+      "shareable": "never",
+      "send_to_model": "never"
     }
   ]
 }

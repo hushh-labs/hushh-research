@@ -300,6 +300,15 @@ export function VaultProvider({ children }: VaultProviderProps) {
     clearNativeSession();
 
     if (lockedUserId) {
+      const cache = CacheService.getInstance();
+      cache.invalidatePattern(`pkm_domain_resource_${lockedUserId}_`);
+      cache.invalidatePattern(`domain_data_${lockedUserId}_`);
+      cache.invalidatePattern(`domain_manifest_${lockedUserId}_`);
+      cache.invalidatePattern(`domain_blob_${lockedUserId}_`);
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(lockedUserId));
+      cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId));
+      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(lockedUserId));
+      cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(lockedUserId));
       CacheSyncService.onVaultStateChanged(lockedUserId);
       void import("@/lib/kai/kai-financial-resource")
         .then(({ KaiFinancialResourceService }) => {
@@ -310,7 +319,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
         .catch(() => undefined);
       void import("@/lib/pkm/pkm-domain-resource")
         .then(({ PkmDomainResourceService }) => {
-          PkmDomainResourceService.invalidateDomain(lockedUserId, "financial");
+          if (typeof PkmDomainResourceService.invalidateAllForUser === "function") {
+            PkmDomainResourceService.invalidateAllForUser(lockedUserId, {
+              includeDevice: false,
+              includeBackingCaches: true,
+            });
+          } else {
+            PkmDomainResourceService.invalidateDomain(lockedUserId, "financial");
+          }
         })
         .catch(() => undefined);
     }
