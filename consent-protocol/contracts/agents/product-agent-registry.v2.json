@@ -4625,7 +4625,7 @@
           "outputs": [],
           "performance": {
             "latency_p95_ms": 25000,
-            "max_output_tokens": 900
+            "max_output_tokens": 4096
           },
           "privacy": {
             "context_allowlist": [],
