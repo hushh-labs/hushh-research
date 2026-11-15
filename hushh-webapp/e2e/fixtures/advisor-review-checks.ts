@@ -183,8 +183,8 @@ export function registerAdvisorReviewChecks(
     await expect(review.getByRole("heading", { name: "Finance snapshot" })).toBeVisible();
     await swipe(false);
     await expect(review.getByRole("tab", { name: "Meeting" })).toHaveAttribute("aria-selected", "true");
-    await review.getByRole("tab", { name: "Plan", exact: true }).click();
-    await expect(review.getByRole("tab", { name: "Plan", exact: true })).toHaveAttribute("aria-selected", "true");
+    await review.getByRole("tab", { name: "Payment", exact: true }).click();
+    await expect(review.getByRole("tab", { name: "Payment", exact: true })).toHaveAttribute("aria-selected", "true");
     await review.getByRole("tab", { name: "Meeting" }).click();
     await expect(review.getByRole("tab", { name: "Meeting" })).toHaveAttribute("aria-selected", "true");
     expect(await frame.evaluate((trace) => trace.stop())).toBeLessThanOrEqual(1);
@@ -476,7 +476,7 @@ export function registerAdvisorReviewChecks(
         await expect(
           dialog.getByRole("link", { name: "Connect Calendar" }),
         ).toHaveAttribute("href", "/one/calendar");
-        await dialog.getByRole("tab", { name: "Plan", exact: true }).click();
+        await dialog.getByRole("tab", { name: "Payment", exact: true }).click();
         await expect(dialog.getByRole("button", { name: "Set up test payouts" })).toBeEnabled();
         await dialog.getByRole("tab", { name: "Meeting", exact: true }).click();
         const titleBox = (await dialog.getByRole("heading", { name: "Client review", exact: true }).boundingBox())!;
