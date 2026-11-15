@@ -24,6 +24,10 @@ from pathlib import Path
 from runpy import run_path
 
 from consumer_compatibility import BASELINE
+from emergency_admission import (
+    published_production_tag_shas,
+    validate_emergency_receipt,
+)
 from qualify_image import run
 from workos_database import _database_empty
 
@@ -56,16 +60,7 @@ def _instant(value: str) -> datetime:
     return stamp.astimezone(timezone.utc)
 
 
-@lru_cache(maxsize=512)
-def source_capable(sha: str) -> bool:
-    """Only known main history at/before c2 is admitted as pre-427 source.
-
-    Treat every other main source conservatively as capable, including sources
-    whose author copied the new claims without the membership migration.
-    """
-    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise ValueError("workos_history_source_unknown")
-    run(["git", "merge-base", "--is-ancestor", sha, "origin/main"])
+def _capability_from_anchor(sha: str) -> bool:
     run(
         [
             "git",
@@ -90,13 +85,40 @@ def source_capable(sha: str) -> bool:
     return False
 
 
-def _capable(sha: str, restoration_sha: str | None) -> bool:
+@lru_cache(maxsize=512)
+def source_capable(sha: str) -> bool:
+    """Only known main history at/before c2 is admitted as pre-427 source.
+
+    Treat every other main source conservatively as capable, including sources
+    whose author copied the new claims without the membership migration.
+    """
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("workos_history_source_unknown")
+    run(["git", "merge-base", "--is-ancestor", sha, "origin/main"])
+    return _capability_from_anchor(sha)
+
+
+def _capable(
+    sha: str,
+    restoration_sha: str | None,
+    emergency_sha: str | None = None,
+    project: str | None = None,
+) -> bool:
     if restoration_sha is not None and sha == restoration_sha:
         run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))[
             "qualify_source"
         ](sha)
         # Exact reviewed recovery still requires directly closed issuer history.
         return True
+    if (
+        isinstance(sha, str)
+        and re.fullmatch(r"[0-9a-f]{40}", sha)
+        and (
+            (emergency_sha is not None and sha == emergency_sha)
+            or (project == "hushh-pda" and sha in published_production_tag_shas(ROOT))
+        )
+    ):
+        return _capability_from_anchor(sha)
     return source_capable(sha)
 
 
@@ -118,8 +140,11 @@ def revision_inventory(
     closed_key="direct_sso_false",
     container_name=None,
     project=None,
+    emergency_sha: str | None = None,
 ) -> dict[str, dict]:
-    check = check or (lambda sha: _capable(sha, restoration_sha))
+    check = check or (
+        lambda sha: _capable(sha, restoration_sha, emergency_sha, project)
+    )
     if not isinstance(rows, list) or not rows or len(rows) >= LIMIT:
         raise ValueError("workos_revision_inventory_incomplete")
     result = {}
@@ -189,7 +214,10 @@ def _audit_templates(
     methods = (
         METHODS
         if kind == "Service"
-        else {method.replace("Services", "Jobs").replace("Service", "Job") for method in METHODS}
+        else {
+            method.replace("Services", "Jobs").replace("Service", "Job")
+            for method in METHODS
+        }
     )
     if kind not in {"Service", "Job"} or payload.get("methodName") not in methods:
         raise ValueError("workos_audit_method_unknown")
@@ -201,7 +229,8 @@ def _audit_templates(
         kind == "Service"
         and project in TARGETS
         and payload.get("methodName") == "google.cloud.run.v1.Services.CreateService"
-        and request.get("@type") == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
+        and request.get("@type")
+        == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
         and request["parent"] == f"namespaces/{project}"
         and isinstance(service, dict)
         and service.get("metadata", {}).get("namespace") in (None, project)
@@ -213,7 +242,9 @@ def _audit_templates(
         or not isinstance((service.get("spec") or {}).get("template"), dict)
     ):
         raise ValueError("workos_audit_request_shape_unknown")
-    if isinstance(service, dict) and isinstance((service.get("spec") or {}).get("template"), dict):
+    if isinstance(service, dict) and isinstance(
+        (service.get("spec") or {}).get("template"), dict
+    ):
         found.append((service["spec"]["template"], None, False))
     if isinstance(response.get("spec"), dict) and isinstance(
         response["spec"].get("template"), dict
@@ -236,14 +267,20 @@ def _audit_templates(
     return found
 
 
-def _completion_closed(template: dict, flag="WORKOS_SSO_ENABLED", container_name=None) -> bool:
+def _completion_closed(
+    template: dict, flag="WORKOS_SSO_ENABLED", container_name=None
+) -> bool:
     containers = (template.get("spec") or {}).get("containers") or []
     if container_name:
         containers = [row for row in containers if row.get("name") == container_name]
     if len(containers) != 1:
         raise ValueError("workos_audit_container_unknown")
     flags = [row for row in containers[0].get("env", []) if row.get("name") == flag]
-    return len(flags) == 1 and flags[0].get("value") == "false" and "valueFrom" not in flags[0]
+    return (
+        len(flags) == 1
+        and flags[0].get("value") == "false"
+        and "valueFrom" not in flags[0]
+    )
 
 
 def review_history(
@@ -263,8 +300,11 @@ def review_history(
     historical_observation=None,
     operational_observation=None,
     bridge_completions=(),
+    emergency_sha: str | None = None,
 ) -> int:
-    check = check or (lambda sha: _capable(sha, restoration_sha))
+    check = check or (
+        lambda sha: _capable(sha, restoration_sha, emergency_sha, project)
+    )
     if not isinstance(events, list) or len(events) >= LIMIT:
         raise ValueError("workos_audit_history_incomplete")
     if historical_observation is not None or operational_observation is not None:
@@ -368,7 +408,11 @@ def _document(command: list[str]) -> object:
     return json.loads(run(command, timeout=120))
 
 
-def _revisions(project: str, restoration_sha: str | None = None) -> dict[str, dict]:
+def _revisions(
+    project: str,
+    restoration_sha: str | None = None,
+    emergency_sha: str | None = None,
+) -> dict[str, dict]:
     return revision_inventory(
         _document(
             [
@@ -385,6 +429,7 @@ def _revisions(project: str, restoration_sha: str | None = None) -> dict[str, di
         ),
         restoration_sha,
         project=project,
+        emergency_sha=emergency_sha,
     )
 
 
@@ -456,9 +501,19 @@ def database_evidence(project: str, *, inspect=None) -> dict:
     return {**evidence, "owned_proxy_exited": True}
 
 
-def qualify(project: str, restoration_sha: str | None = None) -> dict:
+def qualify(
+    project: str,
+    restoration_sha: str | None = None,
+    *,
+    emergency_receipt: Path | None = None,
+) -> dict:
     if project not in TARGETS:
         raise ValueError("workos_rollout_project_invalid")
+    if emergency_receipt is not None and (
+        project != "hushh-pda" or restoration_sha is not None
+    ):
+        raise ValueError("workos_emergency_scope_invalid")
+    emergency_sha = validate_emergency_receipt(emergency_receipt, root=ROOT)
     if project == "hushh-pda" and restoration_sha is None:
         authority = run_path(
             str(ROOT / "deploy/account-deletion/compatibility_restoration.py")
@@ -468,7 +523,11 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
         if project != "hushh-pda":
             raise ValueError("workos_restoration_project_invalid")
         _capable(restoration_sha, restoration_sha)
-    before = _revisions(project, restoration_sha)
+    before = (
+        _revisions(project, restoration_sha)
+        if emergency_sha is None
+        else _revisions(project, restoration_sha, emergency_sha)
+    )
     until = datetime.now(timezone.utc).isoformat()
     query = (
         f'logName="projects/{project}/logs/cloudaudit.googleapis.com%2Factivity" '
@@ -492,7 +551,11 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
     from restoration_workos_observation import receipt_provenance, review
     from workos_recovery_bridge import completion_filter, needs_completion_history
 
-    reviewer = review_history
+    reviewer = (
+        review_history
+        if emergency_sha is None
+        else partial(review_history, emergency_sha=emergency_sha)
+    )
     if project == "hushh-pda" and needs_completion_history(events, before):
         completions = _document(
             [
@@ -506,7 +569,7 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
                 "--format=json",
             ]
         )
-        reviewer = partial(review_history, bridge_completions=completions)
+        reviewer = partial(reviewer, bridge_completions=completions)
     count, historical = review(
         events,
         before,
@@ -516,7 +579,11 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
         reviewer=reviewer,
     )
     database = database_evidence(project)
-    after = _revisions(project, restoration_sha)
+    after = (
+        _revisions(project, restoration_sha)
+        if emergency_sha is None
+        else _revisions(project, restoration_sha, emergency_sha)
+    )
     if before != after:
         raise ValueError("workos_revision_inventory_changed_during_proof")
     return {
@@ -547,11 +614,20 @@ def main() -> int:
     parser.add_argument(
         "--restoration-sha", help="Exact reviewed production recovery source only"
     )
+    parser.add_argument(
+        "--emergency-receipt",
+        type=Path,
+        help="Immutable manual-emergency receipt for governed incident rollout",
+    )
     args = parser.parse_args()
     try:
         # A failed rerun must not leave an earlier passing receipt at this path.
         args.output.write_text(json.dumps({"qualification": "refused"}) + "\n")
-        receipt = qualify(args.project, args.restoration_sha)
+        receipt = qualify(
+            args.project,
+            args.restoration_sha,
+            emergency_receipt=args.emergency_receipt,
+        )
         args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     except Exception as exc:
         # Never print subprocess output, SQL errors, credentials or cloud bodies.
