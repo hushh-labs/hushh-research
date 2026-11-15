@@ -167,9 +167,9 @@ visible with their decision owner; accepted details must not become open choices
 1. Verify the chosen writer's identity before the first mutation. For a CLI request,
    use `gh api user` and the authenticated CLI for all GitHub writes; do not switch
    to MCP/connector credentials. An assignee is not the issue author.
-2. Search existing work first. Edit the canonical issue in place. Reuse relevant
-   tasks and native relationships without detaching another parent or resetting
-   assignees, status, dates or acceptance evidence.
+2. Read the body and existing writer-owned comments before writing. Edit the matching brief/status record in place; a phase/source update alone does not justify a new comment.
+   Preserve unique decisions/evidence before consolidating duplicates; leave other contributors’ history and unrelated records intact.
+   Preserve native task relationships, assignees, status, dates and acceptance evidence.
 3. Match the requested granularity. A detailed brief does not itself authorize a
    new issue per phase, duplicate board rows, comments or notifications. Put phase
    contracts in the canonical brief and link focused implementation/evidence work.
