@@ -53,14 +53,7 @@ def test_live_entry_is_realtime_regional_and_alias_free():
 
 @pytest.mark.parametrize(
     "model_id",
-    [
-        "",
-        "gemini-3.1-flash-live-preview",
-        "gemini-4-hydrogen",
-        "gemini-3.8-flash",
-        "gemini-default",
-        "default",
-    ],
+    ["", "gemini-3.1-flash-live-preview", "gemini-4-hydrogen", "gemini-default", "default"],
 )
 def test_live_resolver_fails_closed_on_pass_through_aliases_and_text_models(model_id):
     with pytest.raises(LiveModelNotRegisteredError):

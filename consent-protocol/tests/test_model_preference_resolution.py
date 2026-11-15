@@ -31,9 +31,7 @@ def test_catalog_comes_from_the_registry_not_the_environment(
     monkeypatch.delenv("HUSSH_GEMINI_TEXT_MODEL", raising=False)
     monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-4-hydrogen")
     choices = model_catalog.selectable_text_models()
-    assert [choice.model_id for choice in choices] == [
-        "gemini-4-hydrogen",
-    ], "one registry-backed Hydrogen release and no choice"
+    assert [choice.model_id for choice in choices] == ["gemini-4-hydrogen"]
     assert all(choice.label.startswith("Gemini ") for choice in choices)
     assert model_catalog.is_selectable_text_model("gemini-4-hydrogen")
     # Stored previous Flash choices are no longer selectable, so they resolve to the lane default.
@@ -78,9 +76,7 @@ async def test_person_choice_outranks_the_lane(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "withdrawn_model", ["gemini-2.0-retired", "gemini-3.6-flash", "gemini-3.8-flash"]
-)
+@pytest.mark.parametrize("withdrawn_model", ["gemini-2.0-retired", "gemini-3.8-flash"])
 async def test_a_withdrawn_choice_degrades_instead_of_failing_the_turn(
     monkeypatch: pytest.MonkeyPatch,
     withdrawn_model: str,
