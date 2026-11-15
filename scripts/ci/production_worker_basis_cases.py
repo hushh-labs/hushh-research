@@ -721,24 +721,35 @@ class WorkerBasisCases:
 
     def test_emergency_worker_basis_revalidates_without_checks_permission(self):
         source, workflow_sha = "d" * 40, "e" * 40
-        built_image = "gcr.io/hushh-pda/consent-protocol@sha256:" + "8" * 64
         ci_run = {
             "id": 920,
             "run_attempt": 1,
             "status": "completed",
             "conclusion": "success",
         }
+        human = {"login": "governed-maintainer", "id": 77, "type": "User"}
+        repo_meta = {"full_name": basis.REPOSITORY}
         stage_run = {
             "id": 921,
             "run_attempt": 1,
-            "status": "completed",
-            "conclusion": "success",
+            "status": "in_progress",
+            "conclusion": None,
             "path": ".github/workflows/deploy-production.yml",
             "head_sha": workflow_sha,
             "event": "workflow_dispatch",
             "head_branch": "main",
+            "repository": repo_meta,
+            "head_repository": repo_meta,
+            "actor": human,
+            "triggering_actor": human,
         }
-        pin = _emergency_worker_pin(source, workflow_sha, ci_run)
+        load_kwargs = {
+            "candidate_image": "gcr.io/hushh-pda/consent-protocol@sha256:" + "8" * 64,
+            "image_source": "build-from-source",
+            "emergency_qualification": _emergency_worker_pin(
+                source, workflow_sha, ci_run
+            ),
+        }
         with _basis_case(self) as ports:
             base_api = ports.owner.api
             routes = {"runs/920": ci_run, "runs/921": stage_run}
@@ -756,18 +767,26 @@ class WorkerBasisCases:
 
             with (
                 mock.patch.object(ports.owner, "api", api),
-                mock.patch.object(ports.owner, "governed_dispatch", return_value=True),
                 mock.patch(
                     "production_worker_emergency.subprocess.run",
                     return_value=SimpleNamespace(returncode=0),
                 ),
             ):
-                result = basis.load(
-                    source,
-                    candidate_image=built_image,
-                    image_source="build-from-source",
-                    emergency_qualification=pin,
-                )
+                with self.assertRaises(basis.receipts.retention.UnsafeState):
+                    basis.load(source, **load_kwargs)
+                with mock.patch.dict(
+                    "os.environ", {"GITHUB_RUN_ID": "921", "GITHUB_RUN_ATTEMPT": "1"}
+                ):
+                    result = basis.load(source, **load_kwargs)
+                    stage_run["actor"] = {
+                        "login": "github-actions[bot]",
+                        "id": 1,
+                        "type": "Bot",
+                    }
+                    with self.assertRaises(basis.receipts.retention.UnsafeState):
+                        basis.revalidate(result)
+                    stage_run["actor"] = human
+                stage_run.update(status="completed", conclusion="success")
                 self.assertEqual(basis.qualify_source(result), result)
                 self.assertEqual(basis.revalidate(result), result)
                 ci_run["conclusion"] = "cancelled"
