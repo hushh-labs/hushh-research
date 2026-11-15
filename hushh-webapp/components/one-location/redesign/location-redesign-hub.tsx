@@ -1042,11 +1042,11 @@ function resolveLocationNotificationFocus(
 const PEOPLE_LIST_SCROLL_CLASS =
   "space-y-5 overflow-visible md:max-h-[420px] md:space-y-3 md:overflow-y-auto md:overscroll-contain md:pr-1 md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-black/15 dark:md:[&::-webkit-scrollbar-thumb]:bg-white/20";
 const FLOW_STEP_ONE_CLASSNAME =
-  "mx-auto w-full max-w-[640px] space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
+  "min-w-0 w-full space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
 // Ask details stays in document flow as its inline fields grow. The shared
 // scroll root reserves bottom chrome; the action group adds keyboard clearance.
 const FLOW_STEP_CONFIRM_CLASSNAME =
-  "mx-auto w-full max-w-[560px] space-y-5 pb-[var(--app-page-content-bottom-gap,24px)]";
+  "min-w-0 w-full space-y-5 pb-[var(--app-page-content-bottom-gap,24px)]";
 /**
  * The pinned action bar for a flow step.
  *
@@ -1840,7 +1840,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     <div
       data-location-hub
       data-location-type-scale="connect"
-      className="mx-auto w-full max-w-[820px] space-y-4"
+      className="min-w-0 w-full space-y-4"
     >
       <div className="contents" data-testid="one-location-status-row">
         <h1 className="sr-only">Location</h1>
@@ -3185,7 +3185,7 @@ function LocationSettingsFlow({
 
   return (
     <div
-      className="mx-auto w-full max-w-[640px] space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]"
+      className="min-w-0 w-full space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]"
       data-settings-titles="form-label"
     >
       {/* No header description. Each row below already says what it does, and
@@ -5244,17 +5244,9 @@ function ShareFlow({
     // roster is a hand-picked list of people, and this is the last surface that
     // may overstate who is included.
     return (
-      // A single-column consent form does not get wider just because the window
-      // does. Measured at 1440 this step rendered an 824px card holding a 420px
-      // control and a 792px note field — three widths in one card, and 372px of
-      // empty card to the right of the duration ladder.
-      //
-      // 560px is this feature's own column measure (the Location onboarding
-      // flow uses it at two places), so this adds no new number. Scoped to the
-      // Share confirm step rather than the shared flow root on purpose: that
-      // root also carries SmsContactsFlow, whose 680/720 desktop widths are
-      // deliberate and documented, plus two map previews.
-      <div className="mx-auto w-full max-w-[560px] space-y-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1rem)]">
+      // The shared Location shell bounds both steps to the header's reading
+      // measure. Individual duration controls keep their own compact geometry.
+      <div className="min-w-0 w-full space-y-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1rem)]">
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
@@ -5275,7 +5267,7 @@ function ShareFlow({
         ) : null}
 
         <SectionCard className="p-5 sm:p-6">
-          <div className="space-y-6">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)] lg:gap-8">
             {/* The absolute end time is the part people actually reason
                 about; "4 hours" makes them do the arithmetic themselves. It
                 rides on the label's own line rather than a line of its own
@@ -5283,8 +5275,7 @@ function ShareFlow({
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
-              // The column above is already measured, so the control fills the
-              // card instead of stopping 108px short of the note field beside it.
+              // Keep the compact ladder beside the note on wider screens.
               maxWidthClassName={null}
               label="How long"
               hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
@@ -5296,7 +5287,7 @@ function ShareFlow({
                 above. The two label/field pairs sit in the same card, so an
                 8px gap under one and 10px under the other reads as a
                 mistake. */}
-            <div className="space-y-2.5">
+            <div className="min-w-0 space-y-2.5">
               <FormLabel as="label" htmlFor="one-location-share-note">
                 Optional note
               </FormLabel>
@@ -6216,7 +6207,7 @@ function AskFlow({
 
         <div className="space-y-3" data-testid="one-location-ask-form-actions">
           <SectionCard className="p-5 sm:p-6">
-            <div className="space-y-6">
+            <div className="grid min-w-0 gap-6 lg:grid-cols-2 lg:gap-8">
               <DurationSelector
                 value={vm.durationHours}
                 onChange={vm.setDurationHours}
@@ -6239,7 +6230,7 @@ function AskFlow({
                 presentation="buttons"
               />
               {reason === "Other" ? (
-                <div className="space-y-2.5">
+                <div className="min-w-0 space-y-2.5 lg:col-span-2">
                   <FormLabel as="label" htmlFor="one-location-ask-other-reason">
                     Add reason
                   </FormLabel>
