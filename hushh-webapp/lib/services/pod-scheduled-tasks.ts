@@ -1,6 +1,12 @@
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { ApiService } from "./api-service";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
+
+/** Product availability only; the pod still enforces execution authority. */
+export function areScheduledTasksAvailable(): boolean {
+  return resolveAppEnvironment() !== "production";
+}
 
 export type ScheduledTask = {
   id: string;
@@ -126,6 +132,7 @@ export class PodScheduledTasksClient {
     init: RequestInit,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    if (!areScheduledTasksAvailable()) throw new Error("SCHEDULE_UNAVAILABLE");
     const request = new AbortController();
     const current = () =>
       snapshotValidatedAuthSessionOwner()?.userId === this.ownerId &&

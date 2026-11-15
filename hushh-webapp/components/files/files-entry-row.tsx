@@ -34,6 +34,7 @@ import {
   type OrganizationJob,
 } from "@/lib/files/service";
 import type { FilesAction } from "./files-settings-panel";
+import { areScheduledTasksAvailable } from "@/lib/services/pod-scheduled-tasks";
 import { ScheduleFileDialog } from "@/components/scheduled-tasks/schedule-file-dialog";
 export type FileEdit = {
   entry?: FileEntry;
@@ -164,7 +165,7 @@ export function FilesEntryRow({
           false,
         ),
     });
-    if (settings.backgroundAvailable) actions.push({
+    if (settings.backgroundAvailable && areScheduledTasksAvailable()) actions.push({
       id: "schedule",
       label: "Schedule organization…",
       onSelect: () => setScheduleOpen(true),
@@ -335,7 +336,7 @@ export function FilesEntryRow({
           }
         />
       )}
-      {scheduleOpen && (
+      {scheduleOpen && areScheduledTasksAvailable() && (
         <ScheduleFileDialog
           file={entry}
           open={scheduleOpen}
