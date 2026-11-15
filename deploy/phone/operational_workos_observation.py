@@ -31,6 +31,48 @@ def _ports(owner):
     }
 
 
+def _archive_document(continuation, owner, run, name, ports):
+    artifact, _job = continuation.receipts.current_attempt_artifact(
+        REPOSITORY, run, owner.LANES["production"], api=ports["api"], timestamp=ports["timestamp"]
+    )
+    content = continuation.receipts.immutable_archive(
+        REPOSITORY, artifact, run_command=ports["run_command"], timeout=ports["timeout"]
+    )
+    return artifact, content, continuation.phone._document(content, name)
+
+
+def _backend_owner(found, release, fields, anchors, match_id, tag_run, owner, continuation, ports):
+    if "phone_rollback" in release:
+        require("backend_origin" not in release)
+        return match_id, tag_run, release
+    inherited = found[1].get("_maintenance_backend_inheritance")
+    pointer = release.get("backend_origin")
+    require(
+        release.get("scope") == "frontend"
+        and isinstance(pointer, dict)
+        and isinstance(inherited, dict)
+    )
+    identity = inherited.get("backend") or {}
+    backend_release = inherited.get("backend_release") or {}
+    require(
+        str(identity.get("run_id", "")) == pointer.get("run_id")
+        and bool(re.fullmatch(r"[1-9][0-9]*", str(pointer.get("run_id", ""))))
+        and identity.get("source") == pointer.get("source") == backend_release.get("sha")
+        and identity.get("revision") == pointer.get("revision") == fields["backend_revision"]
+        and backend_release.get("status") == "healthy"
+        and backend_release.get("final", {}).get("backend_revision") == fields["backend_revision"]
+        and "phone_rollback" in backend_release
+        and "backend_origin" not in backend_release
+        and anchors == [inherited.get("phone_anchor")]
+    )
+    _tag_artifact, _tag_content, tag_status = _archive_document(
+        continuation, owner, tag_run, "prod-release-status.json", ports
+    )
+    require(tag_status == release)
+    backend_run_id = pointer["run_id"]
+    return backend_run_id, owner.uncached_api(REPOSITORY, f"runs/{backend_run_id}"), backend_release
+
+
 def _healthy_origin(tag, proof, owner):
     continuation = importlib.import_module("production_activation_continuation")
     healthy, _ = proof.reference.split(tag["message"], tag["commit"])
@@ -56,15 +98,14 @@ def _healthy_origin(tag, proof, owner):
         and release.get("sha") == tag["commit"]
         and release.get("final", {}).get("backend_revision") == fields["backend_revision"]
         and release.get("final", {}).get("frontend_revision") == fields["frontend_revision"]
-        and "phone_rollback" in release
     )
-    run = owner.uncached_api(REPOSITORY, f"runs/{match[1]}")
+    tag_run = owner.uncached_api(REPOSITORY, f"runs/{match[1]}")
     ports = _ports(owner)
-    artifact, _job = continuation.receipts.current_attempt_artifact(
-        REPOSITORY, run, owner.LANES["production"], api=ports["api"], timestamp=ports["timestamp"]
+    backend_run_id, run, backend_release = _backend_owner(
+        found, release, fields, anchors, match[1], tag_run, owner, continuation, ports
     )
-    content = continuation.receipts.immutable_archive(
-        REPOSITORY, artifact, run_command=ports["run_command"], timeout=ports["timeout"]
+    artifact, content, status = _archive_document(
+        continuation, owner, run, "prod-release-status.json", ports
     )
     require(
         len(anchors) == 1
@@ -73,9 +114,9 @@ def _healthy_origin(tag, proof, owner):
         and anchors[0].get("artifact_id") == artifact.get("id")
         and anchors[0].get("artifact_digest") == artifact.get("digest")
     )
-    require(continuation.phone._document(content, "prod-release-status.json") == release)
+    require(status == backend_release)
     context = continuation.archive_context(
-        REPOSITORY, run, release, owner.LANES["production"], **ports
+        REPOSITORY, run, backend_release, owner.LANES["production"], **ports
     )
     if context is not None:
         origin = continuation.phone._document(content, continuation.ORIGIN)
@@ -86,7 +127,9 @@ def _healthy_origin(tag, proof, owner):
         observed = continuation.phone._document(content, "phone-rollback/workos-after.json")
         require(observed.get("qualification") == "passed")
         selected = observed["operational_observation"]["origin"]
-    require(owner.uncached_api(REPOSITORY, f"runs/{match[1]}") == run)
+    require(owner.uncached_api(REPOSITORY, f"runs/{match[1]}") == tag_run)
+    if backend_run_id != match[1]:
+        require(owner.uncached_api(REPOSITORY, f"runs/{backend_run_id}") == run)
     return selected
 
 
