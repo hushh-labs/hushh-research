@@ -52,6 +52,7 @@ async def run_portfolio_review(
 
     from hushh_mcp.hushh_adk.manifest import ManifestLoader
     from hushh_mcp.hushh_adk.single_turn import (
+        SingleTurnEmptyResponseError,
         SingleTurnInvalidJsonError,
         build_single_turn_agent,
         run_single_turn,
@@ -77,10 +78,12 @@ async def run_portfolio_review(
                 timeout_seconds=25,
             )
             break
-        except SingleTurnInvalidJsonError:
+        except (SingleTurnEmptyResponseError, SingleTurnInvalidJsonError) as error:
             if attempt:
                 raise
-            logger.warning("portfolio_review.invalid_json_retry")
+            logger.warning(
+                "portfolio_review.model_response_retry error_type=%s", type(error).__name__
+            )
             await check_current()
     review = PortfolioReview.model_validate(result)
     if (review.score is not None and not summary.assessable) or (

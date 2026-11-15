@@ -7,7 +7,10 @@ from hushh_mcp.services import one_portfolio_review
 
 
 @pytest.mark.asyncio
-async def test_review_retries_only_malformed_json_once(monkeypatch):
+@pytest.mark.parametrize(
+    "error_name", ["SingleTurnInvalidJsonError", "SingleTurnEmptyResponseError"]
+)
+async def test_review_retries_invalid_model_response_once(monkeypatch, error_name):
     from hushh_mcp.hushh_adk import single_turn
 
     summary = one_portfolio_review.ReviewInput(
@@ -28,7 +31,8 @@ async def test_review_retries_only_malformed_json_once(monkeypatch):
         "next_step": "Review the saved details.",
         "advisor_reason": "A review may help.",
     }
-    run = AsyncMock(side_effect=[single_turn.SingleTurnInvalidJsonError("invalid JSON"), good])
+    error_type = getattr(single_turn, error_name)
+    run = AsyncMock(side_effect=[error_type("invalid response"), good])
     token = "synthetic"
     check_current = AsyncMock()
     monkeypatch.setattr(single_turn, "run_single_turn", run)
@@ -41,8 +45,8 @@ async def test_review_retries_only_malformed_json_once(monkeypatch):
     assert run.await_count == 2
 
     run.reset_mock(side_effect=True)
-    run.side_effect = [single_turn.SingleTurnInvalidJsonError("invalid JSON")] * 2
-    with pytest.raises(single_turn.SingleTurnInvalidJsonError):
+    run.side_effect = [error_type("invalid response")] * 2
+    with pytest.raises(error_type):
         await one_portfolio_review.run_portfolio_review(
             summary, user_id="synthetic-owner", consent_token=token, check_current=check_current
         )
@@ -57,7 +61,7 @@ async def test_review_retries_only_malformed_json_once(monkeypatch):
     assert run.await_count == 1
 
     run.reset_mock(side_effect=True)
-    run.side_effect = [single_turn.SingleTurnInvalidJsonError("invalid JSON"), good]
+    run.side_effect = [error_type("invalid response"), good]
     check_current.side_effect = PermissionError("owner authority expired")
     with pytest.raises(PermissionError, match="owner authority expired"):
         await one_portfolio_review.run_portfolio_review(

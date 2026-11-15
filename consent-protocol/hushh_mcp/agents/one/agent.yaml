@@ -295,7 +295,7 @@ subagents:
     telemetry_namespace: agent.one.portfolio_review
     performance:
       latency_p95_ms: 25000
-      max_output_tokens: 900
+      max_output_tokens: 4096
     rollout:
       strategy: internal
       rollback: Remove the portfolio review entry point and retain saved owner preferences.
