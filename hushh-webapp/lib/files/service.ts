@@ -1,5 +1,5 @@
 "use client";
-import { filesRequest } from "./connection";
+import { filesRequest, sharedWikiLibrary } from "./connection";
 import { FilesLocalError } from "./local-error";
 
 export type FileEntry = {
@@ -317,6 +317,7 @@ export const FilesService = {
       throw error;
     }
   },
+  sharedWiki: () => sharedWikiLibrary(),
 };
 
 const CHUNK_BYTES = 4 * 1024 * 1024;

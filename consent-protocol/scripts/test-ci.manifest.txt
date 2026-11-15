@@ -1699,9 +1699,10 @@ tests/test_migration_ledger_atomicity_postgres.py
 tests/test_pod_browser_ssrf_and_dumpable_hardening.py
 tests/test_pod_custody_port_and_ace.py
 
-# Personal Wiki Memory (#9370 Phase 0): reserved one_wiki/source_library consent guards and offline eval baseline.
+# Personal Wiki Memory (#9370 Phase 0 & Phase 1 / #8814): reserved scope guards, eval baseline, and versioned wiki foundation.
 tests/test_source_library_scope_policy.py
 tests/eval_wiki_memory/test_phase0_baseline.py
+tests/services/test_wiki_memory_foundation.py
 
 # Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
 tests/test_provider_capability_registry_and_aws_parity.py
