@@ -12,6 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from slowapi.errors import RateLimitExceeded
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.direct_messages_service import DirectMessagesError
@@ -60,6 +61,10 @@ class PrivateFinanceRoute(APIRoute):
             except RequestValidationError:
                 return JSONResponse(
                     {"detail": {"code": "FINANCE_SHARE_INVALID"}}, status_code=422, headers=PRIVATE
+                )
+            except RateLimitExceeded:
+                return JSONResponse(
+                    {"detail": {"code": "RATE_LIMITED"}}, status_code=429, headers=PRIVATE
                 )
             except HTTPException as exc:
                 return JSONResponse(
