@@ -527,8 +527,12 @@ def test_workos_default_history_admits_only_production_exact_closed_restoration(
     import operational_workos_observation as observation
     import workos_rollout as closed
 
+    from tests.helpers.workos_observations import restoration_observation
+
     # This fixture supplies historical evidence only; never use live production
     # as an implicit operational producer-closure proof.
+    historical, historical_obs, _, _ = restoration_observation(closed)
+    monkeypatch.setattr(historical, "load", lambda _source: historical_obs)
     monkeypatch.setattr(observation, "load", lambda _source: None)
     authority, record = _history_authority(monkeypatch, tmp_path)
     source = record["sourceSha"]
