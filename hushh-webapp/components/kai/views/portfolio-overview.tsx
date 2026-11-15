@@ -61,7 +61,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
         </div> : facts.change !== null ? <div className="min-w-0"><p className={styles.insightEyebrow}>Reported balance change</p><p className={styles.insightAmount}>{formatCurrency(facts.change)}</p></div> : null}
         {model.quality.gainLossReady && distribution.total ? (
             <div className={styles.performanceRing} role="img" aria-label={`${distribution.total} positions with reported gain or loss. ${distribution.segments.map(segment => `${segment.label}: ${segment.count}`).join(". ")}`}>
-              <PieChart width={80} height={80}><Pie data={distribution.segments} dataKey="count" cx="50%" cy="50%" innerRadius={27} outerRadius={39} stroke="none" isAnimationActive={false}>
+              <PieChart width={96} height={96}><Pie data={distribution.segments} dataKey="count" cx="50%" cy="50%" innerRadius={35} outerRadius={47} stroke="none" isAnimationActive={false}>
                 {distribution.segments.map((segment, index) => <Cell key={segment.tone} fill={colors[index]} />)}
               </Pie></PieChart>
               <span>{distribution.total}<small>positions</small></span>

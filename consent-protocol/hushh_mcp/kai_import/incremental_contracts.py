@@ -42,7 +42,9 @@ CSV_LAYOUT_SCHEMA = _object(
         ),
         "metadata": _array(_object({"field": _TEXT, "row": _INT, "column": _INT})),
         "decimal_separator": {"type": "string", "enum": [".", ","]},
-        "group_separator": {"type": "string", "enum": ["", ".", ",", " ", "'"]},
+        # Vertex rejects empty string enum members; csv_layout validates the
+        # exact permitted separators after the model response is decoded.
+        "group_separator": _TEXT,
         "currency": {"anyOf": [_TEXT, {"type": "null"}]},
     }
 )
