@@ -838,6 +838,32 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
                 self._send_bytes(200, body, content_type="text/xml")
                 return
 
+            if action == "GetRolePolicy":
+                if not self._require_query_action("iam:GetRolePolicy"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                pname = str(params.get("PolicyName") or "").strip()
+                with state.lock:
+                    role = state.iam_roles.get(rname)
+                    if role is None or pname not in role["Policies"]:
+                        self._send_bytes(
+                            404, _query_error_xml("NoSuchEntity", "Role policy not found")
+                        )
+                        return
+                    encoded_doc = urllib.parse.quote(json.dumps(role["Policies"][pname]), safe="")
+                body = (
+                    f'<GetRolePolicyResponse xmlns="{iam_ns}">'
+                    "<GetRolePolicyResult>"
+                    f"<RoleName>{xml_escape(rname)}</RoleName>"
+                    f"<PolicyName>{xml_escape(pname)}</PolicyName>"
+                    f"<PolicyDocument>{xml_escape(encoded_doc)}</PolicyDocument>"
+                    "</GetRolePolicyResult>"
+                    "<ResponseMetadata><RequestId>floci-iam-grp</RequestId></ResponseMetadata>"
+                    "</GetRolePolicyResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
             if action == "ListRolePolicies":
                 if not self._require_query_action("iam:ListRolePolicies"):
                     return
