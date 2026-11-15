@@ -94,6 +94,31 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     return value
 
 
+def configured_managed_provider(
+    environment: str, path: Path = PROFILE_PATH, *, document: dict | None = None
+) -> str:
+    """Packaged fleet default; revision pins are resolved separately below.
+
+    Only UAT has an administrator-selected Azure/Vertex runtime. Other lanes
+    retain their existing Vertex contract; BYOK and owner-cloud routing are separate.
+    """
+    document = json.loads(path.read_text()) if document is None else document
+    selection = document.get("managed_provider_selection")
+    if selection is None and "managed_provider_selection" not in document:
+        selection = {"uat": document.get("private_drive_text_uat", {}).get("provider")}
+    if (
+        document.get("version") != 1
+        or not isinstance(selection, dict)
+        or set(selection) != {"uat"}
+        or not isinstance(selection["uat"], str)
+        or selection["uat"] not in {"azure_openai", "vertex"}
+    ):
+        raise ValueError("Invalid managed provider selection")
+    if environment not in document.get("environments", {}):
+        raise ValueError("Unknown managed AI runtime profile")
+    return selection["uat"] if environment == "uat" else "vertex"
+
+
 def selected_managed_provider() -> str:
     selected = os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER") or os.getenv(
         "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai"

@@ -940,7 +940,7 @@ def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):
 
 @pytest.mark.parametrize(
     "environment,project",
-    [("uat", "hushh-gemini-bridge"), ("production", "hushh-gemini-bridge")],
+    [("uat", "hushh-pda-uat"), ("production", "hushh-pda")],
 )
 def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
     monkeypatch, environment, project
@@ -950,6 +950,8 @@ def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
     monkeypatch.setenv("GOOGLE_API_KEY", "HOSTED_KEY_MUST_NOT_BE_USED")
     monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_AI_PROVIDER", raising=False)
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
     monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "stale-project")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "stale-region")
     monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
@@ -960,6 +962,10 @@ def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
 
         assert isinstance(client, ManagedAzureTextClient)
         assert calls == []  # Hosted API keys and stale Vertex configuration cannot capture UAT.
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
+        assert build_managed_runtime_client("gemini") is not None
+        assert calls == [{"vertexai": True, "project": project, "location": "global"}]
     else:
         assert calls == [{"vertexai": True, "project": project, "location": "global"}]
 

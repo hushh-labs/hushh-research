@@ -1122,15 +1122,19 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         )
 
     uat = load_profile("uat")["project"]
-    deferred = run_case("uat", "true", "true", uat, deny_project_discovery=True)
+    cross_project = "hushh-gemini-bridge"
+    same_project = run_case("uat", "true", "true", uat, deny_project_discovery=False)
+    assert same_project.returncode == 0, same_project.stderr
+
+    deferred = run_case("uat", "true", "true", cross_project, deny_project_discovery=True)
     assert deferred.returncode == 0, deferred.stderr
     assert deferred.stderr.count("CALL:") == 1
     assert "CALL:iam service-accounts describe" in deferred.stderr
 
     for deploy_env, no_traffic, probe_enabled, project in (
-        ("dev", "true", "true", uat),
-        ("production", "true", "true", uat),
-        ("uat", "true", "true", "hushh-pda-uat"),
+        ("dev", "true", "true", cross_project),
+        ("production", "true", "true", cross_project),
+        ("uat", "true", "true", uat),
     ):
         denied = run_case(
             deploy_env,
@@ -1157,7 +1161,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
                 "deploy_env": "uat",
                 "no_traffic": "true",
                 "probe_enabled": "true",
-                "genai_project": uat,
+                "genai_project": cross_project,
                 "deny_project_discovery": False,
                 **overrides,
             }
@@ -1165,7 +1169,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         assert rejected.returncode != 0, overrides
         assert "CALL:services list" not in rejected.stderr
 
-    static = run_case("production", "true", "true", uat, deny_project_discovery=False)
+    static = run_case("production", "true", "true", cross_project, deny_project_discovery=False)
     assert static.returncode == 0, static.stderr
     assert static.stderr.count("CALL:projects get-iam-policy") == 2
 
@@ -1359,7 +1363,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
-    project = load_profile("uat")["project"]
+    project = "hushh-gemini-bridge"
     healthy = _healthy_vertex_verdict(project)
 
     def run_verdict(
@@ -1514,9 +1518,9 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
-        "dev": "hushh-gemini-bridge",
-        "uat": "hushh-gemini-bridge",
-        "production": "hushh-gemini-bridge",
+        "dev": "hushh-pda-dev",
+        "uat": "hushh-pda-uat",
+        "production": "hushh-pda",
     }
     for env in ("dev", "uat", "production"):
         assert f"scripts/ops/managed_ai_config.py --environment {env}" in _read(
