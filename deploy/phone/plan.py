@@ -13,6 +13,10 @@ from pathlib import Path
 
 import qualify_image
 from consumer_compatibility import qualify_consumers
+from emergency_admission import (
+    published_production_tag_shas,
+    validate_emergency_receipt,
+)
 from operational_reference import current as _operational
 from operational_reference import revalidate as _verify_operational
 from production_receipt import qualify_release
@@ -25,24 +29,36 @@ from revision_qualification import (
     inspect_existing,
 )
 
+ROOT = Path(__file__).resolve().parents[2]
 
-def _source_supported(sha: str) -> bool:
+
+def _source_supported(sha: str, *, emergency_sha: str | None = None) -> bool:
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         return False
-    for command in (
+    if subprocess.run(
         ["git", "merge-base", "--is-ancestor", sha, "origin/main"],
-        [
-            "python3",
-            "deploy/account-deletion/activate_release.py",
-            "--qualify-rollback-source",
-            sha,
-        ],
-    ):
-        if subprocess.run(
-            command, capture_output=True, timeout=30, check=False
-        ).returncode:  # noqa: S603
-            return False
-    return True
+        capture_output=True,
+        timeout=30,
+        check=False,
+    ).returncode and not (
+        (emergency_sha is not None and sha == emergency_sha)
+        or sha in published_production_tag_shas(ROOT)
+    ):  # noqa: S603
+        return False
+    return (
+        subprocess.run(
+            [
+                "python3",
+                "deploy/account-deletion/activate_release.py",
+                "--qualify-rollback-source",
+                sha,
+            ],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        ).returncode
+        == 0
+    )  # noqa: S603
 
 
 def _outputs(path: Path, **values: str) -> None:
@@ -173,7 +189,7 @@ def _independent(sha: str, tools: Path, directory: Path) -> dict:
     }
 
 
-def _readers_qualified() -> bool:
+def _readers_qualified(*, emergency_sha: str | None = None) -> bool:
     revisions = json.loads(
         qualify_image.run(
             [
@@ -190,14 +206,18 @@ def _readers_qualified() -> bool:
     )
     return bool(revisions) and all(
         _source_supported(
-            row.get("metadata", {}).get("labels", {}).get("deploy-sha", "")
+            row.get("metadata", {}).get("labels", {}).get("deploy-sha", ""),
+            emergency_sha=emergency_sha,
         )
         for row in revisions
     )
 
 
 def prepare(args) -> dict:
-    if not _source_supported(args.primary_sha):
+    emergency_sha = validate_emergency_receipt(
+        getattr(args, "emergency_receipt", None), root=ROOT
+    )
+    if not _source_supported(args.primary_sha, emergency_sha=emergency_sha):
         raise ValueError("phone_rollback_primary_lacks_current_admission")
     current = json.loads(args.current_json.read_text())
     labels = (current.get("metadata") or {}).get("labels") or {}
@@ -230,7 +250,9 @@ def prepare(args) -> dict:
     ):
         raise ValueError("phone_rollback_requires_independent_source")
     compatibility = qualify_consumers(chosen["source"], args.primary_sha)
-    recovery_enabled = args.enable_recovery == "true" and _readers_qualified()
+    recovery_enabled = args.enable_recovery == "true" and _readers_qualified(
+        emergency_sha=emergency_sha
+    )
     plan = {
         "schema_version": 1,
         "run_id": args.run_id,
@@ -250,6 +272,9 @@ def prepare(args) -> dict:
 
 
 def verify(args) -> dict:
+    emergency_sha = validate_emergency_receipt(
+        getattr(args, "emergency_receipt", None), root=ROOT
+    )
     plan = json.loads(args.plan.read_text())
     probe = plan.get("probe") or {}
     expected_probe = hashlib.sha256(
@@ -259,7 +284,7 @@ def verify(args) -> dict:
         plan.get("schema_version") != 1
         or plan.get("run_id") != args.run_id
         or plan.get("primary_sha") != args.primary_sha
-        or not _source_supported(args.primary_sha)
+        or not _source_supported(args.primary_sha, emergency_sha=emergency_sha)
         or not _source_supported(plan.get("source", ""))
         or probe.get("source") != plan.get("source")
         or probe.get("image") != plan.get("image")
@@ -269,7 +294,10 @@ def verify(args) -> dict:
         or plan.get("consumer_compatibility")
         != qualify_consumers(plan.get("source", ""), args.primary_sha)
         or type(plan.get("recovery_enabled")) is not bool
-        or (plan.get("recovery_enabled") is True and not _readers_qualified())
+        or (
+            plan.get("recovery_enabled") is True
+            and not _readers_qualified(emergency_sha=emergency_sha)
+        )
     ):
         raise ValueError("phone_rollback_preparation_evidence_mismatch")
     if plan["mode"] == "operational":
@@ -316,6 +344,7 @@ def main() -> int:
     parser.add_argument("--release-tools", type=Path)
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--operational-only", action="store_true")
+    parser.add_argument("--emergency-receipt", type=Path)
     args = parser.parse_args()
     try:
         if not re.fullmatch(r"[1-9][0-9]*", args.run_id):

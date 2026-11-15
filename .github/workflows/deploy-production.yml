@@ -459,6 +459,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if git remote get-url origin >/dev/null 2>&1; then
+            git fetch --force --no-tags origin \
+              'refs/tags/deployed/production*:refs/tags/deployed/production*'
+            git pack-refs --all
+          fi
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/tag-last-known-good.sh "${RUNNER_TEMP}/release-tools/"
@@ -532,7 +537,7 @@ jobs:
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           for tool in cloudrun-retention.py process_group.py github_team_authority.py github_security_receipt.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py retention_uat_guard_evidence.py \
-            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
+            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_worker_emergency.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
@@ -616,7 +621,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           for tool in cloudrun-retention.py process_group.py github_team_authority.py github_security_receipt.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py retention_uat_guard_evidence.py \
-            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
+            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_worker_emergency.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
@@ -707,6 +712,7 @@ jobs:
           MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
           AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
           RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
+          EMERGENCY_SOURCE_REF: ${{ inputs.emergency_source_ref }}
         run: |
           set -euo pipefail
           umask 077
@@ -749,6 +755,16 @@ jobs:
                   raise SystemExit("Staged worker belongs to another source")
               expected_approval = os.environ.get("MAIN_APPROVAL_SHA") or os.environ["TARGET_SHA"]
               candidate_basis = context.get("basis", {}).get("candidate", {})
+              if os.environ["RELEASE_MODE"] == "manual-emergency":
+                  emergency_pin = candidate_basis.get("emergency_qualification")
+                  if (
+                      not isinstance(emergency_pin, dict)
+                      or emergency_pin.get("admission", {}).get("authority", {}).get("source_ref")
+                      != os.environ.get("EMERGENCY_SOURCE_REF")
+                  ):
+                      raise SystemExit("Manual emergency release requires a matching emergency-qualified staged worker")
+              elif "emergency_qualification" in candidate_basis:
+                  raise SystemExit("Ordinary release cannot consume an emergency-qualified staged worker")
               if "main_qualification" in candidate_basis:
                   if candidate_basis["main_qualification"].get("main_approval_sha") != expected_approval:
                       raise SystemExit("Staged worker Main approval differs from requested approval")
@@ -966,6 +982,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           ENABLE_PHONE_RECOVERY: ${{ inputs.phone_phase == 'cold' && 'false' || vars.AUTH_PHONE_RECOVERY_PROD_ENABLED || 'true' }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/phone-rollback
@@ -975,11 +992,16 @@ jobs:
               --plan /tmp/restoration-operation/acceptance.json --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
+          emergency=()
+          if [ "${RELEASE_MODE:-}" = manual-emergency ]; then
+            emergency=(--emergency-receipt /tmp/prod-emergency-admission.json)
+          fi
           gcloud auth configure-docker gcr.io --quiet
           python3 deploy/phone/plan.py prepare --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --enable-recovery "$ENABLE_PHONE_RECOVERY" \
             --current-json /tmp/prod-drive-serving-backend.json --fallback-sha "$PHONE_ROLLBACK_SHA" \
             --release-tools "${RUNNER_TEMP}/release-tools" \
+            ${emergency[@]+"${emergency[@]}"} \
             --output /tmp/phone-rollback/plan.json --github-output "$GITHUB_OUTPUT"
 
       - name: Upload immutable recovery baseline
@@ -1174,12 +1196,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESTORATION_SOURCE: ${{ inputs.restoration_validation_run != '' && inputs.sha || '' }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           restoration=()
+          emergency=()
           if [ -n "$RESTORATION_SOURCE" ]; then restoration=(--restoration-sha "$RESTORATION_SOURCE"); fi
+          if [ "${RELEASE_MODE:-}" = manual-emergency ]; then
+            emergency=(--emergency-receipt /tmp/prod-emergency-admission.json)
+          fi
           "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json "${restoration[@]}"
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json \
+            ${restoration[@]+"${restoration[@]}"} ${emergency[@]+"${emergency[@]}"}
 
       - name: Attest production Drive database before secret sync
         if: inputs.restoration_validation_run == '' && (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
@@ -1921,6 +1949,7 @@ jobs:
         if: always() && steps.phone-rollback-plan.outcome == 'success' && (inputs.restoration_validation_run != '' || steps.deploy-backend.outcome != 'skipped')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then
@@ -1930,11 +1959,17 @@ jobs:
               --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
+          emergency=()
+          if [ "${RELEASE_MODE:-}" = manual-emergency ]; then
+            emergency=(--emergency-receipt /tmp/prod-emergency-admission.json)
+          fi
           python3 deploy/phone/plan.py verify --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --plan /tmp/phone-rollback/plan.json \
+            ${emergency[@]+"${emergency[@]}"} \
             --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
           "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-after.json
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-after.json \
+            ${emergency[@]+"${emergency[@]}"}
           if [ "${{ steps.document-mode.outputs.configured }}" = "true" ]; then
             "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
               --project "${{ env.GCP_PROJECT_ID }}" --environment production \
@@ -3521,9 +3556,9 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REQUIRED_BRANCH: main
+          REQUIRED_BRANCH: ${{ steps.dispatch-authority.outputs.branch }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
+          REQUIRED_CHECK_NAME: ${{ steps.dispatch-authority.outputs.mode == 'manual-emergency' && 'CI Status Gate,Branch Validation Gate' || 'Main Post-Merge Smoke Gate' }}
           REQUESTED_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$REQUESTED_SHA"
 
@@ -3547,12 +3582,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APPLICATION_SHA: ${{ inputs.sha }}
           MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
+          EMERGENCY_SOURCE_REF: ${{ steps.dispatch-authority.outputs.branch }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/worker-stage"
-          "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py main-source \
-            --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
-            --scope backend --output "$RUNNER_TEMP/worker-stage/main-qualification.json"
+          if [ "$RELEASE_MODE" = manual-emergency ]; then
+            "$PROTOCOL_PYTHON" scripts/ci/production_emergency.py admit \
+              --scope backend --output "$RUNNER_TEMP/worker-stage/emergency-admission.json"
+            "$PROTOCOL_PYTHON" scripts/ci/production_worker_emergency.py \
+              --admission "$RUNNER_TEMP/worker-stage/emergency-admission.json" \
+              --sha "$APPLICATION_SHA" --source-ref "$EMERGENCY_SOURCE_REF" \
+              --output "$RUNNER_TEMP/worker-stage/emergency-qualification.json"
+          else
+            "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py main-source \
+              --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
+              --scope backend --output "$RUNNER_TEMP/worker-stage/main-qualification.json"
+          fi
+
+      - name: Publish immutable manual worker incident admission
+        if: steps.dispatch-authority.outputs.mode == 'manual-emergency'
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-emergency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/worker-stage/emergency-admission.json
+          if-no-files-found: error
 
       - name: Enforce production worker staging capacity
         shell: bash
@@ -3622,6 +3676,7 @@ jobs:
           REQUESTED_SOURCE: ${{ inputs.sha }}
           IMAGE_SOURCE: ${{ inputs.backend_image_source }}
           MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           umask 077
@@ -3646,9 +3701,15 @@ jobs:
                                      sealed["primary_image"], sealed["document_mode"])
           else:
               image_source = os.environ["IMAGE_SOURCE"]
+              emergency_mode = os.environ.get("RELEASE_MODE") == "manual-emergency"
               qualification = (
                   json.loads((Path(os.environ["RUNNER_TEMP"]) / "worker-stage/main-qualification.json").read_text())
-                  if image_source == "build-from-source"
+                  if image_source == "build-from-source" and not emergency_mode
+                  else None
+              )
+              emergency = (
+                  json.loads((Path(os.environ["RUNNER_TEMP"]) / "worker-stage/emergency-qualification.json").read_text())
+                  if emergency_mode
                   else None
               )
               basis = basis_owner.load(
@@ -3657,6 +3718,7 @@ jobs:
                   image_source=image_source,
                   approval_sha=os.environ["MAIN_APPROVAL_SHA"],
                   main_qualification=qualification,
+                  emergency_qualification=emergency,
               )
               source, image, mode = (basis["candidate"]["source"], basis["candidate"]["image"],
                                      basis["protected_documents"])

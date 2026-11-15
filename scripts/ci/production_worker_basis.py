@@ -51,6 +51,7 @@ class Candidate(TypedDict):
     image: str
     uat_acceptance: NotRequired[dict]
     main_qualification: NotRequired[dict]
+    emergency_qualification: NotRequired[dict]
 
 
 class HealthyWorkerBasis(TypedDict):
@@ -156,7 +157,9 @@ def _verify_main_git(source: str, approval: str, expected_mapping: object) -> No
     )
 
 
-def _verify_main_qualification(owner, pin: object, source: str, *, approval_sha: str = "") -> dict:
+def _verify_main_qualification(
+    owner, pin: object, source: str, *, approval_sha: str = ""
+) -> dict:
     expected_fields = {
         "schema_version",
         "kind",
@@ -262,13 +265,36 @@ def _accepted(
     *,
     image_source: str = "promote-from-uat",
     approval_sha: str = "",
+    emergency_qualification: dict | None = None,
 ):
     _require(bool(re.fullmatch(r"[0-9a-f]{40}", source)), "candidate source is invalid")
+    if emergency_qualification is not None:
+        _require(
+            image_source == "build-from-source" and not approval_sha and pin is None,
+            "Emergency worker qualification cannot mix with Main or UAT pins",
+        )
+        _require(
+            isinstance(image, str)
+            and bool(
+                re.fullmatch(
+                    r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
+                )
+            ),
+            "Emergency-built backend candidate has no immutable production image proof",
+        )
+        import production_worker_emergency
+
+        qualified = production_worker_emergency.verify_qualification(
+            owner, emergency_qualification, source
+        )
+        return {"source": source, "image": image, "emergency_qualification": qualified}
     if image_source == "build-from-source":
         _require(
             isinstance(image, str)
             and bool(
-                re.fullmatch(r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image)
+                re.fullmatch(
+                    r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
+                )
             ),
             "Main-built backend candidate has no immutable production image proof",
         )
@@ -289,8 +315,12 @@ def _accepted(
                     )
                 )
             except acceptance.Refused as error:
-                raise receipts.retention.UnsafeState(f"Healthy worker basis: {error}") from error
-        qualified = _verify_main_qualification(owner, pin, source, approval_sha=selected_approval)
+                raise receipts.retention.UnsafeState(
+                    f"Healthy worker basis: {error}"
+                ) from error
+        qualified = _verify_main_qualification(
+            owner, pin, source, approval_sha=selected_approval
+        )
         return {"source": source, "image": image, "main_qualification": qualified}
     _require(
         image_source == "promote-from-uat" and not approval_sha,
@@ -302,14 +332,18 @@ def _accepted(
     elif source == acceptance.RECORDED_RECOVERY_SHA:
         # The same-SHA completion can need a new stage after the operational
         # tag clears. Its accepted image remains the exact recorded UAT image.
-        accepted = github.recorded_recovery_uat(source, "backend")["services"]["backend"]
+        accepted = github.recorded_recovery_uat(source, "backend")["services"][
+            "backend"
+        ]
     else:
         accepted = github.find("uat", source, "backend")["services"]["backend"]
     reference = accepted.get("image_reference", "")
     _require(
         isinstance(reference, str)
         and bool(
-            re.fullmatch(r"gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}", reference)
+            re.fullmatch(
+                r"gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}", reference
+            )
         ),
         "exact-SHA UAT backend has no immutable image proof",
     )
@@ -369,13 +403,18 @@ def _release(owner, tag, fields, run_id):
     archive = receipts.immutable_archive(
         REPOSITORY, artifact, run_command=owner.retention.run_command, timeout=30
     )
-    original = {key: value for key, value in release.items() if not key.startswith("_maintenance_")}
+    original = {
+        key: value
+        for key, value in release.items()
+        if not key.startswith("_maintenance_")
+    }
     _require(
         original == phone._document(archive, "prod-release-status.json")
         and release.get("status") == "healthy"
         and release.get("sha") == tag["commit"]
         and all(
-            release.get("final", {}).get(f"{lane}_revision") == fields[f"{lane}_revision"]
+            release.get("final", {}).get(f"{lane}_revision")
+            == fields[f"{lane}_revision"]
             for lane in ("backend", "frontend")
         ),
         "healthy tag, attempt archive and release differ",
@@ -396,6 +435,7 @@ def _source(
     *,
     image_source: str = "promote-from-uat",
     approval_sha: str = "",
+    emergency_qualification: dict | None = None,
 ):
     owner, acceptance = _owners()
     tag, fields, run_id = _tag(release_run_id)
@@ -408,6 +448,7 @@ def _source(
         pin,
         image_source=image_source,
         approval_sha=approval_sha,
+        emergency_qualification=emergency_qualification,
     )
     return (
         owner,
@@ -448,7 +489,9 @@ def _runtime(owner, service):
         state.get("spec", {}).get("traffic"),
         state.get("status", {}).get("traffic"),
     )
-    _require(isinstance(desired, list) and isinstance(actual, list), "traffic is absent")
+    _require(
+        isinstance(desired, list) and isinstance(actual, list), "traffic is absent"
+    )
     positive = [row for row in actual if row.get("percent", 0)]
     requested = [row for row in desired if row.get("percent", 0)]
     _require(
@@ -470,11 +513,15 @@ def _runtime(owner, service):
 
 def _service_ready(service: str, state: dict, serving_name: str) -> bool:
     conditions = state.get("status", {}).get("conditions", [])
-    if any(row.get("type") == "Ready" and row.get("status") == "True" for row in conditions):
+    if any(
+        row.get("type") == "Ready" and row.get("status") == "True" for row in conditions
+    ):
         return True
     if service != WORKER:
         return False
-    template_name = state.get("spec", {}).get("template", {}).get("metadata", {}).get("name", "")
+    template_name = (
+        state.get("spec", {}).get("template", {}).get("metadata", {}).get("name", "")
+    )
     status = state.get("status", {})
     return (
         bool(re.fullmatch(WORKER + r"-s-[1-9][0-9]*-[1-9][0-9]*", str(template_name)))
@@ -498,7 +545,9 @@ def _identity(service, state, revision):
     container_name = "drive-worker" if service == WORKER else None
     containers = revision.get("spec", {}).get("containers", [])
     selected = [
-        row for row in containers if container_name is None or row.get("name") == container_name
+        row
+        for row in containers
+        if container_name is None or row.get("name") == container_name
     ]
     _require(len(selected) == 1, "runtime application container is ambiguous")
     image = selected[0].get("image", "")
@@ -521,7 +570,11 @@ def _identity(service, state, revision):
         and bool(re.fullmatch(r"[1-9][0-9]*", run_id))
         and labels.get("serving.knative.dev/service") == service
         and labels.get("deploy-env") == "production"
-        and bool(re.fullmatch(r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image))
+        and bool(
+            re.fullmatch(
+                r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
+            )
+        )
         and revision.get("spec", {}).get("serviceAccountName")
         == "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
         and all(
@@ -549,9 +602,24 @@ def _identity(service, state, revision):
     }
 
 
-def _stored_candidate_pin(candidate: object) -> tuple[str, str, str, object, str]:
+def _stored_candidate_pin(
+    candidate: object,
+) -> tuple[str, str, str, object, str, dict | None]:
     _require(isinstance(candidate, dict), "candidate authority is missing")
     keys = set(candidate)
+    if keys == {"source", "image", "emergency_qualification"}:
+        emergency = candidate["emergency_qualification"]
+        _require(
+            isinstance(emergency, dict), "Emergency candidate qualification is invalid"
+        )
+        return (
+            candidate["source"],
+            candidate["image"],
+            "build-from-source",
+            None,
+            "",
+            emergency,
+        )
     if keys == {"source", "image", "main_qualification"}:
         pin = candidate["main_qualification"]
         approval = pin.get("main_approval_sha", "") if isinstance(pin, dict) else ""
@@ -562,6 +630,7 @@ def _stored_candidate_pin(candidate: object) -> tuple[str, str, str, object, str
             "build-from-source",
             pin,
             approval,
+            None,
         )
     _require(
         keys == {"source", "image", "uat_acceptance"},
@@ -573,6 +642,7 @@ def _stored_candidate_pin(candidate: object) -> tuple[str, str, str, object, str
         "promote-from-uat",
         candidate["uat_acceptance"],
         "",
+        None,
     )
 
 
@@ -584,6 +654,7 @@ def _load(
     *,
     image_source: str = "promote-from-uat",
     approval_sha: str = "",
+    emergency_qualification: dict | None = None,
 ):
     owner, run, release, result = _source(
         source,
@@ -592,6 +663,7 @@ def _load(
         pin,
         image_source=image_source,
         approval_sha=approval_sha,
+        emergency_qualification=emergency_qualification,
     )
     _require(
         owner.live_release_matches(release, environment="production"),
@@ -607,7 +679,11 @@ def _load(
         backend["revision"] == expected["revision"]
         and backend["source"] == expected["source"]
         and backend["runtime_run_id"] == str(expected["run_id"])
-        and all(backend[key] == expected[key] for key in ("uid", "service_uid") if key in expected),
+        and all(
+            backend[key] == expected[key]
+            for key in ("uid", "service_uid")
+            if key in expected
+        ),
         "current backend differs from healthy runtime provenance",
     )
     result.update(backend=backend, worker=worker)
@@ -623,11 +699,17 @@ def load(
     image_source: str = "promote-from-uat",
     approval_sha: str = "",
     main_qualification: dict | None = None,
+    emergency_qualification: dict | None = None,
 ) -> HealthyWorkerBasis:
     """Qualify an exact current healthy release and live backend/worker snapshot."""
     _require(
-        main_qualification is None or image_source == "build-from-source",
-        "Main qualification pin requires build-from-source",
+        main_qualification is None or emergency_qualification is None,
+        "Main and emergency worker qualifications cannot mix",
+    )
+    _require(
+        (main_qualification is None and emergency_qualification is None)
+        or image_source == "build-from-source",
+        "Source qualification pin requires build-from-source",
     )
     return _load(
         target_sha,
@@ -636,6 +718,7 @@ def load(
         main_qualification,
         image_source=image_source,
         approval_sha=approval_sha,
+        emergency_qualification=emergency_qualification,
     )
 
 
@@ -647,7 +730,9 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
         and basis["schema_version"] == 1,
         "basis type is invalid",
     )
-    source_sha, image, image_source, pin, approval = _stored_candidate_pin(basis.get("candidate"))
+    source_sha, image, image_source, pin, approval, emergency = _stored_candidate_pin(
+        basis.get("candidate")
+    )
     owner, run, _release, source = _source(
         source_sha,
         basis["healthy"]["run_id"],
@@ -655,6 +740,7 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
         pin,
         image_source=image_source,
         approval_sha=approval,
+        emergency_qualification=emergency,
     )
     _require(
         all(basis.get(key) == value for key, value in source.items()),
@@ -667,7 +753,9 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
 def revalidate(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
     """Re-read live authority and refuse drift instead of replacing its basis."""
     qualify_source(basis)
-    source_sha, image, image_source, pin, approval = _stored_candidate_pin(basis.get("candidate"))
+    source_sha, image, image_source, pin, approval, emergency = _stored_candidate_pin(
+        basis.get("candidate")
+    )
     current = _load(
         source_sha,
         basis["healthy"]["run_id"],
@@ -675,6 +763,7 @@ def revalidate(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
         pin,
         image_source=image_source,
         approval_sha=approval,
+        emergency_qualification=emergency,
     )
     _require(current == basis, "current worker or backend identity changed")
     return current
@@ -692,11 +781,17 @@ def main():
     )
     parser.add_argument("--approval-sha", default="")
     parser.add_argument("--main-qualification", type=Path)
+    parser.add_argument("--emergency-qualification", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     qualification = (
         json.loads(args.main_qualification.read_text())
         if args.main_qualification is not None
+        else None
+    )
+    emergency = (
+        json.loads(args.emergency_qualification.read_text())
+        if args.emergency_qualification is not None
         else None
     )
     value = load(
@@ -706,6 +801,7 @@ def main():
         image_source=args.image_source,
         approval_sha=args.approval_sha,
         main_qualification=qualification,
+        emergency_qualification=emergency,
     )
     args.output.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
 
