@@ -594,7 +594,18 @@ class UserAwsBackend:
         pod_receipt: dict[str, Any],
     ) -> dict[str, Any]:
         names = self.resource_names(spec.hushh_id)
-        custody = effective_custody_mode(spec)
+        custody = (
+            spec.custody_mode.strip()
+            if spec.custody_mode is not None and spec.custody_mode.strip()
+            else effective_custody_mode(
+                PodSpec(
+                    hushh_id=spec.hushh_id,
+                    phone_e164_hash=spec.phone_e164_hash,
+                    pod_pubkey=spec.pod_pubkey,
+                    deployment_target=BACKEND_USER_AWS,
+                )
+            )
+        )
         services = ("ecs", "iam", "kms") if custody == CUSTODY_OWNER_KMS else ("ecs", "iam")
         clients = self._assume_role_clients(external_id=nonce, services=services)
 
@@ -770,7 +781,18 @@ class UserAwsBackend:
             f"arn:aws:secretsmanager:{self._region}:{self._account_id}:secret:"
             f"{family}/app-signing-key"
         )
-        custody = effective_custody_mode(spec)
+        custody = (
+            spec.custody_mode.strip()
+            if spec.custody_mode is not None and spec.custody_mode.strip()
+            else effective_custody_mode(
+                PodSpec(
+                    hushh_id=spec.hushh_id,
+                    phone_e164_hash=spec.phone_e164_hash,
+                    pod_pubkey=spec.pod_pubkey,
+                    deployment_target=BACKEND_USER_AWS,
+                )
+            )
+        )
         custody_env: list[dict[str, str]]
         if custody == CUSTODY_ACE_ENVELOPE:
             custody_env = [{"name": "HUSSH_POD_CUSTODY_MODE", "value": CUSTODY_ACE_ENVELOPE}]
@@ -781,6 +803,11 @@ class UserAwsBackend:
                 {"name": WRAPPED_KEY_OBJECT_ENV, "value": WRAPPED_LOG_KEY_OBJECT},
             ]
 
+        revision_id = (
+            spec.expected_service_uid.strip()
+            if spec.expected_service_uid and spec.expected_service_uid.strip()
+            else f"{family}--{self._image_digest[-12:]}"
+        )
         aws_overrides: list[dict[str, str]] = [
             {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
             {"name": "POD_STORAGE_S3_URI", "value": f"s3://{bucket}/pod"},
@@ -790,6 +817,7 @@ class UserAwsBackend:
             {"name": "GOOGLE_GENAI_USE_VERTEXAI", "value": "false"},
             {"name": "HUSSH_POD_HUB_CALLER_EMAILS", "value": hub_caller},
             {"name": "HUSSH_AWS_SERVICE_NAME", "value": family},
+            {"name": "HUSSH_AWS_TASK_REVISION", "value": revision_id},
             {"name": "POD_IDLE_GRACE_SECONDS", "value": "600"},
         ]
         env = merge_pod_env(shared_non_gcp_pod_env(spec, self._region), aws_overrides)

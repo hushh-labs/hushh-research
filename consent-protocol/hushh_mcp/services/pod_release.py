@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from browser_runtime.qualification import (
+    BROWSER_HOST_CAPABILITIES,
     qualification_environment,
 )
 from browser_runtime.qualification import (
@@ -28,8 +29,8 @@ from browser_runtime.qualification import (
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _NOTE_CATEGORIES = {"improvements", "fixes", "security"}
-_OWNER_TARGETS = {"user_gcp", "user_azure"}
-MAX_RELEASE_BYTES = 12000
+MAX_BROWSER_QUALIFICATIONS = len(BROWSER_HOST_CAPABILITIES)
+MAX_RELEASE_BYTES = 32768
 
 
 def _text(value: object, maximum: int) -> str:
@@ -133,7 +134,7 @@ def validate_release(value: object, *, target_image: str, environment: str) -> d
         if (
             environment != "dev"
             or not isinstance(qualifications, list)
-            or not 1 <= len(qualifications) <= 2
+            or not 1 <= len(qualifications) <= MAX_BROWSER_QUALIFICATIONS
         ):
             raise ValueError("Browser qualification is a bounded dev pilot")
         hosts: set[str] = set()

@@ -433,6 +433,22 @@ def render_cloudformation_template(
         f"{inputs.account_id}.dkr.ecr.{inputs.region}.amazonaws.com/"
         f"consent-protocol-pod@{inputs.image_digest}"
     )
+    default_env = [
+        {"Name": "HUSSH_POD_MODE", "Value": "1"},
+        {"Name": "POD_STORAGE_BACKEND", "Value": "commit_log"},
+        {"Name": "POD_STORAGE_S3_URI", "Value": f"s3://{names.bucket_name}/pod"},
+        {"Name": "HUSSH_POD_CUSTODY_MODE", "Value": inputs.custody_mode},
+        {"Name": "HUSSH_AWS_SERVICE_NAME", "Value": names.service_name},
+        {"Name": "HUSSH_AWS_TASK_REVISION", "Value": inputs.resolved_incarnation},
+        {"Name": "GOOGLE_GENAI_USE_VERTEXAI", "Value": "false"},
+    ]
+    if inputs.custody_mode == CUSTODY_OWNER_KMS:
+        default_env.append(
+            {
+                "Name": "HUSSH_POD_AWS_KMS_KEY_ARN",
+                "Value": f"arn:aws:kms:{inputs.region}:{inputs.account_id}:key/{names.kms_alias}",
+            }
+        )
     container_defs = (
         task_config["taskDefinition"]["containerDefinitions"]
         if task_config is not None
@@ -442,6 +458,22 @@ def render_cloudformation_template(
                 "Image": image,
                 "Essential": True,
                 "PortMappings": [{"ContainerPort": 8080, "Protocol": "tcp"}],
+                "Environment": default_env,
+                "Secrets": [
+                    {
+                        "Name": "APP_SIGNING_KEY",
+                        "ValueFrom": {"Ref": "PodSigningSecret"},
+                    }
+                ],
+                "HealthCheck": {
+                    "Command": [
+                        "CMD-SHELL",
+                        "curl -fsS http://127.0.0.1:8080/health || exit 1",
+                    ],
+                    "Interval": 30,
+                    "Timeout": 5,
+                    "Retries": 3,
+                },
             }
         ]
     )

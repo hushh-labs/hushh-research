@@ -27,10 +27,11 @@ def browser_qualifications(config: Path, *, image: str, source_sha: str) -> dict
     """Optional reviewed pins; no file means no Browser qualification offer."""
     if not config.exists():
         return {}
-    if config.stat().st_size > 8192:
+    if config.stat().st_size > 16384:
         raise ValueError("Browser qualification pins exceed their bound")
     pins = json.loads(config.read_text())
-    if not isinstance(pins, list) or not 1 <= len(pins) <= 2:
+    max_pins = int(getattr(contract, "MAX_BROWSER_QUALIFICATIONS", 6))
+    if not isinstance(pins, list) or not 1 <= len(pins) <= max_pins:
         raise ValueError("invalid Browser qualification pins")
     qualifications = []
     for pin in pins:

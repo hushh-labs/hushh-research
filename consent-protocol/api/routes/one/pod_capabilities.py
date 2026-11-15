@@ -58,8 +58,8 @@ def vertex_model_configured() -> bool:
 
 
 def voice_hosting_allowed() -> bool:
-    """Azure voice stays disabled; credentials cannot change hosting policy."""
-    return bool(workload_platform() != "azure")
+    """Non-Google-Cloud owner hosts disable managed Gemini voice; credentials cannot override policy."""
+    return bool(workload_platform() not in {"azure", "aws"})
 
 
 def voice_capability() -> dict[str, Any]:
