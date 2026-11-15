@@ -115,6 +115,11 @@ class AceComputeBackend:
                 )
             )
         )
+        revision_name = (
+            spec.expected_service_uid.strip()
+            if spec.expected_service_uid and spec.expected_service_uid.strip()
+            else f"{sandbox_name}--{self._image_digest[-12:] or 'initial'}"
+        )
         ace_overrides: list[dict[str, Any]] = [
             {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
             {
@@ -126,6 +131,7 @@ class AceComputeBackend:
             {"name": "HUSSH_POD_ACE_SEAL_SCALAR", "secretRef": "pod-ace-seal-scalar"},
             {"name": "HUSSH_POD_ID", "value": spec.hushh_id},
             {"name": "ACE_SANDBOX_ID", "value": sandbox_name},
+            {"name": "ACE_SANDBOX_REVISION", "value": revision_name},
             {"name": "POD_DURABLE_IDENTITY_ENABLED", "value": "true"},
             {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
             {"name": "GOOGLE_GENAI_USE_VERTEXAI", "value": "false"},

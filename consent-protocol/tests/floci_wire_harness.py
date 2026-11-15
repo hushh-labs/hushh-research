@@ -35,8 +35,19 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Iterator
+from xml.sax.saxutils import escape as xml_escape
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+
+def _fnmatch_action(pattern: str, action: str) -> bool:
+    pat = pattern.strip().lower()
+    act = action.strip().lower()
+    if pat == "*" or pat == act:
+        return True
+    if pat.endswith("*"):
+        return act.startswith(pat[:-1])
+    return False
 
 
 @dataclass
@@ -45,15 +56,64 @@ class _WireState:
     buckets: dict[str, dict[str, tuple[bytes, str]]] = field(default_factory=dict)
     forbidden_buckets: set[str] = field(default_factory=set)
     kms_keys: dict[str, bytes] = field(default_factory=dict)
+    kms_aliases: dict[str, str] = field(default_factory=dict)
     disabled_kms_keys: set[str] = field(default_factory=set)
+    iam_roles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    sts_sessions: dict[str, dict[str, str]] = field(default_factory=dict)
+    sts_seq: int = 0
+    ecs_clusters: dict[str, dict[str, Any]] = field(default_factory=dict)
+    ecs_task_defs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    ecs_task_family_seq: dict[str, int] = field(default_factory=dict)
+    ecs_services: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+
+    def resolve_kms_key_id(self, raw_id: str) -> str:
+        candidate = str(raw_id or "").strip()
+        if ":key/alias/" in candidate:
+            alias_part = "alias/" + candidate.split(":key/alias/", 1)[1]
+            if alias_part in self.kms_aliases:
+                return self.kms_aliases[alias_part]
+        if ":alias/" in candidate:
+            alias_part = "alias/" + candidate.split(":alias/", 1)[1]
+            if alias_part in self.kms_aliases:
+                return self.kms_aliases[alias_part]
+        if candidate in self.kms_aliases:
+            return self.kms_aliases[candidate]
+        return candidate
 
     def ensure_kms_key(self, key_id: str) -> bytes:
         with self.lock:
-            existing = self.kms_keys.get(key_id)
+            resolved = self.resolve_kms_key_id(key_id)
+            existing = self.kms_keys.get(resolved)
             if existing is None:
                 existing = os.urandom(32)
-                self.kms_keys[key_id] = existing
+                self.kms_keys[resolved] = existing
             return existing
+
+    def session_allows(self, session_token: str, action: str) -> bool:
+        tok = (session_token or "").strip()
+        if not tok:
+            return True
+        with self.lock:
+            sess = self.sts_sessions.get(tok)
+            if sess is None:
+                return False
+            role = self.iam_roles.get(sess["role_name"])
+            if role is None:
+                return False
+            policies = list((role.get("Policies") or {}).values())
+        for doc in policies:
+            stmts = doc.get("Statement") or []
+            if isinstance(stmts, dict):
+                stmts = [stmts]
+            for stmt in stmts:
+                if str(stmt.get("Effect") or "") != "Allow":
+                    continue
+                actions = stmt.get("Action") or []
+                if isinstance(actions, str):
+                    actions = [actions]
+                if any(_fnmatch_action(str(a), action) for a in actions):
+                    return True
+        return False
 
 
 @dataclass(frozen=True)
@@ -76,10 +136,11 @@ class FlociWireEnvironment:
         if self._state is None:
             return
         with self._state.lock:
+            resolved = self._state.resolve_kms_key_id(key_id)
             if disabled:
-                self._state.disabled_kms_keys.add(key_id)
+                self._state.disabled_kms_keys.add(resolved)
             else:
-                self._state.disabled_kms_keys.discard(key_id)
+                self._state.disabled_kms_keys.discard(resolved)
 
 
 def _canonical_aad(key_id: str, context: dict[str, str] | None) -> bytes:
@@ -95,12 +156,32 @@ def _s3_error_xml(code: str, message: str) -> bytes:
     ).encode("utf-8")
 
 
+def _query_error_xml(code: str, message: str) -> bytes:
+    return (
+        "<ErrorResponse><Error><Type>Sender</Type>"
+        f"<Code>{xml_escape(code)}</Code><Message>{xml_escape(message)}</Message>"
+        "</Error><RequestId>floci-err-1</RequestId></ErrorResponse>"
+    ).encode("utf-8")
+
+
+def _parse_form_tags(params: dict[str, str], prefix: str = "Tags.member") -> dict[str, str]:
+    out: dict[str, str] = {}
+    idx = 1
+    while f"{prefix}.{idx}.Key" in params:
+        out[params[f"{prefix}.{idx}.Key"]] = params.get(f"{prefix}.{idx}.Value", "")
+        idx += 1
+    return out
+
+
 def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
     class _Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, _format: str, *_args: Any) -> None:
             return
+
+        def _session_token(self) -> str:
+            return (self.headers.get("X-Amz-Security-Token") or "").strip()
 
         def _send_bytes(
             self,
@@ -119,6 +200,37 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
             if self.command != "HEAD":
                 self.wfile.write(body)
 
+        def _send_amz_json(self, status: int, payload: dict[str, Any]) -> None:
+            self._send_bytes(
+                status,
+                json.dumps(payload).encode("utf-8"),
+                content_type="application/x-amz-json-1.1",
+            )
+
+        def _require_json_action(self, action: str) -> bool:
+            if not state.session_allows(self._session_token(), action):
+                self._send_amz_json(
+                    400,
+                    {
+                        "__type": "AccessDeniedException",
+                        "message": f"Assumed session is not authorized to perform {action}",
+                    },
+                )
+                return False
+            return True
+
+        def _require_query_action(self, action: str) -> bool:
+            if not state.session_allows(self._session_token(), action):
+                self._send_bytes(
+                    403,
+                    _query_error_xml(
+                        "AccessDenied",
+                        f"Assumed session is not authorized to perform {action}",
+                    ),
+                )
+                return False
+            return True
+
         def _read_body(self) -> bytes:
             length = int(self.headers.get("Content-Length") or "0")
             return self.rfile.read(length) if length > 0 else b""
@@ -133,7 +245,13 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
             key = parts[1] if len(parts) > 1 else ""
             return bucket, key
 
-        def _check_bucket_access(self, bucket: str) -> bool:
+        def _check_bucket_access(self, bucket: str, s3_action: str) -> bool:
+            if not state.session_allows(self._session_token(), s3_action):
+                self._send_bytes(
+                    403,
+                    _s3_error_xml("AccessDenied", "Access Denied"),
+                )
+                return False
             with state.lock:
                 if bucket in state.forbidden_buckets:
                     self._send_bytes(
@@ -145,7 +263,8 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
 
         def do_HEAD(self) -> None:  # noqa: N802
             bucket, key = self._parse_s3_path()
-            if not self._check_bucket_access(bucket):
+            action = "s3:GetObject" if key else "s3:ListBucket"
+            if not self._check_bucket_access(bucket, action):
                 return
             with state.lock:
                 bkt = state.buckets.get(bucket)
@@ -175,7 +294,8 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
                 )
                 return
             bucket, key = self._parse_s3_path()
-            if not self._check_bucket_access(bucket):
+            action = "s3:GetObject" if key else "s3:ListBucket"
+            if not self._check_bucket_access(bucket, action):
                 return
             with state.lock:
                 bkt = state.buckets.get(bucket)
@@ -197,7 +317,8 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
         def do_PUT(self) -> None:  # noqa: N802
             body = self._read_body()
             bucket, key = self._parse_s3_path()
-            if not self._check_bucket_access(bucket):
+            action = "s3:PutObject" if key else "s3:CreateBucket"
+            if not self._check_bucket_access(bucket, action):
                 return
             if not key:
                 with state.lock:
@@ -212,7 +333,7 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
             with state.lock:
                 bkt = state.buckets.get(bucket)
                 if bkt is None:
-                    self._send_bytes(404, _s3_error_xml("NoSuchBucket", "No such bucket"))
+                    self._send_bytes(404, _s3_error_xml("NoSuchBucket", "NoSuchBucket"))
                     return
                 current = bkt.get(key)
                 if if_none_match == "*" and current is not None:
@@ -245,7 +366,8 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
         def do_DELETE(self) -> None:  # noqa: N802
             self._read_body()
             bucket, key = self._parse_s3_path()
-            if not self._check_bucket_access(bucket):
+            action = "s3:DeleteObject" if key else "s3:DeleteBucket"
+            if not self._check_bucket_access(bucket, action):
                 return
             if_match = (self.headers.get("If-Match") or "").strip()
             with state.lock:
@@ -264,41 +386,71 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
                 bkt.pop(key, None)
             self._send_bytes(204, b"")
 
-        def do_POST(self) -> None:  # noqa: N802
-            raw = self._read_body()
-            target = (self.headers.get("X-Amz-Target") or "").strip()
-            if not target.startswith("TrentService."):
-                self._send_bytes(
-                    400,
-                    b'{"__type":"UnknownOperationException"}',
-                    content_type="application/x-amz-json-1.1",
-                )
+        def _handle_kms(self, op: str, payload: dict[str, Any]) -> None:
+            if not self._require_json_action(f"kms:{op}"):
                 return
-
-            payload = json.loads(raw.decode("utf-8") or "{}")
-            op = target.split(".", 1)[1]
-
             if op == "CreateKey":
-                arn = f"arn:aws:kms:us-east-1:000000000000:key/{os.urandom(8).hex()}"
+                arn = f"arn:aws:kms:us-east-1:123456789012:key/{os.urandom(8).hex()}"
                 state.ensure_kms_key(arn)
-                resp = {"KeyMetadata": {"KeyId": arn, "Arn": arn, "Enabled": True}}
-                self._send_bytes(
-                    200,
-                    json.dumps(resp).encode("utf-8"),
-                    content_type="application/x-amz-json-1.1",
+                self._send_amz_json(
+                    200, {"KeyMetadata": {"KeyId": arn, "Arn": arn, "Enabled": True}}
                 )
                 return
 
-            key_id = str(payload.get("KeyId") or "").strip()
+            if op == "CreateAlias":
+                alias_name = str(payload.get("AliasName") or "").strip()
+                target_key = str(payload.get("TargetKeyId") or "").strip()
+                with state.lock:
+                    state.kms_aliases[alias_name] = state.resolve_kms_key_id(target_key)
+                self._send_amz_json(200, {})
+                return
+
+            raw_key_id = str(payload.get("KeyId") or "").strip()
             with state.lock:
+                key_id = state.resolve_kms_key_id(raw_key_id)
                 disabled = key_id in state.disabled_kms_keys
+                exists = key_id in state.kms_keys
+
+            if op == "DescribeKey":
+                if not exists:
+                    self._send_amz_json(
+                        400, {"__type": "NotFoundException", "message": "Key not found"}
+                    )
+                    return
+                self._send_amz_json(
+                    200,
+                    {
+                        "KeyMetadata": {
+                            "KeyId": key_id,
+                            "Arn": key_id,
+                            "Enabled": not disabled,
+                            "KeyState": "Disabled" if disabled else "Enabled",
+                        }
+                    },
+                )
+                return
+
+            if op == "DisableKey":
+                if not exists:
+                    self._send_amz_json(
+                        400, {"__type": "NotFoundException", "message": "Key not found"}
+                    )
+                    return
+                with state.lock:
+                    state.disabled_kms_keys.add(key_id)
+                self._send_amz_json(200, {})
+                return
+
+            if op == "EnableKey":
+                with state.lock:
+                    state.disabled_kms_keys.discard(key_id)
+                self._send_amz_json(200, {})
+                return
+
             if disabled:
-                self._send_bytes(
+                self._send_amz_json(
                     400,
-                    json.dumps(
-                        {"__type": "DisabledException", "message": "KMS key is disabled"}
-                    ).encode("utf-8"),
-                    content_type="application/x-amz-json-1.1",
+                    {"__type": "DisabledException", "message": "KMS key is disabled"},
                 )
                 return
 
@@ -315,15 +467,12 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
                         "c": base64.b64encode(ct).decode("ascii"),
                     }
                 ).encode("utf-8")
-                self._send_bytes(
+                self._send_amz_json(
                     200,
-                    json.dumps(
-                        {
-                            "CiphertextBlob": base64.b64encode(envelope).decode("ascii"),
-                            "KeyId": key_id,
-                        }
-                    ).encode("utf-8"),
-                    content_type="application/x-amz-json-1.1",
+                    {
+                        "CiphertextBlob": base64.b64encode(envelope).decode("ascii"),
+                        "KeyId": key_id,
+                    },
                 )
                 return
 
@@ -346,44 +495,438 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
                     aad = _canonical_aad(expected_key_id, payload.get("EncryptionContext"))
                     pt = AESGCM(kek_opt).decrypt(nonce, ct, aad)
                 except PermissionError:
-                    self._send_bytes(
+                    self._send_amz_json(
                         400,
-                        json.dumps(
-                            {"__type": "DisabledException", "message": "KMS key is disabled"}
-                        ).encode("utf-8"),
-                        content_type="application/x-amz-json-1.1",
+                        {"__type": "DisabledException", "message": "KMS key is disabled"},
                     )
                     return
                 except Exception:  # noqa: BLE001
-                    self._send_bytes(
+                    self._send_amz_json(
                         400,
-                        json.dumps(
-                            {
-                                "__type": "InvalidCiphertextException",
-                                "message": "Ciphertext or EncryptionContext invalid",
-                            }
-                        ).encode("utf-8"),
-                        content_type="application/x-amz-json-1.1",
+                        {
+                            "__type": "InvalidCiphertextException",
+                            "message": "Ciphertext or EncryptionContext invalid",
+                        },
                     )
                     return
 
-                self._send_bytes(
+                self._send_amz_json(
                     200,
-                    json.dumps(
-                        {
-                            "Plaintext": base64.b64encode(pt).decode("ascii"),
-                            "KeyId": expected_key_id,
-                        }
-                    ).encode("utf-8"),
-                    content_type="application/x-amz-json-1.1",
+                    {
+                        "Plaintext": base64.b64encode(pt).decode("ascii"),
+                        "KeyId": expected_key_id,
+                    },
                 )
                 return
 
-            self._send_bytes(
-                400,
-                b'{"__type":"UnsupportedOperationException"}',
-                content_type="application/x-amz-json-1.1",
-            )
+            self._send_amz_json(400, {"__type": "UnsupportedOperationException"})
+
+        def _handle_ecs(self, op: str, payload: dict[str, Any]) -> None:
+            if not self._require_json_action(f"ecs:{op}"):
+                return
+            acct = "123456789012"
+            reg = "us-east-1"
+
+            if op == "CreateCluster":
+                cname = str(payload.get("clusterName") or "default")
+                cluster = {
+                    "clusterName": cname,
+                    "clusterArn": f"arn:aws:ecs:{reg}:{acct}:cluster/{cname}",
+                    "status": "ACTIVE",
+                }
+                with state.lock:
+                    state.ecs_clusters[cname] = cluster
+                self._send_amz_json(200, {"cluster": cluster})
+                return
+
+            if op == "RegisterTaskDefinition":
+                family = str(payload.get("family") or "task")
+                with state.lock:
+                    rev = state.ecs_task_family_seq.get(family, 0) + 1
+                    state.ecs_task_family_seq[family] = rev
+                    arn = f"arn:aws:ecs:{reg}:{acct}:task-definition/{family}:{rev}"
+                    td = {
+                        "taskDefinitionArn": arn,
+                        "family": family,
+                        "revision": rev,
+                        "status": "ACTIVE",
+                        "taskRoleArn": str(payload.get("taskRoleArn") or ""),
+                        "executionRoleArn": str(payload.get("executionRoleArn") or ""),
+                        "containerDefinitions": payload.get("containerDefinitions") or [],
+                    }
+                    state.ecs_task_defs[arn] = td
+                    state.ecs_task_defs[f"{family}:{rev}"] = td
+                    state.ecs_task_defs[family] = td
+                self._send_amz_json(200, {"taskDefinition": td})
+                return
+
+            if op == "DescribeTaskDefinition":
+                ref = str(payload.get("taskDefinition") or "")
+                with state.lock:
+                    td_opt = state.ecs_task_defs.get(ref)
+                if td_opt is None:
+                    self._send_amz_json(
+                        400,
+                        {
+                            "__type": "ClientException",
+                            "message": "Unable to describe task definition",
+                        },
+                    )
+                    return
+                self._send_amz_json(200, {"taskDefinition": td_opt})
+                return
+
+            if op == "CreateService":
+                cluster_raw = str(payload.get("cluster") or "default").rsplit("/", 1)[-1]
+                sname = str(payload.get("serviceName") or "")
+                td_ref = str(payload.get("taskDefinition") or "")
+                desired = int(payload.get("desiredCount") or 0)
+                with state.lock:
+                    td_resolved = state.ecs_task_defs.get(td_ref) or {}
+                    td_arn = str(td_resolved.get("taskDefinitionArn") or td_ref)
+                    svc = {
+                        "serviceName": sname,
+                        "serviceArn": f"arn:aws:ecs:{reg}:{acct}:service/{cluster_raw}/{sname}",
+                        "clusterArn": f"arn:aws:ecs:{reg}:{acct}:cluster/{cluster_raw}",
+                        "status": "ACTIVE",
+                        "desiredCount": desired,
+                        "runningCount": desired,
+                        "taskDefinition": td_arn,
+                        "deploymentConfiguration": payload.get("deploymentConfiguration")
+                        or {"maximumPercent": 100, "minimumHealthyPercent": 0},
+                        "tags": list(payload.get("tags") or []),
+                        "forceDeployCount": 0,
+                    }
+                    state.ecs_services[(cluster_raw, sname)] = svc
+                self._send_amz_json(200, {"service": svc})
+                return
+
+            if op == "DescribeServices":
+                cluster_raw = str(payload.get("cluster") or "default").rsplit("/", 1)[-1]
+                wanted = [str(item).rsplit("/", 1)[-1] for item in (payload.get("services") or [])]
+                found: list[dict[str, Any]] = []
+                failures: list[dict[str, str]] = []
+                with state.lock:
+                    if cluster_raw not in state.ecs_clusters:
+                        self._send_amz_json(
+                            400,
+                            {
+                                "__type": "ClusterNotFoundException",
+                                "message": "Cluster not found",
+                            },
+                        )
+                        return
+                    for name in wanted:
+                        svc_opt = state.ecs_services.get((cluster_raw, name))
+                        if svc_opt is None:
+                            failures.append(
+                                {
+                                    "arn": f"arn:aws:ecs:{reg}:{acct}:service/{cluster_raw}/{name}",
+                                    "reason": "MISSING",
+                                }
+                            )
+                        else:
+                            found.append(json.loads(json.dumps(svc_opt)))
+                self._send_amz_json(200, {"services": found, "failures": failures})
+                return
+
+            if op == "UpdateService":
+                cluster_raw = str(payload.get("cluster") or "default").rsplit("/", 1)[-1]
+                sname = str(payload.get("service") or "").rsplit("/", 1)[-1]
+                with state.lock:
+                    svc_opt = state.ecs_services.get((cluster_raw, sname))
+                    if svc_opt is None:
+                        self._send_amz_json(
+                            400,
+                            {
+                                "__type": "ServiceNotFoundException",
+                                "message": "Service not found",
+                            },
+                        )
+                        return
+                    if "desiredCount" in payload and payload["desiredCount"] is not None:
+                        desired = int(payload["desiredCount"])
+                        svc_opt["desiredCount"] = desired
+                        svc_opt["runningCount"] = desired
+                    if payload.get("taskDefinition"):
+                        td_ref = str(payload["taskDefinition"])
+                        td_resolved = state.ecs_task_defs.get(td_ref) or {}
+                        svc_opt["taskDefinition"] = str(
+                            td_resolved.get("taskDefinitionArn") or td_ref
+                        )
+                    if payload.get("forceNewDeployment"):
+                        svc_opt["forceDeployCount"] = int(svc_opt.get("forceDeployCount") or 0) + 1
+                    snapshot = json.loads(json.dumps(svc_opt))
+                self._send_amz_json(200, {"service": snapshot})
+                return
+
+            if op == "DeleteService":
+                cluster_raw = str(payload.get("cluster") or "default").rsplit("/", 1)[-1]
+                sname = str(payload.get("service") or "").rsplit("/", 1)[-1]
+                with state.lock:
+                    svc_opt = state.ecs_services.pop((cluster_raw, sname), None)
+                if svc_opt is None:
+                    self._send_amz_json(
+                        400,
+                        {"__type": "ServiceNotFoundException", "message": "Service not found"},
+                    )
+                    return
+                svc_opt["status"] = "INACTIVE"
+                self._send_amz_json(200, {"service": svc_opt})
+                return
+
+            self._send_amz_json(400, {"__type": "UnsupportedOperationException"})
+
+        def _handle_query_xml(self, params: dict[str, str]) -> None:
+            action = str(params.get("Action") or "").strip()
+            sts_ns = "https://sts.amazonaws.com/doc/2011-06-15/"
+            iam_ns = "https://iam.amazonaws.com/doc/2010-05-08/"
+
+            if action == "GetCallerIdentity":
+                tok = self._session_token()
+                with state.lock:
+                    sess = state.sts_sessions.get(tok) if tok else None
+                arn = (
+                    sess["role_arn"]
+                    if sess is not None
+                    else "arn:aws:iam::123456789012:user/floci-bootstrap"
+                )
+                body = (
+                    f'<GetCallerIdentityResponse xmlns="{sts_ns}">'
+                    "<GetCallerIdentityResult>"
+                    "<UserId>floci-caller-1</UserId>"
+                    "<Account>123456789012</Account>"
+                    f"<Arn>{xml_escape(arn)}</Arn>"
+                    "</GetCallerIdentityResult>"
+                    "<ResponseMetadata><RequestId>floci-sts-1</RequestId></ResponseMetadata>"
+                    "</GetCallerIdentityResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action in {"AssumeRole", "AssumeRoleWithWebIdentity"}:
+                role_arn = str(params.get("RoleArn") or "").strip()
+                role_name = (
+                    role_arn.split(":role/", 1)[1].rsplit("/", 1)[-1]
+                    if ":role/" in role_arn
+                    else ""
+                )
+                provided_ext_id = str(params.get("ExternalId") or "").strip()
+                with state.lock:
+                    role = state.iam_roles.get(role_name)
+                    if role is None or role.get("Arn") != role_arn:
+                        self._send_bytes(
+                            403,
+                            _query_error_xml("AccessDenied", "Target IAM role does not exist"),
+                        )
+                        return
+                    trust = role.get("AssumeRolePolicyDocument") or {}
+                    required_ext_id = ""
+                    for stmt in trust.get("Statement") or []:
+                        cond = (stmt.get("Condition") or {}).get("StringEquals") or {}
+                        if "sts:ExternalId" in cond:
+                            required_ext_id = str(cond["sts:ExternalId"])
+                    if required_ext_id and provided_ext_id and provided_ext_id != required_ext_id:
+                        self._send_bytes(
+                            403,
+                            _query_error_xml("AccessDenied", "sts:ExternalId mismatch"),
+                        )
+                        return
+                    state.sts_seq += 1
+                    seq = state.sts_seq
+                    sess_tok = f"floci-sts-session-token-{seq}-{os.urandom(6).hex()}"
+                    key_id = f"floci-sts-key-{seq:04d}"
+                    secret_val = f"floci-sts-sec-{seq:04d}"
+                    state.sts_sessions[sess_tok] = {
+                        "role_name": role_name,
+                        "role_arn": role_arn,
+                    }
+                sess_name = str(params.get("RoleSessionName") or "session")
+                assumed_arn = f"arn:aws:sts::123456789012:assumed-role/{role_name}/{sess_name}"
+                body = (
+                    f'<AssumeRoleResponse xmlns="{sts_ns}">'
+                    "<AssumeRoleResult>"
+                    "<Credentials>"
+                    f"<AccessKeyId>{xml_escape(key_id)}</AccessKeyId>"
+                    f"<SecretAccessKey>{xml_escape(secret_val)}</SecretAccessKey>"
+                    f"<SessionToken>{xml_escape(sess_tok)}</SessionToken>"
+                    "<Expiration>2030-01-01T00:00:00Z</Expiration>"
+                    "</Credentials>"
+                    "<AssumedRoleUser>"
+                    f"<AssumedRoleId>floci-role:{xml_escape(sess_name)}</AssumedRoleId>"
+                    f"<Arn>{xml_escape(assumed_arn)}</Arn>"
+                    "</AssumedRoleUser>"
+                    "</AssumeRoleResult>"
+                    "<ResponseMetadata><RequestId>floci-sts-ar</RequestId></ResponseMetadata>"
+                    "</AssumeRoleResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action == "CreateRole":
+                if not self._require_query_action("iam:CreateRole"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                raw_trust = str(params.get("AssumeRolePolicyDocument") or "{}")
+                trust_doc = json.loads(raw_trust)
+                arn = f"arn:aws:iam::123456789012:role/{rname}"
+                tags = _parse_form_tags(params)
+                with state.lock:
+                    state.iam_roles[rname] = {
+                        "RoleName": rname,
+                        "Arn": arn,
+                        "AssumeRolePolicyDocument": trust_doc,
+                        "Policies": {},
+                        "Tags": tags,
+                    }
+                body = (
+                    f'<CreateRoleResponse xmlns="{iam_ns}">'
+                    "<CreateRoleResult><Role>"
+                    "<Path>/</Path>"
+                    f"<RoleName>{xml_escape(rname)}</RoleName>"
+                    f"<RoleId>floci-role-{xml_escape(rname[:12])}</RoleId>"
+                    f"<Arn>{xml_escape(arn)}</Arn>"
+                    "<CreateDate>2026-01-01T00:00:00Z</CreateDate>"
+                    "</Role></CreateRoleResult>"
+                    "<ResponseMetadata><RequestId>floci-iam-cr</RequestId></ResponseMetadata>"
+                    "</CreateRoleResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action == "GetRole":
+                if not self._require_query_action("iam:GetRole"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                with state.lock:
+                    role = state.iam_roles.get(rname)
+                if role is None:
+                    self._send_bytes(404, _query_error_xml("NoSuchEntity", "Role not found"))
+                    return
+                body = (
+                    f'<GetRoleResponse xmlns="{iam_ns}">'
+                    "<GetRoleResult><Role>"
+                    "<Path>/</Path>"
+                    f"<RoleName>{xml_escape(rname)}</RoleName>"
+                    f"<RoleId>floci-role-{xml_escape(rname[:12])}</RoleId>"
+                    f"<Arn>{xml_escape(role['Arn'])}</Arn>"
+                    "<CreateDate>2026-01-01T00:00:00Z</CreateDate>"
+                    "</Role></GetRoleResult>"
+                    "<ResponseMetadata><RequestId>floci-iam-gr</RequestId></ResponseMetadata>"
+                    "</GetRoleResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action == "PutRolePolicy":
+                if not self._require_query_action("iam:PutRolePolicy"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                pname = str(params.get("PolicyName") or "").strip()
+                pdoc = json.loads(str(params.get("PolicyDocument") or "{}"))
+                with state.lock:
+                    role = state.iam_roles.get(rname)
+                    if role is None:
+                        self._send_bytes(404, _query_error_xml("NoSuchEntity", "Role not found"))
+                        return
+                    role["Policies"][pname] = pdoc
+                body = (
+                    f'<PutRolePolicyResponse xmlns="{iam_ns}">'
+                    "<ResponseMetadata><RequestId>floci-iam-prp</RequestId></ResponseMetadata>"
+                    "</PutRolePolicyResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action == "GetRolePolicy":
+                if not self._require_query_action("iam:GetRolePolicy"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                pname = str(params.get("PolicyName") or "").strip()
+                with state.lock:
+                    role = state.iam_roles.get(rname)
+                    if role is None or pname not in role["Policies"]:
+                        self._send_bytes(
+                            404, _query_error_xml("NoSuchEntity", "Role policy not found")
+                        )
+                        return
+                    encoded_doc = urllib.parse.quote(json.dumps(role["Policies"][pname]), safe="")
+                body = (
+                    f'<GetRolePolicyResponse xmlns="{iam_ns}">'
+                    "<GetRolePolicyResult>"
+                    f"<RoleName>{xml_escape(rname)}</RoleName>"
+                    f"<PolicyName>{xml_escape(pname)}</PolicyName>"
+                    f"<PolicyDocument>{xml_escape(encoded_doc)}</PolicyDocument>"
+                    "</GetRolePolicyResult>"
+                    "<ResponseMetadata><RequestId>floci-iam-grp</RequestId></ResponseMetadata>"
+                    "</GetRolePolicyResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action == "ListRolePolicies":
+                if not self._require_query_action("iam:ListRolePolicies"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                with state.lock:
+                    role = state.iam_roles.get(rname)
+                    if role is None:
+                        self._send_bytes(404, _query_error_xml("NoSuchEntity", "Role not found"))
+                        return
+                    pnames = sorted(role["Policies"].keys())
+                members = "".join(f"<member>{xml_escape(p)}</member>" for p in pnames)
+                body = (
+                    f'<ListRolePoliciesResponse xmlns="{iam_ns}">'
+                    "<ListRolePoliciesResult>"
+                    f"<PolicyNames>{members}</PolicyNames>"
+                    "<IsTruncated>false</IsTruncated>"
+                    "</ListRolePoliciesResult>"
+                    "<ResponseMetadata><RequestId>floci-iam-lrp</RequestId></ResponseMetadata>"
+                    "</ListRolePoliciesResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            if action == "DeleteRolePolicy":
+                if not self._require_query_action("iam:DeleteRolePolicy"):
+                    return
+                rname = str(params.get("RoleName") or "").strip()
+                pname = str(params.get("PolicyName") or "").strip()
+                with state.lock:
+                    role = state.iam_roles.get(rname)
+                    if role is None or pname not in role["Policies"]:
+                        self._send_bytes(
+                            404, _query_error_xml("NoSuchEntity", "Role policy not found")
+                        )
+                        return
+                    role["Policies"].pop(pname, None)
+                body = (
+                    f'<DeleteRolePolicyResponse xmlns="{iam_ns}">'
+                    "<ResponseMetadata><RequestId>floci-iam-drp</RequestId></ResponseMetadata>"
+                    "</DeleteRolePolicyResponse>"
+                ).encode("utf-8")
+                self._send_bytes(200, body, content_type="text/xml")
+                return
+
+            self._send_bytes(400, _query_error_xml("InvalidAction", f"Unknown action {action}"))
+
+        def do_POST(self) -> None:  # noqa: N802
+            raw = self._read_body()
+            target = (self.headers.get("X-Amz-Target") or "").strip()
+            if target.startswith("TrentService."):
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                self._handle_kms(target.split(".", 1)[1], payload)
+                return
+            if target.startswith("AmazonEC2ContainerServiceV20141113."):
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                self._handle_ecs(target.split(".", 1)[1], payload)
+                return
+            decoded_text = raw.decode("utf-8", errors="replace")
+            if "Action=" in decoded_text:
+                params = dict(urllib.parse.parse_qsl(decoded_text, keep_blank_values=True))
+                self._handle_query_xml(params)
+                return
+            self._send_amz_json(400, {"__type": "UnknownOperationException"})
 
     return _Handler
 
