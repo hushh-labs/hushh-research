@@ -205,11 +205,18 @@ def verify_qualification(owner, pin: object, source: str) -> dict:
         os.environ.get("GITHUB_RUN_ATTEMPT"),
     ) == (str(run_id), str(run_attempt))
     run_ok = (
-        stage_run.get("status") in {"in_progress", "completed"}
+        isinstance(stage_run, dict)
+        and stage_run.get("status") in {"in_progress", "completed"}
         and stage_run.get("conclusion") in {None, "success"}
         if same_attempt
-        else stage_run.get("status") == "completed"
+        else isinstance(stage_run, dict)
+        and stage_run.get("status") == "completed"
         and stage_run.get("conclusion") == "success"
+    )
+    governed_candidate = (
+        {**stage_run, "status": "completed", "conclusion": "success"}
+        if same_attempt and run_ok
+        else stage_run
     )
     _require(
         isinstance(stage_run, dict)
@@ -217,7 +224,8 @@ def verify_qualification(owner, pin: object, source: str) -> dict:
         and stage_run.get("run_attempt") == int(run_attempt)
         and stage_run.get("path") == WORKFLOW
         and stage_run.get("head_sha") == workflow_sha
-        and owner.governed_dispatch(stage_run, REPOSITORY, "production")
+        and (stage_run.get("actor") or {}).get("login") != "github-actions[bot]"
+        and owner.governed_dispatch(governed_candidate, REPOSITORY, "production")
         and run_ok,
         "Emergency worker stage run is not a governed active or completed success",
     )
