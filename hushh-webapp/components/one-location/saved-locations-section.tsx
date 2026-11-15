@@ -337,6 +337,9 @@ export function SavedLocationsSection() {
         }
         requested.delete(key);
         if (cancelled || !isCurrentVaultSession(session)) return;
+        // Retry unavailable metadata on the next focus/online reconciliation.
+        // A recognized "other" category remains a successful, deduplicated lookup.
+        if (!category) lookups.delete(key);
         setResolvedCategories((current) => ({ ...current, [key]: category }));
       }
     };
@@ -772,16 +775,37 @@ export function SavedLocationsSection() {
       locations: locations.filter((location) => location.savedFrom === "check_in"),
     },
   ].filter(
-    (group) => group.key === "favorite" || (hasVaultAccess && !loading && !loadError),
+    (group) =>
+      group.key === "favorite" ||
+      (hasVaultAccess && (locations.length > 0 || (!loading && !loadError))),
   );
 
   return (
     <>
       <section
         aria-label="Saved Locations"
+        aria-busy={loading}
         className="w-full min-w-0 space-y-6"
         data-testid="settings-saved-locations"
       >
+        {hasVaultAccess && locations.length > 0 && loadError ? (
+          <div role="status" className="flex min-w-0 items-center justify-between gap-3">
+            <p
+              data-location-type-role="helper"
+              className="text-sm text-[color:var(--app-secondary-label)]"
+            >
+              Couldn’t refresh saved places. Your saved list is still shown.
+            </p>
+            <button
+              data-location-type-role="utility-action"
+              type="button"
+              onClick={() => void reload()}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center px-3 text-[color:var(--app-accent)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
         {placeGroups.map((group) => (
           <section key={group.key} aria-label={group.title} className="min-w-0">
             <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
@@ -822,7 +846,7 @@ export function SavedLocationsSection() {
                     </p>
                   </div>
                 </div>
-              ) : loading ? (
+              ) : loading && locations.length === 0 ? (
                 <div
                   className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
                   role="status" data-location-type-role="status"
@@ -830,7 +854,7 @@ export function SavedLocationsSection() {
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   Loading saved places…
                 </div>
-              ) : loadError ? (
+              ) : loadError && locations.length === 0 ? (
                 <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
                   <p data-location-type-role="helper" className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
                     {loadError}
