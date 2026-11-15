@@ -14,8 +14,9 @@ _memory_replay: tuple[Any, Any] | None = None
 
 
 class PodChatMemory(BaseMemoryService):
-    def __init__(self, context: Any, service: Any) -> None:
+    def __init__(self, context: Any, service: Any, *, wiki_library: Any = None) -> None:
         self.context, self.service = context, service
+        self.wiki_library = wiki_library
         self._prior_event_ids: set[str] = set()
 
     async def search_memory(self, *, app_name: str, user_id: str, query: str):
@@ -74,7 +75,16 @@ class PodChatMemory(BaseMemoryService):
         )
         await self.context.require_access()
         input.state[STATE_MEMORY_AVAILABLE] = True
-        input.state[STATE_MEMORY_DIGEST] = await _memory_digest(self.service)
+        digest = await _memory_digest(self.service)
+        if self.wiki_library is not None:
+            from hushh_mcp.one_adk.wiki_recall_tools import build_wiki_hot_digest_context
+            from hushh_mcp.services.wiki_memory.contracts import WIKI_HOT_MAX_CHARS
+
+            remaining = max(0, WIKI_HOT_MAX_CHARS - len(digest) - (2 if digest else 0))
+            wiki_hot = await build_wiki_hot_digest_context(self.wiki_library, max_chars=remaining)
+            if wiki_hot:
+                digest = f"{digest}\n\n{wiki_hot}" if digest else wiki_hot
+        input.state[STATE_MEMORY_DIGEST] = digest
 
     async def commit(self, input) -> None:
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME

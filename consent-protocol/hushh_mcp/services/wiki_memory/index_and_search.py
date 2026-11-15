@@ -9,7 +9,13 @@ import re
 from collections import Counter
 from typing import Any
 
-from .contracts import WikiPageRevision, WikiRefused, validate_page_id
+from .contracts import (
+    WikiPageRevision,
+    WikiRefused,
+    validate_claim_id,
+    validate_page_id,
+    validate_source_id,
+)
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]{2,64}")
 _STOPWORDS = frozenset(
@@ -304,3 +310,137 @@ class LexicalSearchIndex:
         if not isinstance(documents, dict):
             raise WikiRefused("WIKI_SCHEMA_INVALID", 409)
         return cls(documents=documents)
+
+
+class ClaimIndex:
+    """Rebuildable claim-to-page/source index with contradiction anchor tracking."""
+
+    def __init__(
+        self,
+        claims: dict[str, dict[str, Any]] | None = None,
+        contradictions: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> None:
+        self._claims: dict[str, dict[str, Any]] = {}
+        self._contradictions: dict[str, list[dict[str, Any]]] = {}
+        if claims:
+            for raw_claim_id, entry in sorted(claims.items()):
+                claim_id = validate_claim_id(raw_claim_id)
+                if not isinstance(entry, dict):
+                    raise WikiRefused("WIKI_SCHEMA_INVALID", 409)
+                record: dict[str, Any] = {
+                    "claim_id": claim_id,
+                    "page_id": validate_page_id(entry.get("page_id")),
+                    "page_revision": int(entry.get("page_revision", 1)),
+                    "status": str(entry.get("status", "active")),
+                    "confidence": float(entry.get("confidence", 1.0)),
+                    "source_ids": [validate_source_id(s) for s in (entry.get("source_ids") or ())],
+                    "observed_at": str(entry.get("observed_at", "2026-01-01")),
+                }
+                if entry.get("valid_until") is not None:
+                    record["valid_until"] = str(entry["valid_until"])
+                if entry.get("superseded_by") is not None:
+                    record["superseded_by"] = validate_claim_id(entry["superseded_by"])
+                self._claims[claim_id] = record
+        if contradictions:
+            for raw_target_claim, items in sorted(contradictions.items()):
+                target_claim = validate_claim_id(raw_target_claim)
+                if not isinstance(items, list):
+                    raise WikiRefused("WIKI_SCHEMA_INVALID", 409)
+                parsed_items: list[dict[str, Any]] = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    parsed_items.append(
+                        {
+                            "source_page_id": validate_page_id(item.get("source_page_id")),
+                            "source_revision": int(item.get("source_revision", 1)),
+                            "target_page_id": validate_page_id(item.get("target_page_id")),
+                        }
+                    )
+                if parsed_items:
+                    self._contradictions[target_claim] = parsed_items
+
+    @classmethod
+    def from_pages(cls, pages: list[WikiPageRevision]) -> ClaimIndex:
+        index = cls()
+        for page in sorted(pages, key=lambda item: item.page_id):
+            index.upsert_page(page)
+        return index
+
+    def upsert_page(self, page: WikiPageRevision) -> None:
+        self.remove_page(page.page_id)
+        for claim in page.claims:
+            record: dict[str, Any] = {
+                "claim_id": claim.claim_id,
+                "page_id": page.page_id,
+                "page_revision": page.revision,
+                "status": claim.status,
+                "confidence": claim.confidence,
+                "source_ids": list(claim.source_ids),
+                "observed_at": claim.observed_at,
+            }
+            if claim.valid_until is not None:
+                record["valid_until"] = claim.valid_until
+            if claim.superseded_by is not None:
+                record["superseded_by"] = claim.superseded_by
+            self._claims[claim.claim_id] = record
+
+        for link in page.links:
+            if link.relation == "contradicts" and link.anchor_claim_id is not None:
+                bucket = self._contradictions.setdefault(link.anchor_claim_id, [])
+                bucket.append(
+                    {
+                        "source_page_id": page.page_id,
+                        "source_revision": page.revision,
+                        "target_page_id": link.target_page_id,
+                    }
+                )
+                bucket.sort(key=lambda item: (item["source_page_id"], item["target_page_id"]))
+
+    def remove_page(self, page_id: str) -> None:
+        validated = validate_page_id(page_id)
+        stale_claims = [cid for cid, entry in self._claims.items() if entry["page_id"] == validated]
+        for cid in stale_claims:
+            self._claims.pop(cid, None)
+        for anchor in list(self._contradictions):
+            kept = [
+                item for item in self._contradictions[anchor] if item["source_page_id"] != validated
+            ]
+            if kept:
+                self._contradictions[anchor] = kept
+            else:
+                self._contradictions.pop(anchor, None)
+
+    def lookup_claim(self, claim_id: str) -> dict[str, Any] | None:
+        validated = validate_claim_id(claim_id)
+        entry = self._claims.get(validated)
+        if entry is None:
+            return None
+        return {
+            **entry,
+            "source_ids": list(entry["source_ids"]),
+            "contradictions": [dict(c) for c in self._contradictions.get(validated, ())],
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "format": 1,
+            "claims": {cid: self._claims[cid] for cid in sorted(self._claims)},
+            "contradictions": {
+                cid: self._contradictions[cid] for cid in sorted(self._contradictions)
+            },
+        }
+
+    def digest(self) -> str:
+        encoded = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> ClaimIndex:
+        if not isinstance(raw, dict) or raw.get("format") != 1:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 409)
+        claims = raw.get("claims")
+        contradictions = raw.get("contradictions", {})
+        if not isinstance(claims, dict) or not isinstance(contradictions, dict):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 409)
+        return cls(claims=claims, contradictions=contradictions)
