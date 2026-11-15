@@ -350,6 +350,26 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
 });
 
+it("keeps the plan available without a separate payout card once setup is ready", async () => {
+  mocks.view.mockResolvedValue({ ...value, status: "accepted", meeting: null, plan: null });
+  mocks.sandboxPayout.mockResolvedValue({ mode: "test", setup: "ready", latest: null });
+  render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Plan" }));
+  expect(await screen.findByText("Set a price and describe what’s included.")).toBeVisible();
+  expect(screen.getByText("Offer or update a plan")).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Sandbox payouts" })).toBeNull();
+  expect(screen.queryByText("Test payouts")).toBeNull();
+});
+
+it("names the review for the person on each side", async () => {
+  const rendered = render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
+  expect(await screen.findByRole("heading", { name: "Client review" })).toBeVisible();
+  rendered.unmount();
+  mocks.view.mockResolvedValue({ ...value, direction: "outgoing" });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }} onClose={vi.fn()} />);
+  expect(await screen.findByRole("heading", { name: "Advisor review" })).toBeVisible();
+});
+
 it("opens a one-time Stripe return on Plan and only shows Paid after provider readback", async () => {
   mocks.view.mockResolvedValue({
     ...value,

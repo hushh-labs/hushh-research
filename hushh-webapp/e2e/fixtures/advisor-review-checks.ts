@@ -333,7 +333,7 @@ export function registerAdvisorReviewChecks(
     await mount(page, isMobile ? 393 : 960);
     await page.getByRole("button", { name: "Open sample advisor request" }).click();
     await page.getByRole("button", { name: "Accept & connect" }).click();
-    const workspace = page.getByRole("dialog", { name: "Advisor review" });
+    const workspace = page.getByRole("dialog", { name: "Client review" });
     const readPicker = (name: string) => workspace.getByRole("button", { name, exact: true }).evaluate((button) => {
       const label = button.firstElementChild!;
       const style = getComputedStyle(label);
@@ -418,7 +418,7 @@ export function registerAdvisorReviewChecks(
     await mount(page, 393);
     await page.evaluate(() => { document.body.dataset.advisorMeeting = "confirmed"; });
     await page.getByRole("button", { name: "Open sample agreed meeting" }).click();
-    const workspace = page.getByRole("dialog", { name: "Advisor review" });
+    const workspace = page.getByRole("dialog", { name: "Client review" });
     await expect(workspace.getByRole("link", { name: "Connect Calendar" })).toBeVisible();
     await page.evaluate(() => {
       document.body.dataset.advisorCalendar = "connected";
@@ -479,7 +479,7 @@ export function registerAdvisorReviewChecks(
         await dialog.getByRole("tab", { name: "Plan", exact: true }).click();
         await expect(dialog.getByRole("button", { name: "Set up test payouts" })).toBeEnabled();
         await dialog.getByRole("tab", { name: "Meeting", exact: true }).click();
-        const titleBox = (await dialog.getByRole("heading", { name: "Advisor review", exact: true }).boundingBox())!;
+        const titleBox = (await dialog.getByRole("heading", { name: "Client review", exact: true }).boundingBox())!;
         const closeBox = (await dialog.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
         expect(Math.abs(titleBox.y + titleBox.height / 2 - closeBox.y - closeBox.height / 2)).toBeLessThan(8);
         expect(
