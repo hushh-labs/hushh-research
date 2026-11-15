@@ -42,7 +42,6 @@ describe("One setup hub terminal action contract", () => {
     expect(source.indexOf('data-testid="one-setup-master-ack"')).toBeGreaterThan(
       source.indexOf("<div className={styles.flatChecklist}>"),
     );
-    expect(source).toContain("actions={memoryImportOpen ? (");
   });
 
   it("leaves fixed-chrome clearance to the shared app scroll root", () => {

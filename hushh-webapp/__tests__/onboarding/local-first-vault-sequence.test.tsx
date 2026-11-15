@@ -214,6 +214,13 @@ import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 
 const FLAG = "NEXT_PUBLIC_ONBOARDING_LOCAL_FIRST_ENABLED";
+
+async function finishSetup() {
+  await act(async () => { fireEvent.click(screen.getByTestId("one-setup-master-ack")); });
+  // Continue now offers an optional import before the unchanged vault sequence.
+  expect(screen.getByRole("textbox", { name: "Bring the reply to One" })).toBeTruthy();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Finish setup" })); });
+}
 const ORIGINAL_FLAG = process.env[FLAG];
 
 function restoreFlag() {
@@ -257,7 +264,7 @@ describe("flag OFF — onboarding is unchanged", () => {
     // screens may appear either.
     render(<OneSetupHub />);
 
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
 
     await waitFor(() => {
       expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
@@ -272,7 +279,7 @@ describe("flag OFF — onboarding is unchanged", () => {
 
     // Main removed the invitation interstitial: Finish setup opens the lock
     // dialog directly, so there is no invitation screen to step through.
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
     await waitFor(() => screen.getByTestId("vault-unlock-dialog"));
 
     fireEvent.click(screen.getByText("complete vault"));
@@ -305,7 +312,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
   it("shows one guided-connection screen instead of the vault invitation", async () => {
     render(<OneSetupHub />);
 
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
 
     await waitFor(() => {
       expect(screen.getByTestId("one-setup-guided-connection")).toBeTruthy();
@@ -338,7 +345,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
     );
 
     render(<OneSetupHub />);
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
 
     await waitFor(() => {
       expect(screen.getByText("Agent One is ready")).toBeTruthy();
@@ -364,7 +371,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
     );
 
     render(<OneSetupHub />);
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
     await waitFor(() => screen.getByTestId("one-setup-guided-connection"));
 
     fireEvent.click(screen.getByTestId("one-setup-guided-connection-continue"));
@@ -388,7 +395,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
 
   it("walks three explainer screens, one idea each, then opens the vault", async () => {
     render(<OneSetupHub />);
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
     await waitFor(() => screen.getByTestId("one-setup-guided-connection"));
     fireEvent.click(screen.getByTestId("one-setup-guided-connection-continue"));
     await waitFor(() => screen.getByTestId("one-setup-vault-explainer"));
@@ -416,7 +423,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
 
   it("drains the buffer once the vault exists, then routes home", async () => {
     const { rerender } = render(<OneSetupHub />);
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
     await waitFor(() => screen.getByTestId("one-setup-guided-connection"));
     fireEvent.click(screen.getByTestId("one-setup-guided-connection-continue"));
     await waitFor(() => screen.getByTestId("one-setup-vault-explainer"));
@@ -479,7 +486,7 @@ describe.each(["0", "1"])("finance continuation with local-first=%s", (flag) => 
     let finishWrite!: () => void;
     finalizeSensitiveMock.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve; }));
     render(<OneSetupHub />);
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
     await waitFor(() => expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1));
     expect(replace).not.toHaveBeenCalled();
     expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
@@ -492,7 +499,7 @@ describe.each(["0", "1"])("finance continuation with local-first=%s", (flag) => 
   it("does not navigate or drain when encrypted finalization fails", async () => {
     finalizeSensitiveMock.mockRejectedValue(new Error("synthetic encrypted-write failure"));
     render(<OneSetupHub />);
-    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await finishSetup();
     await waitFor(() => expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText("synthetic encrypted-write failure")).toBeTruthy());
     expect(replace).not.toHaveBeenCalled();
@@ -510,7 +517,7 @@ it("starts the Finance watchdog only after the encrypted finalizer succeeds", as
   migrateOnboardingBufferMock.mockReturnValue(new Promise(() => {}));
   vi.useFakeTimers();
   render(<OneSetupHub />);
-  await act(async () => { fireEvent.click(screen.getByTestId("one-setup-master-ack")); });
+  await finishSetup();
   await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
   expect(replace).not.toHaveBeenCalled();
   expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
