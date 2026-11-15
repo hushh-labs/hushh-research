@@ -31,7 +31,7 @@ type ReviewPage = "meeting" | "portfolio" | "plan";
 const reviewPages: { value: ReviewPage; label: string }[] = [
   { value: "meeting", label: "Meeting" },
   { value: "portfolio", label: "Portfolio" },
-  { value: "plan", label: "Plan" },
+  { value: "plan", label: "Payment" },
 ];
 
 const closedReviewTitles = {

@@ -338,7 +338,7 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
   render(
     <AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "Plan" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Payment" }));
   await screen.findByRole("button", { name: "Check payment status" });
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
   expect(await screen.findByRole("button", { name: "Set up test payouts" })).toBeEnabled();
@@ -354,7 +354,7 @@ it("keeps the plan available without a separate payout card once setup is ready"
   mocks.view.mockResolvedValue({ ...value, status: "accepted", meeting: null, plan: null });
   mocks.sandboxPayout.mockResolvedValue({ mode: "test", setup: "ready", latest: null });
   render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
-  fireEvent.click(await screen.findByRole("tab", { name: "Plan" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Payment" }));
   expect(await screen.findByText("Set a price and describe what’s included.")).toBeVisible();
   expect(screen.getByText("Offer or update a plan")).toBeVisible();
   expect(screen.queryByRole("region", { name: "Sandbox payouts" })).toBeNull();
@@ -387,7 +387,7 @@ it("opens a one-time Stripe return on Plan and only shows Paid after provider re
   mocks.billing.mockResolvedValue({ mode: "test", status: "processing", planRevision: 2 });
   render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }}
     openPlan onClose={vi.fn()} />);
-  expect(await screen.findByRole("tab", { name: "Plan" })).toHaveAttribute("aria-selected", "true");
+  expect(await screen.findByRole("tab", { name: "Payment" })).toHaveAttribute("aria-selected", "true");
   expect(await screen.findByText("Payment pending")).toBeVisible();
   expect(screen.queryByText(/^Paid /)).toBeNull();
   expect(screen.queryByRole("button", { name: "Pay $25.00" })).toBeNull();
