@@ -2530,6 +2530,38 @@ def test_metrics_uat_dedicated_pool_pins_socket_user_and_closes_on_swap(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_metrics_uat_pool_admission_bounds_concurrent_connections(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    monkeypatch.setattr(uat, "_pool_admission", asyncio.Semaphore(1))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    @asynccontextmanager
+    async def admitted(_binding):
+        entered.set()
+        await release.wait()
+        yield object()
+
+    monkeypatch.setattr(uat, "_admitted_pool", admitted)
+
+    async def first():
+        async with uat.dedicated_pool({}):
+            pass
+
+    task = asyncio.create_task(first())
+    await entered.wait()
+    with pytest.raises(TimeoutError):
+        async with uat.dedicated_pool({}):
+            pytest.fail("a second pool must not start")
+    release.set()
+    await task
+    async with uat.dedicated_pool({}):
+        pass
+
+
+@pytest.mark.asyncio
 async def test_metrics_uat_aggregate_rechecks_uat_authorities_and_both_connections(
     metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
 ):

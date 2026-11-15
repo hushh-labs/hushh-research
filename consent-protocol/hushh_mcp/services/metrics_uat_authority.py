@@ -16,11 +16,23 @@ from hushh_mcp.services.plg_reporting import ReportingPolicy, reporting_identifi
 
 PROJECT = "hushh-pda-uat"
 INSTANCE = "hushh-pda-uat:us-central1:hushh-uat-pg"
+UAT_METRICS_POOL_MAX_CONNECTIONS = 2
+_pool_admission = asyncio.Semaphore(1)
 
 
 @asynccontextmanager
 async def dedicated_pool(binding: dict):
     """Create each request's pool against the fixed native UAT socket only."""
+    await asyncio.wait_for(_pool_admission.acquire(), timeout=0.1)
+    try:
+        async with _admitted_pool(binding) as pool:
+            yield pool
+    finally:
+        _pool_admission.release()
+
+
+@asynccontextmanager
+async def _admitted_pool(binding: dict):
     import asyncpg
 
     runtime_authority(binding)
@@ -35,7 +47,7 @@ async def dedicated_pool(binding: dict):
         port=5432,
         ssl=False,
         min_size=0,
-        max_size=2,
+        max_size=UAT_METRICS_POOL_MAX_CONNECTIONS,
         timeout=3,
         command_timeout=5,
     )
