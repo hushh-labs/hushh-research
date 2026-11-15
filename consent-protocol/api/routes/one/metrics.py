@@ -21,16 +21,33 @@ NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
 
 @router.post("/adoption", include_in_schema=False)
 async def adoption(request: Request):
-    secret = os.environ.get("ONE_METRICS_ADOPTION_SECRET", "")
-    if (
-        os.environ.get("ONE_METRICS_ADOPTION_ENABLED") != "true"
-        or os.environ.get("GOOGLE_CLOUD_PROJECT") != "hushh-pda"
-        or current_auth_lane() != "production"
-        or not 32 <= len(secret.encode()) <= 256
-    ):
+    lane = current_auth_lane()
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if (project, lane) == ("hushh-pda", "production"):
+        environment, enabled, secret_name = (
+            "production",
+            "ONE_METRICS_ADOPTION_ENABLED",
+            "ONE_METRICS_ADOPTION_SECRET",
+        )
+        purpose = b"metrics-one-aggregate-v1:"
+    elif (project, lane) == ("hushh-pda-uat", "uat"):
+        environment, enabled, secret_name = (
+            "uat",
+            "ONE_METRICS_UAT_ADOPTION_ENABLED",
+            "ONE_METRICS_UAT_ADOPTION_SECRET",
+        )
+        purpose = b"metrics-one-aggregate-uat-v1:"
+    else:
+        raise HTTPException(404, "Metrics aggregate unavailable", headers=NO_STORE)
+    secret = os.environ.get(secret_name, "")
+    if os.environ.get(enabled) != "true" or not 32 <= len(secret.encode()) <= 256:
         raise HTTPException(404, "Metrics aggregate unavailable", headers=NO_STORE)
     try:
-        binding = metrics_adoption.approved_binding()
+        binding = (
+            metrics_adoption.approved_binding(environment)
+            if environment == "uat"
+            else metrics_adoption.approved_binding()
+        )
     except metrics_adoption.AggregateUnavailable:
         raise HTTPException(503, "Metrics aggregate unavailable", headers=NO_STORE) from None
     body = bytearray()
@@ -48,7 +65,7 @@ async def adoption(request: Request):
             signature,
             hmac.new(
                 secret.encode(),
-                b"metrics-one-aggregate-v1:" + timestamp.encode() + b":" + body,
+                purpose + timestamp.encode() + b":" + body,
                 hashlib.sha256,
             ).hexdigest(),
         )
@@ -56,7 +73,11 @@ async def adoption(request: Request):
         raise HTTPException(401, "Invalid aggregate signature", headers=NO_STORE)
     try:
         payload = metrics_adoption.AdoptionRequest.model_validate_json(body)
-        result = await metrics_adoption.bounded_adoption_aggregate(payload, binding)
+        result = (
+            await metrics_adoption.bounded_adoption_aggregate(payload, binding, environment="uat")
+            if environment == "uat"
+            else await metrics_adoption.bounded_adoption_aggregate(payload, binding)
+        )
     except (ValueError, ValidationError):
         raise HTTPException(400, "Invalid aggregate request", headers=NO_STORE) from None
     except Exception:
