@@ -24,9 +24,9 @@ const shellActionSurfaceVariants = cva(
     variants: {
       variant: {
         icon:
-          "h-9 w-9 items-center justify-center text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
+          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground",
         avatar:
-          "h-11 w-11 items-center justify-center !border-transparent !bg-transparent p-0 !text-[color:var(--app-accent-fg)] !shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:!bg-transparent",
+          "h-11 w-11 items-center justify-center !border-transparent !bg-transparent p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-transparent",
         pill:
           "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground sm:gap-2 sm:px-4 sm:text-base",
       },

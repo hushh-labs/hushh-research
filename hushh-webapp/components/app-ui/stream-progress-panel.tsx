@@ -126,6 +126,7 @@ export type AppStreamSectionProps = {
   count?: number;
   defaultOpen?: boolean;
   open?: boolean;
+  settledClosed?: boolean;
   onOpenChange?: (open: boolean) => void;
   emptyLabel?: string;
   className?: string;
@@ -140,6 +141,7 @@ export function AppStreamSection({
   count,
   defaultOpen = true,
   open,
+  settledClosed = false,
   onOpenChange,
   emptyLabel,
   className,
@@ -173,7 +175,7 @@ export function AppStreamSection({
             <MaterialRipple variant="none" effect="glass" />
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent>
+        <CollapsibleContent key={settledClosed ? "settled-closed" : "live"}>
           <div className={cn("px-3 pb-3 pt-1", bodyClassName)}>
             {content ?? (
               <AppStreamEventList
@@ -296,6 +298,7 @@ export function AppStreamPanel({
                 items={progressItems}
                 count={progressItems.length}
                 open={resolvedActivityOpen}
+                settledClosed={!isStreaming && !resolvedActivityOpen}
                 onOpenChange={(next) => setActivityToggle({ basis: activityOpen, open: next })}
               />
             ) : null}
@@ -316,6 +319,7 @@ export function AppStreamPanel({
             items={thinkingItems}
             count={thinkingContent ? undefined : thinkingItems.length}
             open={resolvedThinkingOpen}
+            settledClosed={!isStreaming && !resolvedThinkingOpen}
             onOpenChange={(next) => setThinkingToggle({ basis: autoThinkingOpen, open: next })}
             bodyClassName={thinkingContent ? "px-3 py-2.5" : undefined}
             className={thinkingClassName}
