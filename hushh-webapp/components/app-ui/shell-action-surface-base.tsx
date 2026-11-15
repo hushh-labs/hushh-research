@@ -19,14 +19,14 @@ const shellActionSurfaceVariants = cva(
   // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
   // top-bar back/close controls feel like they needed a second tap. Kept on the
   // base so every shell control (back, close, theme, profile) gets it.
-  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-[0.84] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {
         icon:
-          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground",
+          "h-9 w-9 items-center justify-center text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         avatar:
-          "h-11 w-11 items-center justify-center !border-transparent !bg-transparent p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-transparent",
+          "h-11 w-11 items-center justify-center !border-transparent !bg-transparent p-0 !text-[color:var(--app-accent-fg)] !shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:!bg-transparent",
         pill:
           "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground sm:gap-2 sm:px-4 sm:text-base",
       },

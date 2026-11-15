@@ -1996,25 +1996,32 @@ export function AgentBubble({
       <button
         type="button"
         onClick={handleCopy}
-        className="relative grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+        className="relative grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200"
         aria-label={copied ? "Response copied" : "Copy response"}
         title={copied ? "Copied" : "Copy response"}
       >
-        {copied ? (
-          <Check className="h-3.5 w-3.5" />
-        ) : (
-          <Copy className="h-3.5 w-3.5" />
-        )}
+        <Copy
+          className={cn(
+            "col-start-1 row-start-1 h-3.5 w-3.5 transition-[transform,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none",
+            copied ? "scale-75 opacity-0" : "scale-100 opacity-100",
+          )}
+        />
+        <Check
+          className={cn(
+            "col-start-1 row-start-1 h-3.5 w-3.5 text-[color:var(--app-accent)] transition-[transform,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none",
+            copied ? "scale-100 opacity-100" : "scale-75 opacity-0",
+          )}
+        />
         <MaterialRipple variant="none" effect="glass" />
       </button>
       <button
         type="button"
         onClick={() => onRate?.(liked ? null : "up")}
         className={cn(
-          "relative grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+          "relative grid h-7 w-7 place-items-center rounded-md border transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
           liked
             ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-            : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
+            : "border-transparent text-[rgba(0,0,0,0.46)] [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200",
         )}
         aria-label="Like response"
         aria-pressed={liked}
@@ -2027,10 +2034,10 @@ export function AgentBubble({
         type="button"
         onClick={() => onRate?.(disliked ? null : "down")}
         className={cn(
-          "relative grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+          "relative grid h-7 w-7 place-items-center rounded-md border transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
           disliked
             ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-            : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
+            : "border-transparent text-[rgba(0,0,0,0.46)] [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200",
         )}
         aria-label="Dislike response"
         aria-pressed={disliked}
@@ -2051,7 +2058,7 @@ export function AgentBubble({
           type="button"
           onClick={onRetry}
           disabled={retryDisabled}
-          className="relative ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+          className="relative ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200"
           aria-label="Try again"
           title="Try again"
         >

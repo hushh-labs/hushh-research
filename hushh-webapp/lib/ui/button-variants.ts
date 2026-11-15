@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 // renders. No press scale, spring, or bounce (guarded by
 // __tests__/components/press-ripple.contract.test.tsx).
 export const buttonVariants = cva(
-  "relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full transition-[opacity,color,background-color,border-color,box-shadow] motion-reduce:transition-none duration-100 ease-out disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive touch-manipulation",
+  "relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full transition-[opacity,color,background-color,border-color,box-shadow] motion-reduce:transition-none duration-100 ease-[var(--ease-out)] active:enabled:opacity-[0.84] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive touch-manipulation",
   {
     variants: {
       variant: {
@@ -16,18 +16,18 @@ export const buttonVariants = cva(
         // exactly that a non-destructive action never shares destructive's
         // background).
         default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
+          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-accent-hover)]",
         destructive:
-          "bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "bg-[color:var(--app-destructive)] text-white [@media(hover:hover)_and_(pointer:fine)]:hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
-          "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
+          "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
-          "bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
+          "bg-[color:var(--app-neutral-fill)] text-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]",
         ghost:
-          "text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)]",
-        plain: "bg-transparent text-foreground hover:opacity-80",
-        text: "min-h-0 rounded-none bg-transparent text-[color:var(--app-accent)] hover:text-[color:var(--app-accent-hover)]",
-        link: "min-h-0 rounded-none text-[color:var(--app-accent)] underline-offset-4 hover:underline",
+          "text-[color:var(--app-accent)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-accent-tint)]",
+        plain: "bg-transparent text-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-80",
+        text: "min-h-0 rounded-none bg-transparent text-[color:var(--app-accent)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[color:var(--app-accent-hover)]",
+        link: "min-h-0 rounded-none text-[color:var(--app-accent)] underline-offset-4 [@media(hover:hover)_and_(pointer:fine)]:hover:underline",
       },
       size: {
         default:

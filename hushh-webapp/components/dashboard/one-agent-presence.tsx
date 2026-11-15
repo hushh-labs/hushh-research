@@ -172,9 +172,9 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
   const dotClass = updateBlocked ? "bg-amber-500" : notAnswering
     ? "bg-amber-500"
     : updating
-      ? "bg-sky-500 animate-pulse"
+      ? "bg-sky-500 motion-safe:animate-pulse"
       : waking
-        ? "bg-amber-400 animate-pulse"
+        ? "bg-amber-400 motion-safe:animate-pulse"
         : asleep
           ? "bg-emerald-500/50"
           : online
@@ -247,11 +247,11 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
       }
       data-testid="one-agent-presence"
       className={compact
-        ? "pointer-events-auto inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle"
-        : "inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"}
+        ? "one-presence-enter pointer-events-auto inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle"
+        : "one-presence-enter inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1"}
     >
       <span
-        className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`}
+        className={`h-2 w-2 shrink-0 rounded-full transition-[background-color,opacity] duration-[150ms] ease-[var(--ease-out)] motion-reduce:transition-none ${dotClass}`}
         aria-hidden
       />
       <span className={compact ? "sr-only" : "text-[12px] font-medium text-muted-foreground"}>
@@ -272,7 +272,9 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
         data-testid="one-agent-status"
         role="status"
       >
-        {label}
+        <span key={label} className="one-presence-label-enter inline-block max-w-full truncate align-bottom">
+          {label}
+        </span>
       </span>}
       {canRebuild && !compact ? (
         <button
