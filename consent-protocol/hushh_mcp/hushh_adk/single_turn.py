@@ -95,13 +95,14 @@ def build_single_turn_agent(
     policy = load_scoped_text_policy(processing_scope) if processing_scope else None
     # Scoped profiles own provider selection; Vertex retains regional failover.
     # Azure failures do not silently switch this turn to Vertex.
-    resolved = (
-        model
-        if model is not None
-        else build_managed_regional_gemini_adk_model(
+    if model is not None:
+        resolved = model
+    elif processing_scope is not None:
+        resolved = build_managed_regional_gemini_adk_model(
             configured_model, processing_scope=processing_scope
         )
-    )
+    else:
+        resolved = build_managed_regional_gemini_adk_model(configured_model)
     model_name = resolved if isinstance(resolved, str) else str(getattr(resolved, "model", ""))
     if not model_name:
         model_name = config.name
