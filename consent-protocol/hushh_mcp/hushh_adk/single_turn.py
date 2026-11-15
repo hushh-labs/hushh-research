@@ -39,6 +39,10 @@ class SingleTurnInvalidJsonError(ValueError):
     """The model returned text that cannot be decoded as JSON."""
 
 
+class SingleTurnEmptyResponseError(ValueError):
+    """The model returned no response text."""
+
+
 @contextmanager
 def bind_single_turn_request_labels(labels: Mapping[str, str] | None) -> Iterator[None]:
     """Scope low-cardinality Vertex billing labels to one trusted operation."""
@@ -222,7 +226,7 @@ async def run_single_turn(
         )
         text = turn.final_text.strip()
         if not text:
-            raise ValueError("single-turn agent returned an empty response")
+            raise SingleTurnEmptyResponseError("single-turn agent returned an empty response")
         return _decode(text, schema)
 
 
