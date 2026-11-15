@@ -349,6 +349,43 @@ describe("SavedLocationsSection", () => {
     expect(screen.queryByText("Old coffee shop")).toBeNull();
   });
 
+  it("never retains another owner's visits after an unlocked owner switch and failed read", async () => {
+    const visit = {
+      ...HOME, id: "owner-a-visit", category: "other", label: "Owner A private cafe",
+      address: "Owner A private address", placeId: "owner-a-place", savedFrom: "check_in",
+    };
+    let rejectNewOwnerRead!: (error: Error) => void;
+    let newOwnerRead = new Promise<unknown[]>((_resolve, reject) => { rejectNewOwnerRead = reject; });
+    mocks.loadSavedLocations.mockImplementation(({ userId }: { userId: string }) =>
+      userId === "user-123" ? Promise.resolve([visit]) : newOwnerRead);
+    const view = render(<SavedLocationsSection />);
+    expect(await screen.findByText("Owner A private cafe")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.placeDetails).toHaveBeenCalledTimes(1));
+
+    mocks.authUser = { uid: "user-b" };
+    mocks.vault.vaultKey = "owner-b-key";
+    mocks.vault.vaultOwnerToken = "owner-b-token";
+    view.rerender(<SavedLocationsSection />);
+    await waitFor(() => expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
+      userId: "user-b", vaultKey: "owner-b-key", vaultOwnerToken: "owner-b-token",
+    }));
+    try {
+      expect(screen.queryByText("Owner A private cafe")).toBeNull();
+      expect(screen.queryByText("Owner A private address")).toBeNull();
+    } finally {
+      await act(async () => rejectNewOwnerRead(new Error("offline")));
+    }
+    expect(screen.queryByText("Owner A private cafe")).toBeNull();
+    expect(screen.queryByText("Owner A private address")).toBeNull();
+    expect(mocks.placeDetails).not.toHaveBeenCalledWith({
+      vaultOwnerToken: "owner-b-token", placeId: "owner-a-place",
+    });
+    newOwnerRead = Promise.resolve([{ ...HOME, id: "owner-b-home", address: "Owner B private address" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Owner B private address")).toBeInTheDocument();
+    expect(screen.queryByText("Owner A private cafe")).toBeNull();
+  });
+
   it("retries unavailable legacy category metadata after reconnect without rewriting the saved place", async () => {
     const visit = {
       ...HOME, id: "legacy-venue", category: "other", label: "Coffee shop",
