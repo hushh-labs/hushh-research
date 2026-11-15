@@ -1,10 +1,14 @@
 """One's private, nonpersisting review of an owner-approved portfolio summary."""
 
 import json
+import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewModel(BaseModel):
@@ -37,13 +41,21 @@ class PortfolioReview(ReviewModel):
 
 
 async def run_portfolio_review(
-    summary: ReviewInput, *, user_id: str, consent_token: str
+    summary: ReviewInput,
+    *,
+    user_id: str,
+    consent_token: str,
+    check_current: Callable[[], Awaitable[None]],
 ) -> PortfolioReview:
     if not summary.allow_model_processing:
         raise PermissionError("Portfolio review was not approved")
 
     from hushh_mcp.hushh_adk.manifest import ManifestLoader
-    from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+    from hushh_mcp.hushh_adk.single_turn import (
+        SingleTurnInvalidJsonError,
+        build_single_turn_agent,
+        run_single_turn,
+    )
 
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/one/agent.yaml")
@@ -51,15 +63,25 @@ async def run_portfolio_review(
     gene = next(child for child in manifest.subagents if child.id == "one_portfolio_review")
     if gene.runtime.adk_mode != "single_turn" or gene.privacy.plaintext_telemetry:
         raise ValueError("invalid portfolio review boundary")
-    result = await run_single_turn(
-        build_single_turn_agent(gene, output_schema=PortfolioReview),
-        prompt_parts=json.dumps(
-            {"saved_portfolio_summary": summary.model_dump(exclude={"allow_model_processing"})}
-        ),
-        user_id=user_id,
-        consent_token=consent_token,
-        timeout_seconds=25,
+    agent = build_single_turn_agent(gene, output_schema=PortfolioReview)
+    prompt = json.dumps(
+        {"saved_portfolio_summary": summary.model_dump(exclude={"allow_model_processing"})}
     )
+    for attempt in range(2):
+        try:
+            result = await run_single_turn(
+                agent,
+                prompt_parts=prompt,
+                user_id=user_id,
+                consent_token=consent_token,
+                timeout_seconds=25,
+            )
+            break
+        except SingleTurnInvalidJsonError:
+            if attempt:
+                raise
+            logger.warning("portfolio_review.invalid_json_retry")
+            await check_current()
     review = PortfolioReview.model_validate(result)
     if (review.score is not None and not summary.assessable) or (
         review.score is None and not review.advisor_reason
