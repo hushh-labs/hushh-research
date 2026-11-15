@@ -56,6 +56,13 @@ import { useVault } from "@/lib/vault/vault-context";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 
+type SavedLocationsSession = {
+  userId: string | null;
+  vaultKey: string | null;
+  vaultOwnerToken: string | null;
+};
+const EMPTY_SAVED_LOCATIONS: SavedLocation[] = [];
+
 export function SavedLocationsSection() {
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
@@ -72,7 +79,12 @@ export function SavedLocationsSection() {
     vaultOwnerToken,
   });
   const locationControl = useOneLocationControlState(userId);
-  const [locations, setLocations] = useState<SavedLocation[]>([]);
+  const [retainedLocations, setLocations] = useState<SavedLocation[]>([]);
+  const [locationsSession, setLocationsSession] = useState<SavedLocationsSession | null>(null);
+  // A completed load attempt does not establish ownership of retained data.
+  const locations = isVaultUnlocked && locationsSession?.userId === userId &&
+    locationsSession?.vaultKey === vaultKey && locationsSession?.vaultOwnerToken === vaultOwnerToken
+    ? retainedLocations : EMPTY_SAVED_LOCATIONS;
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -121,16 +133,38 @@ export function SavedLocationsSection() {
   const reconcileTaskRef = useRef<Promise<void> | null>(null);
   const reconcileQueuedRef = useRef(false);
 
+  const resetPrivatePlaces = useCallback(() => {
+    captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
+    setLocations([]);
+    setLocationsSession(null);
+    setLoadError(null);
+    setExpandedId(null);
+    setEditingLocation(null);
+    setOfferPrefill(null);
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+    setSaveLocationAddress(null);
+    setSaveLocationAddressLoading(false);
+    setSaveLocationSaving(false);
+    setCapturing(false);
+    setRemovingId(null);
+    setFavoritingId(null);
+    setRepairingId(null);
+    setLoading(false);
+  }, []);
+
   // Keep a "latest session" ref so async callbacks can detect when the vault
   // session changed mid-flight. Updated in an effect (not during render) to
   // satisfy the react-hooks/refs rule.
   useEffect(() => {
     vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+    resetPrivatePlaces();
     addressLookupsRef.current.clear();
     categoryLookupsRef.current.clear();
     setResolvedAddresses({});
     setResolvedCategories({});
-  }, [userId, vaultKey, vaultOwnerToken]);
+  }, [resetPrivatePlaces, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     setRendererDisclosureAccepted(
@@ -187,6 +221,7 @@ export function SavedLocationsSection() {
         !isCurrentVaultSession(session)
       ) return;
       setLocations(sortSavedLocationsForDisplay(list));
+      setLocationsSession(session);
     } catch {
       if (
         requestId !== reloadRequestIdRef.current ||
@@ -298,20 +333,8 @@ export function SavedLocationsSection() {
 
   useEffect(() => {
     if (hasVaultAccess) return;
-    captureRequestIdRef.current += 1;
-    addressResolutionIdRef.current += 1;
-    setLocations([]);
-    setSaveLocationModalOpen(false);
-    setSaveLocationPoint(null);
-    setSaveLocationAddress(null);
-    setSaveLocationAddressLoading(false);
-    setSaveLocationSaving(false);
-    setCapturing(false);
-    setRemovingId(null);
-    setFavoritingId(null);
-    setRepairingId(null);
-    setLoading(false);
-  }, [hasVaultAccess]);
+    resetPrivatePlaces();
+  }, [hasVaultAccess, resetPrivatePlaces]);
 
   useEffect(() => {
     if (!hasVaultAccess || !userId || !vaultOwnerToken || loadedUserId !== userId ||
@@ -563,6 +586,7 @@ export function SavedLocationsSection() {
         }));
         addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         setEditingLocation(null);
@@ -634,6 +658,7 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         toast.success("Saved location removed.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
@@ -655,6 +680,7 @@ export function SavedLocationsSection() {
       const next = await favoriteSavedLocation({ context: session, id: location.id });
       if (!isCurrentVaultSession(session)) return;
       setLocations(sortSavedLocationsForDisplay(next));
+      setLocationsSession(session);
       setExpandedId(null);
       toast.success("Added to favorites.", { className: connectTypography.toast });
     } catch {
@@ -688,6 +714,7 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         toast.success("Address updated.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
