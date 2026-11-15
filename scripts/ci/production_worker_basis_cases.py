@@ -38,10 +38,7 @@ def _tag(case):
 
 def _acceptance():
     fixture = run_path(
-        str(
-            basis.proof.ROOT
-            / "consent-protocol/tests/helpers/predecessor_acceptance.py"
-        )
+        str(basis.proof.ROOT / "consent-protocol/tests/helpers/predecessor_acceptance.py")
     )
     module, client, documents, responses, pins = fixture["_acceptance_fixture"]()
     image = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "b" * 64
@@ -53,13 +50,9 @@ def _acceptance():
         archive.writestr("acceptance.json", json.dumps(documents["uat"]))
     digest = "sha256:" + hashlib.sha256(buffer.getvalue()).hexdigest()
     responses["artifacts/21/zip"] = buffer.getvalue()
-    responses["artifacts/21"].update(
-        digest=digest, size_in_bytes=len(buffer.getvalue())
-    )
+    responses["artifacts/21"].update(digest=digest, size_in_bytes=len(buffer.getvalue()))
     pins["uat"]["artifact_digest"] = digest
-    responses[
-        "workflows/deploy-uat.yml/runs?event=workflow_dispatch&per_page=50&page=1"
-    ] = {
+    responses["workflows/deploy-uat.yml/runs?event=workflow_dispatch&per_page=50&page=1"] = {
         "workflow_runs": [{"id": 20}],
     }
     responses["runs/20/artifacts?per_page=100"] = {
@@ -103,9 +96,7 @@ def _runtime(service, source, run_id, uid, revision_name):
                 {
                     "name": "drive-worker" if service == basis.WORKER else "app",
                     "image": "gcr.io/hushh-pda/consent-protocol@sha256:" + "a" * 64,
-                    "env": [
-                        {"name": key, "value": value} for key, value in env.items()
-                    ],
+                    "env": [{"name": key, "value": value} for key, value in env.items()],
                 }
             ],
         },
@@ -142,17 +133,13 @@ def _basis_case(fixture):
                 case.release["final"]["frontend_revision"],
             ),
         }
-        runtimes["consent-protocol"][0]["metadata"]["uid"] = case.origin["candidate"][
-            "service_uid"
-        ]
+        runtimes["consent-protocol"][0]["metadata"]["uid"] = case.origin["candidate"]["service_uid"]
 
         def download(*arguments):
             fixture.assertEqual(arguments[:3], ("gh", "run", "download"))
             directory = Path(arguments[arguments.index("--dir") + 1])
             directory.mkdir(parents=True)
-            (directory / "prod-release-status.json").write_text(
-                json.dumps(case.release)
-            )
+            (directory / "prod-release-status.json").write_text(json.dumps(case.release))
             return ""
 
         def api(repository, endpoint):
@@ -204,12 +191,8 @@ def _hygiene_failure(ports):
     _ordinary(ports)
     case, owner = ports.case, ports.owner
     case.run["conclusion"] = case.job["conclusion"] = "failure"
-    names = {row["name"] for row in case.job["steps"]} | set(
-        owner.REQUIRED_PRODUCTION_STEPS
-    )
-    case.job["steps"] = [
-        {**case.original.upload, "name": name} for name in sorted(names)
-    ]
+    names = {row["name"] for row in case.job["steps"]} | set(owner.REQUIRED_PRODUCTION_STEPS)
+    case.job["steps"] = [{**case.original.upload, "name": name} for name in sorted(names)]
     case.job["steps"].append(
         {
             **case.original.upload,
@@ -228,9 +211,7 @@ def _hygiene_failure(ports):
         "account_deletion_activation",
     ):
         case.release["verification"][name] = "success"
-    case.release["rollback"] = dict.fromkeys(
-        ("backend", "frontend", "drive_jobs"), "skipped"
-    )
+    case.release["rollback"] = dict.fromkeys(("backend", "frontend", "drive_jobs"), "skipped")
     case.pack()
 
 
@@ -240,9 +221,7 @@ class WorkerBasisCases:
 
         with _basis_case(self) as ports:
             case = ports.case
-            case.original.payload = mixed_root_archive(
-                case.original, case.original.documents
-            )
+            case.original.payload = mixed_root_archive(case.original, case.original.documents)
             case.origin = case.load()
             case.documents["prod-activation-origin.json"] = case.origin
             case.payload = mixed_root_archive(case, case.documents)
@@ -286,9 +265,7 @@ class WorkerBasisCases:
                 elif defect == "pending-origin":
                     origin["run_id"] = "400"
                 else:
-                    ports.runtimes["consent-protocol"][1]["metadata"]["uid"] = (
-                        "recreated"
-                    )
+                    ports.runtimes["consent-protocol"][1]["metadata"]["uid"] = "recreated"
                 ports.pack()
                 with self.assertRaises(basis.receipts.retention.UnsafeState):
                     basis.load("f" * 40)
@@ -344,9 +321,7 @@ class WorkerBasisCases:
                 )
                 self.assertEqual(basis.revalidate(result), result)
                 self.assertEqual(basis.current_release_run_id(), "500")
-                self.assertIn(
-                    "runs/400/artifacts?per_page=100", ports.case.original.calls
-                )
+                self.assertIn("runs/400/artifacts?per_page=100", ports.case.original.calls)
                 with mock.patch.object(
                     ports.owner.retention,
                     "service_state",
@@ -383,20 +358,12 @@ class WorkerBasisCases:
                 elif defect == "worker-service":
                     ports.runtimes[basis.WORKER][0]["metadata"]["uid"] = "new-service"
                 elif defect == "worker-image":
-                    ports.runtimes[basis.WORKER][1]["spec"]["containers"][0][
-                        "image"
-                    ] = "latest"
+                    ports.runtimes[basis.WORKER][1]["spec"]["containers"][0]["image"] = "latest"
                 elif defect == "backend-uid":
-                    ports.runtimes["consent-protocol"][1]["metadata"]["uid"] = (
-                        "new-backend"
-                    )
+                    ports.runtimes["consent-protocol"][1]["metadata"]["uid"] = "new-backend"
                 else:
-                    ports.runtimes["consent-protocol"][1]["spec"]["containers"][0][
-                        "env"
-                    ] = []
-                with self.assertRaises(
-                    (basis.receipts.retention.UnsafeState, ValueError)
-                ):
+                    ports.runtimes["consent-protocol"][1]["spec"]["containers"][0]["env"] = []
+                with self.assertRaises((basis.receipts.retention.UnsafeState, ValueError)):
                     basis.revalidate(result)
 
     def test_healthy_basis_refuses_failed_pending_or_malformed_current_release(self):
@@ -407,9 +374,7 @@ class WorkerBasisCases:
                 elif defect == "pending":
                     ports.case.release["status"] = "pending_activation"
                 elif defect == "malformed":
-                    ports.case.documents["prod-activation-origin.json"] = {
-                        "schema_version": 1
-                    }
+                    ports.case.documents["prod-activation-origin.json"] = {"schema_version": 1}
                 ports.case.pack()
                 with self.assertRaises(basis.receipts.retention.UnsafeState):
                     basis.load(
@@ -432,9 +397,7 @@ class WorkerBasisCases:
                 basis,
                 "_runtime",
                 side_effect=lambda owner, service: (
-                    result["worker"]
-                    if service == basis.WORKER
-                    else original(owner, service)
+                    result["worker"] if service == basis.WORKER else original(owner, service)
                 ),
             ):
                 with self.assertRaises(AssertionError):
@@ -487,15 +450,26 @@ class WorkerBasisCases:
         source = "d" * 40
         approval = "e" * 40
         built_image = "gcr.io/hushh-pda/consent-protocol@sha256:" + "9" * 64
-        ci_run = {"id": 910, "status": "completed", "conclusion": "success"}
-        smoke_run = {"id": 911, "status": "completed", "conclusion": "success"}
+        ci_run = {
+            "id": 910,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        smoke_run = {
+            "id": 911,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
+        }
         mapping = {
             "schema_version": 1,
-            "kind": "main_application_approval",
+            "kind": "main-application-approval",
             "application_sha": source,
+            "application_tree": "1" * 40,
+            "equivalence": "exact-git-tree",
             "main_approval_sha": approval,
-            "tree": "1" * 40,
-            "pr_number": 9541,
+            "predecessor_acceptance_required": "main-qualified-source",
         }
 
         def _digest(payload):
@@ -514,20 +488,35 @@ class WorkerBasisCases:
             "resolved_services": ["backend"],
             "qualification": {
                 "functional": {
+                    "schema_version": 1,
                     "repository": basis.REPOSITORY,
                     "sha": source,
                     "source_branch": "main",
-                    "checks": [{"name": "CI Status Gate", "conclusion": "success"}],
+                    "checks": [
+                        {
+                            "check": "CI Status Gate",
+                            "check_id": 1001,
+                            "run_id": 910,
+                            "run_attempt": 1,
+                            "workflow": ".github/workflows/ci.yml",
+                            "event": "pull_request",
+                        }
+                    ],
                     "authority_reads": {"runs/910": _digest(ci_run)},
                 },
                 "smoke": {
+                    "schema_version": 1,
                     "repository": basis.REPOSITORY,
                     "sha": approval,
                     "source_branch": "main",
                     "checks": [
                         {
-                            "name": "Main Post-Merge Smoke Gate",
-                            "conclusion": "success",
+                            "check": "Main Post-Merge Smoke Gate",
+                            "check_id": 1002,
+                            "run_id": 911,
+                            "run_attempt": 1,
+                            "workflow": ".github/workflows/main-post-merge-smoke.yml",
+                            "event": "push",
                         }
                     ],
                     "authority_reads": {"runs/911": _digest(smoke_run)},
@@ -542,9 +531,7 @@ class WorkerBasisCases:
             def actions_only_api(repository, endpoint):
                 seen_endpoints.append(endpoint)
                 if "check-runs" in endpoint:
-                    raise AssertionError(
-                        "actions-only maintenance cannot read check-runs"
-                    )
+                    raise AssertionError("actions-only maintenance cannot read check-runs")
                 if endpoint == "runs/910":
                     return copy.deepcopy(ci_run)
                 if endpoint == "runs/911":

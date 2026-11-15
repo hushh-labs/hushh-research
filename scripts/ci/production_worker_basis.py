@@ -156,9 +156,7 @@ def _verify_main_git(source: str, approval: str, expected_mapping: object) -> No
     )
 
 
-def _verify_main_qualification(
-    owner, pin: object, source: str, *, approval_sha: str = ""
-) -> dict:
+def _verify_main_qualification(owner, pin: object, source: str, *, approval_sha: str = "") -> dict:
     expected_fields = {
         "schema_version",
         "kind",
@@ -207,14 +205,26 @@ def _verify_main_qualification(
             and item.get("source_branch") == "main"
             and isinstance(checks, list)
             and bool(checks)
-            and all(
-                isinstance(check, dict) and check.get("conclusion") == "success"
-                for check in checks
-            )
             and isinstance(reads, dict)
-            and bool(reads),
+            and bool(reads)
+            and all(
+                isinstance(check, dict)
+                and isinstance(check.get("check"), str)
+                and bool(check["check"])
+                and type(check.get("run_id")) is int
+                and check["run_id"] > 0
+                and type(check.get("run_attempt")) is int
+                and check["run_attempt"] > 0
+                and isinstance(check.get("workflow"), str)
+                and bool(check["workflow"])
+                and isinstance(check.get("event"), str)
+                and bool(check["event"])
+                and f"runs/{check['run_id']}" in reads
+                for check in checks
+            ),
             f"Main {kind} qualification evidence is invalid",
         )
+        fresh_by_path = {}
         for path, expected_digest in reads.items():
             _require(
                 isinstance(expected_digest, str)
@@ -228,6 +238,17 @@ def _verify_main_qualification(
             _require(
                 digest == expected_digest,
                 "Main qualification changed after worker admission",
+            )
+            fresh_by_path[path] = current
+        for check in checks:
+            run_payload = fresh_by_path.get(f"runs/{check['run_id']}")
+            _require(
+                isinstance(run_payload, dict)
+                and run_payload.get("id") == check["run_id"]
+                and run_payload.get("run_attempt") == check["run_attempt"]
+                and run_payload.get("status") == "completed"
+                and run_payload.get("conclusion") == "success",
+                f"Main {kind} qualification run is not a completed success",
             )
     return copy.deepcopy(pin)
 
@@ -247,9 +268,7 @@ def _accepted(
         _require(
             isinstance(image, str)
             and bool(
-                re.fullmatch(
-                    r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
-                )
+                re.fullmatch(r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image)
             ),
             "Main-built backend candidate has no immutable production image proof",
         )
@@ -270,12 +289,8 @@ def _accepted(
                     )
                 )
             except acceptance.Refused as error:
-                raise receipts.retention.UnsafeState(
-                    f"Healthy worker basis: {error}"
-                ) from error
-        qualified = _verify_main_qualification(
-            owner, pin, source, approval_sha=selected_approval
-        )
+                raise receipts.retention.UnsafeState(f"Healthy worker basis: {error}") from error
+        qualified = _verify_main_qualification(owner, pin, source, approval_sha=selected_approval)
         return {"source": source, "image": image, "main_qualification": qualified}
     _require(
         image_source == "promote-from-uat" and not approval_sha,
@@ -287,18 +302,14 @@ def _accepted(
     elif source == acceptance.RECORDED_RECOVERY_SHA:
         # The same-SHA completion can need a new stage after the operational
         # tag clears. Its accepted image remains the exact recorded UAT image.
-        accepted = github.recorded_recovery_uat(source, "backend")["services"][
-            "backend"
-        ]
+        accepted = github.recorded_recovery_uat(source, "backend")["services"]["backend"]
     else:
         accepted = github.find("uat", source, "backend")["services"]["backend"]
     reference = accepted.get("image_reference", "")
     _require(
         isinstance(reference, str)
         and bool(
-            re.fullmatch(
-                r"gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}", reference
-            )
+            re.fullmatch(r"gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}", reference)
         ),
         "exact-SHA UAT backend has no immutable image proof",
     )
@@ -358,18 +369,13 @@ def _release(owner, tag, fields, run_id):
     archive = receipts.immutable_archive(
         REPOSITORY, artifact, run_command=owner.retention.run_command, timeout=30
     )
-    original = {
-        key: value
-        for key, value in release.items()
-        if not key.startswith("_maintenance_")
-    }
+    original = {key: value for key, value in release.items() if not key.startswith("_maintenance_")}
     _require(
         original == phone._document(archive, "prod-release-status.json")
         and release.get("status") == "healthy"
         and release.get("sha") == tag["commit"]
         and all(
-            release.get("final", {}).get(f"{lane}_revision")
-            == fields[f"{lane}_revision"]
+            release.get("final", {}).get(f"{lane}_revision") == fields[f"{lane}_revision"]
             for lane in ("backend", "frontend")
         ),
         "healthy tag, attempt archive and release differ",
@@ -442,9 +448,7 @@ def _runtime(owner, service):
         state.get("spec", {}).get("traffic"),
         state.get("status", {}).get("traffic"),
     )
-    _require(
-        isinstance(desired, list) and isinstance(actual, list), "traffic is absent"
-    )
+    _require(isinstance(desired, list) and isinstance(actual, list), "traffic is absent")
     positive = [row for row in actual if row.get("percent", 0)]
     requested = [row for row in desired if row.get("percent", 0)]
     _require(
@@ -472,9 +476,7 @@ def _identity(service, state, revision):
     container_name = "drive-worker" if service == WORKER else None
     containers = revision.get("spec", {}).get("containers", [])
     selected = [
-        row
-        for row in containers
-        if container_name is None or row.get("name") == container_name
+        row for row in containers if container_name is None or row.get("name") == container_name
     ]
     _require(len(selected) == 1, "runtime application container is ambiguous")
     image = selected[0].get("image", "")
@@ -497,11 +499,7 @@ def _identity(service, state, revision):
         and bool(re.fullmatch(r"[1-9][0-9]*", run_id))
         and labels.get("serving.knative.dev/service") == service
         and labels.get("deploy-env") == "production"
-        and bool(
-            re.fullmatch(
-                r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
-            )
-        )
+        and bool(re.fullmatch(r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image))
         and revision.get("spec", {}).get("serviceAccountName")
         == "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
         and all(
@@ -589,11 +587,7 @@ def _load(
         backend["revision"] == expected["revision"]
         and backend["source"] == expected["source"]
         and backend["runtime_run_id"] == str(expected["run_id"])
-        and all(
-            backend[key] == expected[key]
-            for key in ("uid", "service_uid")
-            if key in expected
-        ),
+        and all(backend[key] == expected[key] for key in ("uid", "service_uid") if key in expected),
         "current backend differs from healthy runtime provenance",
     )
     result.update(backend=backend, worker=worker)
@@ -633,9 +627,7 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
         and basis["schema_version"] == 1,
         "basis type is invalid",
     )
-    source_sha, image, image_source, pin, approval = _stored_candidate_pin(
-        basis.get("candidate")
-    )
+    source_sha, image, image_source, pin, approval = _stored_candidate_pin(basis.get("candidate"))
     owner, run, _release, source = _source(
         source_sha,
         basis["healthy"]["run_id"],
@@ -655,9 +647,7 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
 def revalidate(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
     """Re-read live authority and refuse drift instead of replacing its basis."""
     qualify_source(basis)
-    source_sha, image, image_source, pin, approval = _stored_candidate_pin(
-        basis.get("candidate")
-    )
+    source_sha, image, image_source, pin, approval = _stored_candidate_pin(basis.get("candidate"))
     current = _load(
         source_sha,
         basis["healthy"]["run_id"],
