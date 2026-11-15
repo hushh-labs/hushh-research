@@ -36,6 +36,8 @@ export type PathDescriptor = {
   segment_id?: string | null;
   scope_handle?: string | null;
   source_agent?: string | null;
+  projection_state?: PkmScopeMaterializationState | null;
+  projection_receipt_id?: string | null;
 };
 
 export class PkmMetadataReviewRequired extends Error {
@@ -104,7 +106,7 @@ export type PkmScopeRegistryEntry = {
   owner_consent_override?: boolean;
   summary_projection?: Record<string, unknown> & {
     top_level_scope_path?: string;
-    materialization_state?: "materialized" | "empty" | "unknown";
+    materialization_state?: PkmScopeMaterializationState;
     materialized_leaf_count?: number;
     source_manifest_revision?: number;
     consumer_visible?: boolean;
@@ -114,8 +116,18 @@ export type PkmScopeRegistryEntry = {
   };
 };
 
+export type PkmScopeMaterializationState =
+  | "materialized"
+  | "private_candidate"
+  | "empty"
+  | "unknown"
+  | "failed"
+  | "pending"
+  | "stale"
+  | "conflicted";
+
 export type PkmScopeMaterialization = {
-  state: "materialized" | "empty" | "unknown";
+  state: PkmScopeMaterializationState;
   materialized_leaf_count: number;
 };
 
@@ -538,6 +550,14 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   /** Oldest first; metadata only, never path/exposure authority. */
   semanticManifests?: DomainManifest[];
   semanticDecision?: Record<string, unknown>;
+  /** Optional revision-bound wiki projection states keyed by normalized json_path. */
+  wikiProjectionStates?: Record<
+    string,
+    {
+      state: PkmScopeMaterializationState;
+      receipt_id?: string | null;
+    }
+  >;
 }): {
   structureDecision: StructureDecision;
   manifest: DomainManifest;
@@ -616,6 +636,17 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)
   );
+  if (params.wikiProjectionStates) {
+    for (const descriptor of paths) {
+      const proj = params.wikiProjectionStates[descriptor.json_path];
+      if (!proj) continue;
+      descriptor.projection_state = proj.state;
+      descriptor.projection_receipt_id = proj.receipt_id ?? null;
+      if (proj.state !== "materialized" && proj.state !== "unknown") {
+        descriptor.exposure_eligibility = false;
+      }
+    }
+  }
   const jsonPaths = paths.map((path) => path.json_path);
   const privateAgentMemory = isNonExternalizablePkmDomain(normalizedDomain);
   if (privateAgentMemory) {
@@ -651,7 +682,51 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   for (const [rawScope, value] of Object.entries(params.domainData)) {
     const scope = normalizePathSegment(rawScope);
     if (!scope || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
-    const materializedLeafCount = countMaterializedLeaves(value, [scope]);
+    const scopeLeafDescriptors = paths.filter(
+      (p) =>
+        p.path_type === "leaf" &&
+        (p.json_path === scope || p.json_path.startsWith(`${scope}.`)),
+    );
+    const wikiTrackedLeaves = scopeLeafDescriptors.filter(
+      (p) => p.projection_state != null,
+    );
+    if (wikiTrackedLeaves.length > 0 && wikiTrackedLeaves.length === scopeLeafDescriptors.length) {
+      const matCount = wikiTrackedLeaves.filter(
+        (p) => p.projection_state === "materialized",
+      ).length;
+      if (matCount > 0) {
+        scopeMaterialization[scope] = {
+          state: "materialized",
+          materialized_leaf_count: matCount,
+        };
+      } else {
+        const statePriority: PkmScopeMaterializationState[] = [
+          "conflicted",
+          "private_candidate",
+          "stale",
+          "pending",
+          "failed",
+          "empty",
+          "unknown",
+        ];
+        const chosen =
+          statePriority.find((st) =>
+            wikiTrackedLeaves.some((p) => p.projection_state === st),
+          ) ?? "empty";
+        scopeMaterialization[scope] = {
+          state: chosen,
+          materialized_leaf_count: 0,
+        };
+      }
+      continue;
+    }
+    const nonMaterializedWikiCount = wikiTrackedLeaves.filter(
+      (p) => p.projection_state !== "materialized" && p.projection_state !== "unknown",
+    ).length;
+    const materializedLeafCount = Math.max(
+      0,
+      countMaterializedLeaves(value, [scope]) - nonMaterializedWikiCount,
+    );
     scopeMaterialization[scope] = {
       state: materializedLeafCount > 0 ? "materialized" : "empty",
       materialized_leaf_count: materializedLeafCount,
