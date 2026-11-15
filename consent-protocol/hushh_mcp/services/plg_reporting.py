@@ -29,20 +29,26 @@ def reporting_identifiers(record) -> tuple[str, ...] | None:
     return (str(record.email or ""), *(str(p.email or "") for p in record.provider_data))
 
 
+def reporting_auth_app():
+    """Validate actual production identity authority without a directory read."""
+    from api.utils.firebase_admin import get_firebase_auth_app
+
+    app = get_firebase_auth_app()
+    if app is None or app.project_id != "hushh-pda":
+        raise ValueError("Customer reporting identity source unavailable")
+    return app
+
+
 async def current_reporting_records(user_ids: Iterable[str]) -> dict[str, dict]:
     """Bounded, production-only read of current and linked-provider deny identifiers."""
     from firebase_admin import auth
-
-    from api.utils.firebase_admin import get_firebase_auth_app
 
     ids = sorted(set(user_ids))
     if not ids:
         return {}
     if len(ids) > 50 or any(not isinstance(uid, str) or not 1 <= len(uid) <= 128 for uid in ids):
         raise ValueError("Customer reporting identity bound exceeded")
-    app = get_firebase_auth_app()
-    if app is None or app.project_id != "hushh-pda":
-        raise ValueError("Customer reporting identity source unavailable")
+    app = reporting_auth_app()
     result = await asyncio.wait_for(
         asyncio.to_thread(auth.get_users, [auth.UidIdentifier(uid) for uid in ids], app=app),
         timeout=6,
