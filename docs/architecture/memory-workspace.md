@@ -186,4 +186,6 @@ UX reference: [Muse's published design](https://introducing.muse.ai/) describes 
 background status, inspectable memory, and explicit approval for consequential
 actions. These are design references, not evidence of Hussh implementation or
 access to Muse's private prompts/configuration. Hussh must retain its own unlocked
-client, encrypted-storage, and consent boundaries.
+client, encrypted-storage, and consent boundaries. For the active `dev` design
+contract separating multi-page personal wiki memory from consent-governed PKM
+projections, see the [Personal Wiki Memory roadmap plan](../roadmap/personal-wiki-memory-plan.md).

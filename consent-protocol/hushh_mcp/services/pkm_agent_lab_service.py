@@ -5345,6 +5345,8 @@ class PKMAgentLabService:
                 # request; until now only the strict intent prompt carried it.
                 "reserved_branches": [
                     [row["reserved_branch"], row["agent_memory_sibling"]]
+                    if row["agent_memory_sibling"]
+                    else [row["reserved_branch"]]
                     for row in reserved_table_for_prompt()
                 ],
             },

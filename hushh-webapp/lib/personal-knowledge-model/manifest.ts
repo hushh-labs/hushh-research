@@ -1,6 +1,7 @@
 import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
 import { pkmStorageSegmentId } from "./segmentation";
 import { sensitiveTopicLabel, valueIsIdentifierShaped } from "@/lib/consent/field-sensitivity";
+import { isNonExternalizablePkmDomain } from "@/lib/consent/pkm-scope-policy";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
@@ -616,7 +617,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
     a.json_path.localeCompare(b.json_path)
   );
   const jsonPaths = paths.map((path) => path.json_path);
-  const privateAgentMemory = normalizedDomain === "one_memory";
+  const privateAgentMemory = isNonExternalizablePkmDomain(normalizedDomain);
   if (privateAgentMemory) {
     for (const path of paths) path.exposure_eligibility = false;
   }

@@ -530,6 +530,7 @@ type AgentMessage = {
   sentAtMs?: number;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  restoredFromHistory?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
   receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
   receiptRedacted?: boolean;
@@ -3864,8 +3865,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     applicationOwnerId,
   ]);
 
-  const handleCreateNewChat = useCallback(() => {
-    void chatMemory.trigger("new_chat").catch(() => undefined);
+  const handleCreateNewChat = useCallback((options?: { triggerMemory?: boolean } | unknown) => {
+    const shouldTriggerMemory = !(
+      options &&
+      typeof options === "object" &&
+      "triggerMemory" in options &&
+      (options as { triggerMemory?: boolean }).triggerMemory === false
+    );
+    if (shouldTriggerMemory) {
+      void chatMemory.trigger("new_chat").catch(() => undefined);
+    }
     pendingChatKeyRetryRef.current = null;
     chatSessionRef.current.start();
     liveTurnQueueRef.current = new LiveTurnQueue(createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()));
@@ -4955,7 +4964,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // It may have settled while that read was in flight; read the answer.
       if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
       if (!current()) return;
-      const restored = storedMessagesToAgentMessages(stored);
+      const restored = storedMessagesToAgentMessages(stored).map((message) => ({
+        ...message,
+        restoredFromHistory: true,
+      }));
       const stillRunning = isAgentTurnWatched(applicationOwnerId, selectedId);
       updateConversationId(selectedId, false);
       setMessages((current) =>
@@ -5095,7 +5107,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey: vaultKeyRef.current ?? "",
       });
       if (!isCurrent() || !chatSessionRef.current.isCurrent(chatEpoch)) return;
-      const restored = storedMessagesToAgentMessages(history);
+      const rawRestored = storedMessagesToAgentMessages(history);
+      const restored = rawRestored.map((message, index) =>
+        !preservePresentations || index < rawRestored.length - 2
+          ? { ...message, restoredFromHistory: true }
+          : message,
+      );
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       const nextMessages = restored.length > 0 ? restored : [createGreetingMessage()];
@@ -5475,10 +5492,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch) && getVaultOwnerToken() === token;
       // Empty chats switch immediately. Never discard unsent text/attachments
       // before the server commits a deletion; a failure leaves that draft intact.
+      void chatMemory.withdrawConversation(targetConversationId).catch(() => undefined);
       const hasDraft = currentDraftRef.current.input.length > 0 || currentDraftRef.current.attachment !== null;
       if (conversationIdRef.current === targetConversationId && !hasDraft) {
         handleHistoryDrawerOpenChange(false);
-        handleCreateNewChat();
+        handleCreateNewChat({ triggerMemory: false });
       }
       setHistoryActionPendingId(targetConversationId);
       const deletion = deleteAgentChatConversation({
@@ -5492,7 +5510,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         clearAgentChatHistoryCache(owner.userId);
         if (conversationIdRef.current === targetConversationId) {
           handleHistoryDrawerOpenChange(false);
-          handleCreateNewChat();
+          handleCreateNewChat({ triggerMemory: false });
         }
         setConversations((current) => current.filter((item) => item.id !== targetConversationId));
         toast.success("Chat deleted.");
@@ -5510,6 +5528,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     },
     [
+      chatMemory,
       getVaultOwnerToken,
       handleCreateNewChat,
       handleHistoryDrawerOpenChange,
@@ -6692,6 +6711,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         pkmContext: composeAgentPkmContext({
           receipt: latestPkmSaveReceiptRef.current ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
           memory: agentPkmContext.text || "", events: peekLiveActivity(userId), now: Date.now(),
+          pendingTurns: chatMemory.peekPendingMessages(conversationIdRef.current ?? undefined),
         }),
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
