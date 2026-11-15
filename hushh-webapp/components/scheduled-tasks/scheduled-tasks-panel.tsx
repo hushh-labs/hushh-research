@@ -60,7 +60,7 @@ export function useScheduledTasksModel(ownerId: string) {
   };
   useBackLayer(ROUTES.ONE_HOME, open ? 2 : 0, close);
   useEffect(() => {
-    if (!open) return;
+    if (!areScheduledTasksAvailable() || !open) return;
     const owner = snapshotValidatedAuthSessionOwner();
     if (owner?.userId !== ownerId) return;
     const request = new AbortController();
@@ -166,7 +166,7 @@ export function useScheduledTasksModel(ownerId: string) {
     }
   };
 
-  const changeOpen = (value: boolean) => { if (!busy) setOpen(value); };
+  const changeOpen = (value: boolean) => { if (!busy && (!value || areScheduledTasksAvailable())) setOpen(value); };
   return { open, changeOpen, close, status, message, checking, busy, placementMessage, control };
 }
 
@@ -175,6 +175,7 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
 }
 
 export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof useScheduledTasksModel> }) {
+  if (!areScheduledTasksAvailable()) return null;
   const { open, changeOpen, close, status, message, checking, busy, placementMessage, control } = model;
 
   return (
