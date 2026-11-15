@@ -18,8 +18,7 @@ import subprocess
 import time
 from contextlib import closing
 from datetime import datetime, timezone
-from functools import partial
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from runpy import run_path
 
@@ -142,9 +141,7 @@ def revision_inventory(
     project=None,
     emergency_sha: str | None = None,
 ) -> dict[str, dict]:
-    check = check or (
-        lambda sha: _capable(sha, restoration_sha, emergency_sha, project)
-    )
+    check = check or (lambda sha: _capable(sha, restoration_sha, emergency_sha, project))
     if not isinstance(rows, list) or not rows or len(rows) >= LIMIT:
         raise ValueError("workos_revision_inventory_incomplete")
     result = {}
@@ -154,9 +151,7 @@ def revision_inventory(
         labels = metadata.get("labels") or {}
         if (
             not isinstance(name, str)
-            or not re.fullmatch(
-                rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name
-            )
+            or not re.fullmatch(rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name)
             or name in result
             or labels.get("serving.knative.dev/service") != service
         ):
@@ -181,17 +176,13 @@ def revision_inventory(
         sha = _source(labels, check)
         containers = spec.get("containers") or []
         if container_name:
-            containers = [
-                row for row in containers if row.get("name") == container_name
-            ]
+            containers = [row for row in containers if row.get("name") == container_name]
         if len(containers) != 1:
             raise ValueError("workos_revision_container_unknown")
         entries = containers[0].get("env") or []
         flags = [item for item in entries if item.get("name") == flag]
         closed = (
-            len(flags) == 1
-            and flags[0].get("value") == "false"
-            and "valueFrom" not in flags[0]
+            len(flags) == 1 and flags[0].get("value") == "false" and "valueFrom" not in flags[0]
         )
         capable = check(sha)
         if capable and not closed:
@@ -214,10 +205,7 @@ def _audit_templates(
     methods = (
         METHODS
         if kind == "Service"
-        else {
-            method.replace("Services", "Jobs").replace("Service", "Job")
-            for method in METHODS
-        }
+        else {method.replace("Services", "Jobs").replace("Service", "Job") for method in METHODS}
     )
     if kind not in {"Service", "Job"} or payload.get("methodName") not in methods:
         raise ValueError("workos_audit_method_unknown")
@@ -229,8 +217,7 @@ def _audit_templates(
         kind == "Service"
         and project in TARGETS
         and payload.get("methodName") == "google.cloud.run.v1.Services.CreateService"
-        and request.get("@type")
-        == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
+        and request.get("@type") == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
         and request["parent"] == f"namespaces/{project}"
         and isinstance(service, dict)
         and service.get("metadata", {}).get("namespace") in (None, project)
@@ -242,9 +229,7 @@ def _audit_templates(
         or not isinstance((service.get("spec") or {}).get("template"), dict)
     ):
         raise ValueError("workos_audit_request_shape_unknown")
-    if isinstance(service, dict) and isinstance(
-        (service.get("spec") or {}).get("template"), dict
-    ):
+    if isinstance(service, dict) and isinstance((service.get("spec") or {}).get("template"), dict):
         found.append((service["spec"]["template"], None, False))
     if isinstance(response.get("spec"), dict) and isinstance(
         response["spec"].get("template"), dict
@@ -267,20 +252,71 @@ def _audit_templates(
     return found
 
 
-def _completion_closed(
-    template: dict, flag="WORKOS_SSO_ENABLED", container_name=None
-) -> bool:
+def _completion_closed(template: dict, flag="WORKOS_SSO_ENABLED", container_name=None) -> bool:
     containers = (template.get("spec") or {}).get("containers") or []
     if container_name:
         containers = [row for row in containers if row.get("name") == container_name]
     if len(containers) != 1:
         raise ValueError("workos_audit_container_unknown")
     flags = [row for row in containers[0].get("env", []) if row.get("name") == flag]
-    return (
-        len(flags) == 1
-        and flags[0].get("value") == "false"
-        and "valueFrom" not in flags[0]
+    return len(flags) == 1 and flags[0].get("value") == "false" and "valueFrom" not in flags[0]
+
+
+def _record_service_completions(
+    service_completions,
+    completions: dict,
+    *,
+    project: str,
+    service: str,
+    start: str,
+    until: str,
+    check,
+    flag: str,
+    container_name: str | None,
+    bridge_scope: bool,
+    bridge_name: str | None,
+) -> dict:
+    if not service_completions:
+        return {}
+    from workos_history import validate_service_completions
+    from workos_recovery_bridge import contract
+
+    preserved = frozenset()
+    service_uid = None
+    if bridge_scope:
+        import operational_workos_observation as operational_obs
+        import restoration_workos_observation as restoration_obs
+
+        preserved = frozenset({restoration_obs.REVISION, operational_obs.REVISION})
+        service_uid = contract()["BACKEND_SERVICE_UID"]
+    validated, stamps = validate_service_completions(
+        list(service_completions),
+        project=project,
+        region=REGION,
+        service=service,
+        start=start,
+        until=until,
+        instant=_instant,
+        limit=LIMIT,
+        service_uid=service_uid,
+        skip_names=frozenset({bridge_name}) if bridge_name else frozenset(),
     )
+    for event in validated:
+        for template, completed_name, completion in _audit_templates(event, project=project):
+            if not completion:
+                continue
+            metadata = template.get("metadata") or {}
+            sha = _source(metadata.get("labels") or {}, check)
+            name = completed_name or metadata.get("name")
+            closed = _completion_closed(template, flag, container_name)
+            if name in preserved and closed:
+                stamps.pop(name, None)
+                continue
+            observation = (sha, closed)
+            if name in completions and completions[name] != observation:
+                raise ValueError("workos_audit_completion_changed")
+            completions[name] = observation
+    return stamps
 
 
 def review_history(
@@ -300,11 +336,10 @@ def review_history(
     historical_observation=None,
     operational_observation=None,
     bridge_completions=(),
+    service_completions=(),
     emergency_sha: str | None = None,
 ) -> int:
-    check = check or (
-        lambda sha: _capable(sha, restoration_sha, emergency_sha, project)
-    )
+    check = check or (lambda sha: _capable(sha, restoration_sha, emergency_sha, project))
     if not isinstance(events, list) or len(events) >= LIMIT:
         raise ValueError("workos_audit_history_incomplete")
     if historical_observation is not None or operational_observation is not None:
@@ -329,7 +364,6 @@ def review_history(
 
             validate_operational(operational_observation, *context)
     from workos_history import audit_scope, require_closed, revision_name
-
     from workos_recovery_bridge import (
         DISPLACED_COMPLETIONS,
         contract,
@@ -338,15 +372,10 @@ def review_history(
         scope,
     )
 
+    bridge_scope = scope(project, service, flag, closed_key, container_name)
     bridge_name, bridge_events, displaced = None, set(), []
-    if (
-        scope(project, service, flag, closed_key, container_name)
-        and not require_retained
-    ):
-        if (
-            not isinstance(bridge_completions, (list, tuple))
-            or len(bridge_completions) >= 8
-        ):
+    if bridge_scope and not require_retained:
+        if not isinstance(bridge_completions, (list, tuple)) or len(bridge_completions) >= 8:
             raise ValueError("workos_recorded_bridge_audit_unqualified")
         bridge_name = contract()["REVISION"]
         marker_completions = []
@@ -363,11 +392,29 @@ def review_history(
             until=until,
             instant=_instant,
         )
-    templates, completions = [], {}
+    templates, completions, request_stamps = [], {}, {}
+    service_stamps = (
+        _record_service_completions(
+            service_completions,
+            completions,
+            project=project,
+            service=service,
+            start=start,
+            until=until,
+            check=check,
+            flag=flag,
+            container_name=container_name,
+            bridge_scope=bridge_scope,
+            bridge_name=bridge_name,
+        )
+        if not require_retained
+        else {}
+    )
     for event in [*events, *displaced]:
+        in_displaced = event in displaced
         stamp = (
             _instant(event["timestamp"])
-            if event in displaced
+            if in_displaced
             else audit_scope(event, project, service, start, until, _instant)
         )
         audit_templates = _audit_templates(event, project=project)
@@ -377,20 +424,27 @@ def review_history(
             metadata = template.get("metadata") or {}
             sha = _source(metadata.get("labels") or {}, check)
             name = revision_name(metadata, completed_name, service)
+            if not in_displaced and not completion:
+                request_stamps[name] = max(request_stamps.get(name, stamp), stamp)
             carried = historical_observation is not None and covers(
                 historical_observation, name, sha, stamp, metadata
             )
             if operational_observation is not None:
-                carried = (
-                    covers(operational_observation, name, sha, stamp, metadata)
-                    or carried
-                )
+                carried = covers(operational_observation, name, sha, stamp, metadata) or carried
             templates.append((name, sha, carried))
             if completion:
                 observation = (sha, _completion_closed(template, flag, container_name))
                 if name in completions and completions[name] != observation:
                     raise ValueError("workos_audit_completion_changed")
                 completions[name] = observation
+    for name, req_stamp in request_stamps.items():
+        if (
+            name not in inventory
+            and name in service_stamps
+            and req_stamp > service_stamps[name]
+            and completions.get(name, (None, False))[1] is True
+        ):
+            completions.pop(name, None)
     require_closed(
         templates,
         {name: row for name, row in inventory.items() if name != bridge_name},
@@ -509,15 +563,11 @@ def qualify(
 ) -> dict:
     if project not in TARGETS:
         raise ValueError("workos_rollout_project_invalid")
-    if emergency_receipt is not None and (
-        project != "hushh-pda" or restoration_sha is not None
-    ):
+    if emergency_receipt is not None and (project != "hushh-pda" or restoration_sha is not None):
         raise ValueError("workos_emergency_scope_invalid")
     emergency_sha = validate_emergency_receipt(emergency_receipt, root=ROOT)
     if project == "hushh-pda" and restoration_sha is None:
-        authority = run_path(
-            str(ROOT / "deploy/account-deletion/compatibility_restoration.py")
-        )
+        authority = run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
         restoration_sha = authority["qualify_recorded_source"]()["sourceSha"]
     if restoration_sha is not None:
         if project != "hushh-pda":
@@ -549,7 +599,18 @@ def qualify(
         ]
     )
     from restoration_workos_observation import receipt_provenance, review
-    from workos_recovery_bridge import completion_filter, needs_completion_history
+    from workos_history import (
+        SERVICE_COMPLETION_FORMAT,
+        retired_capable_revisions,
+        service_completion_filter,
+    )
+    from workos_recovery_bridge import (
+        completion_filter,
+        needs_completion_history,
+    )
+    from workos_recovery_bridge import (
+        contract as bridge_contract,
+    )
 
     reviewer = (
         review_history
@@ -570,6 +631,48 @@ def qualify(
             ]
         )
         reviewer = partial(reviewer, bridge_completions=completions)
+    excluded = frozenset()
+    if project == "hushh-pda":
+        import operational_workos_observation as operational_obs
+        import restoration_workos_observation as restoration_obs
+
+        bridge_meta = bridge_contract()
+        excluded = frozenset(
+            {
+                restoration_obs.REVISION,
+                operational_obs.REVISION,
+                bridge_meta["REVISION"],
+                bridge_meta["DISPLACED"],
+            }
+        )
+    retired = retired_capable_revisions(
+        events,
+        before,
+        service=SERVICE,
+        check=lambda sha: _capable(sha, restoration_sha, emergency_sha, project),
+        excluded=excluded,
+    )
+    if retired:
+        service_completions = []
+        for index in range(0, len(retired), 8):
+            batch = _document(
+                [
+                    "gcloud",
+                    "logging",
+                    "read",
+                    service_completion_filter(
+                        project, SERVICE, HISTORY_START, until, retired[index : index + 8]
+                    ),
+                    f"--project={project}",
+                    "--limit=64",
+                    "--order=asc",
+                    f"--format={SERVICE_COMPLETION_FORMAT}",
+                ]
+            )
+            if not isinstance(batch, list) or len(batch) >= 64:
+                raise ValueError("workos_audit_history_incomplete")
+            service_completions.extend(batch)
+        reviewer = partial(reviewer, service_completions=service_completions)
     count, historical = review(
         events,
         before,
@@ -611,9 +714,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", choices=tuple(TARGETS), required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument(
-        "--restoration-sha", help="Exact reviewed production recovery source only"
-    )
+    parser.add_argument("--restoration-sha", help="Exact reviewed production recovery source only")
     parser.add_argument(
         "--emergency-receipt",
         type=Path,
@@ -633,13 +734,10 @@ def main() -> int:
         # Never print subprocess output, SQL errors, credentials or cloud bodies.
         code = (
             str(exc)
-            if isinstance(exc, ValueError)
-            and re.fullmatch(r"workos_[a-z0-9_]+", str(exc))
+            if isinstance(exc, ValueError) and re.fullmatch(r"workos_[a-z0-9_]+", str(exc))
             else "unavailable"
         )
-        print(
-            f"WorkOS closed-rollout qualification refused: {type(exc).__name__}/{code}"
-        )
+        print(f"WorkOS closed-rollout qualification refused: {type(exc).__name__}/{code}")
         return 1
     print("WorkOS closed-rollout qualification passed; activation remains unqualified.")
     return 0
