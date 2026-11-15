@@ -67,7 +67,7 @@ The Metrics collector signs its exact JSON bytes with HMAC-SHA256 over
 `X-Metrics-Timestamp` / `X-Metrics-Signature`. The timestamp must be within one
 minute; the body is bounded to 2,000 bytes. PLG signing credentials are not reused.
 
-The route is default-off. Admission requires all of:
+The production route is default-off. Admission requires all of:
 
 - `ONE_METRICS_ADOPTION_ENABLED=true`, production auth lane and exact
   `GOOGLE_CLOUD_PROJECT=hushh-pda`; other lanes cannot borrow production records.
@@ -78,6 +78,18 @@ The route is default-off. Admission requires all of:
   The generation/scope/version must match the request and the population revision
   must match the existing current reporting policy. An evidence digest is not
   proof that its underlying reconciliation passed; activation requires review.
+
+UAT is separately default-off and requires the exact `hushh-pda-uat` project and
+`uat` auth lane, `ONE_METRICS_UAT_ADOPTION_ENABLED=true`, its own
+`ONE_METRICS_UAT_ADOPTION_SECRET`, `ONE_METRICS_UAT_ADOPTION_BINDING_JSON` and
+`ONE_METRICS_UAT_REPORTING_POLICY_JSON`. UAT signs with the distinct
+`metrics-one-aggregate-uat-v1` purpose. Its binding additionally pins the UAT
+database name and user. Each request constructs a bounded pool against the fixed
+UAT Cloud SQL socket, verifies each connection's database and user, and closes
+the pool. Firebase must be the UAT project; production identity, policy and key
+are never fallback sources. The managed socket mount must be checked against the
+UAT instance during release. These settings remain disabled until separately
+reconciled and accepted; UAT activity is test activity, not customer adoption.
 
 The request contains exactly `period: {startDate,endDate,timezone}`,
 `definitionVersion`, `sourceGeneration`, `scopeDigest`. Dates use complete source

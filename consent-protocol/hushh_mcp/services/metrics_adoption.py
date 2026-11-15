@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hushh_mcp.services import plg_outcomes, plg_reporting
+from hushh_mcp.services import metrics_uat_authority, plg_outcomes, plg_reporting
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
@@ -39,10 +39,17 @@ class AdoptionRequest(BaseModel):
     scopeDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
-def approved_binding() -> dict:
+def approved_binding(environment: str = "production") -> dict:
     """No activation defaults, borrowed PLG signing key or implicit source policy."""
     try:
-        raw = os.environ.get("ONE_METRICS_ADOPTION_BINDING_JSON", "")
+        if environment not in {"production", "uat"}:
+            raise ValueError
+        name = (
+            "ONE_METRICS_UAT_ADOPTION_BINDING_JSON"
+            if environment == "uat"
+            else "ONE_METRICS_ADOPTION_BINDING_JSON"
+        )
+        raw = os.environ.get(name, "")
         if not raw or len(raw) > 4000:
             raise ValueError
         row = json.loads(raw)
@@ -58,6 +65,7 @@ def approved_binding() -> dict:
                 "reconciliationDigest",
                 "coverageFrom",
             }
+            | ({"databaseName", "databaseUser"} if environment == "uat" else set())
             or row["approved"] is not True
             or row["definitionVersion"] != "1"
         ):
@@ -71,6 +79,16 @@ def approved_binding() -> dict:
             if not isinstance(row[field], str) or not re.fullmatch(r"[a-f0-9]{64}", row[field]):
                 raise ValueError
         if date.fromisoformat(row["coverageFrom"]).isoformat() != row["coverageFrom"]:
+            raise ValueError
+        if environment == "uat" and (
+            not isinstance(row["databaseName"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_]{1,63}", row["databaseName"])
+        ):
+            raise ValueError
+        if environment == "uat" and (
+            not isinstance(row["databaseUser"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", row["databaseUser"])
+        ):
             raise ValueError
         return row
     except (ValueError, TypeError, KeyError):
@@ -174,21 +192,29 @@ async def _candidates(conn, since, through):
     return ids
 
 
-async def _identity(ids, conn):
+async def _identity(ids, conn, environment="production"):
     if not ids:
         return {}, {}, {}
-    records = await plg_reporting.current_reporting_records(ids)
+    records = await (
+        metrics_uat_authority.current_records(ids)
+        if environment == "uat"
+        else plg_reporting.current_reporting_records(ids)
+    )
     identity = ActorIdentityService()
     canonical = await identity.get_many(ids, conn=conn)
     aliases = await identity.get_many_verified_email_aliases(ids, conn=conn)
     return records, canonical, aliases
 
 
-def _identity_authority():
+def _identity_authority(environment="production"):
     # Empty candidates skip per-owner lookups. They must not skip validation of
     # the actual auth source and turn a foreign/missing source into a valid zero.
     try:
-        return plg_reporting.reporting_auth_app()
+        return (
+            metrics_uat_authority.auth_app()
+            if environment == "uat"
+            else plg_reporting.reporting_auth_app()
+        )
     except Exception:
         raise AggregateUnavailable("Metrics source authority unavailable") from None
 
@@ -206,13 +232,23 @@ def _eligible(ids, active, identity, policy):
     ]
 
 
-async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=None, now=None):
+async def adoption_aggregate(
+    request: AdoptionRequest, binding: dict, *, pool=None, now=None, environment="production"
+):
+    if environment not in {"production", "uat"}:
+        raise AggregateUnavailable("Metrics source authority unavailable")
+    if environment == "uat":
+        metrics_uat_authority.runtime_authority(binding)
     now = now or datetime.now(timezone.utc)
     since, through = period_bounds(request, binding, now)
-    auth_app = _identity_authority()
-    policy = plg_reporting.reporting_policy()
+    auth_app = _identity_authority(environment) if environment == "uat" else _identity_authority()
+    policy = (
+        metrics_uat_authority.policy() if environment == "uat" else plg_reporting.reporting_policy()
+    )
     if policy.revision != binding["populationPolicyRevision"]:
         raise AggregateUnavailable("Metrics population changed")
+    if pool is None and environment == "uat":
+        raise AggregateUnavailable("UAT Metrics pool unavailable")
     if pool is None:
         from db.connection import get_pool
 
@@ -222,6 +258,8 @@ async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=No
     # business-record snapshot across the existing domain adapters. Never change
     # the isolation of the canonical lifecycle helper or hold a process cache.
     async with pool.acquire(timeout=3) as guard, guard.transaction(isolation="read_committed"):
+        if environment == "uat":
+            await metrics_uat_authority.verify_database(guard, binding)
         await guard.execute("SET LOCAL statement_timeout='5s'")
         await guard.execute("SET LOCAL lock_timeout='1s'")
         await _assert_global_read(guard)
@@ -231,12 +269,18 @@ async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=No
             if ids
             else set()
         )
-        before = await _identity(ids, guard)
+        before = (
+            await _identity(ids, guard, environment)
+            if environment == "uat"
+            else await _identity(ids, guard)
+        )
         eligible = _eligible(ids, active, before, policy)
         async with (
             pool.acquire(timeout=3) as data,
             data.transaction(isolation="repeatable_read", readonly=True),
         ):
+            if environment == "uat":
+                await metrics_uat_authority.verify_database(data, binding)
             await data.execute("SET LOCAL statement_timeout='5s'")
             await _assert_global_read(data)
             watermark = await data.fetchval("SELECT transaction_timestamp()", timeout=5)
@@ -270,12 +314,29 @@ async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=No
                     outcomes += count
                     if count:
                         users.add(uid)
-        after = await _identity(ids, guard)
+        after = (
+            await _identity(ids, guard, environment)
+            if environment == "uat"
+            else await _identity(ids, guard)
+        )
+        if environment == "uat":
+            metrics_uat_authority.runtime_authority(binding)
+        current_auth = (
+            _identity_authority(environment) if environment == "uat" else _identity_authority()
+        )
+        current_policy = (
+            metrics_uat_authority.policy()
+            if environment == "uat"
+            else plg_reporting.reporting_policy()
+        )
+        current_binding = (
+            approved_binding(environment) if environment == "uat" else approved_binding()
+        )
         if (
             after != before
-            or _identity_authority() is not auth_app
-            or plg_reporting.reporting_policy().revision != policy.revision
-            or approved_binding() != binding
+            or current_auth is not auth_app
+            or current_policy.revision != policy.revision
+            or current_binding != binding
         ):
             raise AggregateUnavailable("Metrics authority changed")
         checked = datetime.now(timezone.utc)
@@ -308,5 +369,11 @@ async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=No
         }
 
 
-async def bounded_adoption_aggregate(request, binding):
-    return await asyncio.wait_for(adoption_aggregate(request, binding), timeout=20)
+async def bounded_adoption_aggregate(request, binding, *, environment="production"):
+    async def run():
+        if environment == "uat":
+            async with metrics_uat_authority.dedicated_pool(binding) as pool:
+                return await adoption_aggregate(request, binding, pool=pool, environment="uat")
+        return await adoption_aggregate(request, binding, environment=environment)
+
+    return await asyncio.wait_for(run(), timeout=20)
