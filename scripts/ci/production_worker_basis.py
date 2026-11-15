@@ -468,6 +468,28 @@ def _runtime(owner, service):
     return _identity(service, state, matches[0])
 
 
+def _service_ready(service: str, state: dict, serving_name: str) -> bool:
+    conditions = state.get("status", {}).get("conditions", [])
+    if any(row.get("type") == "Ready" and row.get("status") == "True" for row in conditions):
+        return True
+    if service != WORKER:
+        return False
+    template_name = state.get("spec", {}).get("template", {}).get("metadata", {}).get("name", "")
+    status = state.get("status", {})
+    return (
+        bool(re.fullmatch(WORKER + r"-s-[1-9][0-9]*-[1-9][0-9]*", str(template_name)))
+        and template_name != serving_name
+        and status.get("latestCreatedRevisionName") == template_name
+        and status.get("latestReadyRevisionName") == serving_name
+        and any(
+            row.get("type") == "Ready"
+            and row.get("status") == "False"
+            and row.get("reason") == "HealthCheckContainerError"
+            for row in conditions
+        )
+    )
+
+
 def _identity(service, state, revision):
     metadata, labels = (
         revision.get("metadata", {}),
@@ -510,12 +532,10 @@ def _identity(service, state, revision):
         and state.get("metadata", {}).get("generation") is not None
         and str(state["metadata"]["generation"])
         == str(state.get("status", {}).get("observedGeneration"))
-        and all(
-            any(
-                row.get("type") == "Ready" and row.get("status") == "True"
-                for row in item.get("status", {}).get("conditions", [])
-            )
-            for item in (state, revision)
+        and _service_ready(service, state, str(metadata.get("name", "")))
+        and any(
+            row.get("type") == "Ready" and row.get("status") == "True"
+            for row in revision.get("status", {}).get("conditions", [])
         ),
         "runtime UID, source, image or readiness is unqualified",
     )

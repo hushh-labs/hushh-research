@@ -589,3 +589,42 @@ class WorkerBasisCases:
                 ):
                     with self.assertRaises(AssertionError):
                         drift_contract()
+
+    def test_healthy_basis_allows_failed_unserved_worker_candidate_only_when_serving_is_ready(
+        self,
+    ):
+        with _basis_case(self) as ports:
+            worker_service, worker_revision = ports.runtimes[basis.WORKER]
+            serving_name = worker_revision["metadata"]["name"]
+            failed_candidate = f"{basis.WORKER}-s-43698595541-1"
+            worker_service["spec"]["template"] = {"metadata": {"name": failed_candidate}}
+            worker_service["spec"]["traffic"] = [
+                {"revisionName": serving_name, "percent": 100},
+                {"revisionName": failed_candidate, "tag": "stage-a88981fa7"},
+            ]
+            worker_service["status"].update(
+                latestCreatedRevisionName=failed_candidate,
+                latestReadyRevisionName=serving_name,
+                conditions=[
+                    {
+                        "type": "Ready",
+                        "status": "False",
+                        "reason": "HealthCheckContainerError",
+                    }
+                ],
+            )
+            result = basis.load("f" * 40)
+            self.assertEqual(result["worker"]["revision"], serving_name)
+
+            # Negative controls: backend service Ready=False or serving worker Ready=False must fail.
+            ports.runtimes["consent-protocol"][0]["status"]["conditions"] = [
+                {"type": "Ready", "status": "False", "reason": "HealthCheckContainerError"}
+            ]
+            with self.assertRaises(basis.receipts.retention.UnsafeState):
+                basis.load("f" * 40)
+            ports.runtimes["consent-protocol"][0]["status"]["conditions"] = [
+                {"type": "Ready", "status": "True"}
+            ]
+            worker_revision["status"]["conditions"] = [{"type": "Ready", "status": "False"}]
+            with self.assertRaises(basis.receipts.retention.UnsafeState):
+                basis.load("f" * 40)
