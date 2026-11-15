@@ -137,7 +137,7 @@ export function HostingChoiceCards({
               data-maintenance={option.unavailable ? "true" : undefined}
               className={cn(
                 "group flex min-h-[88px] w-full items-center gap-4 rounded-2xl border p-4 text-left",
-                "transition-[border-color,background-color,box-shadow] duration-150",
+                "transition-[border-color,background-color,box-shadow,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-[0.88]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                 option.unavailable
                   ? "cursor-not-allowed border-[color:var(--app-card-border-standard)] bg-transparent"
@@ -146,7 +146,7 @@ export function HostingChoiceCards({
                   ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] shadow-[0_0_0_1px_var(--app-accent)]"
                   : option.unavailable
                     ? null
-                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] hover:border-[color:var(--app-accent-border)]",
+                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] [@media(hover:hover)_and_(pointer:fine)]:hover:border-[color:var(--app-accent-border)]",
               )}
             >
               <span
@@ -190,14 +190,14 @@ export function HostingChoiceCards({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors duration-150",
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none",
                     checked
                       ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                       : "border-[var(--app-border)]",
                   )}
                 >
                   {checked ? (
-                    <CheckIcon className="h-3 w-3" weight="bold" />
+                    <CheckIcon className="hosting-check-enter h-3 w-3" weight="bold" />
                   ) : null}
                 </span>
               )}
