@@ -11,7 +11,17 @@ import pypdfium2
 import pytest
 
 from hushh_mcp.kai_import.csv_layout import CsvLayoutUnsupported, parse_csv_number
+from hushh_mcp.kai_import.incremental_contracts import CSV_LAYOUT_SCHEMA
 from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
+
+
+def test_csv_group_separator_schema_avoids_vertex_rejected_empty_enum():
+    schema = CSV_LAYOUT_SCHEMA["properties"]["group_separator"]
+    assert schema["type"] == "string"
+    assert "" not in schema.get("enum", [])
+    assert parse_csv_number("1234.5", decimal=".", grouping="") == 1234.5
+    with pytest.raises(CsvLayoutUnsupported):
+        parse_csv_number("1234.5", decimal=".", grouping="invalid")
 
 
 def layout(first=1, last=1, header=0):

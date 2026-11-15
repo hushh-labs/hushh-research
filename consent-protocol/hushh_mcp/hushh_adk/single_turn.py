@@ -35,6 +35,10 @@ _SINGLE_TURN_REQUEST_LABELS: ContextVar[dict[str, str] | None] = ContextVar(
 )
 
 
+class SingleTurnInvalidJsonError(ValueError):
+    """The model returned text that cannot be decoded as JSON."""
+
+
 @contextmanager
 def bind_single_turn_request_labels(labels: Mapping[str, str] | None) -> Iterator[None]:
     """Scope low-cardinality Vertex billing labels to one trusted operation."""
@@ -86,17 +90,19 @@ def build_single_turn_agent(
     agent_id = str(getattr(manifest_or_subagent, "id", "single_turn") or "single_turn")
     # Authored identities own this scope; model output never selects it.
     processing_scope = single_turn_processing_scope(agent_id)
-    scope = {"processing_scope": processing_scope} if processing_scope else {}
     from hushh_mcp.managed_ai_config import load_scoped_text_policy
 
-    policy = load_scoped_text_policy(scope["processing_scope"]) if scope else None
+    policy = load_scoped_text_policy(processing_scope) if processing_scope else None
     # Scoped profiles own provider selection; Vertex retains regional failover.
     # Azure failures do not silently switch this turn to Vertex.
-    resolved = (
-        model
-        if model is not None
-        else build_managed_regional_gemini_adk_model(configured_model, **scope)
-    )
+    if model is not None:
+        resolved = model
+    elif processing_scope is not None:
+        resolved = build_managed_regional_gemini_adk_model(
+            configured_model, processing_scope=processing_scope
+        )
+    else:
+        resolved = build_managed_regional_gemini_adk_model(configured_model)
     model_name = resolved if isinstance(resolved, str) else str(getattr(resolved, "model", ""))
     if not model_name:
         model_name = config.name
@@ -107,7 +113,7 @@ def build_single_turn_agent(
         "response_mime_type": "application/json",
         "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
         "max_output_tokens": policy["max_output_tokens"]
-        if policy is not None and scope["processing_scope"] == "drive_document_requests"
+        if policy is not None and processing_scope == "drive_document_requests"
         else manifest_or_subagent.performance.max_output_tokens,
         "thinking_config": thinking_config_for(
             model_name,
@@ -157,7 +163,7 @@ def _decode(text: str, schema: Any) -> Any:
     try:
         value = json.loads(text)
     except json.JSONDecodeError as error:
-        raise ValueError("single-turn agent returned invalid JSON") from error
+        raise SingleTurnInvalidJsonError("single-turn agent returned invalid JSON") from error
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         return schema.model_validate(value)
     if not isinstance(value, dict):

@@ -119,9 +119,14 @@ async def portfolio_analysis(
         if await validate_first_party_owner_token(viewer, token) is None:
             raise HTTPException(403, {"code": "FINANCE_REVIEW_OWNER_REQUIRED"})
 
-    await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
-    result = await run_portfolio_review(body, user_id=viewer, consent_token=token)
-    await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
+    async def check_current() -> None:
+        await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
+
+    await check_current()
+    result = await run_portfolio_review(
+        body, user_id=viewer, consent_token=token, check_current=check_current
+    )
+    await check_current()
     return result
 
 
