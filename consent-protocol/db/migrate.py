@@ -76,7 +76,7 @@ def _migration_version(filename: str) -> int:
     prefix, separator, remainder = str(filename).partition("_")
     if (
         separator != "_"
-        or len(prefix) != 3
+        or len(prefix) < 3
         or not prefix.isdigit()
         or not remainder.endswith(".sql")
     ):

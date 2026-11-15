@@ -617,3 +617,35 @@ def test_recurring_worker_inspects_with_registry_auth_or_stops(tmp_path, auth_fa
     assert evidence.exists() is (not auth_failure)
     if not auth_failure:
         assert json.loads(evidence.read_text())["image_reference"] == environment["IMAGE_REFERENCE"]
+
+
+def test_staged_worker_template_refreshes_production_managed_ai_profile(
+    stage_ports, tmp_path, monkeypatch
+):
+    old = stage_ports.revisions[OLD]
+    worker_container = next(
+        item for item in old["spec"]["containers"] if item["name"] == "drive-worker"
+    )
+    worker_container["env"].extend(
+        [
+            {"name": "GENAI_GOOGLE_CLOUD_PROJECT", "value": "hushh-gemini-bridge"},
+            {"name": "HUSSH_GEMINI_TEXT_MODEL", "value": "gemini-3.8-flash"},
+        ]
+    )
+    stage_ports.value["spec"]["template"]["spec"] = copy.deepcopy(old["spec"])
+    config = json.loads(
+        (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text(encoding="utf-8")
+    )
+    expected_project = config["environments"]["production"]["project"]
+    expected_model = config["environments"]["production"]["text_model"]
+    intent = tmp_path / "intent.json"
+    _stage(intent, monkeypatch)
+    staged_revision = stage_ports.revisions[NEW]
+    env_map = {
+        item["name"]: item.get("value")
+        for item in next(
+            c for c in staged_revision["spec"]["containers"] if c["name"] == "drive-worker"
+        )["env"]
+    }
+    assert env_map["GENAI_GOOGLE_CLOUD_PROJECT"] == expected_project
+    assert env_map["HUSSH_GEMINI_TEXT_MODEL"] == expected_model
