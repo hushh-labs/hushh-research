@@ -2,11 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import type { AdvisorReview } from "@/lib/advisor-review/contract";
 
-const mocks = vi.hoisted(() => ({ history: vi.fn() }));
+const mocks = vi.hoisted(() => ({ history: vi.fn(), capture: vi.fn(), session: "s" }));
 const context = { isCurrent: () => true };
 vi.mock("@/lib/advisor-review/service", () => ({ AdvisorReviewService: mocks }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
-  useFinanceShareContext: () => ({ capture: () => context, ready: true, session: "s" }),
+  useFinanceShareContext: () => ({ capture: mocks.capture, ready: true, session: mocks.session }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/ria/clients",
@@ -20,6 +20,7 @@ vi.mock("@/components/kai/advisor/advisor-workspace", () => ({ AdvisorWorkspace:
 vi.mock("@/components/kai/advisor/advisor-request-flow", () => ({ AdvisorRequestFlow: () => null }));
 vi.mock("@/components/kai/advisor/portfolio-agent-review", () => ({ PortfolioAgentReview: () => null }));
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
+import { AdvisorReviewMessage } from "@/components/kai/advisor/advisor-review-message";
 
 const review = (id: string, payment?: AdvisorReview["payment"]): AdvisorReview => ({
   id,
@@ -43,9 +44,10 @@ const review = (id: string, payment?: AdvisorReview["payment"]): AdvisorReview =
   ...(payment ? { payment } : {}),
 });
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); mocks.session = "s"; });
 
 it("marks a settled advisor payment on the request row and leaves unpaid rows alone", async () => {
+  mocks.capture.mockReturnValue(context);
   mocks.history.mockResolvedValue({
     items: [
       review("1aaaaaaa-1111-4111-8111-111111111111", {
@@ -65,4 +67,17 @@ it("marks a settled advisor payment on the request row and leaves unpaid rows al
   const unpaid = screen.getByRole("button", { name: /Open request with Advisor 2/ });
   expect(unpaid.textContent).toContain("introduction and plan");
   expect(unpaid.textContent).not.toContain("Paid");
+});
+
+it("keeps the message workspace context stable across renders and closes it on session change", () => {
+  mocks.capture.mockReset().mockImplementation(() => ({ isCurrent: () => true }));
+  const view = render(<AdvisorReviewMessage id="request" />);
+  fireEvent.click(screen.getByRole("button", { name: /advisor introduction/i }));
+  expect(mocks.capture).toHaveBeenCalledTimes(1);
+  view.rerender(<AdvisorReviewMessage id="request" />);
+  expect(mocks.capture).toHaveBeenCalledTimes(1);
+  mocks.session = "next-session";
+  view.rerender(<AdvisorReviewMessage id="request" />);
+  expect(screen.getByText("Unlock One to open this request")).toBeVisible();
+  expect(mocks.capture).toHaveBeenCalledTimes(1);
 });
