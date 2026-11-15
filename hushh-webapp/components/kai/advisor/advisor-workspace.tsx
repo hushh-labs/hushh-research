@@ -173,7 +173,7 @@ export function AdvisorWorkspace({
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
-      title={closedPlan ? "Advisor plan" : "Advisor review"}
+      title={closedPlan ? "Advisor plan" : incoming ? "Client review" : "Advisor review"}
       description={person}
       presentation="sheet"
       surfaceClassName={`${finance.detail} ${styles.handshakeSheet}${accepted ? ` ${styles.handshakeTabbedSheet}` : ""}`}
@@ -247,7 +247,7 @@ export function AdvisorWorkspace({
           ) : review.status === "accepted" ? (
             <>
               <SegmentedTabs value={page} options={reviewPages} tabSetId={tabSetId}
-                className="shrink-0" ariaLabel="Advisor review sections" disabled={navigationDisabled} onValueChange={selectPage} />
+                className="shrink-0" ariaLabel={incoming ? "Client review sections" : "Advisor review sections"} disabled={navigationDisabled} onValueChange={selectPage} />
               <SwipeViews activeValue={page} options={reviewPages} tabSetId={tabSetId}
                 disabled={navigationDisabled} onSelectionChange={selectPage}
                 viewportMinHeight="0px" className={styles.handshakePager}
