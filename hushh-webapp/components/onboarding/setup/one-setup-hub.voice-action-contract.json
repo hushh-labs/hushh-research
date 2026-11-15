@@ -463,6 +463,92 @@
       "docs_references": [
         "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
       ]
+    },
+    {
+      "action_id": "setup.memory_import_skip",
+      "label": "Skip",
+      "meaning": "Discards the unsubmitted draft and completes required setup without importing it.",
+      "aliases": [
+        "skip memory import"
+      ],
+      "search_keywords": [
+        "memory",
+        "import",
+        "skip"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open the import step after phone, hosting and AI setup."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.memory_import_skip"
+      },
+      "control_ids": [
+        "one-memory-import-skip"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/components/onboarding/setup/memory-import-step.tsx"
+      ]
+    },
+    {
+      "action_id": "setup.hub_continue",
+      "label": "Continue",
+      "meaning": "Validates phone, hosting and AI setup, then opens the optional memory import step. It does not acknowledge setup completion.",
+      "aliases": [
+        "continue setup",
+        "import my memory"
+      ],
+      "search_keywords": [
+        "continue",
+        "memory",
+        "import",
+        "setup"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.hub_continue"
+      },
+      "control_ids": [
+        "one-setup-continue"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
+      ]
     }
   ],
   "search": {}

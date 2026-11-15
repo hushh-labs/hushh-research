@@ -6120,7 +6120,9 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "setup.hub_continue",
           "setup.hub_master_ack",
+          "setup.memory_import_skip",
           "setup.open_calendar",
           "setup.open_cloud",
           "setup.open_connected_systems",
@@ -7324,21 +7326,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "2f469166e4568501eadd8bc989b61ea9e66a2083efe8bcb79e0d0003966f6bca",
+    "action_gateway": "4b11f716fc8aeb134ed19ab141fd67a68e685a9a2ed717ad79aabc8ab8cadb5e",
     "agent_registry": "99aa0995fe6d1f2d45e19beeabc792219876ac245eb773d3ab065a0fc16df2d5",
     "cache_manifest": "669b3627c54a7f298c9b011b5e7e54681c1d1747ef4ab70728aa5de077dccea6",
     "data_plane": "d469a73b8a7ba58d10ff2347b6d7f4cdaf191d460a0818c4d1706c8ab3e9b0cf",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
-    "route_index": "821229702176457604f09f0689fa9405b8ce7d210980d933b174b1e85e284a4e",
-    "route_layout": "f8ffc233e0452152d2fb8e9530f2017de35b7c3b1ae5533a90c7b9adb902a209",
-    "surface_map": "2d4a46eadd5baf85cad4018ac343b11a28abdde6539efe2f1b811f816fb8ccc4",
+    "route_index": "8e408a21c35189391faeee9f146420b1d023c15f679349074dc746695dcb85ef",
+    "route_layout": "fc0284da5b1bab9bbab7f7410939898dfbcb7362200249b36e32ab59f5888b95",
+    "surface_map": "c0fba27d8b27d5fedbf24e48d42babcbf8deeedea16dbbb806ff8646d20523dd",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 334,
+    "actions": 336,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,

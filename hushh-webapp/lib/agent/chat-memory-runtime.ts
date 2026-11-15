@@ -66,6 +66,7 @@ export function createChatMemoryRuntime(deps: {
   let rerun = false;
   let disposed = false;
   let rewriteAbort: AbortController | null = null;
+  const queuedSnapshots = new Map<string, { conversationId: string; messages: ChatMemoryMessage[] }>();
 
   const current = () => Boolean(!disposed && bound && bound.generation === generation &&
     snapshotValidatedAuthSessionOwner()?.userId === bound.session.userId &&
@@ -117,7 +118,10 @@ export function createChatMemoryRuntime(deps: {
         throw new Error("Encrypted memory checkpoint is invalid.");
       pending = value;
       version = { generation: stored.generation, revision: stored.revision };
-    } else version = await SecureDurableResourceService.version(session.userId, RESOURCE);
+    } else {
+      pending = emptyPending();
+      version = await SecureDurableResourceService.version(session.userId, RESOURCE);
+    }
     loaded = true;
   };
   const loadMemory = async (forceRefresh = false) => {
@@ -170,7 +174,10 @@ export function createChatMemoryRuntime(deps: {
       if (messages.reduce((sum, message) => sum + message.content.length, 0) > MAX_PENDING_CHARS)
         throw new Error("Pending memory is full. Let the current update finish.");
       pending.messages = messages;
-      if (messages.length > previousCount || reconciled) await writePending();
+      if (messages.length > previousCount || reconciled) {
+        try { await writePending(); }
+        catch (error) { loaded = false; throw error; }
+      }
       return messages.length > previousCount;
     });
     if (added) {
@@ -257,7 +264,14 @@ export function createChatMemoryRuntime(deps: {
     if (running) { rerun = true; return running; }
     running = (async () => {
       let wrote = false;
-      do { rerun = false; wrote = await consolidate() || wrote; } while (rerun && current());
+      do {
+        rerun = false;
+        for (const [id, snapshot] of queuedSnapshots) {
+          await registerSnapshot(snapshot);
+          if (queuedSnapshots.get(id) === snapshot) queuedSnapshots.delete(id);
+        }
+        wrote = await consolidate() || wrote;
+      } while (rerun && current());
       return wrote;
     })().catch((error: unknown) => {
       if (current()) console.warn("[ChatMemory] rewrite_not_committed");
@@ -265,17 +279,39 @@ export function createChatMemoryRuntime(deps: {
     }).finally(() => {
       running = null;
       // A failed explicit/token run must not consume its one idle retry.
-      if (current() && pending.messages.length && !timer) scheduleIdle();
+      if (current() && (pending.messages.length || queuedSnapshots.size) && !timer) scheduleIdle();
     });
     return running;
   }
 
   function clear(): void {
     disposed = true;
+    queuedSnapshots.clear();
     rewriteAbort?.abort(); rewriteAbort = null;
     generation += 1;
     if (timer) clearTimeout(timer);
     timer = undefined; bound = null; loaded = false; pending = emptyPending(); rerun = false;
   }
-  return { registerSnapshot, recordUsage, trigger, activity: scheduleIdle, clear };
+  /** Exact-source acknowledgement, including prior retries and every long-source part. */
+  async function isSnapshotCommitted(input: { conversationId: string; messages: readonly ChatMemoryMessage[] }): Promise<boolean> {
+    return enqueue(async () => {
+      await initialize();
+      const memory = await loadMemory(true);
+      const checkpoint = memory.chatMemoryCheckpoint ?? emptyCheckpoint();
+      return input.messages.every(message => {
+        if (message.conversationId !== input.conversationId || message.consentDerived) return false;
+        const content = omitCredentialsFromMemory(message.content).trim();
+        return sourceParts(message, content).every(part =>
+          checkpoint.conversations[part.conversationId]?.includes(part.id));
+      });
+    });
+  }
+  /** Owner runtime owns the handoff across navigation; encrypted registration and inference run off-screen. */
+  function queueSnapshot(input: { conversationId: string; messages: readonly ChatMemoryMessage[] }): void {
+    if (disposed) return;
+    const snapshot = { conversationId: input.conversationId, messages: input.messages.map(message => ({ ...message })) };
+    queuedSnapshots.set(JSON.stringify([input.conversationId, input.messages.map(message => message.id)]), snapshot);
+    void trigger("remember").catch(() => undefined);
+  }
+  return { queueSnapshot, registerSnapshot, recordUsage, trigger, isSnapshotCommitted, activity: scheduleIdle, clear };
 }

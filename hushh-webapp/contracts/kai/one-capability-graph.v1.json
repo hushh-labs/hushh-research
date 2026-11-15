@@ -48224,6 +48224,302 @@
     },
     {
       "aliases": [
+        "Skip",
+        "skip memory import"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.memory_import_skip",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Discards the unsubmitted draft and completes required setup without importing it.",
+      "execution": {
+        "binding_ref": "semantic_action:setup.memory_import_skip",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "setup.memory_import_skip"
+        }
+      },
+      "goal_id": "goal.setup.memory_import_skip",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Skip",
+      "navigation": {
+        "fallback": "setup.memory_import_skip",
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "import",
+        "skip"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Continue",
+        "continue setup",
+        "import my memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.hub_continue",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Validates phone, hosting and AI setup, then opens the optional memory import step. It does not acknowledge setup completion.",
+      "execution": {
+        "binding_ref": "semantic_action:setup.hub_continue",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "setup.hub_continue"
+        }
+      },
+      "goal_id": "goal.setup.hub_continue",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Continue",
+      "navigation": {
+        "fallback": "setup.hub_continue",
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "continue",
+        "memory",
+        "import",
+        "setup"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Extended network discovery"
       ],
       "authorization": {
@@ -53662,7 +53958,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "adaea4224309b991cb96ef261296ced85e831dc687ce495ab1747e713eeccfd9",
+      "projection_digest": "ae7e2fdb5005b4422794b27c798f3c1d3dc708105f766017f4eb49f11bb62184",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53681,7 +53977,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4930bd2c22870488",
+      "source_revision": "f983aa55787399ad",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -55199,7 +55495,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4930bd2c22870488",
+    "source_revision": "f983aa55787399ad",
     "web": {
       "actions": [
         {
@@ -55242,7 +55538,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "671283a54c19b9f758ce3148dff846fb5f6396235e233848958c203af255396a",
+      "projection_digest": "60c0820722a86ed6dfafcb462360602719acbc3323c8278b404fe8ef0ef1858c",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -55261,7 +55557,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4930bd2c22870488",
+      "source_revision": "f983aa55787399ad",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -56818,7 +57114,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4930bd2c22870488",
+  "revision": "f983aa55787399ad",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -58322,7 +58618,9 @@
     },
     {
       "action_ids": [
+        "setup.hub_continue",
         "setup.hub_master_ack",
+        "setup.memory_import_skip",
         "setup.open_calendar",
         "setup.open_cloud",
         "setup.open_connected_systems",
@@ -58813,12 +59111,17 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:setup.hub_continue",
+      "actions:setup.memory_import_skip"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/setup"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": null,
+    "from_revision": "4930bd2c22870488",
     "migrated": [],
     "removed": []
   },
@@ -61192,18 +61495,18 @@
     "capability_graph_evolution": "77940c3d2ec09e67eccd01317b10804d526def60197b7841e33d1f0d9bb99932",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "2f469166e4568501eadd8bc989b61ea9e66a2083efe8bcb79e0d0003966f6bca",
+    "kai_action_gateway": "4b11f716fc8aeb134ed19ab141fd67a68e685a9a2ed717ad79aabc8ab8cadb5e",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "99aa0995fe6d1f2d45e19beeabc792219876ac245eb773d3ab065a0fc16df2d5",
-    "route_orchestration_index": "821229702176457604f09f0689fa9405b8ce7d210980d933b174b1e85e284a4e",
+    "route_orchestration_index": "8e408a21c35189391faeee9f146420b1d023c15f679349074dc746695dcb85ef",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "4930bd2c22870488",
+  "source_revision": "f983aa55787399ad",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4930bd2c22870488",
+    "current_graph_revision": "f983aa55787399ad",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -61319,6 +61622,7 @@
           "463b7d0356056f19",
           "476a8c21042e9057",
           "483f2c0de996d0be",
+          "4930bd2c22870488",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
@@ -61717,6 +62021,7 @@
           "45be718cd9891cd4",
           "476a8c21042e9057",
           "483f2c0de996d0be",
+          "4930bd2c22870488",
           "49f1882f17ca746a",
           "4be733c76f5be2bb",
           "4d911004af4b252b",
@@ -61877,6 +62182,7 @@
           "39d1350c4bb2264f",
           "3e761f3cb5bebeaf",
           "446e18f136bcd528",
+          "4930bd2c22870488",
           "55fdc71527d92200",
           "63d103b4ab44f723",
           "6c49b50b94a5d1d7",
@@ -62376,6 +62682,7 @@
           "463b7d0356056f19",
           "476a8c21042e9057",
           "483f2c0de996d0be",
+          "4930bd2c22870488",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
@@ -62750,6 +63057,7 @@
           "446e18f136bcd528",
           "4537aaec23a4d8c6",
           "458153bdfb331613",
+          "4930bd2c22870488",
           "55fdc71527d92200",
           "5f7f01f13bf61e53",
           "63d103b4ab44f723",
@@ -63295,6 +63603,7 @@
           "463b7d0356056f19",
           "476a8c21042e9057",
           "483f2c0de996d0be",
+          "4930bd2c22870488",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
@@ -63750,6 +64059,7 @@
           "463b7d0356056f19",
           "476a8c21042e9057",
           "483f2c0de996d0be",
+          "4930bd2c22870488",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
@@ -64203,6 +64513,7 @@
           "463b7d0356056f19",
           "476a8c21042e9057",
           "483f2c0de996d0be",
+          "4930bd2c22870488",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",

@@ -28,6 +28,16 @@ device persistence retry with bounded backoff; exhausted retries reject rather
 than returning absence or obsolete information. Retries remain bound to the
 original unlocked session and stop if it locks during backoff.
 Old structured records remain untouched.
+The optional onboarding import hands the pasted reply to the same owner-scoped
+chat memory runtime after required setup saves succeed. Navigation does not await
+registration, inference or the memory write. The runtime survives client navigation,
+registers the source in its existing encrypted device queue, and merges it with the
+latest memory.md in the background. Preparation or storage failure leaves the last
+saved document active and retains the source for retry. A recreated owner runtime
+resumes encrypted pending work; lock or sign-out stops the old runtime. Before
+encrypted registration succeeds, the handoff exists only in RAM and cannot survive
+a reload or session end. Skip submits no source. Browser and native rewrite requests
+allow 100 seconds for the backend's 90-second preparation budget.
 Legacy receipt indexes are not attached to chat as a second memory channel;
 connector tools may still read live sources when the owner requests them.
 The legacy domain-summary model tool refuses typed-chat reads before querying

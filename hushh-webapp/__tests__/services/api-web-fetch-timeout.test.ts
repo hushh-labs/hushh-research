@@ -15,6 +15,11 @@ import {
 } from "@/lib/services/api-service";
 
 describe("fetchWithWebTimeout", () => {
+  it("lets shared and direct-pod memory rewrites outlast the 90-second backend budget", () => {
+    expect(webFetchTimeoutMsForPath("/api/pkm/memory/rewrite")).toBe(100_000);
+    expect(webFetchTimeoutMsForPath("https://owner-pod.example/api/one/pod/memory/rewrite")).toBe(100_000);
+    expect(webFetchTimeoutMsForPath("/api/pkm/metadata/owner")).toBe(60_000);
+  });
   beforeEach(() => {
     vi.useFakeTimers();
   });

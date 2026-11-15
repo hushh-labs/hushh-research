@@ -598,6 +598,10 @@ describe("ApiService.apiFetch", () => {
 
   it.each([
     ["ios", "/api/one/connections/directory?page=1", 60_000],
+    ["ios", "/api/pkm/memory/rewrite", 100_000],
+    ["android", "/api/pkm/memory/rewrite", 100_000],
+    ["ios", "/api/one/pod/memory/rewrite", 100_000],
+    ["android", "/api/one/pod/memory/rewrite", 100_000],
     ["android", "/api/one/connections/directory?page=1", 60_000],
     ["ios", "/api/one/agent-chat/proposals", 150_000],
     ["android", "/api/one/agent-chat/proposals", 150_000],

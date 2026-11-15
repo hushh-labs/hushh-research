@@ -45,5 +45,7 @@ export function ownerChatMemory(input: {
   const invalidate = () => { if (!current()) entry.dispose(); };
   cleanups.push(subscribeVaultSessionEpoch(invalidate), subscribeAuthSessionGeneration(invalidate),
     subscribeDurableOwnerReset(owner => { if (owner === input.userId) entry.dispose(); }));
+  // Recover encrypted pending imports even when the next chat has no messages.
+  void runtime.trigger("idle").catch(() => undefined);
   return runtime;
 }

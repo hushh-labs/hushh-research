@@ -37696,6 +37696,218 @@
       }
     },
     {
+      "action_id": "setup.memory_import_skip",
+      "surface_id": "one_setup_hub",
+      "label": "Skip",
+      "aliases": [
+        "skip memory import"
+      ],
+      "search_keywords": [
+        "memory",
+        "import",
+        "skip"
+      ],
+      "meaning": "Discards the unsubmitted draft and completes required setup without importing it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open the import step after phone, hosting and AI setup."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.memory_import_skip"
+      },
+      "control_ids": [
+        "one-memory-import-skip"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/memory-import-step.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.memory_import_skip",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.memory_import_skip",
+            "label": "Skip",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.hub_continue",
+      "surface_id": "one_setup_hub",
+      "label": "Continue",
+      "aliases": [
+        "continue setup",
+        "import my memory"
+      ],
+      "search_keywords": [
+        "continue",
+        "memory",
+        "import",
+        "setup"
+      ],
+      "meaning": "Validates phone, hosting and AI setup, then opens the optional memory import step. It does not acknowledge setup completion.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.hub_continue"
+      },
+      "control_ids": [
+        "one-setup-continue"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.hub_continue",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.hub_continue",
+            "label": "Continue",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.network_visibility.choose",
       "surface_id": "one_network_visibility",
       "label": "Extended network discovery",
