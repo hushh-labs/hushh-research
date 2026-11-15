@@ -2,11 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import type { AdvisorReview } from "@/lib/advisor-review/contract";
 
-const mocks = vi.hoisted(() => ({ history: vi.fn(), capture: vi.fn(), session: "s" }));
+const mocks = vi.hoisted(() => ({ history: vi.fn(), capture: vi.fn(), session: "s", ready: true }));
 const context = { isCurrent: () => true };
 vi.mock("@/lib/advisor-review/service", () => ({ AdvisorReviewService: mocks }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
-  useFinanceShareContext: () => ({ capture: mocks.capture, ready: true, session: mocks.session }),
+  useFinanceShareContext: () => ({ capture: mocks.capture, ready: mocks.ready, session: mocks.session }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/ria/clients",
@@ -44,7 +44,7 @@ const review = (id: string, payment?: AdvisorReview["payment"]): AdvisorReview =
   ...(payment ? { payment } : {}),
 });
 
-afterEach(() => { cleanup(); mocks.session = "s"; });
+afterEach(() => { cleanup(); mocks.session = "s"; mocks.ready = true; });
 
 it("marks a settled advisor payment on the request row and leaves unpaid rows alone", async () => {
   mocks.capture.mockReturnValue(context);
@@ -79,5 +79,16 @@ it("keeps the message workspace context stable across renders and closes it on s
   mocks.session = "next-session";
   view.rerender(<AdvisorReviewMessage id="request" />);
   expect(screen.getByText("Unlock One to open this request")).toBeVisible();
+  expect(mocks.capture).toHaveBeenCalledTimes(1);
+});
+
+it("opens a message workspace when its existing session becomes ready", () => {
+  mocks.ready = false;
+  mocks.capture.mockReset().mockReturnValue(context);
+  const view = render(<AdvisorReviewMessage id="request" />);
+  fireEvent.click(screen.getByRole("button", { name: /advisor introduction/i }));
+  expect(mocks.capture).not.toHaveBeenCalled();
+  mocks.ready = true;
+  view.rerender(<AdvisorReviewMessage id="request" />);
   expect(mocks.capture).toHaveBeenCalledTimes(1);
 });

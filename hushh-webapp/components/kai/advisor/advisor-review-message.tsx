@@ -7,11 +7,11 @@ import { advisorWorkspaceHref } from "@/lib/advisor-review/contract";
 import { AdvisorWorkspace } from "./advisor-workspace";
 
 export function AdvisorReviewMessage({ id }: { id: string }) {
-  const { capture, session } = useFinanceShareContext();
+  const { capture, ready, session } = useFinanceShareContext();
   const [opened, setOpened] = useState<string | null>(null);
   const context = useMemo(
-    () => opened === session ? capture() : null,
-    [capture, opened, session],
+    () => opened === session && ready ? capture() : null,
+    [capture, opened, ready, session],
   );
   return (
     <>
