@@ -140,6 +140,30 @@ def service(*, expected_uid=None) -> dict:
     return value
 
 
+def _strip_stale_startup_traffic(value: dict, desired: list, actual: list, serving: str) -> list:
+    template_name = value.get("spec", {}).get("template", {}).get("metadata", {}).get("name", "")
+    status = value.get("status", {})
+    if (
+        not re.fullmatch(SERVICE + r"-s-[1-9][0-9]*-[1-9][0-9]*", str(template_name))
+        or template_name == serving
+        or status.get("latestCreatedRevisionName") != template_name
+        or status.get("latestReadyRevisionName") != serving
+        or any(item.get("revisionName") == template_name for item in actual)
+    ):
+        return desired
+    stale = startup_target({"candidate": template_name})
+    return [
+        row
+        for row in desired
+        if not (
+            row.get("revisionName") == stale["revisionName"]
+            and row.get("tag") == stale["tag"]
+            and row.get("percent", 0) == 0
+            and not row.get("latestRevision")
+        )
+    ]
+
+
 def traffic(value: dict) -> list:
     desired = value.get("spec", {}).get("traffic")
     actual = value.get("status", {}).get("traffic")
@@ -158,7 +182,7 @@ def traffic(value: dict) -> list:
         or desired_positive[0].get("revisionName") != positive[0].get("revisionName")
     ):
         raise ValueError("worker_requires_exact_existing_100_percent_revision")
-    return desired
+    return _strip_stale_startup_traffic(value, desired, actual, positive[0]["revisionName"])
 
 
 def snapshot(path: Path, value: dict) -> str:
@@ -339,7 +363,7 @@ def startup_verified(value, actual, receipt):
     )
 
 
-def worker_startup_state(value, receipt, scheduler_hash):
+def worker_startup_state(value, receipt, scheduler_hash, *, require_status=True):
     tag = startup_target(receipt)
     normalized = copy.deepcopy(value)
     found = []
@@ -361,15 +385,15 @@ def worker_startup_state(value, receipt, scheduler_hash):
         found.append(bool(owned))
         normalized[lane]["traffic"] = [row for row in rows if row not in owned]
     continuity(normalized, receipt, scheduler_hash, allow_retirement=False)
-    if found[0] != found[1]:
+    if require_status and found[0] != found[1]:
         raise PendingWorkerReadback("worker_startup_route_unreconciled")
-    return found[0]
+    return found[0] or found[1]
 
 
 def finish_recovery_startup(receipt, template, scheduler_hash):
     candidate_uid = None
 
-    def observe(*, started=False, untagged=False):
+    def observe(*, started=False, untagged=False, require_status=True):
         nonlocal candidate_uid
         for attempt in range(7):
             try:
@@ -395,7 +419,9 @@ def finish_recovery_startup(receipt, template, scheduler_hash):
                 if candidate_uid is not None and observed_uid != candidate_uid:
                     raise ValueError("worker_staged_revision_changed")
                 candidate_uid = observed_uid
-                tagged = worker_startup_state(after, receipt, scheduler_hash)
+                tagged = worker_startup_state(
+                    after, receipt, scheduler_hash, require_status=require_status
+                )
                 if started and not startup_verified(after, actual, receipt):
                     raise PendingWorkerReadback("worker_provider_startup_unqualified")
                 if untagged and tagged:
@@ -425,7 +451,7 @@ def finish_recovery_startup(receipt, template, scheduler_hash):
     try:
         after, actual, _ = observe(started=True)
     finally:
-        after, actual, tagged = observe()
+        after, actual, tagged = observe(require_status=False)
         if tagged:
             try:
                 submit(after, after["spec"]["template"], targets=receipt["baseline"]["traffic"])
