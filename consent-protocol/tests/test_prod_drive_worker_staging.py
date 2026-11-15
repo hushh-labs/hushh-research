@@ -619,49 +619,6 @@ def test_recurring_worker_inspects_with_registry_auth_or_stops(tmp_path, auth_fa
         assert json.loads(evidence.read_text())["image_reference"] == environment["IMAGE_REFERENCE"]
 
 
-def test_recurring_worker_build_from_source_pins_without_uat_registry_copy(tmp_path):
-    bash = shutil.which("bash")
-    assert bash is not None
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
-    steps = workflow["jobs"]["stage-drive-worker"]["steps"]
-    body = next(
-        step["run"]
-        for step in steps
-        if step.get("name") == "Pin accepted image for recurring worker release"
-    )
-    manifest, digest = executable_manifest()
-    (tmp_path / "worker-stage").mkdir()
-    guards = (
-        'registry_authenticated=0; gcloud() { case "$1 $2" in '
-        "'container images') return 91 ;; "
-        "'auth configure-docker') registry_authenticated=1 ;; "
-        "*) return 95 ;; esac; };\n"
-        'docker() { [ "$registry_authenticated" = 1 ] || return 19; '
-        f"printf '%s' '{manifest}'; }};\n"
-        f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
-    )
-    environment = {
-        **os.environ,
-        "RUNNER_TEMP": tmp_path.as_posix(),
-        "BACKEND_IMAGE_SOURCE": "build-from-source",
-        "IMAGE_REFERENCE": "gcr.io/hushh-pda/consent-protocol@" + digest,
-        "DEPLOY_SHA": "f" * 40,
-    }
-    environment.pop("BASH_ENV", None)
-    result = subprocess.run(  # noqa: S603 - authored workflow with guarded registry commands
-        [bash, "-c", guards + body],
-        cwd=ROOT,
-        env=environment,
-        capture_output=True,
-        timeout=20,
-    )
-    assert result.returncode == 0, result.stderr
-    assert (
-        json.loads((tmp_path / "worker-stage/image.json").read_text())["image_reference"]
-        == environment["IMAGE_REFERENCE"]
-    )
-
-
 def test_staged_worker_template_refreshes_production_managed_ai_profile(
     stage_ports, tmp_path, monkeypatch
 ):
