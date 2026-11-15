@@ -1,3 +1,4 @@
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,10 @@ const state = vi.hoisted(() => ({
   stalePhone: false,
   cachedPhoneVerified: true,
   refreshPhone: vi.fn(),
+  registerSnapshot: vi.fn(),
+  queueSnapshot: vi.fn(),
+  triggerMemory: vi.fn(),
+  isSnapshotCommitted: vi.fn(),
   saved: false,
   choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
   stagedGeminiKey: false,
@@ -49,7 +54,7 @@ vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
 vi.mock("@/lib/services/kai-profile-service", () => ({ resolveKaiOnboardingCompletion: () => false }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: state.user, userId: state.user.uid }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "vault-key", vaultOwnerToken: "vault-token" }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "vault-key", vaultOwnerToken: "vault-token", getVaultOwnerToken: () => "vault-token" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Set a lock</div> : null }));
 vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/cache-service")>(),
@@ -75,6 +80,7 @@ vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({ useCapabilitySe
 vi.mock("@/components/dashboard/one-agent-presence", () => ({ OneAgentPresence: () => null }));
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({ PublicProfileDiscoveryCard: () => null }));
 
+vi.mock("@/lib/agent/chat-memory-owner", () => ({ ownerChatMemory: () => ({ queueSnapshot: state.queueSnapshot, registerSnapshot: state.registerSnapshot, trigger: state.triggerMemory, isSnapshotCommitted: state.isSnapshotCommitted }) }));
 vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExit: state.acknowledgeSetupExit }));
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false, hasGeminiRuntime: () => state.stagedGeminiKey } }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
@@ -101,6 +107,9 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActio
 
 beforeEach(() => {
   state.phoneHint = null;
+  state.registerSnapshot.mockReset().mockResolvedValue(undefined);
+  state.triggerMemory.mockReset().mockResolvedValue(true);
+  state.isSnapshotCommitted.mockReset().mockResolvedValue(true);
   state.cachedPhone = true;
   state.stalePhone = false;
   state.cachedPhoneVerified = true;
@@ -131,9 +140,10 @@ describe("Setup saved AI choice", () => {
   it.each(["loading", "saving", "failed"] as const)("finishes independently of optional email state: %s", async (status) => {
     state.saved = true; state.unlocked = true; state.emailStatus = status;
     render(<OneSetupHub />);
-    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    const finish = await screen.findByRole("button", { name: "Continue" });
     await waitFor(() => expect(finish).toBeEnabled());
     fireEvent.click(finish);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
     await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
     expect(state.replace).toHaveBeenCalledWith("/");
   });
@@ -141,7 +151,7 @@ describe("Setup saved AI choice", () => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     const view = render(<OneSetupHub />);
-    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    const finish = await screen.findByRole("button", { name: "Continue" });
     expect(finish).toBeDisabled();
     expect(screen.getByTestId("one-setup-foundation")).toHaveTextContent("Finish choosing AI access");
 
@@ -167,9 +177,10 @@ describe("Setup saved AI choice", () => {
     state.savedProviderKey = provider === "openai" || provider === "azure_openai";
     render(<OneSetupHub />);
 
-    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    const finish = await screen.findByRole("button", { name: "Continue" });
     await waitFor(() => expect(finish).toBeEnabled());
     fireEvent.click(finish);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
     await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
     expect(state.replace).toHaveBeenCalledWith("/");
   });
@@ -182,7 +193,7 @@ describe("Setup saved AI choice", () => {
     state.providerReadError = provider === "unreadable";
     state.savedGeminiKey = true; // An unrelated key must not repair the selection.
     render(<OneSetupHub />);
-    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    const finish = await screen.findByRole("button", { name: "Continue" });
     await act(async () => {});
     expect(finish).toBeDisabled();
     expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
@@ -190,7 +201,7 @@ describe("Setup saved AI choice", () => {
 
   it("removes redundant progress and disables Finish until the current owner's saved choice arrives", async () => {
     const view = render(<OneSetupHub />);
-    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    const finish = await screen.findByRole("button", { name: "Continue" });
     expect(finish).toBeDisabled();
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.queryByText("Set up the rest later.")).toBeNull();
@@ -208,6 +219,7 @@ describe("Setup saved AI choice", () => {
     await waitFor(() => expect(finish).toBeEnabled());
     expect(screen.getByRole("button", { name: "Agent home: Connected" })).toBeVisible();
     fireEvent.click(finish);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
     await screen.findByRole("dialog");
     view.unmount();
     expect(state.unsubscribe).toHaveBeenCalledOnce();
@@ -224,6 +236,7 @@ describe("Setup saved AI choice", () => {
       /public information about you/,
     );
     expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/one/welcome?return_to=%2F"));
@@ -249,6 +262,7 @@ describe("Setup saved AI choice", () => {
     });
 
     render(<OneSetupHub />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(state.queueEntryWelcome).toHaveBeenCalledWith("owner"));
@@ -276,7 +290,7 @@ describe("reset phone admission", () => {
     state.saved = true;
     render(<OneSetupHub />);
     await screen.findByRole("button", { name: "Verify your phone: Verified" });
-    expect(screen.getByRole("button", { name: "Finish setup" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
     expect(state.refreshPhone).not.toHaveBeenCalled();
   });
   it("still requires verification for an explicitly unverified identity", async () => {
@@ -286,7 +300,7 @@ describe("reset phone admission", () => {
     state.saved = true;
     render(<OneSetupHub />);
     await screen.findByRole("button", { name: "Verify your phone: Required" });
-    expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
   });
   it("offers retry for unavailable identity instead of declaring it unverified", async () => {
@@ -295,10 +309,10 @@ describe("reset phone admission", () => {
     state.saved = true;
     render(<OneSetupHub />);
     await screen.findByText("Unable to check phone verification. Please try again.");
-    expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     state.refreshPhone.mockResolvedValue({ phone_verified: true });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await screen.findByRole("button", { name: "Verify your phone: Verified" });
+    await screen.findByRole("textbox", { name: "Bring the reply to One" });
     expect(screen.queryByText("Unable to check phone verification. Please try again.")).toBeNull();
   });
 });
@@ -310,7 +324,7 @@ it("revalidates a stale verified identity before allowing setup completion", asy
   state.saved = true;
   render(<OneSetupHub />);
   await screen.findByRole("button", { name: "Verify your phone: Required" });
-  expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   expect(state.refreshPhone).toHaveBeenCalled();
 });
 
@@ -320,5 +334,64 @@ it("does not let an older bootstrap hint override a fresh unverified identity", 
   state.saved = true;
   render(<OneSetupHub />);
   await screen.findByRole("button", { name: "Verify your phone: Required" });
-  expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+});
+
+
+describe("optional onboarding memory import", () => {
+  async function openImport() {
+    state.saved = true;
+    state.unlocked = true;
+    render(<OneSetupHub />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    return screen.findByRole("textbox", { name: "Bring the reply to One" });
+  }
+  it.each(["Finish setup", "Skip"])("%s with empty input completes without a memory write", async label => {
+    await openImport();
+    expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
+    expect(state.registerSnapshot).not.toHaveBeenCalled();
+    expect(state.queueSnapshot).not.toHaveBeenCalled();
+    expect(state.triggerMemory).not.toHaveBeenCalled();
+  });
+  it("Back returns to the checklist and discards the unsubmitted draft", async () => {
+    fireEvent.change(await openImport(), { target: { value: "Unsubmitted personal detail" } });
+    act(() => { expect(unwindBackLayer("/one/setup")).toBe(true); });
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(state.registerSnapshot).not.toHaveBeenCalled();
+    expect(state.queueSnapshot).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByRole("textbox")).toHaveValue("");
+  });
+  it("Skip discards an unsubmitted pasted draft", async () => {
+    fireEvent.change(await openImport(), { target: { value: "I prefer concise answers." } });
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
+    expect(state.registerSnapshot).not.toHaveBeenCalled();
+    expect(state.queueSnapshot).not.toHaveBeenCalled();
+  });
+  it("hands off to Chat's background writer and navigates without awaiting inference", async () => {
+    // A model that never answers must not hold onboarding open.
+    state.triggerMemory.mockReturnValue(new Promise(() => {}));
+    fireEvent.change(await openImport(), { target: { value: "I prefer concise answers." } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
+    expect(state.queueSnapshot).toHaveBeenCalledWith({
+      conversationId: "onboarding-memory-import",
+      messages: [{ id: expect.any(String), conversationId: "onboarding-memory-import", role: "user", content: "I prefer concise answers." }],
+    });
+    expect(state.triggerMemory).not.toHaveBeenCalled();
+    expect(state.isSnapshotCommitted).not.toHaveBeenCalled();
+  });
+  it("does not queue an import before setup succeeds, so Skip after failure discards it", async () => {
+    state.acknowledgeSetupExit.mockRejectedValueOnce(new Error("Setup save unavailable"));
+    fireEvent.change(await openImport(), { target: { value: "I prefer concise answers." } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+    await screen.findByText("Setup save unavailable");
+    expect(state.queueSnapshot).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
+    expect(state.queueSnapshot).not.toHaveBeenCalled();
+  });
 });

@@ -10,8 +10,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('const masterActionLabel = "Finish setup"');
-    expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
+    expect(source).toContain('const masterActionLabel = "Continue"');
+    expect(source).toContain('data-voice-action-id="setup.hub_continue"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
     expect(
       source.lastIndexOf("FinanceSetupDraftService.finalizeForVault"),
@@ -42,7 +42,6 @@ describe("One setup hub terminal action contract", () => {
     expect(source.indexOf('data-testid="one-setup-master-ack"')).toBeGreaterThan(
       source.indexOf("<div className={styles.flatChecklist}>"),
     );
-    expect(source).not.toContain("actions={");
   });
 
   it("leaves fixed-chrome clearance to the shared app scroll root", () => {
@@ -308,7 +307,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("onSuccess={() => undefined}");
   });
 
-  it("opens the last step straight from Finish setup, with no screen in between", () => {
+  it("keeps the vault boundary after the optional memory import step", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",

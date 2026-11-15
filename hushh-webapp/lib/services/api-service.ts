@@ -466,10 +466,17 @@ function isLiveGmailReceiptPath(path: string): boolean {
  */
 const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
+function isMemoryRewritePath(path: string): boolean {
+  const pathname = /^https?:\/\//i.test(path) ? new URL(path).pathname : path.split("?", 1)[0];
+  return pathname === "/api/pkm/memory/rewrite" || pathname === "/api/one/pod/memory/rewrite";
+}
+
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = /^https?:\/\//i.test(path)
     ? new URL(path).pathname
     : path.split("?", 1)[0] ?? "";
+  // Memory inference has a 90-second backend budget; allow its response to arrive.
+  if (isMemoryRewritePath(path)) return 100_000;
   if (/^\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
     return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
   }
@@ -927,6 +934,8 @@ async function apiFetch(
             ? LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
+          : isMemoryRewritePath(path)
+            ? 100_000
           : isLongRunningRoute
             ? 90_000
             : 60_000);

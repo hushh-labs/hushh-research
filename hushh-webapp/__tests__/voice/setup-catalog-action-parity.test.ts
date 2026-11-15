@@ -105,6 +105,8 @@ describe("setup catalog voice parity", () => {
     expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_cloud");
     expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
       ...orderedHubActionIds,
+      "setup.memory_import_skip",
+      "setup.hub_continue",
       "setup.hub_master_ack",
     ]);
 
