@@ -34,12 +34,13 @@ Revise estimates with reasons when findings change scope or commitments.
 ## Two audiences, one source
 
 Use two top-level sections. Human readers own the decisions; their section is a
-self-contained decision brief, not a teaser that delegates understanding to agents.
-Concision removes repetition, not reasons, directions, references or safety boundaries.
+self-contained decision brief. Remove repetition without dropping reasons, directions, references or safety boundaries.
 
 ### For humans
 
-- State the outcome in plain language, with linked owner/lead profiles and branch/environment.
+- Open with **Owner**, **Lead**, **Environment**, in that order, then human-review status; link verified people.
+  State the environment in its label; do not prepend a delivery-scope warning or repeat boilerplate warnings.
+  Keep necessary branch/fixture/release mechanics in agent guidance; the label does not authorize promotion.
 - Explain the problem found, the chosen direction and why it is preferable.
 - Connect problem → direction → reason/tradeoff → observable outcome; explain
   technical terms at first use through their purpose and user effect.
@@ -189,8 +190,7 @@ visible with their decision owner; accepted details must not become open choices
 - Read the human section alone: can the owner explain the problem, chosen path,
   reasons, phase outcomes and next action without translating implementation jargon?
   Check every update; move technical receipts to their evidence owner.
-- Verify links, author, assignees, linked owner/lead/reviewers, relationships and project fields. Preserve dates,
-  status and unrelated work unless their change was requested.
+- Verify opening label order, links, people, relationships and project fields; preserve author/assignees, dates, status and unrelated work.
 - Keep sensitive payloads and private evidence outside issues; link only references
   appropriate for the destination's audience and the user's sharing authorization.
 - A passing source check, completed implementation and accepted release are
@@ -202,11 +202,11 @@ visible with their decision owner; accepted details must not become open choices
 
 ```markdown
 ## For humans
-**Owner:** [Full Name](https://github.com/verified-owner)
-**Lead:** [Full Name](https://github.com/verified-lead)
+**Owner:** [Full Name](https://github.com/verified-owner)\
+**Lead:** [Full Name](https://github.com/verified-lead)\
+**Environment:** <verified target>\
 **Human review:** Pending — owner must review, edit, validate and approve owned decisions; record reviewer/evidence.
-Branch / environment; problem, outcome and component roles.
-Chosen direction, reasons/tradeoffs, concrete journey, visible references, phase dependencies and the owner's next action.
+Problem, outcome, roles, chosen direction, reasons/tradeoffs, journey, references, phase dependencies and owner’s next action.
 - [ ] Phase 0 — report alignment, gaps, dependencies and evidence-based estimates to the lead; resolve material decisions.
 - [ ] Phase 1 — first complete outcome: deliverable, dependencies, evidence, reviewer.
 - [ ] Phase 2 onward — remaining outcomes and acceptance, sized to the work.
