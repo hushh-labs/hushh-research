@@ -22,6 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from db.migration_sql_envelope import prepare_execution_sql
 from db.private_agent_adoption import execution_sql
 from db.referral_prize_activation import (
     REFERRAL_POLICY_V5_SHA256 as _REFERRAL_POLICY_V5_SHA256,
@@ -53,12 +54,8 @@ _SLOW_MIGRATION_MS = 1_000
 _LOCK_CONTENTION_SQLSTATES = frozenset({"55P03", "40P01", "40001"})
 _LOCK_RETRY_ATTEMPTS = 4
 _LOCK_RETRY_BASE_DELAY_S = 1.0
-# Bound what the RUN may spend retrying, not only what one migration may.
-# The UAT lane is 174 entries; at 4 attempts each that is
-# 174 x (4 x 5s lock wait + 7s backoff) = ~78 minutes, and deploy-uat.yml sets
-# no `timeout-minutes` (GitHub default 360). Unbounded, retry would turn a
-# 3-minute red deploy into a 78-minute hung one holding the advisory lock with
-# the account-deletion release fence installed -- worse than the bug it fixes.
+# Bound total run retry budget: 174 UAT entries x 4 attempts without a run cap
+# could hold the advisory lock and account-deletion fence for ~78 minutes.
 # Past the budget the next contention failure is reported instead of retried.
 _LOCK_RETRY_RUN_BUDGET_S = 300.0
 
@@ -928,7 +925,12 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
-            sql = execution_sql(entry, replay=_replay_sql if mode is MigrationMode.REPLAY else None)
+            sql = prepare_execution_sql(
+                entry,
+                execution_sql(entry, replay=_replay_sql if mode is MigrationMode.REPLAY else None),
+                mode_value=mode.value,
+                error_cls=MigrationAuthorityError,
+            )
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False
@@ -965,11 +967,7 @@ async def apply_manifest_entries(
                         await _execute_observed(conn, sql, probe)
                 except Exception as exc:
                     duration_ms = round((time.perf_counter() - started) * 1000)
-                    # A busy database is not a broken migration. Roll back first
-                    # so the connection is usable again, then wait for the lock
-                    # queue to drain and try the same body once more. Only a
-                    # contention SQLSTATE gets this; a constraint violation or a
-                    # syntax error still fails on the first attempt.
+                    # Only retry lock contention SQLSTATEs; broken SQL fails immediately.
                     delay = _lock_retry_delay_seconds(attempt)
                     if _is_lock_contention(exc):
                         retry_spent_s += time.perf_counter() - started
@@ -993,10 +991,7 @@ async def apply_manifest_entries(
                         )
                         await asyncio.sleep(delay)
                         continue
-                    # Say which migration failed, and say it before anything else can
-                    # go wrong. Nothing in this function named the entry, so six UAT
-                    # deploys failed against a 173-file replay with no way to tell
-                    # which file stopped it.
+                    # Always log which migration failed before rollback/unlock handling.
                     print(
                         f"MIGRATION FAILED: {entry.filename} after {duration_ms}ms "
                         f"[{_failure_signature(exc)}]"

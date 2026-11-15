@@ -480,3 +480,125 @@ class WorkerBasisCases:
                             contract()
             finally:
                 ports.owner._API_CACHE.reset(token)
+
+    def test_main_qualified_build_from_source_revalidates_without_checks_permission(
+        self,
+    ):
+        source = "d" * 40
+        approval = "e" * 40
+        built_image = "gcr.io/hushh-pda/consent-protocol@sha256:" + "9" * 64
+        ci_run = {"id": 910, "status": "completed", "conclusion": "success"}
+        smoke_run = {"id": 911, "status": "completed", "conclusion": "success"}
+        mapping = {
+            "schema_version": 1,
+            "kind": "main_application_approval",
+            "application_sha": source,
+            "main_approval_sha": approval,
+            "tree": "1" * 40,
+            "pr_number": 9541,
+        }
+
+        def _digest(payload):
+            return hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+
+        pin = {
+            "schema_version": 1,
+            "kind": "main-qualified-source",
+            "status": "qualified",
+            "repository": basis.REPOSITORY,
+            "environment": "production",
+            "sha": source,
+            "main_approval_sha": approval,
+            "resolved_services": ["backend"],
+            "qualification": {
+                "functional": {
+                    "repository": basis.REPOSITORY,
+                    "sha": source,
+                    "source_branch": "main",
+                    "checks": [{"name": "CI Status Gate", "conclusion": "success"}],
+                    "authority_reads": {"runs/910": _digest(ci_run)},
+                },
+                "smoke": {
+                    "repository": basis.REPOSITORY,
+                    "sha": approval,
+                    "source_branch": "main",
+                    "checks": [
+                        {
+                            "name": "Main Post-Merge Smoke Gate",
+                            "conclusion": "success",
+                        }
+                    ],
+                    "authority_reads": {"runs/911": _digest(smoke_run)},
+                },
+            },
+            "application_approval": mapping,
+        }
+        with _basis_case(self) as ports:
+            base_api = ports.owner.api
+            seen_endpoints = []
+
+            def actions_only_api(repository, endpoint):
+                seen_endpoints.append(endpoint)
+                if "check-runs" in endpoint:
+                    raise AssertionError(
+                        "actions-only maintenance cannot read check-runs"
+                    )
+                if endpoint == "runs/910":
+                    return copy.deepcopy(ci_run)
+                if endpoint == "runs/911":
+                    return copy.deepcopy(smoke_run)
+                return base_api(repository, endpoint)
+
+            with (
+                mock.patch.object(ports.owner, "api", actions_only_api),
+                mock.patch.object(
+                    basis.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+                ),
+                mock.patch.object(
+                    basis.promotion_approval,
+                    "verify",
+                    return_value=copy.deepcopy(mapping),
+                ),
+            ):
+                result = basis.load(
+                    source,
+                    candidate_image=built_image,
+                    image_source="build-from-source",
+                    approval_sha=approval,
+                    main_qualification=pin,
+                )
+                self.assertEqual(result["candidate"]["source"], source)
+                self.assertEqual(result["candidate"]["image"], built_image)
+                self.assertEqual(
+                    result["candidate"]["main_qualification"]["main_approval_sha"],
+                    approval,
+                )
+                self.assertNotIn("uat_acceptance", result["candidate"])
+                with mock.patch.object(
+                    ports.owner.retention,
+                    "service_state",
+                    side_effect=AssertionError("source-only must not read runtime"),
+                ):
+                    self.assertEqual(basis.qualify_source(result), result)
+                self.assertEqual(basis.revalidate(result), result)
+                self.assertIn("runs/910", seen_endpoints)
+                self.assertIn("runs/911", seen_endpoints)
+
+                ci_run["conclusion"] = "cancelled"
+
+                def drift_contract():
+                    with self.assertRaises(basis.receipts.retention.UnsafeState):
+                        basis.qualify_source(result)
+
+                drift_contract()
+                with mock.patch.object(
+                    basis,
+                    "_verify_main_qualification",
+                    side_effect=lambda *_a, **_k: pin,
+                ):
+                    with self.assertRaises(AssertionError):
+                        drift_contract()
