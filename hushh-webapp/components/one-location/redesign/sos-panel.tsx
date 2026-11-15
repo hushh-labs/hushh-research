@@ -417,7 +417,7 @@ export function SosPanel({
   return (
     <NativeLocationLayer flow="sos" title="Save My Soul" viewKey={nativeMessageEditing ? "sos:message" : active ? "sos:active" : "sos:ready"} sections={nativeSections} textEditor={nativeMessageEditing && !active ? { key: "sos-message", label: "Optional message", placeholder: "What should they know?", maximum: ONE_LOCATION_SHARE_NOTE_MAX_LENGTH, value: customMessage, change: setCustomMessage, enabled: !customMessageInvalid, busy, submitLabel: "Done", submit: () => setNativeMessageEditing(false), cancel: () => setNativeMessageEditing(false) } : undefined} confirmation={stopConfirmOpen ? { title: "Stop sharing?", description: "End the live location sharing started by this alert.", confirm: { key: "stop-sos", label: "Stop sharing", destructive: true, enabled: !stopBusy, pending: stopBusy, run: () => { setStopConfirmOpen(false); onStopSos(); } }, cancelLabel: "Keep sharing", cancel: () => setStopConfirmOpen(false) } : undefined}><section
       data-testid="sms-safety-screen"
-      className="mx-auto flex w-full max-w-[560px] flex-col px-4 pb-6 pt-4 sm:px-0 sm:pt-8"
+      className="flex min-w-0 w-full flex-col pb-6"
     >
       <header className="space-y-2">
         <h1 className="ui-text-page-title">
