@@ -2308,3 +2308,242 @@ def test_metrics_aggregate_period_is_source_calendar_days_and_generation_bound(
                 binding,
                 datetime(2026, 3, 10, tzinfo=timezone.utc),
             )
+
+
+def test_metrics_uat_route_requires_separate_lane_secret_binding_and_signing_purpose(
+    metrics_aggregate_setup, monkeypatch
+):
+    from hushh_mcp.services import metrics_uat_authority
+
+    f = metrics_aggregate_setup
+    uat_secret = "synthetic-uat-metrics-secret-" * 2
+    uat_binding = {**f.binding, "databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setattr(_metrics_route, "current_auth_lane", lambda: "uat")
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_ENABLED", "true")
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_SECRET", uat_secret)
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_BINDING_JSON", json.dumps(uat_binding))
+    run = AsyncMock(return_value={"coverage": "partial"})
+    monkeypatch.setattr(_metrics_source, "bounded_adoption_aggregate", run)
+    raw = json.dumps(f.body, separators=(",", ":")).encode()
+    at = str(int(time.time() * 1000))
+
+    def headers(purpose):
+        return {
+            "X-Metrics-Timestamp": at,
+            "X-Metrics-Signature": hmac.new(
+                uat_secret.encode(), purpose + at.encode() + b":" + raw, hashlib.sha256
+            ).hexdigest(),
+        }
+
+    assert (
+        f.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers(b"metrics-one-aggregate-v1:")
+        ).status_code
+        == 401
+    )
+    result = f.client.post(
+        "/api/one/metrics/adoption", content=raw, headers=headers(b"metrics-one-aggregate-uat-v1:")
+    )
+    assert result.status_code == 200 and result.json() == {"coverage": "partial"}
+    assert run.await_args.kwargs == {"environment": "uat"}
+    with monkeypatch.context() as scoped:
+        scoped.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+        assert (
+            f.client.post(
+                "/api/one/metrics/adoption",
+                content=raw,
+                headers=headers(b"metrics-one-aggregate-uat-v1:"),
+            ).status_code
+            == 404
+        )
+    with monkeypatch.context() as scoped:
+        scoped.delenv("ONE_METRICS_UAT_ADOPTION_ENABLED")
+        assert (
+            f.client.post(
+                "/api/one/metrics/adoption",
+                content=raw,
+                headers=headers(b"metrics-one-aggregate-uat-v1:"),
+            ).status_code
+            == 404
+        )
+    assert metrics_uat_authority.PROJECT == "hushh-pda-uat"
+
+
+def test_metrics_uat_authority_requires_dedicated_policy_auth_and_physical_database(monkeypatch):
+    from api.utils import firebase_admin
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    binding = {"databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setattr(uat, "current_auth_lane", lambda: "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_NAME", "uat_fixture")
+    monkeypatch.setenv("DB_USER", "uat_user")
+    uat.runtime_authority(binding)
+    connection = SimpleNamespace(fetchval=AsyncMock(side_effect=["uat_fixture", "uat_user"]))
+    asyncio.run(uat.verify_database(connection, binding))
+    connection.fetchval = AsyncMock(return_value="production_fixture")
+    with pytest.raises(RuntimeError):
+        asyncio.run(uat.verify_database(connection, binding))
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda:us-central1:hushh-vault-db")
+    with pytest.raises(RuntimeError):
+        uat.runtime_authority(binding)
+    monkeypatch.setattr(
+        firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda")
+    )
+    with pytest.raises(RuntimeError):
+        uat.auth_app()
+    monkeypatch.setattr(
+        firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda-uat")
+    )
+    assert uat.auth_app().project_id == "hushh-pda-uat"
+    monkeypatch.delenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", raising=False)
+    monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", '{"version":1}')
+    with pytest.raises(RuntimeError):
+        uat.policy()
+    monkeypatch.setenv(
+        "ONE_METRICS_UAT_REPORTING_POLICY_JSON",
+        json.dumps(
+            {
+                "version": 1,
+                "excludedAccountIds": ["fixture-excluded"],
+                "excludedEmails": [],
+                "excludedDomains": [],
+            }
+        ),
+    )
+    policy = uat.policy()
+    assert policy.account_ids == frozenset({"fixture-excluded"}) and len(policy.revision) == 64
+
+
+def test_metrics_uat_dedicated_pool_pins_socket_user_and_closes_on_swap(monkeypatch):
+    import asyncpg
+
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    binding = {"databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setattr(uat, "current_auth_lane", lambda: "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_NAME", "uat_fixture")
+    monkeypatch.setenv("DB_USER", "uat_user")
+    monkeypatch.setenv("DB_PASSWORD", "synthetic-fixture-password")
+    pool = SimpleNamespace(close=AsyncMock(), terminate=MagicMock())
+    create = AsyncMock(return_value=pool)
+    monkeypatch.setattr(asyncpg, "create_pool", create)
+
+    async def exercise():
+        with pytest.raises(RuntimeError):
+            async with uat.dedicated_pool(binding) as acquired:
+                assert acquired is pool
+                for _ in range(2):
+                    connection = SimpleNamespace(
+                        fetchval=AsyncMock(side_effect=["uat_fixture", "uat_user"])
+                    )
+                    await uat.verify_database(connection, binding)
+                monkeypatch.setenv(
+                    "DB_UNIX_SOCKET", "/cloudsql/hushh-pda:us-central1:hushh-vault-db"
+                )
+                await uat.verify_database(SimpleNamespace(fetchval=AsyncMock()), binding)
+
+    asyncio.run(exercise())
+    kwargs = create.await_args.kwargs
+    assert kwargs["host"] == "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg"
+    assert (
+        kwargs["port"] == 5432
+        and kwargs["database"] == "uat_fixture"
+        and kwargs["user"] == "uat_user"
+    )
+    assert kwargs["ssl"] is False and kwargs["min_size"] == 0 and kwargs["max_size"] == 2
+    pool.close.assert_awaited_once()
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv("PGSERVICE", "foreign-instance")
+    with pytest.raises(RuntimeError):
+        uat.runtime_authority(binding)
+
+
+@pytest.mark.asyncio
+async def test_metrics_uat_pool_admission_bounds_concurrent_connections(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    monkeypatch.setattr(uat, "_pool_admission", asyncio.Semaphore(1))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    @asynccontextmanager
+    async def admitted(_binding):
+        entered.set()
+        await release.wait()
+        yield object()
+
+    monkeypatch.setattr(uat, "_admitted_pool", admitted)
+
+    async def first():
+        async with uat.dedicated_pool({}):
+            pass
+
+    task = asyncio.create_task(first())
+    await entered.wait()
+    with pytest.raises(TimeoutError):
+        async with uat.dedicated_pool({}):
+            pytest.fail("a second pool must not start")
+    release.set()
+    await task
+    async with uat.dedicated_pool({}):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_metrics_uat_aggregate_rechecks_uat_authorities_and_both_connections(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    f, db = metrics_aggregate_setup, metrics_aggregate_database
+    binding = {**f.binding, "databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_NAME", "uat_fixture")
+    monkeypatch.setenv("DB_USER", "uat_user")
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_BINDING_JSON", json.dumps(binding))
+    uat_app = SimpleNamespace(project_id="hushh-pda-uat")
+    monkeypatch.setattr(uat, "auth_app", lambda: uat_app)
+    monkeypatch.setattr(
+        uat,
+        "policy",
+        lambda: _MetricsReportingPolicy(
+            frozenset({"staff"}), frozenset(), frozenset({"company.invalid"}), "c" * 64
+        ),
+    )
+    verify = AsyncMock()
+    monkeypatch.setattr(uat, "verify_database", verify)
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(f.body),
+        binding,
+        pool=db.pool,
+        environment="uat",
+    )
+    assert result["metrics"]["activeAccounts"] == {
+        "value": 1,
+        "coverage": "partial",
+        "unit": "account",
+        "basis": "exact",
+    }
+    assert verify.await_count == 2 and {call.args[0] for call in verify.await_args_list} == {
+        db.guard,
+        db.data,
+    }
+    assert all(call.args[2] == "uat" for call in db.identity.await_args_list)
+    assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)
