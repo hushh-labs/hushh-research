@@ -242,11 +242,13 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`
 
-17. Signed-in app routes default to `standard`; use `reading` only for narrow
-    detail/settings pages, `agent` for Location-aligned agent roots, and
-    `expanded` for dashboard/table-heavy routes.
+17. Signed-in app routes default to `standard`; use `reading` for detail/settings
+    pages and the Location workspace, `agent` for other bounded agent roots, and
+    `expanded` for dashboard/table-heavy routes. Location's hub and task screens
+    share the header's 54rem reading measure and gutters; nested page containers
+    must not narrow the notification prompt, headings, or primary lists again.
 18. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
-19. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
+19. `top-app-bar` and fixed route-tab chrome must align to the owning page's shell measure and gutters, including Location's `reading` column.
 20. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
 21. `SurfaceStack` overscan is allowed only as shared shell breathing on tablet/desktop; mobile defaults stay edge-aware and minimal.
 22. Signed-in nested routes must expose a back affordance through the shared top bar when they drill below a parent workspace route.

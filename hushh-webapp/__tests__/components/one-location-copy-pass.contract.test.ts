@@ -241,26 +241,10 @@ describe("Connect — no dead Scopes viewer", () => {
   });
 });
 
-describe("One Location — the Share confirm step is a measured column", () => {
-  // This screen has been reported twice for the same thing, and the first fix
-  // made it worse: the duration control was clamped to 420px inside a card that
-  // was still 824px, so the card had 372px of dead space and its two fields
-  // disagreed by 108px. Nothing caught it because every layout spec on this
-  // surface tops out at 430px — there is no desktop viewport anywhere in the
-  // Location contracts, so a desktop-only regression is invisible.
-  //
-  // These are source assertions, not geometry. They pin the two decisions that
-  // were wrong, so a future edit has to be deliberate about both.
-
-  it("measures the column, so the card cannot stretch to the shell", () => {
-    const confirmStep = HUB_SOURCE.slice(
-      HUB_SOURCE.indexOf('title="Ready to share?"') - 1200,
-      HUB_SOURCE.indexOf('title="Ready to share?"'),
-    );
-    expect(confirmStep).toContain("max-w-[560px]");
-  });
-
-  it("lets the duration control fill that measured column", () => {
+describe("One Location — Share duration presentation", () => {
+  // The shared page shell owns width. Browser geometry checks cover its
+  // desktop and mobile alignment instead of pinning nested CSS classes here.
+  it("lets the duration control use its containing column", () => {
     // Inside a column that is already measured, a second clamp on the control
     // only makes it disagree with the note field beside it.
     expect(HUB_SOURCE).toContain("maxWidthClassName={null}");

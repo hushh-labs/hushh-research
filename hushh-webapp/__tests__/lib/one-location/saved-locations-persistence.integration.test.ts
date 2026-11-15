@@ -161,6 +161,13 @@ describe("saved-place onboarding to Settings persistence", () => {
     expect(refused.success).toBe(false);
     expect(persistence.storeMergedDomainWithPreparedBlob).toHaveBeenCalledTimes(calls);
     expect((persistence.domainData.saved_places as any).locations.at(-1)).toEqual(invalid);
+    const beforeOrdinarySave = structuredClone(persistence.domainData);
+    await expect(addSavedLocation({
+      context: CONTEXT,
+      input: { category: "other", label: "Another venue", latitude: 3, longitude: 3 },
+    })).rejects.toThrow();
+    expect(persistence.storeMergedDomainWithPreparedBlob).toHaveBeenCalledTimes(calls);
+    expect(persistence.domainData).toEqual(beforeOrdinarySave);
   });
 
   it("round-trips an edited onboarding place through the real PKM coordinator and Settings reader", async () => {

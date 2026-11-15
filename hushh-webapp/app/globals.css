@@ -3711,10 +3711,10 @@ body:has([data-direct-message-page="true"])
   --app-top-content-offset: var(--top-shell-reserved-height);
 }
 
-/* Location owns a compact module header rather than a large route hero. Keep
+/* Location's hub and task screens share a compact module header. Keep
  * the shared shell reservation, but give this route the 24px breathing room
  * the actual utility row needs instead of an empty band below it. */
-body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="true"] {
+body:has([data-location-page], [data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="true"] {
   height: calc(var(--app-top-content-offset) - 24px);
 }
 

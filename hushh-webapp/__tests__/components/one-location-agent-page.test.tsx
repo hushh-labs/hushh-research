@@ -1550,12 +1550,10 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
-    // "agent", not "reading": the workspace shell was widened in the component
-    // and this selector was never updated, so it has been failing on main
-    // independently of this change. The assertions below are the point of the
-    // test and are unchanged.
+    // Keep the bottom-clearance guard scoped to Location's own shell rather
+    // than coupling it to a particular desktop measure.
     const pageShell = document.querySelector<HTMLElement>(
-      '[data-app-shell-width="agent"]',
+      '[data-location-page]',
     );
     expect(pageShell).toBeTruthy();
     expect(pageShell?.className).not.toContain("--app-bottom-fixed-ui");
