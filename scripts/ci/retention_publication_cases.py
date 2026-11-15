@@ -14,6 +14,44 @@ MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
 class ExistingPublicationCases:
+    def test_cancelled_unassigned_jobs_have_no_checkpoint_obligation(self):
+        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "main"}
+        for environment in ("uat", "production"):
+            for unassigned in (None, 0):
+                job = {**run, "run_id": 42,
+                       "name": ("UAT" if environment == "uat" else "Production") + " revision maintenance",
+                       "status": "completed", "conclusion": "cancelled", "steps": [],
+                       "runner_id": unassigned, "runner_group_id": unassigned,
+                       "runner_name": None, "runner_group_name": None}
+                with mock.patch.object(publication, "_jobs", return_value=[job]):
+                    self.assertFalse(publication._attempt(MAINTENANCE, publication.REPOSITORY, run, 1, environment))
+                for defect in ("assigned", "missing", "attempt", "source", "started", "failed", "boolean", "steps-missing", "attempt-type", "source-shape"):
+                    broken = copy.deepcopy(job)
+                    observed_run = copy.deepcopy(run)
+                    if defect == "assigned":
+                        broken["runner_id"] = 7
+                    elif defect == "missing":
+                        broken.pop("runner_id")
+                    elif defect == "attempt":
+                        broken["run_attempt"] = 2
+                    elif defect == "source":
+                        broken["head_sha"] = "b" * 40
+                    elif defect == "started":
+                        broken["steps"] = [{"name": "Maintenance mode: cleanup", "conclusion": "success"}]
+                    elif defect == "failed":
+                        broken["conclusion"] = "failure"
+                    elif defect == "boolean":
+                        broken["runner_id"] = False
+                    elif defect == "steps-missing":
+                        broken.pop("steps")
+                    elif defect == "attempt-type":
+                        broken["run_attempt"] = True
+                    else:
+                        broken["head_sha"] = observed_run["head_sha"] = "unknown"
+                    with self.subTest(environment=environment, unassigned=unassigned, defect=defect), mock.patch.object(publication, "_jobs", return_value=[broken]):
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            publication._attempt(MAINTENANCE, publication.REPOSITORY, observed_run, 1, environment)
+
     def test_missing_step_metadata_needs_independent_completed_upload(self):
         from pathlib import Path
         stamp = "2026-11-08T03:24:36Z"

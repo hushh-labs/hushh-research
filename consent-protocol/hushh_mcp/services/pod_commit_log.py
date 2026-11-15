@@ -460,12 +460,23 @@ class GcsObjectStore:
     # believes about its remaining life.
     _CREDENTIAL_REFUSED = (401, 403)
 
-    def __init__(self, bucket: str, prefix: str = "", *, session: Any = None) -> None:
+    def __init__(
+        self,
+        bucket: str,
+        prefix: str = "",
+        *,
+        session: Any = None,
+        token_provider: Optional[Callable[[], tuple[str, int]]] = None,
+    ) -> None:
         if not bucket:
             raise ValueError("a bucket is required")
+        from hushh_mcp.services.pod_emulator_endpoints import resolve_gcp_storage_origin
+
+        self._storage_origin, self._is_emulator = resolve_gcp_storage_origin()
         self._bucket = bucket
         self._prefix_segments = object_prefix_segments(prefix)
         self._prefix = "/".join(self._prefix_segments)
+        self._token_provider = token_provider
         # The credential is minted per store instance, not per HTTP call. Reads
         # run on worker threads, so the cache is guarded -- but only the cache:
         # the mint itself deliberately runs OUTSIDE the lock (see _token).
@@ -482,6 +493,12 @@ class GcsObjectStore:
 
             session = PodStorageTransport()
         self._session = session
+
+    def _object_api_url(self, quoted_key: str) -> str:
+        return f"{self._storage_origin}/storage/v1/b/{self._bucket}/o/{quoted_key}"
+
+    def _upload_api_url(self) -> str:
+        return f"{self._storage_origin}/upload/storage/v1/b/{self._bucket}/o"
 
     @staticmethod
     def _generation_value(value: Any) -> int:
@@ -565,6 +582,13 @@ class GcsObjectStore:
 
     def _mint_token(self) -> tuple[str, int]:
         """One metadata round trip: the credential and the seconds it is usable."""
+        if self._token_provider is not None:
+            token, ttl = self._token_provider()
+            if not isinstance(token, str) or not token.strip() or len(token) > 16384:
+                raise RuntimeError("pod storage credential unavailable")
+            return token, max(0, int(ttl) - self._TOKEN_REFRESH_MARGIN_SECONDS)
+        if self._is_emulator and not (os.getenv("GCE_METADATA_HOST") or "").strip():
+            return "floci-gcp-emulator-token", 3600 - self._TOKEN_REFRESH_MARGIN_SECONDS
         response = self._session.get(
             google_metadata_access_endpoint(),  # refuses on Azure, before any request
             headers={"Metadata-Flavor": "Google"},
@@ -657,7 +681,7 @@ class GcsObjectStore:
     ) -> tuple[Optional[bytes], ObjectVersion]:
         from hushh_mcp.services.pod_bounded_object import read_gcs_bounded_version
 
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{urllib.parse.quote(self._key(key), safe='')}"
+        url = self._object_api_url(urllib.parse.quote(self._key(key), safe=""))
         return await asyncio.to_thread(
             read_gcs_bounded_version,
             self._session,
@@ -670,14 +694,14 @@ class GcsObjectStore:
     async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
         from hushh_mcp.services.pod_bounded_object import read_gcs_bounded
 
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{urllib.parse.quote(self._key(key), safe='')}"
+        url = self._object_api_url(urllib.parse.quote(self._key(key), safe=""))
         return await asyncio.to_thread(
             read_gcs_bounded, self._session, self._authorized, url, max_bytes
         )
 
     def _get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
         quoted = urllib.parse.quote(self._key(key), safe="")
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
+        url = self._object_api_url(quoted)
         if not self._media_states_generation:
             # This egress path already proved it strips the header. Probing it
             # again would download the whole body only to discard it.
@@ -726,7 +750,7 @@ class GcsObjectStore:
         name = self._key(key)
         response = self._authorized(
             lambda headers: self._session.post(
-                f"https://storage.googleapis.com/upload/storage/v1/b/{self._bucket}/o",
+                self._upload_api_url(),
                 params={
                     "uploadType": "media",
                     "name": name,
@@ -746,7 +770,7 @@ class GcsObjectStore:
 
     async def delete(self, key: str) -> bool:
         quoted = urllib.parse.quote(self._key(key), safe="")
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
+        url = self._object_api_url(quoted)
         response = await asyncio.to_thread(
             self._authorized,
             lambda headers: self._session.delete(

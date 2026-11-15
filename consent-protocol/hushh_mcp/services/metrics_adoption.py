@@ -184,6 +184,15 @@ async def _identity(ids, conn):
     return records, canonical, aliases
 
 
+def _identity_authority():
+    # Empty candidates skip per-owner lookups. They must not skip validation of
+    # the actual auth source and turn a foreign/missing source into a valid zero.
+    try:
+        return plg_reporting.reporting_auth_app()
+    except Exception:
+        raise AggregateUnavailable("Metrics source authority unavailable") from None
+
+
 def _eligible(ids, active, identity, policy):
     records, canonical, aliases = identity
     return [
@@ -200,6 +209,7 @@ def _eligible(ids, active, identity, policy):
 async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=None, now=None):
     now = now or datetime.now(timezone.utc)
     since, through = period_bounds(request, binding, now)
+    auth_app = _identity_authority()
     policy = plg_reporting.reporting_policy()
     if policy.revision != binding["populationPolicyRevision"]:
         raise AggregateUnavailable("Metrics population changed")
@@ -263,6 +273,7 @@ async def adoption_aggregate(request: AdoptionRequest, binding: dict, *, pool=No
         after = await _identity(ids, guard)
         if (
             after != before
+            or _identity_authority() is not auth_app
             or plg_reporting.reporting_policy().revision != policy.revision
             or approved_binding() != binding
         ):

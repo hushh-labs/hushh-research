@@ -251,6 +251,9 @@ POST /api/one/agent-chat/runs/{conversation_id}/stop
 POST /api/one/agent-chat/proposals/prepare
 GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
+GET /api/one/pod/custody/broker-key
+POST /api/one/pod/custody/storage-token
+POST /api/one/pod/custody/dek
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind

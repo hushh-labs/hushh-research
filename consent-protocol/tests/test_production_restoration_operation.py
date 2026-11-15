@@ -356,14 +356,38 @@ def test_recovery_health_failure_rolls_back_the_pair_and_preserves_normal_scope(
 
 
 @pytest.mark.parametrize(
-    ("restoration", "fallback", "reservation"),
+    ("restoration", "fallback", "scope", "phase", "loaded", "reservation"),
     [
-        ("42", "", ["--candidate-service", "consent-protocol"]),
-        ("", "", []),
-        ("", "a" * 40, ["--additional-candidate-service", "consent-protocol"]),
+        ("42", "", "auto", "standard", "false", ["--candidate-service", "consent-protocol"]),
+        ("", "", "auto", "standard", "false", []),
+        (
+            "",
+            "a" * 40,
+            "auto",
+            "standard",
+            "false",
+            ["--additional-candidate-service", "consent-protocol"],
+        ),
+        ("", "", "frontend", "standard", "", ["--no-candidates"]),
+        ("", "", "frontend", "standard", "false", ["--no-candidates"]),
+        ("", "", "backend", "standard", "false", []),
+        ("", "", "all", "standard", "false", []),
+        ("", "", "frontend", "cold", "false", ["--candidate-service", "consent-protocol"]),
+        ("", "", "frontend", "standard", "true", ["--candidate-service", "consent-protocol"]),
+        ("42", "", "frontend", "standard", "false", ["--candidate-service", "consent-protocol"]),
+        (
+            "",
+            "a" * 40,
+            "frontend",
+            "standard",
+            "false",
+            ["--additional-candidate-service", "consent-protocol"],
+        ),
     ],
 )
-def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallback, reservation):
+def test_recovery_reserves_only_its_real_candidate(
+    tmp_path, restoration, fallback, scope, phase, loaded, reservation
+):
     import os
     import subprocess
 
@@ -387,8 +411,9 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "RESTORATION_RUN": restoration,
-            "PHONE_DEPLOY_PHASE": "standard",
-            "STAGED_WORKER_LOADED": "false",
+            "REQUESTED_SCOPE": scope,
+            "PHONE_DEPLOY_PHASE": phase,
+            "STAGED_WORKER_LOADED": loaded,
             "PHONE_ROLLBACK_SHA": fallback,
             "CAPTURE": str(capture),
         },
@@ -499,8 +524,16 @@ def test_workos_default_history_admits_only_production_exact_closed_restoration(
     import subprocess
 
     monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    import operational_workos_observation as observation
     import workos_rollout as closed
 
+    from tests.helpers.workos_observations import restoration_observation
+
+    # This fixture supplies historical evidence only; never use live production
+    # as an implicit operational producer-closure proof.
+    historical, historical_obs, _, _ = restoration_observation(closed)
+    monkeypatch.setattr(historical, "load", lambda _source: historical_obs)
+    monkeypatch.setattr(observation, "load", lambda _source: None)
     authority, record = _history_authority(monkeypatch, tmp_path)
     source = record["sourceSha"]
     revision = copy.deepcopy(next(iter(operation.revisions.values())))
@@ -551,7 +584,12 @@ def test_workos_default_history_admits_only_production_exact_closed_restoration(
         with pytest.raises(ValueError, match="restoration_project_invalid"):
             closed.qualify(project, source)
     if changed:
-        with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        with pytest.raises(
+            (ValueError, subprocess.CalledProcessError),
+            match="workos_historical_issuer_not_proven_closed"
+            if changed == "birth-enabled"
+            else None,
+        ):
             closed.qualify(project)
         assert databases == []
     else:

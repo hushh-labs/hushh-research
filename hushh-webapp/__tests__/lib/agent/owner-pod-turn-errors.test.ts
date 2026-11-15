@@ -49,7 +49,7 @@ describe("direct-path turn errors", () => {
     expect(formatAgentChatErrorMessage("ENDPOINT_VERSION_REGRESSION")).toMatch(/could not be established/);
     expect(formatAgentChatErrorMessage("x", "POD_CHAT_BUSY")).toMatch(/finishing active work/);
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_UPDATING"))
-      .toBe("Agent One is updating. Check Software updates in Settings before trying again.");
+      .toBe("Agent One is updating. Check Agent updates in Settings before trying again.");
     expect(formatAgentChatErrorMessage("private provider details", "POD_RECEIPT_UPDATE_REQUIRED"))
       .toBe("Update Agent One in Settings before resuming this receipt request.");
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_CAPABILITIES_INVALID"))

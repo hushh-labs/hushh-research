@@ -235,6 +235,22 @@ def _hygiene_failure(ports):
 
 
 class WorkerBasisCases:
+    def test_recurring_worker_reuses_mixed_root_pending_and_activation_receipts(self):
+        from production_phone_receipt_fixtures import mixed_root_archive
+
+        with _basis_case(self) as ports:
+            case = ports.case
+            case.original.payload = mixed_root_archive(
+                case.original, case.original.documents
+            )
+            case.origin = case.load()
+            case.documents["prod-activation-origin.json"] = case.origin
+            case.payload = mixed_root_archive(case, case.documents)
+            result = basis.load("f" * 40, release_run_id="500")
+            self.assertEqual(result["backend"]["runtime_run_id"], "400")
+            self.assertEqual(result["worker"]["uid"], "worker-revision-uid")
+            self.assertEqual(basis.revalidate(result), result)
+
     def test_frontend_only_basis_uses_canonical_inherited_backend_identity(self):
         from production_backend_inheritance_cases import _inheritance_case
 

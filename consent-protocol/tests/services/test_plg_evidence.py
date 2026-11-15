@@ -2024,6 +2024,10 @@ _METRICS_NOW = datetime.now(timezone.utc)
 
 @pytest.fixture
 def metrics_aggregate_setup(monkeypatch):
+    from api.utils import firebase_admin
+
+    auth_app = SimpleNamespace(project_id="hushh-pda")
+    monkeypatch.setattr(firebase_admin, "get_firebase_auth_app", lambda: auth_app)
     binding = {
         "approved": True,
         "definitionVersion": "1",
@@ -2270,6 +2274,69 @@ async def test_metrics_aggregate_incomplete_or_revoked_source_never_returns_zero
             metrics_aggregate_setup.binding,
             pool=metrics_aggregate_database.pool,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("project", [None, "hushh-pda-uat", "foreign-project"])
+async def test_metrics_empty_aggregate_refuses_foreign_auth_before_database_access(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch, project
+):
+    from api.utils import firebase_admin
+
+    monkeypatch.setattr(
+        firebase_admin,
+        "get_firebase_auth_app",
+        lambda: None if project is None else SimpleNamespace(project_id=project),
+    )
+    metrics_aggregate_database.guard.ids = []
+    metrics_aggregate_database.data.ids = []
+    with pytest.raises(_metrics_source.AggregateUnavailable, match="authority unavailable"):
+        await _metrics_source.adoption_aggregate(
+            _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+            metrics_aggregate_setup.binding,
+            pool=metrics_aggregate_database.pool,
+        )
+    assert metrics_aggregate_database.guard.transactions == []
+    assert metrics_aggregate_database.data.transactions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority", ["stable", "missing", "replaced"])
+async def test_metrics_empty_aggregate_rechecks_auth_after_source_reads(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch, authority
+):
+    from api.utils import firebase_admin
+
+    metrics_aggregate_database.guard.ids = []
+    metrics_aggregate_database.data.ids = []
+    request = _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body)
+    app = SimpleNamespace(project_id="hushh-pda")
+    after = (
+        app
+        if authority == "stable"
+        else None
+        if authority == "missing"
+        else SimpleNamespace(project_id="hushh-pda")
+    )
+    apps = iter([app, after])
+    monkeypatch.setattr(firebase_admin, "get_firebase_auth_app", lambda: next(apps))
+    if authority != "stable":
+        with pytest.raises(_metrics_source.AggregateUnavailable):
+            await _metrics_source.adoption_aggregate(
+                request, metrics_aggregate_setup.binding, pool=metrics_aggregate_database.pool
+            )
+    else:
+        result = await _metrics_source.adoption_aggregate(
+            request, metrics_aggregate_setup.binding, pool=metrics_aggregate_database.pool
+        )
+        assert all(
+            metric["value"] == 0 and metric["coverage"] == "partial"
+            for metric in result["metrics"].values()
+        )
+    assert metrics_aggregate_database.guard.transactions == [{"isolation": "read_committed"}]
+    assert metrics_aggregate_database.data.transactions == [
+        {"isolation": "repeatable_read", "readonly": True}
+    ]
 
 
 def test_metrics_aggregate_period_is_source_calendar_days_and_generation_bound(

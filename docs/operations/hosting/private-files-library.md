@@ -265,6 +265,13 @@ pending-delivery record with an explicit retry; no autonomous outbox sweep is cl
 
 ### Scheduled tasks — local source, not deployed acceptance
 
+Production does not offer Scheduled tasks or Schedule organization. The app uses
+its existing build environment to hide these controls and refuse scheduling
+requests before pod admission; source synchronization does not disable Dev/UAT
+controls. Pod execution remains separately qualified for Dev, so visible UAT
+controls do not establish UAT scheduling acceptance. Operational cloud jobs are
+not affected by this product availability rule.
+
 One's **Scheduled tasks** view exposes approved work without keeping a pod awake.
 The first customer action is **Schedule organization** on a ready file. It reviews
 a one-time run in the owner's timezone against the existing Files analysis opt-in.

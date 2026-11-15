@@ -23,9 +23,16 @@ spec.loader.exec_module(module)
 
 
 def existing_channels(args):
-    return [{"name": f"projects/{args.project}/notificationChannels/{i}",
-             "type": "email", "enabled": True, "verificationStatus": "VERIFIED",
-             "labels": {"email_address": email}} for i, email in enumerate(args.email)]
+    return [
+        {
+            "name": f"projects/{args.project}/notificationChannels/{i}",
+            "type": "email",
+            "enabled": True,
+            "verificationStatus": "VERIFIED",
+            "labels": {"email_address": email},
+        }
+        for i, email in enumerate(args.email)
+    ]
 
 
 def delivery_strategy(policy):
@@ -37,15 +44,19 @@ def delivery_strategy(policy):
 
 class CapacityObservabilityTest(unittest.TestCase):
     def test_policy_delivery_drift_and_repeat_reconciliation(self) -> None:
-        args = module.cli([
-            "--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg", "--apply"
-        ])
+        args = module.cli(
+            ["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg", "--apply"]
+        )
+        self.assertEqual(args.email, ["dev-ops@hushh.ai"])
         channels = existing_channels(args)
-        metrics = [module.render(ROOT / "log-metrics" / f"{name}.json", args)
-                   for name in module.METRICS]
+        metrics = [
+            module.render(ROOT / "log-metrics" / f"{name}.json", args)
+            for name in module.METRICS
+        ]
         dashboard = module.render(ROOT / "dashboard-observability.json.in", args)
         dashboard["gridLayout"]["widgets"] = [
-            widget for widget in dashboard["gridLayout"]["widgets"]
+            widget
+            for widget in dashboard["gridLayout"]["widgets"]
             if not widget.get("title", "").startswith("Scope Commerce:")
         ]
         dashboard["gridLayout"]["columns"] = str(dashboard["gridLayout"]["columns"])
@@ -72,7 +83,9 @@ class CapacityObservabilityTest(unittest.TestCase):
         def fake_write(config, action):
             self.assertIn("update", action)
             writes.append(copy.deepcopy(config))
-            index = next(i for i, p in enumerate(policies) if p["name"] == config["name"])
+            index = next(
+                i for i, p in enumerate(policies) if p["name"] == config["name"]
+            )
             policies[index] = copy.deepcopy(config)
             if not policies[index]["notificationChannels"]:
                 policies[index].pop("notificationChannels")
@@ -82,17 +95,21 @@ class CapacityObservabilityTest(unittest.TestCase):
                     threshold.pop("thresholdValue")
             policies[index]["conditions"][0]["name"] = config["name"] + "/conditions/1"
 
-        with patch.object(module, "run", side_effect=fake_run), \
-             patch.object(module, "write_config", side_effect=fake_write), \
-             contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(module, "run", side_effect=fake_run),
+            patch.object(module, "write_config", side_effect=fake_write),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             module.reconcile(args)
             self.assertEqual(len(writes), len(module.POLICIES))
             for p in policies:
                 actionable = p["userLabels"]["incident_purpose"] == "actionable"
                 self.assertEqual(p["enabled"], actionable)
                 self.assertEqual(p["severity"], "ERROR" if actionable else "WARNING")
-                self.assertEqual(p.get("notificationChannels", []),
-                                 [c["name"] for c in channels] if actionable else [])
+                self.assertEqual(
+                    p.get("notificationChannels", []),
+                    [c["name"] for c in channels] if actionable else [],
+                )
                 self.assertEqual(p["alertStrategy"], delivery_strategy(p))
             module.reconcile(args)
             self.assertEqual(len(writes), len(module.POLICIES))
@@ -136,20 +153,27 @@ class CapacityObservabilityTest(unittest.TestCase):
                     )
                     self.assertIn(str(expected), policy["documentation"]["content"])
                     self.assertEqual(policy["enabled"], slug == "critical")
-                    self.assertEqual(policy["alertStrategy"], {
-                        "notificationPrompts": ["OPENED", "CLOSED"]
-                    })
+                    self.assertEqual(
+                        policy["alertStrategy"],
+                        {"notificationPrompts": ["OPENED", "CLOSED"]},
+                    )
 
     def test_unreviewed_database_is_rejected_before_cloud_calls(self) -> None:
-        for project, instance in (("unreviewed-project", "hushh-vault-db"),
-                                  ("hushh-pda", "hushh-uat-pg")):
-            with self.subTest(project=project, instance=instance), \
-                 patch.object(module, "run") as cloud, \
-                 contextlib.redirect_stderr(io.StringIO()), \
-                 self.assertRaises(SystemExit):
-                module.reconcile(module.cli([
-                    "--project", project, "--sql-instance", instance, "--apply"
-                ]))
+        for project, instance in (
+            ("unreviewed-project", "hushh-vault-db"),
+            ("hushh-pda", "hushh-uat-pg"),
+        ):
+            with (
+                self.subTest(project=project, instance=instance),
+                patch.object(module, "run") as cloud,
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                module.reconcile(
+                    module.cli(
+                        ["--project", project, "--sql-instance", instance, "--apply"]
+                    )
+                )
             cloud.assert_not_called()
 
     def test_distribution_extractors_match_backend_text_payload(self) -> None:
@@ -169,23 +193,45 @@ class CapacityObservabilityTest(unittest.TestCase):
         self.assertIn("server_error", error_metric["filter"])
         self.assertNotIn("client_error", error_metric["filter"])
 
-    def test_stream_failure_metric_covers_http_success_errors_without_refusal_noise(self) -> None:
-        metric = json.loads((ROOT / "log-metrics/obs_agent_stream_failure_count.json").read_text())
+    def test_stream_failure_metric_covers_http_success_errors_without_refusal_noise(
+        self,
+    ) -> None:
+        metric = json.loads(
+            (ROOT / "log-metrics/obs_agent_stream_failure_count.json").read_text()
+        )
         expression = re.search(r'textPayload=~"([^"]+)"', metric["filter"]).group(1)
+
         def line(outcome="error", kind="other", code="execution.error", head="one"):
             return f"INFO one_agent_chat_turn_complete head={head} run=redacted events=2 outcome={outcome} error_class={kind} error_code={code} tools_peak=0"
-        for kind, code in (("model", "model.capacity"), ("model", "model.unavailable"),
-                           ("connector", "unlisted"), ("database", "unlisted"),
-                           ("runtime", "unlisted"), ("other", "execution.error"),
-                           ("other", "execution.timeout"), ("other", "background.execution.error"),
-                           ("escaped_exception", "agent.error"), ("escaped_exception", "resource.exhausted"),
-                           ("escaped_exception", "model.unavailable")):
+
+        for kind, code in (
+            ("model", "model.capacity"),
+            ("model", "model.unavailable"),
+            ("connector", "unlisted"),
+            ("database", "unlisted"),
+            ("runtime", "unlisted"),
+            ("other", "execution.error"),
+            ("other", "execution.timeout"),
+            ("other", "background.execution.error"),
+            ("escaped_exception", "agent.error"),
+            ("escaped_exception", "resource.exhausted"),
+            ("escaped_exception", "model.unavailable"),
+        ):
             for head in ("one", "intro"):
-                self.assertIsNotNone(re.search(expression, line(kind=kind, code=code, head=head)))
-        for payload in (line(outcome="finished"), line(outcome="client_disconnect"),
-                        line(outcome="server_restarting", kind="shutdown", code="server.restarting"),
-                        line(code="unlisted"), line(kind="escaped_exception", code="unlisted"), line(code="chat.key.required"),
-                        'INFO {"message":"request.summary","outcome_class":"server_error"}'):
+                self.assertIsNotNone(
+                    re.search(expression, line(kind=kind, code=code, head=head))
+                )
+        for payload in (
+            line(outcome="finished"),
+            line(outcome="client_disconnect"),
+            line(
+                outcome="server_restarting", kind="shutdown", code="server.restarting"
+            ),
+            line(code="unlisted"),
+            line(kind="escaped_exception", code="unlisted"),
+            line(code="chat.key.required"),
+            'INFO {"message":"request.summary","outcome_class":"server_error"}',
+        ):
             self.assertIsNone(re.search(expression, payload))
         self.assertNotIn("labelExtractors", metric)
 
@@ -195,7 +241,9 @@ class CapacityObservabilityTest(unittest.TestCase):
             "ms=1312 provider=vertex_ai vertex_project=hussh-511311 "
             "live_model=gemini-live-2.5-flash-native-audio live_location=us-central1"
         )
-        tool = server.replace("phase=first_audio ms=1312", "phase=tool tool=read_mail ms=4700")
+        tool = server.replace(
+            "phase=first_audio ms=1312", "phase=tool tool=read_mail ms=4700"
+        )
         client = (
             "INFO one_voice.client_perf session=private turn=private "
             "metric=audio_receive_to_audible ms=120 provider=vertex_ai "
@@ -206,14 +254,19 @@ class CapacityObservabilityTest(unittest.TestCase):
             ("obs_one_voice_latency_ms", server, "1312", "phase", "first_audio"),
             ("obs_one_voice_latency_ms", tool, "4700", "phase", "tool"),
             (
-                "obs_one_voice_client_perf_ms", client, "120", "metric",
+                "obs_one_voice_client_perf_ms",
+                client,
+                "120",
+                "metric",
                 "audio_receive_to_audible",
             ),
         )
         for name, line, elapsed, dimension, value in cases:
             with self.subTest(name=name, line=line):
                 metric = json.loads((ROOT / "log-metrics" / f"{name}.json").read_text())
-                self.assertEqual(metric["metricDescriptor"]["valueType"], "DISTRIBUTION")
+                self.assertEqual(
+                    metric["metricDescriptor"]["valueType"], "DISTRIBUTION"
+                )
                 self.assertEqual(metric["metricDescriptor"]["unit"], "ms")
                 self.assertEqual(
                     set(metric["labelExtractors"]),
@@ -228,48 +281,99 @@ class CapacityObservabilityTest(unittest.TestCase):
                 log_filter = re.search(r'textPayload=~"([^"]+)"', metric["filter"])
                 self.assertIsNotNone(log_filter)
                 self.assertIsNotNone(re.search(log_filter.group(1), line))
-                extractor = re.search(r'REGEXP_EXTRACT\(textPayload, "([^"]+)"\)', metric["valueExtractor"])
+                extractor = re.search(
+                    r'REGEXP_EXTRACT\(textPayload, "([^"]+)"\)',
+                    metric["valueExtractor"],
+                )
                 self.assertEqual(re.search(extractor.group(1), line).group(1), elapsed)
                 for label, expression in metric["labelExtractors"].items():
-                    capture = re.search(r'REGEXP_EXTRACT\(textPayload, "([^"]+)"\)', expression)
+                    capture = re.search(
+                        r'REGEXP_EXTRACT\(textPayload, "([^"]+)"\)', expression
+                    )
                     extracted = re.search(capture.group(1), line).group(1)
-                    self.assertEqual(extracted, value if label == dimension else {
-                        "vertex_project": "hussh-511311",
-                        "live_model": "gemini-live-2.5-flash-native-audio",
-                        "live_location": "us-central1",
-                    }[label])
+                    self.assertEqual(
+                        extracted,
+                        value
+                        if label == dimension
+                        else {
+                            "vertex_project": "hussh-511311",
+                            "live_model": "gemini-live-2.5-flash-native-audio",
+                            "live_location": "us-central1",
+                        }[label],
+                    )
 
         # These are configuration labels, never a general label for user/session content.
-        server_metric = json.loads((ROOT / "log-metrics/obs_one_voice_latency_ms.json").read_text())
-        filter_expression = re.search(r'textPayload=~"([^"]+)"', server_metric["filter"]).group(1)
-        self.assertIsNone(re.search(filter_expression, server.replace("phase=first_audio", "phase=unknown")))
-        self.assertIsNone(re.search(filter_expression, server.replace("provider=vertex_ai", "provider=other")))
+        server_metric = json.loads(
+            (ROOT / "log-metrics/obs_one_voice_latency_ms.json").read_text()
+        )
+        filter_expression = re.search(
+            r'textPayload=~"([^"]+)"', server_metric["filter"]
+        ).group(1)
+        self.assertIsNone(
+            re.search(
+                filter_expression, server.replace("phase=first_audio", "phase=unknown")
+            )
+        )
+        self.assertIsNone(
+            re.search(
+                filter_expression,
+                server.replace("provider=vertex_ai", "provider=other"),
+            )
+        )
 
-    def test_voice_dashboard_uses_phase_percentiles_without_cross_series_reduction(self) -> None:
-        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
+    def test_voice_dashboard_uses_phase_percentiles_without_cross_series_reduction(
+        self,
+    ) -> None:
+        args = module.cli(
+            ["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"]
+        )
         dashboard = module.render(ROOT / "dashboard-observability.json.in", args)
-        widgets = {widget["title"]: widget for widget in dashboard["gridLayout"]["widgets"]}
+        widgets = {
+            widget["title"]: widget for widget in dashboard["gridLayout"]["widgets"]
+        }
         expected = {
-            "One Voice First Audio P50 (ms, per revision)": ("first_audio", "ALIGN_PERCENTILE_50"),
-            "One Voice First Audio P95 (ms, per revision)": ("first_audio", "ALIGN_PERCENTILE_95"),
+            "One Voice First Audio P50 (ms, per revision)": (
+                "first_audio",
+                "ALIGN_PERCENTILE_50",
+            ),
+            "One Voice First Audio P95 (ms, per revision)": (
+                "first_audio",
+                "ALIGN_PERCENTILE_95",
+            ),
             "One Voice Tool P95 (ms, per revision)": ("tool", "ALIGN_PERCENTILE_95"),
-            "One Voice Client Endpointing P95 (ms, per revision)": ("endpointing_client", "ALIGN_PERCENTILE_95"),
-            "One Voice Client Audio Audible P95 (ms, per revision)": ("audio_receive_to_audible", "ALIGN_PERCENTILE_95"),
+            "One Voice Client Endpointing P95 (ms, per revision)": (
+                "endpointing_client",
+                "ALIGN_PERCENTILE_95",
+            ),
+            "One Voice Client Audio Audible P95 (ms, per revision)": (
+                "audio_receive_to_audible",
+                "ALIGN_PERCENTILE_95",
+            ),
         }
         for title, (slice_value, aligner) in expected.items():
             with self.subTest(title=title):
                 query = widgets[title]["xyChart"]["dataSets"][0]["timeSeriesQuery"]
                 series_filter = query["timeSeriesFilter"]
                 self.assertIn(slice_value, series_filter["filter"])
-                self.assertEqual(series_filter["aggregation"]["perSeriesAligner"], aligner)
+                self.assertEqual(
+                    series_filter["aggregation"]["perSeriesAligner"], aligner
+                )
                 self.assertNotIn("crossSeriesReducer", series_filter["aggregation"])
                 self.assertEqual(query["unitOverride"], "ms")
 
-    def test_voice_metric_reconcile_ignores_server_descriptor_fields_but_detects_drift(self) -> None:
-        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
-        desired = module.render(ROOT / "log-metrics/obs_one_voice_latency_ms.json", args)
+    def test_voice_metric_reconcile_ignores_server_descriptor_fields_but_detects_drift(
+        self,
+    ) -> None:
+        args = module.cli(
+            ["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"]
+        )
+        desired = module.render(
+            ROOT / "log-metrics/obs_one_voice_latency_ms.json", args
+        )
         current = copy.deepcopy(desired)
-        current["metricDescriptor"]["type"] = "logging.googleapis.com/user/obs_one_voice_latency_ms"
+        current["metricDescriptor"]["type"] = (
+            "logging.googleapis.com/user/obs_one_voice_latency_ms"
+        )
         current["metricDescriptor"]["labels"].reverse()
         self.assertTrue(module.same_log_metric(current, desired))
         for label in current["metricDescriptor"]["labels"]:
@@ -278,14 +382,22 @@ class CapacityObservabilityTest(unittest.TestCase):
         current["metricDescriptor"]["labels"][0]["valueType"] = "INT64"
         self.assertFalse(module.same_log_metric(current, desired))
         current["metricDescriptor"]["labels"][0].pop("valueType")
-        current["labelExtractors"]["phase"] = 'REGEXP_EXTRACT(textPayload, " phase=(.*)")'
+        current["labelExtractors"]["phase"] = (
+            'REGEXP_EXTRACT(textPayload, " phase=(.*)")'
+        )
         self.assertFalse(module.same_log_metric(current, desired))
 
     def test_voice_only_apply_is_idempotent_and_never_touches_alerts(self) -> None:
-        args = module.cli([
-            "--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg",
-            "--voice-only", "--apply",
-        ])
+        args = module.cli(
+            [
+                "--project",
+                "hushh-pda-uat",
+                "--sql-instance",
+                "hushh-uat-pg",
+                "--voice-only",
+                "--apply",
+            ]
+        )
         metrics = {}
         dashboard = None
         writes = []
@@ -311,9 +423,11 @@ class CapacityObservabilityTest(unittest.TestCase):
             else:
                 self.fail(f"Voice-only mode attempted unrelated write: {action}")
 
-        with patch.object(module, "run", side_effect=fake_run), \
-             patch.object(module, "write_config", side_effect=fake_write), \
-             contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(module, "run", side_effect=fake_run),
+            patch.object(module, "write_config", side_effect=fake_write),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             module.reconcile(args)
             self.assertEqual(len(writes), 3)
             module.reconcile(args)
@@ -345,14 +459,27 @@ class CapacityObservabilityTest(unittest.TestCase):
         )
 
     def test_commerce_only_does_not_change_capacity_or_send_email(self) -> None:
-        args = module.cli([
-            "--project", "hushh-dev-123", "--commerce-only", "--console-only",
-            "--dashboard-id", "commerce-preview", "--apply",
-        ])
+        args = module.cli(
+            [
+                "--project",
+                "hushh-dev-123",
+                "--commerce-only",
+                "--console-only",
+                "--dashboard-id",
+                "commerce-preview",
+                "--apply",
+            ]
+        )
         writes = []
-        with patch.object(module, "run", return_value=[]), \
-             patch.object(module, "write_config", side_effect=lambda config, action: writes.append((config, action))), \
-             contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(module, "run", return_value=[]),
+            patch.object(
+                module,
+                "write_config",
+                side_effect=lambda config, action: writes.append((config, action)),
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             module.reconcile(args)
         self.assertEqual(len(writes), 2)
         policy, dashboard = [config for config, _ in writes]
@@ -360,8 +487,12 @@ class CapacityObservabilityTest(unittest.TestCase):
         self.assertEqual(policy["notificationChannels"], [])
         self.assertTrue(dashboard["name"].endswith("/commerce-preview"))
         self.assertTrue(dashboard["gridLayout"]["widgets"])
-        self.assertTrue(all(widget["title"].startswith("Scope Commerce:")
-                            for widget in dashboard["gridLayout"]["widgets"]))
+        self.assertTrue(
+            all(
+                widget["title"].startswith("Scope Commerce:")
+                for widget in dashboard["gridLayout"]["widgets"]
+            )
+        )
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             module.cli(["--project", "hushh-dev-123"])
 
@@ -375,29 +506,47 @@ class CapacityObservabilityTest(unittest.TestCase):
                 return None
             return []
 
-        with patch.object(module, "run", side_effect=fake_run), \
-             patch.object(module, "write_config") as writer, \
-             contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(module, "run", side_effect=fake_run),
+            patch.object(module, "write_config") as writer,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             module.reconcile(args)
         writer.assert_not_called()
         self.assertFalse(any("sql" in call or "logging" in call for call in calls))
         provider = module.render(ROOT / "alerts/provider-errors-policy.json.in", args)
-        self.assertIn("model_invocation_count", provider["conditions"][0]["conditionThreshold"]["filter"])
-        self.assertIn('resource.type="aiplatform.googleapis.com/PublisherModel"',
-                      provider["conditions"][0]["conditionThreshold"]["filter"])
+        self.assertIn(
+            "model_invocation_count",
+            provider["conditions"][0]["conditionThreshold"]["filter"],
+        )
+        self.assertIn(
+            'resource.type="aiplatform.googleapis.com/PublisherModel"',
+            provider["conditions"][0]["conditionThreshold"]["filter"],
+        )
         self.assertNotIn("cloudsql", json.dumps(provider))
-        for flags in ([], ["--provider-only", "--sql-instance", "hushh-vault-db"],
-                      ["--provider-only", "--voice-only"],
-                       ["--provider-only", "--commerce-only"],
-                       ["--provider-only", "--include-commerce"]):
-            with self.subTest(flags=flags), contextlib.redirect_stderr(io.StringIO()), \
-                 self.assertRaises(SystemExit):
+        for flags in (
+            [],
+            ["--provider-only", "--sql-instance", "hushh-vault-db"],
+            ["--provider-only", "--voice-only"],
+            ["--provider-only", "--commerce-only"],
+            ["--provider-only", "--include-commerce"],
+        ):
+            with (
+                self.subTest(flags=flags),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
                 module.cli(["--project", "hushh-gemini-bridge", *flags])
 
         args.apply = True
-        channels = [{"name": f"projects/{args.project}/notificationChannels/{i}",
-                     "type": "email", "labels": {"email_address": email}}
-                    for i, email in enumerate(args.email)]
+        channels = [
+            {
+                "name": f"projects/{args.project}/notificationChannels/{i}",
+                "type": "email",
+                "labels": {"email_address": email},
+            }
+            for i, email in enumerate(args.email)
+        ]
         policies, writes = [], []
         dashboard = None
 
@@ -423,21 +572,33 @@ class CapacityObservabilityTest(unittest.TestCase):
                 dashboard = copy.deepcopy(config)
                 dashboard["etag"] = "server-etag"
 
-        with patch.object(module, "run", side_effect=readback), \
-             patch.object(module, "write_config", side_effect=writeback), \
-             contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(module, "run", side_effect=readback),
+            patch.object(module, "write_config", side_effect=writeback),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             module.reconcile(args)
             self.assertEqual(len(writes), 2)
             module.reconcile(args)
             self.assertEqual(len(writes), 2)
 
-    def test_first_visible_metric_excludes_missing_marks_and_private_labels(self) -> None:
-        args = module.cli(["--project", "hushh-pda", "--sql-instance", "hushh-vault-db"])
-        metric = module.render(ROOT / "log-metrics/obs_agent_chat_first_visible_ms.json", args)
+    def test_first_visible_metric_excludes_missing_marks_and_private_labels(
+        self,
+    ) -> None:
+        args = module.cli(
+            ["--project", "hushh-pda", "--sql-instance", "hushh-vault-db"]
+        )
+        metric = module.render(
+            ROOT / "log-metrics/obs_agent_chat_first_visible_ms.json", args
+        )
         regex = re.search(r'textPayload=~"([^"]+)"', metric["filter"]).group(1)
         line = "INFO one_agent_chat_turn_complete head=one run=private first_visible_ms=123 first_activity_ms=42"
         self.assertIsNotNone(re.search(regex, line))
-        self.assertIsNone(re.search(regex, line.replace("first_visible_ms=123", "first_visible_ms=None")))
+        self.assertIsNone(
+            re.search(
+                regex, line.replace("first_visible_ms=123", "first_visible_ms=None")
+            )
+        )
         extractor = metric["valueExtractor"].split('"', 1)[1].rsplit('"', 1)[0]
         self.assertEqual(re.search(extractor, line).group(1), "123")
         self.assertNotIn("labelExtractors", metric)

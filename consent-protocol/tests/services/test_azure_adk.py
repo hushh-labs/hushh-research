@@ -1313,3 +1313,70 @@ async def test_wire_completion_excludes_consumer_hold_and_child_has_parent_span(
     assert root_fields["wire_completed_ms"] == root_fields["wire_first_text_ms"] == "0"
     assert root_fields["dispatches"] == "1"
     assert "Public answer" not in "\n".join(lines)
+
+
+async def test_strict_response_schema_strips_validation_keywords_while_preserving_host_validation():
+    import httpx
+    from openai import BadRequestError
+
+    from hushh_mcp.agents.portfolio_import.runtime import load_portfolio_gene
+    from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import _failure_details
+    from hushh_mcp.runtime_providers.azure_response_schema import response_format
+    from hushh_mcp.services.calendar_email_followup_extraction import FollowupChunkAssessmentV1
+
+    class StrictMemoryRewriteShape(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        updated_markdown: str = Field(min_length=1, max_length=96_000)
+
+    fmt_mem, _ = response_format(StrictMemoryRewriteShape)
+    fmt_fol, _ = response_format(FollowupChunkAssessmentV1)
+    forbidden = {
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "examples",
+    }
+
+    def collect_keys(node):
+        found = set()
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k not in {"properties", "$defs", "definitions"}:
+                    found.add(k)
+                found |= collect_keys(v)
+        elif isinstance(node, list):
+            for item in node:
+                found |= collect_keys(item)
+        return found
+
+    assert not (collect_keys(fmt_mem["schema"]) & forbidden)
+    assert not (collect_keys(fmt_fol["schema"]) & forbidden)
+
+    # Host-side Pydantic validation in single_turn must still enforce min_length=1.
+    adapter, _, _, _ = model([response(message('{"updated_markdown":""}'))])
+    gene = load_portfolio_gene("agent_portfolio_import_relevance")
+    agent = build_single_turn_agent(gene, output_schema=StrictMemoryRewriteShape, model=adapter)
+    with pytest.raises(ValidationError):
+        await run_single_turn(
+            agent,
+            prompt_parts="Synthetic memory rewrite",
+            user_id="synthetic-owner",
+            consent_token="synthetic-token",  # noqa: S106
+            timeout_seconds=5,
+        )
+
+    # Provider error classification records invalid_json_schema explicitly instead of unlisted.
+    raw_resp = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://synthetic.openai.azure.com/openai/v1/responses"),
+        json={"error": {"code": "invalid_json_schema", "message": "Invalid schema"}},
+    )
+    err = BadRequestError(
+        "Invalid schema",
+        response=raw_resp,
+        body={"code": "invalid_json_schema", "message": "Invalid schema"},
+    )
+    assert _failure_details(err) == ("other", 400, "invalid.schema")

@@ -156,8 +156,15 @@ def qualify(owner, repository, environment, run, job):
         )
     _legacy_actor(owner, attempt, run, number, environment)
     log = _log(owner, job)
+    static_manual = production is not None and job.get("name") == "Production revision maintenance"
+    view = job
+    if static_manual:
+        profile = importlib.import_module("retention_production_profile_evidence")
+        view = profile._static_cleanup_view(job, manual=True)
+        if view is None:
+            return None
     checkout = (
-        production.actual_checkout(log, job)
+        production.actual_checkout(log, view)
         if production is not None
         else evidence.actual_checkout(log, job)
     )
@@ -173,7 +180,9 @@ def qualify(owner, repository, environment, run, job):
     _require(owner, checkout is not None and re.fullmatch(r"[0-9a-f]{40}", checkout),
              "maintenance runner or checkout is unproved")
     blobs = _source(
-        owner, repository, checkout, production.SOURCE_PATHS if production else None
+        owner, repository, checkout,
+        tuple(production.MANUAL_STATIC_SOURCE_PROFILE) if static_manual
+        else production.SOURCE_PATHS if production else None
     )
     workflow = json.loads(
         owner.command(
@@ -251,6 +260,23 @@ def _attempt(owner, repository, run, number, environment):
     )
     steps = _steps(owner, job)
     if job.get("conclusion") == "skipped" and not steps:
+        return False
+    # GitHub can materialize a cancelled dependent job before assigning a
+    # runner. It executed no steps and owes no resource-mutation checkpoint;
+    # this is absence-of-execution evidence, never release health or clearance.
+    runner_fields = ("runner_id", "runner_group_id", "runner_name", "runner_group_name")
+    if (job.get("conclusion") == "cancelled" and job.get("steps") == []
+            and type(job.get("run_id")) is int and type(job.get("run_attempt")) is int
+            and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
+            and run.get("head_branch") == "main"
+            and all(key in job for key in runner_fields)
+            and all(job[key] is None or type(job[key]) is int and job[key] == 0
+                    for key in runner_fields[:2])
+            and all(job[key] in (None, "") for key in runner_fields[2:])
+            and job.get("run_id") == run.get("id")
+            and job.get("run_attempt") == number
+            and job.get("head_sha") == run.get("head_sha")
+            and job.get("head_branch") == run.get("head_branch")):
         return False
     if job.get("name") == current_name:
         mode = maintenance_mode(steps)

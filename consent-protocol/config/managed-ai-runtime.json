@@ -1,7 +1,7 @@
 {
   "version": 1,
   "managed_provider_selection": {
-    "uat": "azure_openai"
+    "uat": "vertex"
   },
   "managed_azure_accounts": {
     "selection": {
@@ -31,7 +31,7 @@
     "local": {
       "project": "hushh-pda-uat",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.8-flash",
+      "text_model": "gemini-4-hydrogen",
       "text_locations": [
         "global"
       ],
@@ -40,9 +40,9 @@
       "embedding_model": "gemini-embedding-001"
     },
     "dev": {
-      "project": "hushh-gemini-bridge",
+      "project": "hushh-pda-dev",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.7-flash",
+      "text_model": "gemini-4-hydrogen",
       "text_locations": [
         "global"
       ],
@@ -51,9 +51,9 @@
       "embedding_model": "gemini-embedding-001"
     },
     "uat": {
-      "project": "hushh-gemini-bridge",
+      "project": "hushh-pda-uat",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.8-flash",
+      "text_model": "gemini-4-hydrogen",
       "text_locations": [
         "global"
       ],
@@ -62,9 +62,9 @@
       "embedding_model": "gemini-embedding-001"
     },
     "production": {
-      "project": "hushh-gemini-bridge",
+      "project": "hushh-pda",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.8-flash",
+      "text_model": "gemini-4-hydrogen",
       "text_locations": [
         "global"
       ],

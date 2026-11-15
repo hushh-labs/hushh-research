@@ -28,6 +28,7 @@ from hushh_mcp.services.compute_backend import (
     CUSTODY_ACE_ENVELOPE,
     CUSTODY_EPHEMERAL,
     CUSTODY_FLEET_HKDF,
+    CUSTODY_HUB_BROKER,
     CUSTODY_MODES,
     CUSTODY_OWNER_KMS,
     CUSTODY_OWNER_VAULT,
@@ -216,7 +217,7 @@ class EnvLogKeyCustodyAdapter:
     def resolve_log_key(self) -> bytes:
         from hushh_mcp.services.pod_commit_log import log_key_from_env  # noqa: PLC0415
 
-        return log_key_from_env()
+        return bytes(log_key_from_env())
 
     def resolve_memory_key(self) -> bytes:
         from hushh_mcp.services.byoc_key_custody import ByocKeyCustodyError  # noqa: PLC0415
@@ -239,12 +240,14 @@ class GcpKmsCustodyAdapter:
     def resolve_log_key(self) -> bytes:
         from hushh_mcp.services.byoc_key_custody import _resolve_gcp_kms_log_key  # noqa: PLC0415
 
-        return _resolve_gcp_kms_log_key(session=self.session, token=self.token, store=self.store)
+        return bytes(
+            _resolve_gcp_kms_log_key(session=self.session, token=self.token, store=self.store)
+        )
 
     def resolve_memory_key(self) -> bytes:
         from hushh_mcp.services.byoc_key_custody import derive_memory_key  # noqa: PLC0415
 
-        return derive_memory_key(self.resolve_log_key())
+        return bytes(derive_memory_key(self.resolve_log_key()))
 
 
 @dataclass(frozen=True)
@@ -260,12 +263,12 @@ class AzureKeyVaultCustodyAdapter:
             resolve_key_vault_log_key,
         )
 
-        return resolve_key_vault_log_key(store=self.store, session=self.session)
+        return bytes(resolve_key_vault_log_key(store=self.store, session=self.session))
 
     def resolve_memory_key(self) -> bytes:
         from hushh_mcp.services.byoc_key_custody import derive_memory_key  # noqa: PLC0415
 
-        return derive_memory_key(self.resolve_log_key())
+        return bytes(derive_memory_key(self.resolve_log_key()))
 
 
 @dataclass(frozen=True)
@@ -340,7 +343,7 @@ class AceEnvelopeCustodyAdapter:
             )
 
         refuse_store_after_erasure(store)
-        dek = generate_dek()
+        dek = bytes(generate_dek())
         envelope = seal_ace_dek(
             dek,
             custodian_public_bytes=pub_bytes,
@@ -379,7 +382,7 @@ class AceEnvelopeCustodyAdapter:
     def resolve_memory_key(self) -> bytes:
         from hushh_mcp.services.byoc_key_custody import derive_memory_key  # noqa: PLC0415
 
-        return derive_memory_key(self.resolve_log_key())
+        return bytes(derive_memory_key(self.resolve_log_key()))
 
 
 @dataclass(frozen=True)
@@ -463,7 +466,7 @@ class AwsKmsCustodyAdapter:
             return self._unwrap(client, stored, arn=arn, context=context)
 
         refuse_store_after_erasure(store)
-        dek = generate_dek()
+        dek = bytes(generate_dek())
         try:
             wrapped = bytes(
                 client.encrypt(
@@ -493,7 +496,166 @@ class AwsKmsCustodyAdapter:
     def resolve_memory_key(self) -> bytes:
         from hushh_mcp.services.byoc_key_custody import derive_memory_key  # noqa: PLC0415
 
-        return derive_memory_key(self.resolve_log_key())
+        return bytes(derive_memory_key(self.resolve_log_key()))
+
+
+@dataclass(frozen=True)
+class HubBrokerCustodyAdapter:
+    """Zero-role Hub-brokered regional KMS envelope custody (`custody_mode='hub_broker'`).
+
+    Plaintext DEKs never cross the wire:
+    - First boot seals a fresh 32-byte DEK to the Hub Custody Broker X25519 public key,
+      receives both the regional-KMS `wrappedDek` and the pod-sealed `sealedDek`, proves
+      round-trip unwrap with the pod's durable X25519 private key, and writes `wrappedDek`
+      create-only (`ABSENT` CAS) to object storage (adopting the winner on `409`/`412`).
+    - Later boots send `wrappedDek` to the Hub and open `sealedDek` locally in pod RAM.
+    """
+
+    store: Any = None
+    hub_client: Any = None
+    hushh_id: Optional[str] = None
+    custody_mode: str = CUSTODY_HUB_BROKER
+
+    def _resolve_context(self) -> tuple[Any, Any, str, bytes, str, str]:
+        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+
+        from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
+            WRAPPED_KEY_OBJECT_ENV,
+            WRAPPED_LOG_KEY_OBJECT,
+            ByocKeyCustodyError,
+        )
+        from hushh_mcp.services.pod_hub_client import PodHubClient  # noqa: PLC0415
+        from hushh_mcp.services.pod_self_registration import (  # noqa: PLC0415
+            pod_key_is_durable,
+            pod_keypair,
+        )
+
+        if not pod_key_is_durable():
+            raise ByocKeyCustodyError("hub_broker custody requires a durable pod X25519 keypair")
+        kp = pod_keypair()
+        priv_bytes = kp.private_key.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+        owner_pod_id = (
+            self.hushh_id or os.getenv("HUSSH_ID") or os.getenv(ACE_OWNER_ID_ENV) or ""
+        ).strip()
+        if not owner_pod_id:
+            raise ByocKeyCustodyError("hub_broker custody requires HUSSH_ID")
+
+        store = self.store
+        if store is None:
+            from hushh_mcp.services.pod_storage import resolve_pod_object_store  # noqa: PLC0415
+
+            store = resolve_pod_object_store()
+
+        client = self.hub_client if self.hub_client is not None else PodHubClient()
+        obj = (os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT).strip()
+        return store, client, owner_pod_id, priv_bytes, kp.key_id, obj
+
+    def _unwrap_stored(
+        self,
+        stored: bytes,
+        *,
+        client: Any,
+        owner_pod_id: str,
+        priv_bytes: bytes,
+        pod_key_id: str,
+    ) -> bytes:
+        from hushh_mcp.services.byoc_key_custody import ByocKeyCustodyError  # noqa: PLC0415
+
+        try:
+            resp = client.broker_dek_envelope(
+                operation="unwrap",
+                wrapped_dek=_b64url_encode(stored),
+            )
+            sealed_pod_bytes = _b64url_decode(resp["sealedDek"])
+        except Exception as exc:  # noqa: BLE001
+            raise ByocKeyCustodyError(
+                "hub custody broker refused DEK unwrap; refusing to run with a substitute key"
+            ) from exc
+        return open_ace_dek(
+            sealed_pod_bytes,
+            custodian_private_bytes=priv_bytes,
+            expected_hushh_id=owner_pod_id,
+            expected_key_id=pod_key_id,
+        )
+
+    def resolve_log_key(self) -> bytes:
+        from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
+            ByocKeyCustodyError,
+            generate_dek,
+        )
+
+        store, client, owner_pod_id, priv_bytes, pod_key_id, obj = self._resolve_context()
+        stored, _ = store.get_with_generation_blocking(obj)
+        if stored is not None:
+            return self._unwrap_stored(
+                stored,
+                client=client,
+                owner_pod_id=owner_pod_id,
+                priv_bytes=priv_bytes,
+                pod_key_id=pod_key_id,
+            )
+
+        refuse_store_after_erasure(store)
+        dek = bytes(generate_dek())
+        try:
+            broker_info = client.get_custody_broker_key()
+            broker_pub = base64.b64decode(broker_info["brokerPublicKey"], validate=True)
+            broker_kid = broker_info["brokerKeyId"]
+        except Exception as exc:  # noqa: BLE001
+            raise ByocKeyCustodyError("hub custody broker key unavailable") from exc
+
+        sealed_for_hub = seal_ace_dek(
+            dek,
+            custodian_public_bytes=broker_pub,
+            hushh_id=owner_pod_id,
+            key_id=broker_kid,
+        )
+        try:
+            wrapped_resp = client.broker_dek_envelope(
+                operation="wrap",
+                sealed_dek=_b64url_encode(sealed_for_hub),
+                broker_key_id=broker_kid,
+            )
+            wrapped_bytes = _b64url_decode(wrapped_resp["wrappedDek"])
+            sealed_for_pod = _b64url_decode(wrapped_resp["sealedDek"])
+        except Exception as exc:  # noqa: BLE001
+            raise ByocKeyCustodyError("hub custody broker refused DEK wrap") from exc
+
+        proved = open_ace_dek(
+            sealed_for_pod,
+            custodian_private_bytes=priv_bytes,
+            expected_hushh_id=owner_pod_id,
+            expected_key_id=pod_key_id,
+        )
+        if not hmac.compare_digest(proved, dek):
+            raise ByocKeyCustodyError("hub custody broker round-trip verification failed")
+
+        if store.put_if_generation_blocking(obj, wrapped_bytes, ABSENT) is not None:
+            logger.info("hub_broker_custody.log_key_created")
+            return dek
+
+        logger.info("hub_broker_custody.log_key_race_lost")
+        winner, _ = store.get_with_generation_blocking(obj)
+        if winner is None:
+            raise ByocKeyCustodyError(
+                "another boot claimed the hub-brokered log key, then it could not be read"
+            )
+        return self._unwrap_stored(
+            winner,
+            client=client,
+            owner_pod_id=owner_pod_id,
+            priv_bytes=priv_bytes,
+            pod_key_id=pod_key_id,
+        )
+
+    def resolve_memory_key(self) -> bytes:
+        from hushh_mcp.services.byoc_key_custody import derive_memory_key  # noqa: PLC0415
+
+        return bytes(derive_memory_key(self.resolve_log_key()))
 
 
 def resolve_key_custody_port(
@@ -502,6 +664,7 @@ def resolve_key_custody_port(
     token: Optional[str] = None,
     store: Any = None,
     kms_client: Any = None,
+    hub_client: Any = None,
 ) -> KeyCustodyPort:
     """Resolve the single active ``KeyCustodyPort`` for this pod process."""
     from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
@@ -518,9 +681,15 @@ def resolve_key_custody_port(
     has_aws_kms = bool((os.getenv(AWS_KMS_KEY_ENV) or "").strip())
     has_vault = bool((os.getenv(KEY_VAULT_KEY_ENV) or "").strip())
     has_ace = ace_custody_configured()
-    active_envelopes = int(has_gcp_kms) + int(has_aws_kms) + int(has_vault) + int(has_ace)
+    has_hub_broker = explicit_mode == CUSTODY_HUB_BROKER
+    active_envelopes = (
+        int(has_gcp_kms) + int(has_aws_kms) + int(has_vault) + int(has_ace) + int(has_hub_broker)
+    )
     if active_envelopes > 1:
         raise ByocKeyCustodyError("a pod's log key has exactly one custodian")
+
+    if explicit_mode == CUSTODY_HUB_BROKER:
+        return HubBrokerCustodyAdapter(store=store, hub_client=hub_client)
 
     if explicit_mode == CUSTODY_OWNER_KMS or (not explicit_mode and (has_gcp_kms or has_aws_kms)):
         if has_aws_kms:

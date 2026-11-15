@@ -32,7 +32,11 @@ def record_score(
         text("""
         INSERT INTO one_referral_score_events
           (user_id,relationship_id,event_type,points,coins,settings_version,idempotency_key,created_at)
-        VALUES (:uid,CAST(:rid AS UUID),:event,:points,:coins,:version,:key,:at)
+        SELECT :uid,CAST(:rid AS UUID),:event,:points,:coins,:version,:key,:at
+        WHERE NOT EXISTS (
+          SELECT 1 FROM account_deletion_tombstones t
+           WHERE t.user_id_hash = 'sha256:' || encode(sha256(convert_to(:uid, 'UTF8')), 'hex')
+        )
         ON CONFLICT (idempotency_key) DO NOTHING
     """),
         {

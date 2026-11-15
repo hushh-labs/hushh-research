@@ -180,10 +180,22 @@ def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
     )
 
 
-def verify_post_release_failure(repository: str, run: dict, release: dict) -> None:
+def verify_post_release_failure(repository: str, run: dict, release: dict) -> bool | None:
     """A failed hygiene step never substitutes for successful release gates."""
     result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
     jobs = result.get("jobs") or []
+    if isinstance(jobs, list) and any(
+        isinstance(job, dict) and job.get("name") == "Deploy Production Scope · Phone activation"
+        for job in jobs
+    ):
+        context = importlib.import_module("production_activation_continuation").archive_context(
+            repository, run, release, LANES["production"], api=api,
+            governed=governed_dispatch, timestamp=_github_timestamp,
+            run_command=retention.run_command, timeout=60,
+        )
+        if context is None or "publication_reconciliation" not in context:
+            raise retention.UnsafeState("activation publication is unproved")
+        return True
     if result.get("total_count") != 1 or len(jobs) != 1:
         raise retention.UnsafeState("production deployment job inventory is incomplete")
     job = jobs[0]
@@ -1000,9 +1012,9 @@ def find_release(
         if environment == "uat" and release.get("scope") == "frontend":
             prove_frontend_inherited_backend(repository, run, release, directory)
         if cleanup_failed:
-            verify_post_release_failure(repository, run, release)
-            # Local verified context only; never accepted from an artifact.
-            release["_maintenance_source_run"] = run_id
+            reconciled_publication = verify_post_release_failure(repository, run, release)
+            if not reconciled_publication:
+                release["_maintenance_source_run"] = run_id
         restoration_continuation = environment == "production" and "restoration_activation" in release
         if restoration_continuation:
             # This verifier did not deploy the serving pair. Derive its original

@@ -363,7 +363,7 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 
 | Setting in that file | Consumers and boundary |
 | --- | --- |
-| `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
+| `managed_provider_selection.uat` | Packaged UAT provider default, currently `vertex`. The existing resolver supplies text, research, audio and embedding callers across Dev, UAT, production and local; Azure descriptors remain validated on standby. |
 | `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
 | `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
 | `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
@@ -493,15 +493,16 @@ coding assistant's own model subscription stay with their separate owners.
 ### Fleet text model switch (2026-09-02)
 
 Hosted text, Live Voice, research and embedding targets come from
-`consent-protocol/config/managed-ai-runtime.json`. Dev, UAT and production select
-`hushh-gemini-bridge`; their Cloud Run, SQL, identity and secret projects
-remain separate. The checked-in text model is `gemini-3.8-flash`. Hosted clients
+`consent-protocol/config/managed-ai-runtime.json`. Dev, UAT and production each
+select their own home GCP project (`hushh-pda-dev`, `hushh-pda-uat`, `hushh-pda`).
+The checked-in text model is `gemini-4-hydrogen` on `global`. Hosted clients
 ignore local model and project overrides; local mode retains explicit overrides.
 
 The deploy compiler validates the same profile and hash used by the packaged
 runtime. Each hosted release must exercise its actual runtime identity against
 the destination before serving traffic. Administrative API access does not prove
-model availability, quota or successful inference. The 2026-10-15 switch also advances the text model to 3.8 Flash on global.
+model availability, quota or successful inference. The 2026-11-14 switch advances
+the text model to Gemini 4 Hydrogen on global across home Vertex projects.
 Document facts policy includes the model id, so previously processed facts may
 require reprocessing when background work is resumed. Preserve the incident pause
 until that resumption is explicitly authorized.

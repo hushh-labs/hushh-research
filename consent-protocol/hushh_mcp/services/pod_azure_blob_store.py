@@ -70,7 +70,37 @@ class AzureBlobLocation:
 
 def parse_blob_container_url(url: str) -> AzureBlobLocation:
     """``https://<account>.blob.core.windows.net/<container>[/<prefix>]``, validated."""
+    from hushh_mcp.services.pod_emulator_endpoints import (  # noqa: PLC0415
+        PodEmulatorEndpointError,
+        resolve_azure_emulator_origin,
+    )
+
+    try:
+        emulator_origin = resolve_azure_emulator_origin()
+    except PodEmulatorEndpointError as exc:
+        raise PodBlobStorageError(str(exc)) from None
+
     parsed = urllib.parse.urlsplit(str(url or "").strip())
+    if (
+        emulator_origin is not None
+        and f"{parsed.scheme}://{parsed.netloc}" == emulator_origin
+        and not parsed.username
+        and not parsed.password
+        and not parsed.query
+        and not parsed.fragment
+    ):
+        parts = [p for p in parsed.path.strip("/").split("/") if p]
+        if len(parts) < 2 or not _ACCOUNT.fullmatch(parts[0]) or not _CONTAINER.fullmatch(parts[1]):
+            raise ValueError(
+                "Azure/Floci emulator Blob URL must be <origin>/<account>/<container>[/<prefix>]"
+            )
+        prefix_raw = "/".join(parts[2:])
+        return AzureBlobLocation(
+            account_url=f"{emulator_origin}/{parts[0]}",
+            container=parts[1],
+            prefix="/".join(object_prefix_segments(prefix_raw)),
+        )
+
     host = (parsed.hostname or "").lower()
     suffix = next((s for s in _HOST_SUFFIXES if host.endswith(s)), "")
     if (

@@ -1151,14 +1151,20 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         )
 
     uat = load_profile("uat")["project"]
-    deferred = run_case("uat", "true", "true", uat, deny_project_discovery=True)
+    assert uat == "hushh-pda-uat"
+    same_project = run_case("uat", "true", "true", uat, deny_project_discovery=False)
+    assert same_project.returncode == 0, same_project.stderr
+    assert same_project.stderr.count("CALL:projects get-iam-policy") == 1
+
+    cross_project = "hushh-gemini-bridge"
+    deferred = run_case("uat", "true", "true", cross_project, deny_project_discovery=True)
     assert deferred.returncode == 0, deferred.stderr
     assert deferred.stderr.count("CALL:") == 1
     assert "CALL:iam service-accounts describe" in deferred.stderr
 
     for deploy_env, no_traffic, probe_enabled, project in (
-        ("dev", "true", "true", uat),
-        ("production", "true", "true", uat),
+        ("dev", "true", "true", cross_project),
+        ("production", "true", "true", cross_project),
         ("uat", "true", "true", "hushh-pda-uat"),
     ):
         denied = run_case(
@@ -1186,7 +1192,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
                 "deploy_env": "uat",
                 "no_traffic": "true",
                 "probe_enabled": "true",
-                "genai_project": uat,
+                "genai_project": cross_project,
                 "deny_project_discovery": False,
                 **overrides,
             }
@@ -1194,7 +1200,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         assert rejected.returncode != 0, overrides
         assert "CALL:services list" not in rejected.stderr
 
-    static = run_case("production", "true", "true", uat, deny_project_discovery=False)
+    static = run_case("production", "true", "true", cross_project, deny_project_discovery=False)
     assert static.returncode == 0, static.stderr
     assert static.stderr.count("CALL:projects get-iam-policy") == 2
 
@@ -1383,7 +1389,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict(m
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
-    project = load_profile("uat")["project"]
+    assert load_profile("uat")["project"] == "hushh-pda-uat"
+    project = "hushh-gemini-bridge"
     healthy = _healthy_vertex_verdict(project)
     if mode == "core":
         healthy.update(
@@ -1586,9 +1593,9 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
-        "dev": "hushh-gemini-bridge",
-        "uat": "hushh-gemini-bridge",
-        "production": "hushh-gemini-bridge",
+        "dev": "hushh-pda-dev",
+        "uat": "hushh-pda-uat",
+        "production": "hushh-pda",
     }
     for env in ("dev", "uat", "production"):
         assert f"scripts/ops/managed_ai_config.py --environment {env}" in _read(
@@ -2053,7 +2060,9 @@ def _managed_provider_gate():
 def test_core_provider_preserves_unscoped_runtime_and_refuses_unsupported_policy():
     gate = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
-    assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
+    assert gate.qualification_provider(document, "uat", "core") == "vertex"
+    azure_doc = {**document, "managed_provider_selection": {"uat": "azure_openai"}}
+    assert gate.qualification_provider(azure_doc, "uat", "core") == "azure_openai"
     document["one_chat_text_uat"] = {"provider": "vertex"}
     with pytest.raises(ValueError, match="does not support declared scoped"):
         gate.qualification_provider(document, "uat", "core")
@@ -2091,16 +2100,21 @@ def test_probe_dispatch_uses_scoped_core_policy(provider, mode):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "azure_openai")
+    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "vertex")
 
 
 @pytest.mark.parametrize("defect", [None, "carrier", "fleet"])
 def test_unscoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, monkeypatch, defect):
     gate = _managed_provider_gate()
-    expected, azure = _provider_fixture(gate, "azure_openai")
+    azure_doc = {
+        **json.loads(_read("consent-protocol/config/managed-ai-runtime.json")),
+        "managed_provider_selection": {"uat": "azure_openai"},
+    }
+    monkeypatch.setattr(gate, "configured_provider", lambda _doc, _env="uat": "azure_openai")
+    expected, azure = _provider_fixture(gate, "azure_openai", document=azure_doc)
     expected["qualification_mode"] = "core"
     azure.pop("capability_proof")
-    result = gate.evaluate({"azure_openai": azure}, expected)
+    result = gate.evaluate({"azure_openai": azure}, expected, document=azure_doc)
     if defect == "carrier":
         result["core_provider"] = "vertex"
     elif defect == "fleet":
@@ -2369,8 +2383,14 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     policy = managed_text_policy()
     receipt["core"]["policy_generation"] = policy["generation"]
     result = module.evaluate({"vertex": receipt}, expected)
-    assert result["ready"] is False
+    assert result["ready"] is True
+    assert result["selected_provider"] == "vertex"
     assert result["providers"]["vertex"]["ready"] is True
+    azure_doc = {
+        **json.loads(_read("consent-protocol/config/managed-ai-runtime.json")),
+        "managed_provider_selection": {"uat": "azure_openai"},
+    }
+    assert module.evaluate({"vertex": receipt}, expected, document=azure_doc)["ready"] is False
 
 
 @pytest.mark.parametrize(
@@ -2770,9 +2790,15 @@ def test_vertex_drive_evidence_cannot_qualify_one_chat():
     expected, vertex = _provider_fixture(module, "vertex")
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     assert module.valid_core(vertex["core"], "vertex", expected, document)
-    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
+    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] == "vertex"
+    azure_doc = {**document, "managed_provider_selection": {"uat": "azure_openai"}}
+    assert (
+        module.evaluate({"vertex": vertex}, expected, document=azure_doc)["selected_provider"]
+        is None
+    )
     vertex["core"]["scopes"].pop("one_text_chat")
     assert not module.valid_core(vertex["core"], "vertex", expected, document)
+    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
 
 
 def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monkeypatch):

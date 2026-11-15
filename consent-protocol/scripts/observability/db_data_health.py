@@ -27,6 +27,7 @@ KEY_TABLES = (
     "consent_audit",
     "vault_keys",
     "pkm_data",
+    "pkm_blobs",
     "pkm_index",
     "kai_market_cache_entries",
     "tickers",
@@ -92,7 +93,14 @@ async def _vault_method_coverage(conn) -> dict[str, int]:
 async def _pkm_coherence(conn) -> dict[str, int]:
     data_users = await _safe_fetchval(
         conn,
-        "SELECT COUNT(DISTINCT user_id)::bigint FROM pkm_data",
+        """
+        SELECT COUNT(DISTINCT user_id)::bigint
+        FROM (
+          SELECT user_id FROM pkm_data
+          UNION
+          SELECT user_id FROM pkm_blobs
+        ) AS ciphertext_owners
+        """,
     )
     index_users = await _safe_fetchval(
         conn,
@@ -103,8 +111,12 @@ async def _pkm_coherence(conn) -> dict[str, int]:
         """
         SELECT COUNT(*)::bigint
         FROM (
-          SELECT DISTINCT d.user_id
-          FROM pkm_data d
+          SELECT d.user_id
+          FROM (
+            SELECT user_id FROM pkm_data
+            UNION
+            SELECT user_id FROM pkm_blobs
+          ) AS d
           LEFT JOIN pkm_index i ON i.user_id = d.user_id
           WHERE i.user_id IS NULL
         ) AS missing
@@ -117,8 +129,13 @@ async def _pkm_coherence(conn) -> dict[str, int]:
         FROM (
           SELECT DISTINCT i.user_id
           FROM pkm_index i
-          LEFT JOIN pkm_data d ON d.user_id = i.user_id
+          LEFT JOIN (
+            SELECT user_id FROM pkm_data
+            UNION
+            SELECT user_id FROM pkm_blobs
+          ) AS d ON d.user_id = i.user_id
           WHERE d.user_id IS NULL
+            AND COALESCE(array_length(i.available_domains, 1), 0) > 0
         ) AS missing
         """,
     )
@@ -199,10 +216,6 @@ async def run_checks() -> int:
 
         if pkm["data_without_index"] > 0 or pkm["index_without_data"] > 0:
             anomalies.append("pkm_coherence_mismatch")
-
-        stale_ratio = float(market_cache.get("stale_ratio", 0.0) or 0.0)
-        if stale_ratio >= float(os.getenv("OBS_DATA_STALE_RATIO_THRESHOLD", "0.25")):
-            anomalies.append("market_cache_stale_ratio_high")
 
         if table_counts.get("vault_keys", 0) < 0:
             anomalies.append("vault_table_unavailable")

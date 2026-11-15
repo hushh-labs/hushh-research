@@ -358,7 +358,13 @@ a new apply can publish a version-3 `preparing` journal before looking up the la
 deployment. Its observation is explicitly unknown, it remains due, and it never
 certifies completion or replaces orphaned state. Existing custody is retained.
 Failures before this boundary still require verified pre-mutation evidence; a
-missing checkpoint never establishes successful cleanup.
+missing checkpoint never establishes successful cleanup. A reviewed manual guard
+refusal can establish absence of revision cleanup only from its exact immutable
+controller source, complete failed-attempt transcript and skipped checkpoint save.
+It grants no release clearance, checkpoint boundary or drain credit; earlier
+custody must still be verified. Phone activation is separately proved as
+a nonproducer of cold-backend leases; its lifecycle activation remains governed
+and never substitutes for ordinary lease retirement.
 
 ## Recorded production restoration — 26 October 2026
 
@@ -1580,6 +1586,14 @@ rechecks them against GitHub, and retains the independently accepted backend
 origin. This supplies historical publication evidence only: it cannot authorize
 normal promotion, replace live/checkpoint/rollback checks, or prove an application
 was redeployed. Unknown or altered evidence still refuses maintenance.
+
+A completed phone activation can publish its healthy tag and then fail readback.
+The continuation reader qualifies that outcome only when the tag step is the sole
+failure, all required health/security gates succeeded, and the immutable archive,
+original runtime, rollback, activated cleanup and timestamped production tag agree.
+The failed run remains failed. Later rollback qualification follows that immutable
+tag rather than the moving `production-latest` reference. Missing or changed
+publication evidence refuses; do not reset tags or replay activation to hide it.
 
 Source-only checks before authentication and again under that lock skip settled and
 not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,

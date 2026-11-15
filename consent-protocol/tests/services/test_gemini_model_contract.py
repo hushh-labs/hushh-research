@@ -24,10 +24,8 @@ from hushh_mcp.runtime_providers import (
 )
 
 SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
-# Measured 2026-09-25 (see registry._MEASURED_VERTEX_LOCATIONS); anything
-# unmeasured stays global-only.
 MEASURED = {
-    "gemini-3.7-flash": ("global", "us", "eu"),
+    "gemini-4-hydrogen": ("global",),
     "gemini-3.8-flash": ("global",),
 }
 ACCEPTED_LEVELS = ("LOW", "MEDIUM", "HIGH")
@@ -92,6 +90,8 @@ def test_local_cli_credentials_are_explicit_refreshable_and_never_hosted(monkeyp
 
 
 def test_managed_clients_keep_local_identity_across_regional_failover(monkeypatch):
+    from google.adk.models import Gemini as _preload_gemini  # noqa: F401
+
     from hushh_mcp.runtime_providers import factory
 
     marker = object()
@@ -112,19 +112,23 @@ def test_managed_clients_keep_local_identity_across_regional_failover(monkeypatc
         factory, "_regional_gemini_type", lambda: lambda **kwargs: SimpleNamespace(**kwargs)
     )
     monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
-    regional = binding.build_regional_adk_model("gemini-3.7-flash")
+    monkeypatch.setattr(
+        ManagedGeminiRuntimeBinding, "locations_for_model", lambda *_: ("global", "us")
+    )
+    regional = binding.build_regional_adk_model("gemini-4-hydrogen")
     regional.regional_client._client_for("global")
     assert calls[-1]["credentials"] is marker
 
 
 def test_supported_ids_are_exactly_the_two_measured_releases() -> None:
-    assert SUPPORTED == ("gemini-3.8-flash", "gemini-3.7-flash")
+    assert SUPPORTED == ("gemini-4-hydrogen", "gemini-3.8-flash")
     assert GEMINI_MODEL in SUPPORTED
     for model in SUPPORTED:
         assert gemini_config.is_supported_gemini_text_model(model)
         assert gemini_config.is_supported_gemini_text_model(f"models/{model}")
         assert gemini_config.is_supported_gemini_text_model(model.upper())
     for other in (
+        "gemini-3.7-flash",
         "gemini-3.6-flash",
         "gemini-3.1-pro-preview",
         "gemini-3.8-flash-live-preview",
@@ -140,6 +144,8 @@ def test_retired_generation_helpers_are_gone() -> None:
     for name in (
         "GEMINI_38_FLASH",
         "is_gemini_38_flash",
+        "GEMINI_37_FLASH",
+        "is_gemini_37_flash",
         "GEMINI_36_FLASH",
         "is_gemini_36_flash",
         "GEMINI_31_PRO_PREVIEW",
@@ -372,8 +378,6 @@ def test_managed_binding_fails_when_global_is_not_configured() -> None:
         locations=("us", "eu"),
         auth_mode="vertex_adc",
     )
-    assert binding.locations_for_model("gemini-3.7-flash") == ("us", "eu")
-    with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
-        binding.locations_for_model("gemini-3.8-flash")
-    with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
-        binding.locations_for_model("gemini-embedding-001")
+    for model in (*SUPPORTED, "gemini-embedding-001"):
+        with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
+            binding.locations_for_model(model)

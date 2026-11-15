@@ -430,14 +430,14 @@ def test_managed_profiles_match_deploy_compiler_and_reject_drift(monkeypatch):
         assert actual.config_hash != profile_hash({**compiled, "text_model": "changed-model"})
     # The operator command describes the packaged default, even when this
     # process carries the diagnostic pins used by candidate verification.
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
     command = [sys.executable, str(root / "scripts/ops/managed_ai_config.py")]
     assert (
         subprocess.check_output(  # noqa: S603 - fixed local compiler
             [*command, "--environment", "uat", "--format", "provider"], text=True
         ).strip()
-        == "azure_openai"
+        == "vertex"
     )
     validation = json.loads(
         subprocess.check_output(  # noqa: S603 - no cloud/client calls
@@ -448,7 +448,7 @@ def test_managed_profiles_match_deploy_compiler_and_reject_drift(monkeypatch):
     assert validation["providers"] == {
         "local": "vertex",
         "dev": "vertex",
-        "uat": "azure_openai",
+        "uat": "vertex",
         "production": "vertex",
     }
     import pytest
@@ -534,12 +534,13 @@ def test_managed_capability_policy_is_uat_only_versioned_and_rejects_conflicting
     for key in ("HUSHH_UAT_MANAGED_AI_PROVIDER", "HUSHH_UAT_MANAGED_TEXT_PROVIDER"):
         monkeypatch.delenv(key, raising=False)
     assert load_managed_runtime_policy(environment="production") is None
+    vertex = load_managed_runtime_policy(environment="uat")
+    assert vertex["provider"] == "vertex"
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
     azure = load_managed_runtime_policy(environment="uat")
     assert azure["provider"] == "azure_openai" and azure["azure"]["embedding_dimensions"] == 768
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
-    vertex = load_managed_runtime_policy(environment="uat")
     assert vertex["generation"] != azure["generation"]
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
     with pytest.raises(ValueError, match="disagree"):
         load_managed_runtime_policy(environment="uat")
     monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER")
@@ -548,7 +549,7 @@ def test_managed_capability_policy_is_uat_only_versioned_and_rejects_conflicting
     path = tmp_path / "profile.json"
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="768"):
-        load_managed_runtime_policy(path, environment="uat")
+        load_managed_runtime_policy(path, environment="uat", provider="azure_openai")
 
 
 def test_file_owned_provider_selection_reaches_runtime_and_research_without_changing_authority(
@@ -574,6 +575,7 @@ def test_file_owned_provider_selection_reaches_runtime_and_research_without_chan
     # A compatible resource/deployment swap is the supported quota-recovery
     # path. It updates transport identity and capabilities without new consent.
     replacement = json.loads(json.dumps(original))
+    replacement["managed_provider_selection"]["uat"] = "azure_openai"
     accounts = replacement["managed_azure_accounts"]
     accounts["accounts"][accounts["selection"]["uat"]]["primary_endpoint"] = (
         "https://spare.openai.azure.com/openai/v1/"
@@ -595,7 +597,7 @@ def test_file_owned_provider_selection_reaches_runtime_and_research_without_chan
     path.write_text(json.dumps(original))
     changed = load_managed_runtime_policy(path, environment="uat")
     assert selected_managed_provider(path) == changed["provider"] == "vertex"
-    assert changed["generation"] != baseline["generation"]
+    assert changed["generation"] != switched["generation"]
     assert load_pwm_policy(path, environment="uat")["provider"] == "vertex_google_search"
     assert load_private_drive_text_policy(path) == load_private_drive_text_policy()
     for environment in ("local", "dev", "production"):

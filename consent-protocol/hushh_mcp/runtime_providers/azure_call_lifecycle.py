@@ -15,6 +15,7 @@ _CALL: contextvars.ContextVar[str] = contextvars.ContextVar("azure_call_span", d
 _PROVIDER_CODES = {
     "content_filter": "content.filter",
     "invalid_encrypted_content": "invalid.encrypted.content",
+    "invalid_json_schema": "invalid.schema",
     "invalid_prompt": "invalid.prompt",
     "invalid_request_error": "invalid.request",
     "rate_limit_exceeded": "rate.limit",

@@ -97,7 +97,10 @@ Firebase eligibility, canonical identities, verified aliases, staff/test
 exclusions and deletion barriers before counting. The first connection retains
 canonical READ COMMITTED lifecycle/identity locks; a second read-only REPEATABLE
 READ transaction supplies one coherent business-record snapshot. Candidate
-membership is rechecked in that snapshot. Identity/policy/binding changes refuse
+membership is rechecked in that snapshot. The actual production Firebase app is
+validated before acquiring the database and rechecked before returning, including
+when no candidate accounts exist. A missing or foreign auth source is unavailable,
+never a valid empty aggregate. Identity/policy/binding changes refuse
 the result. No source RLS policy, grant, table, retention or record is modified;
 an RLS-filtered role must fail rather than return a misleading global zero.
 

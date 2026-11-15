@@ -6,6 +6,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObj
 import { usePathname, useRouter } from "next/navigation";
 import { OneAgentRosterBody, useOneAgentRosterModel, type OneAgentMode, type OneAgentRosterProps } from "./one-agent-roster";
 import { PublicProfileDiscoveryEntryBody, usePublicProfileDiscoveryEntry } from "@/components/profile/public-profile-discovery-card";
+import { areScheduledTasksAvailable } from "@/lib/services/pod-scheduled-tasks";
 import { ScheduledTasksPanelBody, scheduledTaskLabels, useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { WalletEntryWarmup } from "@/components/wallet/wallet-entry-warmup";
@@ -137,7 +138,7 @@ function LauncherBody({ roster, discovery, tasks, frame, presentation, openDisco
     ]);
   } else {
     section("utilities", [
-      row("scheduled", "Scheduled tasks", () => tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true }),
+      ...(areScheduledTasksAvailable() ? [row("scheduled", "Scheduled tasks", () => tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true })] : []),
       ...(discovery.visible ? [row("discovery", discovery.ready ? "Review your profile" : "Claim your profile",
         () => discovery.ready ? router.push(ROUTES.ONE_PROFILE_DISCOVERY) : openDiscovery(), { chevron: true })] : []),
     ]);

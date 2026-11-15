@@ -17,6 +17,7 @@ Two things this module will never do:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -57,6 +58,10 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _user_id_tombstone_hash(user_id: str) -> str:
+    return "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+
+
 def enqueue_scoring_work(connection, *, relationship_id: str, user_id: str) -> None:
     """Record the canonical qualification event and enqueue durable work.
 
@@ -71,8 +76,12 @@ def enqueue_scoring_work(connection, *, relationship_id: str, user_id: str) -> N
             """
             INSERT INTO one_referral_events
               (relationship_id, user_id, event_type, idempotency_key)
-            VALUES
-              (CAST(:rid AS UUID), :uid, 'qualified', :idempotency_key)
+            SELECT
+              CAST(:rid AS UUID), :uid, 'qualified', :idempotency_key
+            WHERE NOT EXISTS (
+              SELECT 1 FROM account_deletion_tombstones t
+               WHERE t.user_id_hash = 'sha256:' || encode(sha256(convert_to(:uid, 'UTF8')), 'hex')
+            )
             ON CONFLICT (idempotency_key) DO NOTHING
             """
         ),
@@ -86,7 +95,11 @@ def enqueue_scoring_work(connection, *, relationship_id: str, user_id: str) -> N
         text(
             """
             INSERT INTO one_referral_scoring_jobs (relationship_id, user_id)
-            VALUES (CAST(:rid AS UUID), :uid)
+            SELECT CAST(:rid AS UUID), :uid
+            WHERE NOT EXISTS (
+              SELECT 1 FROM account_deletion_tombstones t
+               WHERE t.user_id_hash = 'sha256:' || encode(sha256(convert_to(:uid, 'UTF8')), 'hex')
+            )
             ON CONFLICT (relationship_id) DO NOTHING
             """
         ),
@@ -209,6 +222,31 @@ def process_one_job(job: dict) -> dict:
                     {"now": _now(), "jid": job_id},
                 )
                 return {"status": "skipped", "reason": "relationship_not_qualified"}
+
+            tombstoned = connection.execute(
+                text(
+                    """
+                    SELECT 1
+                      FROM account_deletion_tombstones
+                     WHERE user_id_hash = :uhash
+                     LIMIT 1
+                    """
+                ),
+                {"uhash": _user_id_tombstone_hash(relationship.referrer_user_id)},
+            ).fetchone()
+            if tombstoned is not None:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE one_referral_scoring_jobs
+                           SET status = 'completed', error_code = 'account_deleted',
+                               updated_at = :now
+                         WHERE job_id = CAST(:jid AS UUID)
+                        """
+                    ),
+                    {"now": _now(), "jid": job_id},
+                )
+                return {"status": "skipped", "reason": "account_deleted"}
 
             settings: ProgramSettings = get_program_settings_at(relationship.qualified_at)
             award = points_for_qualification(
@@ -343,6 +381,10 @@ def reverse_relationship_scoring(relationship_id: str, *, reason: str) -> dict:
                          SELECT 1 FROM one_referral_score_events r
                           WHERE r.reverses_event_id = e.id
                        )
+                   AND NOT EXISTS (
+                         SELECT 1 FROM account_deletion_tombstones t
+                          WHERE t.user_id_hash = 'sha256:' || encode(sha256(convert_to(e.user_id, 'UTF8')), 'hex')
+                       )
                 """
             ),
             {"rid": relationship_id},
@@ -403,8 +445,10 @@ _LEADERBOARD_COHORT_SQL = f"""
               SELECT user_id,SUM(points) AS total,MIN(created_at) FILTER(WHERE points>0) AS earliest
               FROM one_referral_score_events WHERE id<=:watermark GROUP BY user_id
             ) s ON s.user_id=p.user_id
-            WHERE s.total>0 OR EXISTS(SELECT 1 FROM one_referral_relationships r
-              WHERE r.referrer_user_id=p.user_id AND {JOINED_REFERRAL_PREDICATE})
+            WHERE (s.total>0 OR EXISTS(SELECT 1 FROM one_referral_relationships r
+              WHERE r.referrer_user_id=p.user_id AND {JOINED_REFERRAL_PREDICATE}))
+              AND NOT EXISTS(SELECT 1 FROM account_deletion_tombstones t
+                WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(p.user_id,'UTF8')),'hex'))
 """  # nosec B608 # Authored constant predicate; watermark is bound.
 
 

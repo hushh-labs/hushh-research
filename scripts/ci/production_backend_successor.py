@@ -178,7 +178,7 @@ def annotate(message: str, commit: str, old_oid: str, anchor: dict) -> str:
     )
 
 
-def tag_identity(raw: str) -> dict:
+def tag_identity(raw: str, *, ref: str = REF) -> dict:
     require(
         isinstance(raw, str) and len(raw.encode()) <= 131072,
         "operational_backend_original_tag_invalid",
@@ -190,7 +190,7 @@ def tag_identity(raw: str) -> dict:
         and len(rows) == 4
         and rows[0].startswith("object ")
         and rows[1] == "type commit"
-        and rows[2] == f"tag {REF.removeprefix('refs/tags/')}"
+        and rows[2] == f"tag {ref.removeprefix('refs/tags/')}"
         and bool(
             re.fullmatch(r"tagger [^\r\n<>]+ <[^\r\n<>]+> [0-9]+ [+-][0-9]{4}", rows[3])
         ),

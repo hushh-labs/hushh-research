@@ -39,7 +39,12 @@ def reconcile_pending_activity(limit=20, deadline=None):
             text("""
           SELECT DISTINCT e.user_id FROM one_referral_events e
            LEFT JOIN one_referral_relationships r ON r.referred_user_id=e.user_id
-          WHERE e.event_type='product_usage' AND (
+          WHERE e.event_type='product_usage'
+            AND NOT EXISTS (
+              SELECT 1 FROM account_deletion_tombstones t
+               WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(e.user_id,'UTF8')),'hex')
+            )
+            AND (
             e.scored_at IS NULL
             OR (r.status IN ('signed_up','phone_verified','onboarded','engaging')
                 AND EXISTS (SELECT 1 FROM actor_identity_cache i JOIN vault_keys v ON v.user_id=i.user_id

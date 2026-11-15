@@ -2045,7 +2045,11 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
     identity = created["requestId"]
     _, private = stored_request(sharing, identity)
     assert private["semantic_search_policy_version"] == 4
-    assert private["semantic_model_binding"]["provider"] == "azure_openai"
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
+
+    assert private["semantic_model_binding"] == managed_text_binding()
+    assert private["semantic_model_binding"]["provider"] == "gemini"
+    assert private["semantic_model_binding"]["deployment"] == "gemini-4-hydrogen"
     assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
     with sharing.db.engine.connect() as connection:
         assert (

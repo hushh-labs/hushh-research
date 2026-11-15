@@ -16,7 +16,10 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import threading
+import time
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -248,19 +251,43 @@ class S3ObjectStore:
 
 
 class PrefixTokenObjectStore:
-    """Prefix-scoped HTTPS bearer ObjectStore for zero-per-user-IAM-SA hosted cells / ACE."""
+    """Prefix-scoped HTTPS bearer ObjectStore for zero-per-user-IAM-SA hosted cells / ACE.
+
+    Supports both static bootstrap bearer tokens (`POD_STORAGE_PREFIX_BEARER_TOKEN`) and
+    live 15-minute Hub Capability Broker token minting/refresh (`token_provider` or
+    auto-wired `PodHubClient.mint_storage_prefix_token` when `HUSSH_HUB_BASE_URL` is set),
+    proactively refreshing 60 seconds before expiry and retrying once on `401`/`403`.
+    """
+
+    _TOKEN_REFRESH_MARGIN_SECONDS = 60
 
     def __init__(
         self,
         prefix_url: str,
         *,
         bearer_token: Optional[str] = None,
+        token_provider: Optional[Callable[[], tuple[str, int]]] = None,
         session: Any = None,
     ) -> None:
+        from hushh_mcp.services.pod_emulator_endpoints import (  # noqa: PLC0415
+            PodEmulatorEndpointError,
+            allow_loopback_prefix_http,
+            is_loopback_host,
+        )
+
+        try:
+            allow_loopback_http = allow_loopback_prefix_http()
+        except PodEmulatorEndpointError as exc:
+            raise PodMultiCloudStorageError(str(exc)) from None
+
         parsed = urllib.parse.urlsplit(str(prefix_url or "").strip())
+        host = (parsed.hostname or "").strip().lower()
+        scheme_valid = parsed.scheme == "https" or (
+            allow_loopback_http and parsed.scheme == "http" and is_loopback_host(host)
+        )
         if (
-            parsed.scheme != "https"
-            or not parsed.hostname
+            not scheme_valid
+            or not host
             or parsed.username
             or parsed.password
             or parsed.query
@@ -270,20 +297,70 @@ class PrefixTokenObjectStore:
         base_path = "/".join(object_prefix_segments(parsed.path.strip("/")))
         if not base_path:
             raise ValueError("POD_STORAGE_PREFIX_TOKEN_URL must name a non-root pod prefix")
-        token = (
+
+        static_token = (
             bearer_token if bearer_token is not None else (os.getenv(PREFIX_BEARER_TOKEN_ENV) or "")
         ).strip()
-        if not token:
-            raise ValueError(f"PrefixTokenObjectStore requires {PREFIX_BEARER_TOKEN_ENV}")
-        self._origin = f"https://{parsed.netloc}"
+        if token_provider is None and not static_token:
+            from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+                PodHubClient,
+                hub_base_url,
+            )
+
+            if hub_base_url():
+                hub_client = PodHubClient()
+                token_provider = lambda: hub_client.mint_storage_prefix_bearer()  # noqa: E731
+        if not static_token and token_provider is None:
+            raise ValueError(
+                f"PrefixTokenObjectStore requires {PREFIX_BEARER_TOKEN_ENV} or HUSSH_HUB_BASE_URL"
+            )
+
+        self._origin = f"{parsed.scheme}://{parsed.netloc}"
         self._base_prefix = base_path
         self._prefix_segments = tuple(base_path.split("/"))
-        self._token = token
+        self._token_provider = token_provider
+        self._token_lock = threading.Lock()
+        self._token: Optional[str] = static_token or None
+        self._token_expires_at: float = (
+            float("inf") if static_token and token_provider is None else 0.0
+        )
+        if static_token and token_provider is not None:
+            self._token_expires_at = time.monotonic() + 840.0
         if session is None:
             from hushh_mcp.services.pod_storage_transport import PodStorageTransport
 
             session = PodStorageTransport()
         self._session = session
+
+    def _current_token(self) -> str:
+        with self._token_lock:
+            if self._token is not None and time.monotonic() < self._token_expires_at:
+                return self._token
+            if self._token_provider is None and self._token is not None:
+                return self._token
+            self._token = None
+            self._token_expires_at = 0.0
+        if self._token_provider is None:
+            raise PodMultiCloudStorageForbidden("prefix object store bearer token unavailable")
+        try:
+            fresh_token, ttl_seconds = self._token_provider()
+        except Exception:  # noqa: BLE001
+            raise PodMultiCloudStorageError("hub storage token broker unreachable") from None
+        cleaned = str(fresh_token or "").strip()
+        if not cleaned or len(cleaned) > 16384:
+            raise PodMultiCloudStorageError("hub storage token broker returned invalid token")
+        usable = max(1, int(ttl_seconds) - self._TOKEN_REFRESH_MARGIN_SECONDS)
+        with self._token_lock:
+            self._token = cleaned
+            self._token_expires_at = time.monotonic() + usable
+        return cleaned
+
+    def _invalidate_token(self) -> None:
+        if self._token_provider is None:
+            return
+        with self._token_lock:
+            self._token = None
+            self._token_expires_at = 0.0
 
     def _url(self, key: str) -> str:
         composed = "/".join(self._prefix_segments + object_key_segments(key))
@@ -293,17 +370,24 @@ class PrefixTokenObjectStore:
         return f"{self._origin}/{quoted}"
 
     def _request(self, method: str, url: str, extra: dict[str, str], **kwargs: Any) -> Any:
-        headers = {"Authorization": f"Bearer {self._token}", **extra}
-        try:
-            response = getattr(self._session, method)(
-                url,
-                headers=headers,
-                timeout=_TIMEOUT_SECONDS,
-                allow_redirects=False,
-                **kwargs,
-            )
-        except Exception:  # noqa: BLE001
-            raise PodMultiCloudStorageError("prefix object store unreachable") from None
+        def send_once() -> Any:
+            headers = {"Authorization": f"Bearer {self._current_token()}", **extra}
+            try:
+                return getattr(self._session, method)(
+                    url,
+                    headers=headers,
+                    timeout=_TIMEOUT_SECONDS,
+                    allow_redirects=False,
+                    **kwargs,
+                )
+            except Exception:  # noqa: BLE001
+                raise PodMultiCloudStorageError("prefix object store unreachable") from None
+
+        response = send_once()
+        if getattr(response, "status_code", 0) in {401, 403} and self._token_provider is not None:
+            response.close()
+            self._invalidate_token()
+            response = send_once()
         if getattr(response, "status_code", 0) in {401, 403}:
             response.close()
             raise PodMultiCloudStorageForbidden("prefix object store refused bearer token")

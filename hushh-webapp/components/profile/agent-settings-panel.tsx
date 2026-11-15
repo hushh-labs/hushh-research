@@ -30,7 +30,8 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
 
   if (kind === "hosting") {
     const canManageCloud =
-      mode === "shared" || mode === "pending" || mode === "byoc" || mode === "unplaced";
+      status?.featureEnabled === true &&
+      (mode === "shared" || mode === "pending" || mode === "byoc" || mode === "unplaced");
     return (
       <div className="space-y-5">
         <SettingsGroup density="compact">
@@ -66,13 +67,19 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           />
           <SettingsRow
             title="Bring your own cloud"
-            description="Agent One and device relay. You approve updates."
+            description={
+              status && !status.featureEnabled
+                ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged."
+                : "Agent One and device relay. You approve updates."
+            }
             trailing={
               mode === "byoc"
                 ? "Current"
-                : mode === "pending"
-                  ? "Continue"
-                  : undefined
+                : status && !status.featureEnabled
+                  ? "Unavailable"
+                  : mode === "pending"
+                    ? "Continue"
+                    : undefined
             }
             onClick={
               canManageCloud
