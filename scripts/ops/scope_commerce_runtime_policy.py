@@ -16,6 +16,7 @@ SCOPE_COMMERCE_POLICY_TYPES: dict[str, type] = {
                      "scope_commerce_monitoring_enabled"), bool),
     **dict.fromkeys(("scope_commerce_stripe_account_id", "scope_commerce_frontend_origin",
                      "scope_commerce_return_path", "scope_commerce_website_origin", "scope_commerce_fee_configuration_ref",
+                     "scope_commerce_bank_checkout_configuration_id",
                      "scope_commerce_stripe_acceptance_ref", "scope_commerce_account_configuration_ref",
                      "scope_commerce_country_approval_ref", "scope_commerce_retention_approval_ref",
                      "scope_commerce_tax_approval_ref", "scope_commerce_drain_audience",
@@ -61,6 +62,9 @@ def _validated_scope_commerce_policy(value: Any) -> dict[str, Any]:
             raise ValueError("Scope commerce policy contains an unknown key or invalid type")
         if isinstance(item, list) and any(not isinstance(entry, str) or not entry.strip() for entry in item):
             raise ValueError("Scope commerce scheduler identities must be exact nonempty strings")
+        if (key == "scope_commerce_bank_checkout_configuration_id" and item
+                and not re.fullmatch(r"pmc_[A-Za-z0-9]+", item)):
+            raise ValueError("Scope commerce bank checkout configuration ID is invalid")
         if key == "scope_commerce_country_policies_json":
             _validate_scope_commerce_countries(item)
         if key == "scope_commerce_stripe_webhook_mode" and item not in {"endpoints", "cli"}:

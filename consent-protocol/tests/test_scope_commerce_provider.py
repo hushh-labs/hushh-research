@@ -373,6 +373,45 @@ async def test_durable_retry_recovers_uncertain_success_and_rejects_changed_requ
     assert adapter.created == 1
 
 
+@pytest.mark.parametrize("methods", [["us_bank_account"], ["us_bank_account", "card"]])
+async def test_bank_checkout_replays_only_a_bank_only_session(methods, monkeypatch):
+    store, adapter = _OperationStore(), _FundingAdapter()
+    service = _funding_service(store, adapter)
+    create = adapter.create
+
+    async def configured_create(kind, request, **kwargs):
+        response = await create(kind, request, **kwargs)
+        if kind == "funding":
+            response["payment_method_types"] = methods
+        return response
+
+    async def admit_fixture():
+        pass
+
+    async def existing_customer(_user_id):
+        return "cus_fixture"
+
+    monkeypatch.setattr(adapter, "create", configured_create)
+    monkeypatch.setattr(service, "_admit", admit_fixture)
+    monkeypatch.setattr(service, "_customer", existing_customer)
+    checkout = {
+        "payer_user_id": "buyer",
+        "buyer_app_id": "agent_one",
+        "amount_cents": 100,
+        "operation_id": str(uuid4()),
+        "bank_quote_id": str(uuid4()),
+    }
+    if "card" in methods:
+        with pytest.raises(CommerceProviderError, match="provider_reconciliation_required"):
+            await service.funding_checkout(**checkout)
+        assert store.operations[checkout["operation_id"]]["status"] == "reconciliation_required"
+    else:
+        first = await service.funding_checkout(**checkout)
+        created = adapter.created
+        assert await service.funding_checkout(**checkout) == first
+        assert adapter.created == created
+
+
 @pytest.mark.asyncio
 async def test_old_uncertain_operation_never_recreates_after_idempotency_window():
     store, adapter = _OperationStore(), _OperationAdapter()

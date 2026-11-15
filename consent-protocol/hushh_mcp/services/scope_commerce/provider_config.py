@@ -30,6 +30,7 @@ class ScopeCommerceProviderConfig:
     return_path: str = "/one/profile/payouts"
     website_origin: str = ""
     website_return_path: str = "/profile"
+    bank_checkout_configuration_id: str = ""
     countries: dict[str, CountryPayoutPolicy] = field(default_factory=dict)
     fee_configuration_ref: str = ""
     approval_refs: tuple[str, ...] = ()
@@ -111,6 +112,9 @@ class ScopeCommerceProviderConfig:
             return_path=os.getenv("SCOPE_COMMERCE_RETURN_PATH") or "/one/profile/payouts",
             website_origin=os.getenv("SCOPE_COMMERCE_WEBSITE_ORIGIN") or "",
             website_return_path="/profile",
+            bank_checkout_configuration_id=os.getenv(
+                "SCOPE_COMMERCE_BANK_CHECKOUT_CONFIGURATION_ID", ""
+            ),
             countries=countries,
             fee_configuration_ref=os.getenv("SCOPE_COMMERCE_FEE_CONFIGURATION_REF") or "",
             approval_refs=refs,
