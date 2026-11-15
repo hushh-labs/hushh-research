@@ -21,7 +21,6 @@ import {
   sha256Hex,
   validateClaimId,
   validatePageId,
-  type WikiCaptureCheckpoint,
   type WikiClaim,
   type WikiSaveOutcomeStatus,
   type WikiSourceRef,
