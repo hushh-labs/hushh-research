@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -63,6 +64,8 @@ class FundingCheckout(ProviderContext):
 
         if self.config.livemode or self.config.sandbox_policy is None:
             raise CommerceProviderError("provider_sandbox_only")
+        if not re.fullmatch(r"pmc_[A-Za-z0-9]+", self.config.bank_checkout_configuration_id):
+            raise CommerceProviderError("provider_configuration_invalid")
         self._admit_actor(payer_user_id)
         await self._admit()
         operation_id = _derived_id(quote_id, "bank_checkout")
@@ -190,7 +193,7 @@ class FundingCheckout(ProviderContext):
 
         if bank_quote_id is not None:
             del request["allowed_payment_method_types"]
-            request["payment_method_types"] = ["us_bank_account"]
+            request["payment_method_configuration"] = self.config.bank_checkout_configuration_id
             request["line_items"][0]["price_data"]["product_data"]["name"] = "Information access"
 
         def validate(session: dict[str, Any]) -> None:
@@ -202,6 +205,10 @@ class FundingCheckout(ProviderContext):
                 or session.get("amount_total") != amount_cents
                 or session.get("currency") != "usd"
                 or session.get("livemode") is not self.config.livemode
+                or (
+                    bank_quote_id is not None
+                    and session.get("payment_method_types") != ["us_bank_account"]
+                )
                 or not _hosted_url(session.get("url"), {"checkout.stripe.com"})
             ):
                 raise CommerceProviderError("provider_response_mismatch")

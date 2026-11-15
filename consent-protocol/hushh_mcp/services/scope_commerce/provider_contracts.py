@@ -78,6 +78,7 @@ def _projection(kind: str, response: dict[str, Any]) -> dict[str, Any]:
         "client_reference_id",
         "amount_total",
         "payment_status",
+        "payment_method_types",
         "url",
         "expires_at",
     }
