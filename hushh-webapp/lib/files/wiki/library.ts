@@ -4,26 +4,39 @@ import * as cipher from "../shared/crypto";
 import { SharedFilesStore, type SharedFilesAccess } from "../shared/store";
 import {
   MAX_BATCH_PAGES,
+  type NormalizedWikiClaim,
+  type NormalizedWikiTombstone,
   type PublicWikiPage,
   type StoredWikiPageRevision,
+  WIKI_HOT_MAX_CHARS,
+  type WikiCaptureCheckpoint,
   type WikiClaim,
   type WikiLinkEdge,
+  type WikiProjectionReceipt,
   WikiRefusedError,
   type WikiSourceRef,
+  type WikiTombstone,
   buildRevisionRecord,
   canonicalJson,
+  normalizeCaptureCheckpoint,
+  normalizeProjectionReceipt,
   normalizeSourceRef,
+  normalizeTombstone,
   renderWikiMarkdown,
   replaceMarkdownSection,
   sha256Hex,
   validateBatchId,
+  validateClaimId,
   validateFolder,
   validateIdempotencyKey,
   validatePageId,
+  validateProjectionDomain,
+  validateProjectionReceiptId,
   validateSourceId,
   validateTitle,
+  validateTombstoneId,
 } from "./contracts";
-import { BacklinkGraph, LexicalSearchIndex } from "./index-and-search";
+import { BacklinkGraph, ClaimIndex, LexicalSearchIndex } from "./index-and-search";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -174,6 +187,10 @@ export class SharedWikiLibrary {
 
   constructor(readonly access: SharedFilesAccess) {
     this.store = new SharedFilesStore(access);
+  }
+
+  get owner(): string {
+    return this.access.owner;
   }
 
   private async derivePageContentKeyHex(pageId: string): Promise<string> {
@@ -393,6 +410,23 @@ export class SharedWikiLibrary {
       "lexical",
       lexical.toStored(),
       lexicalSnap.generation,
+      signal,
+    );
+
+    const claimsSnap = await this.readJson<unknown>(
+      "wiki:indexes",
+      "claims",
+      signal,
+    );
+    const claimsIdx = claimsSnap.value
+      ? ClaimIndex.fromStored(claimsSnap.value)
+      : new ClaimIndex();
+    claimsIdx.upsertPage(page);
+    await this.writeJsonHeld(
+      "wiki:indexes",
+      "claims",
+      claimsIdx.toStored(),
+      claimsSnap.generation,
       signal,
     );
   }
@@ -1561,6 +1595,7 @@ export class SharedWikiLibrary {
     page_count: number;
     backlinks_digest: string;
     lexical_digest: string;
+    claims_digest: string;
   }> {
     return this.store.serialize(async () => {
       const heads = await this.listGroup<StoredWikiHead>("wiki:heads", signal);
@@ -1580,6 +1615,7 @@ export class SharedWikiLibrary {
 
       const graph = BacklinkGraph.fromPages(liveRevisions);
       const lexical = LexicalSearchIndex.fromPages(liveRevisions);
+      const claimsIdx = ClaimIndex.fromPages(liveRevisions);
 
       const backlinkSnap = await this.readJson<unknown>(
         "wiki:indexes",
@@ -1607,12 +1643,404 @@ export class SharedWikiLibrary {
         signal,
       );
 
+      const claimsSnap = await this.readJson<unknown>(
+        "wiki:indexes",
+        "claims",
+        signal,
+      );
+      await this.writeJsonHeld(
+        "wiki:indexes",
+        "claims",
+        claimsIdx.toStored(),
+        claimsSnap.generation,
+        signal,
+      );
+
       return {
         page_count: liveRevisions.length,
         backlinks_digest: await graph.digest(),
         lexical_digest: await lexical.digest(),
+        claims_digest: await claimsIdx.digest(),
       };
     });
+  }
+
+  async readHotDigest(signal?: AbortSignal): Promise<string> {
+    const snap = await this.readJson<{
+      format: 1;
+      markdown: string;
+      updated_at: number;
+    }>("wiki:root", "hot", signal);
+    if (!snap.value) return "";
+    if (
+      typeof snap.value.markdown !== "string" ||
+      snap.value.markdown.length > WIKI_HOT_MAX_CHARS
+    ) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 409);
+    }
+    return snap.value.markdown;
+  }
+
+  async writeHotDigest(
+    markdown: string,
+    signal?: AbortSignal,
+  ): Promise<{ char_count: number; updated_at: number }> {
+    if (
+      typeof markdown !== "string" ||
+      markdown.length > WIKI_HOT_MAX_CHARS ||
+      markdown.includes("\x00")
+    ) {
+      throw new WikiRefusedError("WIKI_HOT_BUDGET_EXCEEDED", 400);
+    }
+    const normalized = markdown.replace(/\r\n/g, "\n").trim();
+    const updated_at = Date.now();
+    return this.store.serialize(async () => {
+      const snap = await this.readJson<unknown>("wiki:root", "hot", signal);
+      await this.writeJsonHeld(
+        "wiki:root",
+        "hot",
+        { format: 1, markdown: normalized, updated_at },
+        snap.generation,
+        signal,
+      );
+      return { char_count: normalized.length, updated_at };
+    });
+  }
+
+  async readCaptureCheckpoint(
+    signal?: AbortSignal,
+  ): Promise<WikiCaptureCheckpoint> {
+    const snap = await this.readJson<WikiCaptureCheckpoint & { format: 1 }>(
+      "wiki:checkpoints",
+      "capture",
+      signal,
+    );
+    return normalizeCaptureCheckpoint(snap.value);
+  }
+
+  async writeCaptureCheckpoint(
+    checkpoint: Partial<WikiCaptureCheckpoint>,
+    signal?: AbortSignal,
+  ): Promise<WikiCaptureCheckpoint> {
+    const parsed = normalizeCaptureCheckpoint(checkpoint);
+    return this.store.serialize(async () => {
+      const snap = await this.readJson<unknown>(
+        "wiki:checkpoints",
+        "capture",
+        signal,
+      );
+      await this.writeJsonHeld(
+        "wiki:checkpoints",
+        "capture",
+        { format: 1, ...parsed },
+        snap.generation,
+        signal,
+      );
+      return parsed;
+    });
+  }
+
+  async putTombstone(
+    tombstone: WikiTombstone,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<NormalizedWikiTombstone> {
+    validateIdempotencyKey(idempotencyKey);
+    const parsed = normalizeTombstone(tombstone);
+    return this.store.serialize(async () => {
+      const existing = await this.readJson<
+        NormalizedWikiTombstone & { format: 1 }
+      >("wiki:tombstones", parsed.tombstone_id, signal);
+      if (existing.value) {
+        const stored = normalizeTombstone(existing.value);
+        if (canonicalJson(stored) !== canonicalJson(parsed)) {
+          throw new WikiRefusedError("WIKI_IDEMPOTENCY_CONFLICT", 409);
+        }
+        return stored;
+      }
+      await this.writeJsonHeld(
+        "wiki:tombstones",
+        parsed.tombstone_id,
+        { format: 1, ...parsed },
+        "",
+        signal,
+      );
+      return parsed;
+    });
+  }
+
+  async getTombstone(
+    tombstoneId: string,
+    signal?: AbortSignal,
+  ): Promise<NormalizedWikiTombstone> {
+    const validated = validateTombstoneId(tombstoneId);
+    const snap = await this.readJson<NormalizedWikiTombstone & { format: 1 }>(
+      "wiki:tombstones",
+      validated,
+      signal,
+    );
+    if (!snap.value) throw new WikiRefusedError("WIKI_NOT_FOUND", 404);
+    return normalizeTombstone(snap.value);
+  }
+
+  async listTombstones(signal?: AbortSignal): Promise<NormalizedWikiTombstone[]> {
+    const raw = await this.listGroup<NormalizedWikiTombstone & { format: 1 }>(
+      "wiki:tombstones",
+      signal,
+    );
+    return raw
+      .map((item) => normalizeTombstone(item))
+      .sort(
+        (a, b) =>
+          a.created_at - b.created_at ||
+          a.tombstone_id.localeCompare(b.tombstone_id),
+      );
+  }
+
+  async putProjectionReceipt(
+    receipt: Omit<WikiProjectionReceipt, "exposure_eligibility" | "source_revision"> & {
+      exposure_eligibility?: boolean;
+      source_revision?: number;
+    },
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<WikiProjectionReceipt> {
+    validateIdempotencyKey(idempotencyKey);
+    const parsed = normalizeProjectionReceipt(receipt);
+    return this.store.serialize(async () => {
+      const existingSnap = await this.readJson<
+        WikiProjectionReceipt & { format: 1 }
+      >("wiki:receipts", parsed.receipt_id, signal);
+      if (existingSnap.value) {
+        const existing = normalizeProjectionReceipt(existingSnap.value);
+        if (canonicalJson(existing) === canonicalJson(parsed)) {
+          return existing;
+        }
+        const stalePage = parsed.page_revision < existing.page_revision;
+        const staleSource =
+          parsed.page_revision === existing.page_revision &&
+          parsed.source_revision < existing.source_revision;
+        if (stalePage || staleSource) {
+          throw new WikiRefusedError("WIKI_PROJECTION_STALE_REVISION", 409);
+        }
+        const atOrBelow =
+          parsed.page_revision < existing.page_revision ||
+          (parsed.page_revision === existing.page_revision &&
+            parsed.source_revision <= existing.source_revision);
+        if (
+          existing.tombstone_id &&
+          parsed.state === "materialized" &&
+          atOrBelow
+        ) {
+          throw new WikiRefusedError("WIKI_PROJECTION_TOMBSTONED", 409);
+        }
+      }
+      await this.writeJsonHeld(
+        "wiki:receipts",
+        parsed.receipt_id,
+        { format: 1, ...parsed },
+        existingSnap.generation,
+        signal,
+      );
+      return parsed;
+    });
+  }
+
+  async getProjectionReceipt(
+    receiptId: string,
+    signal?: AbortSignal,
+  ): Promise<WikiProjectionReceipt> {
+    const validated = validateProjectionReceiptId(receiptId);
+    const snap = await this.readJson<WikiProjectionReceipt & { format: 1 }>(
+      "wiki:receipts",
+      validated,
+      signal,
+    );
+    if (!snap.value) throw new WikiRefusedError("WIKI_NOT_FOUND", 404);
+    return normalizeProjectionReceipt(snap.value);
+  }
+
+  async listProjectionReceipts(
+    domain?: string,
+    signal?: AbortSignal,
+  ): Promise<WikiProjectionReceipt[]> {
+    const normalizedDomain =
+      domain === undefined ? undefined : validateProjectionDomain(domain);
+    const raw = await this.listGroup<WikiProjectionReceipt & { format: 1 }>(
+      "wiki:receipts",
+      signal,
+    );
+    return raw
+      .map((item) => normalizeProjectionReceipt(item))
+      .filter((item) => !normalizedDomain || item.domain === normalizedDomain)
+      .sort(
+        (a, b) =>
+          a.domain.localeCompare(b.domain) ||
+          a.json_path.localeCompare(b.json_path) ||
+          a.receipt_id.localeCompare(b.receipt_id),
+      );
+  }
+
+  async traceClaim(
+    claimId: string,
+    options?: { asOfDate?: string },
+    signal?: AbortSignal,
+  ): Promise<{
+    status: "ok" | "absent" | "stale" | "conflicted" | "unavailable";
+    claim_id: string;
+    page_id?: string;
+    page_title?: string;
+    page_revision?: number;
+    claim?: NormalizedWikiClaim;
+    sources?: Array<Required<WikiSourceRef>>;
+    contradicting_claim_ids?: string[];
+    tombstone_id?: string;
+    reason?: string;
+    superseded_by?: string;
+    code?: string;
+  }> {
+    const validatedClaimId = validateClaimId(claimId);
+    const tombstones = await this.listTombstones(signal);
+    const claimTombstones = tombstones.filter(
+      (tb) => tb.target_kind === "claim" && tb.target_id === validatedClaimId,
+    );
+
+    let claimsSnap = await this.readJson<unknown>(
+      "wiki:indexes",
+      "claims",
+      signal,
+    );
+    if (!claimsSnap.value) {
+      await this.rebuildIndexes(signal);
+      claimsSnap = await this.readJson<unknown>(
+        "wiki:indexes",
+        "claims",
+        signal,
+      );
+    }
+    const index = claimsSnap.value
+      ? ClaimIndex.fromStored(claimsSnap.value)
+      : new ClaimIndex();
+    const indexed = index.lookupClaim(validatedClaimId);
+    if (!indexed) {
+      const latestTb = claimTombstones[claimTombstones.length - 1];
+      if (latestTb) {
+        return {
+          status: "stale",
+          claim_id: validatedClaimId,
+          reason: latestTb.reason_code,
+          tombstone_id: latestTb.tombstone_id,
+          ...(latestTb.superseded_by
+            ? { superseded_by: latestTb.superseded_by }
+            : {}),
+        };
+      }
+      return { status: "absent", claim_id: validatedClaimId };
+    }
+
+    let livePage: PublicWikiPage;
+    try {
+      livePage = await this.readPage(
+        indexed.page_id,
+        { requireSettled: true },
+        signal,
+      );
+    } catch (error) {
+      if (error instanceof WikiRefusedError) {
+        if (error.code === "WIKI_NOT_FOUND") {
+          return { status: "absent", claim_id: validatedClaimId };
+        }
+        if (error.code === "WIKI_BATCH_INCOMPLETE") {
+          return {
+            status: "unavailable",
+            claim_id: validatedClaimId,
+            code: "batch_incomplete",
+          };
+        }
+      }
+      throw error;
+    }
+
+    const liveClaim = livePage.claims.find(
+      (c) => c.claim_id === validatedClaimId,
+    );
+    if (!liveClaim) {
+      return { status: "absent", claim_id: validatedClaimId };
+    }
+
+    const pageTombstoned = tombstones.some(
+      (tb) => tb.target_kind === "page" && tb.target_id === livePage.page_id,
+    );
+    const sourceTombstoned = tombstones.some(
+      (tb) =>
+        tb.target_kind === "source" &&
+        liveClaim.source_ids.includes(tb.target_id),
+    );
+    const sources: Array<Required<WikiSourceRef>> = [];
+    for (const srcId of liveClaim.source_ids) {
+      try {
+        sources.push(await this.getSource(srcId, signal));
+      } catch (error) {
+        if (
+          !(error instanceof WikiRefusedError && error.code === "WIKI_NOT_FOUND")
+        ) {
+          throw error;
+        }
+      }
+    }
+
+    const contradictingIds = new Set<string>();
+    for (const conflict of indexed.contradictions) {
+      try {
+        const conflictPage = await this.readPage(
+          conflict.source_page_id,
+          undefined,
+          signal,
+        );
+        const hasLiveEdge = conflictPage.links.some(
+          (edge) =>
+            edge.relation === "contradicts" &&
+            edge.anchor_claim_id === validatedClaimId,
+        );
+        if (hasLiveEdge) {
+          for (const other of conflictPage.claims) {
+            if (other.status === "active" || other.status === "uncertain") {
+              contradictingIds.add(other.claim_id);
+            }
+          }
+        }
+      } catch {
+        // Ignore deleted/unsettled conflict pages.
+      }
+    }
+
+    const expired = Boolean(
+      options?.asOfDate &&
+        liveClaim.valid_until &&
+        liveClaim.valid_until < options.asOfDate,
+    );
+    const isStale =
+      claimTombstones.length > 0 ||
+      pageTombstoned ||
+      sourceTombstoned ||
+      liveClaim.status === "superseded" ||
+      liveClaim.status === "retracted" ||
+      expired;
+    const isConflicted =
+      !isStale &&
+      (liveClaim.status === "uncertain" || contradictingIds.size > 0);
+    const latestTb = claimTombstones[claimTombstones.length - 1];
+    return {
+      status: isStale ? "stale" : isConflicted ? "conflicted" : "ok",
+      claim_id: validatedClaimId,
+      page_id: livePage.page_id,
+      page_title: livePage.title,
+      page_revision: livePage.revision,
+      claim: liveClaim,
+      sources,
+      contradicting_claim_ids: [...contradictingIds].sort(),
+      ...(latestTb ? { tombstone_id: latestTb.tombstone_id } : {}),
+    };
   }
 
   async exportWiki(signal?: AbortSignal) {

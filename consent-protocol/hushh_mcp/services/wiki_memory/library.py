@@ -19,19 +19,27 @@ from hushh_mcp.services.pod_object_version import ABSENT, ObjectVersion
 
 from .contracts import (
     MAX_BATCH_PAGES,
+    WIKI_HOT_MAX_CHARS,
+    WikiCaptureCheckpoint,
     WikiPageRevision,
+    WikiProjectionReceipt,
     WikiRefused,
     WikiSourceRef,
+    WikiTombstone,
     canonical_request_fingerprint,
     replace_markdown_section,
     validate_batch_id,
+    validate_claim_id,
     validate_folder,
     validate_idempotency_key,
     validate_page_id,
+    validate_projection_domain,
+    validate_projection_receipt_id,
     validate_source_id,
     validate_title,
+    validate_tombstone_id,
 )
-from .index_and_search import BacklinkGraph, LexicalSearchIndex
+from .index_and_search import BacklinkGraph, ClaimIndex, LexicalSearchIndex
 
 
 def _aad_bytes(*, owner: str, account_generation: int, library_id: str, path: str) -> bytes:
@@ -145,6 +153,18 @@ class WikiLibrary:
 
     def _index_path(self, name: str) -> str:
         return f"wiki/v1/indexes/{self._opaque('index:' + name)}.bin"
+
+    def _hot_digest_path(self) -> str:
+        return "wiki/v1/root/hot.md.enc"
+
+    def _capture_checkpoint_path(self) -> str:
+        return "wiki/v1/checkpoints/capture.json.enc"
+
+    def _tombstone_path(self, tombstone_id: str) -> str:
+        return f"wiki/v1/tombstones/{self._opaque('tombstone:' + validate_tombstone_id(tombstone_id))}.bin"
+
+    def _receipt_path(self, receipt_id: str) -> str:
+        return f"wiki/v1/receipts/{self._opaque('receipt:' + validate_projection_receipt_id(receipt_id))}.bin"
 
     def _seal(self, path: str, plaintext: bytes, *, key: bytes | None = None) -> bytes:
         nonce = secrets.token_bytes(12)
@@ -341,7 +361,11 @@ class WikiLibrary:
         return None
 
     async def _refresh_indexes_for_page(self, page: WikiPageRevision) -> None:
-        for index_name, cls in (("backlinks", BacklinkGraph), ("lexical", LexicalSearchIndex)):
+        for index_name, cls in (
+            ("backlinks", BacklinkGraph),
+            ("lexical", LexicalSearchIndex),
+            ("claims", ClaimIndex),
+        ):
             path = self._index_path(index_name)
             for _ in range(4):
                 existing, gen = await self._read_json(path)
@@ -1237,8 +1261,9 @@ class WikiLibrary:
 
         graph = BacklinkGraph.from_pages(live_revisions)
         lexical = LexicalSearchIndex.from_pages(live_revisions)
+        claims_idx = ClaimIndex.from_pages(live_revisions)
 
-        for name, obj in (("backlinks", graph), ("lexical", lexical)):
+        for name, obj in (("backlinks", graph), ("lexical", lexical), ("claims", claims_idx)):
             path = self._index_path(name)
             for _ in range(4):
                 _, gen = await self._read_json(path)
@@ -1255,6 +1280,263 @@ class WikiLibrary:
             "page_count": len(live_revisions),
             "backlinks_digest": graph.digest(),
             "lexical_digest": lexical.digest(),
+            "claims_digest": claims_idx.digest(),
+        }
+
+    async def read_hot_digest(self) -> str:
+        """Read the bounded hot working-memory digest (<= 8,000 chars)."""
+        raw, _ = await self._read_json(self._hot_digest_path())
+        if raw is None:
+            return ""
+        markdown = raw.get("markdown", "")
+        if not isinstance(markdown, str) or len(markdown) > WIKI_HOT_MAX_CHARS:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 409)
+        return markdown
+
+    async def write_hot_digest(self, markdown: str) -> dict[str, Any]:
+        """Persist bounded root/hot.md.enc under CAS."""
+        if (
+            not isinstance(markdown, str)
+            or len(markdown) > WIKI_HOT_MAX_CHARS
+            or "\x00" in markdown
+        ):
+            raise WikiRefused("WIKI_HOT_BUDGET_EXCEEDED", 400)
+        normalized = markdown.replace("\r\n", "\n").strip()
+        path = self._hot_digest_path()
+        updated_at = int(time.time() * 1000)
+        for _ in range(4):
+            _, gen = await self._read_json(path)
+            try:
+                await self._write_json(
+                    path,
+                    {"markdown": normalized, "updated_at": updated_at},
+                    gen,
+                )
+                return {"char_count": len(normalized), "updated_at": updated_at}
+            except WikiRefused as exc:
+                if exc.code != "WIKI_REVISION_CONFLICT":
+                    raise
+        raise WikiRefused("WIKI_REVISION_CONFLICT", 409)
+
+    async def read_capture_checkpoint(self) -> WikiCaptureCheckpoint:
+        raw, _ = await self._read_json(self._capture_checkpoint_path())
+        return WikiCaptureCheckpoint.from_mapping(raw)
+
+    async def write_capture_checkpoint(
+        self, checkpoint: WikiCaptureCheckpoint | dict[str, Any]
+    ) -> WikiCaptureCheckpoint:
+        parsed = (
+            checkpoint
+            if isinstance(checkpoint, WikiCaptureCheckpoint)
+            else WikiCaptureCheckpoint.from_mapping(checkpoint)
+        )
+        path = self._capture_checkpoint_path()
+        for _ in range(4):
+            _, gen = await self._read_json(path)
+            try:
+                await self._write_json(path, parsed.to_dict(), gen)
+                return parsed
+            except WikiRefused as exc:
+                if exc.code != "WIKI_REVISION_CONFLICT":
+                    raise
+        raise WikiRefused("WIKI_REVISION_CONFLICT", 409)
+
+    async def put_tombstone(
+        self, tombstone: dict[str, Any] | WikiTombstone, *, idempotency_key: str
+    ) -> dict[str, Any]:
+        validate_idempotency_key(idempotency_key)
+        parsed = (
+            tombstone
+            if isinstance(tombstone, WikiTombstone)
+            else WikiTombstone.from_mapping(tombstone)
+        )
+        path = self._tombstone_path(parsed.tombstone_id)
+        existing, _ = await self._read_json(path)
+        if existing is not None:
+            stored = WikiTombstone.from_mapping(existing)
+            if stored != parsed:
+                raise WikiRefused("WIKI_IDEMPOTENCY_CONFLICT", 409)
+            return stored.to_dict()
+        await self._write_json(path, parsed.to_dict(), ABSENT)
+        return parsed.to_dict()
+
+    async def get_tombstone(self, tombstone_id: str) -> dict[str, Any]:
+        raw, _ = await self._read_json(self._tombstone_path(tombstone_id))
+        if raw is None:
+            raise WikiRefused("WIKI_NOT_FOUND", 404)
+        return WikiTombstone.from_mapping(raw).to_dict()
+
+    async def list_tombstones(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for path in await self._list_all_paths("wiki/v1/tombstones"):
+            raw, _ = await self._read_json(path)
+            if raw is not None:
+                out.append(WikiTombstone.from_mapping(raw).to_dict())
+        out.sort(key=lambda item: (item["created_at"], item["tombstone_id"]))
+        return out
+
+    async def put_projection_receipt(
+        self, receipt: dict[str, Any] | WikiProjectionReceipt, *, idempotency_key: str
+    ) -> dict[str, Any]:
+        validate_idempotency_key(idempotency_key)
+        parsed = (
+            receipt
+            if isinstance(receipt, WikiProjectionReceipt)
+            else WikiProjectionReceipt.from_mapping(receipt)
+        )
+        path = self._receipt_path(parsed.receipt_id)
+        existing_raw, gen = await self._read_json(path)
+        if existing_raw is not None:
+            existing = WikiProjectionReceipt.from_mapping(existing_raw)
+            if existing == parsed:
+                return existing.to_dict()
+            # Out-of-order stale retry fence: never regress monotonic (page_revision, source_revision),
+            # and never resurrect a tombstoned projection back to materialized at an equal/older revision.
+            if (parsed.page_revision, parsed.source_revision) < (
+                existing.page_revision,
+                existing.source_revision,
+            ):
+                raise WikiRefused("WIKI_PROJECTION_STALE_REVISION", 409)
+            if (
+                existing.tombstone_id is not None
+                and parsed.state == "materialized"
+                and (parsed.page_revision, parsed.source_revision)
+                <= (existing.page_revision, existing.source_revision)
+            ):
+                raise WikiRefused("WIKI_PROJECTION_TOMBSTONED", 409)
+        await self._write_json(path, parsed.to_dict(), gen)
+        return parsed.to_dict()
+
+    async def get_projection_receipt(self, receipt_id: str) -> dict[str, Any]:
+        raw, _ = await self._read_json(self._receipt_path(receipt_id))
+        if raw is None:
+            raise WikiRefused("WIKI_NOT_FOUND", 404)
+        return WikiProjectionReceipt.from_mapping(raw).to_dict()
+
+    async def list_projection_receipts(self, *, domain: str | None = None) -> list[dict[str, Any]]:
+        normalized_domain = None if domain is None else validate_projection_domain(domain)
+        out: list[dict[str, Any]] = []
+        for path in await self._list_all_paths("wiki/v1/receipts"):
+            raw, _ = await self._read_json(path)
+            if raw is None:
+                continue
+            parsed = WikiProjectionReceipt.from_mapping(raw)
+            if normalized_domain is not None and parsed.domain != normalized_domain:
+                continue
+            out.append(parsed.to_dict())
+        out.sort(key=lambda item: (item["domain"], item["json_path"], item["receipt_id"]))
+        return out
+
+    async def trace_claim(self, claim_id: str, *, as_of_date: str | None = None) -> dict[str, Any]:
+        """Trace a claim via ClaimIndex, revalidating live page custody, sources, and tombstones."""
+        validated_claim_id = validate_claim_id(claim_id)
+        tombstones = await self.list_tombstones()
+        claim_tombstones = [
+            tb
+            for tb in tombstones
+            if tb["target_kind"] == "claim" and tb["target_id"] == validated_claim_id
+        ]
+
+        raw_claims, _ = await self._read_json(self._index_path("claims"))
+        if raw_claims is None:
+            await self.rebuild_indexes()
+            raw_claims, _ = await self._read_json(self._index_path("claims"))
+        index = ClaimIndex.from_dict(raw_claims) if raw_claims is not None else ClaimIndex()
+        indexed = index.lookup_claim(validated_claim_id)
+        if indexed is None:
+            if claim_tombstones:
+                latest_tb = claim_tombstones[-1]
+                return {
+                    "status": "stale",
+                    "claim_id": validated_claim_id,
+                    "reason": latest_tb["reason_code"],
+                    "tombstone_id": latest_tb["tombstone_id"],
+                    **(
+                        {"superseded_by": latest_tb["superseded_by"]}
+                        if latest_tb.get("superseded_by")
+                        else {}
+                    ),
+                }
+            return {"status": "absent", "claim_id": validated_claim_id}
+
+        try:
+            live_page = await self.read_page(indexed["page_id"], require_settled=True)
+        except WikiRefused as exc:
+            if exc.code == "WIKI_NOT_FOUND":
+                return {"status": "absent", "claim_id": validated_claim_id}
+            if exc.code == "WIKI_BATCH_INCOMPLETE":
+                return {
+                    "status": "unavailable",
+                    "claim_id": validated_claim_id,
+                    "code": "batch_incomplete",
+                }
+            raise
+
+        live_claim = next(
+            (c for c in live_page["claims"] if c["claim_id"] == validated_claim_id),
+            None,
+        )
+        if live_claim is None:
+            return {"status": "absent", "claim_id": validated_claim_id}
+
+        page_tombstoned = any(
+            tb["target_kind"] == "page" and tb["target_id"] == live_page["page_id"]
+            for tb in tombstones
+        )
+        source_tombstoned = any(
+            tb["target_kind"] == "source" and tb["target_id"] in live_claim["source_ids"]
+            for tb in tombstones
+        )
+        sources: list[dict[str, Any]] = []
+        for src_id in live_claim["source_ids"]:
+            try:
+                sources.append(await self.get_source(src_id))
+            except WikiRefused as exc:
+                if exc.code != "WIKI_NOT_FOUND":
+                    raise
+
+        contradicting_claim_ids: list[str] = []
+        for conflict in indexed.get("contradictions", ()):
+            try:
+                conflict_page = await self.read_page(conflict["source_page_id"])
+            except WikiRefused:
+                continue
+            has_live_edge = any(
+                edge.get("relation") == "contradicts"
+                and edge.get("anchor_claim_id") == validated_claim_id
+                for edge in conflict_page.get("links", ())
+            )
+            if has_live_edge:
+                for other_claim in conflict_page.get("claims", ()):
+                    if other_claim.get("status") in {"active", "uncertain"}:
+                        contradicting_claim_ids.append(other_claim["claim_id"])
+
+        expired = bool(
+            as_of_date
+            and live_claim.get("valid_until")
+            and str(live_claim["valid_until"]) < str(as_of_date)
+        )
+        is_stale = (
+            bool(claim_tombstones)
+            or page_tombstoned
+            or source_tombstoned
+            or live_claim["status"] in {"superseded", "retracted"}
+            or expired
+        )
+        is_conflicted = not is_stale and (
+            live_claim["status"] == "uncertain" or bool(contradicting_claim_ids)
+        )
+        status = "stale" if is_stale else ("conflicted" if is_conflicted else "ok")
+        return {
+            "status": status,
+            "claim_id": validated_claim_id,
+            "page_id": live_page["page_id"],
+            "page_title": live_page["title"],
+            "page_revision": live_page["revision"],
+            "claim": live_claim,
+            "sources": sources,
+            "contradicting_claim_ids": sorted(set(contradicting_claim_ids)),
+            **({"tombstone_id": claim_tombstones[-1]["tombstone_id"]} if claim_tombstones else {}),
         }
 
     async def export_wiki(self) -> dict[str, Any]:
