@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  areScheduledTasksAvailable,
   PodScheduledTasksClient,
   type ScheduledTask,
   type ScheduledTasksStatus,
@@ -38,6 +39,7 @@ export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
 
 /** Owner opens this view explicitly. No polling keeps a sleeping pod awake. */
 export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
+  if (!areScheduledTasksAvailable()) return null;
   const generation = snapshotValidatedAuthSessionOwner()?.generation;
   return <OwnerScheduledTasksPanel key={`${ownerId}:${generation}`} ownerId={ownerId} />;
 }
