@@ -13,21 +13,30 @@ type OwnerRuntime = {
 };
 let active: OwnerRuntime | null = null;
 
-/** One unlocked owner writer survives Chat → Memory navigation. Lock retires it. */
+/** One unlocked owner writer survives Chat → Memory navigation and token rotation. Lock retires it. */
 export function ownerChatMemory(input: {
   userId: string; vaultKey: string; vaultEpoch: number; token: string;
   readToken: () => string | null;
 }): Runtime {
-  if (active?.userId === input.userId && active.epoch === input.vaultEpoch && active.token === input.token && active.vaultKey === input.vaultKey) {
+  if (active?.userId === input.userId && active.epoch === input.vaultEpoch && active.vaultKey === input.vaultKey) {
+    active.token = input.token;
     active.readToken = input.readToken;
     return active.runtime;
   }
   active?.dispose();
+  const liveToken = () => {
+    const token = entry.readToken();
+    return token && token.trim() ? token : null;
+  };
   const current = () => active === entry && isVaultSessionEpochCurrent(input.vaultEpoch) &&
-    snapshotValidatedAuthSessionOwner()?.userId === input.userId && entry.readToken() === input.token;
-  const getSession = () => current() ? {
-    userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.token, isCurrent: current,
-  } : null;
+    snapshotValidatedAuthSessionOwner()?.userId === input.userId && Boolean(liveToken());
+  const getSession = () => {
+    if (!current()) return null;
+    const vaultOwnerToken = liveToken();
+    return vaultOwnerToken ? {
+      userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken, isCurrent: current,
+    } : null;
+  };
   const runtime = createChatMemoryRuntime({ getSession, rewrite: async request => {
     const session = getSession();
     if (!session) throw new Error("MEMORY_LOCKED");

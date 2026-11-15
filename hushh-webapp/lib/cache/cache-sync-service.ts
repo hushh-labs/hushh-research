@@ -7,6 +7,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
@@ -468,6 +469,10 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -532,6 +537,10 @@ export class CacheSyncService {
     ]);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_${domain}_`);
     cache.invalidatePattern(`consent_export_${userId}_`);
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -654,6 +663,20 @@ export class CacheSyncService {
     cache.invalidatePattern(`domain_blob_${userId}_`);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_`);
     cache.invalidatePattern(`stock_context_${userId}_`);
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        if (typeof PkmDomainResourceService.invalidateAllForUser === "function") {
+          PkmDomainResourceService.invalidateAllForUser(userId, {
+            includeDevice: true,
+            includeBackingCaches: true,
+          });
+        }
+      })
+      .catch(() => undefined);
     this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
   }
