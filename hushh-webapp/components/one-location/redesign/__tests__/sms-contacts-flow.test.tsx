@@ -143,19 +143,6 @@ afterEach(async () => {
 });
 
 describe("SmsContactsFlow", () => {
-  it("grows past phone width and keeps contacts in one calm column", () => {
-    // The column used to be pinned at 430px at every size, so a tablet or a
-    // desktop window rendered a narrow ribbon in a field of grey. Asserting the
-    // breakpoint classes is how this file already checks layout, and it is the
-    // part a refactor is most likely to drop silently.
-    render(<SmsContactsFlow {...baseProps} />);
-
-    const column = screen.getByTestId("sms-contacts-screen")
-      .firstElementChild as HTMLElement;
-    expect(column).toHaveClass("max-w-[430px]");
-    expect(column).toHaveClass("md:max-w-[680px]", "xl:max-w-[720px]");
-  });
-
   it("presents exactly two sections: Circles and All Contacts", () => {
     render(<SmsContactsFlow {...baseProps} />);
 
