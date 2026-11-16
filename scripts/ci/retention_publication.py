@@ -168,7 +168,9 @@ def qualify(owner, repository, environment, run, job):
         if view is None:
             return None
     checkout = (
-        production.actual_checkout(log, view)
+        production.actual_checkout(
+            log, view, clock_bound=static_manual and not production._steps_match(view)
+        )
         if production is not None
         else evidence.actual_checkout(log, job)
     )
