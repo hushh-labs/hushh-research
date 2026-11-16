@@ -490,7 +490,9 @@ export function PersonalWikiPanel({
               title={item.statement || `Pending update in ${item.domain}`}
               description={
                 item.state === "private_candidate"
-                  ? `Confirm before adding to ${item.domain}`
+                  ? (item.activeRecipientCount ?? 0) > 0
+                    ? `Confirm before adding to ${item.domain} (shared with ${item.activeRecipientCount} active ${item.activeRecipientCount === 1 ? "recipient" : "recipients"})`
+                    : `Confirm before adding to ${item.domain}`
                   : `Differs from verified ${item.domain} details`
               }
               trailing={

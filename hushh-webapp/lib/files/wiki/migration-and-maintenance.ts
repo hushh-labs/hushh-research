@@ -945,6 +945,7 @@ export class SharedWikiOwnerMigrator {
       replacement_claim_id: replacementClaimId,
       tombstone_id: tombId,
       staled_projection_receipt_ids: staledReceipts.map((r) => r.receipt_id),
+      staled_projection_receipts: staledReceipts,
       outcomes,
       scrubbed_v1_markdown: scrubbedV1,
       scrubbed_stm_entries: scrubbedStm,

@@ -819,6 +819,7 @@ class WikiOwnerMigrator:
             "replacement_claim_id": new_claim_id,
             "tombstone_id": tomb_id,
             "staled_projection_receipt_ids": [r["receipt_id"] for r in staled_receipts],
+            "staled_projection_receipts": staled_receipts,
             "outcomes": {
                 "logical_deletion": True,
                 "revoked_future_access": bool(revoked_future_access),

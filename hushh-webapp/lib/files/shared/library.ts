@@ -35,8 +35,8 @@ export function publicEntry(entry: StoredEntry): FileEntry {
 }
 export class SharedFilesLibrary {
   readonly store: SharedFilesStore;
-  constructor(readonly access: SharedFilesAccess) {
-    this.store = new SharedFilesStore(access);
+  constructor(readonly access: SharedFilesAccess, store?: SharedFilesStore) {
+    this.store = store ?? new SharedFilesStore(access);
   }
   async entry(id: string, signal?: AbortSignal) {
     const snapshot = await this.store.read<StoredEntry>(

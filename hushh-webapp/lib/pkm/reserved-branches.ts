@@ -271,11 +271,12 @@ export function evaluateReservedWrite(params: {
  * save, so comparing them would count noise. Read from the internal-path-keys
  * contract rather than restated here.
  */
-const BOOKKEEPING_KEYS: ReadonlySet<string> = new Set(
-  [...internalPathKeys.internal_keys, ...internalPathKeys.internal_branches].map((key) =>
+const BOOKKEEPING_KEYS: ReadonlySet<string> = new Set([
+  ...[...internalPathKeys.internal_keys, ...internalPathKeys.internal_branches].map((key) =>
     key.trim().toLowerCase(),
   ),
-);
+  "_wiki_projections",
+]);
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

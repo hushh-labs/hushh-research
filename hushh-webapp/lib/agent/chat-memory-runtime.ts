@@ -54,6 +54,7 @@ export function createChatMemoryRuntime(deps: {
   getSession: () => ChatMemorySession | null;
   rewrite: (input: ChatMemoryRewriteInput) => Promise<{ markdown: string }>;
   onConsolidated?: (input: { messages: readonly ChatMemoryMessage[]; markdown: string }) => Promise<void>;
+  onWithdrawn?: (input: { conversationId: string }) => Promise<void>;
   tokenThreshold?: number; idleMs?: number; maxTokens?: number;
 }) {
   let pending = emptyPending();
@@ -231,6 +232,9 @@ export function createChatMemoryRuntime(deps: {
       if (pending.messages.length === 0 && timer) {
         clearTimeout(timer);
         timer = undefined;
+      }
+      if (deps.onWithdrawn && current()) {
+        await deps.onWithdrawn({ conversationId }).catch(() => undefined);
       }
     });
   }

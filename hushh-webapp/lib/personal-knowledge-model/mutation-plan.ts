@@ -45,7 +45,7 @@ export type PkmUserConfirmation = {
 export type PkmOwnerAutoSaveAuthorization = {
   authorizationMode: "owner_auto_save_policy";
   confirmedByUser?: never;
-  surface: "chat" | "voice";
+  surface: "chat" | "voice" | "web";
   source: string;
   autoSavePolicyVersion: 1;
   autoSavePolicyEnabledAt: string;

@@ -516,6 +516,8 @@ class PathDescriptorPayload(BaseModel):
     segment_id: Optional[str] = Field(default=None, max_length=256)
     scope_handle: Optional[str] = Field(default=None, max_length=256)
     source_agent: Optional[str] = Field(default=None, max_length=256)
+    projection_state: Optional[str] = Field(default=None, max_length=64)
+    projection_receipt_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class StructureDecisionPayload(BaseModel):

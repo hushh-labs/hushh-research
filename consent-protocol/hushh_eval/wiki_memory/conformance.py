@@ -794,11 +794,16 @@ async def evaluate_live_agent_turn_e2e() -> dict[str, Any]:
             provider="gemini",
             model_id="gemini-test",
         )
-    turn2_digest = str(turn2_input.state.get(agent_tree.STATE_MEMORY_DIGEST) or "")
+    turn2_hot = str(turn2_input.state.get(wrt.STATE_WIKI_HOT_DIGEST) or "")
+    rendered_turn2 = agent_tree._compose_one_runtime_instruction(turn2_input)
     hot_injected = (
-        "<personal_wiki_hot_digest" in turn2_digest
-        and "cortados" in turn2_digest
-        and len(turn2_digest) <= WIKI_HOT_MAX_CHARS
+        "<personal_wiki_hot_digest" in turn2_hot
+        and turn2_hot.endswith("</personal_wiki_hot_digest>")
+        and "cortados" in turn2_hot
+        and len(turn2_hot) <= WIKI_HOT_MAX_CHARS
+        and "<personal_wiki_hot_digest" in rendered_turn2
+        and "</personal_wiki_hot_digest>" in rendered_turn2
+        and "cortados" in rendered_turn2
     )
 
     with (
@@ -846,6 +851,7 @@ async def evaluate_live_agent_turn_e2e() -> dict[str, Any]:
             model_id="gemini-test",
         )
     turn3_digest = str(turn3_input.state.get(agent_tree.STATE_MEMORY_DIGEST) or "")
+    turn3_hot = str(turn3_input.state.get(wrt.STATE_WIKI_HOT_DIGEST) or "")
 
     with (
         files_rt.files_access(_noop_async, manage=_noop_async),
@@ -856,6 +862,7 @@ async def evaluate_live_agent_turn_e2e() -> dict[str, Any]:
 
     zero_resurrection = (
         "cortados" not in turn3_digest
+        and "cortados" not in turn3_hot
         and post_search["status"] == "absent"
         and post_trace["status"] == "stale"
     )

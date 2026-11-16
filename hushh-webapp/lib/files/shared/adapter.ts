@@ -25,10 +25,10 @@ export class SharedFilesAdapter {
   private readonly library: SharedFilesLibrary;
   private readonly foreground: SharedFilesForeground;
   private readonly wiki: SharedWikiLibrary;
-  constructor(access: SharedFilesAccess) {
-    this.library = new SharedFilesLibrary(access);
+  constructor(access: SharedFilesAccess, wiki?: SharedWikiLibrary) {
+    this.wiki = wiki ?? new SharedWikiLibrary(access);
+    this.library = new SharedFilesLibrary(access, this.wiki.store);
     this.foreground = new SharedFilesForeground(this.library);
-    this.wiki = new SharedWikiLibrary(access);
   }
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     this.library.store.check();
@@ -120,12 +120,22 @@ export class SharedFilesAdapter {
         const pages = await this.wiki.listPages(undefined, signal);
         const receipts = await this.wiki.listProjectionReceipts(undefined, signal);
         const candidates = [];
+        const staleReceipts = [];
         for (const rec of receipts) {
-          if (
-            rec.state !== "private_candidate" &&
-            rec.state !== "conflicted" &&
-            rec.state !== "stale"
-          ) {
+          if (rec.state === "stale") {
+            staleReceipts.push({
+              receiptId: rec.receipt_id,
+              pageId: rec.page_id,
+              pageRevision: rec.page_revision,
+              claimId: rec.claim_id,
+              sourceRevision: rec.source_revision,
+              domain: rec.domain,
+              jsonPath: rec.json_path,
+              state: rec.state,
+            });
+            continue;
+          }
+          if (rec.state !== "private_candidate" && rec.state !== "conflicted") {
             continue;
           }
           let statement = "";
@@ -139,8 +149,11 @@ export class SharedFilesAdapter {
           candidates.push({
             receiptId: rec.receipt_id,
             pageId: rec.page_id,
+            pageRevision: rec.page_revision,
             claimId: rec.claim_id,
+            sourceRevision: rec.source_revision,
             domain: rec.domain,
+            jsonPath: rec.json_path,
             statement,
             state: rec.state,
           });
@@ -158,6 +171,7 @@ export class SharedFilesAdapter {
             updatedAt: p.updated_at,
           })),
           candidateReceipts: candidates,
+          staleReceipts,
         };
         break;
       }
@@ -174,14 +188,24 @@ export class SharedFilesAdapter {
             },
             signal,
           );
-          await new SharedWikiProjectionEngine(this.wiki).syncPageLifecycle(
-            updated.page_id,
-            undefined,
-            signal,
-          );
+          const staled = await new SharedWikiProjectionEngine(
+            this.wiki,
+          ).syncPageLifecycle(updated.page_id, undefined, signal);
           await this.wiki.rebuildIndexes(signal);
           await new SharedWikiKnowledgeWriter(this.wiki).refreshHotDigest(signal);
-          result = { pageId: updated.page_id, revision: updated.revision };
+          result = {
+            pageId: updated.page_id,
+            revision: updated.revision,
+            staledReceipts: staled.map((r) => ({
+              receiptId: r.receipt_id,
+              domain: r.domain,
+              jsonPath: r.json_path,
+              pageId: r.page_id,
+              pageRevision: r.page_revision,
+              claimId: r.claim_id,
+              sourceRevision: r.source_revision,
+            })),
+          };
         } else {
           const pageId = url.searchParams.get("page_id") ?? "";
           const page = await this.wiki.readPage(pageId, undefined, signal);
@@ -233,7 +257,76 @@ export class SharedFilesAdapter {
           { idempotencyKey: String(body.request_id ?? "") },
           signal,
         );
-        result = { receiptId: saved.receipt_id, state: saved.state };
+        let statement = "";
+        try {
+          const pdoc = await this.wiki.readPage(saved.page_id, undefined, signal);
+          statement =
+            pdoc.claims.find((c) => c.claim_id === saved.claim_id)?.statement ?? "";
+        } catch {
+          statement = "";
+        }
+        result = {
+          receiptId: saved.receipt_id,
+          state: saved.state,
+          domain: saved.domain,
+          jsonPath: saved.json_path,
+          pageId: saved.page_id,
+          pageRevision: saved.page_revision,
+          claimId: saved.claim_id,
+          sourceRevision: saved.source_revision,
+          statement,
+        };
+        break;
+      }
+      case "/wiki/projection/derive": {
+        const engine = new SharedWikiProjectionEngine(this.wiki);
+        let derived = await engine.deriveProjection(
+          {
+            pageId: String(body.page_id ?? ""),
+            claimId: String(body.claim_id ?? ""),
+            targetDomain: String(body.target_domain ?? ""),
+            jsonPath: String(body.json_path ?? ""),
+            idempotencyKey: String(body.request_id ?? ""),
+            activeRecipientCount: Number(body.active_recipient_count ?? 0),
+            ownerConfirmed: Boolean(body.owner_confirmed),
+            requireOwnerConfirmation: Boolean(body.require_owner_confirmation),
+          },
+          signal,
+        );
+        if (
+          typeof body.conflict_authority === "string" &&
+          body.conflict_authority &&
+          typeof body.conflict_reason === "string" &&
+          body.conflict_reason &&
+          typeof body.conflict_path === "string" &&
+          body.conflict_path
+        ) {
+          derived = await this.wiki.putProjectionReceipt(
+            {
+              ...derived,
+              source_revision: derived.source_revision + 1,
+              state: "conflicted",
+              exposure_eligibility: false,
+              specialist_disagreement: {
+                authority: body.conflict_authority,
+                reason: body.conflict_reason,
+                path: body.conflict_path,
+              },
+            },
+            `${String(body.request_id ?? "")}:conflict`.slice(0, 128),
+            signal,
+          );
+        }
+        result = {
+          receiptId: derived.receipt_id,
+          state: derived.state,
+          domain: derived.domain,
+          jsonPath: derived.json_path,
+          pageId: derived.page_id,
+          pageRevision: derived.page_revision,
+          claimId: derived.claim_id,
+          sourceRevision: derived.source_revision,
+        };
         break;
       }
       case "/wiki/forget": {
@@ -253,6 +346,15 @@ export class SharedFilesAdapter {
           pageId: res.page_id,
           revision: res.revision,
           outcomes: res.outcomes,
+          staledReceipts: (res.staled_projection_receipts ?? []).map((r) => ({
+            receiptId: r.receipt_id,
+            domain: r.domain,
+            jsonPath: r.json_path,
+            pageId: r.page_id,
+            pageRevision: r.page_revision,
+            claimId: r.claim_id,
+            sourceRevision: r.source_revision,
+          })),
         };
         break;
       }
@@ -301,6 +403,27 @@ export class SharedFilesAdapter {
           providerRaw === "chatgpt" || providerRaw === "claude"
             ? providerRaw
             : "auto";
+        const explicitCandidateMappings = Array.isArray(
+          body.explicit_candidate_mappings,
+        )
+          ? body.explicit_candidate_mappings.filter(
+              (
+                m: unknown,
+              ): m is {
+                statement: string;
+                target_domain: string;
+                json_path: string;
+              } =>
+                Boolean(
+                  m &&
+                    typeof m === "object" &&
+                    typeof (m as Record<string, unknown>).statement === "string" &&
+                    typeof (m as Record<string, unknown>).target_domain ===
+                      "string" &&
+                    typeof (m as Record<string, unknown>).json_path === "string",
+                ),
+            )
+          : undefined;
         const res = await new SharedWikiArchiveImporter(
           this.wiki,
         ).importArchiveBytes(
@@ -310,6 +433,9 @@ export class SharedFilesAdapter {
             rawBytes: combined.subarray(0, writeOffset),
             idempotencyKey: String(body.request_id ?? ""),
             sourceProvider,
+            ...(explicitCandidateMappings
+              ? { explicitCandidateMappings }
+              : {}),
           },
           signal,
         );

@@ -1,5 +1,13 @@
 "use client";
-import { filesRequest, sharedWikiLibrary } from "./connection";
+import { activeFilesAccess, filesRequest, sharedWikiLibrary } from "./connection";
+import {
+  classifyWikiClaimsForPkm,
+  fetchProjectionSharingImpact,
+  inspectPkmConflictsForProjection,
+  materializeWikiReceiptToPkm,
+  retractStaleWikiProjectionsFromPkm,
+  type StaledWikiProjectionDescriptor,
+} from "./wiki/pkm-projection-sync";
 import { FilesLocalError } from "./local-error";
 
 export type FileEntry = {
@@ -54,10 +62,15 @@ export type WikiSummaryPage = {
 export type WikiCandidateItem = {
   receiptId: string;
   pageId: string;
+  pageRevision?: number;
   claimId: string;
+  sourceRevision?: number;
   domain: string;
+  jsonPath?: string;
   statement: string;
   state: string;
+  activeRecipientCount?: number;
+  recipientLabels?: string[];
 };
 export type WikiOverview = {
   captureOptIn: boolean;
@@ -65,6 +78,7 @@ export type WikiOverview = {
   migrationRevision: number;
   pages: WikiSummaryPage[];
   candidateReceipts: WikiCandidateItem[];
+  staleReceipts?: StaledWikiProjectionDescriptor[];
 };
 export type WikiPageDetail = {
   pageId: string;
@@ -91,6 +105,8 @@ export type WikiArchiveImportResult = {
   claimsSkippedTombstoned: number;
   candidateCount: number;
 };
+
+const latestCandidateHints = new Map<string, WikiCandidateItem>();
 
 async function json<T>(
   path: string,
@@ -366,8 +382,51 @@ export const FilesService = {
     }
   },
   sharedWiki: () => sharedWikiLibrary(),
-  wikiOverview: (signal?: AbortSignal) =>
-    json<WikiOverview>("wiki/overview", undefined, "GET", signal),
+  wikiOverview: async (signal?: AbortSignal): Promise<WikiOverview> => {
+    const raw = await json<WikiOverview>(
+      "wiki/overview",
+      undefined,
+      "GET",
+      signal,
+    );
+    const access = activeFilesAccess();
+    for (const c of raw.candidateReceipts) {
+      latestCandidateHints.set(c.receiptId, c);
+    }
+    if (!access) return raw;
+
+    // Reconcile any un-retracted stale projections from Pod background reviews
+    if (Array.isArray(raw.staleReceipts) && raw.staleReceipts.length > 0) {
+      await retractStaleWikiProjectionsFromPkm(access, raw.staleReceipts).catch(
+        () => undefined,
+      );
+    }
+
+    if (raw.candidateReceipts.length === 0) return raw;
+    const enrichedCandidates = await Promise.all(
+      raw.candidateReceipts.map(async (cand) => {
+        if (cand.state !== "private_candidate" || !cand.jsonPath) return cand;
+        try {
+          const impact = await fetchProjectionSharingImpact(
+            access,
+            cand.domain,
+            cand.jsonPath,
+          );
+          return {
+            ...cand,
+            activeRecipientCount: impact.activeRecipientCount,
+            recipientLabels: impact.recipientLabels,
+          };
+        } catch {
+          return cand;
+        }
+      }),
+    );
+    for (const c of enrichedCandidates) {
+      latestCandidateHints.set(c.receiptId, c);
+    }
+    return { ...raw, candidateReceipts: enrichedCandidates };
+  },
   wikiPage: (pageId: string, signal?: AbortSignal) =>
     json<WikiPageDetail>(
       `wiki/page?${new URLSearchParams({ page_id: pageId })}`,
@@ -382,7 +441,7 @@ export const FilesService = {
       "POST",
       signal,
     ),
-  wikiSavePage: (
+  wikiSavePage: async (
     input: {
       pageId: string;
       expectedRevision: number;
@@ -391,8 +450,12 @@ export const FilesService = {
       body: string;
     },
     signal?: AbortSignal,
-  ) =>
-    json<{ pageId: string; revision: number }>(
+  ) => {
+    const res = await json<{
+      pageId: string;
+      revision: number;
+      staledReceipts?: StaledWikiProjectionDescriptor[];
+    }>(
       "wiki/page",
       {
         page_id: input.pageId,
@@ -404,26 +467,143 @@ export const FilesService = {
       },
       "POST",
       signal,
-    ),
-  wikiConfirmCandidate: (receiptId: string, signal?: AbortSignal) =>
-    json<{ receiptId: string; state: string }>(
+    );
+    const access = activeFilesAccess();
+    if (access && Array.isArray(res.staledReceipts) && res.staledReceipts.length > 0) {
+      await retractStaleWikiProjectionsFromPkm(access, res.staledReceipts).catch(
+        () => undefined,
+      );
+    }
+    return res;
+  },
+  wikiConfirmCandidate: async (
+    receiptId: string,
+    signal?: AbortSignal,
+    candidateHint?: WikiCandidateItem,
+  ) => {
+    const access = activeFilesAccess();
+    const hint = candidateHint ?? latestCandidateHints.get(receiptId);
+    if (access && hint?.jsonPath && hint.pageId && hint.claimId) {
+      const { conflict } = await inspectPkmConflictsForProjection(access, {
+        domain: hint.domain,
+        jsonPath: hint.jsonPath,
+        statement: hint.statement,
+      });
+      if (conflict) {
+        await json<{ receiptId: string; state: string }>(
+          "wiki/projection/derive",
+          {
+            page_id: hint.pageId,
+            claim_id: hint.claimId,
+            target_domain: hint.domain,
+            json_path: hint.jsonPath,
+            conflict_authority: conflict.authority,
+            conflict_reason: conflict.reason,
+            conflict_path: conflict.path,
+            request_id: crypto.randomUUID(),
+          },
+          "POST",
+          signal,
+        );
+        return { receiptId, state: "conflicted" };
+      }
+
+      const pkmOutcome = await materializeWikiReceiptToPkm(
+        access,
+        {
+          receiptId,
+          domain: hint.domain,
+          jsonPath: hint.jsonPath,
+          pageId: hint.pageId,
+          pageRevision: hint.pageRevision ?? 1,
+          claimId: hint.claimId,
+          sourceRevision: (hint.sourceRevision ?? 1) + 1,
+          statement: hint.statement,
+        },
+        { ownerConfirmed: true },
+      );
+      if (pkmOutcome.outcome === "conflicted") {
+        await json<{ receiptId: string; state: string }>(
+          "wiki/projection/derive",
+          {
+            page_id: hint.pageId,
+            claim_id: hint.claimId,
+            target_domain: hint.domain,
+            json_path: hint.jsonPath,
+            conflict_authority: pkmOutcome.conflict.authority,
+            conflict_reason: pkmOutcome.conflict.reason,
+            conflict_path: pkmOutcome.conflict.path,
+            request_id: crypto.randomUUID(),
+          },
+          "POST",
+          signal,
+        );
+        return { receiptId, state: "conflicted" };
+      }
+      if (pkmOutcome.outcome === "requires_upgrade") {
+        throw new Error(
+          pkmOutcome.message ||
+            "Upgrade your Memory domain before confirming this update.",
+        );
+      }
+    }
+
+    const confirmed = await json<{
+      receiptId: string;
+      state: string;
+      domain?: string;
+      jsonPath?: string;
+      pageId?: string;
+      pageRevision?: number;
+      claimId?: string;
+      sourceRevision?: number;
+      statement?: string;
+    }>(
       "wiki/confirm",
       { receipt_id: receiptId, request_id: crypto.randomUUID() },
       "POST",
       signal,
-    ),
-  wikiForgetClaim: (
+    );
+
+    if (
+      access &&
+      (!hint || !hint.jsonPath) &&
+      confirmed.domain &&
+      confirmed.jsonPath &&
+      confirmed.pageId &&
+      confirmed.claimId
+    ) {
+      await materializeWikiReceiptToPkm(
+        access,
+        {
+          receiptId: confirmed.receiptId,
+          domain: confirmed.domain,
+          jsonPath: confirmed.jsonPath,
+          pageId: confirmed.pageId,
+          pageRevision: confirmed.pageRevision ?? 1,
+          claimId: confirmed.claimId,
+          sourceRevision: confirmed.sourceRevision ?? 1,
+          statement: confirmed.statement ?? "",
+        },
+        { ownerConfirmed: true },
+      );
+    }
+
+    return { receiptId: confirmed.receiptId, state: confirmed.state };
+  },
+  wikiForgetClaim: async (
     input: {
       pageId: string;
       claimId: string;
       replacementStatement?: string;
     },
     signal?: AbortSignal,
-  ) =>
-    json<{
+  ) => {
+    const res = await json<{
       pageId: string;
       revision: number;
       outcomes: Record<string, boolean>;
+      staledReceipts?: StaledWikiProjectionDescriptor[];
     }>(
       "wiki/forget",
       {
@@ -436,7 +616,21 @@ export const FilesService = {
       },
       "POST",
       signal,
-    ),
+    );
+    const access = activeFilesAccess();
+    if (access && Array.isArray(res.staledReceipts) && res.staledReceipts.length > 0) {
+      const retraction = await retractStaleWikiProjectionsFromPkm(
+        access,
+        res.staledReceipts,
+      );
+      res.outcomes = {
+        ...res.outcomes,
+        revoked_future_access:
+          Boolean(res.outcomes.revoked_future_access) && retraction.allSucceeded,
+      };
+    }
+    return res;
+  },
   wikiRollbackClassic: (signal?: AbortSignal) =>
     json<{ migrationState: string; migrationRevision: number }>(
       "wiki/rollback",
@@ -444,15 +638,15 @@ export const FilesService = {
       "POST",
       signal,
     ),
-  wikiImportArchive: (
+  wikiImportArchive: async (
     input: {
       fileId: string;
       sourceProvider?: "auto" | "chatgpt" | "claude";
       idempotencyKey?: string;
     },
     signal?: AbortSignal,
-  ) =>
-    json<WikiArchiveImportResult>(
+  ) => {
+    const imported = await json<WikiArchiveImportResult>(
       "wiki/import",
       {
         file_id: input.fileId,
@@ -461,7 +655,54 @@ export const FilesService = {
       },
       "POST",
       signal,
-    ),
+    );
+    const access = activeFilesAccess();
+    if (access && imported.claimsImported > 0) {
+      try {
+        const overview = await json<WikiOverview>(
+          "wiki/overview",
+          undefined,
+          "GET",
+          signal,
+        );
+        const defaultCandidates = overview.candidateReceipts.filter(
+          (c) =>
+            c.state === "private_candidate" &&
+            c.statement &&
+            c.jsonPath?.startsWith("imported_notes."),
+        );
+        if (defaultCandidates.length > 0) {
+          const classified = await classifyWikiClaimsForPkm(
+            access,
+            defaultCandidates.map((c) => c.statement),
+            signal,
+          );
+          for (const cand of defaultCandidates) {
+            const match = classified.find(
+              (m) => m.statement.toLowerCase() === cand.statement.toLowerCase(),
+            );
+            if (!match) continue;
+            await json<{ receiptId: string; state: string }>(
+              "wiki/projection/derive",
+              {
+                page_id: cand.pageId,
+                claim_id: cand.claimId,
+                target_domain: match.targetDomain,
+                json_path: match.jsonPath,
+                require_owner_confirmation: true,
+                request_id: crypto.randomUUID(),
+              },
+              "POST",
+              signal,
+            ).catch(() => undefined);
+          }
+        }
+      } catch {
+        // Semantic refinement is additive; archive import already succeeded.
+      }
+    }
+    return imported;
+  },
 };
 
 const CHUNK_BYTES = 4 * 1024 * 1024;

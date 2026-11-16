@@ -288,10 +288,13 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
  * whose quarantine has an exposable path or a scope
  * (`pkm_quarantine_must_be_private`, migration 098).
  */
+export const WIKI_PROJECTIONS_BRANCH = "_wiki_projections";
+
 const VAULT_PRIVATE_BRANCHES: ReadonlySet<string> = new Set([
   ...PLAID_VAULT_RECORD_BRANCHES,
   LINKED_ACCOUNTS_BRANCH,
   PKM_QUARANTINE_SEGMENT_ID,
+  WIKI_PROJECTIONS_BRANCH,
 ]);
 
 /**
@@ -636,9 +639,33 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)
   );
+  const rawWikiProvenance =
+    params.domainData[WIKI_PROJECTIONS_BRANCH] &&
+    typeof params.domainData[WIKI_PROJECTIONS_BRANCH] === "object" &&
+    !Array.isArray(params.domainData[WIKI_PROJECTIONS_BRANCH])
+      ? (params.domainData[WIKI_PROJECTIONS_BRANCH] as Record<string, unknown>)
+      : null;
+  const effectiveWikiStates: Record<
+    string,
+    { state: PkmScopeMaterializationState; receipt_id?: string | null }
+  > = {};
+  if (rawWikiProvenance) {
+    for (const [provPath, provEntry] of Object.entries(rawWikiProvenance)) {
+      if (provEntry && typeof provEntry === "object" && !Array.isArray(provEntry)) {
+        const recId = (provEntry as Record<string, unknown>).receipt_id;
+        effectiveWikiStates[provPath] = {
+          state: "materialized",
+          receipt_id: typeof recId === "string" ? recId : null,
+        };
+      }
+    }
+  }
   if (params.wikiProjectionStates) {
+    Object.assign(effectiveWikiStates, params.wikiProjectionStates);
+  }
+  if (Object.keys(effectiveWikiStates).length > 0) {
     for (const descriptor of paths) {
-      const proj = params.wikiProjectionStates[descriptor.json_path];
+      const proj = effectiveWikiStates[descriptor.json_path];
       if (!proj) continue;
       descriptor.projection_state = proj.state;
       descriptor.projection_receipt_id = proj.receipt_id ?? null;
@@ -655,12 +682,18 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const externalizablePaths = paths
     .filter((path) => path.exposure_eligibility && path.path_type === "leaf")
     .map((path) => path.json_path);
+  const explicitWikiTopScopes = privateAgentMemory
+    ? []
+    : Object.keys(effectiveWikiStates)
+        .map((p) => p.split(".")[0])
+        .filter((s): s is string => typeof s === "string" && s.length > 0 && !s.startsWith("_"));
   const topLevelScopePaths = privateAgentMemory ? [] : [
-    ...new Set(
-      paths
+    ...new Set([
+      ...paths
         .map((path) => path.json_path.split(".")[0])
-        .filter((path): path is string => typeof path === "string" && path.length > 0)
-    ),
+        .filter((path): path is string => typeof path === "string" && path.length > 0 && !path.startsWith("_")),
+      ...explicitWikiTopScopes,
+    ]),
   ];
   const previousPaths = new Set((params.previousManifest?.paths || []).map((path) => path.json_path));
   const hasNewPaths = jsonPaths.some((path) => !previousPaths.has(path));
@@ -681,7 +714,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const scopeMaterialization: Record<string, PkmScopeMaterialization> = {};
   for (const [rawScope, value] of Object.entries(params.domainData)) {
     const scope = normalizePathSegment(rawScope);
-    if (!scope || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
+    if (!scope || scope.startsWith("_") || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
     const scopeLeafDescriptors = paths.filter(
       (p) =>
         p.path_type === "leaf" &&
@@ -731,6 +764,16 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
       state: materializedLeafCount > 0 ? "materialized" : "empty",
       materialized_leaf_count: materializedLeafCount,
     };
+  }
+  for (const [projPath, proj] of Object.entries(effectiveWikiStates)) {
+    const topScope = normalizePathSegment(projPath.split(".")[0] ?? "");
+    if (!topScope || topScope.startsWith("_") || BLOCKED_EXTERNAL_PATH_PARTS.has(topScope)) continue;
+    if (!scopeMaterialization[topScope]) {
+      scopeMaterialization[topScope] = {
+        state: proj.state === "materialized" ? "empty" : proj.state,
+        materialized_leaf_count: 0,
+      };
+    }
   }
   const summaryProjection = {
     manifest_version: nextManifestVersion,

@@ -185,8 +185,8 @@ async function toPublicPage(
 export class SharedWikiLibrary {
   readonly store: SharedFilesStore;
 
-  constructor(readonly access: SharedFilesAccess) {
-    this.store = new SharedFilesStore(access);
+  constructor(readonly access: SharedFilesAccess, store?: SharedFilesStore) {
+    this.store = store ?? new SharedFilesStore(access);
   }
 
   get owner(): string {
