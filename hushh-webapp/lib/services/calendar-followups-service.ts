@@ -1,5 +1,5 @@
 import { invalidateFollowupSnapshots } from "@/lib/calendar/calendar-followup-resource";
-import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { boardBookingPayload, type CalendarBoardBookingInput, type CalendarBoardBookingReview, type CalendarExecution } from "@/lib/calendar/calendar-board-booking";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -103,8 +103,9 @@ function validateAccount(value: unknown, accountId: string): asserts value is Re
 
 export class CalendarFollowupsService {
   static async post<T>(path: string, body: Record<string, unknown>, idToken: string, signal?: AbortSignal, isEffectCurrent?: () => boolean): Promise<T> {
-    const generation = getAuthSessionGeneration();
-    const current = () => getAuthSessionGeneration() === generation && (isEffectCurrent?.() ?? true);
+    const owner = snapshotValidatedAuthSessionOwner();
+    const current = () => Boolean(owner && owner.userId === body.user_id && isValidatedAuthSessionOwnerCurrent(owner)) && (isEffectCurrent?.() ?? true);
+    if (!current()) throw new DOMException("Follow-up session changed", "AbortError");
     const response = await ApiService.apiFetch(`/api/one/calendar/followups/${path}`, {
       method: "POST", cache: "no-store", signal, isEffectCurrent: current,
       headers: {
@@ -113,6 +114,7 @@ export class CalendarFollowupsService {
       body: JSON.stringify(body),
     });
     const value: unknown = await response.json().catch(() => null);
+    if (!current()) throw new DOMException("Follow-up session changed", "AbortError");
     if (!response.ok) {
       const detail = isRecord(value) && isRecord(value.detail) ? value.detail : null;
       throw new FollowupRequestError(typeof detail?.code === "string" ? detail.code : "FOLLOWUPS_UNAVAILABLE", response.status);
