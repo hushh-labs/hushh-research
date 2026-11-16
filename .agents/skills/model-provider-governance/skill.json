@@ -1,0 +1,70 @@
+{
+  "id": "model-provider-governance",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "model-provider-governance",
+  "description": "Use when upgrading, adding, or cutover-verifying AI models or runtime providers across Gemini/Vertex, Azure OpenAI, BYOK, or managed text/search/voice transports.",
+  "owned_paths": [
+    "consent-protocol/hushh_mcp/runtime_providers",
+    "consent-protocol/hushh_mcp/managed_ai_config.py",
+    "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+    "consent-protocol/scripts/probe_gemini_generation_contract.py"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "backend-agents-operons",
+    "repo-operations",
+    "security-audit"
+  ],
+  "task_types": [
+    "model-provider-rollout"
+  ],
+  "required_reads": [
+    ".agents/skills/model-provider-governance/references/provider-upgrade-checklist.md",
+    ".agents/skills/repo-operations/references/managed-provider-readiness.md",
+    "consent-protocol/docs/reference/agent-development.md",
+    "docs/architecture/ai/README.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+    "npm --prefix hushh-webapp run verify:capability-graph",
+    "python3 scripts/ops/generate_runtime_topology_index.py --check",
+    "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
+    "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
+    "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "model-provider-governance",
+      "commands": [
+        "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+        "npm --prefix hushh-webapp run verify:capability-graph",
+        "python3 scripts/ops/generate_runtime_topology_index.py --check",
+        "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
+        "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
+        "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
+      ],
+      "tests": [
+        "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
+        "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-agents-operons",
+    "repo-operations",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "backend-agents-operons",
+    "repo-operations",
+    "puppy-one-harness"
+  ],
+  "risk_tags": [
+    "model-compatibility-drift",
+    "subagent-latency-regression",
+    "provider-boundary-drift"
+  ]
+}

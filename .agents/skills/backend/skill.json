@@ -25,7 +25,8 @@
     "product-agent-development",
     "hushh-consent-mcp-ops",
     "ria-api-reference",
-    "puppy-one-harness"
+    "puppy-one-harness",
+    "model-provider-rollout"
   ],
   "required_reads": [
     "consent-protocol/README.md",
@@ -54,6 +55,7 @@
     "backend-runtime-governance",
     "backend-api-contracts",
     "backend-agents-operons",
+    "model-provider-governance",
     "mcp-developer-surface",
     "repo-context"
   ],
@@ -61,6 +63,7 @@
     "backend-runtime-governance",
     "backend-api-contracts",
     "backend-agents-operons",
+    "model-provider-governance",
     "mcp-developer-surface",
     "security-audit"
   ],
