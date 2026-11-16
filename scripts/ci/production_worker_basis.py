@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import importlib
 import json
 import re
+import subprocess
 import tempfile
 from pathlib import Path
-from typing import Literal, TypedDict, cast
+from types import SimpleNamespace
+from typing import Literal, NotRequired, TypedDict, cast
 
 import production_backend_successor_proof as proof
 import production_phone_receipt as phone
+import promotion_approval
 import release_artifact_receipts as receipts
 
 REPOSITORY = proof.REPOSITORY
@@ -45,7 +49,9 @@ class HealthyOrigin(TypedDict):
 class Candidate(TypedDict):
     source: str
     image: str
-    uat_acceptance: dict
+    uat_acceptance: NotRequired[dict]
+    main_qualification: NotRequired[dict]
+    emergency_qualification: NotRequired[dict]
 
 
 class HealthyWorkerBasis(TypedDict):
@@ -93,15 +99,242 @@ def current_release_run_id() -> str:
     return _tag(None)[2]
 
 
-def _accepted(owner, source, image, pin=None):
+def _fresh_authority_read(owner, path: str):
+    _require(
+        isinstance(path, str) and path.startswith(("runs/", "workflows/")),
+        "Main authority read left its bounded Actions owner",
+    )
+    token = owner._API_CACHE.set(None)
+    try:
+        return owner.api(REPOSITORY, path)
+    finally:
+        owner._API_CACHE.reset(token)
+
+
+def _verify_main_git(source: str, approval: str, expected_mapping: object) -> None:
+    try:
+        subprocess.run(
+            [
+                "git",
+                "fetch",
+                "--no-tags",
+                "origin",
+                "+refs/heads/main:refs/remotes/origin/main",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        for commit in (source, approval):
+            ancestry = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", commit, "origin/main"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            _require(ancestry.returncode == 0, "Main candidate is not on origin/main")
+    except subprocess.SubprocessError as error:
+        raise receipts.retention.UnsafeState(
+            "Healthy worker basis: Main git ancestry check failed"
+        ) from error
+    if approval == source:
+        _require(
+            expected_mapping is None,
+            "single-SHA Main candidate cannot carry an approval mapping",
+        )
+        return
+    try:
+        mapping = promotion_approval.verify(source, approval)
+    except (ValueError, subprocess.SubprocessError) as error:
+        raise receipts.retention.UnsafeState(
+            "Healthy worker basis: Main application approval is invalid"
+        ) from error
+    _require(
+        mapping == expected_mapping,
+        "stored Main application approval mapping changed",
+    )
+
+
+def _verify_main_qualification(
+    owner, pin: object, source: str, *, approval_sha: str = ""
+) -> dict:
+    expected_fields = {
+        "schema_version",
+        "kind",
+        "status",
+        "repository",
+        "environment",
+        "sha",
+        "main_approval_sha",
+        "resolved_services",
+        "qualification",
+        "application_approval",
+    }
+    _require(
+        isinstance(pin, dict)
+        and set(pin) == expected_fields
+        and pin.get("schema_version") == 1
+        and pin.get("kind") == "main-qualified-source"
+        and pin.get("status") == "qualified"
+        and pin.get("repository") == REPOSITORY
+        and pin.get("environment") == "production"
+        and pin.get("sha") == source
+        and pin.get("resolved_services") == ["backend"],
+        "Main candidate qualification receipt is invalid",
+    )
+    approval = pin.get("main_approval_sha")
+    _require(
+        isinstance(approval, str)
+        and bool(re.fullmatch(r"[0-9a-f]{40}", approval))
+        and (not approval_sha or approval == approval_sha),
+        "Main candidate approval SHA is invalid",
+    )
+    _verify_main_git(source, approval, pin.get("application_approval"))
+    proofs = pin.get("qualification")
+    _require(
+        isinstance(proofs, dict) and set(proofs) == {"functional", "smoke"},
+        "Main candidate qualification proofs are incomplete",
+    )
+    for kind, expected_sha in (("functional", source), ("smoke", approval)):
+        item = proofs.get(kind)
+        checks = item.get("checks") if isinstance(item, dict) else None
+        reads = item.get("authority_reads") if isinstance(item, dict) else None
+        _require(
+            isinstance(item, dict)
+            and item.get("repository") == REPOSITORY
+            and item.get("sha") == expected_sha
+            and item.get("source_branch") == "main"
+            and isinstance(checks, list)
+            and bool(checks)
+            and isinstance(reads, dict)
+            and bool(reads)
+            and all(
+                isinstance(check, dict)
+                and isinstance(check.get("check"), str)
+                and bool(check["check"])
+                and type(check.get("run_id")) is int
+                and check["run_id"] > 0
+                and type(check.get("run_attempt")) is int
+                and check["run_attempt"] > 0
+                and isinstance(check.get("workflow"), str)
+                and bool(check["workflow"])
+                and isinstance(check.get("event"), str)
+                and bool(check["event"])
+                and f"runs/{check['run_id']}" in reads
+                for check in checks
+            ),
+            f"Main {kind} qualification evidence is invalid",
+        )
+        fresh_by_path = {}
+        for path, expected_digest in reads.items():
+            _require(
+                isinstance(expected_digest, str)
+                and bool(re.fullmatch(r"[0-9a-f]{64}", expected_digest)),
+                "Main authority read digest is invalid",
+            )
+            current = _fresh_authority_read(owner, path)
+            digest = hashlib.sha256(
+                json.dumps(current, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            _require(
+                digest == expected_digest,
+                "Main qualification changed after worker admission",
+            )
+            fresh_by_path[path] = current
+        for check in checks:
+            run_payload = fresh_by_path.get(f"runs/{check['run_id']}")
+            _require(
+                isinstance(run_payload, dict)
+                and run_payload.get("id") == check["run_id"]
+                and run_payload.get("run_attempt") == check["run_attempt"]
+                and run_payload.get("status") == "completed"
+                and run_payload.get("conclusion") == "success",
+                f"Main {kind} qualification run is not a completed success",
+            )
+    return copy.deepcopy(pin)
+
+
+def _accepted(
+    owner,
+    acceptance,
+    source,
+    image,
+    pin=None,
+    *,
+    image_source: str = "promote-from-uat",
+    approval_sha: str = "",
+    emergency_qualification: dict | None = None,
+):
     _require(bool(re.fullmatch(r"[0-9a-f]{40}", source)), "candidate source is invalid")
-    github = owner.GitHub()
+    if emergency_qualification is not None:
+        _require(
+            image_source == "build-from-source" and not approval_sha and pin is None,
+            "Emergency worker qualification cannot mix with Main or UAT pins",
+        )
+        _require(
+            isinstance(image, str)
+            and bool(
+                re.fullmatch(
+                    r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
+                )
+            ),
+            "Emergency-built backend candidate has no immutable production image proof",
+        )
+        import production_worker_emergency
+
+        qualified = production_worker_emergency.verify_qualification(
+            owner, emergency_qualification, source
+        )
+        return {"source": source, "image": image, "emergency_qualification": qualified}
+    if image_source == "build-from-source":
+        _require(
+            isinstance(image, str)
+            and bool(
+                re.fullmatch(
+                    r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}", image
+                )
+            ),
+            "Main-built backend candidate has no immutable production image proof",
+        )
+        selected_approval = approval_sha or source
+        _require(
+            bool(re.fullmatch(r"[0-9a-f]{40}", selected_approval)),
+            "Main candidate approval SHA is invalid",
+        )
+        if pin is None:
+            try:
+                pin = acceptance.main_source(
+                    SimpleNamespace(
+                        environment="production",
+                        sha=source,
+                        approval_sha=selected_approval,
+                        scope="backend",
+                        predecessor=None,
+                    )
+                )
+            except acceptance.Refused as error:
+                raise receipts.retention.UnsafeState(
+                    f"Healthy worker basis: {error}"
+                ) from error
+        qualified = _verify_main_qualification(
+            owner, pin, source, approval_sha=selected_approval
+        )
+        return {"source": source, "image": image, "main_qualification": qualified}
+    _require(
+        image_source == "promote-from-uat" and not approval_sha,
+        "candidate image source is invalid",
+    )
+    github = acceptance.GitHub()
     if pin is not None:
         accepted = github.accept(pin, "uat", source, "backend")
-    elif source == owner.RECORDED_RECOVERY_SHA:
+    elif source == acceptance.RECORDED_RECOVERY_SHA:
         # The same-SHA completion can need a new stage after the operational
         # tag clears. Its accepted image remains the exact recorded UAT image.
-        accepted = github.recorded_recovery_uat(source, "backend")["services"]["backend"]
+        accepted = github.recorded_recovery_uat(source, "backend")["services"][
+            "backend"
+        ]
     else:
         accepted = github.find("uat", source, "backend")["services"]["backend"]
     reference = accepted.get("image_reference", "")
@@ -194,11 +427,29 @@ def _release(owner, tag, fields, run_id):
     return run, release, artifact, mode
 
 
-def _source(source, release_run_id, image, pin=None):
+def _source(
+    source,
+    release_run_id,
+    image,
+    pin=None,
+    *,
+    image_source: str = "promote-from-uat",
+    approval_sha: str = "",
+    emergency_qualification: dict | None = None,
+):
     owner, acceptance = _owners()
     tag, fields, run_id = _tag(release_run_id)
     run, release, artifact, mode = _release(owner, tag, fields, run_id)
-    candidate = _accepted(acceptance, source, image, pin)
+    candidate = _accepted(
+        owner,
+        acceptance,
+        source,
+        image,
+        pin,
+        image_source=image_source,
+        approval_sha=approval_sha,
+        emergency_qualification=emergency_qualification,
+    )
     return (
         owner,
         run,
@@ -260,6 +511,32 @@ def _runtime(owner, service):
     return _identity(service, state, matches[0])
 
 
+def _service_ready(service: str, state: dict, serving_name: str) -> bool:
+    conditions = state.get("status", {}).get("conditions", [])
+    if any(
+        row.get("type") == "Ready" and row.get("status") == "True" for row in conditions
+    ):
+        return True
+    if service != WORKER:
+        return False
+    template_name = (
+        state.get("spec", {}).get("template", {}).get("metadata", {}).get("name", "")
+    )
+    status = state.get("status", {})
+    return (
+        bool(re.fullmatch(WORKER + r"-s-[1-9][0-9]*-[1-9][0-9]*", str(template_name)))
+        and template_name != serving_name
+        and status.get("latestCreatedRevisionName") == template_name
+        and status.get("latestReadyRevisionName") == serving_name
+        and any(
+            row.get("type") == "Ready"
+            and row.get("status") == "False"
+            and row.get("reason") == "HealthCheckContainerError"
+            for row in conditions
+        )
+    )
+
+
 def _identity(service, state, revision):
     metadata, labels = (
         revision.get("metadata", {}),
@@ -308,12 +585,10 @@ def _identity(service, state, revision):
         and state.get("metadata", {}).get("generation") is not None
         and str(state["metadata"]["generation"])
         == str(state.get("status", {}).get("observedGeneration"))
-        and all(
-            any(
-                row.get("type") == "Ready" and row.get("status") == "True"
-                for row in item.get("status", {}).get("conditions", [])
-            )
-            for item in (state, revision)
+        and _service_ready(service, state, str(metadata.get("name", "")))
+        and any(
+            row.get("type") == "Ready" and row.get("status") == "True"
+            for row in revision.get("status", {}).get("conditions", [])
         ),
         "runtime UID, source, image or readiness is unqualified",
     )
@@ -327,8 +602,69 @@ def _identity(service, state, revision):
     }
 
 
-def _load(source, release_run_id, image, pin=None):
-    owner, run, release, result = _source(source, release_run_id, image, pin)
+def _stored_candidate_pin(
+    candidate: object,
+) -> tuple[str, str, str, object, str, dict | None]:
+    _require(isinstance(candidate, dict), "candidate authority is missing")
+    keys = set(candidate)
+    if keys == {"source", "image", "emergency_qualification"}:
+        emergency = candidate["emergency_qualification"]
+        _require(
+            isinstance(emergency, dict), "Emergency candidate qualification is invalid"
+        )
+        return (
+            candidate["source"],
+            candidate["image"],
+            "build-from-source",
+            None,
+            "",
+            emergency,
+        )
+    if keys == {"source", "image", "main_qualification"}:
+        pin = candidate["main_qualification"]
+        approval = pin.get("main_approval_sha", "") if isinstance(pin, dict) else ""
+        _require(isinstance(approval, str), "Main candidate approval SHA is invalid")
+        return (
+            candidate["source"],
+            candidate["image"],
+            "build-from-source",
+            pin,
+            approval,
+            None,
+        )
+    _require(
+        keys == {"source", "image", "uat_acceptance"},
+        "candidate authority is invalid",
+    )
+    return (
+        candidate["source"],
+        candidate["image"],
+        "promote-from-uat",
+        candidate["uat_acceptance"],
+        "",
+        None,
+    )
+
+
+def _load(
+    source,
+    release_run_id,
+    image,
+    pin=None,
+    *,
+    image_source: str = "promote-from-uat",
+    approval_sha: str = "",
+    emergency_qualification: dict | None = None,
+):
+    owner, run, release, result = _source(
+        source,
+        release_run_id,
+        image,
+        pin,
+        image_source=image_source,
+        approval_sha=approval_sha,
+        emergency_qualification=emergency_qualification,
+    )
     _require(
         owner.live_release_matches(release, environment="production"),
         "healthy release is no longer serving",
@@ -360,9 +696,30 @@ def load(
     *,
     release_run_id: str | None = None,
     candidate_image: str | None = None,
+    image_source: str = "promote-from-uat",
+    approval_sha: str = "",
+    main_qualification: dict | None = None,
+    emergency_qualification: dict | None = None,
 ) -> HealthyWorkerBasis:
     """Qualify an exact current healthy release and live backend/worker snapshot."""
-    return _load(target_sha, release_run_id, candidate_image)
+    _require(
+        main_qualification is None or emergency_qualification is None,
+        "Main and emergency worker qualifications cannot mix",
+    )
+    _require(
+        (main_qualification is None and emergency_qualification is None)
+        or image_source == "build-from-source",
+        "Source qualification pin requires build-from-source",
+    )
+    return _load(
+        target_sha,
+        release_run_id,
+        candidate_image,
+        main_qualification,
+        image_source=image_source,
+        approval_sha=approval_sha,
+        emergency_qualification=emergency_qualification,
+    )
 
 
 def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
@@ -373,12 +730,17 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
         and basis["schema_version"] == 1,
         "basis type is invalid",
     )
-    candidate = basis["candidate"]
+    source_sha, image, image_source, pin, approval, emergency = _stored_candidate_pin(
+        basis.get("candidate")
+    )
     owner, run, _release, source = _source(
-        candidate["source"],
+        source_sha,
         basis["healthy"]["run_id"],
-        candidate["image"],
-        candidate["uat_acceptance"],
+        image,
+        pin,
+        image_source=image_source,
+        approval_sha=approval,
+        emergency_qualification=emergency,
     )
     _require(
         all(basis.get(key) == value for key, value in source.items()),
@@ -391,12 +753,17 @@ def qualify_source(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
 def revalidate(basis: HealthyWorkerBasis) -> HealthyWorkerBasis:
     """Re-read live authority and refuse drift instead of replacing its basis."""
     qualify_source(basis)
-    candidate = basis["candidate"]
+    source_sha, image, image_source, pin, approval, emergency = _stored_candidate_pin(
+        basis.get("candidate")
+    )
     current = _load(
-        candidate["source"],
+        source_sha,
         basis["healthy"]["run_id"],
-        candidate["image"],
-        candidate["uat_acceptance"],
+        image,
+        pin,
+        image_source=image_source,
+        approval_sha=approval,
+        emergency_qualification=emergency,
     )
     _require(current == basis, "current worker or backend identity changed")
     return current
@@ -407,12 +774,34 @@ def main():
     parser.add_argument("--target-sha", required=True)
     parser.add_argument("--release-run-id")
     parser.add_argument("--candidate-image")
+    parser.add_argument(
+        "--image-source",
+        choices=("promote-from-uat", "build-from-source"),
+        default="promote-from-uat",
+    )
+    parser.add_argument("--approval-sha", default="")
+    parser.add_argument("--main-qualification", type=Path)
+    parser.add_argument("--emergency-qualification", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    qualification = (
+        json.loads(args.main_qualification.read_text())
+        if args.main_qualification is not None
+        else None
+    )
+    emergency = (
+        json.loads(args.emergency_qualification.read_text())
+        if args.emergency_qualification is not None
+        else None
+    )
     value = load(
         args.target_sha,
         release_run_id=args.release_run_id,
         candidate_image=args.candidate_image,
+        image_source=args.image_source,
+        approval_sha=args.approval_sha,
+        main_qualification=qualification,
+        emergency_qualification=emergency,
     )
     args.output.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
 

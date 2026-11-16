@@ -605,3 +605,104 @@ def test_auth_domain_refresh_uses_observed_intake_not_future_stored_policy(monke
     for entries in [[], [dict(flag, value="true")], [dict(flag, valueFrom={})], [flag, flag]]:
         with pytest.raises(ValueError):
             module.effective_document_mode(mode, {"spec": {"containers": [{"env": entries}]}})
+
+
+def test_manual_emergency_admits_scoped_backend_worker_and_staged_run_only(monkeypatch):
+    module, environment, inputs, policy = _emergency_fixture(monkeypatch)
+    worker_inputs = {**inputs, "phone_phase": "worker", "scope": "backend"}
+    assert (
+        module.dispatch({"inputs": worker_inputs}, environment, policy)["mode"]
+        == "manual-emergency"
+    )
+    staged_inputs = {
+        **inputs,
+        "phone_phase": "standard",
+        "scope": "backend",
+        "phone_worker_stage_run_id": "42",
+    }
+    assert (
+        module.dispatch({"inputs": staged_inputs}, environment, policy)["mode"]
+        == "manual-emergency"
+    )
+    for invalid in (
+        {**worker_inputs, "scope": "all"},
+        {**worker_inputs, "phone_worker_stage_run_id": "42"},
+        {
+            **inputs,
+            "frontend_auth_domain_refresh": True,
+            "scope": "frontend",
+            "phone_phase": "worker",
+        },
+        {**staged_inputs, "scope": "frontend"},
+        {**staged_inputs, "phone_worker_stage_run_id": "abc"},
+        {
+            **inputs,
+            "frontend_auth_domain_refresh": True,
+            "scope": "frontend",
+            "phone_worker_stage_run_id": "42",
+        },
+    ):
+        with pytest.raises(ValueError):
+            module.dispatch({"inputs": invalid}, environment, policy)
+
+
+def test_emergency_admission_and_published_tag_shas_preserve_closed_boundaries(
+    monkeypatch, tmp_path
+):
+    import json
+    import zlib
+
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    admission = importlib.import_module("emergency_admission")
+    common = tmp_path / "common-git"
+    worktree = tmp_path / "wt"
+    worktree_git = common / "worktrees" / "wt"
+    (common / "refs/tags/deployed/production").mkdir(parents=True)
+    worktree.mkdir()
+    worktree_git.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {worktree_git}\n", encoding="utf-8")
+    (worktree_git / "commondir").write_text("../..\n", encoding="utf-8")
+    packed_sha, loose_sha, tag_oid = "1" * 40, "2" * 40, "3" * 40
+    (common / "packed-refs").write_text(
+        f"# pack-refs with: peeled fully-peeled sorted\n{tag_oid} refs/tags/deployed/production/11111111-20261115T000000Z\n^{packed_sha}\n",
+        encoding="utf-8",
+    )
+    tag_body = f"object {loose_sha}\ntype commit\ntag deployed/production-latest\n\nmsg\n".encode()
+    tag_raw = f"tag {len(tag_body)}\x00".encode() + tag_body
+    obj_file = common / "objects" / tag_oid[:2] / tag_oid[2:]
+    obj_file.parent.mkdir(parents=True)
+    obj_file.write_bytes(zlib.compress(tag_raw))
+    (common / "refs/tags/deployed/production-latest").write_text(tag_oid + "\n", encoding="utf-8")
+    assert admission.published_production_tag_shas(worktree) == frozenset({packed_sha, loose_sha})
+
+    receipt_path = tmp_path / "receipt.json"
+    receipt = {
+        "schema_version": 1,
+        "kind": "manual-production-predecessor-exception",
+        "scope": "backend",
+        "ordinary_promotion_evidence": False,
+        "authority": {
+            "mode": "manual-emergency",
+            "application_sha": SHA,
+            "source_ref": "fix/incident-123",
+            "run_id": "100",
+            "run_attempt": "1",
+        },
+        "baseline": {"backend": {"source": packed_sha}, "frontend": {"source": loose_sha}},
+    }
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_RUN_ID", "100")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(
+        admission.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0})()
+    )
+    assert admission.validate_emergency_receipt(receipt_path, root=worktree) == SHA
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    with pytest.raises(ValueError, match="emergency_receipt_authority_mismatch"):
+        admission.validate_emergency_receipt(receipt_path, root=worktree)
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(
+        admission.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 1})()
+    )
+    with pytest.raises(ValueError, match="emergency_receipt_baseline_not_preserved"):
+        admission.validate_emergency_receipt(receipt_path, root=worktree)

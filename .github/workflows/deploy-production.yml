@@ -403,7 +403,7 @@ jobs:
           APPROVAL_SHA: ${{ inputs.main_approval_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           CADENCE_ORIGIN: ""
-          OTHER_OPERATION: ${{ inputs.restoration_activation_run_id }}${{ inputs.restoration_activation_attempt }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_worker_stage_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}
+          OTHER_OPERATION: ${{ inputs.restoration_activation_run_id }}${{ inputs.restoration_activation_attempt }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}
         run: |
           set -euo pipefail
           [[ -z "$RESTORATION_RUN$CADENCE_ORIGIN$OTHER_OPERATION" && "$PHONE_DEPLOY_PHASE" == standard ]] || {
@@ -459,6 +459,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if git remote get-url origin >/dev/null 2>&1; then
+            git fetch --force --no-tags origin \
+              'refs/tags/deployed/production*:refs/tags/deployed/production*'
+            git pack-refs --all
+          fi
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/tag-last-known-good.sh "${RUNNER_TEMP}/release-tools/"
@@ -532,7 +537,7 @@ jobs:
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           for tool in cloudrun-retention.py process_group.py github_team_authority.py github_security_receipt.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py retention_uat_guard_evidence.py \
-            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
+            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_worker_emergency.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
@@ -616,7 +621,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           for tool in cloudrun-retention.py process_group.py github_team_authority.py github_security_receipt.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py retention_uat_guard_evidence.py \
-            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
+            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_worker_emergency.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py production_recovery_capacity.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
@@ -704,8 +709,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGED_WORKER_RUN_ID: ${{ inputs.phone_worker_stage_run_id }}
           TARGET_SHA: ${{ inputs.sha }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
           AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
           RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
+          EMERGENCY_SOURCE_REF: ${{ inputs.emergency_source_ref }}
         run: |
           set -euo pipefail
           umask 077
@@ -746,6 +753,23 @@ jobs:
               context = staged["context"]
               if context["source"] != os.environ["TARGET_SHA"]:
                   raise SystemExit("Staged worker belongs to another source")
+              expected_approval = os.environ.get("MAIN_APPROVAL_SHA") or os.environ["TARGET_SHA"]
+              candidate_basis = context.get("basis", {}).get("candidate", {})
+              if os.environ["RELEASE_MODE"] == "manual-emergency":
+                  emergency_pin = candidate_basis.get("emergency_qualification")
+                  if (
+                      not isinstance(emergency_pin, dict)
+                      or emergency_pin.get("admission", {}).get("authority", {}).get("source_ref")
+                      != os.environ.get("EMERGENCY_SOURCE_REF")
+                  ):
+                      raise SystemExit("Manual emergency release requires a matching emergency-qualified staged worker")
+              elif "emergency_qualification" in candidate_basis:
+                  raise SystemExit("Ordinary release cannot consume an emergency-qualified staged worker")
+              if "main_qualification" in candidate_basis:
+                  if candidate_basis["main_qualification"].get("main_approval_sha") != expected_approval:
+                      raise SystemExit("Staged worker Main approval differs from requested approval")
+              elif os.environ.get("MAIN_APPROVAL_SHA"):
+                  raise SystemExit("Curated Main approval requires a Main-qualified staged worker")
               directory = Path(os.environ["RUNNER_TEMP"]) / "qualified-worker-stage"
               directory.mkdir(mode=0o700)
               for name in worker.FILES:
@@ -958,6 +982,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           ENABLE_PHONE_RECOVERY: ${{ inputs.phone_phase == 'cold' && 'false' || vars.AUTH_PHONE_RECOVERY_PROD_ENABLED || 'true' }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/phone-rollback
@@ -967,11 +992,16 @@ jobs:
               --plan /tmp/restoration-operation/acceptance.json --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
+          emergency=()
+          if [ "${RELEASE_MODE:-}" = manual-emergency ]; then
+            emergency=(--emergency-receipt /tmp/prod-emergency-admission.json)
+          fi
           gcloud auth configure-docker gcr.io --quiet
           python3 deploy/phone/plan.py prepare --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --enable-recovery "$ENABLE_PHONE_RECOVERY" \
             --current-json /tmp/prod-drive-serving-backend.json --fallback-sha "$PHONE_ROLLBACK_SHA" \
             --release-tools "${RUNNER_TEMP}/release-tools" \
+            ${emergency[@]+"${emergency[@]}"} \
             --output /tmp/phone-rollback/plan.json --github-output "$GITHUB_OUTPUT"
 
       - name: Upload immutable recovery baseline
@@ -1166,12 +1196,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESTORATION_SOURCE: ${{ inputs.restoration_validation_run != '' && inputs.sha || '' }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           restoration=()
+          emergency=()
           if [ -n "$RESTORATION_SOURCE" ]; then restoration=(--restoration-sha "$RESTORATION_SOURCE"); fi
+          if [ "${RELEASE_MODE:-}" = manual-emergency ]; then
+            emergency=(--emergency-receipt /tmp/prod-emergency-admission.json)
+          fi
           "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json "${restoration[@]}"
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json \
+            ${restoration[@]+"${restoration[@]}"} ${emergency[@]+"${emergency[@]}"}
 
       - name: Attest production Drive database before secret sync
         if: inputs.restoration_validation_run == '' && (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
@@ -1913,6 +1949,7 @@ jobs:
         if: always() && steps.phone-rollback-plan.outcome == 'success' && (inputs.restoration_validation_run != '' || steps.deploy-backend.outcome != 'skipped')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then
@@ -1922,11 +1959,17 @@ jobs:
               --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
+          emergency=()
+          if [ "${RELEASE_MODE:-}" = manual-emergency ]; then
+            emergency=(--emergency-receipt /tmp/prod-emergency-admission.json)
+          fi
           python3 deploy/phone/plan.py verify --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --plan /tmp/phone-rollback/plan.json \
+            ${emergency[@]+"${emergency[@]}"} \
             --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
           "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-after.json
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-after.json \
+            ${emergency[@]+"${emergency[@]}"}
           if [ "${{ steps.document-mode.outputs.configured }}" = "true" ]; then
             "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
               --project "${{ env.GCP_PROJECT_ID }}" --environment production \
@@ -3425,6 +3468,8 @@ jobs:
           REQUESTED_PHASE: ${{ inputs.phone_phase }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           REQUESTED_DRIVE_MODE: ${{ inputs.drive_live_mode }}
+          REQUESTED_SOURCE: ${{ inputs.sha }}
+          IMAGE_SOURCE: ${{ inputs.backend_image_source }}
           CADENCE_ORIGIN: ""
           CADENCE_ORDINAL: ""
           MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
@@ -3432,7 +3477,11 @@ jobs:
           set -euo pipefail
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == main ]] || exit 1
           [[ "$REQUESTED_PHASE" == worker && "$REQUESTED_SCOPE" == backend ]] || exit 1
-          [[ "$REQUESTED_DRIVE_MODE" == preserve && -z "$CADENCE_ORIGIN$CADENCE_ORDINAL$MAIN_APPROVAL_SHA" ]] || exit 1
+          [[ "$REQUESTED_DRIVE_MODE" == preserve && -z "$CADENCE_ORIGIN$CADENCE_ORDINAL" ]] || exit 1
+          [[ "$IMAGE_SOURCE" == build-from-source || "$IMAGE_SOURCE" == promote-from-uat ]] || exit 1
+          if [[ -n "$MAIN_APPROVAL_SHA" ]]; then
+            [[ "$IMAGE_SOURCE" == build-from-source && "$MAIN_APPROVAL_SHA" =~ ^[0-9a-f]{40}$ && "$MAIN_APPROVAL_SHA" != "$REQUESTED_SOURCE" ]] || exit 1
+          fi
 
       - name: Checkout current release tooling
         uses: actions/checkout@v6
@@ -3503,11 +3552,131 @@ jobs:
           "$PROTOCOL_PYTHON" scripts/ci/uat-retention-maintenance.py --environment production \
             --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
 
+      - name: Validate deployment SHA against main
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: ${{ steps.dispatch-authority.outputs.branch }}
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: ${{ steps.dispatch-authority.outputs.mode == 'manual-emergency' && 'CI Status Gate,Branch Validation Gate' || 'Main Post-Merge Smoke Gate' }}
+          REQUESTED_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$REQUESTED_SHA"
+
+      - name: Bind curated worker application to its Main approval
+        if: inputs.main_approval_sha != ''
+        shell: bash
+        env:
+          APPLICATION_SHA: ${{ inputs.sha }}
+          APPROVAL_SHA: ${{ inputs.main_approval_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/worker-stage"
+          "$PROTOCOL_PYTHON" scripts/ci/promotion_approval.py \
+            --application-sha "$APPLICATION_SHA" \
+            --approval-sha "$APPROVAL_SHA" \
+            --output "$RUNNER_TEMP/worker-stage/main-application-approval.json"
+
+      - name: Require qualified Main worker source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLICATION_SHA: ${{ inputs.sha }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
+          EMERGENCY_SOURCE_REF: ${{ steps.dispatch-authority.outputs.branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/worker-stage"
+          if [ "$RELEASE_MODE" = manual-emergency ]; then
+            "$PROTOCOL_PYTHON" scripts/ci/production_emergency.py admit \
+              --scope backend --output "$RUNNER_TEMP/worker-stage/emergency-admission.json"
+            "$PROTOCOL_PYTHON" scripts/ci/production_worker_emergency.py \
+              --admission "$RUNNER_TEMP/worker-stage/emergency-admission.json" \
+              --sha "$APPLICATION_SHA" --source-ref "$EMERGENCY_SOURCE_REF" \
+              --output "$RUNNER_TEMP/worker-stage/emergency-qualification.json"
+          else
+            "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py main-source \
+              --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
+              --scope backend --output "$RUNNER_TEMP/worker-stage/main-qualification.json"
+          fi
+
+      - name: Publish immutable manual worker incident admission
+        if: steps.dispatch-authority.outputs.mode == 'manual-emergency'
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-emergency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/worker-stage/emergency-admission.json
+          if-no-files-found: error
+
+      - name: Enforce production worker staging capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/worker-stage"
+          "$PROTOCOL_PYTHON" scripts/ci/runtime-capacity-budget.py --environment production \
+            --candidate-service consent-protocol-drive-worker --output json \
+            > "$RUNNER_TEMP/worker-stage/capacity.json"
+
+      - name: Build backend image for recurring Main worker release
+        if: inputs.backend_image_source == 'build-from-source'
+        shell: bash
+        env:
+          REQUESTED_SOURCE: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/worker-stage"
+          if ! "$PROTOCOL_PYTHON" - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts/ci")
+          import production_backend_successor_control as control
+          import production_backend_successor_proof as proof
+          raise SystemExit(0 if control.record_anchor(proof.read_original()) is None else 1)
+          PY
+          then
+            exit 0
+          fi
+          app_source="$RUNNER_TEMP/worker-app-source"
+          rm -rf "$app_source"
+          (
+            umask 022
+            mkdir -p "$app_source"
+            git archive --format=tar "$REQUESTED_SOURCE" | tar -x -C "$app_source"
+            cp .gcloudignore "$app_source/.gcloudignore"
+            chmod 0644 "$app_source/.gcloudignore"
+          )
+          [[ "$(stat -c '%a' "$app_source/consent-protocol/gunicorn.conf.py")" == "644" ]] || exit 1
+          image_tag="prod-$REQUESTED_SOURCE"
+          image_repository="gcr.io/$GCP_PROJECT_ID/consent-protocol"
+          gcloud builds submit "$app_source" \
+            --project="$GCP_PROJECT_ID" \
+            --config=deploy/backend-image.cloudbuild.yaml \
+            "--substitutions=_IMAGE_TAG=$image_tag"
+          image_digest="$(gcloud container images describe \
+            "$image_repository:$image_tag" \
+            --project="$GCP_PROJECT_ID" \
+            --format='value(image_summary.digest)')"
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          candidate_ref="$image_repository@$image_digest"
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "$candidate_ref" \
+            > "$RUNNER_TEMP/worker-stage/built-image-manifest.json"
+          resolved="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "$candidate_ref" \
+            --manifest-json "$RUNNER_TEMP/worker-stage/built-image-manifest.json" \
+            --json-output "$RUNNER_TEMP/worker-stage/built-image.json" \
+            --sha "$REQUESTED_SOURCE")"
+          [[ "$resolved" =~ ^gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}$ ]] || exit 1
+          printf 'CANDIDATE_WORKER_IMAGE=%s\n' "$resolved" >> "$GITHUB_ENV"
+
       - name: Require qualified production worker release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_SOURCE: ${{ inputs.sha }}
+          IMAGE_SOURCE: ${{ inputs.backend_image_source }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           umask 077
@@ -3531,7 +3700,26 @@ jobs:
               source, image, mode = (sealed["checkpoint"]["plan"]["primary_sha"],
                                      sealed["primary_image"], sealed["document_mode"])
           else:
-              basis = basis_owner.load(os.environ["REQUESTED_SOURCE"])
+              image_source = os.environ["IMAGE_SOURCE"]
+              emergency_mode = os.environ.get("RELEASE_MODE") == "manual-emergency"
+              qualification = (
+                  json.loads((Path(os.environ["RUNNER_TEMP"]) / "worker-stage/main-qualification.json").read_text())
+                  if image_source == "build-from-source" and not emergency_mode
+                  else None
+              )
+              emergency = (
+                  json.loads((Path(os.environ["RUNNER_TEMP"]) / "worker-stage/emergency-qualification.json").read_text())
+                  if emergency_mode
+                  else None
+              )
+              basis = basis_owner.load(
+                  os.environ["REQUESTED_SOURCE"],
+                  candidate_image=os.environ.get("CANDIDATE_WORKER_IMAGE") or None,
+                  image_source=image_source,
+                  approval_sha=os.environ["MAIN_APPROVAL_SHA"],
+                  main_qualification=qualification,
+                  emergency_qualification=emergency,
+              )
               source, image, mode = (basis["candidate"]["source"], basis["candidate"]["image"],
                                      basis["protected_documents"])
               basis_path = str(Path(os.environ["RUNNER_TEMP"]) / "worker-stage/release-basis.json")
@@ -3555,25 +3743,6 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
               target.writelines(f"{key}={value}\n" for key, value in values.items())
           PYCODE
-
-      - name: Validate deployment SHA against main
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          REQUIRED_BRANCH: main
-          REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
-        run: bash scripts/ci/require-deploy-sha-on-main.sh "$DEPLOY_SHA"
-
-      - name: Require qualified Main worker source
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py main-source \
-            --environment production --sha "$DEPLOY_SHA" --scope backend \
-            --output "$RUNNER_TEMP/worker-stage/main-qualification.json"
 
       - name: Resolve preserved production Drive mode
         id: drive-mode
@@ -3641,22 +3810,18 @@ jobs:
                   target.write(f"{key}={str(mode[key]).lower()}\n")
           PY
 
-      - name: Enforce production worker staging capacity
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$PROTOCOL_PYTHON" scripts/ci/runtime-capacity-budget.py --environment production \
-            --candidate-service consent-protocol-drive-worker --output json \
-            > "$RUNNER_TEMP/worker-stage/capacity.json"
-
       - name: Pin accepted image for recurring worker release
         if: env.DRIVE_WORKER_RELEASE_BASIS != ''
         shell: bash
+        env:
+          BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source }}
         run: |
           set -euo pipefail
-          uat_image="gcr.io/hushh-pda-uat/consent-protocol@${IMAGE_REFERENCE#*@}"
-          gcloud container images add-tag --quiet "$uat_image" \
-            "gcr.io/hushh-pda/consent-protocol:prod-$DEPLOY_SHA"
+          if [[ "${BACKEND_IMAGE_SOURCE:-promote-from-uat}" != build-from-source ]]; then
+            uat_image="gcr.io/hushh-pda-uat/consent-protocol@${IMAGE_REFERENCE#*@}"
+            gcloud container images add-tag --quiet "$uat_image" \
+              "gcr.io/hushh-pda/consent-protocol:prod-$DEPLOY_SHA"
+          fi
           gcloud auth configure-docker gcr.io --quiet
           docker buildx imagetools inspect "$IMAGE_REFERENCE" --raw \
             > "$RUNNER_TEMP/worker-stage/image-manifest.json"
