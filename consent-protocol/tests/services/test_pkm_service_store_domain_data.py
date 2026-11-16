@@ -805,6 +805,12 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
             assert user_id == "user-4"
             return [
                 {
+                    "user_id": "user-4",
+                    "scope": "pkm.read",
+                    "agent_id": "personal_agent",
+                    "metadata": {"grant_kind": "personal_agent_standing_read"},
+                },
+                {
                     "scope": "attr.financial.*",
                     "token_id": "token_financial",
                     "request_id": "grant_financial",
@@ -903,7 +909,18 @@ async def test_private_mutations_have_no_external_sharing_impact(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mutation_sharing_impact_fails_closed_without_authoritative_grant_id(monkeypatch):
+@pytest.mark.parametrize(
+    "standing_claim",
+    [
+        {},
+        {"user_id": "user-legacy", "agent_id": "developer_legacy"},
+        {"user_id": "other-owner", "agent_id": "personal_agent"},
+        {"user_id": "user-legacy", "agent_id": "personal_agent", "paid": True},
+    ],
+)
+async def test_mutation_sharing_impact_fails_closed_without_authoritative_grant_id(
+    monkeypatch, standing_claim
+):
     service = PersonalKnowledgeModelService()
 
     class _LegacyConsentDBService:
@@ -913,7 +930,14 @@ async def test_mutation_sharing_impact_fails_closed_without_authoritative_grant_
                     "scope": "pkm.read",
                     "token_id": "token_legacy_with_a_long_authoritative_value",
                     "id": "token_legacy_with_a_",
-                    "agent_id": "developer_legacy",
+                    "agent_id": standing_claim.get("agent_id", "developer_legacy"),
+                    "user_id": standing_claim.get("user_id"),
+                    "metadata": {
+                        "grant_kind": "personal_agent_standing_read",
+                        **({"commercial_required": True} if standing_claim.get("paid") else {}),
+                    }
+                    if standing_claim
+                    else {},
                 }
             ]
 

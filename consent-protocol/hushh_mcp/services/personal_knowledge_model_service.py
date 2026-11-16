@@ -2962,7 +2962,9 @@ class PersonalKnowledgeModelService:
                 "affected_export_ids": [],
             }
 
+        from hushh_mcp.consent.paid_admission import is_paid_grant
         from hushh_mcp.services.consent_db import ConsentDBService
+        from hushh_mcp.services.personal_agent_grant_service import PERSONAL_AGENT_ID
 
         consent_service = ConsentDBService()
         active_tokens = await consent_service.get_active_tokens(user_id)
@@ -2971,6 +2973,17 @@ class PersonalKnowledgeModelService:
         affected_export_ids: set[str] = set()
         for token in active_tokens:
             granted_scope = str(token.get("scope") or "").strip()
+            metadata = token.get("metadata") if isinstance(token.get("metadata"), dict) else {}
+            # The owner's standing read stays visible and revocable in Consent;
+            # it is not an external recipient of a new Memory export.
+            if (
+                token.get("user_id") == user_id
+                and token.get("agent_id") == PERSONAL_AGENT_ID
+                and granted_scope == "pkm.read"
+                and metadata.get("grant_kind") == "personal_agent_standing_read"
+                and not is_paid_grant(metadata)
+            ):
+                continue
             if granted_scope == "vault.owner":
                 continue
             if granted_scope != "pkm.read" and not granted_scope.startswith("attr."):
@@ -2981,7 +2994,6 @@ class PersonalKnowledgeModelService:
             ):
                 continue
 
-            metadata = token.get("metadata") if isinstance(token.get("metadata"), dict) else {}
             agent_id = str(token.get("agent_id") or token.get("developer") or "").strip()
             label = str(
                 metadata.get("developer_app_display_name")
