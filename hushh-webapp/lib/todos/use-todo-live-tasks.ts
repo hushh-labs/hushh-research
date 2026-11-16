@@ -5,7 +5,7 @@ import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connect
 import { useCalendarUpcomingEvents, type RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 import { useFeedActionables, type FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing, type FeedKycBriefing } from "@/lib/feed/use-feed-briefing";
-import { agentTodoInput, buildTodo, calendarTodoInput, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { agentTodoInput, buildTodo, calendarTodoInput, calendarTodoSourceId, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 import { taskSort } from "@/lib/todos/todo-list-model";
 import { useTodoCapabilitySources } from "./use-todo-capability-sources";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -51,7 +51,7 @@ function mergeAutomaticTasks(
   // identity before calendarTask drops them as non-displayable events.
   const cancelledIds = new Set(
     events.filter(event => event.status?.toLowerCase() === "cancelled" && event.id)
-      .map(event => event.id),
+      .map(event => calendarTodoSourceId(event.id)),
   );
   const savedAutomatic = new Map(
     saved

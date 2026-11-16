@@ -324,8 +324,10 @@ describe("TodoListPage row actions", () => {
   it.each([
     { status: "cancelled", start: { date: "2026-10-10" } },
     { status: "CANCELLED", start: null },
+    { status: "cancelled", start: null, id: `event-${"a".repeat(250)}` },
   ])("honors explicit Calendar cancellation without hiding unrelated tasks: %j", (cancellation) => {
-    const event = mocks.events[0]!;
+    const event = { ...mocks.events[0]!, id: cancellation.id ?? "calendar-event-1" };
+    mocks.events = [event];
     const cancelled = buildTodo(todoService.calendarTodoInput(event)!);
     const unrelated = buildTodo(todoService.calendarTodoInput({ ...event, id: "calendar-event-2" })!);
     const gmail = buildTodo(todoService.gmailTodoInput({ id: event.id!, title: "Email follow-up" })!);
