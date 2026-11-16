@@ -361,3 +361,12 @@ async def test_phase5_four_placement_matrix_hosted_blocker_and_pod_wiki_routes(
             {},
         )
         assert forgot["outcomes"]["logical_deletion"] is True
+
+
+@pytest.mark.asyncio
+async def test_live_agent_turn_e2e_harness_and_browser_isolation() -> None:
+    from hushh_eval.wiki_memory import evaluate_live_agent_turn_e2e
+
+    report = await evaluate_live_agent_turn_e2e()
+    assert report["schema"] == "hushh.wiki_memory.live_agent_turn_e2e.v1"
+    assert report["all_passed"] is True, report["checks"]

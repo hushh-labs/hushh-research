@@ -424,6 +424,74 @@ async def _apply_sink(
         await memory_service.remember(text, review_seq=review_seq_hint, source_seqs=source_seqs)
 
 
+async def _sync_sink_to_optional_pod_wiki(
+    sink: MemoryReviewSink,
+    *,
+    facts: list[dict[str, Any]],
+    through_seq: int,
+    memory_service: Any,
+    wiki_library: Any = None,
+) -> dict[str, Any] | None:
+    """Mirror reviewed durable operations into the opted-in Personal Wiki writer."""
+    from hushh_mcp.one_adk.wiki_recall_tools import optional_pod_wiki_library  # noqa: PLC0415
+    from hushh_mcp.services.wiki_memory import (  # noqa: PLC0415
+        WikiKnowledgeWriter,
+        WikiProjectionEngine,
+    )
+    from hushh_mcp.services.wiki_memory.writer import DEFAULT_WORKING_PAGE_ID  # noqa: PLC0415
+
+    wiki = wiki_library if wiki_library is not None else optional_pod_wiki_library()
+    if wiki is None:
+        return None
+    writer = WikiKnowledgeWriter(wiki, pod_memory_service=memory_service)
+    if not (await wiki.read_capture_checkpoint()).capture_opt_in:
+        return {"status": "disabled"}
+
+    facts_by_id = {
+        str(item.get("memory_id") or "").strip(): str(item.get("text") or "").strip()
+        for item in facts
+        if item.get("memory_id")
+    }
+    operations: list[dict[str, Any]] = []
+    for old_id, new_text in sink.supersedes:
+        old_text = facts_by_id.get(old_id, "")
+        if old_text:
+            operations.append(
+                {
+                    "op": "supersede",
+                    "old_claim_id": writer.claim_id_for_statement(
+                        DEFAULT_WORKING_PAGE_ID, old_text
+                    ),
+                    "statement": new_text,
+                }
+            )
+        else:
+            operations.append({"op": "remember", "statement": new_text})
+    for old_id in sink.forgets:
+        old_text = facts_by_id.get(old_id, "")
+        if old_text:
+            operations.append(
+                {
+                    "op": "forget",
+                    "claim_id": writer.claim_id_for_statement(DEFAULT_WORKING_PAGE_ID, old_text),
+                }
+            )
+    for text in sink.remembers:
+        operations.append({"op": "remember", "statement": text})
+    if not operations:
+        return {"status": "nothing_to_save"}
+
+    result = await writer.capture_pod_review(
+        operations=operations,
+        through_seq=through_seq,
+    )
+    if result.get("status") == "saved" and result.get("saved_page_ids"):
+        projections = WikiProjectionEngine(wiki)
+        for page_id in result["saved_page_ids"]:
+            await projections.sync_page_lifecycle(page_id)
+    return dict(result)
+
+
 async def run_memory_review(
     *,
     memory_service: Any,
@@ -678,6 +746,15 @@ async def run_memory_review(
         except Exception as exc:  # noqa: BLE001 - partial application is reported, never hidden
             logger.warning("one_memory_review.apply_failed reason=%s", type(exc).__name__)
             return finish("failed", through_seq=through_seq, records=len(records), ops=ops)
+        try:
+            await _sync_sink_to_optional_pod_wiki(
+                sink,
+                facts=facts,
+                through_seq=through_seq,
+                memory_service=memory_service,
+            )
+        except Exception as exc:  # noqa: BLE001 - wiki mirror must never fail review completion
+            logger.warning("one_memory_review.wiki_sync_failed reason=%s", type(exc).__name__)
     if outcome == "refused_authority":
         # THE CHECKPOINT DOES NOT MOVE. An earlier revision advanced it here and
         # justified that with "the authority is a property of the binding, and it

@@ -76,14 +76,19 @@ class PodChatMemory(BaseMemoryService):
         await self.context.require_access()
         input.state[STATE_MEMORY_AVAILABLE] = True
         digest = await _memory_digest(self.service)
-        if self.wiki_library is not None:
+        if self.wiki_library is not None and "<personal_wiki_hot_digest" not in digest:
             from hushh_mcp.one_adk.wiki_recall_tools import build_wiki_hot_digest_context
             from hushh_mcp.services.wiki_memory.contracts import WIKI_HOT_MAX_CHARS
 
-            remaining = max(0, WIKI_HOT_MAX_CHARS - len(digest) - (2 if digest else 0))
-            wiki_hot = await build_wiki_hot_digest_context(self.wiki_library, max_chars=remaining)
-            if wiki_hot:
-                digest = f"{digest}\n\n{wiki_hot}" if digest else wiki_hot
+            try:
+                remaining = max(0, WIKI_HOT_MAX_CHARS - len(digest) - (2 if digest else 0))
+                wiki_hot = await build_wiki_hot_digest_context(
+                    self.wiki_library, max_chars=remaining
+                )
+                if wiki_hot:
+                    digest = f"{digest}\n\n{wiki_hot}" if digest else wiki_hot
+            except Exception as exc:
+                logger.warning("pod_chat.wiki_digest_failed kind=%s", type(exc).__name__)
         input.state[STATE_MEMORY_DIGEST] = digest
 
     async def commit(self, input) -> None:
@@ -126,7 +131,10 @@ async def build_memory_hooks(
     service = await asyncio.to_thread(
         _resolve_pod_memory_service, replay_projection=_memory_replay[1]
     )
-    memory = PodChatMemory(context, service) if service is not None else None
+    from hushh_mcp.one_adk.wiki_recall_tools import optional_pod_wiki_library
+
+    wiki_lib = optional_pod_wiki_library()
+    memory = PodChatMemory(context, service, wiki_library=wiki_lib) if service is not None else None
 
     async def prepare(input):
         if memory is not None:

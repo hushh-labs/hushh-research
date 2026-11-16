@@ -668,3 +668,255 @@ async def evaluate_live_wiki_pipeline(
             "selection_median_ms": round(float(median(select_timings)), 4),
         },
     }
+
+
+async def evaluate_live_agent_turn_e2e() -> dict[str, Any]:
+    """End-to-end live-agent turn & consolidation harness (#9370 Wave E + #9511 boundary proof).
+
+    Verifies the real runtime joins:
+    1. One's Pod root agent mounts ``search_wiki``, ``read_wiki_page``, and ``trace_claim``
+       behind ``POD_FILES_ENABLED`` and ``_before_one_tool`` read-only barriers, while
+       ``computer_use_agent`` (#9511 Browser specialist) never inherits raw wiki tools.
+    2. Authored ``memory_review`` consolidation (``_sync_sink_to_optional_pod_wiki``)
+       mirrors ``remember`` / ``supersede`` / ``forget`` into the opted-in ``WikiLibrary``
+       and ``private_candidate`` PKM projections.
+    3. ``PodChatMemory.prepare`` merges the bounded ``hot.md`` orientation into
+       ``STATE_MEMORY_DIGEST``, and live ADK ``search_wiki`` / ``read_wiki_page`` /
+       ``trace_claim`` calls recall exact cited claims under ``files_access`` fencing.
+    4. Owner ``Forget`` rotates page content keys and eliminates recall across both
+       ``STATE_MEMORY_DIGEST`` and all three live ADK recall tools on the next turn.
+    """
+    import os
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.one_adk import wiki_recall_tools as wrt
+    from hushh_mcp.one_adk.memory_review import _sync_sink_to_optional_pod_wiki
+    from hushh_mcp.one_adk.memory_review_tools import MemoryReviewSink
+    from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
+    from hushh_mcp.one_adk.turn_warmup import _WarmupLlm
+    from hushh_mcp.services.pod_files import runtime as files_rt
+
+    store = _InMemoryCasStore(
+        expected_custody_ref="gcp_kms://eval_live_agent",
+        supports_physical_delete=True,
+    )
+    lib = WikiLibrary(
+        owner="usr_live_agent_e2e",
+        key=hashlib.sha256(b"eval:live_agent_e2e").digest(),
+        store=store,
+        check=_noop_async,
+        account_generation=1,
+        library_id="lib_live_agent_e2e",
+    )
+    provider_double = _FakeProviderMemoryService(
+        has_provider_bank=True,
+        provider_consented=True,
+    )
+    writer = WikiKnowledgeWriter(lib, pod_memory_service=provider_double)
+    projections = WikiProjectionEngine(lib)
+    migrator = WikiOwnerMigrator(lib, writer=writer, projections=projections)
+
+    @asynccontextmanager
+    async def _eval_wiki_op(*, mutation: bool = False):
+        await files_rt.require_files_access(manage=mutation)
+        yield lib
+
+    # 1. Verify live root-agent roster binding & #9511 Browser isolation wall
+    with patch.dict(os.environ, {"POD_FILES_ENABLED": "true", "HUSSH_ID": "ha1_eval_owner"}):
+        with patch.object(agent_tree, "pod_mode", return_value=True):
+            root_agent = agent_tree.build_one_text_agent(
+                model=_WarmupLlm(model=agent_tree._SPECIALIST_MODEL),
+                include_client_receipt_tools=False,
+                memory_available=True,
+            )
+    tool_names = {getattr(t, "name", "") or getattr(t, "__name__", "") for t in root_agent.tools}
+    wiki_tools_mounted = wrt.WIKI_TOOL_NAMES.issubset(tool_names)
+
+    from hushh_mcp.one_adk import computer_use_agent as cua
+
+    browser_source = Path_read_computer_use(cua)
+    browser_isolated = not any(name in browser_source for name in wrt.WIKI_TOOL_NAMES)
+
+    # Verify _before_one_tool blocks wiki recall during read-only private receipt turns
+    receipt_ctx = SimpleNamespace(
+        invocation_id="inv_receipt_1",
+        state={"hussh:receipt_private_invocations": ["inv_receipt_1"]},
+    )
+    receipt_barrier = agent_tree._before_one_tool(wrt.search_wiki, {"query": "coffee"}, receipt_ctx)
+    read_only_barrier_enforced = (
+        isinstance(receipt_barrier, dict) and receipt_barrier.get("status") == "unavailable"
+    )
+
+    # 2. Turn 1: Opt-in + memory_review consolidation -> Wiki + Projections
+    await writer.set_capture_opt_in(True)
+    sink = MemoryReviewSink(known_ids=frozenset({"mem_old_tea"}))
+    sink.remember("Prefers oat-milk cortados before morning design reviews.")
+    await writer.capture_pod_review(
+        operations=[{"op": "remember", "statement": "Used to drink green tea in the morning."}],
+        through_seq=1,
+    )
+    sync_res = await _sync_sink_to_optional_pod_wiki(
+        sink=_build_supersede_and_remember_sink(),
+        facts=[{"memory_id": "mem_old_tea", "text": "Used to drink green tea in the morning."}],
+        through_seq=2,
+        memory_service=provider_double,
+        wiki_library=lib,
+    )
+    if sync_res is None or sync_res.get("status") != "saved":
+        raise RuntimeError(f"Expected saved wiki review sync, got {sync_res}")
+
+    # 3. Turn 2: Pre-turn PodChatMemory.prepare hot digest + live ADK tool recall
+    fake_sessions = SimpleNamespace(get_session=_null_session)
+    fake_context = SimpleNamespace(
+        owner="usr_live_agent_e2e",
+        hushh_id="ha1_eval_owner",
+        claims={},
+        sessions=fake_sessions,
+        require_access=_noop_async,
+    )
+    fake_pod_mem = SimpleNamespace(
+        digest=_classic_digest,
+        unreviewed=_empty_unreviewed,
+    )
+    pod_chat_mem = PodChatMemory(fake_context, fake_pod_mem, wiki_library=lib)
+    turn2_input = SimpleNamespace(thread_id="thr_2", state={})
+    with (
+        patch("api.routes.one.pod_memory.review_policy_for_session", return_value=None),
+        patch("hushh_mcp.one_adk.text_runtime._catch_up_memory_review", new=_noop_catchup),
+        patch("hushh_mcp.one_adk.text_runtime._memory_digest", new=_classic_digest),
+    ):
+        await pod_chat_mem.prepare(
+            turn2_input,
+            model="gemini-test",
+            provider="gemini",
+            model_id="gemini-test",
+        )
+    turn2_digest = str(turn2_input.state.get(agent_tree.STATE_MEMORY_DIGEST) or "")
+    hot_injected = (
+        "<personal_wiki_hot_digest" in turn2_digest
+        and "cortados" in turn2_digest
+        and len(turn2_digest) <= WIKI_HOT_MAX_CHARS
+    )
+
+    with (
+        files_rt.files_access(_noop_async, manage=_noop_async),
+        patch.object(files_rt, "wiki_operation", _eval_wiki_op),
+    ):
+        s_hit = await wrt.search_wiki("cortados")
+        if s_hit["status"] != "ok" or s_hit["untrusted_data"] is not True:
+            raise RuntimeError(f"Unexpected search_wiki response: {s_hit}")
+        page_id = s_hit["results"][0]["page_id"]
+        p_hit = await wrt.read_wiki_page(page_id)
+        if p_hit["status"] != "ok":
+            raise RuntimeError(f"Unexpected read_wiki_page response: {p_hit}")
+        active_claims = [c for c in p_hit["claims"] if c["status"] == "active"]
+        cortado_claim = next(c for c in active_claims if "cortados" in c["statement"])
+        t_hit = await wrt.trace_claim(cortado_claim["claim_id"])
+        if t_hit["status"] != "ok":
+            raise RuntimeError(f"Unexpected trace_claim response: {t_hit}")
+
+    # Without files_access, live ADK recall tool fails closed
+    unauth_hit = await wrt.search_wiki("cortados")
+    fails_closed_without_access = (
+        unauth_hit["status"] == "unavailable"
+        and unauth_hit.get("code") == "FILES_AUTHORITY_REQUIRED"
+    )
+
+    # 4. Forget -> Turn 3 verified zero-resurrection across digest and ADK tools
+    forget_res = await migrator.propagate_forget_and_correction(
+        page_id=page_id,
+        claim_id=cortado_claim["claim_id"],
+        idempotency_key="eval_forget_cortado",
+        destroy_page_key=True,
+        delete_retired_blobs=True,
+    )
+    turn3_input = SimpleNamespace(thread_id="thr_3", state={})
+    with (
+        patch("api.routes.one.pod_memory.review_policy_for_session", return_value=None),
+        patch("hushh_mcp.one_adk.text_runtime._catch_up_memory_review", new=_noop_catchup),
+        patch("hushh_mcp.one_adk.text_runtime._memory_digest", new=_classic_digest),
+    ):
+        await pod_chat_mem.prepare(
+            turn3_input,
+            model="gemini-test",
+            provider="gemini",
+            model_id="gemini-test",
+        )
+    turn3_digest = str(turn3_input.state.get(agent_tree.STATE_MEMORY_DIGEST) or "")
+
+    with (
+        files_rt.files_access(_noop_async, manage=_noop_async),
+        patch.object(files_rt, "wiki_operation", _eval_wiki_op),
+    ):
+        post_search = await wrt.search_wiki("cortados")
+        post_trace = await wrt.trace_claim(cortado_claim["claim_id"])
+
+    zero_resurrection = (
+        "cortados" not in turn3_digest
+        and post_search["status"] == "absent"
+        and post_trace["status"] == "stale"
+    )
+
+    all_passed = all(
+        [
+            wiki_tools_mounted,
+            browser_isolated,
+            read_only_barrier_enforced,
+            hot_injected,
+            fails_closed_without_access,
+            bool(forget_res["outcomes"]["key_destroyed"]),
+            zero_resurrection,
+        ]
+    )
+    return {
+        "schema": "hushh.wiki_memory.live_agent_turn_e2e.v1",
+        "all_passed": all_passed,
+        "checks": {
+            "pod_root_agent_mounts_wiki_tools": wiki_tools_mounted,
+            "computer_use_browser_isolated_from_raw_wiki": browser_isolated,
+            "read_only_turn_barrier_blocks_wiki_tools": read_only_barrier_enforced,
+            "pre_turn_hot_digest_injected_within_budget": hot_injected,
+            "fenced_recall_fails_closed_without_files_access": fails_closed_without_access,
+            "forget_destroys_previous_content_key": bool(forget_res["outcomes"]["key_destroyed"]),
+            "post_forget_zero_resurrection_in_digest_and_tools": zero_resurrection,
+        },
+    }
+
+
+async def _noop_async(*_a: Any, **_k: Any) -> None:
+    return None
+
+
+async def _null_session(**_k: Any) -> None:
+    return None
+
+
+async def _empty_unreviewed(**_k: Any) -> list[dict[str, Any]]:
+    return []
+
+
+async def _noop_catchup(**_k: Any) -> None:
+    return None
+
+
+async def _classic_digest(*_a: Any, **_k: Any) -> str:
+    return "- Classic pod fact: lives in San Francisco"
+
+
+def _build_supersede_and_remember_sink() -> Any:
+    from hushh_mcp.one_adk.memory_review_tools import MemoryReviewSink
+
+    sink = MemoryReviewSink(known_ids=frozenset({"mem_old_tea"}))
+    sink.supersede(
+        "mem_old_tea", "Switched from green tea to oat-milk cortados before morning design reviews."
+    )
+    return sink
+
+
+def Path_read_computer_use(module: Any) -> str:
+    import inspect
+
+    return inspect.getsource(module)

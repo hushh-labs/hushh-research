@@ -2,6 +2,7 @@ import { ApiService } from "@/lib/services/api-service";
 import type { SharedFilesAccess } from "./shared/store";
 import { SharedFilesAdapter } from "./shared/adapter";
 import { SharedWikiLibrary, WikiRefusedError } from "./wiki";
+import { bindActiveSharedWiki } from "./wiki/active-shared-wiki";
 
 type Connection = {
   shared: SharedFilesAdapter | null;
@@ -19,7 +20,9 @@ export function bindFilesConnection(
     check: access.check,
   };
   connection = owned;
+  const releaseWiki = bindActiveSharedWiki(owned.wiki);
   return () => {
+    releaseWiki();
     if (connection === owned) connection = null;
   };
 }

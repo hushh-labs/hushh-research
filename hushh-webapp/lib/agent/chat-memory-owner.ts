@@ -41,6 +41,28 @@ export function ownerChatMemory(input: {
     const session = getSession();
     if (!session) throw new Error("MEMORY_LOCKED");
     return rewriteChatMemory(session, request);
+  }, onConsolidated: async ({ messages }) => {
+    if (!current() || !messages.length) return;
+    const { peekActiveSharedWiki } = await import("@/lib/files/wiki/active-shared-wiki");
+    const wiki = peekActiveSharedWiki();
+    if (!wiki) return;
+    const { SharedWikiKnowledgeWriter, SharedWikiProjectionEngine } = await import("@/lib/files/wiki");
+    const writer = new SharedWikiKnowledgeWriter(wiki);
+    const captured = await writer.captureEvents(
+      messages.map((m) => ({
+        conversationId: m.conversationId,
+        eventId: m.id,
+        role: m.role,
+        content: m.content,
+        consentDerived: m.consentDerived,
+      })),
+    );
+    if (captured.status === "saved" && captured.saved_page_ids.length > 0) {
+      const projections = new SharedWikiProjectionEngine(wiki);
+      for (const pageId of captured.saved_page_ids) {
+        await projections.syncPageLifecycle(pageId);
+      }
+    }
   } });
   const cleanups: Array<() => void> = [];
   const entry: OwnerRuntime = { userId: input.userId, epoch: input.vaultEpoch, token: input.token, vaultKey: input.vaultKey,
