@@ -37,6 +37,26 @@ const files = vi.hoisted(() => ({
     cursor: "",
   })),
   configure: vi.fn(),
+  wikiOverview: vi.fn(async () => ({
+    captureOptIn: false,
+    migrationState: "v1_markdown_only",
+    migrationRevision: 0,
+    pages: [],
+    candidateReceipts: [],
+  })),
+  wikiPage: vi.fn(),
+  wikiSetOptIn: vi.fn(async () => ({ captureOptIn: true })),
+  wikiSavePage: vi.fn(async () => ({ pageId: "wpg_0000000000000001", revision: 2 })),
+  wikiConfirmCandidate: vi.fn(async () => ({ receiptId: "wpr_0000000000000001", state: "materialized" })),
+  wikiForgetClaim: vi.fn(async () => ({
+    pageId: "wpg_0000000000000001",
+    revision: 2,
+    outcomes: { logical_deletion: true, revoked_future_access: true },
+  })),
+  wikiRollbackClassic: vi.fn(async () => ({
+    migrationState: "v1_markdown_only",
+    migrationRevision: 2,
+  })),
 }));
 vi.mock("@/lib/files/service", () => ({ FilesService: files }));
 vi.mock("@/hooks/use-auth", () => ({

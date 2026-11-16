@@ -286,3 +286,25 @@ it("routes unpinned managed chat directly and never retries the hub on failure",
   expect(direct).toHaveBeenCalledOnce();
   expect(hub).not.toHaveBeenCalled();
 });
+
+it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  pod.currentPodConnection.mockResolvedValue({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["files.read", "files.manage"] },
+  });
+  for (const route of [
+    "files/wiki/overview",
+    "files/wiki/page?page_id=work%2Fcareer.md",
+    "files/wiki/opt-in",
+    "files/wiki/confirm",
+    "files/wiki/forget",
+    "files/wiki/rollback",
+  ]) {
+    const response = await ownerPodRequest(route, { method: route.startsWith("files/wiki/overview") || route.includes("?") ? "GET" : "POST" }, ports);
+    expect(response.ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(6);
+  await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});

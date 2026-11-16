@@ -297,6 +297,46 @@ def _build_wire_handler(state: _WireState) -> type[BaseHTTPRequestHandler]:
             action = "s3:GetObject" if key else "s3:ListBucket"
             if not self._check_bucket_access(bucket, action):
                 return
+            if not key:
+                parsed_s3 = urllib.parse.urlsplit(self.path)
+                s3_query = dict(urllib.parse.parse_qsl(parsed_s3.query, keep_blank_values=True))
+                prefix_q = s3_query.get("prefix") or ""
+                max_keys = max(1, int(s3_query.get("max-keys") or "1000"))
+                cont_tok = s3_query.get("continuation-token") or ""
+                with state.lock:
+                    bkt = state.buckets.get(bucket)
+                    if bkt is None:
+                        self._send_bytes(404, _s3_error_xml("NoSuchBucket", "No such bucket"))
+                        return
+                    all_items = sorted(
+                        (k, v[0], v[1]) for k, v in bkt.items() if k.startswith(prefix_q)
+                    )
+                start = int(cont_tok) if cont_tok.isdigit() else 0
+                sliced = all_items[start : start + max_keys]
+                truncated = (start + max_keys) < len(all_items)
+                next_tok = str(start + max_keys) if truncated else ""
+                contents_xml = "".join(
+                    f"<Contents><Key>{xml_escape(k)}</Key><Size>{len(val)}</Size>"
+                    f"<ETag>{xml_escape(et)}</ETag></Contents>"
+                    for k, val, et in sliced
+                )
+                next_xml = (
+                    f"<NextContinuationToken>{xml_escape(next_tok)}</NextContinuationToken>"
+                    if truncated
+                    else ""
+                )
+                xml_body = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                    f"<Name>{xml_escape(bucket)}</Name>"
+                    f"<Prefix>{xml_escape(prefix_q)}</Prefix>"
+                    f"<KeyCount>{len(sliced)}</KeyCount>"
+                    f"<MaxKeys>{max_keys}</MaxKeys>"
+                    f"<IsTruncated>{'true' if truncated else 'false'}</IsTruncated>"
+                    f"{next_xml}{contents_xml}</ListBucketResult>"
+                ).encode("utf-8")
+                self._send_bytes(200, xml_body)
+                return
             with state.lock:
                 bkt = state.buckets.get(bucket)
                 if bkt is None:
@@ -1122,6 +1162,47 @@ def _build_gcp_wire_handler(state: _GcpWireState) -> type[BaseHTTPRequestHandler
         def do_GET(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlsplit(self.path)
             parts = [p for p in parsed.path.strip("/").split("/") if p]
+            # GET /storage/v1/b/{bucket} (bucket security/retention metadata)
+            if len(parts) == 4 and parts[:3] == ["storage", "v1", "b"]:
+                bucket = parts[3]
+                if not self._check_bearer(bucket):
+                    return
+                kms_name = os.getenv("HUSSH_POD_KMS_KEY") or ""
+                self._send_json(
+                    200,
+                    {
+                        "name": bucket,
+                        "encryption": {"defaultKmsKeyName": kms_name},
+                        "iamConfiguration": {
+                            "publicAccessPrevention": "enforced",
+                            "uniformBucketLevelAccess": {"enabled": True},
+                        },
+                        "retentionPolicy": {"retentionPeriod": "0", "isLocked": False},
+                        "softDeletePolicy": {"retentionDurationSeconds": "0"},
+                        "versioning": {"enabled": False},
+                    },
+                )
+                return
+            # GET /storage/v1/b/{bucket}/o?prefix=...&maxResults=...&pageToken=...
+            if len(parts) == 5 and parts[:3] == ["storage", "v1", "b"] and parts[4] == "o":
+                bucket = parts[3]
+                if not self._check_bearer(bucket):
+                    return
+                query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+                prefix_q = query.get("prefix") or ""
+                limit = max(1, int(query.get("maxResults") or "100"))
+                token_q = query.get("pageToken") or ""
+                with state.lock:
+                    bmap = state.buckets.get(bucket, {})
+                    matching = sorted(k for k in bmap if k.startswith(prefix_q))
+                start = int(token_q) if token_q.isdigit() else 0
+                sliced = matching[start : start + limit]
+                next_tok = str(start + limit) if (start + limit) < len(matching) else ""
+                payload_out: dict[str, Any] = {"items": [{"name": k} for k in sliced]}
+                if next_tok:
+                    payload_out["nextPageToken"] = next_tok
+                self._send_json(200, payload_out)
+                return
             # GET /storage/v1/b/{bucket}/o/{encoded_key}
             if len(parts) == 6 and parts[:3] == ["storage", "v1", "b"] and parts[4] == "o":
                 bucket = parts[3]
@@ -1522,6 +1603,58 @@ def _build_azure_wire_handler(
                 )
                 return
 
+            # Azure ARM metadata GET /subscriptions/...
+            if parts and parts[0].lower() == "subscriptions":
+                if not self._check_bearer():
+                    return
+                self._send_json(
+                    200,
+                    {
+                        "id": parsed.path,
+                        "properties": {
+                            "allowBlobPublicAccess": False,
+                            "allowSharedKeyAccess": False,
+                            "supportsHttpsTrafficOnly": True,
+                            "minimumTlsVersion": "TLS1_2",
+                            "publicAccess": "None",
+                            "encryption": {"services": {"blob": {"enabled": True}}},
+                            "deleteRetentionPolicy": {"enabled": False, "days": 0},
+                            "isVersioningEnabled": False,
+                            "hasImmutabilityPolicy": False,
+                            "hasLegalHold": False,
+                        },
+                    },
+                )
+                return
+
+            # Azure Blob container listing GET /{account}/{container}?restype=container&comp=list
+            if len(parts) == 2 and query.get("comp") == "list":
+                account, container = parts[0], parts[1]
+                if not self._check_bearer(container=container):
+                    return
+                prefix_q = query.get("prefix") or ""
+                marker = query.get("marker") or ""
+                limit = max(1, int(query.get("maxresults") or "100"))
+                with state.lock:
+                    cmap = state.containers.get((account, container), {})
+                    matching = sorted(
+                        k for k in cmap if k.startswith(prefix_q) and (not marker or k > marker)
+                    )
+                sliced = matching[:limit]
+                next_marker = sliced[-1] if len(matching) > limit and sliced else ""
+                blobs_xml = "".join(f"<Blob><Name>{xml_escape(k)}</Name></Blob>" for k in sliced)
+                xml_out = (
+                    '<?xml version="1.0" encoding="utf-8"?>'
+                    f"<EnumerationResults><Blobs>{blobs_xml}</Blobs>"
+                    f"<NextMarker>{xml_escape(next_marker)}</NextMarker></EnumerationResults>"
+                ).encode("utf-8")
+                self._send_raw(
+                    200,
+                    xml_out,
+                    headers={"Content-Type": "application/xml"},
+                )
+                return
+
             # Azure Blob GET /{account}/{container}/{blob_key...}
             if len(parts) >= 3:
                 account, container = parts[0], parts[1]
@@ -1785,8 +1918,37 @@ def _build_prefix_gateway_handler(state: _PrefixGatewayState) -> type[BaseHTTPRe
             return object_path
 
         def do_GET(self) -> None:  # noqa: N802
+            parsed_gw = urllib.parse.urlsplit(self.path)
+            gw_query = dict(urllib.parse.parse_qsl(parsed_gw.query, keep_blank_values=True))
             obj = self._authorize_object()
             if obj is None:
+                return
+            if gw_query.get("list") == "1":
+                cursor = gw_query.get("cursor") or ""
+                limit = max(1, int(gw_query.get("limit") or "100"))
+                prefix_full = obj.rstrip("/") + "/"
+                # Derive base pod prefix from first 2 segments (`pods/<owner_id>`) when present
+                segs = [s for s in obj.split("/") if s]
+                base_prefix = "/".join(segs[:2]) if len(segs) >= 2 and segs[0] == "pods" else ""
+                with state.lock:
+                    matching = sorted(k for k in state.objects if k.startswith(prefix_full))
+                rel_items = [
+                    (
+                        k[len(base_prefix) + 1 :]
+                        if base_prefix and k.startswith(base_prefix + "/")
+                        else k
+                    )
+                    for k in matching
+                ]
+                filtered = [r for r in rel_items if not cursor or r > cursor]
+                sliced = filtered[:limit]
+                next_cursor = sliced[-1] if len(filtered) > limit and sliced else ""
+                body_json = json.dumps({"items": sliced, "cursor": next_cursor}).encode("utf-8")
+                self._send_raw(
+                    200,
+                    body_json,
+                    headers={"Content-Type": "application/json"},
+                )
                 return
             with state.lock:
                 entry = state.objects.get(obj)

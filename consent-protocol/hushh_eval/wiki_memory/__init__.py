@@ -7,10 +7,16 @@ from hushh_eval.wiki_memory.baseline import (
     evaluate_consent_and_injection_guards,
     evaluate_phase0_baseline,
 )
+from hushh_eval.wiki_memory.conformance import (
+    evaluate_four_placement_conformance,
+    evaluate_live_wiki_pipeline,
+)
 from hushh_eval.wiki_memory.corpus import build_phase0_synthetic_corpus
 
 __all__ = [
     "build_phase0_synthetic_corpus",
     "evaluate_consent_and_injection_guards",
+    "evaluate_four_placement_conformance",
+    "evaluate_live_wiki_pipeline",
     "evaluate_phase0_baseline",
 ]

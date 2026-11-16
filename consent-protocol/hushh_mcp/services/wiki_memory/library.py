@@ -160,6 +160,16 @@ class WikiLibrary:
     def _capture_checkpoint_path(self) -> str:
         return "wiki/v1/checkpoints/capture.json.enc"
 
+    def _named_checkpoint_path(self, name: str) -> str:
+        clean = str(name or "").strip()
+        if (
+            not clean
+            or len(clean) > 64
+            or not all(ch.isalnum() or ch in {"_", "-"} for ch in clean)
+        ):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        return f"wiki/v1/checkpoints/{self._opaque('checkpoint:' + clean)}.bin"
+
     def _tombstone_path(self, tombstone_id: str) -> str:
         return f"wiki/v1/tombstones/{self._opaque('tombstone:' + validate_tombstone_id(tombstone_id))}.bin"
 
@@ -1585,3 +1595,124 @@ class WikiLibrary:
             )
         ).hexdigest()
         return {**bundle, "export_sha256": digest}
+
+    async def read_named_checkpoint(self, name: str) -> tuple[dict[str, Any] | None, int]:
+        """Read an encrypted checkpoint document alongside its monotonic logical revision."""
+        await self.check()
+        raw, _ = await self._read_json(self._named_checkpoint_path(name))
+        if raw is None:
+            return None, 0
+        rev = int(raw.get("checkpoint_revision", 0) or 0)
+        payload = raw.get("payload")
+        return (dict(payload) if isinstance(payload, dict) else None), rev
+
+    async def write_named_checkpoint(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: int | None = None,
+    ) -> tuple[dict[str, Any], int]:
+        """CAS-advance an encrypted checkpoint document under ``wiki/v1/checkpoints/``."""
+        await self.check()
+        if not isinstance(payload, dict):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        path = self._named_checkpoint_path(name)
+        for _ in range(4):
+            raw, gen = await self._read_json(path)
+            current_rev = int(raw.get("checkpoint_revision", 0) or 0) if raw is not None else 0
+            if expected_revision is not None and current_rev != expected_revision:
+                raise WikiRefused("WIKI_REVISION_CONFLICT", 409)
+            next_rev = current_rev + 1
+            envelope = {
+                "checkpoint_revision": next_rev,
+                "updated_at": int(time.time() * 1000),
+                "payload": dict(payload),
+            }
+            try:
+                await self._write_json(path, envelope, gen)
+                return dict(payload), next_rev
+            except WikiRefused as exc:
+                if exc.code != "WIKI_REVISION_CONFLICT" or expected_revision is not None:
+                    raise
+        raise WikiRefused("WIKI_REVISION_CONFLICT", 409)
+
+    async def rotate_page_content_key_and_prune_history(
+        self,
+        page_id: str,
+        *,
+        idempotency_key: str,
+        delete_retired_blobs: bool = False,
+    ) -> dict[str, Any]:
+        """Rotate a page's 256-bit content key and prune prior revision pointers on Forget.
+
+        Distinguishes ``key_destroyed`` (old per-page content key retired from the active head
+        and latest revision re-sealed under a fresh epoch key) from
+        ``physical_erasure_under_retention`` (underlying retired revision blobs deleted if the
+        store supports physical deletion and ``delete_retired_blobs=True``).
+        """
+        await self.check()
+        validated_id = validate_page_id(page_id)
+        idem = validate_idempotency_key(idempotency_key)
+        head_path = self._head_path(validated_id)
+        raw_head, head_gen = await self._read_json(head_path)
+        if raw_head is None:
+            raise WikiRefused("WIKI_NOT_FOUND", 404)
+        effective_head, pending_batch_id = await self._resolve_effective_head(raw_head)
+        if pending_batch_id is not None:
+            raise WikiRefused("WIKI_BATCH_INCOMPLETE", 409)
+        if effective_head is None or effective_head.get("state") == "trashed":
+            raise WikiRefused("WIKI_NOT_FOUND", 404)
+
+        current_rev = int(effective_head["revision"])
+        old_epoch = int(effective_head.get("key_epoch", 0) or 0)
+        new_epoch = old_epoch + 1
+        old_key = self._head_key(effective_head)
+        current_rev_id = self._revision_id_for(effective_head, current_rev)
+        current_doc = await self._read_revision_with_key(current_rev_id, page_key=old_key)
+
+        new_key = self._derive_page_content_key(validated_id, key_epoch=new_epoch)
+        rotated_rev_id = self._make_revision_id(
+            validated_id, current_rev, f"{idem}:epoch:{new_epoch}"
+        )
+        await self._write_immutable_revision(
+            current_doc, revision_id=rotated_rev_id, page_key=new_key
+        )
+
+        retired_rev_ids = [
+            str(rid)
+            for rev_key, rid in dict(effective_head.get("revision_ids") or {}).items()
+            if str(rid) != rotated_rev_id
+        ]
+        updated_head = {
+            **effective_head,
+            "key_epoch": new_epoch,
+            "content_key_b64": base64.b64encode(new_key).decode("ascii"),
+            "revision_ids": {str(current_rev): rotated_rev_id},
+        }
+        await self._write_json(head_path, updated_head, head_gen)
+
+        blobs_deleted = 0
+        delete_fn = getattr(self.store, "delete", None)
+        physical_supported = callable(delete_fn)
+        if delete_retired_blobs and callable(delete_fn):
+            for retired_id in retired_rev_ids:
+                retired_path = self._revision_path(retired_id)
+                await delete_fn(retired_path)
+                blobs_deleted += 1
+
+        return {
+            "page_id": validated_id,
+            "revision": current_rev,
+            "old_key_epoch": old_epoch,
+            "new_key_epoch": new_epoch,
+            "key_destroyed": True,
+            "retired_revision_count": len(retired_rev_ids),
+            "physical_erasure_supported": physical_supported,
+            "blobs_deleted_count": blobs_deleted,
+            "physical_erasure_under_retention": bool(
+                delete_retired_blobs
+                and physical_supported
+                and blobs_deleted == len(retired_rev_ids)
+            ),
+        }

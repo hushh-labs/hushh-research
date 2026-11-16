@@ -38,6 +38,14 @@ from .contracts import (
 )
 from .index_and_search import BacklinkGraph, ClaimIndex, LexicalSearchIndex
 from .library import WikiLibrary, open_revision_with_page_key
+from .migration_and_maintenance import (
+    WIKI_ERASURE_OUTCOME_KEYS,
+    WIKI_MIGRATION_STATES,
+    WikiMaintenanceRunner,
+    WikiOwnerMigrator,
+    normalize_statement_fingerprint,
+    parse_v1_markdown_sections,
+)
 from .projections import (
     WIKI_CLAIM_PROJECTION_MAX_ITEM_CHARS,
     WIKI_CLAIM_PROJECTION_MAX_ITEMS,
@@ -66,7 +74,9 @@ __all__ = [
     "WIKI_CLAIM_PROJECTION_MAX_ITEM_CHARS",
     "WIKI_CLAIM_PROJECTION_MAX_TOTAL_CHARS",
     "WIKI_CLAIM_PROJECTION_PROFILE",
+    "WIKI_ERASURE_OUTCOME_KEYS",
     "WIKI_HOT_MAX_CHARS",
+    "WIKI_MIGRATION_STATES",
     "WIKI_PROJECTION_STATES",
     "WIKI_RECALL_STATUSES",
     "WIKI_RETRIEVED_MAX_CHARS",
@@ -76,6 +86,8 @@ __all__ = [
     "WikiKnowledgeWriter",
     "WikiLibrary",
     "WikiLinkEdge",
+    "WikiMaintenanceRunner",
+    "WikiOwnerMigrator",
     "WikiPageRevision",
     "WikiProjectionEngine",
     "WikiProjectionReceipt",
@@ -84,7 +96,9 @@ __all__ = [
     "WikiTombstone",
     "detect_specialist_disagreement",
     "extract_inline_links",
+    "normalize_statement_fingerprint",
     "open_revision_with_page_key",
+    "parse_v1_markdown_sections",
     "render_wiki_markdown",
     "replace_markdown_section",
     "resolve_top_level_projection_state",

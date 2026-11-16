@@ -193,9 +193,13 @@ export class SharedWikiLibrary {
     return this.access.owner;
   }
 
-  private async derivePageContentKeyHex(pageId: string): Promise<string> {
-    const left = await this.store.id(`wiki:key:a:${pageId}`);
-    const right = await this.store.id(`wiki:key:b:${pageId}`);
+  private async derivePageContentKeyHex(
+    pageId: string,
+    keyEpoch = 0,
+  ): Promise<string> {
+    const suffix = keyEpoch > 0 ? `:epoch:${keyEpoch}` : "";
+    const left = await this.store.id(`wiki:key:a:${pageId}${suffix}`);
+    const right = await this.store.id(`wiki:key:b:${pageId}${suffix}`);
     return `${left}${right}`;
   }
 
@@ -2083,7 +2087,161 @@ export class SharedWikiLibrary {
       sources,
       backlinks: graph.toStored().outbound,
     };
-    const export_sha256 = await sha256Hex(canonicalJson(bundle));
-    return { ...bundle, export_sha256 };
+      const export_sha256 = await sha256Hex(canonicalJson(bundle));
+      return { ...bundle, export_sha256 };
+    }
+
+  async readNamedCheckpoint<T extends Record<string, unknown>>(
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<{ payload: T | null; revision: number }> {
+    const clean = name.trim();
+    if (!clean || clean.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(clean)) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+    }
+    const snap = await this.readJson<{
+      format: 1;
+      checkpoint_revision: number;
+      payload: T;
+    }>("wiki:checkpoints", `named:${clean}`, signal);
+    if (!snap.value || typeof snap.value !== "object") {
+      return { payload: null, revision: 0 };
+    }
+    return {
+      payload: snap.value.payload ?? null,
+      revision: Number(snap.value.checkpoint_revision ?? 0) || 0,
+    };
+  }
+
+  async writeNamedCheckpoint<T extends Record<string, unknown>>(
+    name: string,
+    payload: T,
+    expectedRevision?: number,
+    signal?: AbortSignal,
+  ): Promise<{ payload: T; revision: number }> {
+    const clean = name.trim();
+    if (!clean || clean.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(clean)) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+    }
+    return this.store.serialize(async () => {
+      const snap = await this.readJson<{
+        format: 1;
+        checkpoint_revision: number;
+        payload: T;
+      }>("wiki:checkpoints", `named:${clean}`, signal);
+      const currentRev =
+        snap.value && typeof snap.value === "object"
+          ? Number(snap.value.checkpoint_revision ?? 0) || 0
+          : 0;
+      if (expectedRevision !== undefined && currentRev !== expectedRevision) {
+        throw new WikiRefusedError("WIKI_REVISION_CONFLICT", 409);
+      }
+      const nextRev = currentRev + 1;
+      await this.writeJsonHeld(
+        "wiki:checkpoints",
+        `named:${clean}`,
+        {
+          format: 1,
+          checkpoint_revision: nextRev,
+          updated_at: Date.now(),
+          payload,
+        },
+        snap.generation,
+        signal,
+      );
+      return { payload, revision: nextRev };
+    });
+  }
+
+  async rotatePageContentKeyAndPruneHistory(
+    pageId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    page_id: string;
+    revision: number;
+    old_key_epoch: number;
+    new_key_epoch: number;
+    key_destroyed: boolean;
+    retired_revision_count: number;
+    physical_erasure_supported: boolean;
+    blobs_deleted_count: number;
+    physical_erasure_under_retention: boolean;
+  }> {
+    const validatedId = validatePageId(pageId);
+    const idem = validateIdempotencyKey(idempotencyKey);
+    return this.store.serialize(async () => {
+      const headSnap = await this.readJson<
+        StoredWikiHead & { key_epoch?: number }
+      >("wiki:heads", validatedId, signal);
+      if (!headSnap.value) {
+        throw new WikiRefusedError("WIKI_NOT_FOUND", 404);
+      }
+      const { effective: effectiveHead, pendingBatchId } =
+        await this.resolveEffectiveHead(headSnap.value, signal);
+      if (pendingBatchId !== undefined) {
+        throw new WikiRefusedError("WIKI_BATCH_INCOMPLETE", 409);
+      }
+      if (!effectiveHead || effectiveHead.state === "trashed") {
+        throw new WikiRefusedError("WIKI_NOT_FOUND", 404);
+      }
+      const currentRev = effectiveHead.revision;
+      const oldEpoch = Number(
+        (headSnap.value as StoredWikiHead & { key_epoch?: number }).key_epoch ??
+          0,
+      );
+      const newEpoch = oldEpoch + 1;
+      const currentRevId = effectiveHead.revision_ids[String(currentRev)];
+      if (!currentRevId) {
+        throw new WikiRefusedError("WIKI_INTEGRITY_FAILURE", 409);
+      }
+      const currentDoc = await this.readRevisionWithKey(
+        currentRevId,
+        effectiveHead.content_key_hex,
+        signal,
+      );
+      const newKeyHex = await this.derivePageContentKeyHex(
+        validatedId,
+        newEpoch,
+      );
+      const rotatedRevId = await this.makeRevisionId(
+        validatedId,
+        currentRev,
+        `${idem}:epoch:${newEpoch}`,
+      );
+      await this.writeImmutableRevisionHeld(
+        currentDoc,
+        rotatedRevId,
+        newKeyHex,
+        signal,
+      );
+      const retiredIds = Object.values(effectiveHead.revision_ids).filter(
+        (rid) => rid !== rotatedRevId,
+      );
+      const updatedHead: StoredWikiHead & { key_epoch: number } = {
+        ...effectiveHead,
+        key_epoch: newEpoch,
+        content_key_hex: newKeyHex,
+        revision_ids: { [String(currentRev)]: rotatedRevId },
+      };
+      await this.writeJsonHeld(
+        "wiki:heads",
+        validatedId,
+        updatedHead,
+        headSnap.generation,
+        signal,
+      );
+      return {
+        page_id: validatedId,
+        revision: currentRev,
+        old_key_epoch: oldEpoch,
+        new_key_epoch: newEpoch,
+        key_destroyed: true,
+        retired_revision_count: retiredIds.length,
+        physical_erasure_supported: false,
+        blobs_deleted_count: 0,
+        physical_erasure_under_retention: false,
+      };
+    });
   }
 }
