@@ -110,6 +110,14 @@ subagents:
       statement itself has already consolidated it. Return JSON only and never
       include markdown or commentary.
 
+      When instrument_kind is requested, assess it from the statement's security
+      type, position description and section: ordinary corporate shares are
+      equity; bonds and bond funds are fixed_income; real-estate and commodity
+      funds are real_asset; cash, sweep and money-market positions are
+      cash_equivalent. Preserve the underlying category for ETFs and funds.
+      Ticker fragments and fragments of an issuer's name are not evidence of
+      an asset category. Return other or null when the evidence is unresolved.
+
       The caller supplies a deterministic page excerpt when available and may
       also supply the original PDF or CSV as a private model input. Do not
       expose document contents in telemetry or claim that a write occurred.

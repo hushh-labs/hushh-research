@@ -58,10 +58,12 @@ Rules:
   name, description,
   quantity, price, market_value, cost_basis,
   unrealized_gain_loss, unrealized_gain_loss_pct,
-  asset_type, sector, industry, account_id, currency, acquisition_date
+  asset_type, instrument_kind, sector, industry, account_id, currency, acquisition_date
 - if unknown, set null (do not invent)
 - fill account_id, currency and acquisition_date only when explicitly printed; use an ISO currency code and YYYY-MM-DD for the date
 - do not synthesize ticker from security name
+- include instrument_kind on every row: equity, fixed_income, real_asset,
+  cash_equivalent, other, or null when unresolved
 
 8) portfolio_summary contract (always include these keys inside portfolio_summary):
 - beginning_value

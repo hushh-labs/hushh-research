@@ -23,6 +23,7 @@ from hushh_mcp.hushh_adk.single_turn import (
     run_single_turn,
     single_turn_processing_scope,
 )
+from hushh_mcp.kai_import.schema_v2 import INSTRUMENT_KINDS_V2
 from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
@@ -55,12 +56,14 @@ _HOLDING_ROW_SCHEMA: dict[str, Any] = {
         "est_annual_income": _NUMBER,
         "est_yield": _NUMBER,
         "asset_type": _TEXT,
+        "instrument_kind": {"type": "STRING", "enum": list(INSTRUMENT_KINDS_V2), "nullable": True},
         "sector": _TEXT,
         "industry": _TEXT,
         "account_id": _TEXT,
         "currency": _TEXT,
         "acquisition_date": _TEXT,
     },
+    "required": ["instrument_kind"],
 }
 
 _STATEMENT_DETAILS_SCHEMA: dict[str, Any] = {

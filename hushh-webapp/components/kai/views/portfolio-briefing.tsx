@@ -139,7 +139,7 @@ export function PortfolioAnalysis({ model, loading = false }: { model?: Dashboar
   const buckets = model?.canonicalModel.allocation ?? [];
   const bucketCoverage = buckets.reduce((sum, { value }) => sum + value, 0) / total;
   const investedBuckets = buckets.filter(({ key }) =>
-    key === "equity" || key === "fixed_income" || key === "real_asset");
+    key === "equity" || key === "fixed_income" || key === "real_asset" || key === "other");
   const investedValue = investedBuckets.reduce((sum, { value }) => sum + value, 0);
   const investedWeight = investedValue / total;
   const hasCompleteBalances = bucketCoverage >= 0.99 && bucketCoverage <= 1.01

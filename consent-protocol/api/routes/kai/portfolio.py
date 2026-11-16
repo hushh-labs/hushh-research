@@ -71,6 +71,7 @@ from hushh_mcp.kai_import import (
     evaluate_import_quality_gate_v2,
 )
 from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
+from hushh_mcp.kai_import.schema_v2 import normalize_instrument_kind_v2
 from hushh_mcp.kai_import.statement_extract import build_raw_statement_extract
 from hushh_mcp.services.owner_placement_guard import hub_content_owner, require_hub_content_current
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -2438,29 +2439,11 @@ def _infer_instrument_kind_light(
     symbol: str,
     name: str,
     asset_type: str,
+    instrument_kind: object = None,
 ) -> tuple[str, bool]:
-    probe = f"{symbol} {name} {asset_type}".lower()
-    cash_markers = (
-        "cash",
-        "sweep",
-        "money market",
-        "settlement fund",
-        "brokerage cash",
-    )
-    if any(marker in probe for marker in cash_markers):
-        return "cash_equivalent", True
-
-    fixed_income_markers = ("bond", "treasury", "municipal", "fixed income", "cd ")
-    if any(marker in probe for marker in fixed_income_markers):
-        return "fixed_income", False
-
-    real_asset_markers = ("reit", "real estate", "commodity", "gold", "real asset")
-    if any(marker in probe for marker in real_asset_markers):
-        return "real_asset", False
-
-    if _PICK_TICKER_RE.match(symbol):
-        return "equity", False
-    return "other", False
+    """Compatibility facade: issuer names and ticker fragments never decide kind."""
+    kind = normalize_instrument_kind_v2(instrument_kind, asset_type)
+    return kind, kind == "cash_equivalent"
 
 
 def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str, Any]:
@@ -2496,16 +2479,15 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
         or ""
     )
 
-    # Prompt-trust mode does not fabricate symbols from names.
-    # Only normalize explicit statement identifiers; derive CASH when clearly implied.
-    if not symbol:
-        inferred_kind, inferred_cash = _infer_instrument_kind_light(
-            symbol="",
-            name=name,
-            asset_type=asset_type,
-        )
-        if inferred_cash:
-            symbol = "CASH"
+    instrument_kind, is_cash_equivalent = _infer_instrument_kind_light(
+        symbol=symbol,
+        name=name,
+        asset_type=asset_type,
+        instrument_kind=row.get("instrument_kind"),
+    )
+    # Only an explicitly classified cash position may receive the cash identifier.
+    if not symbol and is_cash_equivalent:
+        symbol = "CASH"
 
     quantity = _coerce_optional_number(_first_present(row, "quantity", "shares", "units", "qty"))
     market_value = _coerce_optional_number(
@@ -2529,11 +2511,6 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
         except Exception:
             price = None
 
-    instrument_kind, is_cash_equivalent = _infer_instrument_kind_light(
-        symbol=symbol,
-        name=name,
-        asset_type=asset_type,
-    )
     symbol_kind = "unknown"
     security_listing_status = "unknown"
     if is_cash_equivalent:
@@ -2542,7 +2519,8 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
     elif instrument_kind == "fixed_income":
         symbol_kind = "bond_or_fixed_income_id"
         security_listing_status = "fixed_income"
-    elif _PICK_TICKER_RE.match(symbol):
+    elif instrument_kind in {"equity", "real_asset"} and _PICK_TICKER_RE.match(symbol):
+        # Preserve the existing fund-vehicle exclusion independently of allocation kind.
         if any(token in f"{name} {asset_type}".lower() for token in ("etf", "fund")):
             symbol_kind = "fund_or_etf_ticker"
             security_listing_status = "non_sec_common_equity"
@@ -2608,7 +2586,9 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
         ),
         "instrument_kind": instrument_kind,
         "is_cash_equivalent": is_cash_equivalent,
-        "tradable": bool(_PICK_TICKER_RE.match(symbol)) and not is_cash_equivalent,
+        "tradable": bool(_PICK_TICKER_RE.match(symbol))
+        and instrument_kind != "other"
+        and not is_cash_equivalent,
         "is_investable": is_investable,
         "debate_eligible": is_investable,
         "optimize_eligible": is_investable,

@@ -78,6 +78,36 @@ describe("mapPortfolioToDashboardViewModel history", () => {
   });
 });
 
+describe("imported instrument allocation", () => {
+  it("keeps stock metadata authoritative over CD and gold issuer fragments", () => {
+    const model = mapPortfolioToDashboardViewModel({
+      holdings: [
+        { symbol: "MCD", name: "McDonald's Corporation", asset_type: "stock", market_value: 22892.26 },
+        { symbol: "GS", name: "The Goldman Sachs Group, Inc.", asset_type: "stock", market_value: 8564.26 },
+      ],
+      total_value: 31456.52,
+    } as PortfolioData);
+    expect(model.canonicalModel.positions.every((row) => row.assetBucket === "equity")).toBe(true);
+    expect(model.allocation).toHaveLength(1);
+    expect(model.allocation[0].name).toBe("Equities");
+    expect(model.allocation[0].value).toBeCloseTo(31456.52, 2);
+  });
+
+  it("preserves declared fund categories and unresolved classifications", () => {
+    const model = mapPortfolioToDashboardViewModel({
+      holdings: [
+        { symbol: "AGG", name: "Bond ETF", asset_type: "etf", instrument_kind: "fixed_income", market_value: 100 },
+        { symbol: "GLD", name: "Gold Shares ETF", asset_type: "etf", instrument_kind: "real_asset", market_value: 200 },
+        { symbol: "GS", name: "The Goldman Sachs Group, Inc.", asset_type: "stock", instrument_kind: "other", market_value: 300 },
+      ],
+      total_value: 600,
+    } as PortfolioData);
+    expect(Object.fromEntries(model.canonicalModel.positions.map((row) => [row.rawSymbol, row.assetBucket]))).toEqual({
+      AGG: "fixed_income", GLD: "real_asset", GS: "other",
+    });
+  });
+});
+
 
 describe("Portfolio display evidence", () => {
   it("keeps absent balances and cost basis unavailable instead of measured zero", () => {

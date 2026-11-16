@@ -4205,6 +4205,16 @@ If import cannot proceed, terminal events are:
 
 No silent success is emitted on terminal failures.
 
+Each extracted holding declares nullable `instrument_kind`: `equity`,
+`fixed_income`, `real_asset`, `cash_equivalent`, or `other`. The extractor owns
+this assessment from statement evidence, including the underlying category of
+funds. Normalization preserves valid declared kinds and accepts exact legacy
+`asset_type` aliases; ticker and issuer-name fragments do not decide allocation.
+Missing or unsupported categories remain unresolved instead of being inferred
+from a ticker. Review and dashboard allocation use this same metadata contract.
+This contract does not silently repair previously saved statement snapshots;
+their correction requires a separately verified owner-authorized path.
+
 ---
 
 ## Personal Mail / Drive connector lifecycle (UAT gated)
