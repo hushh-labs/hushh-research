@@ -43,6 +43,45 @@ export type OrganizationJob = {
   result?: { state: string; explanation: string };
   history?: Array<{ state: string; result?: { explanation: string } }>;
 };
+export type WikiSummaryPage = {
+  pageId: string;
+  title: string;
+  folder: string;
+  tldr: string;
+  revision: number;
+  updatedAt: number;
+};
+export type WikiCandidateItem = {
+  receiptId: string;
+  pageId: string;
+  claimId: string;
+  domain: string;
+  statement: string;
+  state: string;
+};
+export type WikiOverview = {
+  captureOptIn: boolean;
+  migrationState: string;
+  migrationRevision: number;
+  pages: WikiSummaryPage[];
+  candidateReceipts: WikiCandidateItem[];
+};
+export type WikiPageDetail = {
+  pageId: string;
+  title: string;
+  folder: string;
+  tldr: string;
+  body: string;
+  revision: number;
+  statusAsOf: string;
+  claims: Array<{
+    claimId: string;
+    statement: string;
+    status: string;
+    observedAt: string;
+    origins: string[];
+  }>;
+};
 
 async function json<T>(
   path: string,
@@ -318,6 +357,84 @@ export const FilesService = {
     }
   },
   sharedWiki: () => sharedWikiLibrary(),
+  wikiOverview: (signal?: AbortSignal) =>
+    json<WikiOverview>("wiki/overview", undefined, "GET", signal),
+  wikiPage: (pageId: string, signal?: AbortSignal) =>
+    json<WikiPageDetail>(
+      `wiki/page?${new URLSearchParams({ page_id: pageId })}`,
+      undefined,
+      "GET",
+      signal,
+    ),
+  wikiSetOptIn: (enabled: boolean, signal?: AbortSignal) =>
+    json<{ captureOptIn: boolean }>(
+      "wiki/opt-in",
+      { enabled },
+      "POST",
+      signal,
+    ),
+  wikiSavePage: (
+    input: {
+      pageId: string;
+      expectedRevision: number;
+      title: string;
+      tldr: string;
+      body: string;
+    },
+    signal?: AbortSignal,
+  ) =>
+    json<{ pageId: string; revision: number }>(
+      "wiki/page",
+      {
+        page_id: input.pageId,
+        expected_revision: input.expectedRevision,
+        title: input.title,
+        tldr: input.tldr,
+        body: input.body,
+        request_id: crypto.randomUUID(),
+      },
+      "POST",
+      signal,
+    ),
+  wikiConfirmCandidate: (receiptId: string, signal?: AbortSignal) =>
+    json<{ receiptId: string; state: string }>(
+      "wiki/confirm",
+      { receipt_id: receiptId, request_id: crypto.randomUUID() },
+      "POST",
+      signal,
+    ),
+  wikiForgetClaim: (
+    input: {
+      pageId: string;
+      claimId: string;
+      replacementStatement?: string;
+    },
+    signal?: AbortSignal,
+  ) =>
+    json<{
+      pageId: string;
+      revision: number;
+      outcomes: Record<string, boolean>;
+    }>(
+      "wiki/forget",
+      {
+        page_id: input.pageId,
+        claim_id: input.claimId,
+        ...(input.replacementStatement !== undefined
+          ? { replacement_statement: input.replacementStatement }
+          : {}),
+        request_id: crypto.randomUUID(),
+      },
+      "POST",
+      signal,
+    ),
+  wikiRollbackClassic: (signal?: AbortSignal) =>
+    json<{ migrationState: string; migrationRevision: number }>(
+      "wiki/rollback",
+      { request_id: crypto.randomUUID() },
+      "POST",
+      signal,
+    ),
 };
 
 const CHUNK_BYTES = 4 * 1024 * 1024;

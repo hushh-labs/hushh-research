@@ -1699,12 +1699,14 @@ tests/test_migration_ledger_atomicity_postgres.py
 tests/test_pod_browser_ssrf_and_dumpable_hardening.py
 tests/test_pod_custody_port_and_ace.py
 
-# Personal Wiki Memory (#9370 Phase 0, Phase 1 / #8814, Phase 2, & Phase 3): reserved scope guards, eval baseline, versioned wiki foundation, capture/recall, and PKM projections.
+# Personal Wiki Memory (#9370 Phase 0, Phase 1 / #8814, Phase 2, Phase 3, Phase 4, & Phase 5): reserved scope guards, eval baseline, versioned wiki foundation, capture/recall, PKM projections, cohort migration/Forget, and Floci wire conformance.
 tests/test_source_library_scope_policy.py
 tests/eval_wiki_memory/test_phase0_baseline.py
 tests/services/test_wiki_memory_foundation.py
 tests/services/test_wiki_capture_and_recall.py
 tests/services/test_wiki_pkm_projections.py
+tests/services/test_wiki_phase4_migration_and_forget.py
+tests/services/test_wiki_phase5_floci_conformance.py
 
 # Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
 tests/test_provider_capability_registry_and_aws_parity.py

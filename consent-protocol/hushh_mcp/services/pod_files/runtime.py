@@ -194,3 +194,21 @@ async def require_files_access(*, manage: bool = False) -> None:
     if check is None:
         raise FilesRefused("FILES_AUTHORITY_REQUIRED", 403)
     await check()
+
+
+async def run_wiki_maintenance_tick(
+    *,
+    idempotency_key: str,
+    reference_date: str | None = None,
+    max_pages_per_tick: int = 8,
+) -> dict[str, Any]:
+    """Execute one bounded, drain-fenced Personal Wiki maintenance tick on the owner pod."""
+    from hushh_mcp.services.wiki_memory import WikiMaintenanceRunner
+
+    async with wiki_operation(mutation=True) as wiki:
+        runner = WikiMaintenanceRunner(wiki)
+        return await runner.run_tick(
+            idempotency_key=idempotency_key,
+            reference_date=reference_date,
+            max_pages_per_tick=max_pages_per_tick,
+        )

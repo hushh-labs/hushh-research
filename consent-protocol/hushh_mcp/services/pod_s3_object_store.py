@@ -249,6 +249,47 @@ class S3ObjectStore:
     async def delete(self, key: str) -> bool:
         return await asyncio.to_thread(self.delete_blocking, key)
 
+    def list_page_blocking(
+        self, prefix: str, cursor: str = "", limit: int = 100
+    ) -> tuple[list[str], str]:
+        if not 1 <= limit <= 100 or len(cursor) > 4096:
+            raise ValueError("invalid page request")
+        root = "/".join(self._prefix_segments + object_key_segments(prefix)) + "/"
+        kwargs: dict[str, Any] = {
+            "Bucket": self._location.bucket,
+            "Prefix": root,
+            "MaxKeys": limit,
+        }
+        if cursor:
+            kwargs["ContinuationToken"] = cursor
+        client = self._s3()
+        try:
+            resp = client.list_objects_v2(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            code, status = self._error_code(exc)
+            if status in {401, 403} or code in {"AccessDenied", "InvalidAccessKeyId"}:
+                raise PodMultiCloudStorageForbidden("S3 refused this pod's identity") from None
+            if status == 404 or code == "NoSuchBucket":
+                return [], ""
+            raise PodMultiCloudStorageError("S3 listing failed") from None
+        names: list[str] = []
+        for entry in resp.get("Contents") or []:
+            full_name = str(entry.get("Key") or "")
+            if not full_name.startswith(root) or len(names) >= limit:
+                raise PodMultiCloudStorageError("S3 listing escaped prefix or page bound")
+            relative = (
+                full_name[len(self._location.prefix) + 1 :] if self._location.prefix else full_name
+            )
+            object_key_segments(relative)
+            names.append(relative)
+        next_token = str(resp.get("NextContinuationToken") or "") if resp.get("IsTruncated") else ""
+        return names, next_token
+
+    async def list_page(
+        self, prefix: str, cursor: str = "", limit: int = 100
+    ) -> tuple[list[str], str]:
+        return await asyncio.to_thread(self.list_page_blocking, prefix, cursor, limit)
+
 
 class PrefixTokenObjectStore:
     """Prefix-scoped HTTPS bearer ObjectStore for zero-per-user-IAM-SA hosted cells / ACE.
@@ -482,3 +523,44 @@ class PrefixTokenObjectStore:
 
     async def delete(self, key: str) -> bool:
         return await asyncio.to_thread(self.delete_blocking, key)
+
+    def list_page_blocking(
+        self, prefix: str, cursor: str = "", limit: int = 100
+    ) -> tuple[list[str], str]:
+        if not 1 <= limit <= 100 or len(cursor) > 4096:
+            raise ValueError("invalid page request")
+        url = self._url(prefix)
+        response = self._request(
+            "get",
+            url,
+            {},
+            params={"list": "1", "cursor": cursor, "limit": str(limit)},
+        )
+        try:
+            status = getattr(response, "status_code", 0)
+            if status == 404:
+                return [], ""
+            if status != 200:
+                raise PodMultiCloudStorageError("prefix object store listing failed")
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise PodMultiCloudStorageError("prefix object store listing malformed")
+            root_rel = "/".join(object_key_segments(prefix)) + "/"
+            names: list[str] = []
+            for raw_item in payload.get("items") or []:
+                rel = str(raw_item or "")
+                if not rel.startswith(root_rel) or len(names) >= limit:
+                    raise PodMultiCloudStorageError("prefix listing escaped prefix or page bound")
+                object_key_segments(rel)
+                names.append(rel)
+            next_cursor = str(payload.get("cursor") or "")
+            if len(next_cursor) > 4096:
+                raise PodMultiCloudStorageError("prefix listing cursor invalid")
+            return names, next_cursor
+        finally:
+            response.close()
+
+    async def list_page(
+        self, prefix: str, cursor: str = "", limit: int = 100
+    ) -> tuple[list[str], str]:
+        return await asyncio.to_thread(self.list_page_blocking, prefix, cursor, limit)

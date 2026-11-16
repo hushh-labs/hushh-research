@@ -42,7 +42,9 @@ export function FilesWorkspace() {
   const [cursor, setCursor] = useState("");
   const [trash, setTrash] = useState(false);
   const [query, setQuery] = useState("");
-  const [panel, setPanel] = useState<"activity" | "settings" | null>(null);
+  const [panel, setPanel] = useState<"activity" | "settings" | "wiki" | null>(
+    null,
+  );
   const [settings, setSettings] = useState<FilesSettings | null>(null);
   const [filesActivationAvailable, setFilesActivationAvailable] =
     useState(false);
@@ -303,6 +305,7 @@ export function FilesWorkspace() {
                 onTrash={() => setTrash(!trash)}
                 onSettings={() => setPanel("settings")}
                 onActivity={() => setPanel("activity")}
+                onWiki={() => setPanel("wiki")}
                 onQuery={setQuery}
                 onRefresh={() =>
                   void act(() => load(), "Files refreshed", false)
