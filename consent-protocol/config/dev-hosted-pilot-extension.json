@@ -1,26 +1,5 @@
 {
-  "schemaVersion": 1,
-  "policyId": "7c3d5e91-4b28-4e62-9f14-8a05d1c32611",
-  "environment": "dev",
-  "slotNumber": 3,
-  "sourceRevision": "9368735abdac23ee0e7c93f8d9aa9bc6928e5961",
-  "imageDigest": "sha256:da9e0dc9c1a15e07f87c4a8d0b64a518b2d0fc6d3658d6e9f2e947f897213b43",
-  "workBudgetCents": 20000,
-  "cleanupReserveCents": 5000,
-  "createdAt": "2026-11-16T08:00:00+00:00",
-  "expiresAt": "2026-11-23T08:00:00+00:00",
-  "modelBinding": {
-    "provider": "gemini",
-    "model": "gemini-4-hydrogen",
-    "project": "hushh-pda-dev",
-    "profileHash": "4e7aecc9981f633d472e1dd40061177a9b46759e5d4e626c251675346d874ce5"
-  },
   "assignment": {
-    "ownerHash": "sha256:c97551ab19eb74268232915e49084592457e1d944749e5d371a3d7662c3f23e4",
-    "hushhId": "ha1_mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
-    "project": "hussh-hp-c97551ab-261116c",
-    "projectNumber": null,
-    "region": "us-central1",
     "bootstrapContract": {
       "plan": {
         "tenancy": "hussh-hosted",
@@ -39,7 +18,10 @@
             "type": "gcs_bucket",
             "id": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-blobs",
             "purpose": "per-user-encrypted blob storage near the agent",
-            "encryption": "cmek:one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key"
+            "encryption": "cmek:one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key",
+            "softDeletePolicy": {
+              "retentionDurationSeconds": "0"
+            }
           },
           {
             "type": "service_account",
@@ -56,7 +38,7 @@
             "type": "cloud_run_service",
             "id": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
             "image": "us-central1-docker.pkg.dev/hussh-hp-c97551ab-261116c/one-pod/consent-protocol-pod",
-            "source_image": "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:da9e0dc9c1a15e07f87c4a8d0b64a518b2d0fc6d3658d6e9f2e947f897213b43",
+            "source_image": "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:223922bcb0505943c9a78d3844b5093e3e2172f543ff812d988eb069ec69d3f1",
             "ingress": "all",
             "service_account": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
             "purpose": "the sovereign per-user pod (slim image), pulled from your own repo"
@@ -185,11 +167,13 @@
         "iam_pod_sa_quota"
       ]
     },
+    "hushhId": "ha1_mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
+    "ownerHash": "sha256:c97551ab19eb74268232915e49084592457e1d944749e5d371a3d7662c3f23e4",
     "preparationContract": {
-      "parentType": "folder",
-      "parentId": "1085913534660",
       "billingAccount": "billingAccounts/012F27-3B760F-342498",
       "operatorPrincipalHash": "sha256:251ac0f9ef1bc9f55be7e0513806eb120c68810bb368797c6de42ed9b5970cce",
+      "parentId": "1085913534660",
+      "parentType": "folder",
       "projectedWorkCents": 10000,
       "steps": [
         "create_project",
@@ -198,6 +182,25 @@
         "inference_vertex",
         "inference_quota"
       ]
-    }
-  }
+    },
+    "project": "hussh-hp-c97551ab-261116c",
+    "projectNumber": null,
+    "region": "us-central1"
+  },
+  "cleanupReserveCents": 5000,
+  "createdAt": "2026-11-16T08:00:00+00:00",
+  "environment": "dev",
+  "expiresAt": "2026-11-23T08:00:00+00:00",
+  "imageDigest": "sha256:223922bcb0505943c9a78d3844b5093e3e2172f543ff812d988eb069ec69d3f1",
+  "modelBinding": {
+    "model": "gemini-4-hydrogen",
+    "profileHash": "4e7aecc9981f633d472e1dd40061177a9b46759e5d4e626c251675346d874ce5",
+    "project": "hushh-pda-dev",
+    "provider": "gemini"
+  },
+  "policyId": "7c3d5e91-4b28-4e62-9f14-8a05d1c32611",
+  "schemaVersion": 1,
+  "slotNumber": 3,
+  "sourceRevision": "6b8f8ca831022a59a7b6b9418da70e383ba1cccd",
+  "workBudgetCents": 20000
 }
