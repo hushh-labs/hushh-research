@@ -21,6 +21,7 @@ export const SUPERSEDED_KEY = "superseded";
 /** Bookkeeping the writer owns; never compared, never kept as history. */
 const BOOKKEEPING_KEYS: ReadonlySet<string> = new Set([
   SUPERSEDED_KEY,
+  "_wiki_projections",
   "created_at",
   "updated_at",
   "entity_id",

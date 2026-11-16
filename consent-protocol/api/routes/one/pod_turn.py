@@ -929,7 +929,24 @@ async def pod_turn_route(
         if bearer(authorization):
             authority, claims = _direct_turn_session(authorization)
             return await _run_direct_turn(payload, authorization, authority, claims)
-    return await _bounded_turn(run_pod_turn(payload=payload, consent_token=x_consent_token or ""))
+    from hushh_mcp.services.pod_files.library import FilesRefused  # noqa: PLC0415
+    from hushh_mcp.services.pod_files.runtime import files_access  # noqa: PLC0415
+    from hushh_mcp.services.pod_role import require_serving_role  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import active_session_authority  # noqa: PLC0415
+
+    async def relayed_files_read() -> None:
+        await require_serving_role()
+        authority = active_session_authority()
+        if authority is not None:
+            await authority.require_held()
+
+    async def relayed_files_manage() -> None:
+        raise FilesRefused("FILES_MANAGE_SCOPE_REQUIRED", 403)
+
+    with files_access(relayed_files_read, manage=relayed_files_manage):
+        return await _bounded_turn(
+            run_pod_turn(payload=payload, consent_token=x_consent_token or "")
+        )
 
 
 def _direct_turn_session(authorization: str | None) -> tuple[Any, dict]:

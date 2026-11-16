@@ -3377,6 +3377,13 @@ export class PersonalKnowledgeModelService {
     mergeDecision?: PkmMergeDecision;
     manifest?: DomainManifest;
     writeProjections?: PkmWriteProjection[];
+    wikiProjectionStates?: Record<
+      string,
+      {
+        state: import("@/lib/personal-knowledge-model/manifest").PkmScopeMaterializationState;
+        receipt_id?: string | null;
+      }
+    >;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
@@ -3420,6 +3427,7 @@ export class PersonalKnowledgeModelService {
       semanticManifests: previousManifest
         && (!previousManifest.user_id || previousManifest.user_id === params.userId)
         ? [previousManifest] : [],
+      wikiProjectionStates: params.wikiProjectionStates,
     });
     const nextManifest = params.manifest || structureArtifacts.manifest;
     const nextStructureDecision =
@@ -3508,6 +3516,13 @@ export class PersonalKnowledgeModelService {
     structureDecision?: Record<string, unknown>;
     manifest?: DomainManifest | null;
     writeProjections?: PkmWriteProjection[];
+    wikiProjectionStates?: Record<
+      string,
+      {
+        state: import("@/lib/personal-knowledge-model/manifest").PkmScopeMaterializationState;
+        receipt_id?: string | null;
+      }
+    >;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
@@ -3547,6 +3562,13 @@ export class PersonalKnowledgeModelService {
     structureDecision?: Record<string, unknown>;
     manifest?: DomainManifest | null;
     writeProjections?: PkmWriteProjection[];
+    wikiProjectionStates?: Record<
+      string,
+      {
+        state: import("@/lib/personal-knowledge-model/manifest").PkmScopeMaterializationState;
+        receipt_id?: string | null;
+      }
+    >;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
@@ -3592,6 +3614,7 @@ export class PersonalKnowledgeModelService {
           && (!manifest.user_id || manifest.user_id === params.userId)
       ),
       semanticDecision: params.structureDecision,
+      wikiProjectionStates: params.wikiProjectionStates,
     });
     const manifest =
       useCallerArtifacts && params.manifest ? params.manifest : fallbackArtifacts.manifest;

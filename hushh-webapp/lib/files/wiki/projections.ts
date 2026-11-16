@@ -35,10 +35,147 @@ const SPECIALIST_AUTHORITIES: ReadonlyArray<
   ["consent", ["consent", "active_grants", "scopes"]],
 ];
 
+const SKIPPED_BOOKKEEPING_KEYS: ReadonlySet<string> = new Set([
+  "_wiki_projections",
+  "superseded",
+  "source_receipts",
+  "created_at",
+  "updated_at",
+  "observed_at",
+  "last_updated_at",
+]);
+
 function normalizeScalar(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "object") return "";
   return String(value).trim().toLowerCase();
+}
+
+function flattenScalarLeaves(
+  node: unknown,
+  prefix = "",
+  maxDepth = 8,
+): Array<readonly [string, string]> {
+  if (
+    maxDepth < 0 ||
+    !node ||
+    typeof node !== "object" ||
+    Array.isArray(node)
+  ) {
+    return [];
+  }
+  const leaves: Array<readonly [string, string]> = [];
+  for (const [rawKey, child] of Object.entries(node as Record<string, unknown>)) {
+    const key = rawKey.trim().toLowerCase();
+    if (!key || key.startsWith("_") || SKIPPED_BOOKKEEPING_KEYS.has(key)) {
+      continue;
+    }
+    const fullPath = prefix ? `${prefix}.${key}` : key;
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      leaves.push(...flattenScalarLeaves(child, fullPath, maxDepth - 1));
+    } else if (Array.isArray(child)) {
+      if (
+        child.length > 0 &&
+        child.every((item) => item === null || typeof item !== "object")
+      ) {
+        const joined = child
+          .map((item) => normalizeScalar(item))
+          .filter(Boolean)
+          .join(", ");
+        if (joined) leaves.push([fullPath, joined]);
+      }
+    } else {
+      const norm = normalizeScalar(child);
+      if (norm) leaves.push([fullPath, norm]);
+    }
+  }
+  return leaves;
+}
+
+function getNestedLeaf(
+  domainData: Record<string, unknown>,
+  jsonPath: string,
+): unknown {
+  let current: unknown = domainData;
+  for (const segment of jsonPath.split(".")) {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      Array.isArray(current) ||
+      !Object.prototype.hasOwnProperty.call(current, segment)
+    ) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+export function detectExistingDomainConflict(input: {
+  claimStatement: string;
+  targetDomain: string;
+  jsonPath: string;
+  proposedValue?: unknown;
+  existingDomainData?: Record<string, unknown> | null;
+}): SpecialistDisagreementMetadata | null {
+  const domainData = input.existingDomainData;
+  if (!domainData || typeof domainData !== "object") return null;
+  const existingVal = getNestedLeaf(domainData, input.jsonPath);
+  if (existingVal === undefined || existingVal === null) return null;
+
+  const provenanceMap = domainData._wiki_projections;
+  if (
+    provenanceMap &&
+    typeof provenanceMap === "object" &&
+    !Array.isArray(provenanceMap)
+  ) {
+    const prov = (provenanceMap as Record<string, unknown>)[input.jsonPath];
+    if (
+      prov &&
+      typeof prov === "object" &&
+      typeof (prov as Record<string, unknown>).receipt_id === "string"
+    ) {
+      return null;
+    }
+  }
+
+  if (typeof existingVal === "object") {
+    const nonEmpty = Array.isArray(existingVal)
+      ? existingVal.length > 0
+      : Object.keys(existingVal).length > 0;
+    if (nonEmpty) {
+      return {
+        authority: input.targetDomain,
+        reason: "existing_pkm_structure_conflict",
+        path: `${input.targetDomain}.${input.jsonPath}`.slice(0, 128),
+      };
+    }
+    return null;
+  }
+
+  const normExisting = normalizeScalar(existingVal);
+  if (!normExisting) return null;
+  const normProposed = normalizeScalar(input.proposedValue);
+  const stmtLower = input.claimStatement.trim().toLowerCase();
+  if (normProposed) {
+    if (normProposed !== normExisting) {
+      return {
+        authority: input.targetDomain,
+        reason: "existing_pkm_value_conflict",
+        path: `${input.targetDomain}.${input.jsonPath}`.slice(0, 128),
+      };
+    }
+    return null;
+  }
+  if (normExisting !== stmtLower && !stmtLower.includes(normExisting)) {
+    return {
+      authority: input.targetDomain,
+      reason: "existing_pkm_value_conflict",
+      path: `${input.targetDomain}.${input.jsonPath}`.slice(0, 128),
+    };
+  }
+  return null;
 }
 
 export function detectSpecialistDisagreement(input: {
@@ -51,7 +188,8 @@ export function detectSpecialistDisagreement(input: {
   const snapshot = input.specialistSnapshot;
   if (!snapshot || typeof snapshot !== "object") return null;
 
-  const leafKey = (input.jsonPath.split(".").pop() ?? "").trim().toLowerCase();
+  const normTargetPath = input.jsonPath.trim().toLowerCase();
+  const leafKey = (normTargetPath.split(".").pop() ?? "").trim().toLowerCase();
   const stmtLower = input.claimStatement.trim().toLowerCase();
   const normProposed = normalizeScalar(input.proposedValue);
 
@@ -66,14 +204,11 @@ export function detectSpecialistDisagreement(input: {
     }
     if (!branch) continue;
 
-    for (const [specPath, specVal] of Object.entries(branch)) {
-      const normSpecKey = specPath.trim().toLowerCase();
+    for (const [normSpecKey, normSpecVal] of flattenScalarLeaves(branch)) {
       const keyLeaf = normSpecKey.split(".").pop() ?? "";
-      const normSpecVal = normalizeScalar(specVal);
-      if (!normSpecVal) continue;
-
       const sameSlot =
-        normSpecKey === input.jsonPath ||
+        normSpecKey === normTargetPath ||
+        normSpecKey.endsWith(`.${normTargetPath}`) ||
         (Boolean(keyLeaf) && keyLeaf === leafKey);
       if (sameSlot) {
         if (normProposed && normProposed !== normSpecVal) {
@@ -154,6 +289,7 @@ export class SharedWikiProjectionEngine {
       requireOwnerConfirmation?: boolean;
       proposedValue?: unknown;
       specialistSnapshot?: Record<string, unknown> | null;
+      existingDomainData?: Record<string, unknown> | null;
       sourceRevision?: number;
     },
     signal?: AbortSignal,
@@ -261,13 +397,21 @@ export class SharedWikiProjectionEngine {
     ) {
       state = "conflicted";
     } else {
-      const detected = detectSpecialistDisagreement({
-        claimStatement: claim.statement,
-        targetDomain: domain,
-        jsonPath: path,
-        proposedValue: input.proposedValue,
-        specialistSnapshot: input.specialistSnapshot,
-      });
+      const detected =
+        detectSpecialistDisagreement({
+          claimStatement: claim.statement,
+          targetDomain: domain,
+          jsonPath: path,
+          proposedValue: input.proposedValue,
+          specialistSnapshot: input.specialistSnapshot,
+        }) ??
+        detectExistingDomainConflict({
+          claimStatement: claim.statement,
+          targetDomain: domain,
+          jsonPath: path,
+          proposedValue: input.proposedValue,
+          existingDomainData: input.existingDomainData,
+        });
       if (detected) {
         disagreement = detected;
         state = "conflicted";
@@ -309,7 +453,9 @@ export class SharedWikiProjectionEngine {
     receiptId: string,
     options: {
       idempotencyKey: string;
+      proposedValue?: unknown;
       specialistSnapshot?: Record<string, unknown> | null;
+      existingDomainData?: Record<string, unknown> | null;
     },
     signal?: AbortSignal,
   ): Promise<WikiProjectionReceipt> {
@@ -333,7 +479,9 @@ export class SharedWikiProjectionEngine {
         idempotencyKey: options.idempotencyKey,
         activeRecipientCount: 1,
         ownerConfirmed: true,
+        proposedValue: options.proposedValue,
         specialistSnapshot: options.specialistSnapshot,
+        existingDomainData: options.existingDomainData,
         sourceRevision: existing.source_revision + 1,
       },
       signal,

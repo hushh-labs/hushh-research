@@ -120,6 +120,10 @@
     "profile_research_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "pkm_structure_agent": {"feature": "memory", "class": "memory_agent", "surfaces": [], "authorization_modes": []},
 
+    "one_wiki_opt_in_auto_save": {"feature": "one_wiki", "class": "memory_agent", "surfaces": ["chat", "web"], "authorization_modes": ["owner_auto_save_policy"]},
+    "one_wiki_candidate_confirm": {"feature": "one_wiki", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wiki_claim_forget": {"feature": "one_wiki", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+
     "pkm_upgrade_orchestrator": {"feature": "pkm_upgrade", "class": "migration", "surfaces": ["system_upgrade"], "authorization_modes": ["upgrade_claim"]}
   },
 

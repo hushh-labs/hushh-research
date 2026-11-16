@@ -411,10 +411,11 @@ def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
 
 
 _LOAD_MEMORY_TOOL = "load_memory"
+_WIKI_RECALL_TOOLS = frozenset({"search_wiki", "read_wiki_page", "trace_claim"})
 
 
 def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dict[str, Any]]:
-    """Read observed ``load_memory`` calls and responses off One's events.
+    """Read observed ``load_memory`` and Personal Wiki recall calls/responses off One's events.
 
     The north star credits recall only as an OBSERVED tool call, so the report
     is built from the function-call and function-response parts ADK appends,
@@ -423,8 +424,7 @@ def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dic
     * a call: ``{"queryChars": n, "hits": None, "backend": ...}`` (the query is the
       person's own words; only its length is kept);
     * a response: ``{"queryChars": None, "hits": k, "backend": ...}`` where ``k`` is
-      the number of memories returned (ADK wraps a ``LoadMemoryResponse`` as
-      ``{"result": {"memories": [...]}}``; a bare ``{"memories": [...]}`` is read too).
+      the number of memories/wiki records returned.
 
     The caller pairs a response with the call before it. Text never leaves here.
     """
@@ -433,34 +433,62 @@ def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dic
     out: list[dict[str, Any]] = []
     get_calls = getattr(event, "get_function_calls", None)
     for call in (get_calls() if callable(get_calls) else None) or []:
-        if str(getattr(call, "name", "") or "") != _LOAD_MEMORY_TOOL:
-            continue
-        args = getattr(call, "args", None)
-        query = args.get("query") if isinstance(args, dict) else None
-        out.append(
-            {
-                "queryChars": len(str(query)) if isinstance(query, str) else 0,
-                "hits": None,
-                "backend": backend,
-            }
-        )
+        call_name = str(getattr(call, "name", "") or "")
+        if call_name == _LOAD_MEMORY_TOOL:
+            args = getattr(call, "args", None)
+            query = args.get("query") if isinstance(args, dict) else None
+            out.append(
+                {
+                    "queryChars": len(str(query)) if isinstance(query, str) else 0,
+                    "hits": None,
+                    "backend": backend,
+                }
+            )
+        elif call_name in _WIKI_RECALL_TOOLS:
+            args = getattr(call, "args", None)
+            raw_arg = (
+                args.get("query") or args.get("page_id") or args.get("claim_id")
+                if isinstance(args, dict)
+                else None
+            )
+            out.append(
+                {
+                    "queryChars": len(str(raw_arg)) if isinstance(raw_arg, str) else 0,
+                    "hits": None,
+                    "backend": "pod_wiki",
+                }
+            )
     get_responses = getattr(event, "get_function_responses", None)
     for reply in (get_responses() if callable(get_responses) else None) or []:
-        if str(getattr(reply, "name", "") or "") != _LOAD_MEMORY_TOOL:
-            continue
+        reply_name = str(getattr(reply, "name", "") or "")
         response = getattr(reply, "response", None)
-        memories: Any = None
-        if isinstance(response, dict):
-            memories = response.get("memories")
-            if memories is None and isinstance(response.get("result"), dict):
-                memories = response["result"].get("memories")
-        out.append(
-            {
-                "queryChars": None,
-                "hits": len(memories) if isinstance(memories, list) else 0,
-                "backend": backend,
-            }
-        )
+        if reply_name == _LOAD_MEMORY_TOOL:
+            memories: Any = None
+            if isinstance(response, dict):
+                memories = response.get("memories")
+                if memories is None and isinstance(response.get("result"), dict):
+                    memories = response["result"].get("memories")
+            out.append(
+                {
+                    "queryChars": None,
+                    "hits": len(memories) if isinstance(memories, list) else 0,
+                    "backend": backend,
+                }
+            )
+        elif reply_name in _WIKI_RECALL_TOOLS:
+            wiki_hits = 0
+            if isinstance(response, dict) and response.get("status") in {"ok", "conflicted"}:
+                if isinstance(response.get("results"), list):
+                    wiki_hits = len(response["results"])
+                elif response.get("page_id") or response.get("claim"):
+                    wiki_hits = 1
+            out.append(
+                {
+                    "queryChars": None,
+                    "hits": wiki_hits,
+                    "backend": "pod_wiki",
+                }
+            )
     return out
 
 
@@ -648,6 +676,21 @@ async def _stream_one_text_turn_once(
     )
     # The always-on curated digest (pod only; empty string and False on the hub).
     memory_digest = await _memory_digest(memory_service)
+    from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
+        STATE_WIKI_HOT_DIGEST,
+        build_wiki_hot_digest_context,
+        optional_pod_wiki_library,
+        read_fenced_pod_wiki_hot_digest,
+    )
+
+    wiki_hot_digest = await read_fenced_pod_wiki_hot_digest()
+    if not wiki_hot_digest:
+        wiki_lib = optional_pod_wiki_library()
+        if wiki_lib is not None:
+            try:
+                wiki_hot_digest = await build_wiki_hot_digest_context(wiki_lib)
+            except Exception as exc:  # noqa: BLE001 - wiki hot digest degrades cleanly
+                logger.warning("one_text_turn.wiki_digest_failed error=%s", type(exc).__name__)
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
         user_id=session_key,
@@ -658,6 +701,7 @@ async def _stream_one_text_turn_once(
             else time.time(),
             STATE_MEMORY_AVAILABLE: memory_service is not None,
             STATE_MEMORY_DIGEST: memory_digest,
+            **({STATE_WIKI_HOT_DIGEST: wiki_hot_digest} if wiki_hot_digest else {}),
             STATE_USER_ID: clean_user_id,
             STATE_CONSENT_TOKEN: str(consent_token or "").strip(),
             STATE_CONVERSATION_ID: clean_conversation_id,
@@ -871,26 +915,10 @@ async def _memory_digest(memory_service: Any) -> str:
     try:
         from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
 
-        curated = str(await digest(active_pod_config().memory_digest_max_chars) or "")
+        return str(await digest(active_pod_config().memory_digest_max_chars) or "")
     except Exception as error:  # noqa: BLE001 - a digest must never cost the answer
         logger.warning("one_text_turn.memory_digest_failed error=%s", type(error).__name__)
-        curated = ""
-    try:
-        from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
-            build_wiki_hot_digest_context,
-            optional_pod_wiki_library,
-        )
-        from hushh_mcp.services.wiki_memory.contracts import WIKI_HOT_MAX_CHARS  # noqa: PLC0415
-
-        wiki_lib = optional_pod_wiki_library()
-        if wiki_lib is not None:
-            remaining = max(0, WIKI_HOT_MAX_CHARS - len(curated) - (2 if curated else 0))
-            wiki_hot = await build_wiki_hot_digest_context(wiki_lib, max_chars=remaining)
-            if wiki_hot:
-                return f"{curated}\n\n{wiki_hot}" if curated else wiki_hot
-    except Exception as error:  # noqa: BLE001 - wiki hot digest degrades cleanly
-        logger.warning("one_text_turn.wiki_digest_failed error=%s", type(error).__name__)
-    return curated
+        return ""
 
 
 async def _catch_up_memory_review(

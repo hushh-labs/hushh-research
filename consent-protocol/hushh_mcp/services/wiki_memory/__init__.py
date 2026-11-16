@@ -63,6 +63,7 @@ from .projections import (
     WIKI_CLAIM_PROJECTION_MAX_TOTAL_CHARS,
     WIKI_CLAIM_PROJECTION_PROFILE,
     WikiProjectionEngine,
+    detect_existing_domain_conflict,
     detect_specialist_disagreement,
     resolve_top_level_projection_state,
 )
@@ -112,6 +113,7 @@ __all__ = [
     "WikiRefused",
     "WikiSourceRef",
     "WikiTombstone",
+    "detect_existing_domain_conflict",
     "detect_specialist_disagreement",
     "extract_archive_json_documents",
     "extract_inline_links",

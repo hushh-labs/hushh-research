@@ -13,20 +13,24 @@ def validate_one_tool_result_history(callback_context: Any, llm_request: Any) ->
 
 def _receipt_placeholder_matches(event: Any, result: Any, expected_name: str | None) -> bool:
     from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+    from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
 
     # Tool-only AG-UI handback stores a value-free result with its exact call ID.
-    # Receipt admission checks the actual values separately before this callback.
-    return (
-        event.author == "user"
-        and bool(result.id)
-        and result.name == "unknown"
-        and expected_name in RECEIPT_TOOL_NAMES
-        and result.response
-        in (
+    # Receipt and Wiki admission check actual values separately before this callback.
+    if event.author != "user" or not bool(result.id) or result.name != "unknown":
+        return False
+    if expected_name in RECEIPT_TOOL_NAMES:
+        return result.response in (
             {"schema": "receipt_result.v1", "operation": expected_name, "ephemeral_result": True},
             {"content_redacted": True},
         )
-    )
+    if expected_name in WIKI_TOOL_NAMES:
+        return result.response == {
+            "schema": "wiki_result.v1",
+            "operation": expected_name,
+            "ephemeral_result": True,
+        } or (isinstance(result.response, dict) and result.response.get("content_redacted") is True)
+    return False
 
 
 def normalize_tool_results(contents: list[Any]) -> tuple[list[Any], int, int]:

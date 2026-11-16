@@ -2,21 +2,45 @@ import { ApiService } from "@/lib/services/api-service";
 import type { SharedFilesAccess } from "./shared/store";
 import { SharedFilesAdapter } from "./shared/adapter";
 import { SharedWikiLibrary, WikiRefusedError } from "./wiki";
-import { bindActiveSharedWiki } from "./wiki/active-shared-wiki";
+import {
+  bindActiveSharedWiki,
+  ensureActiveSharedWiki,
+} from "./wiki/active-shared-wiki";
 
 type Connection = {
+  access: SharedFilesAccess;
   shared: SharedFilesAdapter | null;
   wiki: SharedWikiLibrary | null;
   check: () => void;
 };
 let connection: Connection | null = null;
+
 export function bindFilesConnection(
   access: SharedFilesAccess,
   shared: boolean,
 ): () => void {
+  const scopedWiki = shared
+    ? ensureActiveSharedWiki({
+        userId: access.owner,
+        vaultKey: access.vaultKey,
+        vaultOwnerToken: access.ownerToken,
+        readToken: () => {
+          try {
+            access.check();
+            return access.ownerToken;
+          } catch {
+            return null;
+          }
+        },
+      }) ?? new SharedWikiLibrary(access)
+    : null;
   const owned: Connection = {
-    shared: shared ? new SharedFilesAdapter(access) : null,
-    wiki: shared ? new SharedWikiLibrary(access) : null,
+    access,
+    shared:
+      shared && scopedWiki
+        ? new SharedFilesAdapter(access, scopedWiki)
+        : null,
+    wiki: scopedWiki,
     check: access.check,
   };
   connection = owned;
@@ -26,6 +50,18 @@ export function bindFilesConnection(
     if (connection === owned) connection = null;
   };
 }
+
+export function activeFilesAccess(): SharedFilesAccess | null {
+  const owned = connection;
+  if (!owned) return null;
+  try {
+    owned.check();
+    return owned.access;
+  } catch {
+    return null;
+  }
+}
+
 export function sharedWikiLibrary(): SharedWikiLibrary {
   const owned = connection;
   if (!owned) throw new Error("FILES_UNLOCK_REQUIRED");
@@ -35,6 +71,7 @@ export function sharedWikiLibrary(): SharedWikiLibrary {
   }
   return owned.wiki;
 }
+
 export async function filesRequest(
   path: string,
   init: RequestInit = {},

@@ -50,12 +50,114 @@ _SPECIALIST_AUTHORITIES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+_SKIPPED_BOOKKEEPING_KEYS: frozenset[str] = frozenset(
+    {
+        "_wiki_projections",
+        "superseded",
+        "source_receipts",
+        "created_at",
+        "updated_at",
+        "observed_at",
+        "last_updated_at",
+    }
+)
+
+
 def _normalize_scalar(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
     return str(value).strip().lower()
+
+
+def _flatten_scalar_leaves(
+    node: Any,
+    prefix: str = "",
+    *,
+    max_depth: int = 8,
+) -> list[tuple[str, str]]:
+    if max_depth < 0 or not isinstance(node, dict):
+        return []
+    leaves: list[tuple[str, str]] = []
+    for raw_key, child in node.items():
+        key = str(raw_key).strip().lower()
+        if not key or key.startswith("_") or key in _SKIPPED_BOOKKEEPING_KEYS:
+            continue
+        full_path = f"{prefix}.{key}" if prefix else key
+        if isinstance(child, dict):
+            leaves.extend(_flatten_scalar_leaves(child, full_path, max_depth=max_depth - 1))
+        elif isinstance(child, list):
+            if child and all(not isinstance(item, (dict, list)) for item in child):
+                joined = ", ".join(norm for item in child if (norm := _normalize_scalar(item)))
+                if joined:
+                    leaves.append((full_path, joined))
+        else:
+            norm = _normalize_scalar(child)
+            if norm:
+                leaves.append((full_path, norm))
+    return leaves
+
+
+def _get_nested_leaf(domain_data: dict[str, Any], json_path: str) -> Any:
+    current: Any = domain_data
+    for segment in json_path.split("."):
+        if not isinstance(current, dict) or segment not in current:
+            return None
+        current = current[segment]
+    return current
+
+
+def detect_existing_domain_conflict(
+    *,
+    claim_statement: str,
+    target_domain: str,
+    json_path: str,
+    claim_id: str | None = None,
+    proposed_value: Any = None,
+    existing_domain_data: dict[str, Any] | None = None,
+) -> dict[str, str] | None:
+    """Protect pre-existing non-wiki PKM domain leaves from silent overwrite."""
+    if not isinstance(existing_domain_data, dict) or not existing_domain_data:
+        return None
+    existing_val = _get_nested_leaf(existing_domain_data, json_path)
+    if existing_val is None:
+        return None
+
+    provenance_map = existing_domain_data.get("_wiki_projections")
+    provenance = provenance_map.get(json_path) if isinstance(provenance_map, dict) else None
+    if isinstance(provenance, dict) and provenance.get("receipt_id"):
+        # Owned by an earlier Personal Wiki projection (not a pre-existing structured PKM field).
+        return None
+
+    norm_existing = _normalize_scalar(existing_val)
+    if isinstance(existing_val, (dict, list)) and existing_val:
+        return {
+            "authority": target_domain,
+            "reason": "existing_pkm_structure_conflict",
+            "path": f"{target_domain}.{json_path}"[:128],
+        }
+    if not norm_existing:
+        return None
+    norm_proposed = _normalize_scalar(proposed_value)
+    stmt_lower = claim_statement.strip().lower()
+    if norm_proposed:
+        if norm_proposed != norm_existing:
+            return {
+                "authority": target_domain,
+                "reason": "existing_pkm_value_conflict",
+                "path": f"{target_domain}.{json_path}"[:128],
+            }
+        return None
+    if norm_existing != stmt_lower and norm_existing not in stmt_lower:
+        return {
+            "authority": target_domain,
+            "reason": "existing_pkm_value_conflict",
+            "path": f"{target_domain}.{json_path}"[:128],
+        }
+    return None
 
 
 def detect_specialist_disagreement(
@@ -74,7 +176,8 @@ def detect_specialist_disagreement(
     if not isinstance(specialist_snapshot, dict) or not specialist_snapshot:
         return None
 
-    leaf_key = json_path.split(".")[-1].strip().lower()
+    norm_target_path = json_path.strip().lower()
+    leaf_key = norm_target_path.split(".")[-1].strip().lower()
     stmt_lower = claim_statement.strip().lower()
     norm_proposed = _normalize_scalar(proposed_value)
 
@@ -88,15 +191,14 @@ def detect_specialist_disagreement(
         if not branch:
             continue
 
-        # Direct path or leaf-key overlap against an authoritative specialist record
-        for spec_path, spec_val in branch.items():
-            norm_spec_key = str(spec_path).strip().lower()
+        # Direct path, suffix, or leaf-key overlap against nested authoritative specialist records
+        for norm_spec_key, norm_spec_val in _flatten_scalar_leaves(branch):
             key_leaf = norm_spec_key.split(".")[-1]
-            norm_spec_val = _normalize_scalar(spec_val)
-            if not norm_spec_val:
-                continue
-
-            same_slot = norm_spec_key == json_path or (key_leaf and key_leaf == leaf_key)
+            same_slot = (
+                norm_spec_key == norm_target_path
+                or norm_spec_key.endswith(f".{norm_target_path}")
+                or (key_leaf and key_leaf == leaf_key)
+            )
             if same_slot:
                 if norm_proposed and norm_proposed != norm_spec_val:
                     return {
@@ -162,6 +264,7 @@ class WikiProjectionEngine:
         require_owner_confirmation: bool = False,
         proposed_value: Any = None,
         specialist_snapshot: dict[str, Any] | None = None,
+        existing_domain_data: dict[str, Any] | None = None,
         source_revision: int = 1,
     ) -> dict[str, Any]:
         """Derive or update a revision-bound PKM projection receipt for one wiki claim."""
@@ -267,6 +370,13 @@ class WikiProjectionEngine:
                 json_path=path,
                 proposed_value=proposed_value,
                 specialist_snapshot=specialist_snapshot,
+            ) or detect_existing_domain_conflict(
+                claim_statement=claim["statement"],
+                target_domain=domain,
+                json_path=path,
+                claim_id=validated_claim_id,
+                proposed_value=proposed_value,
+                existing_domain_data=existing_domain_data,
             )
             if disagreement is not None:
                 state = "conflicted"
@@ -301,7 +411,9 @@ class WikiProjectionEngine:
         receipt_id: str,
         *,
         idempotency_key: str,
+        proposed_value: Any = None,
         specialist_snapshot: dict[str, Any] | None = None,
+        existing_domain_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Explicit owner confirmation promoting ``private_candidate`` -> ``materialized``."""
         validate_idempotency_key(idempotency_key)
@@ -317,7 +429,9 @@ class WikiProjectionEngine:
             idempotency_key=idempotency_key,
             active_recipient_count=1,
             owner_confirmed=True,
+            proposed_value=proposed_value,
             specialist_snapshot=specialist_snapshot,
+            existing_domain_data=existing_domain_data,
             source_revision=int(existing["source_revision"]) + 1,
         )
 

@@ -331,6 +331,21 @@ class WikiImportArchiveBody(BaseModel):
     file_id: str = Field(min_length=32, max_length=32)
     source_provider: Literal["auto", "chatgpt", "claude"] = "auto"
     request_id: str = Field(min_length=8, max_length=128)
+    explicit_candidate_mappings: list[dict[str, str]] | None = Field(default=None, max_length=128)
+
+
+class WikiDeriveProjectionBody(BaseModel):
+    page_id: str = Field(min_length=4, max_length=64)
+    claim_id: str = Field(min_length=4, max_length=64)
+    target_domain: str = Field(min_length=1, max_length=64)
+    json_path: str = Field(min_length=1, max_length=256)
+    active_recipient_count: int = Field(default=0, ge=0, le=10000)
+    owner_confirmed: bool = False
+    require_owner_confirmation: bool = False
+    conflict_authority: str | None = Field(default=None, max_length=64)
+    conflict_reason: str | None = Field(default=None, max_length=64)
+    conflict_path: str | None = Field(default=None, max_length=128)
+    request_id: str = Field(min_length=8, max_length=128)
 
 
 _SOURCE_KIND_LABELS = {
@@ -354,8 +369,23 @@ async def read_wiki_overview(owner: Owner):
             pages = await wiki.list_pages()
             receipts = await wiki.list_projection_receipts()
             candidates: list[dict[str, object]] = []
+            stale_receipts: list[dict[str, object]] = []
             for rec in receipts:
-                if rec["state"] not in {"private_candidate", "conflicted", "stale"}:
+                if rec["state"] == "stale":
+                    stale_receipts.append(
+                        {
+                            "receiptId": rec["receipt_id"],
+                            "pageId": rec["page_id"],
+                            "pageRevision": rec["page_revision"],
+                            "claimId": rec["claim_id"],
+                            "sourceRevision": rec["source_revision"],
+                            "domain": rec["domain"],
+                            "jsonPath": rec["json_path"],
+                            "state": rec["state"],
+                        }
+                    )
+                    continue
+                if rec["state"] not in {"private_candidate", "conflicted"}:
                     continue
                 stmt = ""
                 try:
@@ -370,8 +400,11 @@ async def read_wiki_overview(owner: Owner):
                     {
                         "receiptId": rec["receipt_id"],
                         "pageId": rec["page_id"],
+                        "pageRevision": rec["page_revision"],
                         "claimId": rec["claim_id"],
+                        "sourceRevision": rec["source_revision"],
                         "domain": rec["domain"],
+                        "jsonPath": rec["json_path"],
                         "statement": stmt,
                         "state": rec["state"],
                     }
@@ -392,6 +425,7 @@ async def read_wiki_overview(owner: Owner):
                     for p in pages
                 ],
                 "candidateReceipts": candidates,
+                "staleReceipts": stale_receipts,
             }
     except (WikiRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc
@@ -464,10 +498,25 @@ async def save_wiki_page_detail(body: WikiSavePageBody, owner: Owner):
                 tldr=body.tldr,
                 body=body.body,
             )
-            await WikiProjectionEngine(wiki).sync_page_lifecycle(body.page_id)
+            staled = await WikiProjectionEngine(wiki).sync_page_lifecycle(body.page_id)
             await wiki.rebuild_indexes()
             await WikiKnowledgeWriter(wiki).refresh_hot_digest()
-            return {"pageId": updated["page_id"], "revision": updated["revision"]}
+            return {
+                "pageId": updated["page_id"],
+                "revision": updated["revision"],
+                "staledReceipts": [
+                    {
+                        "receiptId": r["receipt_id"],
+                        "domain": r["domain"],
+                        "jsonPath": r["json_path"],
+                        "pageId": r["page_id"],
+                        "pageRevision": r["page_revision"],
+                        "claimId": r["claim_id"],
+                        "sourceRevision": r["source_revision"],
+                    }
+                    for r in staled
+                ],
+            }
     except (WikiRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc
 
@@ -481,7 +530,82 @@ async def confirm_wiki_candidate(body: WikiConfirmCandidateBody, owner: Owner):
             saved = await WikiProjectionEngine(wiki).confirm_candidate_projection(
                 body.receipt_id, idempotency_key=body.request_id
             )
-            return {"receiptId": saved["receipt_id"], "state": saved["state"]}
+            stmt = ""
+            try:
+                pdoc = await wiki.read_page(saved["page_id"])
+                found = next(
+                    (c for c in pdoc["claims"] if c["claim_id"] == saved["claim_id"]), None
+                )
+                stmt = str(found["statement"]) if found else ""
+            except WikiRefused:
+                stmt = ""
+            return {
+                "receiptId": saved["receipt_id"],
+                "state": saved["state"],
+                "domain": saved["domain"],
+                "jsonPath": saved["json_path"],
+                "pageId": saved["page_id"],
+                "pageRevision": saved["page_revision"],
+                "claimId": saved["claim_id"],
+                "sourceRevision": saved["source_revision"],
+                "statement": stmt,
+            }
+    except (WikiRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+@router.post("/wiki/projection/derive")
+async def derive_wiki_projection(body: WikiDeriveProjectionBody, owner: Owner):
+    from hushh_mcp.services.wiki_memory import WikiProjectionEngine, WikiProjectionReceipt
+
+    try:
+        async with wiki_operation(mutation=True) as wiki:
+            engine = WikiProjectionEngine(wiki)
+            derived = await engine.derive_projection(
+                page_id=body.page_id,
+                claim_id=body.claim_id,
+                target_domain=body.target_domain,
+                json_path=body.json_path,
+                idempotency_key=body.request_id,
+                active_recipient_count=body.active_recipient_count,
+                owner_confirmed=body.owner_confirmed,
+                require_owner_confirmation=body.require_owner_confirmation,
+            )
+            if body.conflict_authority and body.conflict_reason and body.conflict_path:
+                conflicted = WikiProjectionReceipt(
+                    receipt_id=derived["receipt_id"],
+                    domain=derived["domain"],
+                    json_path=derived["json_path"],
+                    page_id=derived["page_id"],
+                    page_revision=int(derived["page_revision"]),
+                    claim_id=derived["claim_id"],
+                    source_ids=tuple(derived.get("source_ids") or ()),
+                    source_revision=int(derived["source_revision"]) + 1,
+                    state="conflicted",
+                    exposure_eligibility=False,
+                    updated_at=int(derived["updated_at"]),
+                    tombstone_id=derived.get("tombstone_id"),
+                    specialist_disagreement={
+                        "authority": body.conflict_authority,
+                        "reason": body.conflict_reason,
+                        "path": body.conflict_path,
+                    },
+                )
+                derived = dict(
+                    await wiki.put_projection_receipt(
+                        conflicted, idempotency_key=f"{body.request_id}:conflict"[:128]
+                    )
+                )
+            return {
+                "receiptId": derived["receipt_id"],
+                "state": derived["state"],
+                "domain": derived["domain"],
+                "jsonPath": derived["json_path"],
+                "pageId": derived["page_id"],
+                "pageRevision": derived["page_revision"],
+                "claimId": derived["claim_id"],
+                "sourceRevision": derived["source_revision"],
+            }
     except (WikiRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc
 
@@ -504,6 +628,18 @@ async def forget_wiki_claim(body: WikiForgetClaimBody, owner: Owner):
                 "pageId": res["page_id"],
                 "revision": res["revision"],
                 "outcomes": res["outcomes"],
+                "staledReceipts": [
+                    {
+                        "receiptId": r["receipt_id"],
+                        "domain": r["domain"],
+                        "jsonPath": r["json_path"],
+                        "pageId": r["page_id"],
+                        "pageRevision": r["page_revision"],
+                        "claimId": r["claim_id"],
+                        "sourceRevision": r["source_revision"],
+                    }
+                    for r in res.get("staled_projection_receipts", ())
+                ],
             }
     except (WikiRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc
@@ -558,6 +694,7 @@ async def import_wiki_archive(body: WikiImportArchiveBody, owner: Owner):
                 raw_bytes=archive_bytes,
                 idempotency_key=body.request_id,
                 source_provider=body.source_provider,
+                explicit_candidate_mappings=body.explicit_candidate_mappings,
             )
             return {
                 "provider": res["provider"],

@@ -478,6 +478,14 @@ async def _sync_sink_to_optional_pod_wiki(
             )
     for text in sink.remembers:
         operations.append({"op": "remember", "statement": text})
+    pkm_candidate_items: list[tuple[str, str]] = []
+    for proposal in sink.pkm_proposals:
+        fact_text = str(proposal.get("fact") or "").strip()
+        prop_domain = str(proposal.get("domain") or "").strip().lower()
+        if fact_text:
+            operations.append({"op": "remember", "statement": fact_text})
+            if prop_domain:
+                pkm_candidate_items.append((prop_domain, fact_text))
     if not operations:
         return {"status": "nothing_to_save"}
 
@@ -489,6 +497,21 @@ async def _sync_sink_to_optional_pod_wiki(
         projections = WikiProjectionEngine(wiki)
         for page_id in result["saved_page_ids"]:
             await projections.sync_page_lifecycle(page_id)
+        for prop_domain, fact_text in pkm_candidate_items:
+            try:
+                claim_id = writer.claim_id_for_statement(DEFAULT_WORKING_PAGE_ID, fact_text)
+                await projections.derive_projection(
+                    page_id=DEFAULT_WORKING_PAGE_ID,
+                    claim_id=claim_id,
+                    target_domain=prop_domain,
+                    json_path=f"agent_memory.item_{claim_id[4:12]}",
+                    idempotency_key=f"podrev:{through_seq}:{claim_id}"[:128],
+                    active_recipient_count=0,
+                    owner_confirmed=False,
+                    require_owner_confirmation=True,
+                )
+            except Exception:  # noqa: BLE001 - forbidden domains remain private to one_wiki
+                continue
     return dict(result)
 
 

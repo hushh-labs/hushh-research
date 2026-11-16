@@ -1011,6 +1011,24 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         if callable(state_getter)
         else ""
     )
+    if callable(state_getter):
+        from hushh_mcp.one_adk.wiki_recall_tools import (
+            STATE_WIKI_CLIENT_READY,
+            STATE_WIKI_HOT_DIGEST,
+            wiki_recall_instruction,
+        )
+
+        wiki_tools_enabled = bool(
+            state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and (
+                (pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"})
+                or state_getter(STATE_WIKI_CLIENT_READY) is True
+            )
+        )
+        memory_instruction += wiki_recall_instruction(
+            state_getter(STATE_WIKI_HOT_DIGEST),
+            tools_available=wiki_tools_enabled,
+        )
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
     style_instruction = owner_style_instruction(state_getter) + focus_instruction(state_getter)
@@ -2644,8 +2662,14 @@ def _one_roster_tools(
         from ag_ui_adk import AGUIToolset
 
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
 
-        tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
+        client_tool_names = (
+            set(RECEIPT_TOOL_NAMES)
+            if pod_mode()
+            else (set(RECEIPT_TOOL_NAMES) | set(WIKI_TOOL_NAMES))
+        )
+        tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
     return tools
 
 
@@ -2686,7 +2710,14 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
         return boundary
     from hushh_mcp.one_adk.receipt_client_tools import before_receipt_tool
 
-    return before_receipt_tool(tool, args, tool_context)
+    receipt_guard = before_receipt_tool(tool, args, tool_context)
+    if receipt_guard:
+        return receipt_guard
+    if not pod_mode():
+        from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool
+
+        return before_wiki_recall_tool(tool, args, tool_context)
+    return None
 
 
 async def _requester_bundle(owner_id: str, bundle_id: str) -> dict[str, Any] | None:
@@ -2740,6 +2771,7 @@ def build_one_text_agent(
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
 
     track_current_consent, finance_before_model, finance_after_model = finance_model_callbacks(
         lookup=consent_bundle_lookup or _requester_bundle, before_model=_one_consent_before_model
@@ -2781,6 +2813,7 @@ def build_one_text_agent(
         before_model_callback=[
             finance_before_model,
             receipt_before_model,
+            wiki_before_model,
             document_period_before_model,
             timed_one_before_model,
             club_queued_input,
@@ -2790,6 +2823,7 @@ def build_one_text_agent(
             finance_after_model,
             timed_one_after_model,
             receipt_after_model,
+            wiki_after_model,
             chat_memory_after_model,
         ],
         # Preserve the configured Chat thinking level for measured comparison.

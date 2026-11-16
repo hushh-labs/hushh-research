@@ -140,6 +140,16 @@ from hushh_mcp.one_adk.turn_completion import (
     notify_one_reply,
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
+from hushh_mcp.one_adk.wiki_recall_tools import (
+    STATE_WIKI_CLIENT_READY,
+    STATE_WIKI_HOT_DIGEST,
+    STATE_WIKI_RESULT,
+)
+from hushh_mcp.one_adk.wiki_turn_admission import (
+    admit_wiki_continuation,
+    admit_wiki_hot_digest,
+    admit_wiki_tool,
+)
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.runtime_providers import bind_managed_vertex_project
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
@@ -191,6 +201,12 @@ def admit_client_tools(tools: list[Any]) -> list[Any]:
             raise HTTPException(
                 status_code=400, detail="Receipt tool contract is invalid."
             ) from None
+        try:
+            if admit_wiki_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Wiki tool contract is invalid.") from None
         action_id = action_id_from_tool_name(tool.name)
         if action_id and get_action_gateway_action(action_id) is not None:
             admitted.append(tool)
@@ -500,6 +516,29 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         raise HTTPException(
             status_code=403, detail="Receipt continuation is unavailable. Ask again."
         ) from None
+    try:
+        wiki_result = await admit_wiki_continuation(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            messages=input_data.messages,
+            execution_head=_one_head,
+            load_session=lambda: _shared_sessions().get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Wiki continuation is unavailable. Ask again."
+        ) from None
+    try:
+        wiki_hot_digest, wiki_client_ready = admit_wiki_hot_digest(
+            forwarded, owner_admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=413, detail="Personal wiki hot digest exceeds the request budget."
+        ) from None
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
@@ -532,6 +571,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         pending_email_draft = ""
         consume_request_secret(receipt_memory)
         receipt_memory = ""
+        consume_request_secret(wiki_hot_digest)
+        wiki_hot_digest = ""
+        wiki_client_ready = False
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
@@ -579,6 +621,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
         STATE_RECEIPT_MEMORY: receipt_memory,
         STATE_RECEIPT_RESULT: receipt_result,
+        STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
+        STATE_WIKI_CLIENT_READY: wiki_client_ready,
+        STATE_WIKI_RESULT: wiki_result,
     }
 
 
