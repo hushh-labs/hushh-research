@@ -863,6 +863,17 @@ contain the origin only, excluding callback codes. Runtime routes must use the
 owner-only session control port, never expose state through ADK tools, and drain
 browser tasks through the existing update permit before replacing an image.
 
+Owner-approved saves from `BrowserDownloads` into encrypted Pod Files remain
+untrusted external records (`source_library`, `shareable: "never"`). Downstream
+archive synthesis such as external AI export imports into Personal Wiki Memory
+(`one_wiki`) must retain `untrusted_data: true` and `instruction_authority: "none"`
+so imported text cannot issue tool or consent instructions; see the
+[Memory workspace boundary](../../../docs/architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
+Separately, `shared_owner_container` supervises Chromium under the same non-root
+UID and does not isolate arbitrary CLI packages or downloaded binaries; general
+terminal execution remains gated on its own task-worker boundary in the
+[Browser completion plan](../../../docs/roadmap/personal-agent/browser-completion-plan.md#phase-0-alignment-cli-execution-boundary-retained-workspaces-and-external-import).
+
 Remembering requires opt-in for the selected origins/account. The initial adapter
 retains persistent cookies and local storage, preserving cookie scope/security and
 website expiry. Session-only cookies remain live and end with the browser. There

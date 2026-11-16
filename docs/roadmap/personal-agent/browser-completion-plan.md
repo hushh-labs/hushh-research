@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementation in progress — updated 2026-10-21; infrastructure branch preserved.**
+**Implementation in progress — updated 2026-11-16; infrastructure branch preserved.**
 Browser is the P0 capability. Both adapters remain disabled until
 their own acceptance passes. Preserve the infrastructure branch, owner resources,
 selected configuration and concurrent work. Broader release-plan changes follow
@@ -317,6 +317,34 @@ built-in Browser design. Their failed identity/namespace probes and immutable
 receipts remain in the [runtime history](../../../consent-protocol/docs/reference/private-browser-runtime.md#historical-provider-managed-qualification).
 Those failures do not invalidate the newer protected VM/Cloud Run execution
 receipts, and neither set establishes installed-owner acceptance.
+
+## Phase 0 alignment: CLI execution boundary, retained workspaces, and external import
+
+`#9511` pairs Browser qualification with a reviewed terminal/CLI capability on private cloud pods, and `#9429` layers external AI archive imports (`chatgpt.com`, `claude.ai`) over Browser takeover and Personal Wiki synthesis (`#9370`). Both follow explicit Phase 0 boundaries before runtime expansion:
+
+### Why Browser confinement does not isolate arbitrary CLI packages
+
+- **GCP Cloud Run (`outer_isolation="gvisor"`):** `chromium_internal_sandbox=True` confines untrusted web renderers, while `landlock_fs_confinement=False` (`ENOSYS` under gVisor) and unprivileged nested network/mount namespaces are unavailable inside the serving container. Because `container_worker.py` supervises Browser under the same non-root UID (`shared_owner_container`) as One, spawning an ordinary shell subprocess inside the serving pod shares process/filesystem visibility with One's serving keys and memory. It is not an arbitrary-code boundary for untrusted `npm`, `pip`, or downloaded binaries.
+- **Azure Container Apps (`outer_isolation="hyperv"`):** Hyper-V isolates the outer pod and `landlock_fs_confinement=True` is available (`chromium_internal_sandbox=False`), while any in-pod shell still requires explicit credential scrubbing, metadata-endpoint blocking, and bounded scratch.
+
+### CLI execution boundary options (Phase 0 Lead gate)
+
+| Option | Enforcement mechanism | Retained workspace & scale-to-zero | Trade-off |
+| --- | --- | --- | --- |
+| **Option A (Recommended primary boundary): Ephemeral task-scoped execution worker over encrypted `PodObjectStore` checkpoints** | Run arbitrary CLI, `git`, and package commands in a credential-free, metadata-blocked (`169.254.169.254` denied) task worker (`Cloud Run Jobs` or isolated sidecar without pod KMS/session secrets on GCP; `Container Apps Jobs` or Hyper-V/Landlock-confined worker on Azure) with bounded scratch (`<= 512 MiB`) and explicit egress policy. | Hydrate and checkpoint workspaces as encrypted archive layers under `<prefix>/workspaces/v1/` via short-lived prefix-scoped `PodObjectStore` tokens (`PrefixTokenObjectStore`). Preserves scale-to-zero with zero persistent disks or idle VMs. | Adds cold task-worker startup (~2–6 s) and archive checkpoint I/O, while keeping arbitrary code out of the serving pod's key/session boundary. |
+| **Option B (Interim fallback): Restricted in-container builtin file/script mode** | Allow only curated non-package file inspection and transformation tools inside `shared_owner_container`; refuse arbitrary shell, `npm`/`pip`, and network-fetching execution fail-closed on `gcp_cloud_run` until Option A is qualified. | Reuses bounded task `TemporaryDirectory` plus encrypted Pod Files without persistent container state. | Zero extra infrastructure, but cannot safely run arbitrary third-party packages or general developer CLIs. |
+
+### Protected CLI credential mediation
+
+Task environments start scrubbed (`env={}` plus minimal locale/PATH) and never receive raw OAuth refresh tokens, pod signing keys, or ambient cloud workload credentials. Approved `git`, `gh`, `gcloud`, or `az` actions either route through narrow parent-brokered RPC operations bound to exact action-ledger confirmations or receive short-lived, single-repository/single-scope tokens minted per confirmed command and revoked on task exit.
+
+### External AI archive import sequencing (`#9429`)
+
+Importing history or memory exports from ChatGPT (`chatgpt.com`) and Claude (`claude.ai`) composes existing authorities rather than introducing password scraping or a second browser runtime:
+
+1. **Exclusive owner sign-in takeover (`#9511`):** The owner completes login, SSO, CAPTCHA, and MFA under exclusive manual control while `control.require_model_observation()` suppresses all model screenshots, URLs, DOM text, and errors.
+2. **Bounded export capture to encrypted Files:** Export archives captured through `BrowserDownloads` (`<= 4 MiB` memory-only HTTP attachment capture on pods, with larger archives either streamed through a qualified chunked transfer path or uploaded locally in Shared mode) save only after explicit owner confirmation into encrypted Files / `source_library` (`shareable: "never"`).
+3. **Untrusted Personal Wiki compilation (`#9370`):** Saved archives compile into `one_wiki` (`<prefix>/wiki/v1/`) with `untrusted_data: true` and `instruction_authority: "none"`. Extracted candidate facts stay `private_candidate` until explicit owner confirmation into ordinary PKM domains and remain erasable across all five surfaces via owner **Forget**. See the [Personal Wiki Memory plan](../personal-wiki-memory-plan.md) and [Memory workspace boundary](../../architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
 
 ## Full capability follow-on order
 
