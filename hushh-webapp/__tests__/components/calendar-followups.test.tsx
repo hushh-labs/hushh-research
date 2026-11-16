@@ -100,8 +100,9 @@ describe("Follow-ups wording", () => {
     expect(coverageNotice({ coverage: "complete", attention: null, ...base })).toBeNull();
     expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Catching up on your email…", action: null });
     expect(coverageNotice({ coverage: "needs_attention", attention: "reconnect_mail", ...base })?.action).toBe("reconnect");
-    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })).toBeNull();
-    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })).toBeNull();
+    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.text).toMatch(/Retrying automatically/);
+    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })?.text).toMatch(/temporarily unavailable/);
+    expect(coverageNotice({ coverage: "catching_up", attention: null, ...base }, false)?.text).toMatch(/Unlock One/);
   });
 });
 
@@ -122,7 +123,7 @@ describe("Calendar Insights Follow-ups card", () => {
       ? status("account_B")
       : status("account_C", {
         mail_connected: cConnected, monitoring_enabled: cEnabled, monitor_current: cEnabled,
-        scan_state: cEnabled ? "complete" : "off", coverage: null, notifications_enabled: false,
+        scan_state: cEnabled ? "complete" : "off", coverage: null, notifications_enabled: cEnabled,
         historical_start_at: null, time_zone: null,
       }));
     service.list.mockImplementation(async (_user, accountId) => accountId === "account_B"
@@ -152,7 +153,7 @@ describe("Calendar Insights Follow-ups card", () => {
       account_id: "account_C", enabled: true, notifications_enabled: true,
     }), "synthetic-id-token", "synthetic-owner-token"));
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_C", "synthetic-id-token", "synthetic-owner-token"));
+      "owner", "account_C", "synthetic-id-token", "synthetic-owner-token", {}, expect.any(AbortSignal)));
     expect(onConnectMail).toHaveBeenCalledOnce();
     const approved = service.post.mock.calls.find(([path]) => path === "preferences")![1];
     expect(Math.round((Date.now() - Date.parse(approved.historical_start_at)) / 86_400_000)).toBe(30);
@@ -161,15 +162,16 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan.mock.calls.some(call => call[1] === "account_B")).toBe(false);
   });
 
-  it("does not ask for Mail again once access exists", async () => {
-    service.status.mockResolvedValue(status("account_granted", { monitoring_enabled: false, monitor_current: false, scan_state: "off", coverage: null }));
+  it("starts an already granted account without Turn on or another OAuth", async () => {
+    let enabled = false;
+    service.status.mockImplementation(async () => status("account_granted", { monitoring_enabled: enabled, monitor_current: enabled, scan_state: enabled ? "complete" : "off", coverage: null }));
     const onConnectMail = vi.fn(async () => true);
-    service.post.mockResolvedValue({ account_id: "account_granted" });
+    service.post.mockImplementation(async () => { enabled = true; return { account_id: "account_granted", monitoring_enabled: true }; });
+    service.list.mockResolvedValue({ ...bList, account_id: "account_granted" });
     render(<CalendarFollowups {...props("account_granted", onConnectMail)} />);
-    expect(await screen.findByText(/last 30 days of account_granted@example.test/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Connect Mail|Allow email access/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
-    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true }), expect.anything(), expect.anything()));
+    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true, initialize_only: true }), expect.anything(), expect.anything(), expect.anything()));
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Turn on|Allow email access/ })).not.toBeInTheDocument();
     expect(onConnectMail).not.toHaveBeenCalled();
   });
 
@@ -507,7 +509,7 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
       "owner", "account_stale", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
     expect(attempts).toBeGreaterThanOrEqual(2);
-    expect(onConnectMail).toHaveBeenCalledOnce();
+    expect(onConnectMail).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument());
     expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
   });

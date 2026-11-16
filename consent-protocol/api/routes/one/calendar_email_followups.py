@@ -56,6 +56,7 @@ class _Selection(BaseModel):
 
 class PreferenceChange(_Selection):
     enabled: bool
+    initialize_only: bool = False
     notifications_enabled: bool = False
     historical_start_at: datetime | None = None
     time_zone: str | None = Field(default=None, min_length=1, max_length=128)
@@ -236,6 +237,7 @@ async def preferences(
             notifications_enabled=payload.notifications_enabled,
             reminder_lead_days=payload.reminder_lead_days,
             reminder_hour=payload.reminder_hour,
+            initialize_only=payload.initialize_only,
         )
         return {
             "account_id": payload.account_id,
