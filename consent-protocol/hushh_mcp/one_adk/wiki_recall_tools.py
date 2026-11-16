@@ -457,6 +457,54 @@ def optional_pod_wiki_library() -> Any | None:
         return None
 
 
+def is_wiki_serving_primary(state: str | None) -> bool:
+    """Return True when an owner's Personal Wiki is the primary recall authority."""
+    return str(state or "").strip() in {"wiki_primary_with_v1_rollback", "wiki_primary"}
+
+
+def is_classic_writer_retired(state: str | None) -> bool:
+    """Return True when an owner has graduated to wiki_primary and retired classic writers."""
+    return str(state or "").strip() == "wiki_primary"
+
+
+async def read_pod_wiki_migration_state(wiki_library: Any = None) -> str:
+    """Read the Pod owner's Personal Wiki migration_state safely (defaults to v1_markdown_only)."""
+    import os
+
+    from hushh_mcp.services.wiki_memory import WikiOwnerMigrator
+
+    if wiki_library is not None:
+        try:
+            st = await WikiOwnerMigrator(wiki_library).get_migration_status()
+            return str(st.get("state") or "v1_markdown_only")
+        except Exception:
+            return "v1_markdown_only"
+
+    if os.getenv("POD_FILES_ENABLED", "").lower() not in {"1", "true"}:
+        return "v1_markdown_only"
+    from hushh_mcp.services.pod_files.library import FilesRefused
+    from hushh_mcp.services.pod_files.runtime import require_files_access, wiki_operation
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmissionRefused
+
+    try:
+        await require_files_access(manage=False)
+        async with wiki_operation(mutation=False) as wiki:
+            st = await WikiOwnerMigrator(wiki).get_migration_status()
+            await require_files_access(manage=False)
+            return str(st.get("state") or "v1_markdown_only")
+    except (FilesRefused, WikiRefused, PodUpgradeAdmissionRefused):
+        return "v1_markdown_only"
+    except Exception:
+        existing = optional_pod_wiki_library()
+        if existing is not None:
+            try:
+                st = await WikiOwnerMigrator(existing).get_migration_status()
+                return str(st.get("state") or "v1_markdown_only")
+            except Exception:
+                return "v1_markdown_only"
+        return "v1_markdown_only"
+
+
 async def read_fenced_pod_wiki_hot_digest(*, max_chars: int = WIKI_HOT_MAX_CHARS) -> str:
     """Read the Pod's Personal Wiki hot digest under drain and upgrade fencing."""
     import os

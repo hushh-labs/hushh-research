@@ -589,3 +589,146 @@ async def test_pod_memory_review_pkm_proposals_mint_candidate_receipts_and_wiki_
     await prepare(turn_input)
     assert turn_input.state[agent_tree.STATE_MEMORY_AVAILABLE] is False
     assert "Global Entry" in str(turn_input.state.get(STATE_WIKI_HOT_DIGEST) or "")
+
+
+@pytest.mark.asyncio
+async def test_phase6_cutover_classic_writer_retirement_and_96k_soul_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from api.routes.one.pod_files import (
+        WikiMigrateBody,
+        WikiRollbackBody,
+        migrate_wiki_cohort,
+        read_wiki_overview,
+        rollback_wiki_to_classic,
+    )
+    from hushh_eval.wiki_memory import evaluate_phase6_cutover_and_retirement
+    from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
+    from hushh_mcp.services.wiki_memory import WikiKnowledgeWriter
+
+    # 1. Verify 96,000-char soul_markdown_v1 alignment (> 18,000 accepted, > 96,000 rejected)
+    medium_soul = "x" * 42_000
+    summary = PKMAgentLabService._build_state_summary(
+        {"memories": [{"domain": "one_memory", "message": medium_soul}]},
+        memory_profile="soul_markdown_v1",
+    )
+    assert len(summary["recent_memories"][0]["message"]) == 42_000
+    with pytest.raises(ValueError, match="Soul reconciliation snapshot exceeds its bound"):
+        PKMAgentLabService._build_state_summary(
+            {"memories": [{"domain": "one_memory", "message": "x" * 96_001}]},
+            memory_profile="soul_markdown_v1",
+        )
+
+    # 2. Verify /wiki/migrate end-to-end cohort progression + lossless non-resurrecting rollback
+    wiki = _new_wiki("usr_pod_cutover")
+    await WikiKnowledgeWriter(wiki).set_capture_opt_in(True)
+
+    @asynccontextmanager
+    async def _fake_wiki_op(*_a: object, **_k: object):
+        yield wiki
+
+    monkeypatch.setattr("api.routes.one.pod_files.wiki_operation", _fake_wiki_op)
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service",
+        lambda **_k: None,
+    )
+    owner = SimpleNamespace(user_id="usr_pod_cutover")
+    v1_md = "# memory.md\n\n## Preferences\n- Prefers window seats on red-eye flights\n- Drinks oat cortados\n"
+
+    step1 = await migrate_wiki_cohort(
+        WikiMigrateBody(
+            action="compile_and_verify",
+            v1_markdown=v1_md,
+            chat_key_verified=True,
+            request_id="req_mig_compile_01",
+        ),
+        owner,
+    )
+    assert step1["migrationState"] == "dual_read_shadow_compile"
+    assert step1["dualReadQualified"] is True
+    assert step1["coldRecoveryQualified"] is True
+
+    step2 = await migrate_wiki_cohort(
+        WikiMigrateBody(
+            action="cutover_rollback_safe",
+            request_id="req_mig_cutover_02",
+        ),
+        owner,
+    )
+    assert step2["migrationState"] == "wiki_primary_with_v1_rollback"
+    assert step2["classicWriterRetired"] is False
+
+    # PodChatMemory suppresses duplicate classic STATE_MEMORY_DIGEST once wiki_primary_with_v1_rollback is active
+    fake_pms = SimpleNamespace(
+        digest=AsyncMock(return_value="Classic duplicate digest"),
+        fact_index=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.text_runtime._resolve_pod_memory_service",
+        lambda **_k: fake_pms,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.wiki_recall_tools.optional_pod_wiki_library",
+        lambda: wiki,
+    )
+    ctx = SimpleNamespace(
+        owner="usr_pod_cutover",
+        hushh_id="ha1_pod_cutover",
+        claims={},
+        authority=SimpleNamespace(epoch=1, recovery_projection=object()),
+        sessions=SimpleNamespace(get_session=AsyncMock(return_value=None)),
+        require_access=AsyncMock(return_value=None),
+    )
+    _mem, prepare = await build_memory_hooks(
+        ctx, owner_model="gemini-test", provider="gemini", model="gemini-test"
+    )
+    turn_in = SimpleNamespace(thread_id="thr_cutover_1", state={})
+    await prepare(turn_in)
+    assert turn_in.state[agent_tree.STATE_MEMORY_AVAILABLE] is False
+    assert turn_in.state.get(agent_tree.STATE_MEMORY_DIGEST) == ""
+    assert "cortados" in str(turn_in.state.get(STATE_WIKI_HOT_DIGEST) or "")
+
+    # Rollback returns lossless v1Markdown; then re-qualify and graduate to wiki_primary
+    rb = await rollback_wiki_to_classic(
+        WikiRollbackBody(
+            prior_v1_markdown=v1_md,
+            request_id="req_mig_rollback_03",
+        ),
+        owner,
+    )
+    assert rb["migrationState"] == "v1_markdown_only"
+    assert "Drinks oat cortados" in rb["v1Markdown"]
+
+    await migrate_wiki_cohort(
+        WikiMigrateBody(
+            action="compile_and_verify",
+            v1_markdown=v1_md,
+            chat_key_verified=True,
+            request_id="req_mig_compile_04",
+        ),
+        owner,
+    )
+    await migrate_wiki_cohort(
+        WikiMigrateBody(
+            action="cutover_rollback_safe",
+            request_id="req_mig_cutover_05",
+        ),
+        owner,
+    )
+    step3 = await migrate_wiki_cohort(
+        WikiMigrateBody(
+            action="graduate_wiki_primary",
+            request_id="req_mig_grad_06",
+        ),
+        owner,
+    )
+    assert step3["migrationState"] == "wiki_primary"
+    assert step3["classicWriterRetired"] is True
+    overview = await read_wiki_overview(owner)
+    assert overview["classicWriterRetired"] is True
+
+    # 3. Verify Phase 6 conformance evaluator passes 100%
+    phase6 = await evaluate_phase6_cutover_and_retirement()
+    assert phase6["all_passed"] is True

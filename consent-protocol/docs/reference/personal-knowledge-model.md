@@ -5,7 +5,7 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One chat uses only one canonical encrypted Markdown document, **memory.md** (`one_memory.markdown`), for V1 conversation memory. Structured encrypted domains remain compatibility authorities for Finance, KYC, Consent, and other specialist workflows. Chat never imports them or uses their metadata summaries as fallback memory.
+The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. In shipped UAT and production, One chat uses one canonical encrypted Markdown document, **memory.md** (`one_memory.markdown`), for V1 conversation memory; on `dev`, owners who opt in and advance their per-owner Personal Wiki `migration_state` (`wiki_primary_with_v1_rollback` or `wiki_primary`) serve chat orientation from `STATE_WIKI_HOT_DIGEST` (`hot.md <= 8,000` characters) plus bounded Personal Wiki recall tools (`search_wiki`, `read_wiki_page`, `trace_claim`) while structured PKM remains the sole external consent and sharing authority. Structured encrypted domains remain compatibility authorities for Finance, KYC, Consent, and other specialist workflows. Chat never imports them or uses their metadata summaries as fallback memory.
 
 The approved product direction is One-owned relationship memory with specialist slices beneath it:
 
@@ -17,9 +17,14 @@ On vault unlock, the client decrypts `one_memory` into process memory. Concurren
 loads coalesce; ordinary turns reuse this document without cloud reads or
 decryption. A validated same-owner, same-key credential renewal preserves it;
 lock, sign-out, or account change clears plaintext and withdraws pending effects.
-Every One turn receives the complete document, bounded to 18,000 characters so
-the backend's 20,000-character request envelope never truncates it. If the
-document does not yet exist, the client initializes a clean session-only memory.md
+For V1 owners (`v1_markdown_only` or `dual_read_shadow_compile`), every One turn
+receives the complete document, bounded to 96,000 characters inside the
+backend's 128,000-character consented memory envelope so the server never
+truncates it; once an owner switches to `wiki_primary_with_v1_rollback` or
+`wiki_primary` on `dev`, turns replace that full-document prompt attachment with
+`hot.md` (`<= 8,000` characters) and retire classic `one_memory.markdown`
+rewrites after `wiki_primary` graduation while preserving lossless tombstone-safe
+V1 Markdown export on rollback. If the document does not yet exist, the client initializes a clean session-only memory.md
 with flat **Facts**, **Preferences**, and **Commitments** sections. The first
 authorized memory write persists that document and new facts atomically.
 Unlock itself does not create a write, and a failed or malformed read is never

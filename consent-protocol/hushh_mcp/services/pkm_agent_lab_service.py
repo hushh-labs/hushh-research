@@ -1908,7 +1908,7 @@ class PKMAgentLabService:
             or sum(
                 len(str(item.get("message") or "")) for item in supplied if isinstance(item, dict)
             )
-            > 18000
+            > 96000
         ):
             raise ValueError("Soul reconciliation snapshot exceeds its bound")
         if wiki_projection and (
@@ -1931,7 +1931,7 @@ class PKMAgentLabService:
                     "intent_class": cls._normalize_segment(str(memory.get("intent_class") or "")),
                     "message": cls._safe_excerpt(
                         str(memory.get("message") or ""),
-                        limit=18000
+                        limit=96000
                         if soul
                         else 4000
                         if memory_profile == "business_directory_v1"

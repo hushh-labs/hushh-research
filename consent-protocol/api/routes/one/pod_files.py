@@ -324,6 +324,22 @@ class WikiForgetClaimBody(BaseModel):
 
 
 class WikiRollbackBody(BaseModel):
+    prior_v1_markdown: str = Field(default="", max_length=128000)
+    expected_migration_revision: int | None = None
+    allow_post_graduation: bool = False
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class WikiMigrateBody(BaseModel):
+    action: Literal[
+        "compile_and_verify",
+        "cutover_rollback_safe",
+        "graduate_wiki_primary",
+        "maintenance_tick",
+    ]
+    v1_markdown: str = Field(default="", max_length=128000)
+    chat_key_verified: bool = False
+    expected_migration_revision: int | None = None
     request_id: str = Field(min_length=8, max_length=128)
 
 
@@ -413,6 +429,10 @@ async def read_wiki_overview(owner: Owner):
                 "captureOptIn": cp.capture_opt_in,
                 "migrationState": mig["state"],
                 "migrationRevision": mig["migration_revision"],
+                "dualReadQualified": bool(mig.get("dual_read_qualified")),
+                "coldRecoveryQualified": bool(mig.get("cold_recovery_qualified")),
+                "compiledClaimCount": int(mig.get("compiled_claim_count") or 0),
+                "classicWriterRetired": mig["state"] == "wiki_primary",
                 "pages": [
                     {
                         "pageId": p["page_id"],
@@ -612,11 +632,14 @@ async def derive_wiki_projection(body: WikiDeriveProjectionBody, owner: Owner):
 
 @router.post("/wiki/forget")
 async def forget_wiki_claim(body: WikiForgetClaimBody, owner: Owner):
-    from hushh_mcp.services.wiki_memory import WikiOwnerMigrator
+    from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
+    from hushh_mcp.services.wiki_memory import WikiKnowledgeWriter, WikiOwnerMigrator
 
     try:
+        pms = resolve_pod_memory_service()
         async with wiki_operation(mutation=True) as wiki:
-            res = await WikiOwnerMigrator(wiki).propagate_forget_and_correction(
+            writer = WikiKnowledgeWriter(wiki, pod_memory_service=pms)
+            res = await WikiOwnerMigrator(wiki, writer=writer).propagate_forget_and_correction(
                 page_id=body.page_id,
                 claim_id=body.claim_id,
                 idempotency_key=body.request_id,
@@ -645,6 +668,113 @@ async def forget_wiki_claim(body: WikiForgetClaimBody, owner: Owner):
         raise wiki_refusal(exc) from exc
 
 
+@router.post("/wiki/migrate")
+async def migrate_wiki_cohort(body: WikiMigrateBody, owner: Owner):
+    from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
+    from hushh_mcp.services.wiki_memory import (
+        WikiKnowledgeWriter,
+        WikiMaintenanceRunner,
+        WikiOwnerMigrator,
+    )
+
+    try:
+        pms = resolve_pod_memory_service()
+        pod_facts: list[dict[str, object]] = []
+        if pms is not None and body.action == "compile_and_verify":
+            fact_index_fn = getattr(pms, "fact_index", None)
+            if callable(fact_index_fn):
+                pod_facts = list(await fact_index_fn(limit=256))
+
+        async with wiki_operation(mutation=True) as wiki:
+            writer = WikiKnowledgeWriter(wiki, pod_memory_service=pms)
+            migrator = WikiOwnerMigrator(wiki, writer=writer)
+
+            if body.action == "maintenance_tick":
+                tick = await WikiMaintenanceRunner(wiki).run_tick(idempotency_key=body.request_id)
+                mig = await migrator.get_migration_status()
+                return {
+                    "action": body.action,
+                    "migrationState": mig["state"],
+                    "migrationRevision": mig["migration_revision"],
+                    "dualReadQualified": bool(mig.get("dual_read_qualified")),
+                    "coldRecoveryQualified": bool(mig.get("cold_recovery_qualified")),
+                    "classicWriterRetired": mig["state"] == "wiki_primary",
+                    "maintenance": tick,
+                }
+
+            if body.action == "compile_and_verify":
+                compiled = await migrator.compile_legacy_sources(
+                    v1_markdown=body.v1_markdown,
+                    pod_schema2_facts=pod_facts,
+                    idempotency_key=body.request_id,
+                    expected_migration_revision=body.expected_migration_revision,
+                )
+                await WikiMaintenanceRunner(wiki).run_tick(
+                    idempotency_key=f"{body.request_id}:maint"[:120]
+                )
+                parity = await migrator.verify_dual_read_parity(
+                    v1_markdown=body.v1_markdown,
+                    pod_schema2_facts=pod_facts,
+                )
+
+                async def _verify_commit_log() -> bool:
+                    if pms is None:
+                        return True
+                    ms_fn = getattr(pms, "memory_status", None)
+                    if callable(ms_fn):
+                        st = await ms_fn()
+                        return isinstance(st, dict) and "lastSeq" in st
+                    return True
+
+                async def _verify_chat_session() -> bool:
+                    return bool(body.chat_key_verified)
+
+                cold = await migrator.verify_cold_reconstruction(
+                    commit_log_verifier=_verify_commit_log,
+                    chat_session_verifier=_verify_chat_session,
+                )
+                mig = await migrator.get_migration_status()
+                return {
+                    "action": body.action,
+                    "migrationState": mig["state"],
+                    "migrationRevision": mig["migration_revision"],
+                    "dualReadQualified": bool(parity["qualified"]),
+                    "coldRecoveryQualified": bool(cold["qualified"]),
+                    "compiledClaimCount": int(compiled["compiled_claim_count"]),
+                    "skippedTombstoned": int(compiled["skipped_tombstoned_count"]),
+                    "classicWriterRetired": mig["state"] == "wiki_primary",
+                    "parity": parity,
+                    "coldRecovery": cold,
+                }
+
+            current_mig = await migrator.get_migration_status()
+            expected_rev = (
+                body.expected_migration_revision
+                if body.expected_migration_revision is not None
+                else int(current_mig["migration_revision"])
+            )
+            target_state = (
+                "wiki_primary_with_v1_rollback"
+                if body.action == "cutover_rollback_safe"
+                else "wiki_primary"
+            )
+            advanced = await migrator.advance_migration_state(
+                target_state,
+                expected_migration_revision=expected_rev,
+            )
+            mig = await migrator.get_migration_status()
+            return {
+                "action": body.action,
+                "migrationState": advanced["state"],
+                "migrationRevision": advanced["migration_revision"],
+                "dualReadQualified": bool(mig.get("dual_read_qualified")),
+                "coldRecoveryQualified": bool(mig.get("cold_recovery_qualified")),
+                "classicWriterRetired": advanced["state"] == "wiki_primary",
+            }
+    except (WikiRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
 @router.post("/wiki/rollback")
 async def rollback_wiki_to_classic(body: WikiRollbackBody, owner: Owner):
     from hushh_mcp.services.wiki_memory import WikiOwnerMigrator
@@ -652,8 +782,17 @@ async def rollback_wiki_to_classic(body: WikiRollbackBody, owner: Owner):
     _ = body.request_id
     try:
         async with wiki_operation(mutation=True) as wiki:
-            res = await WikiOwnerMigrator(wiki).rollback_to_v1_markdown()
-            return {"migrationState": res["state"], "migrationRevision": res["migration_revision"]}
+            res = await WikiOwnerMigrator(wiki).rollback_to_v1_markdown(
+                prior_v1_markdown=body.prior_v1_markdown,
+                expected_migration_revision=body.expected_migration_revision,
+                allow_post_graduation=body.allow_post_graduation,
+            )
+            return {
+                "migrationState": res["state"],
+                "migrationRevision": res["migration_revision"],
+                "v1Markdown": res["v1_markdown"],
+                "restoredClaimCount": int(res.get("restored_claim_count") or 0),
+            }
     except (WikiRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc
 

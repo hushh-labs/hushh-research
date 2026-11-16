@@ -76,9 +76,28 @@ export type WikiOverview = {
   captureOptIn: boolean;
   migrationState: string;
   migrationRevision: number;
+  dualReadQualified?: boolean;
+  coldRecoveryQualified?: boolean;
+  compiledClaimCount?: number;
+  classicWriterRetired?: boolean;
   pages: WikiSummaryPage[];
   candidateReceipts: WikiCandidateItem[];
   staleReceipts?: StaledWikiProjectionDescriptor[];
+};
+export type WikiMigrationAction =
+  | "compile_and_verify"
+  | "cutover_rollback_safe"
+  | "graduate_wiki_primary"
+  | "maintenance_tick";
+export type WikiMigrationResult = {
+  action: WikiMigrationAction;
+  migrationState: string;
+  migrationRevision: number;
+  dualReadQualified: boolean;
+  coldRecoveryQualified: boolean;
+  compiledClaimCount?: number;
+  skippedTombstoned?: number;
+  classicWriterRetired: boolean;
 };
 export type WikiPageDetail = {
   pageId: string;
@@ -631,13 +650,113 @@ export const FilesService = {
     }
     return res;
   },
-  wikiRollbackClassic: (signal?: AbortSignal) =>
-    json<{ migrationState: string; migrationRevision: number }>(
-      "wiki/rollback",
-      { request_id: crypto.randomUUID() },
+  wikiMigrateCohort: async (
+    input: {
+      action: WikiMigrationAction;
+      expectedMigrationRevision?: number;
+      v1Markdown?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<WikiMigrationResult> => {
+    const access = activeFilesAccess();
+    let v1Markdown = input.v1Markdown ?? "";
+    let chatKeyVerified = false;
+    if (input.action === "compile_and_verify" && access) {
+      if (!v1Markdown) {
+        const { loadMarkdownMemory } = await import("@/lib/pkm/markdown-memory");
+        const loaded = await loadMarkdownMemory({
+          userId: access.owner,
+          vaultKey: access.vaultKey,
+          vaultOwnerToken: access.ownerToken,
+          forceRefresh: true,
+        }).catch(() => null);
+        v1Markdown = loaded?.markdown ?? "";
+      }
+      try {
+        const { oneChatKeyHeaders } = await import("@/lib/vault/one-chat-key");
+        const headers = await oneChatKeyHeaders(access.vaultKey);
+        chatKeyVerified = Object.values(headers).some((v) =>
+          String(v || "").startsWith("hck1."),
+        );
+      } catch {
+        chatKeyVerified = false;
+      }
+    }
+    return json<WikiMigrationResult>(
+      "wiki/migrate",
+      {
+        action: input.action,
+        ...(input.action === "compile_and_verify"
+          ? { v1_markdown: v1Markdown, chat_key_verified: chatKeyVerified }
+          : {}),
+        ...(input.expectedMigrationRevision !== undefined
+          ? { expected_migration_revision: input.expectedMigrationRevision }
+          : {}),
+        request_id: crypto.randomUUID(),
+      },
       "POST",
       signal,
-    ),
+    );
+  },
+  wikiRollbackClassic: async (
+    signal?: AbortSignal,
+    options?: {
+      expectedMigrationRevision?: number;
+      allowPostGraduation?: boolean;
+    },
+  ) => {
+    const access = activeFilesAccess();
+    let priorV1Markdown = "";
+    let expectedPersisted = false;
+    if (access) {
+      const { loadMarkdownMemory } = await import("@/lib/pkm/markdown-memory");
+      const currentDoc = await loadMarkdownMemory({
+        userId: access.owner,
+        vaultKey: access.vaultKey,
+        vaultOwnerToken: access.ownerToken,
+        forceRefresh: true,
+      }).catch(() => null);
+      priorV1Markdown = currentDoc?.markdown ?? "";
+      expectedPersisted = Boolean(currentDoc?.persisted);
+    }
+    const rolledBack = await json<{
+      migrationState: string;
+      migrationRevision: number;
+      v1Markdown?: string;
+    }>(
+      "wiki/rollback",
+      {
+        prior_v1_markdown: priorV1Markdown,
+        ...(options?.expectedMigrationRevision !== undefined
+          ? { expected_migration_revision: options.expectedMigrationRevision }
+          : {}),
+        ...(options?.allowPostGraduation
+          ? { allow_post_graduation: true }
+          : {}),
+        request_id: crypto.randomUUID(),
+      },
+      "POST",
+      signal,
+    );
+    if (access && typeof rolledBack.v1Markdown === "string") {
+      const { replaceMarkdownMemoryDocument } = await import(
+        "@/lib/pkm/markdown-memory"
+      );
+      await replaceMarkdownMemoryDocument({
+        userId: access.owner,
+        vaultKey: access.vaultKey,
+        vaultOwnerToken: access.ownerToken,
+        markdown: rolledBack.v1Markdown,
+        expectedMarkdown: priorV1Markdown,
+        expectedPersisted,
+        beforeEffect: async () => {
+          signal?.throwIfAborted();
+          access.check();
+        },
+      });
+    }
+    return rolledBack;
+  },
   wikiImportArchive: async (
     input: {
       fileId: string;

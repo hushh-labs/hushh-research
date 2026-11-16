@@ -713,6 +713,55 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
 /** Publish accepted facts immediately; encryption and CAS commits run in parallel with chat. */
 export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmClaim"> & { recoveryKey?: string; stagingOrder?: number; onCommitted?: () => void }): Promise<MarkdownMemoryAppendResult> {
   await params.beforeEffect?.();
+  if (!params.replaceSource && !params.completeKycIntake) {
+    try {
+      const { peekActiveSharedWiki } = await import("@/lib/files/wiki/active-shared-wiki");
+      const activeWiki = peekActiveSharedWiki();
+      if (activeWiki && activeWiki.access.owner === params.userId) {
+        const {
+          SharedWikiKnowledgeWriter,
+          SharedWikiOwnerMigrator,
+          SharedWikiProjectionEngine,
+        } = await import("@/lib/files/wiki");
+        const [cp, mig] = await Promise.all([
+          activeWiki.readCaptureCheckpoint().catch(() => null),
+          new SharedWikiOwnerMigrator(activeWiki).getMigrationStatus().catch(() => null),
+        ]);
+        if (cp?.capture_opt_in && mig?.state === "wiki_primary") {
+          const statements = params.facts
+            .map((f) => normalizeFact(f))
+            .filter((s) => Boolean(s));
+          if (statements.length === 0) {
+            return { success: true, saved: 0, markdown: peekMarkdownMemory(params.userId)?.markdown ?? "" };
+          }
+          const writer = new SharedWikiKnowledgeWriter(activeWiki);
+          const convId = `direct_stage_${crypto.randomUUID().slice(0, 12)}`;
+          const captured = await writer.captureEvents(
+            statements.map((stmt, idx) => ({
+              conversationId: convId,
+              eventId: `${convId}_${idx}`,
+              role: "user" as const,
+              content: stmt,
+            })),
+          );
+          if (captured.status === "saved") {
+            const projections = new SharedWikiProjectionEngine(activeWiki);
+            for (const pageId of captured.saved_page_ids) {
+              await projections.syncPageLifecycle(pageId);
+            }
+          }
+          params.onCommitted?.();
+          return {
+            success: true,
+            saved: captured.status === "saved" ? captured.saved_claim_ids.length : 0,
+            markdown: peekMarkdownMemory(params.userId)?.markdown ?? "",
+          };
+        }
+      }
+    } catch {
+      // Fall back to classic staging only when Shared Wiki is unavailable.
+    }
+  }
   const receiptGeneration = params.replaceSource ? params.receiptGeneration ?? (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation : undefined;
   if (receiptGeneration !== undefined && (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation !== receiptGeneration)
     throw new Error("Receipt memory was reset. Ask again.");
