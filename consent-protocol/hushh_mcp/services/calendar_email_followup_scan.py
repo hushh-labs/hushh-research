@@ -37,6 +37,7 @@ from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
     _clear_message,
     _cutoff_ms,
     _initial_checkpoint,
+    _is_empty_retry_checkpoint,
     _mark_incomplete,
     _reset_exhausted,
     _save,
@@ -365,7 +366,7 @@ async def _prepare(
     expired history only needs the unsynchronized period, and keeps what was
     still unverified.
     """
-    if force and checkpoint.get("mode") != "gap":
+    if checkpoint and force and checkpoint.get("mode") != "gap":
         _reset_exhausted(checkpoint)
     if checkpoint and checkpoint.get("mode") != "gap" and not bootstrap_window_is_stale(checkpoint):
         return checkpoint
@@ -471,7 +472,12 @@ async def scan_once(
     )
     if not monitor:
         return {"state": "not_due", "sections": 0, "messages": 0}
-    checkpoint = _upgrade_checkpoint(dict(monitor.checkpoint)) if monitor.checkpoint else {}
+    checkpoint = dict(monitor.checkpoint or {})
+    recovering_empty_retry = bool(checkpoint) and _is_empty_retry_checkpoint(checkpoint)
+    if recovering_empty_retry:
+        checkpoint = {}
+    elif checkpoint:
+        checkpoint = _upgrade_checkpoint(checkpoint)
     progress: dict[str, Any] = {"sections": 0, "messages": 0, "done": False}
     try:
         selected = await open_selected_mail_grant(user_id=user_id, account_id=account_id)
@@ -485,6 +491,10 @@ async def scan_once(
             checkpoint = await _prepare(
                 store, monitor, checkpoint, client=client, grant=grant, now=now, force=force
             )
+            if recovering_empty_retry:
+                logger.info(
+                    "calendar_followup_checkpoint_reinitialized reason=empty_retry_checkpoint"
+                )
             await _drain(
                 monitor=monitor,
                 checkpoint=checkpoint,
