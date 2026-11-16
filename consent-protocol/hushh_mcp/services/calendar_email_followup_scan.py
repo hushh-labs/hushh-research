@@ -102,6 +102,7 @@ async def _step(
     sections_left: int,
     now: datetime | None,
     reconcile: Reconcile,
+    deadline: float | None = None,
 ) -> tuple[int, int, bool]:
     """Advance one durable section, message, thread, or provider page boundary."""
     if checkpoint.get("version") != 1 or checkpoint.get("mode") not in _MODES:
@@ -116,7 +117,7 @@ async def _step(
         "now": now,
     }
     if checkpoint["thread_messages"]:
-        return await _step_message(**common, reconcile=reconcile)
+        return await _step_message(**common, reconcile=reconcile, deadline=deadline)
     if checkpoint["pending_threads"]:
         return await _step_thread(**common)
     return await _step_page(**common)
@@ -132,6 +133,7 @@ async def _step_message(
     sections_left: int,
     now: datetime | None,
     reconcile: Reconcile,
+    deadline: float | None = None,
 ) -> tuple[int, int, bool]:
     messages = checkpoint["thread_messages"]
     index = checkpoint["message_index"]
@@ -202,6 +204,7 @@ async def _step_message(
         prior=prior,
         sections_left=sections_left,
         now=now,
+        deadline=deadline,
     )
     if moved_on:
         return consumed, 0, False
@@ -229,9 +232,12 @@ async def _assess_sections(
     prior: list[dict[str, str]],
     sections_left: int,
     now: datetime | None,
+    deadline: float | None = None,
 ) -> tuple[int, bool]:
     consumed = 0
     while checkpoint["section_index"] < len(message.sections) and consumed < sections_left:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         section = message.sections[checkpoint["section_index"]]
         drops = dict(checkpoint["partial_drops"])
         started = time.monotonic()
@@ -418,6 +424,7 @@ async def _drain(
             sections_left=max_sections - progress["sections"],
             now=now,
             reconcile=reconcile,
+            deadline=deadline,
         )
         progress["sections"] += used
         progress["messages"] += completed

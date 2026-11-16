@@ -705,3 +705,15 @@ None of these routes grants vault/PKM or delegated-agent authority or mints a
 broad owner token. Vault lock/HCT revocation does not revoke this first-party
 workspace grant; Calendar disconnect and Firebase invalidation do. Responses
 are private/no-store. Legacy chat, pod and delegated routes retain their HCT gates.
+
+
+Calendar Follow-ups workspace routes additionally use Firebase plus the selected
+account's current Gmail read grant and enabled monitor generation. This bounded
+authority covers saved projections, original-email links, reminder mutations,
+scan scheduling and follow-up-specific booking review/execute/linkage. Booking
+reviews are sealed to owner/account/request/revision, Mail epoch, monitor
+generation and the expiring one-use Calendar proposal. Creation rechecks the
+request and grants immediately before provider dispatch. General Calendar
+proposal routes and the legacy raw Follow-ups `/source` endpoint retain their
+vault-owner gates. Vault lock does not withdraw this workspace grant; sign-out,
+Google grant loss and monitoring opt-out do. No vault/PKM authority is minted.

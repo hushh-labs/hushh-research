@@ -1,3 +1,6 @@
+import { invalidateFollowupSnapshots } from "@/lib/calendar/calendar-followup-resource";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { boardBookingPayload, type CalendarBoardBookingInput, type CalendarBoardBookingReview, type CalendarExecution } from "@/lib/calendar/calendar-board-booking";
 import { ApiService } from "@/lib/services/api-service";
 
 /**
@@ -81,7 +84,7 @@ export type FollowupDetail = Omit<FollowupConversation, "request_count" | "activ
   account_id: string; requests: FollowupRequest[];
 };
 /** `pending` means one bounded step finished and the scan has more to do now. */
-export type FollowupScanResult = { state?: "pending" | "partial" | "complete" | "not_due" } | undefined;
+export type FollowupScanResult = { state?: "pending" | "partial" | "complete" | "not_due" | "scheduled" } | undefined;
 export type FollowupSourceLink = { request_id: string; account_id: string; gmail_message_id: string };
 
 export class FollowupRequestError extends Error {
@@ -99,12 +102,13 @@ function validateAccount(value: unknown, accountId: string): asserts value is Re
 }
 
 export class CalendarFollowupsService {
-  static async post<T>(path: string, body: Record<string, unknown>, idToken: string, vaultOwnerToken?: string | null, signal?: AbortSignal): Promise<T> {
+  static async post<T>(path: string, body: Record<string, unknown>, idToken: string, signal?: AbortSignal, isEffectCurrent?: () => boolean): Promise<T> {
+    const generation = getAuthSessionGeneration();
+    const current = () => getAuthSessionGeneration() === generation && (isEffectCurrent?.() ?? true);
     const response = await ApiService.apiFetch(`/api/one/calendar/followups/${path}`, {
-      method: "POST", cache: "no-store", signal,
+      method: "POST", cache: "no-store", signal, isEffectCurrent: current,
       headers: {
         Authorization: `Bearer ${idToken}`, "Content-Type": "application/json",
-        ...(vaultOwnerToken ? { "X-Hushh-Consent": `Bearer ${vaultOwnerToken}` } : {}),
       },
       body: JSON.stringify(body),
     });
@@ -118,19 +122,19 @@ export class CalendarFollowupsService {
   }
 
   static async status(userId: string, accountId: string, idToken: string, signal?: AbortSignal): Promise<FollowupStatus> {
-    const value = await this.post<FollowupStatus>("status", { user_id: userId, account_id: accountId }, idToken, null, signal);
+    const value = await this.post<FollowupStatus>("status", { user_id: userId, account_id: accountId }, idToken, signal);
     validateAccount(value, accountId);
     if (typeof value.mail_connected !== "boolean" || typeof value.monitoring_enabled !== "boolean" ||
       !["off", "pending", "partial", "complete"].includes(String(value.scan_state))) throw new Error("Follow-ups status was incomplete.");
     return value;
   }
 
-  static async list(userId: string, accountId: string, idToken: string, ownerToken: string, signal?: AbortSignal, offset = 0, view: FollowupView = "upcoming"): Promise<FollowupList> {
+  static async list(userId: string, accountId: string, idToken: string, signal?: AbortSignal, offset = 0, view: FollowupView = "upcoming"): Promise<FollowupList> {
     const value = await this.post<FollowupList>("list", {
       user_id: userId, account_id: accountId, offset,
       // Older backends accept the default list but reject unknown body fields.
       ...(view === "upcoming" ? {} : { view }),
-    }, idToken, ownerToken, signal);
+    }, idToken, signal);
     validateAccount(value, accountId);
     if (!Array.isArray(value.conversations) || !Number.isInteger(value.total_conversations) ||
       (value.next_offset !== null && (!Number.isInteger(value.next_offset) || value.next_offset <= offset)) ||
@@ -140,9 +144,9 @@ export class CalendarFollowupsService {
     return value;
   }
 
-  static async detail(userId: string, accountId: string, conversationId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<FollowupDetail> {
+  static async detail(userId: string, accountId: string, conversationId: string, idToken: string, signal?: AbortSignal): Promise<FollowupDetail> {
     if (!validUuid(conversationId)) throw new Error("Choose a valid conversation.");
-    const value = await this.post<FollowupDetail>("detail", { user_id: userId, account_id: accountId, conversation_id: conversationId }, idToken, ownerToken, signal);
+    const value = await this.post<FollowupDetail>("detail", { user_id: userId, account_id: accountId, conversation_id: conversationId }, idToken, signal);
     validateAccount(value, accountId);
     if (value.id !== conversationId || !Array.isArray(value.requests) || value.requests.some(item => !isRecord(item) || !validUuid(item.id) || !Number.isInteger(item.revision)))
       throw new Error("Follow-up details were incomplete.");
@@ -150,9 +154,9 @@ export class CalendarFollowupsService {
   }
 
   /** The Gmail reference for one request; the message itself is not read. */
-  static async sourceLink(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<FollowupSourceLink> {
+  static async sourceLink(userId: string, accountId: string, requestId: string, idToken: string, signal?: AbortSignal): Promise<FollowupSourceLink> {
     if (!validUuid(requestId)) throw new Error("Choose a valid request.");
-    const value = await this.post<FollowupSourceLink>("source/link", { user_id: userId, account_id: accountId, request_id: requestId }, idToken, ownerToken, signal);
+    const value = await this.post<FollowupSourceLink>("source/link", { user_id: userId, account_id: accountId, request_id: requestId }, idToken, signal);
     validateAccount(value, accountId);
     if (value.request_id !== requestId || typeof value.gmail_message_id !== "string" || !value.gmail_message_id) throw new Error("Original email link was unavailable.");
     return value;
@@ -164,37 +168,52 @@ export class CalendarFollowupsService {
    * repeatedly never causes repeated full scans. `retry` is the owner's explicit
    * "check again" and clears exhausted retries.
    */
-  static async scan(userId: string, accountId: string, idToken: string, ownerToken: string, options: { retry?: boolean } = {}, signal?: AbortSignal): Promise<FollowupScanResult> {
-    return await this.post<FollowupScanResult>("scan", { user_id: userId, account_id: accountId, ...(options.retry ? { retry: true } : {}) }, idToken, ownerToken, signal);
+  static async scan(userId: string, accountId: string, idToken: string, options: { retry?: boolean } = {}, signal?: AbortSignal): Promise<FollowupScanResult> {
+    return await this.post<FollowupScanResult>("scan", { user_id: userId, account_id: accountId, ...(options.retry ? { retry: true } : {}) }, idToken, signal);
   }
 
-  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<{ conversationId: string; requestId: string }> {
+  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, signal?: AbortSignal): Promise<{ conversationId: string; requestId: string }> {
     if (!validUuid(requestId)) throw new Error("Choose a valid request.");
     const value = await this.post<{ account_id: string; conversation_id: string; request_id?: string }>("resolve", {
       user_id: userId, account_id: accountId, request_id: requestId,
-    }, idToken, ownerToken, signal);
+    }, idToken, signal);
     validateAccount(value, accountId);
     const resolvedRequestId = value.request_id === undefined ? requestId : value.request_id;
     if (!validUuid(value.conversation_id) || !validUuid(resolvedRequestId)) throw new Error("Follow-up source was unavailable.");
     return { conversationId: value.conversation_id, requestId: resolvedRequestId };
   }
 
-  static async change(userId: string, accountId: string, request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null, idToken: string, ownerToken: string): Promise<{ id: string; revision: number; state: string; reminder_at: string | null }> {
+  static async change(userId: string, accountId: string, request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null, idToken: string): Promise<{ id: string; revision: number; state: string; reminder_at: string | null }> {
     const value = await this.post<{ id: string; revision: number; state: string; reminder_at: string | null }>("request", {
       user_id: userId, account_id: accountId, request_id: request.id,
       expected_revision: request.revision, idempotency_key: crypto.randomUUID(),
       action, reminder_at: reminderAt,
-    }, idToken, ownerToken);
+    }, idToken);
     if (value.id !== request.id || !Number.isInteger(value.revision) || typeof value.state !== "string") throw new Error("Follow-up action was not confirmed.");
+    invalidateFollowupSnapshots(userId);
     return value;
   }
 
-  static async confirmBooking(userId: string, accountId: string, request: Pick<FollowupRequest, "id" | "revision">, eventId: string, idToken: string, ownerToken: string): Promise<void> {
+  static async reviewBooking(params: Omit<CalendarBoardBookingInput, "vaultOwnerToken">, request: Pick<FollowupRequest, "id" | "revision">, idToken: string) {
+    return this.post<CalendarBoardBookingReview & { review_token: string }>("booking/review", {
+      ...boardBookingPayload(params), request_id: request.id, expected_revision: request.revision,
+    }, idToken);
+  }
+
+  static async executeBooking(userId: string, accountId: string, request: Pick<FollowupRequest, "id" | "revision">, proposalId: string, reviewToken: string, idToken: string, isEffectCurrent: () => boolean) {
+    return this.post<CalendarExecution>("booking/execute", {
+      user_id: userId, account_id: accountId, request_id: request.id,
+      expected_revision: request.revision, proposal_id: proposalId, review_token: reviewToken,
+    }, idToken, undefined, isEffectCurrent);
+  }
+
+  static async confirmBooking(userId: string, accountId: string, request: Pick<FollowupRequest, "id" | "revision">, eventId: string, idToken: string): Promise<void> {
     const value = await this.post<{ id: string; booking_state: string }>("booking/confirm", {
       user_id: userId, account_id: accountId, request_id: request.id,
       expected_revision: request.revision, idempotency_key: crypto.randomUUID(),
       event_id: eventId,
-    }, idToken, ownerToken);
+    }, idToken);
     if (value.id !== request.id || value.booking_state !== "booked") throw new Error("Calendar event was not linked to its follow-up.");
+    invalidateFollowupSnapshots(userId);
   }
 }

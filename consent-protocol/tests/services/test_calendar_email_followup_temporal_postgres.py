@@ -118,7 +118,6 @@ async def _account(service, tag, email):
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     return account_id
 
@@ -265,7 +264,6 @@ async def test_eligibility_and_ranking_happen_before_the_15_item_page_is_chosen(
         routes.ListSelection(user_id=OWNER, account_id=account_id),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert routes.FOLLOWUP_PAGE_SIZE == 15
     assert len(first["conversations"]) == 15
@@ -276,14 +274,12 @@ async def test_eligibility_and_ranking_happen_before_the_15_item_page_is_chosen(
         routes.ListSelection(user_id=OWNER, account_id=account_id, offset=15),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert _titles(second) == ["Submit item 15"] and second["next_offset"] is None
     history = await routes.list_followups(
         routes.ListSelection(user_id=OWNER, account_id=account_id, view="history"),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert history["total_conversations"] == 6
 
@@ -426,7 +422,6 @@ async def test_the_same_obligation_in_two_emails_is_one_request_that_keeps_both_
         routes.RequestSelection(user_id=OWNER, account_id=account_id, request_id=old_id),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert target == {
         "account_id": account_id,

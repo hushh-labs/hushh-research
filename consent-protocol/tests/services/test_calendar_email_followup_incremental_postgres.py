@@ -81,7 +81,6 @@ async def _enable(selected: str, *, lookback=datetime(2026, 10, 1, tzinfo=UTC), 
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
 
 

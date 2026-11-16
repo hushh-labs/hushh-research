@@ -52,7 +52,6 @@ async def _monitored_account(service, *, lookback: datetime = HISTORICAL) -> str
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     return account_id
 
@@ -572,7 +571,7 @@ async def test_automatic_start_is_idempotent_and_preserves_explicit_opt_out(foll
         time_zone="UTC",
         notifications_enabled=True,
     )
-    result = await routes.preferences(payload, Response(), OWNER, {"user_id": OWNER})
+    result = await routes.preferences(payload, Response(), OWNER)
     after = await store.monitor(user_id=OWNER, account_id=account_id)
     assert result["monitoring_enabled"]
     assert after.generation == before.generation
@@ -583,11 +582,10 @@ async def test_automatic_start_is_idempotent_and_preserves_explicit_opt_out(foll
         routes.PreferenceChange(user_id=OWNER, account_id=account_id, enabled=False),
         Response(),
         OWNER,
-        {"user_id": OWNER},
     )
     await service.disconnect_service(user_id=OWNER, service="gmail", account_id=account_id)
     await _connect_mail(service, account_id, "synthetic-b")
-    result = await routes.preferences(payload, Response(), OWNER, {"user_id": OWNER})
+    result = await routes.preferences(payload, Response(), OWNER)
     assert not result["monitoring_enabled"]
     assert await store.monitor(user_id=OWNER, account_id=account_id) is None
     with engine.begin() as connection:
@@ -602,6 +600,6 @@ async def test_automatic_start_is_idempotent_and_preserves_explicit_opt_out(foll
         )
     # Only an explicit enable may supersede the remembered opt-out.
     result = await routes.preferences(
-        payload.model_copy(update={"initialize_only": False}), Response(), OWNER, {"user_id": OWNER}
+        payload.model_copy(update={"initialize_only": False}), Response(), OWNER
     )
     assert result["monitoring_enabled"]

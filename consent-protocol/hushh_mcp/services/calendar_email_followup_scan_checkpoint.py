@@ -33,6 +33,7 @@ def bootstrap_window_is_stale(checkpoint: dict[str, Any]) -> bool:
     """A first scan sealed before the 30-day cap that is still reading older mail."""
     return (
         checkpoint.get("mode") == "bootstrap"
+        and not checkpoint.get("history_recovery")
         and int(checkpoint.get("cutoff_ms", 0))
         < int(checkpoint.get("snapshot_ms", 0)) - _FIRST_SCAN_MS
     )
@@ -45,16 +46,16 @@ def _initial_checkpoint(
     history_id: str,
     cutoff_ms: int | None = None,
 ) -> dict[str, Any]:
-    start_ms = max(
-        int(monitor.historical_start_at.timestamp() * 1000), snapshot_ms - _FIRST_SCAN_MS
-    )
+    approved_start = int(monitor.historical_start_at.timestamp() * 1000)
+    start_ms = max(approved_start, snapshot_ms - _FIRST_SCAN_MS)
     return {
         "version": 1,
         "assessment_version": ASSESSMENT_VERSION,
         "mode": "bootstrap",
         # Gap recovery narrows this to the unsynchronized period; a first scan
         # covers the approved period, never more than the most recent month.
-        "cutoff_ms": max(start_ms, cutoff_ms) if cutoff_ms is not None else start_ms,
+        "cutoff_ms": max(approved_start, cutoff_ms) if cutoff_ms is not None else start_ms,
+        "history_recovery": cutoff_ms is not None,
         "snapshot_ms": snapshot_ms,
         "history_id": history_id,
         "page_token": None,
