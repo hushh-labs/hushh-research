@@ -21,6 +21,7 @@ import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
+import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
@@ -38,8 +39,10 @@ const mocks = vi.hoisted(() => ({
       id: "calendar-event-1",
       title: "Review the plan",
       start: { date: "2026-10-10" },
+      end: null,
+      status: null,
     },
-  ],
+  ] as RedactedCalendarEvent[],
 }));
 
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
@@ -122,6 +125,8 @@ describe("TodoListPage row actions", () => {
         id: "calendar-event-1",
         title: "Review the plan",
         start: { date: "2026-10-10" },
+        end: null,
+        status: null,
       },
     ];
     vi.spyOn(TodoListPkmService, "load").mockResolvedValue({ tasks: [] });
@@ -280,6 +285,54 @@ describe("TodoListPage row actions", () => {
     mocks.actionables = [{ ...item, todo: { ...item.todo!, key: "task:refresh:run-2" } }];
     view.rerender(<TodoListPage />);
     expect(await screen.findByRole("checkbox", { name: "Mark Review refresh as completed" })).toBeVisible();
+  });
+
+  it.each([
+    { status: "cancelled", start: { date: "2026-10-10" } },
+    { status: "CANCELLED", start: null },
+  ])("honors explicit Calendar cancellation without hiding unrelated tasks: %j", (cancellation) => {
+    const event = mocks.events[0]!;
+    const cancelled = buildTodo(todoService.calendarTodoInput(event)!);
+    const unrelated = buildTodo(todoService.calendarTodoInput({ ...event, id: "calendar-event-2" })!);
+    const gmail = buildTodo(todoService.gmailTodoInput({ id: event.id!, title: "Email follow-up" })!);
+    const manual = buildTodo({ type: "manual", title: "Owner task", sourceId: event.id });
+    let tasks = [cancelled, unrelated, manual];
+    const { result, rerender } = renderHook(() => useTodoLiveTasks({
+      userId: mocks.user.uid, vaultOwnerToken: "test-owner-token",
+      idTokenProvider: mocks.user.getIdToken, enabled: true, tasks,
+    }));
+    expect(result.current.pending.some(task => task.id === cancelled.id)).toBe(true);
+
+    mocks.events = [{ ...event, ...cancellation, title: "" }];
+    rerender();
+
+    expect(result.current.pending.map(task => task.id).sort()).toEqual(
+      [unrelated.id, manual.id].sort(),
+    );
+    expect(cancelled.status).toBe("pending");
+
+    tasks = [...tasks, gmail];
+    mocks.events = [...mocks.events, event];
+    rerender();
+    expect(result.current.pending.map(task => task.id).sort()).toEqual(
+      [unrelated.id, gmail.id, manual.id].sort(),
+    );
+  });
+
+  it("keeps saved Calendar snapshots when a read omits events or cannot identify a cancellation", () => {
+    const saved = buildTodo(todoService.calendarTodoInput(mocks.events[0]!)!);
+    const done = { ...saved, id: "calendar-done", sourceId: "done", status: "done" as const };
+    const deleted = { ...saved, id: "calendar-deleted", sourceId: "deleted", status: "deleted" as const };
+    mocks.events = [];
+    const { result, rerender } = renderHook(() => useTodoLiveTasks({
+      userId: mocks.user.uid, vaultOwnerToken: "test-owner-token",
+      idTokenProvider: mocks.user.getIdToken, enabled: true, tasks: [saved, done, deleted],
+    }));
+    expect(result.current.pending).toEqual([saved]);
+
+    mocks.events = [{ id: null, title: saved.title, start: null, end: null, status: "cancelled" }];
+    rerender();
+    expect(result.current.pending).toEqual([saved]);
   });
 
   it("hides a completed Calendar item immediately and keeps it hidden when saved state reloads", async () => {
