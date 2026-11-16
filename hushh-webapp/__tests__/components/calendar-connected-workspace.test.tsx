@@ -7,6 +7,7 @@ import { useLayoutEffect } from "react";
 
 const mocks = vi.hoisted(() => ({
   insights: vi.fn(),
+  followupStatus: vi.fn(), followupPost: vi.fn(), followupScan: vi.fn(),
   invitations: vi.fn().mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true }),
   today: vi.fn(),
   availability: vi.fn(),
@@ -22,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   getIdToken: vi.fn(),
   vaultOwnerToken: "owner-token" as string | null,
   router: { push: vi.fn(), replace: vi.fn() },
+}));
+
+vi.mock("@/lib/services/calendar-followups-service", () => ({
+  CalendarFollowupsService: { status: mocks.followupStatus, post: mocks.followupPost, scan: mocks.followupScan },
 }));
 
 vi.mock("@/lib/services/calendar-insights-service", () => ({
@@ -1229,4 +1234,18 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onDisconnect).toHaveBeenCalledOnce();
     expect(mocks.onConnect).not.toHaveBeenCalled();
   });
+});
+
+
+it("starts granted email follow-ups from the Calendar board before Insights opens", async () => {
+  mocks.getIdToken.mockResolvedValue("synthetic-id-token");
+  mocks.followupStatus.mockResolvedValue({ mail_connected: true, monitoring_enabled: false, background_available: true });
+  mocks.followupPost.mockResolvedValue({ monitoring_enabled: true });
+  mocks.followupScan.mockResolvedValue({ state: "pending" });
+  render(workspace());
+  await waitFor(() => expect(mocks.followupPost).toHaveBeenCalledWith("preferences", expect.objectContaining({
+    account_id: "default", enabled: true, initialize_only: true,
+  }), "synthetic-id-token", "owner-token", expect.any(AbortSignal)));
+  await waitFor(() => expect(mocks.followupScan).toHaveBeenCalledOnce());
+  expect(screen.queryByText("Follow-ups")).not.toBeInTheDocument();
 });

@@ -54,3 +54,18 @@ export async function scanWhilePending(options: {
   }
   return true;
 }
+
+/** Initialize once after Calendar has a real Mail grant; never override an opt-out. */
+export async function initializeFollowupMonitor(
+  userId: string, accountId: string, current: FollowupStatus, zone: string,
+  idToken: string, ownerToken: string, signal?: AbortSignal,
+): Promise<boolean> {
+  if (!current.mail_connected || current.monitoring_enabled) return false;
+  const result = await CalendarFollowupsService.post<{ monitoring_enabled: boolean }>("preferences", {
+    user_id: userId, account_id: accountId, enabled: true, initialize_only: true,
+    notifications_enabled: Boolean(current.background_available),
+    historical_start_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    time_zone: zone, reminder_lead_days: 1, reminder_hour: 9,
+  }, idToken, ownerToken, signal);
+  return result.monitoring_enabled;
+}

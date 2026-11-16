@@ -2044,7 +2044,7 @@ class GoogleConnectionService:
                     raise GoogleConnectionError("Calendar account was not found", status_code=404)
                 connection.execute(
                     text("""DELETE FROM calendar_email_followup_monitors
-                    WHERE user_id=:user_id AND account_id=:account_id"""),
+                    WHERE user_id=:user_id AND account_id=:account_id AND enabled=TRUE"""),
                     {"user_id": user_id, "account_id": account_id},
                 )
 

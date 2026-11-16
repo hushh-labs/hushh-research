@@ -556,3 +556,52 @@ async def test_deleted_source_mail_retires_active_followups_and_keeps_finished_o
     assert states == ["done", "source_unavailable"]
     monitor = await store.monitor(user_id=OWNER, account_id=account_id)
     assert (await store.list_conversations(monitor, limit=10))["total_conversations"] == 0
+
+
+@pytest.mark.asyncio
+async def test_automatic_start_is_idempotent_and_preserves_explicit_opt_out(followup_pg):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    before = await store.monitor(user_id=OWNER, account_id=account_id)
+    payload = routes.PreferenceChange(
+        user_id=OWNER,
+        account_id=account_id,
+        enabled=True,
+        initialize_only=True,
+        historical_start_at=datetime.now(UTC) - timedelta(days=30),
+        time_zone="UTC",
+        notifications_enabled=True,
+    )
+    result = await routes.preferences(payload, Response(), OWNER, {"user_id": OWNER})
+    after = await store.monitor(user_id=OWNER, account_id=account_id)
+    assert result["monitoring_enabled"]
+    assert after.generation == before.generation
+    assert after.historical_start_at == before.historical_start_at
+    assert after.time_zone == before.time_zone
+    assert after.notifications_enabled == before.notifications_enabled
+    await routes.preferences(
+        routes.PreferenceChange(user_id=OWNER, account_id=account_id, enabled=False),
+        Response(),
+        OWNER,
+        {"user_id": OWNER},
+    )
+    await service.disconnect_service(user_id=OWNER, service="gmail", account_id=account_id)
+    await _connect_mail(service, account_id, "synthetic-b")
+    result = await routes.preferences(payload, Response(), OWNER, {"user_id": OWNER})
+    assert not result["monitoring_enabled"]
+    assert await store.monitor(user_id=OWNER, account_id=account_id) is None
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT enabled FROM calendar_email_followup_monitors WHERE account_id=:account"
+                ),
+                {"account": account_id},
+            ).scalar_one()
+            is False
+        )
+    # Only an explicit enable may supersede the remembered opt-out.
+    result = await routes.preferences(
+        payload.model_copy(update={"initialize_only": False}), Response(), OWNER, {"user_id": OWNER}
+    )
+    assert result["monitoring_enabled"]

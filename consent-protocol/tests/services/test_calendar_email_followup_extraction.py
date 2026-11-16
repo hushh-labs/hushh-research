@@ -206,3 +206,44 @@ async def test_section_call_limit_exceeds_the_genes_declared_p95():
         gene_runner=fake_gene,
     )
     assert seen["timeout"] > 30
+
+
+def test_nested_ambiguity_limit_is_enforced_after_provider_decoding():
+    from pydantic import ValidationError
+
+    from hushh_mcp.services.calendar_email_followup_extraction import (
+        FollowupCandidateV1,
+        FollowupChunkAssessmentV1,
+    )
+
+    schema = FollowupChunkAssessmentV1.model_json_schema()
+    assert "maxItems" not in schema["$defs"]["FollowupCandidateV1"]["properties"]["ambiguities"]
+    assert "maxItems" not in schema["properties"]["candidates"]
+    assert "maxItems" not in schema["properties"]["updates"]
+    candidate = dict(
+        local_index=0,
+        section_index=0,
+        kind="action",
+        quote_start=0,
+        source_quote="Send the document",
+        title="Send document",
+        responsibility="owner",
+    )
+    assert len(FollowupCandidateV1(**candidate, ambiguities=["date"] * 5).ambiguities) == 5
+    with pytest.raises(ValidationError):
+        FollowupCandidateV1(**candidate, ambiguities=["date"] * 6)
+
+    assert len(FollowupChunkAssessmentV1(candidates=[candidate] * 20).candidates) == 20
+    with pytest.raises(ValidationError):
+        FollowupChunkAssessmentV1(candidates=[candidate] * 21)
+    update = dict(
+        section_index=0,
+        quote_start=0,
+        source_quote="It is complete",
+        target_request_id="0" * 36,
+        outcome="completed",
+        explanation="Complete",
+    )
+    assert len(FollowupChunkAssessmentV1(updates=[update] * 20).updates) == 20
+    with pytest.raises(ValidationError):
+        FollowupChunkAssessmentV1(updates=[update] * 21)

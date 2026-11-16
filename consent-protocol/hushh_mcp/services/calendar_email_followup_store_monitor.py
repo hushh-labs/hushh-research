@@ -263,6 +263,7 @@ class _MonitorConfig:
         notifications_enabled: bool,
         reminder_lead_days: int = 1,
         reminder_hour: int = 9,
+        initialize_only: bool = False,
     ) -> Monitor | None:
         if enabled:
             ZoneInfo(time_zone)
@@ -292,13 +293,11 @@ class _MonitorConfig:
 
         def write() -> Monitor | None:
             with self.db.engine.begin() as conn:
-                if enabled:
-                    # Serialize consent publication, replacement and revoke
-                    # with an opt-in even when no monitor row exists yet.
-                    conn.execute(
-                        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
-                        {"lock_key": f"google-connection:{user_id}"},
-                    )
+                # Serialize initialization and opt-out even before a row exists.
+                conn.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                    {"lock_key": f"google-connection:{user_id}"},
+                )
                 current = (
                     conn.execute(
                         text("""SELECT * FROM calendar_email_followup_monitors
@@ -309,8 +308,15 @@ class _MonitorConfig:
                     .first()
                 )
                 if not enabled:
-                    configure_sql.delete_monitor(conn, user_id, account_id)
+                    if not current:
+                        configure_sql.insert_monitor(conn, values)
+                    configure_sql.disable_monitor(conn, user_id, account_id)
                     return None
+                if initialize_only and current:
+                    return self._monitor(dict(current)) if current["enabled"] else None
+                if current and not current["enabled"]:
+                    configure_sql.delete_monitor(conn, user_id, account_id)
+                    current = None
                 if current and current["provider_subject_sha256"] != provider_subject_sha256:
                     # A different Google identity is a different mailbox: nothing
                     # stored for the previous identity may carry over.

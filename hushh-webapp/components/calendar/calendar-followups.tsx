@@ -21,7 +21,7 @@ import {
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
-import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
+import { initializeFollowupMonitor, rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 import { CalendarFollowupsService, type FollowupConversation, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupStatus, type FollowupView } from "@/lib/services/calendar-followups-service";
 
 type Props = {
@@ -130,8 +130,16 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     try {
       const idToken = await tokenGetter.current();
       if (!alive()) return;
-      const nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
+      let nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
       if (!alive()) return;
+      if (nextStatus.mail_connected && !nextStatus.monitoring_enabled) {
+        const ownerToken = await requireOwnerToken("Unlock One to start email follow-ups.");
+        if (!alive()) return;
+        if (await initializeFollowupMonitor(userId, accountId, nextStatus, zone, idToken, ownerToken, signal)) {
+          nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
+          if (!alive()) return;
+        }
+      }
       setStatus(nextStatus);
       if (!nextStatus.mail_connected || !nextStatus.monitoring_enabled) {
         setList(null); setLoading(false); return;
@@ -161,7 +169,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       // is already looking at with an error: the last verified list stays.
       if (alive() && !quiet) { if (!hasVerifiedRows.current) setError(followupErrorText(failure)); setLoading(false); }
     }
-  }, [userId, accountId, requireOwnerToken]);
+  }, [userId, accountId, requireOwnerToken, zone]);
 
   useEffect(() => {
     if (expanded) return;
@@ -336,7 +344,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     try {
       // Asking Google first would waste the owner's consent on a step that cannot finish.
       await requireOwnerToken("Unlock One before turning on email follow-ups.");
-      let mailReady = Boolean(status?.mail_connected);
+      const latest = await CalendarFollowupsService.status(userId, accountId, await tokenGetter.current(), lifetime.current?.signal);
+      let mailReady = latest.mail_connected;
       if (!mailReady) {
         if (!onConnectMail) return;
         mailReady = await onConnectMail(accountId);
@@ -354,11 +363,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
       }, await currentIdToken(ownerToken), ownerToken);
-      const first = await CalendarFollowupsService.scan(userId, accountId, await currentIdToken(ownerToken), ownerToken);
-      lastCatchUp.set(`${userId}:${accountId}`, Date.now());
+      lastCatchUp.delete(`${userId}:${accountId}`);
       progressChecks.current = 0;
+      // Connection is ready; inference continues without blocking its action.
       await refresh(lifetime.current?.signal);
-      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
     } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
@@ -381,7 +389,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     setBusy(true); setError("");
     try {
       await requireOwnerToken("Unlock One to renew email access.");
-      const connected = await onConnectMail(accountId);
+      const latest = await CalendarFollowupsService.status(userId, accountId, await tokenGetter.current(), lifetime.current?.signal);
+      const connected = latest.mail_connected || await onConnectMail(accountId);
       if (connected) {
         // Reconnecting changes the Mail grant, so point the monitor at it first;
         // otherwise this scan would still see the old one and ask to reconnect again.

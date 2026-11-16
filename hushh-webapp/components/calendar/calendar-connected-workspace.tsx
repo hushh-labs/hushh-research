@@ -33,6 +33,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { useCalendarFollowupStartup } from "@/lib/calendar/use-calendar-followup-startup";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { CalendarJoinLink } from "./calendar-join-link";
@@ -88,6 +89,13 @@ export function CalendarConnectedWorkspace(props: Props) {
     if (!renewed) throw new Error("FOLLOWUPS_SESSION_UNAVAILABLE");
     return renewed;
   }, [props.userId, getVaultOwnerToken, getVaultKey, retryOwnerTokenRenewal]);
+  useCalendarFollowupStartup({
+    userId: props.userId,
+    accountIds: props.status.accounts?.filter(account => account.connected).map(account => account.account_id)
+      ?? (props.status.connected ? ["default"] : []),
+    connectionRevision: props.connectionRevision ?? 0,
+    ownerToken: vaultOwnerToken, getIdToken: props.getIdToken, getOwnerToken: getVaultOwnerToken,
+  });
   const accountKey = (props.status.accounts || []).map(account => `${account.account_id}:${account.google_email}:${account.status}:${account.grant_generation || ""}`).join("|") || props.status.google_email || "";
   const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });
   if (props.status.accounts?.length && props.onAddAccount && props.onDisconnectAccount && props.onReconnectAccount) {
