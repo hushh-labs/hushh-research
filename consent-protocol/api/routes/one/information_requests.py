@@ -12,6 +12,7 @@ from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
 )
+from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
 
 router = APIRouter(prefix="/api/one/information-requests", tags=["Information Requests"])
 
@@ -36,6 +37,14 @@ def _service() -> InformationRequestService:
 def _http(exc: Exception) -> HTTPException:
     if isinstance(exc, InformationRequestError):
         return HTTPException(status_code=exc.status_code, detail=str(exc))
+    if (
+        isinstance(exc, CommerceProviderError)
+        and exc.code == "provider_residual_resolution_unqualified"
+    ):
+        return HTTPException(
+            status_code=503,
+            detail="New paid requests are paused. Existing requests remain available.",
+        )
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Information request is unavailable.")

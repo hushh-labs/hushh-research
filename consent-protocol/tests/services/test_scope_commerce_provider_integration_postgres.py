@@ -436,3 +436,200 @@ async def test_postgres_retention_batches_reach_later_aged_sellers_and_frozen_ro
         }
     with pytest.raises(CommerceProviderError, match="provider_retention_resolution_required"):
         await service._admit()
+
+
+async def _reviewed_sandbox_residual(provider_postgres, monkeypatch):
+    from hushh_mcp.services.account_generation_service import AccountPrincipal
+    from tests.helpers.scope_commerce_provider_db import _append_historical_credit
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    store, pool = provider_postgres
+    service = _funding_service(store, _FundingAdapter())
+    service.config = replace(
+        service.config, sandbox_policy=SandboxPolicy("acct_platform", ("owner", "buyer"))
+    )
+
+    async def seed(c):
+        await c.execute("CREATE TABLE account_deletion_tombstones(user_id_hash TEXT PRIMARY KEY)")
+        await c.execute("""CREATE TABLE account_generations(identity_hash TEXT,identity_uid TEXT,
+            owner_id TEXT,generation INTEGER,retired_at TIMESTAMPTZ)""")
+        seller = await store._seller(c, "owner")
+        await c.execute("""INSERT INTO scope_commerce_seller_accounts
+            (user_id,account_id,country,livemode,eligible) VALUES('owner','acct_owner','US',false,true)""")
+        await c.execute(
+            """UPDATE scope_commerce_sellers SET account_id='acct_owner',country='US',livemode=false
+            WHERE seller_id=$1""",
+            seller["seller_id"],
+        )
+        await _append_historical_credit(c, seller["seller_id"])
+        await store._post(
+            c,
+            "pending-fixture",
+            "fixture_pending",
+            {f"seller_pending:{seller['seller_id']}": 90_000, "bank:platform": -90_000},
+            "pending-fixture",
+        )
+        return str(seller["seller_id"])
+
+    seller_id = await store._transaction(seed)
+    assert await service._retention_sweep(limit=1) == 1
+    async with pool.acquire() as c:
+        obligation = await c.fetchval(
+            "SELECT obligation_id FROM scope_commerce_obligations WHERE source_id='retention'"
+        )
+    return service, dict(
+        principal=AccountPrincipal("owner", "owner", 0),
+        seller_id=seller_id,
+        seller_account_id="acct_owner",
+        obligation_id=str(obligation),
+        amount_micro_usd=100_000,
+        expected_pending_micro_usd=90_000,
+        approval_ref="sha256:" + "a" * 64,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sandbox_waiver_serializes_retention_and_preserves_pending_and_replay(
+    provider_postgres, monkeypatch
+):
+    from hushh_mcp.services.scope_commerce.provider_sandbox import waive_reviewer_seller_residual
+
+    service, terms = await _reviewed_sandbox_residual(provider_postgres, monkeypatch)
+    store, pool = provider_postgres
+    selected, release = asyncio.Event(), asyncio.Event()
+    record = service._retention_obligation
+
+    async def pause_before_record(**kwargs):
+        selected.set()
+        await release.wait()
+        return await record(**kwargs)
+
+    monkeypatch.setattr(service, "_retention_obligation", pause_before_record)
+    sweep = asyncio.create_task(service._retention_sweep(limit=1))
+    waiver = None
+    try:
+        await asyncio.wait_for(selected.wait(), 5)
+        waiver = asyncio.create_task(waive_reviewer_seller_residual(service, **terms))
+
+        # Observe a real competing connection waiting on the commerce lock.
+        async def waiting():
+            for _ in range(100):
+                async with pool.acquire() as c:
+                    if await c.fetchval("""SELECT EXISTS(SELECT 1 FROM pg_locks
+                        WHERE locktype='advisory' AND objid=2690001 AND NOT granted)"""):
+                        return
+                await asyncio.sleep(0.01)
+            raise AssertionError("waiver did not wait for the retained seller snapshot")
+
+        await asyncio.wait_for(waiting(), 5)
+    finally:
+        release.set()
+        await sweep
+        if waiver is not None:
+            result = await waiver
+    assert await waive_reviewer_seller_residual(service, **terms) == result
+    with pytest.raises(CommerceError, match="idempotency_conflict"):
+        await waive_reviewer_seller_residual(service, **{**terms, "amount_micro_usd": 99_999})
+    async with pool.acquire() as c:
+        assert await store._amount(c, f"seller_payable:{terms['seller_id']}") == 0
+        assert await store._amount(c, f"seller_pending:{terms['seller_id']}") == 90_000
+        assert (
+            await c.fetchval(
+                "SELECT status FROM scope_commerce_obligations WHERE obligation_id=$1::uuid",
+                terms["obligation_id"],
+            )
+            == "succeeded"
+        )
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM scope_commerce_journal WHERE kind='sandbox_seller_waiver'"
+            )
+            == 1
+        )
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM scope_commerce_journal WHERE kind='fixture_historical_earnings'"
+            )
+            == 1
+        )
+        assert (
+            await c.fetchval(
+                "SELECT sum(micro_usd) FROM scope_commerce_postings WHERE account='sandbox_seller_waiver:platform'"
+            )
+            == 100_000
+        )
+        for table in ("fundings", "purchases", "wallets"):
+            assert await c.fetchval(f"SELECT count(*) FROM scope_commerce_{table}") == 0
+    assert await service._retention_sweep(limit=1) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "uat",
+        "live",
+        "native_live",
+        "other_platform",
+        "other_owner",
+        "other_account",
+        "pending",
+        "retired",
+        "provider_binding",
+    ],
+)
+async def test_sandbox_waiver_refuses_changed_custody_and_unsettled_provider(
+    provider_postgres, monkeypatch, changed
+):
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+    from hushh_mcp.services.account_generation_service import AccountPrincipal
+    from hushh_mcp.services.scope_commerce.provider_sandbox import waive_reviewer_seller_residual
+
+    service, terms = await _reviewed_sandbox_residual(provider_postgres, monkeypatch)
+    store, pool = provider_postgres
+    if changed == "uat":
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    elif changed == "live":
+        service.config = replace(service.config, livemode=True)
+    elif changed == "native_live":
+        service.adapter.balance = AsyncMock(return_value={"livemode": True})
+    elif changed == "other_platform":
+        service.config = replace(
+            service.config,
+            platform_account_id="acct_other",
+            sandbox_policy=SandboxPolicy("acct_other", ("owner", "buyer")),
+        )
+        service.adapter.platform_identity = AsyncMock(
+            return_value={"id": "acct_other", "country": "US"}
+        )
+    elif changed == "other_owner":
+        terms["principal"] = AccountPrincipal("buyer", "buyer", 0)
+    elif changed == "other_account":
+        terms["seller_account_id"] = "acct_foreign"
+    elif changed == "pending":
+        terms["expected_pending_micro_usd"] -= 1
+    elif changed == "retired":
+        async with pool.acquire() as c:
+            await c.execute(
+                "INSERT INTO account_deletion_tombstones VALUES($1)",
+                account_deletion_user_hash("owner"),
+            )
+    elif changed == "provider_binding":
+        async with pool.acquire() as c:
+            await c.execute(
+                """INSERT INTO scope_commerce_provider_operations
+                (operation_id,kind,request_hash,request_json,status) VALUES($1::uuid,'transfer','fixture','{}','succeeded')""",
+                terms["obligation_id"],
+            )
+    with pytest.raises((CommerceError, CommerceProviderError)):
+        await waive_reviewer_seller_residual(service, **terms)
+    async with pool.acquire() as c:
+        assert await store._amount(c, f"seller_payable:{terms['seller_id']}") == 100_000
+        assert await store._amount(c, f"seller_pending:{terms['seller_id']}") == 90_000
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM scope_commerce_journal WHERE kind='sandbox_seller_waiver'"
+            )
+            == 0
+        )

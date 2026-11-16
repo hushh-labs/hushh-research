@@ -36,6 +36,15 @@ class ScopeCommerceProviderConfig:
     sandbox_policy: SandboxPolicy | None = None
     sandbox_policy_required: bool = False
 
+    def require_new_liability_resolution(self) -> None:
+        """Approval references do not qualify a live residual settlement port.
+
+        No such live port is implemented. Refuse new funding and paid holds;
+        keep historical fulfillment, refunds and withdrawals executable.
+        """
+        if self.livemode:
+            raise CommerceProviderError("provider_residual_resolution_unqualified")
+
     def allows_actor(self, user_id: str) -> bool:
         """Sandbox admission bounds new commerce, never historical obligations."""
         return self.sandbox_policy is None or user_id in self.sandbox_policy.reviewer_user_ids

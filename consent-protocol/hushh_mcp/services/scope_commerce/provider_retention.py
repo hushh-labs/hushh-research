@@ -32,17 +32,19 @@ class RetentionPolicy(ProviderContext):
             if await self._record_funding_retention(funding):
                 obligations += 1
 
-        async def sellers(connection: Any) -> list[dict[str, Any]]:
-            return await self._aged_sellers(connection, limit=limit)
+        async def sellers(connection: Any) -> int:
+            rows = await self._aged_sellers(connection, limit=limit)
+            for seller in rows:
+                await self._retention_obligation(
+                    identity=str(seller["seller_id"]),
+                    kind="seller",
+                    amount=seller["aged_micro_usd"],
+                    seller_id=seller["seller_id"],
+                    conn=connection,
+                )
+            return len(rows)
 
-        for seller in await self.store._transaction(sellers):
-            await self._retention_obligation(
-                identity=str(seller["seller_id"]),
-                kind="seller",
-                amount=seller["aged_micro_usd"],
-                seller_id=seller["seller_id"],
-            )
-            obligations += 1
+        obligations += await self.store._transaction(sellers)
 
         async def resolved(connection: Any) -> None:
             await self._close_resolved_retention(
@@ -61,6 +63,7 @@ class RetentionPolicy(ProviderContext):
         wallet_id: Any = None,
         seller_id: Any = None,
         funding_lot_id: Any = None,
+        conn: Any = None,
     ) -> None:
         async def record(connection: Any) -> None:
             await connection.execute(
@@ -77,7 +80,7 @@ class RetentionPolicy(ProviderContext):
                 f"retention:{kind}:{identity}",
             )
 
-        await self.store._transaction(record)
+        await self.store._transaction(record, conn)
 
     async def _aged_unused_funding(
         self, connection: Any, *, retention_days: int, limit: int

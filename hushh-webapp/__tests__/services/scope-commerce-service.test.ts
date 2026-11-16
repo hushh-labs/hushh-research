@@ -293,6 +293,16 @@ describe("server-authored sharing readiness", () => {
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer firebase");
     expect(fetcher.mock.calls[0][1].cache).toBe("no-store");
   });
+  it("keeps held approvals and earnings setup available while refusing unqualified new liabilities", () => {
+    const historical = { ...freeOnly(), enabled: true,
+      platform: { status: "ready", reason_code: "provider_residual_resolution_unqualified", verification_scope: "configured_and_persisted" },
+      seller: { status: "eligible", reason_code: null },
+      capabilities: { ...freeOnly().capabilities, approve_paid_request: true, start_onboarding: true } };
+    expect(parseCommerceReadiness(historical).capabilities.approve_paid_request).toBe(true);
+    for (const capability of ["set_paid_tariff", "reserve_paid_purchase", "start_funding"]) {
+      expect(() => parseCommerceReadiness({ ...historical, capabilities: { ...historical.capabilities, [capability]: true } })).toThrow();
+    }
+  });
   it("uses allowlisted setup guidance while suppressing unknown server diagnostics", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "seller_onboarding_required", message: "private account secret" } }, { status: 409 }));
     await expect(ScopeCommerceService.readiness("firebase")).rejects.toMatchObject({ name: "CommerceActionError", code: "seller_onboarding_required", message: "Open Payments and earnings → Set up information-access payouts before charging for information." });

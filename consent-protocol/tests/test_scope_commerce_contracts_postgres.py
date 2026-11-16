@@ -721,6 +721,51 @@ async def test_upfront_send_is_atomic_idempotent_and_requires_owner_consent(
         await service.create(
             **{**selection, "purpose": "Different purpose"}, price_binding=preview["binding"]
         )
+    from hushh_mcp.services.scope_commerce.provider_config import ScopeCommerceProviderConfig
+    from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
+
+    def refuse_new_liability(_config):
+        raise CommerceProviderError("provider_residual_resolution_unqualified")
+
+    monkeypatch.setattr(
+        ScopeCommerceProviderConfig, "require_new_liability_resolution", refuse_new_liability
+    )
+    # An already funded request still replays and can be approved. New funds refuse.
+    assert (await service.create(**selection, price_binding=preview["binding"]))["bundleId"] == one[
+        "bundleId"
+    ]
+    with pytest.raises(CommerceProviderError, match="provider_residual_resolution_unqualified"):
+        await ctx.service.reserve_funding(
+            payer_user_id="payer", funding_id=str(uuid4()), amount_cents=50
+        )
+    from api.routes.one import information_requests
+
+    ctx.client._transport.app.include_router(information_requests.router)
+    monkeypatch.setattr(information_requests, "_service", lambda: service)
+    current_preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    payload = {k: v for k, v in selection.items() if k != "requester_user_id"}
+    payload.update(idempotency_key=str(uuid4()), price_binding=current_preview["binding"])
+    refused = await ctx.client.post(
+        "/api/one/information-requests", json=payload, headers={"X-Contract-Identity": "payer"}
+    )
+    assert refused.status_code == 503, refused.text
+    assert (
+        refused.json()["detail"]
+        == "New paid requests are paused. Existing requests remain available."
+    )
+    async with ctx.pool.acquire() as c:
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM one_information_request_bundles WHERE idempotency_hash IS NOT NULL"
+            )
+            == 1
+        )
+        assert await c.fetchval("SELECT count(*) FROM scope_commerce_reservations") == 1
     approval = await ctx.approve(request_id)
     assert approval.status_code == 200, approval.text
     assert approval.json()["status"] == "approved_funded"
@@ -955,3 +1000,45 @@ async def test_reviewed_free_request_cannot_acquire_a_later_payment_step(
             )
             == 0
         )
+
+
+async def test_live_readiness_stops_new_liability_without_stranding_held_approvals(paid_contract):
+    from dataclasses import replace
+
+    from hushh_mcp.services.scope_commerce.provider_config import CountryPayoutPolicy
+
+    ctx = paid_contract
+    config = ctx.service._config()
+    ctx.service.provider_config = replace(
+        config,
+        livemode=True,
+        approval_refs=("reviewed",) * 5,
+        fee_configuration_ref="reviewed-fees",
+        countries={"US": CountryPayoutPolicy(50, 30, 0, 0, "reviewed-residual-reference")},
+    )
+    # This schema is disposable test authority, not a provider account conversion.
+    async with ctx.pool.acquire() as c:
+        await c.execute("TRUNCATE scope_commerce_environment")
+        await c.execute(
+            "INSERT INTO scope_commerce_environment(singleton,platform_account_id,livemode) VALUES(true,$1,true)",
+            config.platform_account_id,
+        )
+        await c.execute(
+            "UPDATE scope_commerce_seller_accounts SET livemode=true WHERE user_id='owner'"
+        )
+    state = await ctx.service.readiness(viewer_user_id="owner")
+    assert state["platform"]["status"] == "ready"
+    assert state["platform"]["reason_code"] == "provider_residual_resolution_unqualified"
+    assert state["capabilities"] == dict(
+        set_free_tariff=True,
+        set_paid_tariff=False,
+        approve_paid_request=True,
+        reserve_paid_purchase=False,
+        start_funding=False,
+        start_onboarding=True,
+    )
+    async with ctx.pool.acquire() as c:
+        await c.execute("TRUNCATE scope_commerce_environment")
+    assert (await ctx.service.readiness(viewer_user_id="owner"))["platform"][
+        "reason_code"
+    ] == "platform_account_unverified"

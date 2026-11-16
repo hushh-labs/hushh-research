@@ -275,6 +275,21 @@ def test_live_configuration_requires_business_approvals_even_when_enabled():
         enabled=True, platform_account_id="acct_fixture", frontend_origin="https://example.test"
     )
     sandbox.validate(new_activity=True)
+    sandbox.require_new_liability_resolution()
+    # Written approvals and a reference are not an executable live settlement port.
+    from dataclasses import replace
+
+    from hushh_mcp.services.scope_commerce.provider_config import CountryPayoutPolicy
+
+    qualified_config = replace(
+        config,
+        approval_refs=("approved",) * 5,
+        fee_configuration_ref="fees",
+        countries={"US": CountryPayoutPolicy(50, 30, 0, 0, "residual-ref")},
+    )
+    qualified_config.validate(new_activity=False)
+    with pytest.raises(CommerceProviderError, match="provider_residual_resolution_unqualified"):
+        qualified_config.require_new_liability_resolution()
 
 
 def test_website_returns_are_additive_server_owned_and_fail_closed(monkeypatch):
