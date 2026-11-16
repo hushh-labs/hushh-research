@@ -64,8 +64,9 @@ Non-owned surfaces:
 1. Route route and service-boundary work to `backend-runtime-governance`.
 2. Route proxy/backend contract work to `backend-api-contracts`.
 3. Route agents, operons, and ADK surfaces to `backend-agents-operons`.
-4. Route `@hushh/mcp` and developer API/package work to `mcp-developer-surface`.
-5. If the task begins as a cross-domain scan, start with `repo-context`.
+4. Route AI model generation upgrades and runtime provider adapters to `model-provider-governance`.
+5. Route `@hushh/mcp` and developer API/package work to `mcp-developer-surface`.
+6. If the task begins as a cross-domain scan, start with `repo-context`.
 
 ## Required Checks
 
