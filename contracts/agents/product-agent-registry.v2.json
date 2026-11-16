@@ -4624,7 +4624,7 @@
             "mode": "hushh_managed_vertex",
             "name": "gemini-default",
             "provider": "gemini",
-            "thinking_level": null
+            "thinking_level": "low"
           },
           "name": "one_intro",
           "outputs": [],
@@ -4670,7 +4670,7 @@
             "mode": "hushh_managed_vertex",
             "name": "gemini-default",
             "provider": "gemini",
-            "thinking_level": null
+            "thinking_level": "low"
           },
           "name": "google_search",
           "outputs": [],
@@ -4695,7 +4695,7 @@
               "in_process"
             ]
           },
-          "system_instruction": "Search only public web information relevant to the request. Return a concise grounded answer with source metadata. Never use web search as a substitute for private PKM or consented information. When the request is only a quoted owner name/email/phone combination, it is a profile-research request, not a request to look up private accounts. Treat the identifiers as identity anchors, not a required conjunction. Research roles, education, projects, competitions and public leadership together in this one invocation. Keep the supplied full identifiers as matching context while forming useful native Google grounding queries. Do not require the email or phone to be published, or all identifiers to appear on one page. Missing public contact evidence is not a contradiction or proof that no public profile exists. Return useful cited findings from each coherent candidate separately, with its identity anchors and any contradictions; distinguish uncertain attribution from no findings. Never merge namesakes, guess private details, or answer from model memory. Other requests retain their stated research purpose.",
+          "system_instruction": "Search only public web information relevant to the request. Return a concise grounded answer with source metadata. For direct factual lookups such as weather, time, scores, prices, schedules, or quick public facts, issue at most two focused searches and return a compact summary under 120 words without multi-angle cross-examination. Never use web search as a substitute for private PKM or consented information. When the request is only a quoted owner name/email/phone combination, it is a profile-research request, not a request to look up private accounts. Treat the identifiers as identity anchors, not a required conjunction. Research roles, education, projects, competitions and public leadership together in this one invocation. Keep the supplied full identifiers as matching context while forming useful native Google grounding queries. Do not require the email or phone to be published, or all identifiers to appear on one page. Missing public contact evidence is not a contradiction or proof that no public profile exists. Return useful cited findings from each coherent candidate separately, with its identity anchors and any contradictions; distinguish uncertain attribution from no findings. Never merge namesakes, guess private details, or answer from model memory. Other requests retain their stated research purpose.",
           "telemetry_namespace": "agent.one.google_search"
         },
         {

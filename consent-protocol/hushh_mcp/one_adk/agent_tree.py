@@ -2316,7 +2316,7 @@ def build_one_intro_text_agent(
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(include_thoughts=False),
+            thinking_config=_one_chat_thinking_config(model, include_summaries=False),
         ),
     )
 
