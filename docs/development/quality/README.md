@@ -32,6 +32,8 @@ flowchart TD
   root --> n10
   n12["ADK and pod decision memo"]
   root --> n12
+  n13["Floci Multi-Cloud Wire Verification"]
+  root --> n13
 ```
 
 This is the north-star entrypoint for design-system rules plus verification contracts that decide whether UI and analytics behavior are trustworthy.
@@ -55,6 +57,7 @@ their connection admission, drafts, transcripts and send authority stay separate
 - [morphy-agent-experience.md](./morphy-agent-experience.md): internal AX snapshot, intelligence-validation boundary, presentation posture, and performance contract.
 - [pr-contributor-readiness.md](./pr-contributor-readiness.md): contributor-facing merge readiness, common blockers, maintainer patch/harvest handling, and attribution rules.
 - [analytics-verification-contract.md](./analytics-verification-contract.md): proof ladder for GA4, Firebase, BigQuery, and growth dashboard trust.
+- [floci-multicloud-wire-verification.md](./floci-multicloud-wire-verification.md): Tier-1.5 loopback HTTP/SDK wire conformance across AWS, GCP, Azure, and capability-prefix storage without false live-cloud qualification.
 - [adk-orchestration-docs-audit.md](../../operations/acceptance/private-agents.md): dated ADK and owner-pod decision memo; Files readiness, accountable gates, and historical evidence anchors.
 - [architecture-fitness-baseline.json](./architecture-fitness-baseline.json): explicitly reviewed integration debt at the source revision and parents in the [decision memo](../../operations/acceptance/private-agents.md#open-operational-obligations). Budgets remain 500/250/80; CI rejects future new or worsened findings, while retained debt stays visible.
 

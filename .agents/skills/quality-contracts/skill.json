@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "security-audit",
   "primary_scope": "quality-contracts",
-  "description": "Use when changing cross-surface verification policy, contract-test placement, test selection, or quality gates across frontend and backend.",
+  "description": "Use when changing cross-surface verification policy, contract-test placement, test selection, Tier-1.5 Floci multi-cloud wire conformance, or quality gates across frontend and backend.",
   "owned_paths": [
     "docs/development/quality",
     "hushh-webapp/__tests__",
@@ -25,6 +25,8 @@
     "docs/development/quality/pr-impact-checklist.md",
     "docs/architecture/finance/kai-runtime-smoke-checklist.md",
     ".agents/skills/quality-contracts/references/browser-verification-contract.md",
+    ".agents/skills/quality-contracts/references/floci-wire-verification.md",
+    "docs/development/quality/floci-multicloud-wire-verification.md",
     "docs/development/quality/definition-of-done.md"
   ],
   "required_commands": [
