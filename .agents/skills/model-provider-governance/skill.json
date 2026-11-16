@@ -27,6 +27,8 @@
   ],
   "required_commands": [
     "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+    "npm --prefix hushh-webapp run verify:capability-graph",
+    "python3 scripts/ops/generate_runtime_topology_index.py --check",
     "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
     "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
     "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
@@ -36,6 +38,8 @@
       "id": "model-provider-governance",
       "commands": [
         "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+        "npm --prefix hushh-webapp run verify:capability-graph",
+        "python3 scripts/ops/generate_runtime_topology_index.py --check",
         "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
         "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
         "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
