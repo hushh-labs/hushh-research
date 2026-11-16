@@ -124,6 +124,12 @@ async def _host_is_gone(row: dict) -> bool:
     NOT proof of gone -- it defaults to False (cold/waking), because a spurious
     fresh setup would change the user's agent identity and A2A address, which must
     never happen on a transient blip."""
+    from hushh_mcp.services.pod_adoption import has_hosted_evidence
+
+    # Managed absence belongs to its retained placement lifecycle. The fleet
+    # project's 404 cannot authorize fresh setup in an owner's managed project.
+    if has_hosted_evidence(row):
+        return False
     if (row.get("backend_metadata") or {}).get("hostKind") == "azure_vm":
         return False  # VM absence must never be inferred through the ACA adapter.
     external_agent_id = str((row or {}).get("external_agent_id") or "").strip()

@@ -1789,6 +1789,10 @@ class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
         lifecycle transition wins; this writer never replaces it with an old verdict.
         In-progress and suspended lifecycle states cannot be reinitialized here.
         """
+        from hushh_mcp.services.pod_adoption import has_hosted_evidence
+
+        if has_hosted_evidence(observed):
+            return False
         normalized = str(user_id or "").strip()
         snapshot = registry_host_snapshot(observed)
         if (
@@ -1816,6 +1820,14 @@ class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
             query = query.is_(key, None) if value is None else query.eq(key, value)
         response = query.execute()
         return bool(response.data or [])
+
+    async def restore_confirmed_managed_host(self, *, owner: str, observed: dict) -> bool:
+        """Restore only a previously admitted, independently verified same host."""
+        from hushh_mcp.services.hosted_pod_adoption import restore_retained_host
+
+        return await asyncio.to_thread(
+            restore_retained_host, self._db(), owner=owner, observed=observed
+        )
 
     async def mark_provisioning_failed(
         self, *, user_id: str, reason: str, detail: str = ""

@@ -13,6 +13,29 @@ certify the currently serving image or replace the original operation receipts.
 Use the [hosting module](../../architecture/modules/hosting.md) and
 [Browser module](../../architecture/modules/browser.md) for system boundaries.
 
+## Current Dev sharing checkpoint — 16 November 2026
+
+Real Stripe Sandbox funding credited 100 coins once. A 24-coin Profile request,
+owner approval, direct encrypted information delivery and fresh authenticated
+recovery passed. The retained fixture was synthetic; it does not establish the
+requested two-Chat demonstration with a saved human preference. Profile withdrawal
+released the second reservation once, while payment-review cancellation failed.
+Its correction [#9630](https://github.com/hushh-labs/hushh-research/pull/9630) is
+merged but not yet deployed. The Memory sharing-impact correction
+[#9634](https://github.com/hushh-labs/hushh-research/pull/9634) has exact-source CI
+and awaits Dev queue acceptance and deployment.
+
+Normal signed-in Chrome identified two Chat blockers: Azure's installed predecessor
+still requires the old discovery confirmation, while GCP wake incorrectly marked
+a still-present managed host for reinitialization after reading the fleet project.
+Same-host recovery and prevention are under verification. Preserve the original
+placement and keys; a replacement pod is not recovery. The synthetic two-owner
+managed cohort remains **0/2 and paused**.
+
+Current acceptance and next actions stay in the existing tasks:
+[#7587 Consumer-controlled paid scope access and Stripe sandbox acceptance](https://github.com/hushh-labs/hushh-research/issues/7587)
+and [#5507 Owner-controlled GCP and Azure private pods — dev readiness](https://github.com/hushh-labs/hushh-research/issues/5507).
+
 ## What the retained evidence establishes
 
 | Boundary | Evidence established | Still requires its own proof |

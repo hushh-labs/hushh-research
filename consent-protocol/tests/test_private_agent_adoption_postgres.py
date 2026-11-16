@@ -602,3 +602,95 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
             ({**row, "ledger": "consent"}, ctid) for row, ctid in receipts
         ]
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
+
+
+def test_managed_same_host_recovery_is_status_only_and_fenced_by_real_database(
+    replay_pg, monkeypatch
+):
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
+    from sqlalchemy import text
+
+    from hushh_mcp.services.hosted_pod_adoption import restore_retained_host
+    from tests.test_personal_agent_adopt import _managed_recovery_row
+
+    connection, database = canonical_database(replay_pg, monkeypatch)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    engine = create_engine(
+        "postgresql+psycopg2://",
+        creator=lambda: psycopg2.connect(
+            host=replay_pg.dir, port=replay_pg.port, user="hushh", dbname=database
+        ),
+    )
+    try:
+        with connection.cursor() as cursor:
+            [foundation] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+            cursor.execute(execution_sql(foundation))
+            row = _managed_recovery_row()
+            # Seed a historical wrong-status snapshot; re-enable all native guards
+            # before exercising the new application transaction and competing sessions.
+            cursor.execute("ALTER TABLE personal_agent_registry DISABLE TRIGGER USER")
+            from psycopg2 import sql
+
+            columns = sql.SQL(",").join(sql.Identifier(key) for key in row)
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO personal_agent_registry ({columns}) SELECT {columns} "
+                    "FROM jsonb_populate_record(NULL::personal_agent_registry,%s::jsonb)"
+                ).format(columns=columns),
+                (json.dumps(row),),
+            )
+            cursor.execute("ALTER TABLE personal_agent_registry ENABLE TRIGGER USER")
+
+        def snapshot():
+            with engine.connect() as conn:
+                return conn.execute(
+                    text("SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=:owner"),
+                    {"owner": row["user_id"]},
+                ).scalar_one()
+
+        db = SimpleNamespace(engine=engine)
+        before = snapshot()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(
+                pool.map(
+                    lambda _: restore_retained_host(db, owner=row["user_id"], observed=before),
+                    range(2),
+                )
+            )
+        assert sorted(results) == [False, True]
+        after = snapshot()
+        assert after["status"] == "provisioned"
+        assert {k: v for k, v in after.items() if k not in {"status", "updated_at"}} == {
+            k: v for k, v in before.items() if k not in {"status", "updated_at"}
+        }
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET status='needs_reinit' WHERE user_id=:owner"
+                ),
+                {"owner": row["user_id"]},
+            )
+        original = snapshot()
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET placement_epoch=placement_epoch+1 WHERE user_id=:owner"
+                ),
+                {"owner": row["user_id"]},
+            )
+        assert restore_retained_host(db, owner=row["user_id"], observed=original) is False
+        current = snapshot()
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO personal_agent_deletion_tombstones(hushh_id) VALUES(:hushh)"),
+                {"hushh": row["hushh_id"]},
+            )
+        assert restore_retained_host(db, owner=row["user_id"], observed=current) is False
+        assert snapshot() == current
+    finally:
+        engine.dispose()
+        connection.close()

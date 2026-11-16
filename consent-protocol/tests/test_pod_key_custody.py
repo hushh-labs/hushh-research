@@ -283,3 +283,19 @@ async def test_the_reconcile_refresh_rotates_a_restarted_pod():
     assert status == "provisioned"
     assert registry.rows[_UID]["pod_pubkey"] == restarted.public_key_b64
     assert grant.issued == 1
+
+
+@pytest.mark.parametrize("reported", [None, "different-agent", "expected-agent"])
+async def test_recovery_key_fetch_requires_explicit_matching_owner_identity(monkeypatch, reported):
+    from hushh_mcp.services.pod_key_collector import fetch_pod_public_key
+
+    monkeypatch.setattr("hushh_mcp.services.pod_key_collector._identity_token", lambda _: None)
+    body = {"podPublicKey": "public-key", "podKeyId": "public-key-id"}
+    if reported is not None:
+        body["hushhId"] = reported
+    result = await fetch_pod_public_key(
+        {"hushh_id": "expected-agent", "backend_metadata": {"url": _POD_URL}},
+        session=_Session(_Response(200, body)),
+        require_identity=True,
+    )
+    assert (result is not None) == (reported == "expected-agent")
