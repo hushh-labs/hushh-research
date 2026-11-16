@@ -56,7 +56,7 @@ Non-owned surfaces:
 3. Audit the full agent tree (`agents/*/agent.yaml` + Python builders in `one_adk/`) so root, `one_intro`, and grounded `AgentTool` children (`google_search`) explicitly enforce `thinking_level` across `dev` and `production`, not only UAT's `ManagedPrimaryTextModel`.
 4. Pair investigative sub-agent prompts (`google_search`) with a tiered fast-path rule for direct factual lookups and prove latency, `thoughtsTokenCount`, and query counts via live A/B benchmarks.
 5. Update model defaults, `model_catalog.py`, and preference tests together so live chat never self-reports a retired model, and keep touched modules within architecture-fitness line budgets.
-6. Regenerate `product-agent-registry.v2.json` and check capability matrices whenever `agent.yaml` manifests change.
+6. Regenerate `product-agent-registry.v2.json`, `npm --prefix hushh-webapp run build:capability-graph`, and `scripts/ops/generate_runtime_topology_index.py` whenever `agent.yaml` manifests or `.agents` change.
 7. Hand off branch sync, 3-stage Production worker/connection-budget rollout, and live post-cutover verification across Dev, UAT, and Prod to `repo-operations` and `verify-before-claim`.
 
 ## Handoff Rules
@@ -70,6 +70,8 @@ Non-owned surfaces:
 
 ```bash
 cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check
+npm --prefix hushh-webapp run verify:capability-graph
+python3 scripts/ops/generate_runtime_topology_index.py --check
 cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check
 cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q
 cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q
