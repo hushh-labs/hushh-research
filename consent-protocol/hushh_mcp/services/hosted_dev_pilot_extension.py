@@ -283,9 +283,10 @@ def _claim_sync(
         ):
             raise PermissionError("hosted extension attempt requires reconciliation")
         verify = db.execute_raw(
-            "SELECT to_jsonb(r)=CAST(:expected AS jsonb) AS unchanged "
+            "SELECT to_jsonb(r)=to_jsonb(jsonb_populate_record("
+            "NULL::public.personal_agent_registry,CAST(:expected AS jsonb))) AS unchanged "
             "FROM public.personal_agent_registry r WHERE r.user_id=:owner",
-            {"owner": owner, "expected": json.dumps(observed, default=str)},
+            {"owner": owner, "expected": json.dumps(observed, default=_json_default_iso)},
         )
         if not (verify.data and verify.data[0].get("unchanged") is True):
             raise PermissionError("hosted extension observation changed")
@@ -304,7 +305,7 @@ def _claim_sync(
                     {
                         "owner": owner,
                         "attempt": attempt_id,
-                        "observed": json.dumps(observed, default=str),
+                        "observed": json.dumps(observed, default=_json_default_iso),
                         "intent": json.dumps(intent),
                     },
                 )
@@ -339,7 +340,7 @@ def _claim_sync(
         {
             "owner": owner,
             "attempt": attempt_id,
-            "observed": json.dumps(observed, default=str),
+            "observed": json.dumps(observed, default=_json_default_iso),
             "intent": json.dumps(intent),
         },
     )
@@ -668,6 +669,28 @@ async def extension_retain_authorization(db: Any, *, owner_id: str, attempt_id: 
     )
 
 
+def _json_default_iso(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _normalize_observed_row_sync(db: Any, observed: Mapping[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(dict(observed), default=_json_default_iso)
+    try:
+        res = db.execute_raw(
+            "SELECT to_jsonb(jsonb_populate_record("
+            "NULL::public.personal_agent_registry,CAST(:expected AS jsonb))) AS norm_row",
+            {"expected": serialized},
+        )
+        if res.data and isinstance(res.data[0].get("norm_row"), dict):
+            return dict(res.data[0]["norm_row"])
+    except Exception:
+        pass
+    loaded: dict[str, Any] = json.loads(serialized)
+    return loaded
+
+
 async def extension_retained_current(db: Any, *, owner_id: str, observed: dict[str, Any]) -> bool:
     policy = load_extension_policy()
     if policy is None or not isinstance(observed, dict):
@@ -682,10 +705,11 @@ async def extension_retained_current(db: Any, *, owner_id: str, observed: dict[s
         return False
     if retained_hosted_placement(observed) is None:
         return False
+    norm_observed = await asyncio.to_thread(_normalize_observed_row_sync, db, observed)
     erasure_snap = ((row.get("backend_metadata") or {}).get("erasure") or {}).get(
         "registrySnapshot"
     )
-    return bool(row == observed or erasure_snap == observed)
+    return bool(row == norm_observed or erasure_snap == norm_observed)
 
 
 async def extension_upgrade_current(
@@ -697,7 +721,10 @@ async def extension_upgrade_current(
     if work and _parse_iso(policy["expiresAt"]) <= _utc_now():
         return False
     row, tombstoned = await asyncio.to_thread(_load_owner_row_sync, db, owner_id)
-    if tombstoned or not isinstance(row, dict) or row != observed:
+    if tombstoned or not isinstance(row, dict):
+        return False
+    norm_observed = await asyncio.to_thread(_normalize_observed_row_sync, db, observed)
+    if row != norm_observed:
         return False
     metadata = row.get("backend_metadata") or {}
     if (

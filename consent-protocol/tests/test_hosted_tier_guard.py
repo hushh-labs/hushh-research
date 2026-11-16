@@ -517,3 +517,76 @@ async def test_dev_extension_slot_admits_detached_owner_on_dev_and_refuses_negat
     detached_row["external_agent_id"] = "still-assigned"
     with pytest.raises(HostedTierNotPermittedError):
         await require_hosted_pilot_selection(owner, repo)
+
+
+@pytest.mark.asyncio
+async def test_dev_extension_slot_resumes_when_observed_row_contains_datetime_timestamps(
+    monkeypatch,
+):
+    """SQLAlchemy repo.get() returns datetime timestamps; resume & retained checks must normalize."""
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import hosted_dev_pilot_extension as ext_mod
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    owner = "owner-slot-3-dt"
+    hushh_id = "ha1_slot3_dt_owner"
+    attempt_id = "a" * 32
+    ext = json.loads(
+        (
+            Path(__file__).resolve().parents[1] / "config" / "dev-hosted-pilot-extension.json"
+        ).read_text(encoding="utf-8")
+    )
+    ext["expiresAt"] = "2099-01-01T00:00:00Z"
+    ext["assignment"]["ownerHash"] = "sha256:" + hashlib.sha256(owner.encode()).hexdigest()
+    ext["assignment"]["hushhId"] = hushh_id
+    monkeypatch.setenv(ext_mod.OVERRIDE_ENV, json.dumps(ext))
+
+    policy = ext_mod.load_extension_policy()
+    assert policy is not None
+    admission = ext_mod._build_admission(policy)
+    intent = {
+        "user_id": owner,
+        "hushh_id": hushh_id,
+        "phone_e164_hash": "hash123",
+        "deployment_target": "gcp",
+        "model_credential_mode": "fleet_adc",
+    }
+    retained_attempt = {
+        "ownerId": owner,
+        "attemptId": attempt_id,
+        "phase": "reserved",
+        "intent": intent,
+        "hostedAdmission": admission,
+    }
+    ts = datetime(2026, 11, 16, 11, 4, 50, 123456, tzinfo=timezone.utc)
+    observed_with_dt = {
+        "user_id": owner,
+        "hushh_id": hushh_id,
+        "status": "provisioning",
+        "deployment_target": "gcp",
+        "created_at": ts,
+        "updated_at": ts,
+        "backend_metadata": {"provisionAttempt": retained_attempt},
+    }
+
+    captured_params: dict[str, str] = {}
+
+    class _ResumeDb:
+        def execute_raw(self, query, params):
+            assert "jsonb_populate_record" in query
+            captured_params.update(params)
+            # Ensure ISO-8601 'T' separator was emitted, never Python str(datetime) space
+            assert "2026-11-16T11:04:50.123456+00:00" in params["expected"]
+            return SimpleNamespace(data=[{"unchanged": True}])
+
+    resumed = await ext_mod.claim_extension_provision(
+        _ResumeDb(), observed=observed_with_dt, intent=intent, attempt_id=attempt_id
+    )
+    assert resumed == retained_attempt
+    assert "expected" in captured_params
