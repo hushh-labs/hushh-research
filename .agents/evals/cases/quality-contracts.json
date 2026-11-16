@@ -13,6 +13,14 @@
       {
         "prompt": "our verification policy across surfaces is inconsistent, fix the contract-test placement",
         "top_k": 3
+      },
+      {
+        "prompt": "add Tier-1.5 Floci multi-cloud wire conformance tests instead of MagicMock cloud stubs",
+        "top_k": 3
+      },
+      {
+        "prompt": "verify S3, GCS, and Azure Blob CAS preconditions with Floci wire verification",
+        "top_k": 3
       }
     ],
     "negative": [

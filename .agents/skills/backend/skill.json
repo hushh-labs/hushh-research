@@ -33,7 +33,8 @@
     "consent-protocol/docs/README.md",
     "docs/architecture/system.md",
     "docs/development/repository-map.md",
-    "docs/architecture/pod-data-door.md"
+    "docs/architecture/pod-data-door.md",
+    "docs/development/quality/floci-multicloud-wire-verification.md"
   ],
   "required_commands": [
     "./bin/hushh protocol --help",
