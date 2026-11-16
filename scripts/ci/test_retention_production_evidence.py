@@ -340,9 +340,27 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
     def test_static_manual_guard_refusal_preserves_custody_and_rejects_drift(self):
         run, job, log, blobs = static_manual_fixture()
         sha = run["head_sha"]
-        proof = qualify(run, job, log, blobs)
-        self.assertEqual(proof, {"run_id": 100, "attempt": 1, "job_id": 200,
-                                 "checkout_sha": sha, "qualification": "no_provider_mutation"})
+        for profile_sha, profile in evidence.MANUAL_STATIC_SOURCE_PROFILES.items():
+            profile_blobs = {
+                path: {"sha": blob, "size": size}
+                for path, (blob, size) in profile.items()
+            }
+            proof = qualify(
+                {**run, "head_sha": profile_sha},
+                {**job, "head_sha": profile_sha},
+                log.replace(sha, profile_sha),
+                profile_blobs,
+            )
+            self.assertEqual(
+                proof,
+                {
+                    "run_id": 100,
+                    "attempt": 1,
+                    "job_id": 200,
+                    "checkout_sha": profile_sha,
+                    "qualification": "no_provider_mutation",
+                },
+            )
         for field, value in (("actor", {"id": 1, "type": "Bot", "login": "robot"}),
                              ("created_at", at("20:40:20")), ("head_sha", "d" * 40)):
             with self.subTest(run=field):

@@ -515,21 +515,30 @@ def _static_cleanup_view(job, *, manual=False):
 
     steps = job.get("steps")
     modes = ("Maintenance mode: inspection", "Maintenance mode: cleanup")
-    expected = production.STEP_NAMES if manual else CLOCK_BOUND_STEP_NAMES
-    names = (expected[0], *modes, *expected[1:])
-    if not isinstance(steps, list) or len(steps) != len(names):
+    candidates = (
+        ((production.STEP_NAMES, False), (CLOCK_BOUND_STEP_NAMES, True))
+        if manual
+        else ((CLOCK_BOUND_STEP_NAMES, True),)
+    )
+    if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
         return None
-    if any(not isinstance(step, dict) for step in steps):
-        return None
-    numbers = [step.get("number") for step in steps]
-    if (tuple(step.get("name") for step in steps) != names
+    for expected, clock_bound in candidates:
+        names = (expected[0], *modes, *expected[1:])
+        if len(steps) != len(names):
+            continue
+        numbers = [step.get("number") for step in steps]
+        if (
+            tuple(step.get("name") for step in steps) != names
             or any(type(number) is not int or number < 1 for number in numbers)
             or numbers != sorted(set(numbers))
             or any(steps[i].get("status") != "completed" for i in (1, 2))
-            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]):
-        return None
-    view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
-    return view if production._steps_match(view, clock_bound=not manual) else None
+            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]
+        ):
+            continue
+        view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
+        if production._steps_match(view, clock_bound=clock_bound):
+            return view
+    return None
 
 
 def qualify_source_refusal(
