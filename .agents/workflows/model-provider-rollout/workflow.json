@@ -1,0 +1,70 @@
+{
+  "id": "model-provider-rollout",
+  "title": "Model Provider Rollout",
+  "goal": "Upgrade a supported AI model generation or onboard/change a runtime AI provider with verified cloud Org Policy/quota readiness, generation-aware thinking/sampling bounds across root and child agents, derived registry freshness, and live multi-environment runtime proof.",
+  "owner_skill": "backend",
+  "default_spoke": "model-provider-governance",
+  "task_type": "model-provider-rollout",
+  "affected_surfaces": [
+    "consent-protocol/hushh_mcp/runtime_providers",
+    "consent-protocol/hushh_mcp/managed_ai_config.py",
+    "consent-protocol/hushh_mcp/agents",
+    "consent-protocol/hushh_mcp/one_adk",
+    "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+    "consent-protocol/scripts/probe_gemini_generation_contract.py",
+    "contracts/agents/product-agent-registry.v2.json"
+  ],
+  "required_reads": [
+    ".agents/skills/model-provider-governance/references/provider-upgrade-checklist.md",
+    ".agents/skills/repo-operations/references/managed-provider-readiness.md",
+    "consent-protocol/docs/reference/agent-development.md",
+    "docs/architecture/ai/README.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+    "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
+    "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
+    "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
+  ],
+  "verification_bundle": {
+    "id": "model-provider-rollout",
+    "commands": [
+      "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+      "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
+      "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
+      "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
+    ],
+    "tests": [
+      "cd consent-protocol && uv run pytest tests/services/test_one_vertex_search_contract.py tests/services/test_one_search_answer_contract.py tests/test_model_preference_resolution.py -q",
+      "cd consent-protocol && uv run pytest tests/test_vertex_capability_probe.py tests/test_managed_vertex_readiness_script.py -q"
+    ]
+  },
+  "deliverables": [
+    "cloud Org Policy, home-project IAM, and capacity-tier readiness proof",
+    "generation-compatible thinking_level and sampling adapter configuration",
+    "root, intro, and grounded sub-agent reasoning-level parity across dev, uat, and production",
+    "current generated product-agent registry and live A/B latency + inference verification"
+  ],
+  "impact_fields": [
+    "Supported model IDs and provider bindings",
+    "Root and sub-agent thinking_level / latency budgets",
+    "Cloud Org Policy, IAM, and quota/GSU posture",
+    "Generated agent registry and readiness probes",
+    "Multi-environment deployment and rollback verification"
+  ],
+  "handoff_chain": [
+    "backend",
+    "model-provider-governance",
+    "backend-agents-operons",
+    "security-audit",
+    "repo-operations",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "probing or deploying a new Vertex model before vertexai.allowedModels Org Policy allowlist propagates across org and home projects",
+    "pinning thinking_level only on the root chat head or UAT ManagedPrimaryTextModel while leaving native Vertex child AgentTools (such as google_search) at unbounded dynamic HIGH thinking (25-29s latency)",
+    "passing unsupported MINIMAL thinking_level, deprecated thinking_budget, or silent no-op temperature/top_p fields to a new thinking-first model release",
+    "updating default model constants without updating model_catalog, manifests, or regenerated product-agent-registry.v2.json so live chat self-reports the retired model",
+    "purchasing regional Provisioned Throughput when the runtime calls the global endpoint, or forgetting to re-enable BigQuery Billing Export after a billing-account migration"
+  ]
+}
