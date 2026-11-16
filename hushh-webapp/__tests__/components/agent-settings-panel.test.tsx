@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   assign: vi.fn(),
   azureHosting: vi.fn(),
   browserPlan: vi.fn(),
+  inspectHosting: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -48,6 +49,7 @@ vi.mock("@/lib/services/api-service", () => ({
     getByocSetupStatus: mocks.setupStatus,
     getAzureHosting: mocks.azureHosting,
     getPersonalAgentBrowserPlan: mocks.browserPlan,
+    inspectPersonalAgentHosting: mocks.inspectHosting,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -507,5 +509,89 @@ describe("owner hosting and software settings", () => {
     expect(mocks.promiseToast.mock.calls[0][1].success(response)).toBe(
       "Update needs attention. Its outcome has not been verified.",
     );
+  });
+
+  it.each([
+    ["unverified", "Your cloud could not be verified. Nothing was changed."],
+    ["connected", "Your agent’s cloud resources are available."],
+    ["absent", "Your cloud reports this agent is missing. Review Hosting recovery before creating another."],
+  ] as const)(
+    "reports the exact %s cloud inspection verdict in the Check hosting toast and row",
+    async (inspectionStatus, expectedSentence) => {
+      const response = { hostingMode: "byoc", deploymentTarget: "user_azure", state: "active" };
+      mocks.getStatus.mockResolvedValue(response);
+      mocks.inspectHosting.mockResolvedValue({
+        status: inspectionStatus,
+        previousHomes: 0,
+        needsPreviousReview: false,
+      });
+      mocks.azureHosting.mockResolvedValue({ state: "healthy", rebuildable: false, rebuild: null });
+      status("byoc", { deploymentTarget: "user_azure", state: "active" });
+      render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Check hosting" }));
+      await waitFor(() => expect(mocks.inspectHosting).toHaveBeenCalledOnce());
+      const [request, copy] = mocks.promiseToast.mock.calls[0];
+      expect(await request).toEqual(response);
+      expect(copy.success(response)).toBe(expectedSentence);
+      expect(await screen.findByText(expectedSentence)).toBeTruthy();
+    },
+  );
+
+  it("offers Review cloud hosting when a BYOC pod update is blocked by PREDECESSOR_NOT_QUALIFIED", () => {
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_azure",
+        updateAvailable: true,
+        updateInstallable: false,
+        updateBlockedReason: "PREDECESSOR_NOT_QUALIFIED",
+        installedRelease: { version: "2026.10-dev.19" },
+        availableRelease: {
+          version: "2026.11-dev.38",
+          releasedAt: "2026-11-12T00:00:00Z",
+          summary: "Current verified build.",
+          notes: { improvements: [], fixes: [], security: [] },
+        },
+      },
+      { ...NO_UPDATE, available: true, offerable: false },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(
+      screen.getByText(
+        "This version needs a verified upgrade path. Your current agent is kept; retrying will not change compatibility.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review cloud hosting" }));
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting",
+    );
+  });
+
+  it("offers Reconnect your pod and Review cloud hosting when INSTALLED_RELEASE_UNVERIFIED blocks a BYOC update", async () => {
+    mocks.reconnect.mockResolvedValue({});
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_gcp",
+        updateAvailable: true,
+        updateInstallable: false,
+        updateBlockedReason: "INSTALLED_RELEASE_UNVERIFIED",
+        availableRelease: {
+          version: "2026.11-dev.38",
+          releasedAt: "2026-11-12T00:00:00Z",
+          summary: "Current verified build.",
+          notes: { improvements: [], fixes: [], security: [] },
+        },
+      },
+      { ...NO_UPDATE, available: true, offerable: false },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(screen.getByRole("button", { name: "Review cloud hosting" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect your pod" }));
+    await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
   });
 });
