@@ -44,6 +44,7 @@ class PodStorageTokenRequest(BaseModel):
         le=MAX_STORAGE_TTL_SECONDS,
     )
     provider: Optional[StorageProviderKind] = Field(default=None)
+    subprefix: Optional[str] = Field(default=None, max_length=96)
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -146,6 +147,7 @@ async def handle_storage_token(
                 verified=verified,
                 ttl_seconds=payload.ttl_seconds,
                 provider=payload.provider,
+                subprefix=payload.subprefix,
                 registry=registry,
                 owner_tombstoned_fn=owner_tombstoned_fn,
                 http_session=http_session,

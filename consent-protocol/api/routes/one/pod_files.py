@@ -19,8 +19,10 @@ from hushh_mcp.services.pod_files.runtime import (
     operation,
     require_files_access,
     wiki_operation,
+    workspace_operation,
 )
 from hushh_mcp.services.pod_session_authority import ROLE_APP, PodSessionRefused
+from hushh_mcp.services.pod_workspace.checkpoint_store import WorkspaceRefused
 from hushh_mcp.services.wiki_memory.contracts import WikiRefused
 
 router = APIRouter(prefix="/api/one/pod/files", tags=["personal-agent"])
@@ -292,7 +294,7 @@ async def organization_worker(
         raise refusal(exc) from exc
 
 
-def wiki_refusal(exc: WikiRefused | FilesRefused) -> HTTPException:
+def wiki_refusal(exc: WikiRefused | FilesRefused | WorkspaceRefused) -> HTTPException:
     return HTTPException(status_code=exc.status, detail={"code": exc.code})
 
 
@@ -322,6 +324,12 @@ class WikiForgetClaimBody(BaseModel):
 
 
 class WikiRollbackBody(BaseModel):
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class WikiImportArchiveBody(BaseModel):
+    file_id: str = Field(min_length=32, max_length=32)
+    source_provider: Literal["auto", "chatgpt", "claude"] = "auto"
     request_id: str = Field(min_length=8, max_length=128)
 
 
@@ -511,4 +519,121 @@ async def rollback_wiki_to_classic(body: WikiRollbackBody, owner: Owner):
             res = await WikiOwnerMigrator(wiki).rollback_to_v1_markdown()
             return {"migrationState": res["state"], "migrationRevision": res["migration_revision"]}
     except (WikiRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+@router.post("/wiki/import")
+async def import_wiki_archive(body: WikiImportArchiveBody, owner: Owner):
+    from hushh_mcp.services.wiki_memory import (
+        MAX_ARCHIVE_COMPRESSED_BYTES,
+        WikiArchiveImporter,
+    )
+
+    try:
+        # Read encrypted file chunks under non-mutating Files admission BEFORE
+        # entering wiki_operation(mutation=True) so the shared module lock never deadlocks.
+        async with operation() as files_lib:
+            meta = await files_lib.stat(body.file_id)
+            if meta.get("kind") != "file" or meta.get("state") != "ready":
+                raise FilesRefused("FILES_NOT_READY", 409)
+            total_size = int(meta.get("size") or 0)
+            if total_size <= 0:
+                raise WikiRefused("WIKI_ARCHIVE_EMPTY", 400)
+            if total_size > MAX_ARCHIVE_COMPRESSED_BYTES:
+                raise WikiRefused("WIKI_ARCHIVE_TOO_LARGE", 413)
+            file_name = str(meta.get("name") or "export.zip")
+            chunk_count = (total_size + CHUNK_BYTES - 1) // CHUNK_BYTES
+            raw_buf = bytearray()
+            for idx in range(chunk_count):
+                part = await files_lib.read_chunk(body.file_id, idx)
+                if len(raw_buf) + len(part) > MAX_ARCHIVE_COMPRESSED_BYTES:
+                    raise WikiRefused("WIKI_ARCHIVE_TOO_LARGE", 413)
+                raw_buf.extend(part)
+            archive_bytes = bytes(raw_buf)
+
+        async with wiki_operation(mutation=True) as wiki:
+            res = await WikiArchiveImporter(wiki).import_archive_bytes(
+                file_id=body.file_id,
+                file_name=file_name,
+                raw_bytes=archive_bytes,
+                idempotency_key=body.request_id,
+                source_provider=body.source_provider,
+            )
+            return {
+                "provider": res["provider"],
+                "fileId": res["file_id"],
+                "pagesUpdated": res["pages_updated"],
+                "claimsImported": res["claims_imported"],
+                "claimsDeduplicated": res["claims_deduplicated"],
+                "claimsSkippedTombstoned": res["claims_skipped_tombstoned"],
+                "candidateCount": len(res["candidate_receipt_ids"]),
+            }
+    except (WikiRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+class WorkspaceExecuteBody(BaseModel):
+    workspace_id: str = Field(min_length=8, max_length=64)
+    argv: list[str] = Field(min_length=1, max_length=64)
+    actor: Literal["agent", "owner"] = "agent"
+    timeout_seconds: float = Field(default=60.0, ge=0.5, le=300.0)
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class WorkspaceControlBody(BaseModel):
+    workspace_id: str = Field(min_length=8, max_length=64)
+    action: Literal["take_control", "resume_agent"]
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class WorkspaceForgetBody(BaseModel):
+    workspace_id: str = Field(min_length=8, max_length=64)
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+@router.get("/workspaces/status")
+async def read_workspace_status(owner: Owner, workspace_id: str | None = None):
+    try:
+        async with workspace_operation() as ws:
+            status = ws.status(workspace_id)
+            events = (
+                await ws.checkpoints.list_execution_events(workspace_id) if workspace_id else []
+            )
+            return {**status, "events": events}
+    except (WorkspaceRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+@router.post("/workspaces/execute")
+async def execute_workspace_command(body: WorkspaceExecuteBody, owner: Owner):
+    _ = body.request_id
+    try:
+        async with workspace_operation(mutation=True) as ws:
+            return await ws.execute(
+                workspace_id=body.workspace_id,
+                argv=body.argv,
+                actor=body.actor,
+                timeout_seconds=body.timeout_seconds,
+            )
+    except (WorkspaceRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+@router.post("/workspaces/control")
+async def control_workspace_session(body: WorkspaceControlBody, owner: Owner):
+    _ = body.request_id
+    try:
+        async with workspace_operation(mutation=True) as ws:
+            return ws.set_control_mode(body.workspace_id, body.action)
+    except (WorkspaceRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+@router.post("/workspaces/forget")
+async def forget_workspace_state(body: WorkspaceForgetBody, owner: Owner):
+    _ = body.request_id
+    try:
+        async with workspace_operation(mutation=True) as ws:
+            return await ws.checkpoints.forget_workspace(body.workspace_id)
+    except (WorkspaceRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc

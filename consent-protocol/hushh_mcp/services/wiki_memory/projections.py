@@ -159,6 +159,7 @@ class WikiProjectionEngine:
         idempotency_key: str,
         active_recipient_count: int = 0,
         owner_confirmed: bool = False,
+        require_owner_confirmation: bool = False,
         proposed_value: Any = None,
         specialist_snapshot: dict[str, Any] | None = None,
         source_revision: int = 1,
@@ -198,8 +199,10 @@ class WikiProjectionEngine:
                     exposure_eligibility=False,
                     updated_at=now_ms,
                 )
-                return await self.library.put_projection_receipt(
-                    pending_receipt, idempotency_key=idempotency_key
+                return dict(
+                    await self.library.put_projection_receipt(
+                        pending_receipt, idempotency_key=idempotency_key
+                    )
                 )
             raise
 
@@ -267,7 +270,7 @@ class WikiProjectionEngine:
             )
             if disagreement is not None:
                 state = "conflicted"
-            elif active_recipient_count > 0 and not owner_confirmed:
+            elif (active_recipient_count > 0 or require_owner_confirmation) and not owner_confirmed:
                 state = "private_candidate"
             else:
                 state = "materialized"
@@ -289,7 +292,9 @@ class WikiProjectionEngine:
             tombstone_id=effective_tb["tombstone_id"] if effective_tb else None,
             specialist_disagreement=disagreement,
         )
-        return await self.library.put_projection_receipt(receipt, idempotency_key=idempotency_key)
+        return dict(
+            await self.library.put_projection_receipt(receipt, idempotency_key=idempotency_key)
+        )
 
     async def confirm_candidate_projection(
         self,

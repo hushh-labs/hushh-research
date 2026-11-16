@@ -35,6 +35,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -203,17 +204,36 @@ def validated_pod_prefix(hushh_id: str) -> str:
     return prefix
 
 
+_WORKSPACE_SUBPREFIX_RE = re.compile(r"^workspaces/v1/[a-z0-9][a-z0-9_-]{7,63}$")
+
+
+def validated_workspace_subprefix(subprefix: str) -> str:
+    """Validate narrow `workspaces/v1/<workspace_id>` subprefix for Option A CLI workers (#9511)."""
+    cleaned = (subprefix or "").strip().strip("/")
+    if not _WORKSPACE_SUBPREFIX_RE.fullmatch(cleaned) or not object_key_is_within(
+        "workspaces/v1", f"{cleaned}/_probe"
+    ):
+        raise PodCapabilityBrokerForbidden("invalid workspace storage subprefix")
+    return cleaned
+
+
 def mint_prefix_gateway_token(
     *,
     hushh_id: str,
     owner_id: str,
     placement_epoch: int,
     ttl_seconds: int,
+    subprefix: Optional[str] = None,
     now_epoch: Optional[int] = None,
     secret: Optional[bytes] = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Issue an HMAC-SHA256-authenticated `hpst1` bearer token confined to `pods/{hushh_id}`."""
-    prefix = validated_pod_prefix(hushh_id)
+    """Issue an HMAC-SHA256-authenticated `hpst1` bearer token confined to `pods/{hushh_id}` or a workspace subprefix."""
+    base_prefix = validated_pod_prefix(hushh_id)
+    prefix = (
+        f"{base_prefix}/{validated_workspace_subprefix(subprefix)}"
+        if subprefix is not None
+        else base_prefix
+    )
     clamped_ttl = max(MIN_STORAGE_TTL_SECONDS, min(MAX_STORAGE_TTL_SECONDS, int(ttl_seconds)))
     now = int(time.time()) if now_epoch is None else int(now_epoch)
     claims: dict[str, Any] = {
@@ -760,6 +780,7 @@ async def broker_pod_storage_token(
     verified: Any,
     ttl_seconds: int = MAX_STORAGE_TTL_SECONDS,
     provider: Optional[StorageProviderKind] = None,
+    subprefix: Optional[str] = None,
     registry: Any = None,
     owner_tombstoned_fn: Any = None,
     http_session: Any = None,
@@ -768,7 +789,7 @@ async def broker_pod_storage_token(
     azure_delegation_key: Optional[AzureUserDelegationKey] = None,
     secret: Optional[bytes] = None,
 ) -> dict[str, Any]:
-    """Mint a 15-minute prefix-scoped storage capability (`pods/{hushh_id}/*`) for an active pod."""
+    """Mint a 15-minute prefix-scoped storage capability (`pods/{hushh_id}/*` or workspace subprefix) for an active pod."""
     if registry is None:
         from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
             PersonalAgentRegistryRepo,
@@ -782,7 +803,12 @@ async def broker_pod_storage_token(
         owner_tombstoned_fn=tombstone_fn,
     )
     hushh_id = str(row["hushh_id"])
-    pod_prefix = validated_pod_prefix(hushh_id)
+    base_pod_prefix = validated_pod_prefix(hushh_id)
+    pod_prefix = (
+        f"{base_pod_prefix}/{validated_workspace_subprefix(subprefix)}"
+        if subprefix is not None
+        else base_pod_prefix
+    )
     epoch = int(row.get("placement_epoch") or 0)
     clamped_ttl = max(MIN_STORAGE_TTL_SECONDS, min(MAX_STORAGE_TTL_SECONDS, int(ttl_seconds)))
 
@@ -801,6 +827,7 @@ async def broker_pod_storage_token(
             owner_id=owner_id,
             placement_epoch=epoch,
             ttl_seconds=clamped_ttl,
+            subprefix=subprefix,
             secret=secret,
         )
         result: dict[str, Any] = {

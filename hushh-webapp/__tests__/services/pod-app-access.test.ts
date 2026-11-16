@@ -301,10 +301,35 @@ it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths
     "files/wiki/confirm",
     "files/wiki/forget",
     "files/wiki/rollback",
+    "files/wiki/import",
+    "files/workspaces/status",
+    "files/workspaces/execute",
+    "files/workspaces/control",
+    "files/workspaces/forget",
   ]) {
-    const response = await ownerPodRequest(route, { method: route.startsWith("files/wiki/overview") || route.includes("?") ? "GET" : "POST" }, ports);
+    const response = await ownerPodRequest(route, { method: route.startsWith("files/wiki/overview") || route.startsWith("files/workspaces/status") || route.includes("?") ? "GET" : "POST" }, ports);
     expect(response.ok).toBe(true);
   }
-  expect(fetch).toHaveBeenCalledTimes(6);
+  expect(fetch).toHaveBeenCalledTimes(11);
   await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});
+
+it("admits owner pod browser download save route only when browser.control and files scopes are held", async () => {
+  const fetch = vi.fn(async () => Response.json({ verified: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const downloadRoute = `browser/tasks/browser_${"a".repeat(32)}/downloads/${"b".repeat(32)}`;
+
+  pod.currentPodConnection.mockResolvedValueOnce({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control"] },
+  });
+  await expect(ownerPodRequest(downloadRoute, { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+
+  pod.currentPodConnection.mockResolvedValueOnce({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control", "files.read", "files.manage"] },
+  });
+  const ok = await ownerPodRequest(downloadRoute, { method: "POST", body: "{}" }, ports);
+  expect(ok.ok).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
 });

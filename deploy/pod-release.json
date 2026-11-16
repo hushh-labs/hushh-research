@@ -1,21 +1,21 @@
 {
-  "version": "2026.11-dev.38",
+  "version": "2026.11-dev.39",
   "channel": "dev",
-  "summary": "Reliable restarts and private chat.",
+  "summary": "Request information in private chat.",
   "notes": {
     "improvements": [
-      "Your private agent keeps its identity and saved information through restarts.",
-      "Your private agent can prepare approved sharing answers with its connected model."
+      "Choose the information you want directly in chat.",
+      "Review the price before sending a sharing request."
     ],
     "fixes": [
-      "Unavailable tools no longer prevent your private agent from answering.",
-      "An unconfirmed message is no longer automatically sent again."
+      "Available information opens a review you can act on.",
+      "An unconfirmed message is not automatically sent again."
     ],
     "security": [
       "Startup stops safely if saved identity or permissions cannot be recovered."
     ]
   },
   "supportedUpgradeDigests": [
-    "sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610"
+    "sha256:da9e0dc9c1a15e07f87c4a8d0b64a518b2d0fc6d3658d6e9f2e947f897213b43"
   ]
 }

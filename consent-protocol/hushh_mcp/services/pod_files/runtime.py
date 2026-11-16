@@ -11,10 +11,15 @@ from typing import Any
 
 from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesGcsStore
+from hushh_mcp.services.pod_workspace import (
+    WorkspaceCheckpointLibrary,
+    WorkspaceCliRuntime,
+)
 from hushh_mcp.services.wiki_memory import WikiLibrary
 
 _library: FilesLibrary | None = None
 _wiki_library: WikiLibrary | None = None
+_workspace_runtime: WorkspaceCliRuntime | None = None
 _condition = asyncio.Condition()
 _mutation = asyncio.Lock()
 _active = 0
@@ -25,7 +30,7 @@ def custody_key_reference() -> str:
     """The same owner key reference for operation and retention checks."""
     from hushh_mcp.services.byoc_key_custody import KEY_VAULT_KEY_ENV, KMS_KEY_ENV
 
-    return os.getenv(KEY_VAULT_KEY_ENV) or os.getenv(KMS_KEY_ENV, "")
+    return str(os.getenv(KEY_VAULT_KEY_ENV) or os.getenv(KMS_KEY_ENV) or "")
 
 
 def active_library() -> FilesLibrary:
@@ -91,6 +96,57 @@ def active_wiki_library() -> WikiLibrary:
             library_id=library_id,
         )
     return _wiki_library
+
+
+def active_workspace_runtime() -> WorkspaceCliRuntime:
+    """Return the Pod's encrypted CLI workspace runtime under the same custody fence (#9511)."""
+    global _workspace_runtime
+    files = active_library()
+    if _workspace_runtime is None:
+        from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
+
+        generation = int(os.getenv("POD_ACCOUNT_GENERATION", "0") or "0")
+        checkpoints = WorkspaceCheckpointLibrary(
+            owner=files.owner,
+            key=resolve_pod_log_key(),
+            store=files.store,
+            check=files.check,
+            account_generation=generation,
+        )
+        _workspace_runtime = WorkspaceCliRuntime(checkpoints)
+    return _workspace_runtime
+
+
+@asynccontextmanager
+async def workspace_operation(*, mutation: bool = False):
+    """Admit a Pod CLI workspace read or mutation under single-worker drain fencing."""
+    global _active
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    async with _condition:
+        if _draining:
+            raise FilesRefused("FILES_DRAINING", 503)
+        _active += 1
+    permit: Any = None
+    try:
+        permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+        ws = active_workspace_runtime()
+        await ws.checkpoints.check()
+        await ws.checkpoints.store.verify_bucket(custody_key_reference())
+        if mutation:
+            async with _mutation:
+                await require_files_access(manage=True)
+                yield ws
+        else:
+            yield ws
+    finally:
+        try:
+            if permit is not None:
+                await permit.release()
+        finally:
+            async with _condition:
+                _active -= 1
+                _condition.notify_all()
 
 
 @asynccontextmanager
@@ -207,8 +263,10 @@ async def run_wiki_maintenance_tick(
 
     async with wiki_operation(mutation=True) as wiki:
         runner = WikiMaintenanceRunner(wiki)
-        return await runner.run_tick(
-            idempotency_key=idempotency_key,
-            reference_date=reference_date,
-            max_pages_per_tick=max_pages_per_tick,
+        return dict(
+            await runner.run_tick(
+                idempotency_key=idempotency_key,
+                reference_date=reference_date,
+                max_pages_per_tick=max_pages_per_tick,
+            )
         )
