@@ -41,7 +41,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.middleware import require_vault_owner_token
 from hushh_mcp.integrations.plaid import PlaidApiError, PlaidHttpClient, PlaidRuntimeConfig
 from hushh_mcp.integrations.plaid.products import _link_token_product_sets
-from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -533,7 +532,7 @@ async def _sync_transactions(
 @router.post("/snapshot")
 async def vault_snapshot(
     payload: VaultSnapshotRequest,
-    token_data: dict = Depends(hub_content_owner),
+    token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     """Fetch a fresh snapshot for one connection, statelessly.
 
