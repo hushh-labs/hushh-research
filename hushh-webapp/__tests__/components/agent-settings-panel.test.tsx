@@ -154,10 +154,15 @@ describe("owner hosting and software settings", () => {
     expect(mocks.azureHosting).not.toHaveBeenCalled();
   });
 
-  it.each(["hosting", "software-updates"] as const)(
-    "repairs a failed BYOC link from %s without claiming direct readiness",
-    async (kind) => {
-      status("byoc", { state: "failed" });
+  it.each([
+    ["byoc", "hosting"],
+    ["byoc", "software-updates"],
+    ["hussh_pods", "hosting"],
+    ["hussh_pods", "software-updates"],
+  ] as const)(
+    "repairs a failed %s link from %s without claiming direct readiness",
+    async (mode, kind) => {
+      status(mode, { state: "failed" });
       let resolve!: (value: { adopted: boolean }) => void;
       mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
       render(<AgentSettingsPanel userId="owner" kind={kind} />);
@@ -175,8 +180,8 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("discards recovery completion after an owner changes away and back", async () => {
-    status("byoc", { state: "failed" });
+  it.each(["byoc", "hussh_pods"])("discards %s recovery completion after an owner changes away and back", async (mode) => {
+    status(mode, { state: "failed" });
     let resolve!: (value: { adopted: boolean }) => void;
     mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
@@ -209,8 +214,8 @@ describe("owner hosting and software settings", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
-  it("keeps a refused recovery failed without falling through to direct access", async () => {
-    status("byoc", { state: "failed" });
+  it.each(["byoc", "hussh_pods"])("keeps a refused %s recovery failed without falling through to direct access", async (mode) => {
+    status(mode, { state: "failed" });
     mocks.adopt.mockResolvedValue({ adopted: false });
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
     fireEvent.click(screen.getByRole("button", { name: "Link existing pod" }));
