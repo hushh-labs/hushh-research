@@ -48,6 +48,37 @@ def test_gunicorn_lifecycle_restores_non_dumpable_and_zero_core_after_execve(
     assert ("rlimit", gl.resource.RLIMIT_CORE, (0, 0)) in calls
     assert ("prctl", 38, 1) in calls  # PR_SET_NO_NEW_PRIVS
     assert ("prctl", 4, 0) in calls  # PR_SET_DUMPABLE = 0
+    assert ("prctl", 3, 0) in calls  # PR_GET_DUMPABLE == 0
+
+
+def test_gunicorn_lifecycle_accepts_gvisor_proc_status_without_dumpable_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cloud Run Gen1 (gVisor) omits Dumpable: from /proc/self/status; PR_GET_DUMPABLE governs."""
+    import browser_runtime.gunicorn_lifecycle as gl
+
+    monkeypatch.setattr(gl.sys, "platform", "linux")
+    monkeypatch.setattr(gl.resource, "setrlimit", lambda *_args: None)
+    monkeypatch.setattr(
+        gl.ctypes,
+        "CDLL",
+        lambda *_args, **_kw: SimpleNamespace(prctl=lambda *_a: 0),
+    )
+    monkeypatch.setattr(
+        gl,
+        "open",
+        lambda *_args, **_kw: StringIO("Name:\tgunicorn\nPid:\t2\n"),
+        raising=False,
+    )
+    gl.harden_worker_process()
+
+    monkeypatch.setattr(
+        gl.ctypes,
+        "CDLL",
+        lambda *_args, **_kw: SimpleNamespace(prctl=lambda opt, *_a: 1 if opt == 3 else 0),
+    )
+    with pytest.raises(RuntimeError, match="POD_WORKER_HARDENING_REFUSED"):
+        gl.harden_worker_process()
 
 
 def test_gunicorn_lifecycle_fails_closed_if_dumpable_remains_set(
