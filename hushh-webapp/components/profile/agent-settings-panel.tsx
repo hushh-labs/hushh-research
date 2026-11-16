@@ -114,7 +114,7 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           >
             Check hosting
           </Button>
-          {mode === "byoc" ? (
+          {mode === "byoc" || needsLinkRecovery ? (
             <Button
               variant="muted"
               disabled={busy}

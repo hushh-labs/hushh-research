@@ -98,7 +98,7 @@ export function useAgentSettingsController({
     ? (status.hostingMode as HostingMode)
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
-  const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
+  const needsLinkRecovery = isPod && status?.state === "failed";
   // An approved Azure update starts only with the owner's Microsoft sign-in.
   const awaitingMicrosoft = useAzureUpdateAwaitingSignIn({
     deploymentTarget: kind === "software-updates" ? status?.deploymentTarget : null,
