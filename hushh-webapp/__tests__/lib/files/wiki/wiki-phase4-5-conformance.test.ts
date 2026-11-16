@@ -95,6 +95,7 @@ function createSharedHarness(
   };
 
   return {
+    access,
     storage,
     setUnlocked: (value: boolean) => {
       unlocked = value;
@@ -282,5 +283,73 @@ describe("SharedWikiOwnerMigrator, Maintenance, and Adapter Conformance (Phase 4
     await expect(adapter.request("wiki/overview")).rejects.toMatchObject({
       code: "WIKI_VAULT_LOCKED",
     });
+  });
+
+  it("bridges Shared browser chat consolidation into opted-in SharedWikiLibrary and projections", async () => {
+    const { bindActiveSharedWiki, peekActiveSharedWiki } = await import(
+      "@/lib/files/wiki/active-shared-wiki"
+    );
+    const { SharedWikiKnowledgeWriter, SharedWikiProjectionEngine } = await import(
+      "@/lib/files/wiki"
+    );
+
+    const { library } = createSharedHarness();
+    const release = bindActiveSharedWiki(library);
+    try {
+      expect(peekActiveSharedWiki()).toBe(library);
+      const writer = new SharedWikiKnowledgeWriter(library);
+      await writer.setCaptureOptIn(true);
+
+      let consolidatedMirrorCount = 0;
+      const onConsolidated = async ({
+        messages,
+      }: {
+        messages: readonly {
+          conversationId: string;
+          id: string;
+          role: "user" | "assistant";
+          content: string;
+          consentDerived?: boolean;
+        }[];
+      }) => {
+        const active = peekActiveSharedWiki();
+        if (!active) return;
+        const res = await new SharedWikiKnowledgeWriter(active).captureEvents(
+          messages.map((m) => ({
+            conversationId: m.conversationId,
+            eventId: m.id,
+            role: m.role,
+            content: m.content,
+            consentDerived: m.consentDerived,
+          })),
+        );
+        if (res.status === "saved") {
+          consolidatedMirrorCount += 1;
+          const proj = new SharedWikiProjectionEngine(active);
+          for (const pid of res.saved_page_ids) {
+            await proj.syncPageLifecycle(pid);
+          }
+        }
+      };
+
+      await onConsolidated({
+        messages: [
+          {
+            conversationId: "conv_shared_1",
+            id: "msg_1",
+            role: "user",
+            content: "I prefer window seats on evening flights.",
+          },
+        ],
+      });
+      expect(consolidatedMirrorCount).toBe(1);
+      const hits = await library.search("window seats");
+      expect(hits).toHaveLength(1);
+      const hot = await library.readHotDigest();
+      expect(hot).toContain("Working Memory");
+    } finally {
+      release();
+    }
+    expect(peekActiveSharedWiki()).toBeNull();
   });
 });

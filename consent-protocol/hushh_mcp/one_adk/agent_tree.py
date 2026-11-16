@@ -2627,9 +2627,11 @@ def _one_roster_tools(
         )
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.one_adk.files_agent import build_files_agent
+        from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
 
         files_manifest = _load_product_agent_manifest("agent_files")
         tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+        tools.extend(pod_wiki_recall_tools())
     if pod_mode():
         from hushh_mcp.one_adk.computer_use_agent import (
             browser_task_hand_available,
