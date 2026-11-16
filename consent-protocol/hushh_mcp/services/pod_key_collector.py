@@ -78,7 +78,9 @@ def _identity_token(audience: str) -> Optional[str]:
         return None
 
 
-async def fetch_pod_public_key(row: dict, *, session: Any = None) -> Optional[dict[str, str]]:
+async def fetch_pod_public_key(
+    row: dict, *, session: Any = None, require_identity: bool = False
+) -> Optional[dict[str, str]]:
     """Ask the pod for its public key. None on any failure -- never raises."""
     url = _pod_url(row)
     if not url:
@@ -123,7 +125,9 @@ async def fetch_pod_public_key(row: dict, *, session: Any = None) -> Optional[di
     # against this row would hand this person's authority to someone else's pod.
     reported = str(body.get("hushhId") or "").strip()
     expected = str(row.get("hushh_id") or "").strip()
-    if reported and expected and reported != expected:
+    if (require_identity and (not expected or reported != expected)) or (
+        reported and expected and reported != expected
+    ):
         logger.warning("pod_key_collector.hushh_id_mismatch")
         return None
 

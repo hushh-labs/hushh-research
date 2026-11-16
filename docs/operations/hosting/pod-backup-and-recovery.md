@@ -2,6 +2,21 @@
 
 [Operations](../../README.md)
 
+## Recovering a retained managed placement
+
+The existing adoption route can recover an incorrectly `needs_reinit` Dev managed
+placement only after read-only native checks confirm its recorded project number,
+service incarnation, installed image, runtime identity and encryption/signing public
+keys. Recovery changes only registry status and its timestamp. It creates no host,
+rotates no key and issues no consent grant. A changed placement, pending lifecycle
+operation, retired account or deletion tombstone refuses recovery. Keep the actual
+failed-state snapshot for the database comparison; a projected live status is used
+only in memory to validate the retained placement. Fleet-project absence never
+authorizes reinitializing a managed placement in another project.
+
+The older implementation observations below are historical; this recovery contract
+does not establish current installed-image durability or full account erasure.
+
 **Dated 2026-08-07; materially updated 2026-08-08.** The operational half of
 [the north star](../../product/principles/private-agent-requirements.md): if a person's private agent
 is defined by memory that accumulates, then losing that memory is the product's worst

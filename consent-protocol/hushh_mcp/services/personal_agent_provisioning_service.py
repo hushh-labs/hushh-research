@@ -2073,6 +2073,12 @@ class PersonalAgentProvisioningService:
             return None
         if str(row.get("status") or "") == "provisioned":
             return None  # already whole; nothing to adopt
+        from hushh_mcp.services.pod_adoption import has_hosted_evidence
+
+        if has_hosted_evidence(row):
+            from hushh_mcp.services.hosted_pod_adoption import adopt_retained_host
+
+            return await adopt_retained_host(self, row=row, owner=user_id)
         hushh_id = str(row.get("hushh_id") or "").strip()
         phone_hash = str(row.get("phone_e164_hash") or "").strip()
         if not hushh_id or not phone_hash:
