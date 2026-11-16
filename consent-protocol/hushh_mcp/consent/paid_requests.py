@@ -432,7 +432,7 @@ async def end_owner_paid_purchases(owner_user_id: str, *, connection: Any = None
 async def _record_purchase_end(
     connection: Any, row: dict, purchase_id: str, as_owner: bool
 ) -> None:
-    from hushh_mcp.services.consent_db import ConsentDBService
+    from hushh_mcp.services.consent_commerce_ports import insert_consent_event
 
     request_id = str(row["request_id"])
     prior = await connection.fetchrow(
@@ -467,14 +467,18 @@ async def _record_purchase_end(
             "revoked" if as_owner else "denied",
             json.dumps(metadata),
         )
-    await ConsentDBService().insert_event(
-        user_id=str(row["owner_user_id"]),
-        agent_id=agent_id,
-        scope=scope,
-        action="REVOKED" if as_owner else "CANCELLED",
-        request_id=request_id,
-        metadata=metadata,
-        connection=connection,
+    # This coordinator already terminated accounting under the request lock.
+    # Append in that transaction without re-entering pending-request admission.
+    await insert_consent_event(
+        connection,
+        {
+            "user_id": str(row["owner_user_id"]),
+            "agent_id": agent_id,
+            "scope": scope,
+            "action": "REVOKED" if as_owner else "CANCELLED",
+            "request_id": request_id,
+            "metadata": metadata,
+        },
     )
 
 

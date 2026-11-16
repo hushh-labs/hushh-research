@@ -746,7 +746,7 @@ async def test_upfront_send_is_atomic_idempotent_and_requires_owner_consent(
         )
 
 
-@pytest.mark.parametrize("terminal", ["cancel", "deny", "timeout"])
+@pytest.mark.parametrize("terminal", ["cancel", "purchase_cancel", "deny", "timeout"])
 async def test_upfront_terminal_paths_release_original_funding_once(
     paid_contract, monkeypatch, terminal
 ):
@@ -766,6 +766,16 @@ async def test_upfront_terminal_paths_release_original_funding_once(
     if terminal == "cancel":
         await service.cancel(requester_user_id="payer", bundle_id=bundle["bundleId"])
         await service.cancel(requester_user_id="payer", bundle_id=bundle["bundleId"])
+    elif terminal == "purchase_cancel":
+        async with ctx.pool.acquire() as c:
+            purchase_id = await c.fetchval(
+                "SELECT purchase_id FROM scope_commerce_purchases WHERE request_id=$1", rid
+            )
+        operation = {"idempotency_key": str(uuid4())}
+        for _ in range(2):
+            response = await ctx.post(f"/purchases/{purchase_id}/cancel", operation, "payer")
+            assert response.status_code == 200, response.text
+            assert response.json()["status"] == "revoked"
     elif terminal == "deny":
         await ConsentDBService().insert_event(
             user_id="owner",
@@ -797,6 +807,24 @@ async def test_upfront_terminal_paths_release_original_funding_once(
             )
             == 1
         )
+        if terminal == "purchase_cancel":
+            assert (
+                await c.fetchval(
+                    "SELECT count(*) FROM consent_audit WHERE request_id=$1 AND action='CANCELLED'",
+                    rid,
+                )
+                == 1
+            )
+            assert (
+                await c.fetchval(
+                    "SELECT count(*) FROM consent_audit WHERE request_id=$1 AND action='CONSENT_GRANTED'",
+                    rid,
+                )
+                == 0
+            )
+            assert (
+                await c.fetchval("SELECT count(*) FROM consent_exports WHERE grant_id=$1", rid) == 0
+            )
 
 
 async def test_upfront_migration_replay_and_rollback_are_guarded(paid_contract, monkeypatch):
