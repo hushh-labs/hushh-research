@@ -183,6 +183,26 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
             Link existing pod
           </Button>
         ) : null}
+        {mode === "byoc" &&
+        !needsLinkRecovery &&
+        status?.updateAvailable === true &&
+        !canInstallUpdate(status) &&
+        !working &&
+        status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED" ? (
+          <Button variant="muted" disabled={busy} onClick={() => void reconnectDirectPod()}>
+            Reconnect your pod
+          </Button>
+        ) : null}
+        {mode === "byoc" &&
+        status?.updateAvailable === true &&
+        !canInstallUpdate(status) &&
+        !working &&
+        (status.updateBlockedReason === "PREDECESSOR_NOT_QUALIFIED" ||
+          status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED") ? (
+          <Button variant="muted" disabled={busy} onClick={chooseHosting}>
+            Review cloud hosting
+          </Button>
+        ) : null}
         {isPod &&
         canInstallUpdate(status) &&
         update.releaseId &&
