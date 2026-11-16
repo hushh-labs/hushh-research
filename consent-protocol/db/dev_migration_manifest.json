@@ -99,8 +99,7 @@
     "986_legacy_cloud_removal_resume.sql",
     "987_account_firebase_erasure.sql",
     "988_account_cloud_retirement.sql",
-    "989_pkm_answer_processing_runtime.sql",
-    "990_information_request_upfront_reservation.sql"
+    "989_pkm_answer_processing_runtime.sql"
   ],
   "deferred_release_migrations": [
     {

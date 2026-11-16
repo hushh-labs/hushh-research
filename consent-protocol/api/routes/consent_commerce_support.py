@@ -48,6 +48,14 @@ async def paid_owner_approval(
             raise ValueError("invalid_paid_approval_result")
         return result
     except (ValueError, PermissionError) as exc:
+        if isinstance(exc, ValueError) and str(exc) == "request_price_changed":
+            raise HTTPException(
+                409,
+                detail={
+                    "error_code": "REQUEST_PRICE_CHANGED",
+                    "message": "The price changed. Ask for a new request with the current price.",
+                },
+            ) from exc
         raise HTTPException(409, detail={"error_code": "PAID_APPROVAL_UNAVAILABLE"}) from exc
 
 

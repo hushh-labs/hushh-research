@@ -93,6 +93,10 @@ async def approve_paid_request(
         if is_paid_grant(binding["metadata"]):
             raise ValueError("paid_authorization_unavailable")
         return None
+    if binding["metadata"].get("upfront_price_reviewed") is True:
+        # Reviewed paid requests already have a retained purchase above. A
+        # reviewed free request cannot acquire a second payment step afterward.
+        raise ValueError("request_price_changed")
     if duration_seconds <= 0 or duration_seconds > binding["duration_seconds"]:
         raise ValueError("approved_duration_exceeds_request")
     if binding["consent_action"] not in {"REQUESTED", "pending"}:

@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { formatCommerceMoney as money, type CommerceAccount } from "@/lib/services/scope-commerce-service";
+import { formatCommerceMoney as money, parseCommerceDollarInput, type CommerceAccount } from "@/lib/services/scope-commerce-service";
 
 export function CommerceBalanceSummary({ account }: { account: CommerceAccount }) {
   return <>
@@ -19,13 +19,18 @@ export function CommerceBalanceSummary({ account }: { account: CommerceAccount }
 export function CommerceFundingControls({ enabled, busy, amount, changeAmount, checkout }: {
   enabled: boolean; busy: boolean; amount: string; changeAmount: (value: string) => void; checkout: () => void;
 }) {
+  let coins: number | null = null;
+  let invalid: string | null = null;
+  try { coins = parseCommerceDollarInput(amount, 50); }
+  catch (error) { invalid = error instanceof Error ? error.message : "Enter an amount from $0.50 to $1,000."; }
   if (!enabled) return <p data-consent-role="helper" className="text-xs text-muted-foreground">Funding is unavailable. Check Payouts and History for existing activity, or Refund unused balance when funds are refundable.</p>;
   return <div className="space-y-[var(--app-form-related-gap)]">
-    <label data-consent-role="form-label" className="block space-y-[var(--app-form-field-gap)] text-sm">Add to balance (USD)
-      <Input data-consent-input="true" inputMode="decimal" value={amount} onChange={event => changeAmount(event.target.value)} disabled={busy} />
+    <label data-consent-role="form-label" className="block space-y-[var(--app-form-field-gap)] text-sm">Amount (USD)
+      <Input data-consent-input="true" inputMode="decimal" value={amount} aria-invalid={Boolean(invalid && amount.trim())} onChange={event => changeAmount(event.target.value)} disabled={busy} />
     </label>
-    <p data-consent-role="helper" className="text-xs text-muted-foreground">$0.50–$1,000 per payment. Adding funds doesn't buy access.</p>
-    <Button data-consent-role="compact-action" disabled={busy} onClick={checkout}>Continue to secure checkout</Button>
+    {coins !== null ? <p data-consent-role="body" className="text-sm tabular-nums">You'll add {money(coins)}.</p> : amount.trim() ? <p data-consent-role="status" role="status" className="text-sm">{invalid}</p> : null}
+    <p data-consent-role="helper" className="text-xs text-muted-foreground">$0.50–$1,000 per payment. Adding coins doesn't buy access.</p>
+    <Button type="button" data-consent-role="compact-action" disabled={busy || coins === null} onClick={checkout}>Continue to secure checkout</Button>
   </div>;
 }
 

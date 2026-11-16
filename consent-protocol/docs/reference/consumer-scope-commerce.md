@@ -14,7 +14,7 @@ funding together; the requester does not pay again. The owner still explicitly
 shares the encrypted information, including any required acknowledgment of fees.
 Denial, requester cancellation and unfulfilled expiry return the original funding
 allocations exactly once. Free and previously approved legacy requests retain their
-existing path. Forward Dev migration 990 adds the pending-owner state; rollback
+existing path. Forward migration 460 adds the pending-owner state; rollback
 refuses while pending-owner holds exist. Profile and both Chat review cards use the
 same price, funding and submission contract. The agent proposes; only the person's
 Send action can reserve coins.
@@ -24,10 +24,10 @@ Send action can reserve coins.
 
 ```mermaid
 flowchart LR
-  tariff["Owner exact-scope tariff"] --> review["Existing request and owner approval"]
-  review --> quote["Human buyer reviews exact quote"]
-  quote --> reserve["Reserve funded balance"]
-  reserve --> seal["Owner prepares canonical v2 ciphertext"]
+  tariff["Owner exact-scope tariff"] --> review["Requester reviews exact price"]
+  review --> reserve["Send request and reserve coins atomically"]
+  reserve --> approval["Owner approves fixed terms"]
+  approval --> seal["Owner shares encrypted information"]
   seal --> stage["Stage before fixed activation T"]
   stage --> access["Consent-gated access until exact expiry"]
   access --> settle["Term completion or early revocation"]

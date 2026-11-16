@@ -246,6 +246,7 @@ POST /api/one/feed/read
 POST /api/one/feed/sos-cards/clear
 GET /api/one/feed/unread-count
 POST /api/one/information-requests
+POST /api/one/information-requests/price-preview
 GET /api/one/information-requests/shared-with-me
 GET /api/one/information-requests/{bundle_id}
 POST /api/one/information-requests/{bundle_id}/cancel

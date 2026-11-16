@@ -644,6 +644,15 @@ class InformationRequestService:
             current = await self._request_status(subject_user_id, request_id)
             if current:
                 continue
+            reviewed_amount = (
+                next(
+                    item["amountCoins"]
+                    for item in reviewed_prices["items"]
+                    if item["scopeRef"] == scope["scopeRef"]
+                )
+                if reviewed_prices is not None
+                else 0
+            )
             await self._consent.insert_event(
                 user_id=subject_user_id,
                 agent_id=principal,
@@ -660,11 +669,11 @@ class InformationRequestService:
                     "request_source": "one_person_profile",
                     **(
                         {
-                            "commercial_required": any(
-                                item["scopeRef"] == scope["scopeRef"] and item["amountCoins"] > 0
-                                for item in reviewed_prices["items"]
-                            ),
+                            "commercial_required": reviewed_amount > 0,
                             "upfront_price_reviewed": True,
+                            "request_price_coins": reviewed_amount,
+                            "bundle_price_coins": reviewed_prices["totalCoins"],
+                            "commerce_status": "awaiting_owner" if reviewed_amount > 0 else "free",
                         }
                         if reviewed_prices is not None
                         else {}

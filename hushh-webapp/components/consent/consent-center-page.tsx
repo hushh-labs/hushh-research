@@ -30,7 +30,7 @@ import {
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
+import { formatCommerceMoney, scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
 import { ConsentSharingRevokeDialog } from "@/components/consent/consent-sharing-revoke-dialog";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
@@ -1496,6 +1496,10 @@ function ConsentEntryDetail({
       : isConnectionDecision
         ? entry.scope_description || "Trusted connection"
         : joinInformationLabels(decisionLabels, decisionLabels.length);
+  const paidSharingMembers = (bundleMembers.length > 1 ? bundleMembers : [entry]).filter(
+    member => member.metadata?.commercial_required === true &&
+      (member.request_id || member.metadata?.request_id),
+  );
   const detailItems = [
     [
       "Contact",
@@ -1538,6 +1542,19 @@ function ConsentEntryDetail({
       : null,
     entry.is_scope_upgrade && entry.additional_access_summary
       ? ["What changes", entry.additional_access_summary]
+      : null,
+    entry.metadata?.upfront_price_reviewed === true &&
+    typeof entry.metadata?.request_price_coins === "number" &&
+    Number.isSafeInteger(entry.metadata.request_price_coins) &&
+    entry.metadata.request_price_coins >= 0
+      ? [
+          isBundleDecision ? "Request total" : "Request value",
+          formatCommerceMoney(
+            isBundleDecision && typeof entry.metadata.bundle_price_coins === "number"
+              ? entry.metadata.bundle_price_coins
+              : entry.metadata.request_price_coins,
+          ),
+        ]
       : null,
     entry.reason ? ["Reason", entry.reason] : null,
   ].filter((item): item is [string, string] => Boolean(item));
@@ -1792,11 +1809,18 @@ function ConsentEntryDetail({
         </SettingsGroup>
       ) : null}
 
-      {entry.metadata?.commercial_required === true && (entry.request_id || entry.metadata?.request_id) ? (
-        <SettingsGroup embedded title="Paid sharing" description="Review payment and prepare approved encrypted information.">
-          <SettingsRow title="Sharing payment" description="Payment and export preparation have separate statuses." trailing={
-            <Button data-consent-role="compact-action" asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
-          } />
+      {paidSharingMembers.length > 0 ? (
+        <SettingsGroup embedded title="Paid sharing">
+          {paidSharingMembers.map(member => (
+            <SettingsRow
+              key={member.id}
+              title={paidSharingMembers.length > 1 ? consentEntryInformationLabel(member) : "Sharing details"}
+              description={member.metadata?.commerce_status === "awaiting_owner" && isPendingDecision ? "Coins reserved. Review fees before sharing." : undefined}
+              trailing={
+                <Button data-consent-role="compact-action" asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(member.metadata?.request_id || member.request_id))}`}>View sharing</Link></Button>
+              }
+            />
+          ))}
         </SettingsGroup>
       ) : null}
 

@@ -267,7 +267,11 @@ describe("commerce session and review authority", () => {
     const { rerender } = render(view(0));
     const checkout = await screen.findByRole("button", { name: "Continue to secure checkout" });
     await waitFor(() => expect(checkout).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Add to balance (USD)"), { target: { value: "0.50" } });
+    fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "0.001" } });
+    expect(checkout).toBeDisabled();
+    expect(mocks.checkout).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "0.50" } });
+    expect(screen.getByText("You'll add 50 Hussh coins ($0.50).")).toBeInTheDocument();
     fireEvent.click(checkout);
     fireEvent.click(checkout);
     await waitFor(() => expect(mocks.checkout).toHaveBeenCalledOnce());

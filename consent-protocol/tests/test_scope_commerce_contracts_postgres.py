@@ -608,11 +608,9 @@ async def _upfront_person(ctx, monkeypatch):
 
     await fixtures.bind_person_request(ctx.pool, ctx.request_id)
     person_ref = str(uuid4())
-    async with ctx.pool.acquire() as conn:
+    async with ctx.pool.acquire() as conn, conn.transaction():
         await conn.execute(
-            (
-                fixtures.MIGRATIONS / "parked/990_information_request_upfront_reservation.sql"
-            ).read_text()
+            (fixtures.MIGRATIONS / "460_information_request_upfront_reservation.sql").read_text()
         )
         await conn.execute("""
             ALTER TABLE one_information_request_bundles
@@ -815,16 +813,17 @@ async def test_upfront_migration_replay_and_rollback_are_guarded(paid_contract, 
     )
     await service.create(**selection, price_binding=preview["binding"])
     async with ctx.pool.acquire() as c:
-        await c.execute(
-            (
-                fixtures.MIGRATIONS / "parked/990_information_request_upfront_reservation.sql"
-            ).read_text()
-        )
+        async with c.transaction():
+            await c.execute(
+                (
+                    fixtures.MIGRATIONS / "460_information_request_upfront_reservation.sql"
+                ).read_text()
+            )
         with pytest.raises(asyncpg.RaiseError, match="forward recovery"):
             await c.execute(
                 (
                     fixtures.MIGRATIONS
-                    / "rollback/990_information_request_upfront_reservation.rollback.sql"
+                    / "rollback/460_information_request_upfront_reservation.rollback.sql"
                 ).read_text()
             )
         await c.execute("ROLLBACK")
@@ -898,3 +897,33 @@ async def test_upfront_price_change_and_second_hold_failure_leave_no_partial_req
             == 0
         )
     assert (await ctx.service.balance(payer_user_id="payer"))["balanceCents"] == 50
+
+
+async def test_reviewed_free_request_cannot_acquire_a_later_payment_step(
+    paid_contract, monkeypatch
+):
+    ctx = paid_contract
+    service, selection = await _upfront_person(ctx, monkeypatch)
+    assert (await ctx.tariff(0)).status_code == 200
+    preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    assert preview["totalCoins"] == 0
+    bundle = await service.create(**selection, price_binding=preview["binding"])
+    request_id = bundle["items"][0]["requestId"]
+    assert await ctx.service.lookup_by_request(request_id) is None
+    assert (await ctx.tariff(2)).status_code == 200
+    refused = await ctx.approve(request_id)
+    assert refused.status_code == 409, refused.text
+    assert await ctx.service.lookup_by_request(request_id) is None
+    async with ctx.pool.acquire() as conn:
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM consent_audit WHERE request_id=$1 AND action='CONSENT_PAID_APPROVED'",
+                request_id,
+            )
+            == 0
+        )

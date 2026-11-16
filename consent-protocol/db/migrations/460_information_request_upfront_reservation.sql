@@ -1,5 +1,4 @@
--- Dev only: reserve a reviewed request price without manufacturing owner consent.
-BEGIN;
+-- Reserve a reviewed request price without manufacturing owner consent.
 SELECT pg_advisory_xact_lock(2690001);
 LOCK TABLE scope_commerce_purchases IN ACCESS EXCLUSIVE MODE;
 
@@ -44,4 +43,3 @@ BEGIN
  END IF;
 END
 $admission$;
-COMMIT;
