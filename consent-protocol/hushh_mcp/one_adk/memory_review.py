@@ -489,7 +489,7 @@ async def _sync_sink_to_optional_pod_wiki(
         projections = WikiProjectionEngine(wiki)
         for page_id in result["saved_page_ids"]:
             await projections.sync_page_lifecycle(page_id)
-    return result
+    return dict(result)
 
 
 async def run_memory_review(
