@@ -247,13 +247,33 @@ class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
         retained = ((observed or {}).get("backend_metadata") or {}).get("provisionAttempt") or {}
         resuming = bool(retained.get("hostedAdmission"))
         attempt = str(retained.get("attemptId")) if resuming else uuid.uuid4().hex
+        managed_target = is_known_pod_target(
+            intent.get("deployment_target")
+        ) and not is_owner_cloud_target(intent.get("deployment_target"))
         claim_function = (
             "claim_hosted_pod_pilot_provision"
-            if is_known_pod_target(intent.get("deployment_target"))
-            and not is_owner_cloud_target(intent.get("deployment_target"))
+            if managed_target
             else "claim_personal_agent_provision"
         )
         try:
+            if managed_target:
+                from hushh_mcp.services.hosted_dev_pilot_extension import (
+                    claim_extension_provision,
+                    matches_extension_intent,
+                )
+
+                if matches_extension_intent(intent, observed=observed):
+                    ext_reservation = await claim_extension_provision(
+                        self._db(), observed=observed, intent=intent, attempt_id=attempt
+                    )
+                    if (
+                        not isinstance(ext_reservation, dict)
+                        or ext_reservation.get("ownerId") != owner
+                        or ext_reservation.get("attemptId") != attempt
+                        or ext_reservation.get("intent") != intent
+                    ):
+                        raise ValueError("unacknowledged provision reservation")
+                    return ext_reservation
             result = await asyncio.to_thread(
                 self._db().execute_raw,
                 f"SELECT public.{claim_function}(:owner,:attempt,"
