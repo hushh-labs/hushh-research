@@ -122,6 +122,28 @@ def test_a_gemini_head_keeps_google_search_unchanged():
     assert _SENTENCE not in _instruction(agent)
 
 
+@pytest.mark.parametrize("environment", ["dev", "production"])
+def test_gemini_search_and_intro_heads_pin_low_thinking(monkeypatch, environment):
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("HUSSH_GEMINI_TEXT_MODEL", "gemini-4-hydrogen")
+    monkeypatch.delenv("HUSHH_ONE_CHAT_THINKING_LEVEL", raising=False)
+    head = resolve_fleet_model_name("gemini-default")
+
+    agent = agent_tree.build_one_text_agent(model=head)
+    search_tool = next(t for t in agent.tools if getattr(t, "name", "") == "google_search")
+    assert isinstance(search_tool, AgentTool)
+    search_cfg = search_tool.agent.generate_content_config
+    assert search_cfg is not None and search_cfg.thinking_config is not None
+    assert search_cfg.thinking_config.thinking_level == genai_types.ThinkingLevel.LOW
+
+    intro = agent_tree.build_one_intro_text_agent(model=head)
+    intro_cfg = intro.generate_content_config
+    assert intro_cfg is not None and intro_cfg.thinking_config is not None
+    assert intro_cfg.thinking_config.thinking_level == genai_types.ThinkingLevel.LOW
+
+
 def test_only_the_search_tool_differs_between_the_heads():
     gemini = _names(agent_tree.build_one_text_agent(model=_gemini_head()))
     azure = _names(agent_tree.build_one_text_agent(model=_azure_head()))

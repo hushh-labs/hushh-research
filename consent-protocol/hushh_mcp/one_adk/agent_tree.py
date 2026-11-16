@@ -2367,19 +2367,19 @@ def build_one_intro_text_agent(
 ) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
-    This is deliberately not the full One roster. It can converse and propose
-    only generated, directly-wired route actions; it receives neither PKM nor
-    a consent token, and has no specialist, persistence, or mutation tool.
+    It proposes only generated, directly-wired route actions; it receives neither
+    PKM nor a consent token, and has no specialist, persistence, or mutation tool.
     """
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "one_intro")
+    resolved = _resolve_text_model(model, vertex_project=vertex_project)
     return managed_text_agent(
         name=manifest.name,
-        model=_resolve_text_model(model, vertex_project=vertex_project),
+        model=resolved,
         description=manifest.description,
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(include_thoughts=False),
+            thinking_config=_one_chat_thinking_config(resolved, include_summaries=False),
         ),
     )
 

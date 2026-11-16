@@ -69,22 +69,48 @@ def instruction_for_head(model: Any, instruction: Callable[[Any], str]) -> Calla
 
 def build_web_search_agent(model: Any, *, manifest: Any) -> LlmAgent:
     """Construct the manifest search child through its declared provider transport."""
-    from hushh_mcp.runtime_providers.managed_text import managed_text_agent
+    from google.genai import types as genai_types
+
+    from hushh_mcp.runtime_providers import thinking_config_for
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_providers.managed_text import (
+        ManagedPrimaryTextModel,
+        managed_text_agent,
+    )
 
     if not head_supports_web_search(model):
         raise ValueError("Web search is unavailable for this model")
     tool = GoogleSearchTool()
+    is_azure_primary = isinstance(model, AzureOpenAIAdkModel) and (
+        not isinstance(model, ManagedPrimaryTextModel)
+        or getattr(model, "primary_provider", None) == "azure_openai"
+    )
     if isinstance(model, AzureOpenAIAdkModel):
         from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
 
         tool = AzurePublicSearchTool()
     child = next(item for item in manifest.subagents if item.id == "google_search")
+    generate_content_config = None
+    if not is_azure_primary:
+        selected_model = model if isinstance(model, str) else getattr(model, "model", None)
+        fallback_model = resolve_fleet_model_name(child.model.name)
+        resolved = thinking_config_for(
+            str(selected_model or fallback_model), child.model.thinking_level, genai_types
+        )
+        if resolved is not None:
+            generate_content_config = genai_types.GenerateContentConfig(
+                thinking_config=genai_types.ThinkingConfig(
+                    include_thoughts=False,
+                    thinking_level=resolved.thinking_level,
+                )
+            )
     return managed_text_agent(
         name=child.name,
         model=model,
         description=child.description,
         instruction=child.system_instruction,
         tools=[tool],
+        generate_content_config=generate_content_config,
     )
 
 

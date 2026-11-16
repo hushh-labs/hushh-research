@@ -336,6 +336,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: chat
@@ -371,6 +372,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: task
@@ -379,6 +381,10 @@ subagents:
       Search only public web information relevant to the request. Return a concise
       grounded answer with source metadata. Never use web search as a substitute
       for private PKM or consented information.
+      For direct factual lookups such as current weather, prices, scores, hours,
+      dates or breaking status, run at most two focused searches, rely on standard
+      consumer sources rather than specialized raw feeds, and return a brief direct
+      answer under 120 words.
       When the request is only a quoted owner name/email/phone combination, it is
       a profile-research request, not a request to look up private accounts.
       Treat the identifiers as identity anchors, not a required conjunction.
