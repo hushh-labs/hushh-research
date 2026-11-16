@@ -290,14 +290,18 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [itemsLoadError, setItemsLoadError] = useState(false);
   const itemsLoadRevision = useRef(0);
-  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [savingTaskIds, setSavingTaskIds] = useState<ReadonlySet<string>>(() => new Set());
+  const taskWrites = useRef(new Map<string, symbol>());
+  const [creatingTask, setCreatingTask] = useState(false);
+  const createPending = useRef(false);
+  const isSaving = creatingTask || savingTaskIds.size > 0;
   const [completedOpen, setCompletedOpen] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState<TodoItem | null>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const addItemRef = useRef<HTMLButtonElement | null>(null);
 
   const changeTaskDraft = (draft: NativeWorkspaceTaskDraft, expected = taskDraftRevision.current) => {
-    if (!isCurrent() || !editorIdRef.current || savingTaskId !== null || expected !== taskDraftRevision.current || !validWorkspaceTaskDraft(draft)) return false;
+    if (!isCurrent() || !editorIdRef.current || createPending.current || taskWrites.current.size > 0 || expected !== taskDraftRevision.current || !validWorkspaceTaskDraft(draft)) return false;
     taskDraftRef.current = draft; taskDraftRevision.current++; setTaskDraft(draft); return true;
   };
   const resetTaskDraft = () => { taskDraftRef.current = emptyTaskDraft(); taskDraftRevision.current++; setTaskDraft(taskDraftRef.current); };
@@ -385,9 +389,27 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     return result;
   };
 
+  // Claim synchronously so retained callbacks cannot dispatch twice before
+  // React commits the disabled controls. Other tasks keep their own tokens.
+  const beginTaskWrite = (id: string) => {
+    if (!isCurrent() || taskWrites.current.has(id)) return null;
+    const token = Symbol(id);
+    taskWrites.current.set(id, token);
+    setSavingTaskIds(new Set(taskWrites.current.keys()));
+    return token;
+  };
+  const currentTaskWrite = (id: string, token: symbol) =>
+    isCurrent() && taskWrites.current.get(id) === token;
+  const finishTaskWrite = (id: string, token: symbol) => {
+    if (taskWrites.current.get(id) !== token) return;
+    taskWrites.current.delete(id);
+    if (isCurrent()) setSavingTaskIds(new Set(taskWrites.current.keys()));
+  };
+
   const saveTask = async (input: EditableTodoFields) => {
-    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return false;
-    setSavingTaskId("new-item");
+    if (!isCurrent() || !writeReady || !userId || !vaultKey || !vaultOwnerToken || createPending.current || taskWrites.current.size > 0) return false;
+    createPending.current = true;
+    setCreatingTask(true);
 
     const operation = createTodo(
       { ...input, type: "manual" },
@@ -408,12 +430,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       // The shared promise toast owns the failure state.
       return false;
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      createPending.current = false;
+      if (isCurrent()) setCreatingTask(false);
     }
   };
 
   const toggleTask = async (task: TodoItem, complete: boolean) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    const token = beginTaskWrite(task.id);
+    if (!token) return;
     const nextStatus: "pending" | "done" = complete ? "done" : "pending";
     const optimistic: TodoItem = {
       ...task,
@@ -422,7 +447,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       deletedAt: null,
       updatedAt: new Date().toISOString(),
     };
-    setSavingTaskId(task.id);
     setTasks((current) =>
       current.some((item) => item.id === task.id)
         ? current.map((item) => (item.id === task.id ? optimistic : item))
@@ -443,32 +467,29 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       await operation;
     } catch {
-      if (!isCurrent()) return;
+      if (!currentTaskWrite(task.id, token)) return;
       setTasks((current) =>
-        current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? task : item))
-          : current,
+        current.map((item) => (item === optimistic ? task : item)),
       );
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      finishTaskWrite(task.id, token);
     }
   };
 
   const deleteTask = async (task: TodoItem) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    const token = beginTaskWrite(task.id);
+    if (!token) return;
     const tombstone: TodoItem = {
       ...task,
       status: "deleted",
       deletedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    setSavingTaskId(task.id);
     setTasks((current) =>
-      task.type === "automatic"
-        ? current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? tombstone : item))
-          : [tombstone, ...current]
-        : current.filter((item) => item.id !== task.id),
+      current.some((item) => item.id === task.id)
+        ? current.map((item) => (item.id === task.id ? tombstone : item))
+        : [tombstone, ...current],
     );
     const operation = TodoListPkmService.remove({
       userId,
@@ -485,14 +506,12 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       await operation;
     } catch {
-      if (!isCurrent()) return;
+      if (!currentTaskWrite(task.id, token)) return;
       setTasks((current) =>
-        current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? task : item))
-          : [task, ...current],
+        current.map((item) => (item === tombstone ? task : item)),
       );
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      finishTaskWrite(task.id, token);
     }
   };
 
@@ -639,7 +658,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           <TodoRows
             tasks={pending}
             dueReceipts={dueReceipts}
-            savingTaskId={savingTaskId}
+            savingTaskIds={savingTaskIds}
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
@@ -648,10 +667,10 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               <MediumRowLabel as="h2" data-profile-role="name">
-                {tasks.length === 0 && completed.length === 0 ? "No tasks yet" : "No pending tasks"}
+                {tasks.every(task => task.status === "deleted") ? "No tasks yet" : "No pending tasks"}
               </MediumRowLabel>
               <HelperText as="p" data-profile-role="description" className="mt-1">
-                {tasks.length === 0 && completed.length === 0
+                {tasks.every(task => task.status === "deleted")
                   ? "Add an item to get started."
                   : "New tasks will appear here."}
               </HelperText>
@@ -710,7 +729,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
               {completedOpen ? (
                 <TodoRows
                   tasks={completed}
-                  savingTaskId={savingTaskId}
+                  savingTaskIds={savingTaskIds}
                   onToggle={toggleTask}
                   onDelete={requestDelete}
                 />
@@ -725,7 +744,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           draft={taskDraft}
           onDraftChange={changeTaskDraft}
           open={editorOpen}
-          saving={savingTaskId !== null}
+          saving={isSaving}
           onOpenChange={(open) => { if (open) openCreate(); else closeTaskEditor(); }}
           onSave={saveTask}
         />
@@ -776,9 +795,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     owner: userId, current: isCurrent, ready: writeReady,
     editorId, editorCurrent: id => isCurrent() && editorIdRef.current === id,
     draft: taskDraft, readDraft: () => taskDraftRef.current, inputRevision: () => taskDraftRevision.current, changeDraft: changeTaskDraft,
-    openEditor: openCreate, closeEditor: () => { if (savingTaskId === null) closeTaskEditor(); },
+    openEditor: openCreate, closeEditor: () => { if (!createPending.current && taskWrites.current.size === 0) closeTaskEditor(); },
     loading: !itemsLoaded || itemsLoading || ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0),
-    pending, completed, receipts: dueReceipts, saving: savingTaskId, doneToday, totalToday,
+    pending, completed, receipts: dueReceipts, busy: isSaving, savingTaskIds, doneToday, totalToday,
     errors: [
       ...(itemsLoadError ? [{ label: "Your saved items couldn’t load.", retry: () => { void loadItems(); } }] : []),
       ...(agentLoadError ? [{ label: "Some agent tasks couldn’t refresh. Your other items are still here.", retry: () => { void Promise.all([agentFeed.retry(), retryKyc()]).catch(() => morphyToast.error("Agent tasks couldn’t refresh. Try again.")); } }] : []),
