@@ -30,7 +30,7 @@ BEGIN
  SELECT pg_get_constraintdef(oid) INTO installed FROM pg_constraint
  WHERE conrelid='scope_commerce_purchases'::regclass
  AND conname='scope_commerce_upfront_owner_check' AND convalidated;
- IF installed IS NULL AND NOT EXISTS(
+ IF NOT EXISTS(
   SELECT 1 FROM pg_constraint WHERE conrelid='scope_commerce_purchases'::regclass
   AND conname='scope_commerce_upfront_owner_check'
  ) THEN
