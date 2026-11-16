@@ -18,7 +18,11 @@ import type {
 } from "@/lib/computer-use/contracts";
 
 type Admission = { ownerId: string; podId: string; environment: string };
-export type ComputerUseCapability = { available: boolean; code: string };
+export type ComputerUseCapability = {
+  available: boolean;
+  code: string;
+  publicResearchOnly?: boolean;
+};
 export type DiscoveredBrowserTask = {
   binding: ComputerUseBinding;
   phase: ComputerUsePhase;
@@ -189,6 +193,7 @@ export class ComputerUseClient {
     const body = (await readComputerUseJson(response)) as {
       available?: unknown;
       code?: unknown;
+      public_research_only?: unknown;
       owner_id?: unknown;
       pod_id?: unknown;
       incarnation?: unknown;
@@ -215,6 +220,7 @@ export class ComputerUseClient {
         typeof body.code === "string"
           ? body.code
           : "BROWSER_CLOUD_GATE_UNAVAILABLE",
+      publicResearchOnly: body.public_research_only === true,
     };
   }
 

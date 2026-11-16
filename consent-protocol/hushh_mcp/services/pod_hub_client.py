@@ -393,11 +393,22 @@ class PodHubClient:
             "wrappingAlg": str(body.get("wrappingAlg") or ""),
         }
 
-    def mint_storage_prefix_token(self, *, ttl_seconds: int = 900) -> dict[str, Any]:
-        """Mint a 15-minute `pods/{hushh_id}/*` storage capability via the Hub Broker."""
+    def mint_storage_prefix_token(
+        self,
+        *,
+        ttl_seconds: int = 900,
+        subprefix: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Mint a `pods/{hushh_id}/*` (or `workspaces/v1/<ws_id>` subprefix) storage capability."""
+        req_json: dict[str, Any] = {"ttlSeconds": int(ttl_seconds)}
+        if subprefix:
+            req_json["subprefix"] = str(subprefix)
+        if provider:
+            req_json["provider"] = str(provider)
         response = self.post(
             "/api/one/pod/custody/storage-token",
-            json={"ttlSeconds": int(ttl_seconds)},
+            json=req_json,
         )
         status = getattr(response, "status_code", 502)
         if status != 200:

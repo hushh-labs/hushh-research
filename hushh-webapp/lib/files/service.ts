@@ -448,6 +448,7 @@ export const FilesService = {
     input: {
       fileId: string;
       sourceProvider?: "auto" | "chatgpt" | "claude";
+      idempotencyKey?: string;
     },
     signal?: AbortSignal,
   ) =>
@@ -456,7 +457,7 @@ export const FilesService = {
       {
         file_id: input.fileId,
         source_provider: input.sourceProvider ?? "auto",
-        request_id: crypto.randomUUID(),
+        request_id: input.idempotencyKey ?? crypto.randomUUID(),
       },
       "POST",
       signal,

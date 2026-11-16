@@ -158,6 +158,7 @@ class AzureBlobObjectStore:
         session: Any = None,
         token_provider: Optional[Callable[[str], str]] = None,
         forget_token: Callable[[str], None] = forget_workload_token,
+        sas_token: Optional[str] = None,
     ) -> None:
         self._location = parse_blob_container_url(container_url)
         self._prefix_segments = tuple(s for s in self._location.prefix.split("/") if s)
@@ -166,6 +167,7 @@ class AzureBlobObjectStore:
 
             session = PodStorageTransport()
         self._session = session
+        self._sas_token = (sas_token or "").strip().lstrip("?") or None
         # The pod's own identity, minted over the same egress session as the data.
         self._token_provider = token_provider or (
             lambda resource: get_workload_token(resource, session=self._session)
@@ -177,9 +179,18 @@ class AzureBlobObjectStore:
         if not object_key_is_within(self._location.prefix, composed):
             raise ValueError("object key escapes the store prefix")
         quoted = urllib.parse.quote(composed, safe="/")
-        return f"{self._location.account_url}/{self._location.container}/{quoted}"
+        base_url = f"{self._location.account_url}/{self._location.container}/{quoted}"
+        if self._sas_token:
+            return f"{base_url}?{self._sas_token}"
+        return base_url
 
     def _headers(self, extra: dict[str, str]) -> dict[str, str]:
+        if self._sas_token:
+            return {
+                "x-ms-version": _API_VERSION,
+                "x-ms-date": email.utils.formatdate(usegmt=True),
+                **extra,
+            }
         return {
             "Authorization": f"Bearer {self._token_provider(STORAGE_RESOURCE)}",
             "x-ms-version": _API_VERSION,

@@ -40,6 +40,8 @@ class RuntimeSandboxCapability:
     delivery_strategy: str
     in_container_arbitrary_cli_allowed: bool = False
     cli_worker_boundary: str = "ephemeral_task_worker"
+    cli_worker_job_mode: str = "unsupported"
+    cli_worker_execution_env: str = ""
 
 
 BROWSER_HOST_CAPABILITIES: dict[str, RuntimeSandboxCapability] = {
@@ -52,6 +54,8 @@ BROWSER_HOST_CAPABILITIES: dict[str, RuntimeSandboxCapability] = {
         outer_isolation="gvisor",
         landlock_fs_confinement=False,
         delivery_strategy="http_push_task",
+        cli_worker_job_mode="cloud_run_jobs_v2",
+        cli_worker_execution_env="EXECUTION_ENVIRONMENT_GEN2",
     ),
     "gcp_ace": RuntimeSandboxCapability(
         host_kind="gcp_ace",
@@ -72,6 +76,8 @@ BROWSER_HOST_CAPABILITIES: dict[str, RuntimeSandboxCapability] = {
         outer_isolation="hyperv",
         landlock_fs_confinement=True,
         delivery_strategy="queue_pull_loop",
+        cli_worker_job_mode="azure_container_apps_jobs",
+        cli_worker_execution_env="Consumption",
     ),
     "azure_vm": RuntimeSandboxCapability(
         host_kind="azure_vm",
@@ -144,6 +150,14 @@ def resolve_cli_execution_boundary(
     if cap.in_container_arbitrary_cli_allowed and cap.landlock_fs_confinement:
         return "ephemeral_task_worker"
     return "restricted_builtin_only"
+
+
+def resolve_cli_worker_job_mode(host_kind: str) -> str:
+    """Return declarative ephemeral CLI worker job substrate for `host_kind`."""
+    cap = BROWSER_HOST_CAPABILITIES.get(host_kind)
+    if cap is None:
+        return "unsupported"
+    return cap.cli_worker_job_mode
 
 
 _V2_DEFAULTS = {

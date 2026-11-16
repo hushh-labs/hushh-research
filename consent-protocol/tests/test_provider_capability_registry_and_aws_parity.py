@@ -107,6 +107,7 @@ def test_provider_and_browser_capability_registries_stay_in_lockstep() -> None:
     for spec in PROVIDER_CAPABILITY_REGISTRY.values():
         host_cap = spec.sandbox_capability
         assert host_cap.provider == spec.provider_family
+        assert host_cap.cli_worker_job_mode == spec.cli_worker_job_mode
         assert is_known_pod_target(spec.target_id)
         assert is_owner_cloud_target(spec.target_id) is (spec.tenancy == "owner_cloud")
     assert owner_cloud_required_coordinates_map()["user_aws"] == (

@@ -6,7 +6,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { type ComputerUseBinding, type ComputerUsePhase, type ComputerUseTransport, isComputerUseTerminal } from "@/lib/computer-use/contracts";
+import { type ComputerUseBinding, type ComputerUsePhase, type ComputerUseSnapshot, type ComputerUseTransport, isComputerUseTerminal } from "@/lib/computer-use/contracts";
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 import { ComputerUsePreview } from "./computer-use-preview";
 import { ComputerUseReview } from "./computer-use-review";
@@ -23,10 +23,23 @@ const PHASE_COPY: Record<ComputerUsePhase, string> = {
 };
 
 /** Mount in One's task area with the current admitted pod transport. */
-export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
+export function ComputerUseTaskCard({
+  binding,
+  transport,
+  route = "/",
+  onDownloadSaved,
+  onTerminalSnapshot,
+}: {
   binding: ComputerUseBinding;
   transport: ComputerUseTransport;
   route?: string;
+  onDownloadSaved?: (receipt: {
+    fileId: string;
+    name: string;
+    bytes: number;
+    sha256: string;
+  }) => void;
+  onTerminalSnapshot?: (snapshot: ComputerUseSnapshot) => void;
 }) {
   const { ownerId, podId, incarnation, taskId, environment } = binding;
   const controller = useMemo(() => new ComputerUseTaskController({ ownerId, podId, incarnation, taskId, environment }, transport),
@@ -65,6 +78,11 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
   }, [controller]);
 
   const snapshot = state.snapshot;
+  useEffect(() => {
+    if (state.verified && snapshot && isComputerUseTerminal(snapshot.phase)) {
+      onTerminalSnapshot?.(snapshot);
+    }
+  }, [onTerminalSnapshot, snapshot, state.verified]);
   const usable = state.verified && snapshot?.capability === "ready" && !isComputerUseTerminal(snapshot.phase);
   const canPreview = usable && snapshot?.review?.purpose !== "model_process";
   const message = !state.verified && !state.pending ? "Couldn’t reach the browser. Check again to reconnect."
@@ -152,7 +170,10 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
           <span className="min-w-0 flex-1 break-words text-sm">{download.name}</span>
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
             onClick={() => { void controller.saveDownload(download.id).then(
-              () => morphyToast.info("Saved to Files."),
+              (saved) => {
+                morphyToast.info("Saved to Files.");
+                onDownloadSaved?.(saved);
+              },
               () => morphyToast.error("Couldn’t verify the save. Check Files before trying again."),
             ); }}>Save to Files</ShellActionSurface>
         </div>
