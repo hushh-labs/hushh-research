@@ -186,6 +186,15 @@ UX reference: [Muse's published design](https://introducing.muse.ai/) describes 
 background status, inspectable memory, and explicit approval for consequential
 actions. These are design references, not evidence of Hussh implementation or
 access to Muse's private prompts/configuration. Hussh must retain its own unlocked
-client, encrypted-storage, and consent boundaries. For the active `dev` design
-contract separating multi-page personal wiki memory from consent-governed PKM
-projections, see the [Personal Wiki Memory roadmap plan](../roadmap/personal-wiki-memory-plan.md).
+client, encrypted-storage, and consent boundaries.
+
+## Personal Wiki Memory and live ADK boundary (dev pilot)
+
+Shipped UAT and production chat memory remains `one_memory.markdown` (`one.memory.md.v1`, 96,000-character limit) inside encrypted PKM. On `dev`, the encrypted Personal Wiki (`one_wiki` over `<prefix>/wiki/v1/`) operates alongside `one_memory.markdown` as the private agent's cited working store while preserving PKM as the sole external sharing authority:
+
+- **Authority and export wall:** Both `one_wiki` and `source_library` carry `shareable: "never"` across server (`domain_contracts.py`) and client (`pkm-scope-policy.ts`) policy registries and are refused on `attr.*` and `pkm.read` exports. Claims synthesized in the Personal Wiki remain `private_candidate` until an owner-confirmed projection receipt (`wpr_*`) materializes specific fields into an ordinary PKM domain under revision compare-and-swap, preventing active grants from silently broadening.
+- **Root personal documents:** When wiki mode is active on `dev`, `hot.md` (`<= 8,000` characters) provides a compact orientation index delimited strictly as untrusted owner context rather than instructions, `identity.md` reflects structured `identity` PKM records without silent overwrite, and `soul.md` stays bound to the closed `identity.communication_preferences` schema (`hushh_mcp/one_adk/owner_style.py`).
+- **Live ADK recall and opt-in consolidation:** When `pod_mode()` and `POD_FILES_ENABLED` are active on `dev`, `build_one_text_agent` attaches closed recall tools (`search_wiki`, `read_wiki_page`, `trace_claim`, bounded to `<= 6,000` characters per call inside an untrusted-evidence envelope) and `PodChatMemory` appends the bounded `hot.md` digest without adding an extra model call per reply. Durable wiki synthesis executes only when explicit `capture_opt_in` is enabled, folding reviewed `one_memory_review` updates on pods (`memory_review.py`) and unlocked client `rewriteChatMemory` commits in Shared mode (`active-shared-wiki.ts`) into cited `wcl_*` claims.
+- **Browser isolation, external imports, and Forget:** One's Browser specialist (`agent_computer_use`) receives neither raw conversational transcripts nor wiki recall tools, relying strictly on exact V2 `ScopedProjectionReader` exports. External archives saved through owner-takeover Browser downloads or local uploads land in encrypted `source_library` and compile into `one_wiki` strictly as untrusted source artifacts (`untrusted_data: true`, `instruction_authority: "none"`). Owner **Forget** records a `wtb_*` tombstone, rotates affected encrypted content keys, suppresses stale Vertex `PodMemoryBank` recalls (`suppressed_stale` to `rebuilt_empty`), and propagates retraction notices to downstream PKM projection receipts.
+
+See [Private Files library](../operations/hosting/private-files-library.md#personal-wiki-storage-and-direct-pod-routes-dev), the [Personal Wiki Memory plan](../roadmap/personal-wiki-memory-plan.md), and the [Browser tasks plan](../roadmap/personal-agent/browser-completion-plan.md#phase-0-alignment-cli-execution-boundary-retained-workspaces-and-external-import).

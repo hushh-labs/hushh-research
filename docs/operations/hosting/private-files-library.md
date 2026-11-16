@@ -571,11 +571,21 @@ recovery, normal owner installation, and dated queue/model results. Fresh setup,
 production schema and release-channel qualification remain separate gates.
 Do not activate Files with a manual flag.
 
+## Personal Wiki storage and direct-pod routes (dev)
+
+On `dev`, Personal Wiki objects live in an isolated `<prefix>/wiki/v1/` namespace beside `files/v1` and recovery logs. Object keys and SQL metadata rows store opaque identifiers (`wpg_*`, `wcl_*`, `wsr_*`, `wpr_*`, `wtb_*`), revision counters, byte sizes, and mutation leases without plaintext titles or claims. Writes append immutable encrypted blobs under `revisions/` and advance compare-and-swap pointers under `heads/`.
+
+Shared mode encrypts wiki objects in the unlocked owner browser under a random 256-bit key wrapped by `vaultKey`; the hub transports opaque ciphertext without holding the unwrapped key. Pod mode binds encryption to the pod's configured KMS or Key Vault custody through `PodObjectStore`. Owner **Forget** records a durable tombstone, rotates the content encryption key on rewritten objects, and removes matching entries from the encrypted lexical index; physical deletion of historical object generations remains governed by bucket retention and account-erasure verification.
+
+Admitted owner-pod sessions expose six app-role endpoints registered in `pod_ingress.py` (`APP_SURFACE_EXACT`) and `pod-app-access.ts` (`OWNER_POD_ROUTES`): `/api/one/pod/files/wiki/overview`, `/api/one/pod/files/wiki/page`, `/api/one/pod/files/wiki/opt-in`, `/api/one/pod/files/wiki/confirm`, `/api/one/pod/files/wiki/forget`, and `/api/one/pod/files/wiki/rollback`. When active on `dev`, `/one/files` renders the owner Personal Wiki inspection, projection confirmation, Forget, and V1 rollback controls without background keepalive timers.
+
+Local Tier-1.5 Floci HTTP wire tests verify encrypted put/get, compare-and-swap conflict rejection, key-rotating Forget, and prefix isolation across GCS, Azure Blob, AWS S3, and `PrefixTokenObjectStore`. Local wire checks do not establish installed owner-cloud acceptance; UAT and production remain disabled. See the [Memory workspace boundary](../../architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
+
 ## Implementation owners
 
-- Backend: `consent-protocol/hushh_mcp/services/pod_files/` and exact pod Files routes.
+- Backend: `consent-protocol/hushh_mcp/services/pod_files/` (including `wiki_*.py`) and exact pod Files routes.
 - Agent: `consent-protocol/hushh_mcp/agents/files/agent.yaml` and bounded ADK tools.
-- Browser: `hushh-webapp/lib/files/`, `components/files/`, and `/one/files`.
+- Browser: `hushh-webapp/lib/files/` (including `lib/files/wiki/`), `components/files/`, and `/one/files`.
 - Device: companion Hermes direct-pod client; release its compatible changes together.
 - Verification: encrypted storage, transfer, setup/erasure, consent, relay and command
   suites; canonical CI; then governed dev deployment and owner-approved pod update.
