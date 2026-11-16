@@ -4,14 +4,17 @@ import { useId } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionCard, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
-import type { RequestablePersonScope } from "@/lib/services/person-profile-service";
+import { InformationRequestPriceReview } from "./information-request-price";
+import type { InformationRequestPrice, RequestablePersonScope } from "@/lib/services/person-profile-service";
 
 /** The same editable, human-readable confirmation in Profile and Chat. */
 export function InformationRequestReviewFields({
-  scopes, purpose, durationHours, onPurposeChange, onDurationChange, disabled = false,
+  scopes, purpose, durationHours, onPurposeChange, onDurationChange, personRef, onPriceChange, disabled = false,
   testIdPrefix = "person-profile",
 }: {
   scopes: RequestablePersonScope[];
+  personRef?: string;
+  onPriceChange?: (price: InformationRequestPrice | null) => void;
   purpose: string;
   durationHours: number;
   onPurposeChange: (value: string) => void;
@@ -34,7 +37,7 @@ export function InformationRequestReviewFields({
       </div>
     </SectionCard>
     {scopes.length > 50 ? <p data-consent-role="status" role="alert" className="text-sm text-destructive">Choose up to 50 fields for one request.</p> : null}
-    <p data-consent-role="body" className="text-sm text-muted-foreground">They&rsquo;ll review your request. If sharing has a price, you&rsquo;ll confirm the exact amount before access. Sending this request won&rsquo;t charge you.</p>
+    {personRef && onPriceChange ? <InformationRequestPriceReview personRef={personRef} scopeRefs={scopes.map(scope => scope.scopeRef)} durationHours={durationHours} onChange={onPriceChange} /> : null}
     <fieldset className="min-w-0 space-y-2" disabled={disabled}>
       <legend data-consent-role="form-label" className="text-sm font-medium">Access duration</legend>
       <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted/70 p-1 sm:grid-cols-4" data-testid={`${testIdPrefix}-duration-options`}>

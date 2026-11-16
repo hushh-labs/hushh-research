@@ -57,6 +57,7 @@ import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/reques
 import { joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 import {
   PersonProfileService,
+  type InformationRequestPrice,
   PersonProfileNotFoundError,
   mergePersonScopePage,
   type PublicPersonProfile,
@@ -270,6 +271,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const request = usePersonInformationRequest(resolvedPersonRef);
+  const [requestPrice, setRequestPrice] = useState<InformationRequestPrice | null>(null);
   const requesting = request.pending;
   const requestGeneration = useRef(0);
   const viewerReadGeneration = useRef(0);
@@ -609,8 +611,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   };
 
   const submitRequest = async () => {
-    if (!viewerProfile) return;
-    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
+    if (!viewerProfile || !requestPrice || requestPrice.shortfallCoins) return;
+    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours, priceBinding: requestPrice.binding });
     if (sent) {
       setReviewOpen(false);
       setSelectedScopeRefs(new Set());
@@ -1291,7 +1293,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
             <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
-              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
+              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting}
+              personRef={resolvedPersonRef} onPriceChange={setRequestPrice} />
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
             {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
               {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" data-consent-quiet-action="true" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
@@ -1305,7 +1308,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
               type="button"
               variant="blue-gradient"
               effect="fill"
-              disabled={!viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
+              disabled={!requestPrice || requestPrice.shortfallCoins > 0 || !viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
               onClick={() => void submitRequest()}
               data-voice-control-id="person-profile-request-confirm"
             >

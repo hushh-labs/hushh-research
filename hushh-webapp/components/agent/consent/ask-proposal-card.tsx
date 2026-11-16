@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
 import { proposalDurationLabel, type ScopeProposal } from "@/lib/agent/scope-proposal";
-import type { PersonScopeCatalogPage, RequestablePersonScope } from "@/lib/services/person-profile-service";
+import { InformationRequestPriceReview } from "@/components/consent/information-request-price";
+import type { InformationRequestPrice, PersonScopeCatalogPage, RequestablePersonScope } from "@/lib/services/person-profile-service";
 import { firstName, joinLabels } from "./request-progress";
 import {
   initialProposalSelection,
@@ -37,12 +38,14 @@ import {
 
 export type AskProposalDraft = {
   scopes: RequestablePersonScope[];
+  priceBinding?: string;
   purpose: string;
   durationHours: number;
 };
 
 export type AskProposalCardProps = {
   personName: string;
+  personRef?: string;
   proposal: ScopeProposal;
   /** The current authority check has finished and a request may be sent. */
   ready: boolean;
@@ -272,7 +275,7 @@ function CatalogPicker({ personName, selected, onToggle, searchCatalog }: {
   );
 }
 
-export function AskProposalCard({ personName, proposal, ready, sending, error, onSend, searchCatalog, revealActions, catalog = EMPTY_CATALOG }: AskProposalCardProps) {
+export function AskProposalCard({ personName, personRef, proposal, ready, sending, error, onSend, searchCatalog, revealActions, catalog = EMPTY_CATALOG }: AskProposalCardProps) {
   const actionsRef = useRef<HTMLDivElement | null>(null);
   // Once per appearance: Send must never sit behind the composer. The first
   // reveal callback is kept, so a re-render never scrolls the chat again.
@@ -317,12 +320,13 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
   }, [nodes, touched]);
   const [durationHours, setDurationHours] = useState(proposal.durationHours);
   const [reason, setReason] = useState(proposal.reasonSuggestion);
+  const [price, setPrice] = useState<InformationRequestPrice | null>(null);
   const [changing, setChanging] = useState(false);
   const universe = proposalUniverse(nodes, extras);
   const scopes = proposalSendScopes(universe, selected);
   const chosen = proposalChosenCount(nodes, extras, selected);
   const labels = proposalChosenLabels(nodes, extras, selected);
-  const canSend = ready && placed && !sending && scopes.length > 0 && scopes.length <= 50 && reason.trim().length >= MIN_REASON;
+  const canSend = ready && placed && !sending && (!personRef || Boolean(price && !price.shortfallCoins)) && scopes.length > 0 && scopes.length <= 50 && reason.trim().length >= MIN_REASON;
   const why = proposal.proposed.find((item) => item.why)?.why;
 
   const setRow = (scopeRef: string, value: boolean) => setTouched((current) => {
@@ -388,13 +392,14 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
         </div>
       ) : null}
 
+      {personRef ? <InformationRequestPriceReview personRef={personRef} scopeRefs={scopes.map(scope => scope.scopeRef)} durationHours={durationHours} onChange={setPrice} /> : null}
       {error ? <p data-consent-role="status" role="alert" className="text-sm text-destructive">{error}</p> : null}
       {!changing && reason.trim().length < MIN_REASON ? (
         <p data-consent-role="helper" className="text-xs text-muted-foreground">Add a reason so {firstName(personName)} can decide.</p>
       ) : null}
       <div ref={actionsRef} data-testid="ask-proposal-actions" className="flex flex-wrap items-center gap-2">
         <MorphyButton data-consent-role="compact-action" type="button" size="sm" className="min-h-11" disabled={!canSend}
-          onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours })}>
+          onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours, priceBinding: price?.binding })}>
           {sending ? "Sending…" : !ready || !placed ? "Checking…" : "Send"}
         </MorphyButton>
         <MorphyButton data-consent-role="compact-action" type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={sending}

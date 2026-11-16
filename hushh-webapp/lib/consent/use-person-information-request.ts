@@ -13,6 +13,7 @@ export type PersonInformationDraft = {
   scopeRefs: string[];
   purpose: string;
   durationHours: number;
+  priceBinding?: string;
 };
 
 /** One explicit-confirmation submission path for Profile and inline Chat.
@@ -81,6 +82,7 @@ export function usePersonInformationRequest(personRef: string) {
             const created = await PersonProfileService.createInformationRequest({
               personRef, scopeRefs, purpose, durationSeconds: draft.durationHours * 3600,
               connectorKeyId: connector.connector_key_id, idempotencyKey, vaultOwnerToken,
+              priceBinding: draft.priceBinding,
               signal: controller.signal,
             });
             // The request mutation is authoritative even if this component
@@ -101,11 +103,13 @@ export function usePersonInformationRequest(personRef: string) {
       if (stale()) return null;
       retry.current = null;
       return { bundle: created, idempotencyKey };
-    } catch {
+    } catch (reason) {
       if (run === generation.current) {
         setError(controller.signal.aborted
           ? "We could not confirm the request yet. Retry to check the same request."
-          : "The request could not be confirmed. Your choices are kept; please try again.");
+          : reason instanceof Error && /^(The price changed\.|Add coins before)/.test(reason.message)
+            ? reason.message
+            : "The request could not be confirmed. Your choices are kept; please try again.");
       }
       return null;
     } finally {

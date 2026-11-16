@@ -232,6 +232,29 @@ _REQUESTER_IDENTITY = {
 }
 
 
+async def test_legacy_partial_retry_keeps_original_item_scope_order(monkeypatch):
+    service = _Service()
+    scopes = [
+        dict(scopeRef=ref, scope=scope, label=ref, sensitivity="standard")
+        for ref, scope in [
+            ("z-field", "attr.identity.legal_name"),
+            ("a-field", "attr.identity.age"),
+        ]
+    ]
+    monkeypatch.setattr(
+        service._profiles, "resolve_scope_refs", lambda **kwargs: ({"user_id": "subject"}, scopes)
+    )
+    selection = {**_CREATE, "scope_refs": ["z-field", "a-field"]}
+    await service.create(**selection)
+    missing = service.items[0]["request_id"]
+    service.consent.events.pop(missing)
+    await service.create(**selection)
+    assert all(
+        service.consent.events[item["request_id"]]["scope"] == item["scope"]
+        for item in service.items
+    )
+
+
 async def _granted_service() -> tuple[_Service, str, str]:
     """A created bundle whose single item the owner has approved."""
     service = _Service()

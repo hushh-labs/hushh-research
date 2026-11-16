@@ -1041,6 +1041,21 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.queryByRole("option", { name: "7 days" })).toBeNull();
   });
 
+  it("keeps the prepaid access duration fixed while the owner decides", async () => {
+    mocks.search="tab=requests&requestId=held-request";
+    mocks.listEntries.mockResolvedValue(pendingListResponse({
+      id:"held-request",request_id:"held-request",kind:"incoming_request",status:"pending",action:"REQUESTED",
+      scope:"attr.professional.role",scope_description:"Role",counterpart_type:"person",counterpart_id:"one",
+      counterpart_label:"Test requester",issued_at:"2026-07-24T09:00:00.000Z",
+      metadata:{expiry_hours:168,upfront_price_reviewed:true,commercial_required:true},
+    }));
+    render(<ConsentCenterPage />);
+    await screen.findByRole("button",{name:"Allow"});
+    expect(screen.queryByRole("combobox",{name:"Access duration"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Allow"}));
+    await waitFor(()=>expect(mocks.handleApprove).toHaveBeenCalledWith(expect.objectContaining({id:"held-request",durationHours:168}),{modelProcessingAllowed:false}));
+  });
+
   it("renders a fixed 24-hour request without a one-option selector and preserves its approval duration", async () => {
     mocks.search = "tab=requests&requestId=fixed-24";
     mocks.listEntries.mockResolvedValue(

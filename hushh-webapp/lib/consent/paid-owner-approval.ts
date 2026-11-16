@@ -38,9 +38,11 @@ export async function approvePaidOwnerTerms(consent: PendingConsent, vaultOwnerT
     const durationHours = consent.durationHours || request.duration_seconds / 3600;
     let key = state.paidApprovalKeys.current.get(consent.id);
     if (!key) { key = crypto.randomUUID(); state.paidApprovalKeys.current.set(consent.id, key); }
-    await ScopeCommerceService.approveInactive(vaultOwnerToken, consent.id, durationHours * 3600, key, modelProcessingAllowed);
+    const approval = await ScopeCommerceService.approveInactive(vaultOwnerToken, consent.id, durationHours * 3600, key, modelProcessingAllowed);
     state.paidApprovals.current.add(consent.id);
-    return "Terms approved. Waiting for buyer payment and encrypted preparation.";
+    return approval.status === "approved_funded"
+      ? "Approved. Coins are reserved. Share the approved information to finish."
+      : "Approved. Waiting for payment before sharing.";
   }
   if (metadata.commercial_required === true) throw ownerError("Refresh this paid request before continuing.");
   return null;

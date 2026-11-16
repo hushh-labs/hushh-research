@@ -510,6 +510,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Review synthetic professional information" },
     });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() =>
       expect(
@@ -755,7 +756,7 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Checking references for a role" },
     });
-    expect(sendRequest).toBeEnabled();
+    await waitFor(() => expect(sendRequest).toBeEnabled());
     fireEvent.click(sendRequest);
     await waitFor(() =>
       expect(

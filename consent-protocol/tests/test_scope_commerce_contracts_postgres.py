@@ -597,3 +597,304 @@ async def test_legacy_free_request_read_requires_binding_and_never_downgrades_pa
     assert (await ctx.get("/requests/" + ctx.request_id, "stranger")).status_code == 404
     assert (await ctx.tariff()).status_code == 200
     assert (await ctx.get("/requests/" + ctx.request_id, "owner")).status_code == 503
+
+
+async def _upfront_person(ctx, monkeypatch):
+    """Existing authority fixture plus the actual person request correlations."""
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.information_request_service import InformationRequestService
+    from tests.scope_commerce_contract_harness import FINGERPRINT
+
+    await fixtures.bind_person_request(ctx.pool, ctx.request_id)
+    person_ref = str(uuid4())
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            (
+                fixtures.MIGRATIONS / "parked/990_information_request_upfront_reservation.sql"
+            ).read_text()
+        )
+        await conn.execute("""
+            ALTER TABLE one_information_request_bundles
+              ADD COLUMN idempotency_hash TEXT, ADD COLUMN request_fingerprint TEXT,
+              ADD COLUMN cancelled_at TIMESTAMPTZ, ADD COLUMN created_at TIMESTAMPTZ DEFAULT now(),
+              ADD UNIQUE(requester_user_id,idempotency_hash);
+            ALTER TABLE one_information_request_items ADD UNIQUE(request_id),
+              ADD COLUMN scope_ref TEXT, ADD COLUMN scope TEXT, ADD COLUMN label TEXT,
+              ADD COLUMN sensitivity TEXT, ADD COLUMN created_at TIMESTAMPTZ DEFAULT now();
+            ALTER TABLE one_kyc_client_connectors ADD COLUMN public_key_fingerprint TEXT;
+            CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY, public_person_ref UUID);
+            CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY, display_name TEXT,
+              custom_photo_url TEXT, photo_url TEXT);
+        """)
+        await conn.execute(
+            "INSERT INTO actor_profiles VALUES('owner',$1),('payer',$2)",
+            __import__("uuid").UUID(person_ref),
+            uuid4(),
+        )
+        await conn.execute(
+            "UPDATE one_kyc_client_connectors SET public_key_fingerprint=$1", FINGERPRINT
+        )
+
+    class Profiles:
+        def resolve_scope_refs(self, **kwargs):
+            return {"user_id": "owner"}, [
+                dict(
+                    scopeRef=ref,
+                    scope=SCOPE,
+                    registry_handle=HANDLE,
+                    label="Travel preferences",
+                    sensitivity="standard",
+                )
+                for ref in kwargs["scope_refs"]
+            ]
+
+    service = InformationRequestService(profiles=Profiles())
+    monkeypatch.setattr(
+        "hushh_mcp.services.information_request_service.get_db", service._consent._get_db
+    )
+    monkeypatch.setattr(
+        service._consent, "list_internal_request_events", AsyncMock(return_value=[])
+    )
+    # Scoped instances use the real ledger; this notification-only courtesy read
+    # has no authority bearing and isn't represented in the small schema fixture.
+    monkeypatch.setattr(
+        type(service._consent), "list_internal_request_events", AsyncMock(return_value=[])
+    )
+    await ctx.tariff(1)
+    return service, dict(
+        requester_user_id="payer",
+        person_ref=person_ref,
+        scope_refs=["scope-one"],
+        purpose="Synthetic upfront information request",
+        duration_seconds=3600,
+        connector_key_id="key",
+        idempotency_key=str(uuid4()),
+    )
+
+
+async def test_upfront_send_is_atomic_idempotent_and_requires_owner_consent(
+    paid_contract, monkeypatch
+):
+    import asyncio
+
+    from hushh_mcp.services.information_request_service import InformationRequestError
+
+    ctx = paid_contract
+    service, selection = await _upfront_person(ctx, monkeypatch)
+    preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    assert preview["totalCoins"] == 1 and preview["shortfallCoins"] == 1
+    with pytest.raises(InformationRequestError, match="Add coins"):
+        await service.create(**selection, price_binding=preview["binding"])
+    async with ctx.pool.acquire() as c:
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM one_information_request_bundles WHERE idempotency_hash IS NOT NULL"
+            )
+            == 0
+        )
+    await ctx.fund()
+    one, two = await asyncio.gather(
+        *(service.create(**selection, price_binding=preview["binding"]) for _ in range(2))
+    )
+    assert one["bundleId"] == two["bundleId"]
+    request_id = one["items"][0]["requestId"]
+    p = await ctx.service.lookup_by_request(request_id)
+    assert p["status"] == "awaiting_owner"
+    assert (await ctx.service.balance(payer_user_id="payer"))["reservedCents"] == 1
+    assert (await ctx.service.earnings(owner_user_id="owner"))["pendingCents"] == 0
+    from hushh_mcp.services.scope_commerce.domain import CommerceError
+
+    with pytest.raises(CommerceError, match="reserved_purchase_required"):
+        await ctx.service.preparation_context(
+            owner_user_id="owner",
+            purchase_id=p["purchaseId"],
+            source_revisions={"content_revision": 1, "manifest_revision": 1},
+        )
+    await ctx.tariff(2)
+    replay = await service.create(**selection, price_binding=preview["binding"])
+    assert replay["bundleId"] == one["bundleId"]
+    with pytest.raises(InformationRequestError, match="different choices"):
+        await service.create(
+            **{**selection, "purpose": "Different purpose"}, price_binding=preview["binding"]
+        )
+    approval = await ctx.approve(request_id)
+    assert approval.status_code == 200, approval.text
+    assert approval.json()["status"] == "approved_funded"
+    again = await ctx.approve(request_id)
+    assert again.status_code == 200
+    async with ctx.pool.acquire() as c:
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM consent_audit WHERE request_id=$1 AND action='CONSENT_PAID_FUNDED'",
+                request_id,
+            )
+            == 1
+        )
+        assert (
+            await c.fetchval("SELECT count(*) FROM consent_exports WHERE grant_id=$1", request_id)
+            == 0
+        )
+        assert (
+            await c.fetchval(
+                "SELECT status FROM scope_commerce_purchases WHERE request_id=$1", request_id
+            )
+            == "reserved"
+        )
+
+
+@pytest.mark.parametrize("terminal", ["cancel", "deny", "timeout"])
+async def test_upfront_terminal_paths_release_original_funding_once(
+    paid_contract, monkeypatch, terminal
+):
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    ctx = paid_contract
+    service, selection = await _upfront_person(ctx, monkeypatch)
+    await ctx.fund()
+    preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    bundle = await service.create(**selection, price_binding=preview["binding"])
+    rid = bundle["items"][0]["requestId"]
+    if terminal == "cancel":
+        await service.cancel(requester_user_id="payer", bundle_id=bundle["bundleId"])
+        await service.cancel(requester_user_id="payer", bundle_id=bundle["bundleId"])
+    elif terminal == "deny":
+        await ConsentDBService().insert_event(
+            user_id="owner",
+            agent_id="one_person:contract",
+            scope=SCOPE,
+            action="CONSENT_DENIED",
+            request_id=rid,
+            metadata={"upfront_price_reviewed": True},
+        )
+        await ConsentDBService().insert_event(
+            user_id="owner",
+            agent_id="one_person:contract",
+            scope=SCOPE,
+            action="CONSENT_DENIED",
+            request_id=rid,
+            metadata={"upfront_price_reviewed": True},
+        )
+    else:
+        async with ctx.pool.acquire() as c:
+            await c.execute("UPDATE contract_clock SET observed_at=observed_at+interval '25 hours'")
+        await ctx.service.settle_expired_earnings()
+        await ctx.service.settle_expired_earnings()
+    balance = await ctx.service.balance(payer_user_id="payer")
+    assert balance["balanceCents"] == 50 and balance["reservedCents"] == 0
+    async with ctx.pool.acquire() as c:
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM scope_commerce_journal WHERE kind='reservation_release'"
+            )
+            == 1
+        )
+
+
+async def test_upfront_migration_replay_and_rollback_are_guarded(paid_contract, monkeypatch):
+    import asyncpg
+
+    ctx = paid_contract
+    service, selection = await _upfront_person(ctx, monkeypatch)
+    await ctx.fund()
+    preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    await service.create(**selection, price_binding=preview["binding"])
+    async with ctx.pool.acquire() as c:
+        await c.execute(
+            (
+                fixtures.MIGRATIONS / "parked/990_information_request_upfront_reservation.sql"
+            ).read_text()
+        )
+        with pytest.raises(asyncpg.RaiseError, match="forward recovery"):
+            await c.execute(
+                (
+                    fixtures.MIGRATIONS
+                    / "rollback/990_information_request_upfront_reservation.rollback.sql"
+                ).read_text()
+            )
+        await c.execute("ROLLBACK")
+
+
+async def test_upfront_price_change_and_second_hold_failure_leave_no_partial_request(
+    paid_contract, monkeypatch
+):
+    from hushh_mcp.services.information_request_service import InformationRequestError
+    from hushh_mcp.services.scope_commerce.domain import CommerceError
+
+    ctx = paid_contract
+    service, selection = await _upfront_person(ctx, monkeypatch)
+    await ctx.fund()
+    preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    await ctx.tariff(2)
+    with pytest.raises(InformationRequestError, match="price changed"):
+        await service.create(**selection, price_binding=preview["binding"])
+    selection["scope_refs"] = ["scope-one", "scope-two"]
+    preview = await service.price_preview(
+        **{
+            k: selection[k]
+            for k in ("requester_user_id", "person_ref", "scope_refs", "duration_seconds")
+        }
+    )
+    original = type(ctx.service).reserve_information_request
+    calls = 0
+
+    async def fail_second(self, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise CommerceError("synthetic_second_hold_refused")
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(type(ctx.service), "reserve_information_request", fail_second)
+    with pytest.raises(CommerceError, match="second_hold"):
+        await service.create(**selection, price_binding=preview["binding"])
+    assert calls == 2
+    async with ctx.pool.acquire() as c:
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM one_information_request_bundles WHERE idempotency_hash IS NOT NULL"
+            )
+            == 0
+        )
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM one_information_request_items WHERE scope_ref IS NOT NULL"
+            )
+            == 0
+        )
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM consent_audit WHERE metadata->>'upfront_price_reviewed'='true'"
+            )
+            == 0
+        )
+        assert await c.fetchval("SELECT count(*) FROM scope_commerce_quotes") == 0
+        assert await c.fetchval("SELECT count(*) FROM scope_commerce_purchases") == 0
+        assert await c.fetchval("SELECT count(*) FROM scope_commerce_reservations") == 0
+        assert (
+            await c.fetchval(
+                "SELECT count(*) FROM scope_commerce_journal WHERE kind='purchase_reserve'"
+            )
+            == 0
+        )
+    assert (await ctx.service.balance(payer_user_id="payer"))["balanceCents"] == 50

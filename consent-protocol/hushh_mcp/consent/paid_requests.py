@@ -50,6 +50,21 @@ async def approve_paid_request(
         raise PermissionError("request_unavailable")
     service = ScopeCommerceService()
     existing = await service.lookup_by_request(request_id, conn=connection)
+    if existing and existing["status"] == "awaiting_owner":
+        quote = await service.get_quote_by_request(request_id, conn=connection)
+        if duration_seconds != int((quote or {}).get("durationSeconds") or 0):
+            raise ValueError("approved_duration_is_immutable")
+        if binding["consent_action"] != "REQUESTED":
+            raise ValueError("request_not_pending")
+        return await _freeze_authorization(
+            connection,
+            binding,
+            duration_seconds,
+            idempotency_key,
+            service,
+            model_processing_allowed=model_processing_allowed,
+            retained_quote=quote,
+        )
     if existing:
         from hushh_mcp.consent.model_processing import (
             model_processing_allowed as grant_allows_model,
@@ -103,38 +118,42 @@ async def _freeze_authorization(
     service: Any,
     *,
     model_processing_allowed: bool = False,
+    retained_quote: dict | None = None,
 ) -> dict:
     from hushh_mcp.services.consent_db import ConsentDBService
 
     owner_user_id, request_id = binding["owner_user_id"], binding["request_id"]
     deadline = binding.get("request_deadline")
-    domain = binding["machine_scope"].split(".")[1]
-    await connection.execute(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", owner_user_id + ":" + domain
-    )
-    manifest_revision = await connection.fetchval(
-        "SELECT manifest_version FROM pkm_manifests WHERE user_id=$1 AND domain=$2 FOR SHARE",
-        owner_user_id,
-        domain,
-    )
-    if not manifest_revision:
-        raise ValueError("scope_unavailable")
-    quote = await service.quote(
-        owner_user_id=owner_user_id,
-        buyer_app_id=binding["buyer_app_id"],
-        payer_user_id=binding["payer_user_id"],
-        scope_handle=binding["scope_handle"],
-        machine_scope=binding["machine_scope"],
-        duration_seconds=duration_seconds,
-        recipient_key_fingerprint=binding["recipient_key_fingerprint"],
-        idempotency_key=idempotency_key,
-        request_id=request_id,
-        purpose=binding["purpose"],
-        refresh_policy=binding["refresh_policy"],
-        scope_manifest_revision=manifest_revision,
-        request_deadline=deadline,
-        conn=connection,
-    )
+    if retained_quote is None:
+        domain = binding["machine_scope"].split(".")[1]
+        await connection.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", owner_user_id + ":" + domain
+        )
+        manifest_revision = await connection.fetchval(
+            "SELECT manifest_version FROM pkm_manifests WHERE user_id=$1 AND domain=$2 FOR SHARE",
+            owner_user_id,
+            domain,
+        )
+        if not manifest_revision:
+            raise ValueError("scope_unavailable")
+        quote = await service.quote(
+            owner_user_id=owner_user_id,
+            buyer_app_id=binding["buyer_app_id"],
+            payer_user_id=binding["payer_user_id"],
+            scope_handle=binding["scope_handle"],
+            machine_scope=binding["machine_scope"],
+            duration_seconds=duration_seconds,
+            recipient_key_fingerprint=binding["recipient_key_fingerprint"],
+            idempotency_key=idempotency_key,
+            request_id=request_id,
+            purpose=binding["purpose"],
+            refresh_policy=binding["refresh_policy"],
+            scope_manifest_revision=manifest_revision,
+            request_deadline=deadline,
+            conn=connection,
+        )
+    else:
+        quote = retained_quote
     quote_id = str(quote.get("quote_id") or quote.get("quoteId"))
     purchase = await service.approve_quote(
         owner_user_id=owner_user_id, quote_id=quote_id, request_id=request_id, conn=connection
@@ -150,7 +169,7 @@ async def _freeze_authorization(
         "commerce_purchase_id": purchase_id,
         "approved_duration_seconds": duration_seconds,
         "request_id": request_id,
-        "commerce_status": "awaiting_payment",
+        "commerce_status": "reserved" if retained_quote else "awaiting_payment",
     }
     if binding["consent_action"] == "pending":
         await connection.execute(
@@ -168,8 +187,15 @@ async def _freeze_authorization(
         metadata=metadata,
         connection=connection,
     )
+    if retained_quote:
+        row = dict(
+            await connection.fetchrow(
+                "SELECT * FROM scope_commerce_purchases WHERE request_id=$1", request_id
+            )
+        )
+        await record_paid_funded(connection, row)
     return {
-        "status": "approved_awaiting_payment",
+        "status": "approved_funded" if retained_quote else "approved_awaiting_payment",
         "commercial_required": True,
         "quote": quote,
         "purchase": purchase,
@@ -203,6 +229,16 @@ async def maybe_approve_paid_request(
     from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
     from hushh_mcp.services.scope_commerce_requests import authoritative_scope_handle
 
+    if known_paid and metadata.get("upfront_price_reviewed") is True:
+        from hushh_mcp.consent.paid_admission import approve_paid_request as approve
+
+        return await approve(
+            owner_user_id,
+            request_id,
+            duration_seconds,
+            "owner-approve:" + request_id,
+            model_processing_allowed=model_processing_allowed,
+        )
     try:
         handle = await authoritative_scope_handle(owner_user_id, machine_scope)
         tariff = await ScopeCommerceService().get_tariff(

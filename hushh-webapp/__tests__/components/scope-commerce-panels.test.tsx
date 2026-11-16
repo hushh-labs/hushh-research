@@ -698,11 +698,13 @@ describe("answer payout hosted continuity", () => {
     expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
   });
-  it("opens existing payouts without mounting information-access controls or loading their accounts", async () => {
+  it("offers purchase coins beside payouts without opening request or payout flows", async () => {
     render(<PaymentsAndEarnings />);
     await act(async () => {});
     expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
-    for (const request of [mocks.account, mocks.readiness, mocks.sandboxVerified, mocks.activity, mocks.answerGates, mocks.answerAccount]) {
+    expect(mocks.account).toHaveBeenCalledWith("owner-token");
+    expect(screen.getByRole("button", { name: "Add coins" })).toBeInTheDocument();
+    for (const request of [mocks.activity, mocks.answerGates, mocks.answerAccount, mocks.onboarding, mocks.checkout]) {
       expect(request).not.toHaveBeenCalled();
     }
   });

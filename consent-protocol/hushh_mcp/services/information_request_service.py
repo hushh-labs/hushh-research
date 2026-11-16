@@ -376,16 +376,65 @@ class InformationRequestService:
         *,
         profiles: PersonProfileService | None = None,
         consent_db: ConsentDBService | None = None,
+        connection: Any = None,
     ) -> None:
         self._profiles = profiles or PersonProfileService()
         self._consent = consent_db or ConsentDBService()
+        self._connection = connection
 
-    @staticmethod
-    async def _rows(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    async def price_preview(
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str,
+        scope_refs: list[str],
+        duration_seconds: int,
+    ) -> dict:
+        from hushh_mcp.services.information_request_prices import information_request_prices
+        from hushh_mcp.services.scope_commerce import ScopeCommerceService
+
+        return await information_request_prices(
+            requester_user_id=requester_user_id,
+            person_ref=person_ref,
+            scope_refs=scope_refs,
+            duration_seconds=duration_seconds,
+            profiles=self._profiles,
+            commerce=ScopeCommerceService(),
+        )
+
+    async def _rows(self, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        if self._connection is not None:
+            from sqlalchemy import text
+            from sqlalchemy.dialects.postgresql.asyncpg import dialect
+
+            statement = text(sql).bindparams(**params).compile(dialect=dialect())
+            rows = await self._connection.fetch(
+                str(statement), *(params[key] for key in statement.positiontup)
+            )
+            return [dict(row) for row in rows]
+
         def execute() -> list[dict[str, Any]]:
             return [dict(row) for row in (get_db().execute_raw(sql, params).data or [])]
 
         return await asyncio.to_thread(execute)
+
+    async def _request_status(self, user_id: str, request_id: str) -> dict | None:
+        if self._connection is None:
+            return await self._consent.get_request_status(user_id, request_id)
+        row = await self._connection.fetchrow(
+            "SELECT * FROM consent_audit WHERE user_id=$1 AND request_id=$2 "
+            "AND action IN ('REQUESTED','CONSENT_PAID_APPROVED','CONSENT_PAID_FUNDED',"
+            "'CONSENT_GRANTED','CONSENT_DENIED','CANCELLED','REVOKED','TIMEOUT') "
+            "ORDER BY issued_at DESC,id DESC LIMIT 1",
+            user_id,
+            request_id,
+        )
+        if row is None:
+            return None
+        result = dict(row)
+        if isinstance(result.get("metadata"), str):
+            result["metadata"] = json.loads(result["metadata"])
+        return result
 
     async def _viewer(self, user_id: str) -> dict[str, Any]:
         rows = await self._rows(
@@ -426,6 +475,43 @@ class InformationRequestService:
         duration_seconds: int,
         connector_key_id: str,
         idempotency_key: str,
+        price_binding: str | None = None,
+    ) -> dict[str, Any]:
+        if price_binding is not None:
+            from hushh_mcp.services.information_request_prices import create_reviewed_request
+
+            return await create_reviewed_request(
+                self,
+                requester_user_id=requester_user_id,
+                person_ref=person_ref,
+                scope_refs=scope_refs,
+                purpose=purpose,
+                duration_seconds=duration_seconds,
+                connector_key_id=connector_key_id,
+                idempotency_key=idempotency_key,
+                price_binding=price_binding,
+            )
+        return await self._create(
+            requester_user_id=requester_user_id,
+            person_ref=person_ref,
+            scope_refs=scope_refs,
+            purpose=purpose,
+            duration_seconds=duration_seconds,
+            connector_key_id=connector_key_id,
+            idempotency_key=idempotency_key,
+        )
+
+    async def _create(
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str,
+        scope_refs: list[str],
+        purpose: str,
+        duration_seconds: int,
+        connector_key_id: str,
+        idempotency_key: str,
+        reviewed_prices: dict | None = None,
     ) -> dict[str, Any]:
         if not 1 <= len(scope_refs) <= 50 or len(set(scope_refs)) != len(scope_refs):
             raise InformationRequestError("Choose between 1 and 50 distinct fields.")
@@ -439,10 +525,14 @@ class InformationRequestService:
         if not 16 <= len(idempotency_key) <= 256:
             raise InformationRequestError("Idempotency key must be between 16 and 256 characters.")
 
-        viewer, connector = await asyncio.gather(
-            self._viewer(requester_user_id),
-            self._connector(requester_user_id, connector_key_id),
-        )
+        if self._connection is not None:
+            viewer = await self._viewer(requester_user_id)
+            connector = await self._connector(requester_user_id, connector_key_id)
+        else:
+            viewer, connector = await asyncio.gather(
+                self._viewer(requester_user_id),
+                self._connector(requester_user_id, connector_key_id),
+            )
         subject, scopes = await asyncio.to_thread(
             self._profiles.resolve_scope_refs,
             viewer_user_id=requester_user_id,
@@ -458,19 +548,15 @@ class InformationRequestService:
         subject_user_id = str(subject.get("user_id") or "")
         principal = requester_principal(str(viewer["public_person_ref"]))
         idem_hash = hashlib.sha256(f"{requester_user_id}|{idempotency_key}".encode()).hexdigest()
-        request_fingerprint = hashlib.sha256(
-            json.dumps(
-                {
-                    "personRef": person_ref,
-                    "scopeRefs": sorted(scope_refs),
-                    "purpose": purpose,
-                    "durationSeconds": duration_seconds,
-                    "connectorKeyId": connector_key_id,
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        from hushh_mcp.services.information_request_prices import request_fingerprint as fingerprint
+
+        request_fingerprint = fingerprint(
+            person_ref=person_ref,
+            scope_refs=scope_refs,
+            purpose=purpose,
+            duration_seconds=duration_seconds,
+            connector_key_id=connector_key_id,
+        )
         bundle_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hussh:information-request:{idem_hash}"))
         existing = await self._rows(
             """SELECT bundle_id, request_fingerprint FROM one_information_request_bundles
@@ -531,7 +617,12 @@ class InformationRequestService:
                 "The requesting device connector key is invalid. Register it again.",
                 status_code=409,
             ) from exc
-        for index, scope in enumerate(scopes, start=1):
+        ordered_scopes = (
+            sorted(scopes, key=lambda item: item["scopeRef"])
+            if reviewed_prices is not None
+            else scopes
+        )
+        for index, scope in enumerate(ordered_scopes, start=1):
             request_id = f"one_person_{uuid.uuid5(uuid.UUID(bundle_id), str(index)).hex}"
             await self._rows(
                 """INSERT INTO one_information_request_items
@@ -550,7 +641,7 @@ class InformationRequestService:
             # A retry after a process interruption may find the item row but
             # not its consent event. Reconcile against the consent authority
             # instead of treating the correlation row as completion.
-            current = await self._consent.get_request_status(subject_user_id, request_id)
+            current = await self._request_status(subject_user_id, request_id)
             if current:
                 continue
             await self._consent.insert_event(
@@ -567,6 +658,17 @@ class InformationRequestService:
                 poll_timeout_at=expires_at,
                 metadata={
                     "request_source": "one_person_profile",
+                    **(
+                        {
+                            "commercial_required": any(
+                                item["scopeRef"] == scope["scopeRef"] and item["amountCoins"] > 0
+                                for item in reviewed_prices["items"]
+                            ),
+                            "upfront_price_reviewed": True,
+                        }
+                        if reviewed_prices is not None
+                        else {}
+                    ),
                     # Person requests use the same strict zero-knowledge export
                     # envelope as MCP developer requests, but the requesting
                     # person remains the distinct first-party principal.  The
@@ -596,6 +698,7 @@ class InformationRequestService:
                         request_id=request_id, bundle_id=bundle_id, view="pending"
                     ),
                 },
+                **({"connection": self._connection} if self._connection is not None else {}),
             )
         return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
 
@@ -919,7 +1022,7 @@ class InformationRequestService:
                 subject_user_id,
                 (str(row.get("public_person_ref") or ""), str(row.get("display_name") or "")),
             )
-            status = await self._consent.get_request_status(subject_user_id, str(row["request_id"]))
+            status = await self._request_status(subject_user_id, str(row["request_id"]))
             if not _active_grant(status, now_ms):
                 continue
             granted.append(
@@ -1084,7 +1187,7 @@ class InformationRequestService:
         now_ms = int(time.time() * 1000)
         pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for item in items:
-            status = await self._consent.get_request_status(
+            status = await self._request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             if str((status or {}).get("action") or "REQUESTED") != "REQUESTED":
@@ -1099,6 +1202,22 @@ class InformationRequestService:
             raise InformationRequestError(
                 "This information request is no longer pending.", status_code=409
             )
+        if self._connection is None and any(
+            (status.get("metadata") or {}).get("upfront_price_reviewed") is True
+            for _, status in pending
+        ):
+            from db.connection import get_pool
+            from hushh_mcp.services.scope_commerce.service import COMMERCE_GATE
+
+            pool = await get_pool()
+            if not pool.__class__.__module__.startswith("db.offline"):
+                async with pool.acquire() as conn, conn.transaction():
+                    await conn.execute("SELECT pg_advisory_xact_lock($1)", COMMERCE_GATE)
+                    return await InformationRequestService(
+                        profiles=self._profiles,
+                        consent_db=self._consent,
+                        connection=conn,
+                    ).cancel(requester_user_id=requester_user_id, bundle_id=bundle_id)
         for item, status in pending:
             await self._consent.insert_event(
                 user_id=str(bundle["subject_user_id"]),
@@ -1115,8 +1234,14 @@ class InformationRequestService:
                     # the raw principal id.
                     **requester_identity_metadata(status.get("metadata")),
                     "cancelled_by_requester": True,
+                    **(
+                        {"upfront_price_reviewed": True}
+                        if (status.get("metadata") or {}).get("upfront_price_reviewed") is True
+                        else {}
+                    ),
                     "bundle_id": bundle_id,
                 },
+                **({"connection": self._connection} if self._connection is not None else {}),
             )
         await self._rows(
             "UPDATE one_information_request_bundles SET cancelled_at = COALESCE(cancelled_at, NOW()) WHERE bundle_id = CAST(:bundle AS UUID) RETURNING bundle_id",
@@ -1164,7 +1289,7 @@ class InformationRequestService:
         exports = []
         now_ms = int(time.time() * 1000)
         for item in items:
-            status = await self._consent.get_request_status(
+            status = await self._request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             if str((status or {}).get("action") or "") != "CONSENT_GRANTED" or not (

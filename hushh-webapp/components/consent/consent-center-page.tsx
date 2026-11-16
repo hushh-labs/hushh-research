@@ -1439,8 +1439,9 @@ function ConsentEntryDetail({
   };
   const isMarketplaceDecision =
     isPendingDecision && isMarketplaceConsent(entry.metadata, entry.scope);
+  const fundedDuration = [entry, ...bundleMembers].some(member => member.metadata?.upfront_price_reviewed === true && member.metadata?.commercial_required === true);
   const durationOptions =
-    isPendingDecision && !isConnectionDecision && !isMarketplaceDecision
+    isPendingDecision && !fundedDuration && !isConnectionDecision && !isMarketplaceDecision
       ? isLocationEntry
         ? locationDurationOptionsFor(requestedDurationHours)
         : durationOptionsFor(requestedDurationHours)

@@ -1,5 +1,25 @@
 # Consumer scope commerce
 
+Dev person-to-person requests preview the exact selected information, duration and
+price before Send. The authenticated `POST /api/one/information-requests/price-preview`
+returns a server price binding; Send supplies `price_binding` on the existing create
+route. One PostgreSQL commit checks the binding, creates the consent requests and
+reserves all priced items. Insufficient funds or changed terms create no partial
+bundle. The same submission key reconciles the committed request on its original
+terms even after the tariff, balance or quote expiry changes.
+
+`awaiting_owner` means coins are held, not that consent or information access has
+been granted. Owner approval uses the retained quote and records approval and
+funding together; the requester does not pay again. The owner still explicitly
+shares the encrypted information, including any required acknowledgment of fees.
+Denial, requester cancellation and unfulfilled expiry return the original funding
+allocations exactly once. Free and previously approved legacy requests retain their
+existing path. Forward Dev migration 990 adds the pending-owner state; rollback
+refuses while pending-owner holds exist. Profile and both Chat review cards use the
+same price, funding and submission contract. The agent proposes; only the person's
+Send action can reserve coins.
+
+
 ## Visual Map
 
 ```mermaid

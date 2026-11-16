@@ -235,6 +235,11 @@ class ConsentLifecycleService:
             **({"bundle_id": bundle_id} if bundle_id else {}),
             "decision_owner_uid": user_id,
             "owner_decision": "deny",
+            **(
+                {"upfront_price_reviewed": True}
+                if metadata.get("upfront_price_reviewed") is True
+                else {}
+            ),
         }
         from hushh_mcp.services.product_value_receipts import (
             capture_value_epoch,
