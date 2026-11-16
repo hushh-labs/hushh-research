@@ -98,6 +98,27 @@ def active_wiki_library() -> WikiLibrary:
     return _wiki_library
 
 
+def _resolve_pod_root_workspace_store(files_store: Any) -> Any:
+    """Place `workspaces/v1/<ws_id>` under the pod root prefix rather than `files/v1/workspaces/v1`."""
+    from hushh_mcp.services.pod_platform import workload_platform
+
+    if isinstance(files_store, FilesGcsStore) and os.getenv("POD_STORAGE_GCS_BUCKET"):
+        root_prefix = os.getenv("POD_STORAGE_GCS_PREFIX", "").strip("/")
+        if root_prefix:
+            return FilesGcsStore(os.environ["POD_STORAGE_GCS_BUCKET"], root_prefix)
+    if workload_platform() == "azure" and os.getenv("POD_STORAGE_AZURE_BLOB_URL"):
+        from .azure_storage import FilesAzureStore
+
+        if isinstance(files_store, FilesAzureStore) and os.getenv(
+            "POD_FILES_AZURE_STORAGE_RESOURCE_ID"
+        ):
+            root_url = os.environ["POD_STORAGE_AZURE_BLOB_URL"].rstrip("/")
+            return FilesAzureStore(
+                root_url, account_id=os.environ["POD_FILES_AZURE_STORAGE_RESOURCE_ID"]
+            )
+    return files_store
+
+
 def active_workspace_runtime() -> WorkspaceCliRuntime:
     """Return the Pod's encrypted CLI workspace runtime under the same custody fence (#9511)."""
     global _workspace_runtime
@@ -106,10 +127,11 @@ def active_workspace_runtime() -> WorkspaceCliRuntime:
         from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
 
         generation = int(os.getenv("POD_ACCOUNT_GENERATION", "0") or "0")
+        ws_store = _resolve_pod_root_workspace_store(files.store)
         checkpoints = WorkspaceCheckpointLibrary(
             owner=files.owner,
             key=resolve_pod_log_key(),
-            store=files.store,
+            store=ws_store,
             check=files.check,
             account_generation=generation,
         )

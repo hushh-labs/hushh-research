@@ -19,12 +19,14 @@ from browser_runtime.qualification import (
     RuntimeSandboxCapability,
     default_chromium_sandbox_for_cloud,
     get_host_capability,
+    resolve_cli_worker_job_mode,
 )
 
 TenancyKind = Literal["hussh_hosted", "owner_cloud"]
 ProviderFamily = Literal["gcp", "azure", "aws", "ace"]
 ObjectStoreKind = Literal["gcs", "azure_blob", "s3", "prefix_token"]
 WorkloadIdentityKind = Literal["gce_metadata", "azure_msi", "aws_irsa_ecs", "ace_attestation"]
+CliWorkerJobMode = Literal["cloud_run_jobs_v2", "azure_container_apps_jobs", "unsupported"]
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class ProviderTargetSpec:
     workload_identity_kind: WorkloadIdentityKind
     owner_update_qualified: bool
     registry_sql_admitted: bool
+    cli_worker_job_mode: CliWorkerJobMode = "unsupported"
 
     @property
     def sandbox_capability(self) -> RuntimeSandboxCapability:
@@ -70,6 +73,7 @@ PROVIDER_CAPABILITY_REGISTRY: dict[str, ProviderTargetSpec] = {
         workload_identity_kind="gce_metadata",
         owner_update_qualified=False,
         registry_sql_admitted=True,
+        cli_worker_job_mode="cloud_run_jobs_v2",
     ),
     "ace": ProviderTargetSpec(
         target_id="ace",
@@ -83,6 +87,7 @@ PROVIDER_CAPABILITY_REGISTRY: dict[str, ProviderTargetSpec] = {
         workload_identity_kind="ace_attestation",
         owner_update_qualified=False,
         registry_sql_admitted=False,
+        cli_worker_job_mode="unsupported",
     ),
     "user_gcp": ProviderTargetSpec(
         target_id="user_gcp",
@@ -96,6 +101,7 @@ PROVIDER_CAPABILITY_REGISTRY: dict[str, ProviderTargetSpec] = {
         workload_identity_kind="gce_metadata",
         owner_update_qualified=True,
         registry_sql_admitted=True,
+        cli_worker_job_mode="cloud_run_jobs_v2",
     ),
     "user_azure": ProviderTargetSpec(
         target_id="user_azure",
@@ -109,6 +115,7 @@ PROVIDER_CAPABILITY_REGISTRY: dict[str, ProviderTargetSpec] = {
         workload_identity_kind="azure_msi",
         owner_update_qualified=True,
         registry_sql_admitted=True,
+        cli_worker_job_mode="azure_container_apps_jobs",
     ),
     "user_aws": ProviderTargetSpec(
         target_id="user_aws",
@@ -122,6 +129,7 @@ PROVIDER_CAPABILITY_REGISTRY: dict[str, ProviderTargetSpec] = {
         workload_identity_kind="aws_irsa_ecs",
         owner_update_qualified=False,
         registry_sql_admitted=False,
+        cli_worker_job_mode="unsupported",
     ),
 }
 
@@ -182,8 +190,27 @@ def verify_browser_contract_alignment(contracts_cloud_map: Mapping[str, bool]) -
     return True
 
 
+def cli_worker_job_mode_for_target(target: object) -> CliWorkerJobMode:
+    """Return declarative Option A CLI worker job substrate for a deployment target."""
+    spec = get_provider_target_spec(target)
+    if spec is None:
+        return "unsupported"
+    return spec.cli_worker_job_mode
+
+
+def cli_worker_job_mode_for_host(host_kind: str) -> CliWorkerJobMode:
+    """Return declarative Option A CLI worker job substrate for a runtime `host_kind`."""
+    raw = resolve_cli_worker_job_mode(host_kind)
+    if raw == "cloud_run_jobs_v2":
+        return "cloud_run_jobs_v2"
+    if raw == "azure_container_apps_jobs":
+        return "azure_container_apps_jobs"
+    return "unsupported"
+
+
 __all__ = [
     "BROWSER_HOST_CAPABILITIES",
+    "CliWorkerJobMode",
     "PROVIDER_CAPABILITY_REGISTRY",
     "ObjectStoreKind",
     "ProviderFamily",
@@ -191,6 +218,8 @@ __all__ = [
     "RuntimeSandboxCapability",
     "TenancyKind",
     "WorkloadIdentityKind",
+    "cli_worker_job_mode_for_host",
+    "cli_worker_job_mode_for_target",
     "get_host_capability",
     "get_provider_target_spec",
     "hosted_cloud_targets",

@@ -212,6 +212,63 @@ def unpack_workspace_archive(
     return total_bytes, file_count
 
 
+def sanitize_and_measure_workspace_archive(
+    archive_bytes: bytes,
+    *,
+    max_uncompressed_bytes: int = MAX_WORKSPACE_ARCHIVE_UNCOMPRESSED_BYTES,
+    max_files: int = MAX_WORKSPACE_FILES,
+) -> tuple[bytes, int, int]:
+    """Validate and re-pack worker `tar.gz` bytes in memory, refusing symlinks/secrets/escapes."""
+    if len(archive_bytes) > MAX_WORKSPACE_ARCHIVE_ENCRYPTED_BYTES:
+        raise WorkspaceRefused("WORKSPACE_ARCHIVE_TOO_LARGE", 413)
+    try:
+        tf_in = tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz")
+    except (tarfile.TarError, OSError) as exc:
+        raise WorkspaceRefused("WORKSPACE_ARCHIVE_UNSAFE", 400) from exc
+
+    clean_members: list[tuple[str, bytes, int]] = []
+    total_bytes = 0
+    with tf_in:
+        for member in tf_in:
+            if member.isdir():
+                if member.name.strip("/"):
+                    _validate_tar_member_path(member.name.rstrip("/"))
+                continue
+            if not member.isfile() or member.issym() or member.islnk():
+                raise WorkspaceRefused("WORKSPACE_ARCHIVE_UNSAFE", 400)
+            clean_rel = _validate_tar_member_path(member.name)
+            if _is_excluded_workspace_member(clean_rel):
+                raise WorkspaceRefused("WORKSPACE_ARCHIVE_UNSAFE", 400)
+            if len(clean_members) + 1 > max_files:
+                raise WorkspaceRefused("WORKSPACE_TOO_MANY_FILES", 413)
+            if member.size < 0 or total_bytes + member.size > max_uncompressed_bytes:
+                raise WorkspaceRefused("WORKSPACE_ARCHIVE_TOO_LARGE", 413)
+            extracted = tf_in.extractfile(member)
+            if extracted is None:
+                continue
+            buf_member = bytearray()
+            while True:
+                chunk = extracted.read(65536)
+                if not chunk:
+                    break
+                buf_member.extend(chunk)
+                total_bytes += len(chunk)
+                if total_bytes > max_uncompressed_bytes:
+                    raise WorkspaceRefused("WORKSPACE_ARCHIVE_TOO_LARGE", 413)
+            clean_mode = 0o755 if (member.mode & 0o111) else 0o644
+            clean_members.append((clean_rel, bytes(buf_member), clean_mode))
+
+    out_buf = io.BytesIO()
+    with tarfile.open(fileobj=out_buf, mode="w:gz", compresslevel=6) as tf_out:
+        for clean_rel, raw_data, clean_mode in sorted(clean_members, key=lambda item: item[0]):
+            info = tarfile.TarInfo(name=clean_rel)
+            info.size = len(raw_data)
+            info.mode = clean_mode
+            info.mtime = 0
+            tf_out.addfile(info, io.BytesIO(raw_data))
+    return out_buf.getvalue(), total_bytes, len(clean_members)
+
+
 class WorkspaceCheckpointLibrary:
     """Encrypted CAS checkpoint store under `workspaces/v1/` over `ObjectStore`."""
 
@@ -335,6 +392,72 @@ class WorkspaceCheckpointLibrary:
 
         next_rev = prior_rev + 1
         archive_bytes, uncompressed_bytes, file_count = pack_workspace_directory(workspace_dir)
+        return await self._commit_archive_layer(
+            clean_ws,
+            archive_bytes=archive_bytes,
+            uncompressed_bytes=uncompressed_bytes,
+            file_count=file_count,
+            current_head=current_head,
+            current_gen=current_gen,
+            next_rev=next_rev,
+            next_epoch=next_epoch,
+            reason=reason,
+        )
+
+    async def save_checkpoint_archive(
+        self,
+        workspace_id: str,
+        archive_bytes: bytes,
+        *,
+        expected_revision: int | None = None,
+        reason: str = "worker_commit",
+    ) -> dict[str, Any]:
+        """Validate and commit an untrusted worker `tar.gz` archive with CAS revision fencing."""
+        clean_ws = validate_workspace_id(workspace_id)
+        sanitized_archive, uncompressed_bytes, file_count = sanitize_and_measure_workspace_archive(
+            archive_bytes
+        )
+        current_head, current_gen = await self.read_head(clean_ws)
+        if current_head is not None and current_head.get("forgotten") is True:
+            if expected_revision not in {None, 0}:
+                raise WorkspaceRefused("WORKSPACE_FORGOTTEN", 410)
+            next_epoch = int(current_head.get("key_epoch", 1)) + 1
+            prior_rev = int(current_head.get("revision", 0))
+        elif current_head is not None:
+            prior_rev = int(current_head["revision"])
+            if expected_revision is not None and expected_revision != prior_rev:
+                raise WorkspaceRefused("WORKSPACE_REVISION_CONFLICT", 409)
+            next_epoch = int(current_head.get("key_epoch", 1))
+        else:
+            if expected_revision not in {None, 0}:
+                raise WorkspaceRefused("WORKSPACE_REVISION_CONFLICT", 409)
+            prior_rev = 0
+            next_epoch = 1
+        return await self._commit_archive_layer(
+            clean_ws,
+            archive_bytes=sanitized_archive,
+            uncompressed_bytes=uncompressed_bytes,
+            file_count=file_count,
+            current_head=current_head,
+            current_gen=current_gen,
+            next_rev=prior_rev + 1,
+            next_epoch=next_epoch,
+            reason=reason,
+        )
+
+    async def _commit_archive_layer(
+        self,
+        clean_ws: str,
+        *,
+        archive_bytes: bytes,
+        uncompressed_bytes: int,
+        file_count: int,
+        current_head: dict[str, Any] | None,
+        current_gen: Any,
+        next_rev: int,
+        next_epoch: int,
+        reason: str,
+    ) -> dict[str, Any]:
         layer_sha256 = hashlib.sha256(archive_bytes).hexdigest()
         layer_path = self._opaque_path(clean_ws, "layers", f"r{next_rev}_{layer_sha256[:16]}")
         layer_key = self._layer_key(clean_ws, next_epoch)
@@ -370,6 +493,24 @@ class WorkspaceCheckpointLibrary:
         if head_ver is None:
             raise WorkspaceRefused("WORKSPACE_REVISION_CONFLICT", 409)
         return head_doc
+
+    async def export_workspace_archive(self, workspace_id: str) -> tuple[bytes | None, int]:
+        """Read and decrypt the current `tar.gz` archive without unpacking to pod disk."""
+        clean_ws = validate_workspace_id(workspace_id)
+        head, _ = await self.read_head(clean_ws)
+        if head is None or head.get("forgotten") is True:
+            return None, 0
+        layer_path = str(head["layer_path"])
+        raw_layer, _ = await self._get_bounded(
+            layer_path, max_bytes=MAX_WORKSPACE_ARCHIVE_ENCRYPTED_BYTES
+        )
+        if raw_layer is None:
+            raise WorkspaceRefused("WORKSPACE_LAYER_MISSING", 404)
+        layer_key = self._layer_key(clean_ws, int(head.get("key_epoch", 1)))
+        archive_bytes = self._open(layer_key, raw_layer, self._aad(clean_ws, layer_path))
+        if hashlib.sha256(archive_bytes).hexdigest() != head["layer_sha256"]:
+            raise WorkspaceRefused("WORKSPACE_DIGEST_MISMATCH", 500)
+        return archive_bytes, int(head["revision"])
 
     async def hydrate_workspace(self, workspace_id: str, workspace_dir: Path) -> dict[str, Any]:
         clean_ws = validate_workspace_id(workspace_id)
