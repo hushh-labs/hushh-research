@@ -164,3 +164,14 @@ def test_holding_rows_declare_every_key_the_prompt_asks_for():
     asked = {key.strip() for key in block.group(1).replace("\n", ",").split(",") if key.strip()}
     declared = set(_EXTRACTION_SCHEMA["properties"]["detailed_holdings"]["items"]["properties"])
     assert asked <= declared, f"prompt asks for undeclared keys: {sorted(asked - declared)}"
+    row_schema = _EXTRACTION_SCHEMA["properties"]["detailed_holdings"]["items"]
+    kind_schema = row_schema["properties"]["instrument_kind"]
+    assert set(kind_schema["enum"]) == {
+        "equity",
+        "fixed_income",
+        "real_asset",
+        "cash_equivalent",
+        "other",
+    }
+    assert kind_schema["nullable"] is True
+    assert "instrument_kind" in row_schema["required"]

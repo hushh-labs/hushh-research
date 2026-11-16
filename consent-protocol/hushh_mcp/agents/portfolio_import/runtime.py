@@ -19,6 +19,7 @@ from google.genai import types
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.kai_import.schema_v2 import INSTRUMENT_KINDS_V2
 from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
@@ -51,9 +52,11 @@ _HOLDING_ROW_SCHEMA: dict[str, Any] = {
         "est_annual_income": _NUMBER,
         "est_yield": _NUMBER,
         "asset_type": _TEXT,
+        "instrument_kind": {"type": "STRING", "enum": list(INSTRUMENT_KINDS_V2), "nullable": True},
         "sector": _TEXT,
         "industry": _TEXT,
     },
+    "required": ["instrument_kind"],
 }
 
 _STATEMENT_DETAILS_SCHEMA: dict[str, Any] = {

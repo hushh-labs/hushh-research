@@ -71,6 +71,7 @@ import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { findHoldingValidationIssue, holdingValueIssue, isCashEquivalentHolding, type HoldingValidationIssue } from "@/lib/kai/holding-validation";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { toInvestorMessage } from "@/lib/copy/investor-language";
+import { normalizeHoldingInstrumentKind } from "@/lib/kai/brokerage/instrument-kind";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -344,24 +345,8 @@ function inferHoldingIdentifierType(holding: Holding): "ticker" | "cusip" | "der
 }
 
 function inferInstrumentKind(holding: Holding, isCashEquivalent: boolean): string {
-  if (holding.instrument_kind) return holding.instrument_kind;
-  if (isCashEquivalent) return "cash_equivalent";
-  const hint = `${holding.asset_type || ""} ${holding.name || ""}`.toLowerCase();
-  if (hint.includes("bond") || hint.includes("fixed income") || hint.includes("treasury")) {
-    return "fixed_income";
-  }
-  if (
-    hint.includes("real estate") ||
-    hint.includes("reit") ||
-    hint.includes("real asset") ||
-    hint.includes("gold")
-  ) {
-    return "real_asset";
-  }
-  if (hint.includes("equity") || hint.includes("stock") || hint.includes("etf") || hint.includes("fund")) {
-    return "equity";
-  }
-  return "other";
+  return normalizeHoldingInstrumentKind(holding.instrument_kind, holding.asset_type)
+    ?? (isCashEquivalent ? "cash_equivalent" : "other");
 }
 
 function inferAnalyzeEligibility(

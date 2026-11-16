@@ -54,9 +54,11 @@ Rules:
   name, description,
   quantity, price, market_value, cost_basis,
   unrealized_gain_loss, unrealized_gain_loss_pct,
-  asset_type, sector, industry
+  asset_type, instrument_kind, sector, industry
 - if unknown, set null (do not invent)
 - do not synthesize ticker from security name
+- include instrument_kind on every row: equity, fixed_income, real_asset,
+  cash_equivalent, other, or null when unresolved
 
 8) portfolio_summary contract (always include these keys inside portfolio_summary):
 - beginning_value
