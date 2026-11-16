@@ -1,6 +1,20 @@
 import { SettingsRow } from "@/components/profile/settings-ui";
 import type { HostingInspection } from "@/lib/services/personal-agent-hosting";
 
+export function cloudHostingHealthSentence(
+  status: HostingInspection["status"],
+): string {
+  return status === "connected"
+    ? "Your agent’s cloud resources are available."
+    : status === "starting"
+      ? "Your agent is starting."
+      : status === "absent"
+        ? "Your cloud reports this agent is missing. Review Hosting recovery before creating another."
+        : status === "cleanup_pending"
+          ? "Cloud removal is paused or in progress. Resume its reviewed request."
+          : "Your cloud could not be verified. Nothing was changed.";
+}
+
 /** Evidence-only presentation; repair and deletion keep their own controls. */
 export function CloudHostingHealth({
   inspection,
@@ -13,17 +27,7 @@ export function CloudHostingHealth({
       {
         <SettingsRow
           title="Cloud health"
-          description={
-            inspection.status === "connected"
-              ? "Your agent’s cloud resources are available."
-              : inspection.status === "starting"
-                ? "Your agent is starting."
-                : inspection.status === "absent"
-                  ? "Your cloud reports this agent is missing. Review Hosting recovery before creating another."
-                  : inspection.status === "cleanup_pending"
-                    ? "Cloud removal is paused or in progress. Resume its reviewed request."
-                    : "Your cloud could not be verified. Nothing was changed."
-          }
+          description={cloudHostingHealthSentence(inspection.status)}
         />
       }
       {inspection?.needsPreviousReview ? (

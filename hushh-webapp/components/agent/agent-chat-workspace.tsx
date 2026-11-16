@@ -116,6 +116,7 @@ import {
 } from "@/components/icons";
 
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
+import { ownerPodTurnRecoveryPanel } from "@/lib/agent/owner-pod-turn-errors";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   openProfilePane,
@@ -2173,6 +2174,30 @@ export function AgentBubble({
               {message.errorNotice}
             </p>
           ) : null}
+          {!isUser && isError ? (() => {
+            const recoveryPanel = ownerPodTurnRecoveryPanel(assistantText || message.errorNotice);
+            if (!recoveryPanel) return null;
+            return (
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  data-testid="agent-message-pod-recovery-action"
+                  onClick={() => {
+                    if (typeof window === "undefined") return;
+                    openProfilePane(
+                      window.location.pathname,
+                      window.location.search,
+                      { panel: recoveryPanel, detail: null },
+                      { returnsToOrigin: true },
+                    );
+                  }}
+                  className="inline-flex h-8 touch-manipulation items-center rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] px-3 text-xs font-semibold text-foreground transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:opacity-[0.84] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+                >
+                  {recoveryPanel === "software-updates" ? "Open Agent updates" : "Open Hosting"}
+                </button>
+              </div>
+            );
+          })() : null}
           {!isUser && backgroundCard ? <div className={backgroundOnly ? undefined : "mt-3"}>{backgroundCard}</div> : null}
         </OneChatBubble>
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}

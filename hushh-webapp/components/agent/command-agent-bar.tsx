@@ -27,9 +27,11 @@ import {
 export function CommandAgentBar({
   layout = "fixed",
   unavailableLabel,
+  onOpenHosting,
 }: {
   layout?: "fixed" | "slot";
   unavailableLabel?: string;
+  onOpenHosting?: () => void;
 }) {
   const retainedFrame = useRetainedAgentBarFrame();
   const {
@@ -261,6 +263,16 @@ export function CommandAgentBar({
             </span>
           ) : null}
         </button>
+        {Boolean(unavailableLabel) && !active && !recording && !working && onOpenHosting ? (
+          <button
+            type="button"
+            onClick={onOpenHosting}
+            aria-label="Open Hosting settings"
+            className="mr-1.5 flex h-8 shrink-0 touch-manipulation items-center justify-center rounded-full bg-foreground/[0.07] px-3 text-xs font-semibold text-foreground transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:opacity-[0.84] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+          >
+            Hosting
+          </button>
+        ) : null}
         {recording ? (
           <button
             type="button"

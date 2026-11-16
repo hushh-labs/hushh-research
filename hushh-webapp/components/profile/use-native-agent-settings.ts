@@ -6,6 +6,7 @@ import { canInstallUpdate, releaseLabel, updateProgressStage } from "@/lib/feed/
 import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { AZURE_UPDATE_COPY, azureUpdatedLabel } from "@/lib/one/azure-update-outcome";
 import { agentSettingsSummary, HOST_LABELS, type AgentSettingsController } from "./use-agent-settings-controller";
+import { cloudHostingHealthSentence } from "./cloud-hosting-health";
 import { HOSTING_RECLAIMED_SENTENCE, HOSTING_UNCONFIRMED_SENTENCE, REBUILDING_SENTENCE, REBUILD_FAILED_FALLBACK } from "./azure-hosting-notice";
 
 /** Presentation only. All network reads, approvals and retries belong to the
@@ -30,9 +31,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
     if (mode === "byoc" && status?.cloudProject) current.push(read("hosting-project", "Your cloud project", [status.cloudProject, status.cloudRegion].filter(Boolean).join(" · ")));
     if (model.inspection) {
       const health = model.inspection;
-      current.push(read("hosting-health", "Cloud health", health.status === "connected" ? "Your agent’s cloud resources are available." :
-        health.status === "starting" ? "Your agent is starting." : health.status === "absent" ? "Your cloud reports this agent is missing. Review Hosting recovery before creating another." :
-        health.status === "cleanup_pending" ? "Cloud removal is paused or in progress. Resume its reviewed request." : "Your cloud could not be verified. Nothing was changed."));
+      current.push(read("hosting-health", "Cloud health", cloudHostingHealthSentence(health.status)));
       if (health.needsPreviousReview) current.push(read("hosting-previous", "Previous cloud homes", "An earlier cloud may still hold resources. Review those resources before removing hosting; this check never deletes them automatically."));
     }
     const azure = model.azureHosting;
@@ -70,6 +69,12 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
     sections.push({ id: "updates-status-section", rows: current });
     const actions: NativeDrawerRow[] = [];
     if (model.needsLinkRecovery) actions.push(action("updates-link", "Link existing pod", model.recoverExistingPod, busy));
+    if (mode === "byoc" && !model.needsLinkRecovery && status?.updateAvailable === true && !canInstallUpdate(status) && !working && status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED") {
+      actions.push(action("updates-reconnect", "Reconnect your pod", model.reconnectDirectPod, busy));
+    }
+    if (mode === "byoc" && status?.updateAvailable === true && !canInstallUpdate(status) && !working && (status.updateBlockedReason === "PREDECESSOR_NOT_QUALIFIED" || status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED")) {
+      actions.push(action("updates-hosting", "Review cloud hosting", model.chooseHosting, busy));
+    }
     if (isPod && canInstallUpdate(status) && update.releaseId && !working) {
       actions.push(ownerCloudProvider(status?.deploymentTarget) === "azure" ? read("updates-approve", "Update now", website) : action("updates-approve", "Update now", () => model.act("approve"), busy), action("updates-later", "Later", () => model.act("defer"), busy));
     }
