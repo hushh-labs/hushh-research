@@ -21,7 +21,7 @@ export type NativeTodoModel = {
   draft: NativeWorkspaceTaskDraft; readDraft: () => NativeWorkspaceTaskDraft; inputRevision: () => number;
   changeDraft: (draft: NativeWorkspaceTaskDraft, expected?: number) => boolean;
   openEditor: () => void; closeEditor: () => void;
-  saving: string | null; doneToday: number; totalToday: number;
+  busy: boolean; savingTaskIds: ReadonlySet<string>; doneToday: number; totalToday: number;
   errors: readonly { label: string; retry: () => void }[];
   overflowHref: string | null;
   save: (draft: { title: string; date: string | null; time: string | null; notes: string | null }) => Promise<boolean>;
@@ -55,7 +55,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
   const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const closeEditor = () => { if (!saving.current) latest.current.model.closeEditor(); };
   const back = () => {
-    if (saving.current || latest.current.model.saving) return true;
+    if (saving.current || latest.current.model.busy) return true;
     if (confirmDelete) { setConfirmDelete(false); return true; }
     if (editing) { closeEditor(); return true; }
     if (selection) { setSelection(null); return true; }
@@ -65,7 +65,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const action = (key: string, label: string, callback: () => unknown, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
     const id = handles(key); actions.set(id, () => { if (current()) return callback() as void | Promise<unknown>; });
-    return { id, label, enabled: model.saving === null, ...extra };
+    return { id, label, enabled: !model.busy, ...extra };
   };
   const read = (key: string, label: string, detail?: string): NativeDrawerRow => ({ id: handles(key), label, ...(detail ? { detail } : {}), enabled: true, readOnly: true });
   const sections: NativeDrawerSection[] = [];
@@ -85,7 +85,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
       ...(selected.link ? [action("open", selected.sourceAgent === "calendar" && !selected.link.startsWith("/") ? "Join" : "Open", () => open(selected.link!), { chevron: true })] : []),
       action("delete", "Delete item", () => setConfirmDelete(true), { destructive: true, symbol: "trash" })]);
   } else {
-    section("summary", [action("add", "Add item", model.openEditor, { enabled: !model.loading && model.saving === null, symbol: "plus" }),
+    section("summary", [action("add", "Add item", model.openEditor, { enabled: !model.loading && !model.busy, symbol: "plus" }),
       ...(model.totalToday > 0 ? [read("today", `${model.doneToday} of ${model.totalToday} done today`)] : [])]);
     section("errors", model.errors.flatMap((error, i) => [read(`error-${i}`, error.label), action(`retry-${i}`, "Retry", error.retry)]));
     if (model.loading) section("loading", [read("loading", "Loading your list…")]);
@@ -95,7 +95,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
       // One bounded window, including receipts; no record is silently truncated.
       const index = Math.min(page, Math.max(0, Math.ceil(visible.length / 24) - 1));
       for (const [i, group] of groupByDate(visible.slice(index * 24, (index + 1) * 24)).entries()) section(`group-${i}`, group.tasks.map(task => action(`task-${task.id}`, task.title,
-        () => { setConfirmDelete(false); setSelection(task.id); }, { detail: [task.time, task.sourceAgent && TODO_SOURCE_LABELS[task.sourceAgent], task.notes].filter(Boolean).join(" · ") || undefined, chevron: true, pending: model.saving === task.id })), `${group.label}${group.overdue ? " · Overdue" : ""}`);
+        () => { setConfirmDelete(false); setSelection(task.id); }, { detail: [task.time, task.sourceAgent && TODO_SOURCE_LABELS[task.sourceAgent], task.notes].filter(Boolean).join(" · ") || undefined, chevron: true, pending: model.savingTaskIds.has(task.id) })), `${group.label}${group.overdue ? " · Overdue" : ""}`);
       if (!visible.length && !model.receipts.length && !model.errors.length) section("empty", [read("empty", completedOpen ? "No completed tasks" : model.completed.length ? "No pending tasks" : "No tasks yet", "Add an item to get started.")]);
       section("paging", [
         ...(index > 0 ? [action("previous", "Previous tasks", () => setPage(index - 1))] : []),
@@ -107,8 +107,8 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
     }
   }
   const editor = editing ? {
-    destinationId: editing, draft: model.draft, current: () => latest.current.model.editorCurrent(editing), inputRevision: model.inputRevision, mutationPending: () => saving.current || latest.current.model.saving !== null,
-    changeDraft: model.changeDraft, busy: model.saving !== null, canSave: !!model.draft.title.trim(), error: null,
+    destinationId: editing, draft: model.draft, current: () => latest.current.model.editorCurrent(editing), inputRevision: model.inputRevision, mutationPending: () => saving.current || latest.current.model.busy,
+    changeDraft: model.changeDraft, busy: model.busy, canSave: !!model.draft.title.trim(), error: null,
     save: async () => {
       if (!current() || saving.current) return false;
       saving.current = true;
