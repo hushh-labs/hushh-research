@@ -38,6 +38,7 @@ class FundingAdmission:
                     "amountCents": amount_cents,
                     "status": old["status"],
                 }
+            self._config().require_new_liability_resolution()
             liabilities = sum(
                 [
                     await self._amount(c, account(kind, wallet["wallet_id"]))

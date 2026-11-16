@@ -111,6 +111,19 @@ class CommerceReadiness:
             seller_state = _seller_status(seller, config, pin)
             ready = platform["status"] == "ready" and config.allows_actor(viewer_user_id)
             eligible = ready and seller_state["status"] == "eligible"
+            new_liability_ready = ready
+            if ready and config.livemode:
+                # Configuration and ledger identity remain qualified for historical
+                # settlement. New liabilities need an executable residual port.
+                from .stripe_adapter import CommerceProviderError
+
+                try:
+                    config.require_new_liability_resolution()
+                except CommerceProviderError as error:
+                    if error.code != "provider_residual_resolution_unqualified":
+                        raise
+                    platform["reason_code"] = error.code
+                    new_liability_ready = False
             return {
                 "schema_version": 1,
                 "enabled": self._commerce_enabled(),
@@ -123,10 +136,10 @@ class CommerceReadiness:
                 "seller": seller_state,
                 "capabilities": {
                     "set_free_tariff": bool(tables["tariffs"]),
-                    "set_paid_tariff": eligible,
+                    "set_paid_tariff": eligible and new_liability_ready,
                     "approve_paid_request": eligible,
-                    "reserve_paid_purchase": ready,
-                    "start_funding": ready,
+                    "reserve_paid_purchase": new_liability_ready,
+                    "start_funding": new_liability_ready,
                     "start_onboarding": ready,
                 },
             }

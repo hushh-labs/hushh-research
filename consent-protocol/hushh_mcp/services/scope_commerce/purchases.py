@@ -129,6 +129,7 @@ class PurchaseReservations:
         await self._registered_key(c, p)
         required = p["price_cents"] * MICRO_PER_CENT
         if required:
+            self._config().require_new_liability_resolution()
             await self._paid_admission(c)
         available = await self._amount(c, account("wallet_available", p["wallet_id"]))
         if available < required:
