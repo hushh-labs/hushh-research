@@ -242,7 +242,6 @@ async def test_account_b_c_connect_opt_in_switch_refresh_and_revoke(followup_pg)
             ),
             response=Response(),
             firebase_uid=OWNER,
-            owner={"user_id": OWNER},
         )
         assert result["monitoring_enabled"] is True
     b_monitor = await store.monitor(user_id=OWNER, account_id=b)
@@ -311,7 +310,6 @@ async def test_account_b_c_connect_opt_in_switch_refresh_and_revoke(followup_pg)
         routes.PreferenceChange(user_id=OWNER, account_id=c, enabled=False),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert disabled["monitoring_enabled"] is False
     assert await store.monitor(user_id=OWNER, account_id=c) is None

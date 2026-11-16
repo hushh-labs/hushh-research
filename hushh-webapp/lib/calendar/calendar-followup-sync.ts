@@ -7,7 +7,7 @@ import { CalendarFollowupsService, type FollowupStatus } from "@/lib/services/ca
  */
 export async function rebindFollowupMonitor(
   userId: string, accountId: string, current: FollowupStatus, zone: string,
-  idToken: string, ownerToken: string, signal?: AbortSignal,
+  idToken: string, signal?: AbortSignal,
 ): Promise<void> {
   await CalendarFollowupsService.post("preferences", {
     user_id: userId, account_id: accountId, enabled: true,
@@ -17,7 +17,7 @@ export async function rebindFollowupMonitor(
     time_zone: current.time_zone || zone,
     reminder_lead_days: current.reminder_lead_days ?? 1,
     reminder_hour: current.reminder_hour ?? 9,
-  }, idToken, ownerToken, signal);
+  }, idToken, signal);
 }
 
 // One slow or failed call (a proxy timeout, a brief outage) must not end the
@@ -30,7 +30,7 @@ const MAX_CONSECUTIVE_SCAN_FAILURES = 3;
  * false when the caller went away before the work finished.
  */
 export async function scanWhilePending(options: {
-  userId: string; accountId: string; ownerToken: string; maxCalls: number;
+  userId: string; accountId: string; maxCalls: number;
   getIdToken: () => Promise<string>; refresh: () => Promise<void>; signal?: AbortSignal;
 }): Promise<boolean> {
   let failures = 0;
@@ -39,7 +39,7 @@ export async function scanWhilePending(options: {
     let result: Awaited<ReturnType<typeof CalendarFollowupsService.scan>>;
     try {
       result = await CalendarFollowupsService.scan(
-        options.userId, options.accountId, await options.getIdToken(), options.ownerToken, {}, options.signal,
+        options.userId, options.accountId, await options.getIdToken(), {}, options.signal,
       );
     } catch (failure) {
       if (options.signal?.aborted) return false;
@@ -58,7 +58,7 @@ export async function scanWhilePending(options: {
 /** Initialize once after Calendar has a real Mail grant; never override an opt-out. */
 export async function initializeFollowupMonitor(
   userId: string, accountId: string, current: FollowupStatus, zone: string,
-  idToken: string, ownerToken: string, signal?: AbortSignal,
+  idToken: string, signal?: AbortSignal,
 ): Promise<boolean> {
   if (!current.mail_connected || current.monitoring_enabled) return false;
   const result = await CalendarFollowupsService.post<{ monitoring_enabled: boolean }>("preferences", {
@@ -66,6 +66,6 @@ export async function initializeFollowupMonitor(
     notifications_enabled: Boolean(current.background_available),
     historical_start_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
     time_zone: zone, reminder_lead_days: 1, reminder_hour: 9,
-  }, idToken, ownerToken, signal);
+  }, idToken, signal);
   return result.monitoring_enabled;
 }

@@ -394,7 +394,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
-      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} getIdToken={getIdToken} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
         const request = booking.followupRequest;
         const selectedAccount = booking.accountId;
         closeBooking();
@@ -404,9 +404,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         if (request) {
           try {
             if (selectedAccount !== accountId || !result.event.id) throw new Error("Follow-up account or event changed.");
-            const ownerToken = getVaultOwnerToken?.();
-            if (!ownerToken) throw new Error("Unlock One to link this event to its follow-up.");
-            await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken(), ownerToken);
+            await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken());
             setInsightsRefreshRevision(value => value + 1);
           } catch {
             morphyToast.error("Calendar event created, but its follow-up could not be marked booked. Review it again before dismissing reminders.", { className: presentationStyles.toast });

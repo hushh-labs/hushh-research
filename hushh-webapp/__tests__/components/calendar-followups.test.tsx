@@ -4,13 +4,15 @@ import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
   coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary,
 } from "@/lib/calendar/calendar-followup-presentation";
+import { FollowupRequestError } from "@/lib/services/calendar-followups-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 
 const service = vi.hoisted(() => ({
   status: vi.fn(), list: vi.fn(), detail: vi.fn(), source: vi.fn(), sourceLink: vi.fn(),
   resolve: vi.fn(), post: vi.fn(), change: vi.fn(), scan: vi.fn(),
 }));
-vi.mock("@/lib/services/calendar-followups-service", () => ({ CalendarFollowupsService: service }));
+vi.mock("@/lib/services/calendar-followups-service", async importOriginal => ({ ...await importOriginal<object>(), CalendarFollowupsService: service }));
 const conversationId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 const callId = "33333333-3333-4333-8333-333333333333";
@@ -46,7 +48,7 @@ function props(accountId: string, onConnectMail: (accountId: string) => Promise<
   return {
     userId: "owner", accountId, accountEmail: `${accountId}@example.test`,
     zone: "Asia/Kolkata", expanded: false,
-    getIdToken: async () => "synthetic-id-token", getVaultOwnerToken: () => "synthetic-owner-token",
+    getIdToken: async () => "synthetic-id-token",
     onViewAll: vi.fn(), onConnectMail, onReviewMeeting: vi.fn(),
   };
 }
@@ -108,6 +110,8 @@ describe("Follow-ups wording", () => {
 
 describe("Calendar Insights Follow-ups card", () => {
   beforeEach(() => {
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
     Object.values(service).forEach(mock => mock.mockReset());
     service.scan.mockResolvedValue(undefined);
     service.sourceLink.mockImplementation(async (_user, accountId, requestId) => ({
@@ -151,9 +155,9 @@ describe("Calendar Insights Follow-ups card", () => {
     fireEvent.click(screen.getByRole("button", { name: "Allow email access" }));
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
       account_id: "account_C", enabled: true, notifications_enabled: true,
-    }), "synthetic-id-token", "synthetic-owner-token"));
+    }), "synthetic-id-token"));
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_C", "synthetic-id-token", "synthetic-owner-token", {}, expect.any(AbortSignal)));
+      "owner", "account_C", "synthetic-id-token", {}, expect.any(AbortSignal)));
     expect(onConnectMail).toHaveBeenCalledOnce();
     const approved = service.post.mock.calls.find(([path]) => path === "preferences")![1];
     expect(Math.round((Date.now() - Date.parse(approved.historical_start_at)) / 86_400_000)).toBe(30);
@@ -169,7 +173,7 @@ describe("Calendar Insights Follow-ups card", () => {
     service.post.mockImplementation(async () => { enabled = true; return { account_id: "account_granted", monitoring_enabled: true }; });
     service.list.mockResolvedValue({ ...bList, account_id: "account_granted" });
     render(<CalendarFollowups {...props("account_granted", onConnectMail)} />);
-    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true, initialize_only: true }), expect.anything(), expect.anything(), expect.anything()));
+    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true, initialize_only: true }), expect.anything(), expect.anything()));
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Turn on|Allow email access/ })).not.toBeInTheDocument();
     expect(onConnectMail).not.toHaveBeenCalled();
@@ -259,7 +263,7 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByText("A few emails could not be read yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_stuck", "synthetic-id-token", "synthetic-owner-token", {}, expect.any(AbortSignal)));
+      "owner", "account_stuck", "synthetic-id-token", {}, expect.any(AbortSignal)));
   });
 
   it("continues in the background once and not again on reopening", async () => {
@@ -269,7 +273,7 @@ describe("Calendar Insights Follow-ups card", () => {
     // Verified items appear without waiting for the catch-up scan.
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
     await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(1));
-    expect(service.scan.mock.calls[0]).toEqual(["owner", "account_catchup", "synthetic-id-token", "synthetic-owner-token", {}, expect.anything()]);
+    expect(service.scan.mock.calls[0]).toEqual(["owner", "account_catchup", "synthetic-id-token", {}, expect.anything()]);
     first.unmount();
     render(<CalendarFollowups {...props("account_catchup")} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
@@ -285,20 +289,21 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
       account_id: "account_quiet_off", enabled: true, notifications_enabled: true,
       historical_start_at: "2026-09-10T00:00:00Z",
-    }), "synthetic-id-token", "synthetic-owner-token", expect.anything()));
+    }), "synthetic-id-token", expect.anything()));
     expect(screen.queryByText(/Remind me/)).not.toBeInTheDocument();
   });
 
   it("rebinds a renewed Mail grant silently, keeping the approved period", async () => {
-    service.status.mockResolvedValue(status("account_renewed", { monitor_current: false }));
+    let rebound = false;
+    service.status.mockImplementation(async () => status("account_renewed", { monitor_current: rebound }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_renewed" });
-    service.post.mockResolvedValue({ account_id: "account_renewed" });
+    service.post.mockImplementation(async () => { rebound = true; return { account_id: "account_renewed" }; });
     const onConnectMail = vi.fn(async () => true);
     render(<CalendarFollowups {...props("account_renewed", onConnectMail)} />);
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
       account_id: "account_renewed", enabled: true, historical_start_at: "2026-09-10T00:00:00Z",
       notifications_enabled: true, reminder_lead_days: 1, reminder_hour: 9,
-    }), "synthetic-id-token", "synthetic-owner-token", expect.anything()));
+    }), "synthetic-id-token", expect.anything()));
     expect(onConnectMail).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /Allow email access|Turn on/ })).not.toBeInTheDocument();
     expect(service.post).toHaveBeenCalledTimes(1);
@@ -369,23 +374,16 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByRole("button", { name: "Snooze 1 day" })).not.toBeInTheDocument();
   });
 
-  it("loads a notification target after the vault is unlocked", async () => {
-    service.status.mockResolvedValue(status("account_B"));
-    service.list.mockResolvedValue(bList);
+  it("loads a notification target without vault authority", async () => {
+    service.status.mockResolvedValue(status("account_notification"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_notification" });
     service.resolve.mockResolvedValue({ conversationId, requestId: documentId });
-    service.detail.mockResolvedValue({
-      ...bList.conversations[0], account_id: "account_B", requests: [],
-    });
-    let token: string | null = null;
-    const base = props("account_B", vi.fn());
-    const view = render(<CalendarFollowups {...base} getVaultOwnerToken={() => token} deepLinkRequestId={documentId} />);
-    expect(await screen.findByText("Unlock One to view follow-ups.")).toBeInTheDocument();
-    expect(service.list).not.toHaveBeenCalled();
-    token = "synthetic-owner-token";
-    view.rerender(<CalendarFollowups {...base} getVaultOwnerToken={() => token} deepLinkRequestId={documentId} />);
+    service.detail.mockResolvedValue({ ...bList.conversations[0], account_id: "account_notification", requests: [] });
+    render(<CalendarFollowups {...props("account_notification")} deepLinkRequestId={documentId} />);
     await waitFor(() => expect(service.resolve).toHaveBeenCalledWith(
-      "owner", "account_B", documentId, "synthetic-id-token", token, expect.anything(),
+      "owner", "account_notification", documentId, "synthetic-id-token", expect.anything(),
     ));
+    expect(screen.queryByText(/Unlock One/)).toBeNull();
   });
 
   it("shows one 15-conversation page at a time with server offsets", async () => {
@@ -401,7 +399,7 @@ describe("Calendar Insights Follow-ups card", () => {
     const first = { ...bList, account_id: "account_page", total_conversations: 16,
       next_offset: 15, conversations: conversations.slice(0, 15) };
     const second = { ...first, next_offset: null, conversations: conversations.slice(15) };
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) => offset === 15 ? second : first);
+    service.list.mockImplementation(async (_user, _account, _id, _signal, offset = 0) => offset === 15 ? second : first);
     render(<CalendarFollowups {...props("account_page", vi.fn())} expanded />);
     expect(await screen.findByText("Send document 1")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
@@ -409,7 +407,7 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(await screen.findByText("Send document 16")).toBeInTheDocument();
     expect(screen.queryByText("Send document 1")).toBeNull();
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
-    expect(service.list.mock.calls.some(call => call[5] === 15)).toBe(true);
+    expect(service.list.mock.calls.some(call => call[4] === 15)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Go to previous page" }));
     expect(await screen.findByText("Send document 1")).toBeInTheDocument();
     expect(screen.queryByText("Send document 16")).toBeNull();
@@ -424,7 +422,7 @@ describe("Calendar Insights Follow-ups card", () => {
     const overdue = { ...upcoming, view: "overdue", conversations: [{
       ...entry, preview_requests: [{ ...entry.preview_requests[0], title: "Overdue document", bucket: "overdue" }],
     }] };
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, _offset, view) =>
+    service.list.mockImplementation(async (_user, _account, _id, _signal, _offset, view) =>
       view === "overdue" ? overdue : upcoming);
     const base = props(account);
     const screenView = render(<CalendarFollowups {...base} />);
@@ -433,7 +431,7 @@ describe("Calendar Insights Follow-ups card", () => {
     fireEvent.click(screen.getByRole("button", { name: "Overdue (1)" }));
     expect(await screen.findByText("Overdue document")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Overdue (1)" })).toHaveAttribute("aria-pressed", "true");
-    expect(service.list.mock.calls.some(call => call[5] === 0 && call[6] === "overdue")).toBe(true);
+    expect(service.list.mock.calls.some(call => call[4] === 0 && call[5] === "overdue")).toBe(true);
     screenView.rerender(<CalendarFollowups {...base} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
     expect(screen.queryByText("Overdue document")).not.toBeInTheDocument();
@@ -451,7 +449,7 @@ describe("Calendar Insights Follow-ups card", () => {
       }],
     }] };
     let resolvePage: (page: typeof second) => void = () => {};
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) =>
+    service.list.mockImplementation(async (_user, _account, _id, _signal, offset = 0) =>
       offset === 15 ? new Promise<typeof second>(resolve => { resolvePage = resolve; }) : first);
     const base = props("account_page");
     const view = render(<CalendarFollowups {...base} expanded refreshRevision={0} />);
@@ -477,7 +475,7 @@ describe("Calendar Insights Follow-ups card", () => {
       }],
     }] };
     let resolvePage: (page: typeof second) => void = () => {};
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) =>
+    service.list.mockImplementation(async (_user, _account, _id, _signal, offset = 0) =>
       offset === 15 ? new Promise<typeof second>(resolve => { resolvePage = resolve; }) : first);
     const base = props("account_page");
     const view = render(<CalendarFollowups {...base} expanded />);
@@ -505,9 +503,9 @@ describe("Calendar Insights Follow-ups card", () => {
     });
     const onConnectMail = vi.fn(async () => true);
     render(<CalendarFollowups {...props("account_stale", onConnectMail)} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Reconnect email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_stale", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
+      "owner", "account_stale", "synthetic-id-token", {}, expect.any(AbortSignal)));
     expect(attempts).toBeGreaterThanOrEqual(2);
     expect(onConnectMail).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument());
@@ -535,87 +533,88 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan).toHaveBeenCalledTimes(20);
   });
 
-  it("renews missing owner authority before reading without asking to unlock again", async () => {
-    let token: string | null = null;
+  it("does not open OAuth after leaving during the permission check", async () => {
+    service.status.mockResolvedValue(status("account_departure", { mail_connected: false, monitoring_enabled: false, scan_state: "off", coverage: null }));
+    const connect = vi.fn(async () => true);
+    const view = render(<CalendarFollowups {...props("account_departure", connect)} />);
+    const button = await screen.findByRole("button", { name: "Allow email access" });
+    let finish!: (value: ReturnType<typeof status>) => void;
+    service.status.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(button);
+    await waitFor(() => expect(finish).toBeDefined());
+    view.unmount();
+    finish(status("account_departure", { mail_connected: false }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(connect).not.toHaveBeenCalled();
+    expect(service.post).not.toHaveBeenCalled();
+  });
+
+  it("renders a saved snapshot immediately on return while refreshing", async () => {
+    service.status.mockResolvedValue(status("account_cached"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_cached" });
+    const first = render(<CalendarFollowups {...props("account_cached")} />);
+    await screen.findByText("Send the research document");
+    first.unmount();
+    service.status.mockImplementation(() => new Promise(() => {}));
+    render(<CalendarFollowups {...props("account_cached")} />);
+    expect(screen.getByText("Send the research document")).toBeInTheDocument();
+  });
+
+  it("refreshes completed results on focus and clears revoked information", async () => {
+    service.status.mockResolvedValue(status("account_live"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_live" });
+    render(<CalendarFollowups {...props("account_live")} />);
+    await screen.findByText("Send the research document");
+    await waitFor(() => expect(service.scan).toHaveBeenCalled());
+    service.list.mockRejectedValue(new FollowupRequestError("mail_grant_changed", 409));
+    fireEvent.focus(window);
+    await waitFor(() => expect(screen.queryByText("Send the research document")).toBeNull());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("reads saved follow-ups with Firebase and no vault recovery", async () => {
     service.status.mockResolvedValue(status("account_renewal"));
     service.list.mockResolvedValue({ ...bList, account_id: "account_renewal" });
-    const recover = vi.fn(async () => { token = "renewed-owner-token"; return token; });
-    render(<CalendarFollowups {...props("account_renewal")} getVaultOwnerToken={() => token} recoverVaultOwnerToken={recover} />);
+    render(<CalendarFollowups {...props("account_renewal")} />);
     await screen.findByText("Send the research document");
-    expect(recover).toHaveBeenCalledOnce();
-    expect(service.list).toHaveBeenCalledWith("owner", "account_renewal", "synthetic-id-token", "renewed-owner-token", expect.any(AbortSignal), 0, "upcoming");
+    expect(service.list).toHaveBeenCalledWith("owner", "account_renewal", "synthetic-id-token", expect.any(AbortSignal), 0, "upcoming");
     expect(screen.queryByText(/Unlock One/)).toBeNull();
   });
 
-  it("does not open protected details after locking during ID-token retrieval", async () => {
-    let token: string | null = "synthetic-owner-token";
+  it("does not open details after sign-out during ID-token retrieval", async () => {
     const getIdToken = vi.fn(async () => "synthetic-id-token");
     service.status.mockResolvedValue(status("account_delayed_id"));
     service.list.mockResolvedValue({ ...bList, account_id: "account_delayed_id" });
-    render(<CalendarFollowups {...props("account_delayed_id")} getIdToken={getIdToken} getVaultOwnerToken={() => token} />);
+    render(<CalendarFollowups {...props("account_delayed_id")} getIdToken={getIdToken} />);
     await screen.findByText("Send the research document");
     await waitFor(() => expect(service.scan).toHaveBeenCalled());
     let finish!: (value: string) => void;
     getIdToken.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     fireEvent.click(screen.getByRole("button", { name: /^Review / }));
     await waitFor(() => expect(finish).toBeDefined());
-    token = null;
+    publishValidatedAuthSessionOwner(null);
     finish("synthetic-id-token");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(service.detail).not.toHaveBeenCalled();
   });
 
-  it("reports unavailable renewal without claiming the unlocked vault is locked", async () => {
-    service.status.mockResolvedValue(status("account_unavailable"));
-    const recover = vi.fn(async () => { throw new Error("FOLLOWUPS_SESSION_UNAVAILABLE"); });
-    render(<CalendarFollowups {...props("account_unavailable")} getVaultOwnerToken={() => null} recoverVaultOwnerToken={recover} />);
-    await screen.findByText("Your secure connection could not be restored. Try again.");
-    expect(screen.queryByText(/Unlock One/)).toBeNull();
-    expect(service.list).not.toHaveBeenCalled();
-    expect(service.scan).not.toHaveBeenCalled();
-  });
-
-  it("does not read the old account after pending recovery is unmounted", async () => {
-    service.status.mockResolvedValue(status("account_departed"));
+  it("does not read an account after delayed authentication is unmounted", async () => {
     let finish!: (token: string) => void;
-    const recover = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
-    const view = render(<CalendarFollowups {...props("account_departed")} getVaultOwnerToken={() => null} recoverVaultOwnerToken={recover} />);
-    await waitFor(() => expect(recover).toHaveBeenCalledOnce());
+    const getIdToken = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
+    const view = render(<CalendarFollowups {...props("account_departed")} getIdToken={getIdToken} />);
+    await waitFor(() => expect(finish).toBeDefined());
     view.unmount();
-    finish("renewed-owner-token");
+    finish("synthetic-id-token");
     await new Promise(resolve => setTimeout(resolve, 0));
+    expect(service.status).not.toHaveBeenCalled();
     expect(service.list).not.toHaveBeenCalled();
   });
 
-  it("says to unlock One instead of offering a Mail reconnect that cannot help", async () => {
-    // UAT: with the vault locked the card never listed or scanned, yet showed
-    // "Reconnect email" and a generic failure, sending the owner through Google twice.
-    service.status.mockResolvedValue(status("account_locked", {
-      monitor_current: false, scan_state: "partial", coverage: {
-        coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
-        exhausted_source_count: 0, unreadable_count: 0 } }));
-    render(<CalendarFollowups {...props("account_locked")} getVaultOwnerToken={() => null} />);
-    expect(await screen.findByText("Unlock One to view follow-ups.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument();
-    expect(service.list).not.toHaveBeenCalled();
-    expect(service.scan).not.toHaveBeenCalled();
-  });
-
-  it("checks the vault before opening Google consent and names the real problem", async () => {
-    service.status.mockResolvedValue(status("account_new", {
-      mail_connected: false, monitoring_enabled: false, monitor_current: false, scan_state: "off", coverage: null }));
-    const onConnectMail = vi.fn(async () => true);
-    render(<CalendarFollowups {...props("account_new", onConnectMail)} getVaultOwnerToken={() => null} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Allow email access" }));
-    expect(await screen.findByText("Unlock One before turning on email follow-ups.")).toBeInTheDocument();
-    expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
-    expect(onConnectMail).not.toHaveBeenCalled();
-  });
 });
 
 describe("Follow-ups catch-up loop", () => {
   const run = (refresh = vi.fn(async () => undefined)) => scanWhilePending({
-    userId: "owner", accountId: "account_B", ownerToken: "synthetic-owner-token", maxCalls: 10,
+    userId: "owner", accountId: "account_B", maxCalls: 10,
     getIdToken: async () => "synthetic-id-token", refresh,
   });
 

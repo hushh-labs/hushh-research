@@ -464,3 +464,64 @@ def test_empty_retry_recovery_never_discards_progress_or_unknown_formats(checkpo
     before = deepcopy(checkpoint)
     assert not _is_empty_retry_checkpoint(checkpoint)
     assert checkpoint == before
+
+
+def test_history_gap_preserves_missing_interval_beyond_first_scan_window():
+    from datetime import timedelta
+
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
+        _initial_checkpoint,
+        bootstrap_window_is_stale,
+    )
+
+    now = datetime(2026, 11, 17, tzinfo=UTC)
+    monitor = replace(_Store().current, historical_start_at=now - timedelta(days=90))
+    cutoff = int((now - timedelta(days=61)).timestamp() * 1000)
+    checkpoint = _initial_checkpoint(
+        monitor, snapshot_ms=int(now.timestamp() * 1000), history_id="200", cutoff_ms=cutoff
+    )
+    assert checkpoint["cutoff_ms"] == cutoff
+    assert not bootstrap_window_is_stale(json.loads(json.dumps(checkpoint)))
+
+
+@pytest.mark.asyncio
+async def test_slow_section_yields_and_resumes_without_reassessing_completed_sections(monkeypatch):
+    clock = [0.0]
+    assessed = []
+    store = _Store()
+
+    async def current():
+        return None
+
+    grant = SimpleNamespace(
+        epoch_digest="synthetic-epoch", require_current=current, token=_SYNTHETIC_TOKEN
+    )
+    monkeypatch.setattr(scan, "open_selected_mail_grant", lambda **_: _grant(grant))
+    monkeypatch.setattr(scan, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    async def assess_section(**kwargs):
+        assessed.append(kwargs["section"].index)
+        clock[0] += 40
+        return [], []
+
+    monkeypatch.setattr(scan, "assess_section", assess_section)
+    common = dict(
+        user_id="synthetic-owner",
+        account_id="account-b",
+        store=store,
+        now=datetime(2026, 10, 11, tzinfo=UTC),
+        transport=_transport("Earlier context. " * 1600, []),
+        max_sections=40,
+        budget_seconds=35,
+    )
+    first = await scan.scan_once(**common)
+    assert first["state"] == "pending"
+    assert assessed == [0]
+    assert store.current.checkpoint["section_index"] == 1
+    for _ in range(10):
+        result = await scan.scan_once(**common)
+        if result["state"] == "complete":
+            break
+    assert result["state"] == "complete"
+    assert len(assessed) == len(set(assessed))
+    assert len(store.committed) == 1

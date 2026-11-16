@@ -94,7 +94,7 @@ export function CalendarConnectedWorkspace(props: Props) {
     accountIds: props.status.accounts?.filter(account => account.connected).map(account => account.account_id)
       ?? (props.status.connected ? ["default"] : []),
     connectionRevision: props.connectionRevision ?? 0,
-    ownerToken: vaultOwnerToken, getIdToken: props.getIdToken, getOwnerToken: getVaultOwnerToken,
+    getIdToken: props.getIdToken,
   });
   const accountKey = (props.status.accounts || []).map(account => `${account.account_id}:${account.google_email}:${account.status}:${account.grant_generation || ""}`).join("|") || props.status.google_email || "";
   const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });

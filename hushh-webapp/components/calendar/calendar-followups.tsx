@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { followupResourceKey, followupSnapshot, saveFollowupSnapshot, clearFollowupSnapshot } from "@/lib/calendar/calendar-followup-resource";
 import presentationStyles from "./calendar-presentation.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink } from "@/components/icons";
@@ -22,12 +24,12 @@ import {
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
 import { initializeFollowupMonitor, rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
-import { CalendarFollowupsService, type FollowupConversation, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupStatus, type FollowupView } from "@/lib/services/calendar-followups-service";
+import { FollowupRequestError, CalendarFollowupsService, type FollowupConversation, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupStatus, type FollowupView } from "@/lib/services/calendar-followups-service";
 
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
-  getIdToken: () => Promise<string>; getVaultOwnerToken: () => string | null;
-  recoverVaultOwnerToken?: () => Promise<string | null>;
+  getIdToken: () => Promise<string>;
+  connectionRevision?: number; providerBinding?: string;
   onViewAll: () => void; onConnectMail?: (accountId: string) => Promise<boolean>;
   onReviewMeeting: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
   refreshRevision?: number;
@@ -39,10 +41,6 @@ type Props = {
 // scan that is not due, so this only avoids pointless round trips.
 const CATCH_UP_INTERVAL_MS = 5 * 60_000;
 const lastCatchUp = new Map<string, number>();
-// A quiet progress check while the first scan is still running. The scheduled
-// worker does the bulk of the first month, so the card keeps looking for new
-// results; bounded (about 30 minutes) so a stuck account never polls forever.
-const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, ...Array.from({ length: 14 }, () => 120_000)];
 // A first scan reads the most recent month only; later passes are incremental.
 const FIRST_SCAN_DAYS = 30;
 // Each scan call does one bounded step on the server. While it reports more work
@@ -61,9 +59,12 @@ function isVisible(request: FollowupRequest) {
   return isActive(request) && request.bucket !== "history";
 }
 
-export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, recoverVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
-  const [status, setStatus] = useState<FollowupStatus | null>(null);
-  const [list, setList] = useState<FollowupList | null>(null);
+export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, connectionRevision = 0, providerBinding = "", onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
+  const resourceKey = followupResourceKey(userId, accountId, connectionRevision, providerBinding);
+  const cached = followupSnapshot(resourceKey);
+  const authGeneration = getAuthSessionGeneration();
+  const [status, setStatus] = useState<FollowupStatus | null>(cached?.status ?? null);
+  const [list, setList] = useState<FollowupList | null>(cached?.list ?? null);
   const [detail, setDetail] = useState<FollowupDetail | null>(null);
   const [removal, setRemoval] = useState<{ conversationId: string; requestId: string; title: string } | null>(null);
   const removeTrigger = useRef<HTMLButtonElement | null>(null);
@@ -71,7 +72,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [emailLinks, setEmailLinks] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [loadingPage, setLoadingPage] = useState(false);
   const [pageOffset, setPageOffset] = useState(0);
   const [view, setView] = useState<ActiveView>("upcoming");
@@ -85,36 +86,35 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
-  const hasVerifiedRows = useRef(false);
+  const hasVerifiedRows = useRef(Boolean(cached?.list.conversations.length));
   const pageOffsetRef = useRef(0);
   const viewRef = useRef<ActiveView>("upcoming");
-  const firstPageRef = useRef<FollowupList | null>(null);
+  const firstPageRef = useRef<FollowupList | null>(cached?.list ?? null);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
   const tokenGetter = useRef(getIdToken); tokenGetter.current = getIdToken;
-  const ownerTokenGetter = useRef(getVaultOwnerToken); ownerTokenGetter.current = getVaultOwnerToken;
   const trigger = useRef<HTMLButtonElement | null>(null);
   const handledIntent = useRef<string | null>(null);
   const focusedCard = useRef<HTMLDivElement | null>(null);
   const rebound = useRef(false);
-  const progressChecks = useRef(0);
-  const vaultAvailable = Boolean(getVaultOwnerToken());
-  const recovery = useRef(recoverVaultOwnerToken); recovery.current = recoverVaultOwnerToken;
-  const requireOwnerToken = useCallback(async (lockedMessage: string) => {
-    const controller = lifetime.current;
-    let token = ownerTokenGetter.current();
-    if (!token) token = await recovery.current?.() ?? null;
-    if (controller !== lifetime.current || controller?.signal.aborted) {
-      throw new DOMException("Follow-up session changed", "AbortError");
+  const clearPresentation = useCallback(() => {
+    clearFollowupSnapshot(resourceKey);
+    firstPageRef.current = null; hasVerifiedRows.current = false;
+    detailSeq.current += 1; selectedIdRef.current = null;
+    setStatus(null); setList(null); setDetail(null); setSelectedId(null); setEmailLinks({});
+    setRemoval(null); setFocusedRequestId(null); setReminderInput(""); setReminderOpen(null);
+  }, [resourceKey]);
+  const clearRejectedAuthority = useCallback((failure: unknown) => {
+    if (failure instanceof FollowupRequestError &&
+        ([401, 403].includes(failure.status) || ["mail_grant_changed", "monitor_changed", "monitoring_off"].includes(failure.code))) {
+      clearPresentation(); setLoading(false); setError(followupErrorText(failure));
     }
-    if (!token) throw new Error(lockedMessage);
-    return token;
-  }, []);
+  }, [clearPresentation]);
 
-  const currentIdToken = async (ownerToken: string) => {
+  const currentIdToken = async () => {
     const controller = lifetime.current;
     const idToken = await tokenGetter.current();
-    if (controller !== lifetime.current || controller?.signal.aborted || ownerTokenGetter.current() !== ownerToken) {
+    if (controller !== lifetime.current || controller?.signal.aborted || getAuthSessionGeneration() !== authGeneration || snapshotValidatedAuthSessionOwner()?.userId !== userId) {
       throw new DOMException("Follow-up session changed", "AbortError");
     }
     return idToken;
@@ -122,10 +122,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
+    if (snapshotValidatedAuthSessionOwner()?.userId !== userId) return;
     const seq = ++requestSeq.current;
     // A refresh supersedes a pending page request, including its loading state.
     setLoadingPage(false);
-    const alive = () => !signal?.aborted && requestSeq.current === seq;
+    const alive = () => !signal?.aborted && requestSeq.current === seq && getAuthSessionGeneration() === authGeneration;
     if (!quiet) { setLoading(true); setError(""); }
     try {
       const idToken = await tokenGetter.current();
@@ -133,43 +134,46 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       let nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
       if (!alive()) return;
       if (nextStatus.mail_connected && !nextStatus.monitoring_enabled) {
-        const ownerToken = await requireOwnerToken("Unlock One to start email follow-ups.");
         if (!alive()) return;
-        if (await initializeFollowupMonitor(userId, accountId, nextStatus, zone, idToken, ownerToken, signal)) {
+        if (await initializeFollowupMonitor(userId, accountId, nextStatus, zone, idToken, signal)) {
           nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
           if (!alive()) return;
         }
       }
+      if (nextStatus.mail_connected && nextStatus.monitoring_enabled && nextStatus.monitor_current === false) {
+        await rebindFollowupMonitor(userId, accountId, nextStatus, zone, idToken, signal);
+        if (!alive()) return;
+        nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
+        if (!alive()) return;
+      }
       setStatus(nextStatus);
       if (!nextStatus.mail_connected || !nextStatus.monitoring_enabled) {
-        setList(null); setLoading(false); return;
+        clearPresentation(); setStatus(nextStatus); setLoading(false); return;
       }
-      const ownerToken = await requireOwnerToken("Unlock One to view follow-ups.");
       if (!alive()) return;
       let offset = pageOffsetRef.current;
       const selectedView = viewRef.current;
-      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
+      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, signal, offset, selectedView);
       if (!alive()) return;
       if (offset > 0 && offset >= nextList.total_conversations) {
         offset = Math.max(0, Math.ceil(nextList.total_conversations / FOLLOWUP_PAGE_SIZE) - 1) * FOLLOWUP_PAGE_SIZE;
-        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, selectedView);
+        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, signal, offset, selectedView);
       }
       if (alive()) {
-        if (offset === 0 && selectedView === "upcoming") firstPageRef.current = nextList;
+        if (offset === 0 && selectedView === "upcoming") {
+          firstPageRef.current = nextList;
+          saveFollowupSnapshot(resourceKey, { status: nextStatus, list: nextList });
+        }
         hasVerifiedRows.current = nextList.conversations.length > 0;
         pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
       }
     } catch (failure) {
-      if (alive() && !ownerTokenGetter.current()) {
-        firstPageRef.current = null;
-        hasVerifiedRows.current = false;
-        setList(null);
-      }
+      if (alive()) clearRejectedAuthority(failure);
       // Neither a background refresh nor a failed reload replaces items the owner
       // is already looking at with an error: the last verified list stays.
       if (alive() && !quiet) { if (!hasVerifiedRows.current) setError(followupErrorText(failure)); setLoading(false); }
     }
-  }, [userId, accountId, requireOwnerToken, zone]);
+  }, [userId, accountId, zone, resourceKey, authGeneration, clearRejectedAuthority, clearPresentation]);
 
   useEffect(() => {
     if (expanded) return;
@@ -186,18 +190,18 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
-    void refresh(controller.signal);
+    void refresh(controller.signal, Boolean(followupSnapshot(resourceKey)));
     return () => { controller.abort(); requestSeq.current += 1; };
-  }, [refresh, refreshRevision, vaultAvailable]);
+  }, [refresh, refreshRevision, connectionRevision, resourceKey]);
 
-  const rebindMonitor = useCallback(async (current: FollowupStatus, ownerToken: string, signal?: AbortSignal) => {
-    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), ownerToken, signal);
+  const rebindMonitor = useCallback(async (current: FollowupStatus, signal?: AbortSignal) => {
+    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), signal);
   }, [userId, accountId, zone]);
 
   /** The previous scan call reported more work: keep going, showing results as they land. */
-  const continueScan = useCallback(async (ownerToken: string, signal?: AbortSignal) => {
+  const continueScan = useCallback(async (signal?: AbortSignal) => {
     const finished = await scanWhilePending({
-      userId, accountId, ownerToken, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
+      userId, accountId, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
       getIdToken: () => tokenGetter.current(), refresh: () => refresh(signal, true),
     });
     if (!finished) lastCatchUp.delete(`${userId}:${accountId}`);
@@ -208,10 +212,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // repeats within the interval, so navigating around cannot trigger rescans.
   useEffect(() => {
     if (!status?.monitoring_enabled || !status.mail_connected) return;
-    const ownerToken = ownerTokenGetter.current();
     const signal = lifetime.current?.signal;
-    if (!ownerToken || signal?.aborted) return;
-    if (status.monitor_current === false || (!status.notifications_enabled && status.background_available)) {
+    if (signal?.aborted) return;
+    if (!status.notifications_enabled && status.background_available) {
       // The Mail grant was renewed elsewhere, or reminders were left off: rebind
       // this account's monitor (reminders on) without asking again, keeping every
       // decision and the scan progress.
@@ -219,7 +222,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       rebound.current = true;
       void (async () => {
         try {
-          await rebindMonitor(status, ownerToken, signal);
+          await rebindMonitor(status, signal);
           await refresh(signal, true);
         } catch {
           // Nothing is shown for a background rebind, but a failure must not
@@ -236,9 +239,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     lastCatchUp.set(key, Date.now());
     void (async () => {
       try {
-        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
+        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), {}, signal);
         await refresh(signal, true);
-        if (result?.state === "pending") await continueScan(ownerToken, signal);
+        if (result?.state === "pending") await continueScan(signal);
       } catch { /* the scheduler continues without the page */ }
     })();
   }, [status, userId, accountId, zone, refresh, rebindMonitor, continueScan]);
@@ -258,25 +261,28 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     setShowSynced(true);
   }, [catchingUp, emailSynced, userId, accountId]);
   useEffect(() => {
-    if (!catchingUp || progressChecks.current >= PROGRESS_CHECKS_MS.length) return;
-    const timer = window.setTimeout(() => {
-      progressChecks.current += 1;
-      void refresh(lifetime.current?.signal, true);
-    }, PROGRESS_CHECKS_MS[progressChecks.current]);
-    return () => window.clearTimeout(timer);
-  }, [catchingUp, status, list, refresh]);
+    if (!status?.monitoring_enabled) return;
+    const wake = () => {
+      if (document.visibilityState !== "hidden" && navigator.onLine !== false) {
+        void refresh(lifetime.current?.signal, true);
+      }
+    };
+    const timer = window.setInterval(wake, catchingUp ? 15_000 : 60_000);
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [catchingUp, status?.monitoring_enabled, refresh]);
 
-  useEffect(() => {
-    if (vaultAvailable) return;
-    hasVerifiedRows.current = false;
-    detailSeq.current += 1;
-    selectedIdRef.current = null;
-    setSelectedId(null);
-    setDetail(null);
-    setEmailLinks({});
-    setFocusedRequestId(null);
-    setRemoval(null);
-  }, [vaultAvailable]);
+  useEffect(() => subscribeAuthSessionGeneration(() => {
+    lifetime.current?.abort(); requestSeq.current += 1; detailSeq.current += 1;
+    clearPresentation();
+  }), [clearPresentation]);
 
   useEffect(() => {
     if (!focusedRequestId || !detail || !focusedCard.current) return;
@@ -289,12 +295,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // a normal link that browsers allow to open.
   useEffect(() => {
     if (!detail) return;
-    const ownerToken = ownerTokenGetter.current();
-    if (!ownerToken) return;
     const controller = new AbortController();
     void Promise.all(detail.requests.filter(isVisible).map(async request => {
       try {
-        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), ownerToken, controller.signal);
+        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), controller.signal);
         return [request.id, gmailMessageUrl(accountEmail, link.gmail_message_id)] as const;
       } catch { return null; }
     })).then(entries => {
@@ -304,34 +308,36 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   }, [detail, userId, accountId, accountEmail]);
 
   const openDetail = async (conversationId: string, from?: HTMLButtonElement | null, focusRequestId?: string): Promise<boolean> => {
+    const operation = lifetime.current;
     const seq = ++detailSeq.current;
     selectedIdRef.current = conversationId;
     if (from) trigger.current = from;
     setSelectedId(conversationId); setDetail(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
-      const ownerToken = await requireOwnerToken("Unlock One to review this follow-up.");
-      const value = await CalendarFollowupsService.detail(userId, accountId, conversationId, await currentIdToken(ownerToken), ownerToken);
-      if (lifetime.current?.signal.aborted || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
+      const value = await CalendarFollowupsService.detail(userId, accountId, conversationId, await currentIdToken());
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
       setDetail(value);
       return true;
-    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
+    } catch (failure) { clearRejectedAuthority(failure); if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
   };
 
   const act = async (request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null = null) => {
     setBusy(true); setActionError("");
+    const operation = lifetime.current;
     const currentSelection = selectedIdRef.current;
     const seq = detailSeq.current;
     try {
-      const ownerToken = await requireOwnerToken("Unlock One to change this follow-up.");
-      await CalendarFollowupsService.change(userId, accountId, request, action, reminderAt, await currentIdToken(ownerToken), ownerToken);
+      await CalendarFollowupsService.change(userId, accountId, request, action, reminderAt, await currentIdToken());
+      clearFollowupSnapshot(resourceKey); firstPageRef.current = null;
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       if (currentSelection) {
-        const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await currentIdToken(ownerToken), ownerToken);
-        if (detailSeq.current === seq && selectedIdRef.current === currentSelection) setDetail(next);
+        const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await currentIdToken());
+        if (operation === lifetime.current && !operation?.signal.aborted && detailSeq.current === seq && selectedIdRef.current === currentSelection) setDetail(next);
       }
       await refresh(lifetime.current?.signal, true);
       setReminderInput(""); setReminderOpen(null);
-    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
+    } catch (failure) { clearRejectedAuthority(failure); if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -340,18 +346,18 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
    * it asks for that permission once; if it already is, nothing is asked again.
    */
   const turnOn = async () => {
+    const operation = lifetime.current;
     setBusy(true); setError("");
     try {
       // Asking Google first would waste the owner's consent on a step that cannot finish.
-      await requireOwnerToken("Unlock One before turning on email follow-ups.");
       const latest = await CalendarFollowupsService.status(userId, accountId, await tokenGetter.current(), lifetime.current?.signal);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       let mailReady = latest.mail_connected;
       if (!mailReady) {
         if (!onConnectMail) return;
         mailReady = await onConnectMail(accountId);
         if (!mailReady) { setError("Email access was not allowed. Calendar works as before."); return; }
       }
-      const ownerToken = await requireOwnerToken("Unlock One before turning on email follow-ups.");
       // Renewing access for an account that is already monitored keeps its
       // approved period, timing and reminders; only a first opt-in chooses them.
       const existing = status?.monitoring_enabled ? status : null;
@@ -362,9 +368,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         historical_start_at: historical,
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
-      }, await currentIdToken(ownerToken), ownerToken);
+      }, await currentIdToken());
       lastCatchUp.delete(`${userId}:${accountId}`);
-      progressChecks.current = 0;
       // Connection is ready; inference continues without blocking its action.
       await refresh(lifetime.current?.signal);
     } catch (failure) { setError(followupErrorText(failure)); }
@@ -375,28 +380,27 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const checkAgain = async () => {
     setBusy(true); setError("");
     try {
-      const ownerToken = await requireOwnerToken("Unlock One to check your email again.");
-      const first = await CalendarFollowupsService.scan(userId, accountId, await currentIdToken(ownerToken), ownerToken, { retry: true });
-      progressChecks.current = 0;
+      const first = await CalendarFollowupsService.scan(userId, accountId, await currentIdToken(), { retry: true });
       await refresh(lifetime.current?.signal, true);
-      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
+      if (first?.state === "pending") void continueScan(lifetime.current?.signal).catch(() => undefined);
     } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
   const reconnect = async () => {
     if (!onConnectMail) return;
+    const operation = lifetime.current;
     setBusy(true); setError("");
     try {
-      await requireOwnerToken("Unlock One to renew email access.");
       const latest = await CalendarFollowupsService.status(userId, accountId, await tokenGetter.current(), lifetime.current?.signal);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       const connected = latest.mail_connected || await onConnectMail(accountId);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       if (connected) {
         // Reconnecting changes the Mail grant, so point the monitor at it first;
         // otherwise this scan would still see the old one and ask to reconnect again.
-        const ownerToken = getVaultOwnerToken();
-        if (ownerToken && status?.monitoring_enabled) {
-          try { await rebindMonitor(status, ownerToken); } catch { /* the scan below reports what is still wrong */ }
+        if (status?.monitoring_enabled) {
+          try { await rebindMonitor(status, operation?.signal); } catch { /* the scan below reports what is still wrong */ }
         }
         await checkAgain();
       }
@@ -410,9 +414,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     const seq = ++requestSeq.current;
     setLoadingPage(true); setError("");
     try {
-      const ownerToken = await requireOwnerToken("Unlock One to view follow-ups.");
       const page = await CalendarFollowupsService.list(
-        userId, accountId, await currentIdToken(ownerToken), ownerToken, lifetime.current?.signal, offset, targetView,
+        userId, accountId, await currentIdToken(), lifetime.current?.signal, offset, targetView,
       );
       if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
       if (offset === 0 && targetView === "upcoming") firstPageRef.current = page;
@@ -421,7 +424,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       pageOffsetRef.current = offset;
       setPageOffset(offset);
       setList(page);
-    } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
+    } catch (failure) { clearRejectedAuthority(failure); if (requestSeq.current === seq) setError(followupErrorText(failure)); }
     finally { if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
@@ -435,19 +438,20 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const removeRequest = async () => {
     if (!removal || removing.current) return;
     removing.current = true;
+    const operation = lifetime.current;
     setBusy(true);
     try {
-      const ownerToken = await requireOwnerToken("Unlock One to remove this follow-up.");
-      const idToken = await currentIdToken(ownerToken);
-      const latest = await CalendarFollowupsService.detail(userId, accountId, removal.conversationId, idToken, ownerToken);
-      if (lifetime.current?.signal.aborted) return;
+      const idToken = await currentIdToken();
+      const latest = await CalendarFollowupsService.detail(userId, accountId, removal.conversationId, idToken);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       const request = latest.requests.find(item => item.id === removal.requestId && isVisible(item));
       if (!request) {
         await refresh(lifetime.current?.signal);
         toast.info("This follow-up is no longer available.", { className: presentationStyles.toast });
         return;
       }
-      await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, await currentIdToken(ownerToken), ownerToken);
+      await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, await currentIdToken());
+      clearFollowupSnapshot(resourceKey); firstPageRef.current = null;
       if (lifetime.current?.signal.aborted) return;
       toast.success("Removed from Follow-ups", { className: presentationStyles.toast });
       await refresh(lifetime.current?.signal);
@@ -478,9 +482,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!deepLinkRequestId || !status?.monitoring_enabled || !list || handledIntent.current === deepLinkRequestId) return;
     void (async () => {
       try {
-        const ownerToken = await requireOwnerToken("Unlock One to open this follow-up.");
         const target = await CalendarFollowupsService.resolve(
-          userId, accountId, deepLinkRequestId, await currentIdToken(ownerToken), ownerToken, lifetime.current?.signal,
+          userId, accountId, deepLinkRequestId, await currentIdToken(), lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
         if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
@@ -494,7 +497,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "upcoming" ? (list?.conversations || []).slice(0, 2) : [];
   const viewCounts = list?.view_counts;
   const hasMoreViews = Boolean(viewCounts && (viewCounts.overdue || viewCounts.snoozed));
-  const notice = status?.monitoring_enabled && !loading && !error ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
+  const notice = status?.monitoring_enabled && !loading && !error ? coverageNotice(status.coverage ?? list?.coverage, true) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
@@ -543,9 +546,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       {!notice && showSynced && emailSynced ? <p className={styles.muted} role="status">{SYNCED_NOTICE}</p> : null}
       {error ? <div className="space-y-2">
         <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p>
-        {error === "Your secure connection could not be restored. Try again." ? <Button size="compact" disabled={loading} onClick={() => void refresh(lifetime.current?.signal)}>Try again</Button> : null}
+        {error ? <Button size="compact" disabled={loading} onClick={() => void refresh(lifetime.current?.signal)}>Try again</Button> : null}
       </div> : null}
       <div className="flex items-center justify-between gap-2">
+        {!expanded && hasMoreViews ? <span className={styles.muted}>{viewCounts?.overdue ?? 0} overdue · {viewCounts?.snoozed ?? 0} snoozed</span> : null}
         {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="text" onClick={onViewAll}>View all</Button> : <span />}
       </div>
       {expanded && list ? <PaginatedListFooter
