@@ -105,6 +105,14 @@ MANUAL_STATIC_SOURCE_PROFILES = {
         PUBLICATION: ("ef6ba0e9048f0be6fcd434f5c8168c68ed50f311", 30879),
         "scripts/ci/retention_pass_diagnostics.py": ("855d2f936eb49d67c4f4e1c58847e0da40f183dc", 6576),
     },
+    # Main ab0ef1a7 (failed attempt 43901186548/1): same static manual guard
+    # refusing at stage=publication_guard before restore_state or provider access.
+    "ab0ef1a7170693366d62dab640d479a66b799b07": {
+        base.OWNER: ("22da863c84a521ff38edef8f83c630f3dd44a2d9", 97467),
+        base.WORKFLOW: ("943a4ac0772fbc110baa1bbcedf3d0764d217ba3", 21387),
+        PUBLICATION: ("aa583855b133bdd83089efdfd3a1f515951c4f20", 30966),
+        "scripts/ci/retention_pass_diagnostics.py": ("855d2f936eb49d67c4f4e1c58847e0da40f183dc", 6576),
+    },
 }
 
 # GitHub prints this setup action input's multi-line default without line stamps.
@@ -423,6 +431,7 @@ def qualify_guard_run(
                 job,
                 expected_diagnostic_sha256=diagnostic_hash,
                 clock_bound=clock_bound_manual,
+                allow_clock_records=clock_bound_manual,
             )):
         return None
     return {

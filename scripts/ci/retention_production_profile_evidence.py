@@ -22,7 +22,11 @@ APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
 STATIC_GUARD_SOURCE = "b31636cee1f7281688d58b54e0445ddf717e825e"
 # The reviewed activation/worker readers changed the owner tuple, while
 # publication admission still precedes every provider mutation.
-STATIC_GUARD_SOURCES = (STATIC_GUARD_SOURCE, "619e37615f35d11b79909420f23cf0d5a75b679b")
+STATIC_GUARD_SOURCES = (
+    STATIC_GUARD_SOURCE,
+    "619e37615f35d11b79909420f23cf0d5a75b679b",
+    "ab0ef1a7170693366d62dab640d479a66b799b07",
+)
 STATIC_GUARD_PATHS = (*production.SOURCE_PATHS, records.PASS_DIAGNOSTICS)
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
 PROFILE_NAME = "publication-aec6-blobless-v2"
