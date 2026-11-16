@@ -52,6 +52,7 @@ import {
 } from "@/lib/one/hosting-placement";
 import {
   isAzureHomeSelectable,
+  isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
   ownerCloudProvider,
   type OwnerCloudProvider,
@@ -110,12 +111,9 @@ function OwnerCloudSetupPage({ user, owner }: {
   } | null>(null);
   // Which hosting card is picked. Null falls back to the confirmed Shared state.
   const [choice, setChoice] = useState<HostingChoice | null>(null);
-  // The hosted door is closed for maintenance (founder direction, 2026-09-02):
-  // the card stays visible so the choice is still honest, but it cannot be
-  // taken. Lift it with NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0; no code
-  // change is needed to reopen.
-  const hostedUnderMaintenance =
-    process.env.NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE !== "0";
+  // The hosted door stays paused outside Dev unless NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0;
+  // on Dev (`NEXT_PUBLIC_APP_ENV=dev`) it opens for fixed-cohort pilot owners.
+  const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
   const [hostedSaving, setHostedSaving] = useState(false);
   const [hosted, setHosted] = useState<Awaited<
     ReturnType<typeof ApiService.selectHostedCloud>

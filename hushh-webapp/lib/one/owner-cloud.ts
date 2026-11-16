@@ -58,6 +58,24 @@ export function isAzureHomeSelectable(): boolean {
   return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }
 
+/**
+ * Whether the Hussh Pods card is paused for maintenance on this build.
+ *
+ * Explicit `NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE` ("0"/"false" vs "1"/"true")
+ * always wins. When unset, the hosted `dev` lane (`NEXT_PUBLIC_APP_ENV=dev`)
+ * opens the card for admitted Dev pilot owners while `uat`, `production`, and
+ * unconfigured builds remain fail-closed (backend `/byoc/hosted/select` still
+ * enforces fixed-cohort admission independently).
+ */
+export function isHostedPodTierUnderMaintenance(): boolean {
+  const explicit = String(process.env.NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE ?? "")
+    .trim()
+    .toLowerCase();
+  if (explicit === "0" || explicit === "false") return false;
+  if (explicit === "1" || explicit === "true") return true;
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() !== "dev";
+}
+
 /** A private mode chooses direct admission; it never establishes authority. */
 export function isPrivateHostingMode(mode: unknown): boolean {
   return mode === "byoc" || mode === "hussh_pods";

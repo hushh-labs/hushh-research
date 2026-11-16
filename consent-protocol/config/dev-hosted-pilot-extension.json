@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "policyId": "7c3d5e91-4b28-4e62-9f14-8a05d1c32611",
+  "environment": "dev",
+  "slotNumber": 3,
+  "sourceRevision": "9368735abdac23ee0e7c93f8d9aa9bc6928e5961",
+  "imageDigest": "sha256:da9e0dc9c1a15e07f87c4a8d0b64a518b2d0fc6d3658d6e9f2e947f897213b43",
+  "workBudgetCents": 20000,
+  "cleanupReserveCents": 5000,
+  "createdAt": "2026-11-16T08:00:00+00:00",
+  "expiresAt": "2026-11-23T08:00:00+00:00",
+  "modelBinding": {
+    "provider": "gemini",
+    "model": "gemini-4-hydrogen",
+    "project": "hushh-pda-dev",
+    "profileHash": "4e7aecc9981f633d472e1dd40061177a9b46759e5d4e626c251675346d874ce5"
+  },
+  "assignment": {
+    "ownerHash": "sha256:c97551ab19eb74268232915e49084592457e1d944749e5d371a3d7662c3f23e4",
+    "hushhId": "ha1_mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
+    "project": "hussh-hp-c97551ab-261116c",
+    "projectNumber": null,
+    "region": "us-central1",
+    "bootstrapContract": {
+      "plan": {
+        "tenancy": "hussh-hosted",
+        "target": {
+          "project": "hussh-hp-c97551ab-261116c",
+          "region": "us-central1"
+        },
+        "resources": [
+          {
+            "type": "kms_key",
+            "id": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key",
+            "purpose": "per-user CMEK for PKM cache + blobs",
+            "destroyScheduledDuration": "86400s"
+          },
+          {
+            "type": "gcs_bucket",
+            "id": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-blobs",
+            "purpose": "per-user-encrypted blob storage near the agent",
+            "encryption": "cmek:one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key"
+          },
+          {
+            "type": "service_account",
+            "id": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "purpose": "least-privilege pod runtime identity"
+          },
+          {
+            "type": "artifact_repository",
+            "id": "one-pod",
+            "format": "DOCKER",
+            "purpose": "YOUR OWN copy of the pod image; the pod pulls from here, so nothing it runs comes from hushh's registry at runtime"
+          },
+          {
+            "type": "cloud_run_service",
+            "id": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
+            "image": "us-central1-docker.pkg.dev/hussh-hp-c97551ab-261116c/one-pod/consent-protocol-pod",
+            "source_image": "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:da9e0dc9c1a15e07f87c4a8d0b64a518b2d0fc6d3658d6e9f2e947f897213b43",
+            "ingress": "all",
+            "service_account": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "purpose": "the sovereign per-user pod (slim image), pulled from your own repo"
+          },
+          {
+            "type": "secret",
+            "id": "one-pod-ha1-mwsz2qvz3-l35o77ae-signing-key",
+            "purpose": "the pod signs its own receipts with this; hushh never reads it"
+          }
+        ],
+        "iam": [
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/cloudkms.cryptoKeyDecrypter",
+            "on": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key"
+          },
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/cloudkms.cryptoKeyEncrypter",
+            "on": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key",
+            "note": "the pod generates and WRAPS its own data key on first boot; hushh never holds the plaintext"
+          },
+          {
+            "member": "the project's Cloud Storage service agent",
+            "role": "roles/cloudkms.cryptoKeyEncrypterDecrypter",
+            "on": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-key",
+            "note": "what makes the bucket CMEK-encrypted under YOUR key rather than Google's default"
+          },
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/storage.objectAdmin",
+            "on": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn-blobs"
+          },
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/secretmanager.secretAccessor",
+            "on": "one-pod-ha1-mwsz2qvz3-l35o77ae-signing-key",
+            "note": "the pod reads its own signing secret; scoped to that one secret"
+          },
+          {
+            "member": "one-bootstrap@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/iam.serviceAccountUser",
+            "on": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "note": "lets the bootstrap deploy a service that RUNS AS the pod account, and nothing else"
+          },
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/aiplatform.user",
+            "on": "project:hussh-hp-c97551ab-261116c",
+            "project_level": true,
+            "note": "Assigned-project Vertex authority on Hussh-funded quota; does not authorize the separately bound inference bridge."
+          },
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/serviceusage.serviceUsageConsumer",
+            "on": "project:hussh-hp-c97551ab-261116c",
+            "project_level": true,
+            "note": "PROJECT-LEVEL quota consumption; does not enable APIs or change billing"
+          },
+          {
+            "member": "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com",
+            "role": "roles/run.invoker",
+            "on": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
+            "applied_at": "provision",
+            "note": "lets ONLY the Hushh A2A gateway reach the pod; Hushh holds no key into this project. Bound when the service is created, not during bootstrap, because the binding needs a service to bind to"
+          },
+          {
+            "member": "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com",
+            "role": "roles/artifactregistry.writer",
+            "on": "one-pod",
+            "note": "lets hushh COPY the pod image into your own repo -- at setup and again when your pod is upgraded. This is a STANDING grant scoped to this one repo: hushh writes only here and never reads your history, and you can revoke it any time by removing this binding or tearing down. It is removed for you at teardown"
+          },
+          {
+            "member": "the project's Cloud Run service agent",
+            "role": "roles/artifactregistry.reader",
+            "on": "one-pod",
+            "note": "lets your pod's own runtime pull its image from your own repo"
+          },
+          {
+            "member": "one-pod-ha1-mwsz2qvz3-l35o77ae@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "role": "roles/run.invoker",
+            "on": "one-pod-ha1-mwsz2qvz3v3b46k5ujw2x4hsitbsqorn",
+            "applied_at": "provision",
+            "note": "exact direct Gmail push and authenticated maintenance identity"
+          }
+        ],
+        "federation": {
+          "type": "impersonation",
+          "impersonation": {
+            "bootstrap_service_account": "one-bootstrap@hussh-hp-c97551ab-261116c.iam.gserviceaccount.com",
+            "granted_to": "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com",
+            "role": "roles/iam.serviceAccountTokenCreator",
+            "scope": "that ONE service account \u2014 never a project-level role",
+            "token_lifetime": "900s",
+            "note": "hushh mints a 15-minute token per bootstrap session and holds nothing afterwards; revocation is removing this single binding"
+          }
+        },
+        "tunnel": {
+          "inbound": "Hushh A2A gateway -> pod (run.invoker, private ingress)",
+          "outbound": "pod -> Hushh consent MCP with a per-user HCT (enforcement, not issuance)",
+          "zero_knowledge": "pod holds its own X25519 key; Hushh sees ciphertext only"
+        },
+        "authorization": "Hussh-managed dev project, admitted per owner through the retained pilot reservation. Hussh retains infrastructure administration; no user-owned cloud claim is made.",
+        "capabilityReadiness": {
+          "gmailNotifications": "unqualified"
+        }
+      },
+      "steps": [
+        "enable_services",
+        "generate_run_service_identity",
+        "artifact_repo",
+        "artifact_repo_grant_copy_writer",
+        "artifact_repo_grant_run_agent_reader",
+        "kms_keyring",
+        "kms_key",
+        "pod_service_account",
+        "iam_bootstrap_can_run_as_pod",
+        "iam_gcs_agent_on_key",
+        "cmek_bucket",
+        "pod_signing_secret",
+        "pod_signing_secret_version",
+        "iam_pod_sa_on_key",
+        "iam_pod_sa_on_signing_secret",
+        "iam_pod_sa_on_bucket",
+        "iam_pod_sa_vertex",
+        "iam_pod_sa_quota"
+      ]
+    },
+    "preparationContract": {
+      "parentType": "folder",
+      "parentId": "1085913534660",
+      "billingAccount": "billingAccounts/012F27-3B760F-342498",
+      "operatorPrincipalHash": "sha256:251ac0f9ef1bc9f55be7e0513806eb120c68810bb368797c6de42ed9b5970cce",
+      "projectedWorkCents": 10000,
+      "steps": [
+        "create_project",
+        "link_billing",
+        "authorize_project",
+        "inference_vertex",
+        "inference_quota"
+      ]
+    }
+  }
+}
