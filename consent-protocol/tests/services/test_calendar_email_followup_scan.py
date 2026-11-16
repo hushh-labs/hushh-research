@@ -371,3 +371,96 @@ async def test_a_time_budgeted_pass_does_what_took_several_calls_and_stops_on_ti
 
     with pytest.raises(ValueError, match="invalid_scan_budget"):
         await scan.scan_once(**common, store=_Store(), budget_seconds=0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "saved,force",
+    [
+        (None, True),
+        ({"message_failures": {}, "reassess_seen": {}}, False),
+        (scan._upgrade_checkpoint({"message_failures": {}, "reassess_seen": {}}), False),
+    ],
+)
+async def test_initial_retry_and_legacy_empty_checkpoint_finish_then_stay_incremental(
+    monkeypatch, saved, force
+):
+    store = _Store()
+    store.current = replace(store.current, checkpoint=saved)
+
+    async def acquire_scan(**kwargs):
+        assert kwargs == {
+            "user_id": "synthetic-owner",
+            "account_id": "account-b",
+            **({"force": True} if force else {}),
+        }
+        return store.current
+
+    store.acquire_scan = acquire_scan
+
+    async def current():
+        return None
+
+    grant = SimpleNamespace(
+        epoch_digest="synthetic-epoch", require_current=current, token=_SYNTHETIC_TOKEN
+    )
+    monkeypatch.setattr(scan, "open_selected_mail_grant", lambda **_: _grant(grant))
+    assessed = []
+
+    async def assess_section(**kwargs):
+        assessed.append(kwargs)
+        return [], []
+
+    monkeypatch.setattr(scan, "assess_section", assess_section)
+    pages = []
+    common = dict(
+        user_id="synthetic-owner",
+        account_id="account-b",
+        store=store,
+        now=datetime(2026, 10, 11, tzinfo=UTC),
+        transport=_transport("Please send the document before 26 October.", pages),
+        max_sections=40,
+        budget_seconds=30,
+        force=force,
+    )
+    result = await scan.scan_once(**common)
+    assert result["state"] == "complete"
+    assert store.error_code is None
+    assert len(store.committed) == len(assessed) == 1
+    assert pages == [None, "cursor-two"]
+    assert store.current.checkpoint["mode"] == "history"
+    assert store.current.checkpoint["history_id"] == "101"
+
+    result = await scan.scan_once(**common)
+    assert result["state"] == "complete"
+    assert len(store.committed) == len(assessed) == 1
+    assert pages == [None, "cursor-two"]
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        {"version": 2},
+        {"mode": "history"},
+        {"history_id": "100"},
+        {"pending_threads": []},
+        {"unknown": None},
+        {"partial_candidates": [{"source": "synthetic"}]},
+        {"partial_updates": [{"source": "synthetic"}]},
+        {"reassess_seen": {"thread": True}},
+        {"section_index": 1},
+        {"message_failures": {"message": 1}},
+        {"assessment_version": 999},
+        {"assessment_version": True},
+    ],
+)
+def test_empty_retry_recovery_never_discards_progress_or_unknown_formats(checkpoint):
+    from copy import deepcopy
+
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
+        _is_empty_retry_checkpoint,
+    )
+
+    before = deepcopy(checkpoint)
+    assert not _is_empty_retry_checkpoint(checkpoint)
+    assert checkpoint == before

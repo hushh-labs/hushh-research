@@ -156,6 +156,22 @@ def _upgrade_checkpoint(checkpoint: dict[str, Any]) -> dict[str, Any]:
     return checkpoint
 
 
+def _is_empty_retry_checkpoint(checkpoint: dict[str, Any]) -> bool:
+    """Recognize only the empty placeholder written by a pre-initialization Retry.
+
+    Inspect before upgrading: an assessment upgrade clears partial results and
+    must never make a populated or unknown cursor look safe to initialize.
+    """
+    defaults = _upgrade_checkpoint({})
+    assessment_version = checkpoint.get("assessment_version", ASSESSMENT_VERSION)
+    if type(assessment_version) is not int or not 1 <= assessment_version <= ASSESSMENT_VERSION:
+        return False
+    return all(
+        key in defaults and (key == "assessment_version" or value == defaults[key])
+        for key, value in checkpoint.items()
+    )
+
+
 def _record_unreadable(checkpoint: dict[str, Any]) -> None:
     checkpoint["unreadable"] = int(checkpoint.get("unreadable", 0)) + 1
 

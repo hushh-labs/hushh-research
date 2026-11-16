@@ -30,6 +30,8 @@ Gmail permission is not monitoring. Mail is recorded for an account only when th
 
 The connected Calendar workspace initializes monitoring for already-granted accounts using the current owner token, then starts one bounded scan. The existing scheduled worker continues after navigation. Insights also retries initialization if workspace startup was interrupted. A valid Mail grant is reused without OAuth; missing or declined Mail permission still requires an explicit Google consent action. A newly remembered disabled preference remains off until explicitly enabled. Older releases deleted disabled preferences, so historical opt-outs cannot be reconstructed from that table.
 
+Retry before the first scan must initialize a complete cursor before resetting retry budgets. The scanner also recognizes the known empty retry placeholder written by older releases, before assessment-version upgrades can clear partial fields. Only empty metadata without cursor fields is recoverable this way; populated or unknown checkpoints are not reset. Recovery uses the current account grant and ordinary lease/backoff, preserves existing extracted records, and resumes incremental history after completion.
+
 ## Complete source read and semantic assessment
 
 1. The opted-in scanner pages selected-mailbox conversations within the explicit historical window, excluding Spam and Trash. Page and thread cursors are sealed and bound to owner, account, grant generation, cutoff, and scan revision. A partial page does not advance the checkpoint past unread messages. The scanner has bounded work per invocation and resumes until coverage is complete; it does not impose a silent total-thread limit.
