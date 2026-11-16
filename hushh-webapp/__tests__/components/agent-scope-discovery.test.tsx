@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InformationRequestReviewExperience, ScopeDiscoveryExperience } from "@/lib/agent/agui-structured-experiences";
-import type { ViewerPersonProfile } from "@/lib/services/person-profile-service";
+import { PersonProfileService, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "reviewer-a", getIdToken: vi.fn(async () => "test-token") },
@@ -15,7 +15,11 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId:
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-owner-token" }) }));
 vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   ...await importOriginal<object>(),
-  PersonProfileService: { getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports },
+  PersonProfileService: { informationRequestPrice: vi.fn(async (input: { personRef: string; scopeRefs: string[]; durationSeconds: number }) => ({
+    version: 1, personRef: input.personRef, durationSeconds: input.durationSeconds,
+    currency: "USD", coinsPerDollar: 100, items: input.scopeRefs.map(scopeRef => ({scopeRef,label:"Test information",amountCoins:0})),
+    totalCoins: 0, availableCoins: 0, shortfallCoins: 0, binding: "a".repeat(64),
+  })), getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports },
 }));
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: {
   ensureConnector: async () => ({ connector_key_id: "test-connector" }),
@@ -86,6 +90,23 @@ describe("current-authority inline Chat catalog", () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
+  it("shows the price on One’s proposal and reserves through one explicit Send after funding", async () => {
+    const price = {version:1 as const,personRef:person,durationSeconds:86400,currency:"USD" as const,coinsPerDollar:100 as const,
+      items:[{scopeRef:"scope-1",label:"Synthetic field 1",amountCoins:24}],totalCoins:24,availableCoins:0,shortfallCoins:24,binding:"b".repeat(64)};
+    vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce(price);
+    render(<AgentStructuredExperienceView experience={{...experience,proposal:{proposed:[{scopeRef:"scope-1",label:"Synthetic field 1",why:null,domain:"professional",wildcard:false,pathSegments:[]}],durationHours:24,reasonSuggestion:"Synthetic sharing review"}}} />);
+    await screen.findByText(/Add 24 Hussh/);
+    expect(screen.getByRole("button",{name:"Send",exact:true})).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Add coins"})).toBeInTheDocument();
+    expect(mocks.create).not.toHaveBeenCalled();
+    vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce({...price,availableCoins:50,shortfallCoins:0});
+    fireEvent.click(screen.getByRole("button",{name:"Check price"}));
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Send",exact:true})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button",{name:"Send",exact:true}));
+    await waitFor(()=>expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({priceBinding:price.binding,scopeRefs:["scope-1"],durationSeconds:86400})));
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps selection, editable review and explicit submission inside Chat", async () => {
     render(<AgentStructuredExperienceView experience={experience} />);
     fireEvent.click(await screen.findByText("Synthetic field 1"));
@@ -93,6 +114,7 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
     expect(mocks.create).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await screen.findByRole("status");
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ personRef: person, scopeRefs: ["scope-1"], purpose: "Synthetic sharing rehearsal" }));
@@ -114,6 +136,7 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.getByRole("heading", { name: "Requested information" }).parentElement)
       .not.toHaveTextContent("Professional role");
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic professional review" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       personRef: person, scopeRefs: ["opaque-professional-root"],
@@ -157,6 +180,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Professional Domain" }));
     fireEvent.click(screen.getByRole("button", { name: "Review request" }));
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: purpose } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText("Request sent to Synthetic Recipient")).toBeInTheDocument();
     expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
@@ -204,6 +228,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(await screen.findByText("Synthetic field 1"));
     fireEvent.click(screen.getByText("Review request"));
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText(/Request sent\. They can now review/)).toBeInTheDocument();
     expect(screen.queryByText("Request sent to Synthetic Recipient")).toBeNull();
@@ -230,6 +255,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(screen.getByText("Synthetic field 2"));
     fireEvent.click(screen.getByText("Review request"));
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText(/Request sent\. They can now review/)).toBeInTheDocument();
     expect(mocks.getInformationRequest).not.toHaveBeenCalled();

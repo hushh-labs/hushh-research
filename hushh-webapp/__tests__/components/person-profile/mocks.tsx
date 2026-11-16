@@ -66,7 +66,11 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 vi.mock("@/lib/services/person-profile-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/person-profile-service")>(),
-  PersonProfileService: {
+  PersonProfileService: { informationRequestPrice: vi.fn(async (input: { personRef: string; scopeRefs: string[]; durationSeconds: number }) => ({
+    version: 1, personRef: input.personRef, durationSeconds: input.durationSeconds,
+    currency: "USD", coinsPerDollar: 100, items: input.scopeRefs.map(scopeRef => ({scopeRef,label:"Test information",amountCoins:0})),
+    totalCoins: 0, availableCoins: 0, shortfallCoins: 0, binding: "a".repeat(64),
+  })),
     getPublic: mocks.getPublic,
     peekPublic: mocks.peekPublic,
     invalidatePublicProfiles: vi.fn(),

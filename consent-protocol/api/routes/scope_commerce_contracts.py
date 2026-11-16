@@ -55,6 +55,7 @@ def _error(error: Exception) -> HTTPException:
         "insufficient_balance": 409,
         "seller_not_eligible": 409,
         "quote_expired": 409,
+        "request_price_changed": 409,
         "owner_approval_required": 409,
         "idempotency_conflict": 409,
         "buyer_cancellation_after_activation_denied": 409,

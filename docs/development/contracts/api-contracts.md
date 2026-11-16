@@ -6112,3 +6112,5 @@ A mount cannot enroll an owner or activate delivery; current
 verified identity, owner epoch, explicit per-attempt choice and the separately
 qualified Matrix worker remain required. Keep the attempt key available for
 generation-bound unsubscribe even when new delivery is disabled.
+
+Dev person requests use `POST /api/one/information-requests/price-preview` before Send. Supply its `price_binding` on the existing create route for atomic bundle and coin reservation. See the [commerce contract](../../../consent-protocol/docs/reference/consumer-scope-commerce.md).

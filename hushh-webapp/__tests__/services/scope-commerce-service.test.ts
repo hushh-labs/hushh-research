@@ -296,6 +296,9 @@ describe("server-authored sharing readiness", () => {
   it("uses allowlisted setup guidance while suppressing unknown server diagnostics", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "seller_onboarding_required", message: "private account secret" } }, { status: 409 }));
     await expect(ScopeCommerceService.readiness("firebase")).rejects.toMatchObject({ name: "CommerceActionError", code: "seller_onboarding_required", message: "Open Payments and earnings → Set up information-access payouts before charging for information." });
+    fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "request_price_changed" } }, { status: 409 }));
+    await expect(ScopeCommerceService.approveInactive("owner", requestId, 86400, documentId))
+      .rejects.toMatchObject({ code: "request_price_changed", message: "The price changed. Ask for a new request with the current price." });
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "private account secret", message: "private account secret" } }, { status: 500 }));
     try { await ScopeCommerceService.readiness("firebase"); throw new Error("expected rejection"); } catch (error) {
       expect(error).toBeInstanceOf(CommerceActionError);

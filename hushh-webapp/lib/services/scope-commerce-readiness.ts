@@ -42,7 +42,7 @@ export function commerceReadinessCopy(readiness?: CommerceReadiness): string {
     case "disabled": return "New paid purchases and funding are paused. Free sharing still requires your approval.";
     case "unconfigured": return "Payments are not set up for this app yet. Free sharing does not require Stripe.";
     case "unverified": return "Paid sharing is unavailable until payment setup is verified. Free sharing does not require Stripe.";
-    case "ready": return !readiness.capabilities.start_onboarding && !readiness.capabilities.start_funding ? "Paid sharing is not enabled for this account. Free sharing still requires your approval." : readiness.seller.status === "eligible" ? "Paid sharing is available. Every purchase needs a separate price confirmation." : "You can share for free. Open Payments and earnings → Set up information-access payouts before setting a paid price.";
+    case "ready": return !readiness.capabilities.start_onboarding && !readiness.capabilities.start_funding ? "Paid sharing is not enabled for this account. Free sharing still requires your approval." : readiness.seller.status === "eligible" ? "Review the price before sending a request." : "You can share for free. Open Payments and earnings → Set up information-access payouts before setting a paid price.";
   }
 }
 
@@ -60,7 +60,8 @@ const ACTION_ERRORS: Record<string, string> = {
   commerce_environment_unbound: "Payment setup has not been verified. Free sharing does not require Stripe.",
   commerce_environment_mismatch: "Payment setup could not be verified. Check Payments and earnings.",
   scope_commerce_schema_unavailable: "Sharing price controls are unavailable. Refresh before changing saved terms.",
-  insufficient_balance: "Open Payments and earnings → Add funds, then review the exact price again.",
+  insufficient_balance: "Add coins, then review the price again.",
+  request_price_changed: "The price changed. Ask for a new request with the current price.",
   quote_expired: "Quote expired. Request access again so the owner can approve new terms.",
   negative_net_acknowledgement_required: "Refresh and acknowledge the exact owner costs before sharing.",
 };

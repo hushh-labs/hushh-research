@@ -1,4 +1,5 @@
 "use client";
+import type { InformationRequestPrice } from "@/lib/services/person-profile-service";
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
@@ -358,6 +359,7 @@ function ScopeDiscoveryView({
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState(DEFAULT_REQUEST_DURATION_HOURS);
   const [sent, setSent] = useState(false);
+  const [requestPrice, setRequestPrice] = useState<InformationRequestPrice | null>(null);
   const [submitted, setSubmitted] = useState<{
     ownerUid: string;
     subjectRef: string;
@@ -456,7 +458,7 @@ function ScopeDiscoveryView({
   function sendRequest(draft: AskProposalDraft) {
     const { scopes, purpose: draftPurpose, durationHours: draftHours } = draft;
     if (!profile) return;
-    void request.submitWithReceipt({ scopeRefs: scopes.map(scope => scope.scopeRef), purpose: draftPurpose, durationHours: draftHours }).then(receipt => {
+    void request.submitWithReceipt({ scopeRefs: scopes.map(scope => scope.scopeRef), purpose: draftPurpose, durationHours: draftHours, priceBinding: draft.priceBinding }).then(receipt => {
       if (!receipt || !userId || !personRef) return;
       const { bundle, idempotencyKey } = receipt;
       const review = submittedReviewFromBundle({
@@ -485,6 +487,7 @@ function ScopeDiscoveryView({
     : null;
   if (proposal && personRef && !sent) {
     return <AskProposalCard
+      personRef={personRef}
       revealActions={revealInTranscript ?? undefined}
       catalog={authorityScopes}
       personName={personName(profile?.displayName || experience.person.displayName)}
@@ -556,12 +559,12 @@ function ScopeDiscoveryView({
         <h4 className="font-semibold">Request information from {profile.displayName}</h4>
         <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
         <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
-          onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} testIdPrefix="chat-request" />
+          onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} personRef={personRef ?? undefined} onPriceChange={setRequestPrice} testIdPrefix="chat-request" />
         {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
         <div className="flex flex-wrap justify-end gap-2">
           <MorphyButton type="button" size="sm" data-consent-quiet-action="true" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
-          <MorphyButton type="button" size="sm" className="min-h-11" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
-            onClick={() => sendRequest({ scopes: selectedScopes, purpose, durationHours })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
+          <MorphyButton type="button" size="sm" className="min-h-11" disabled={!requestPrice || requestPrice.shortfallCoins > 0 || !request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
+            onClick={() => { if (requestPrice && !requestPrice.shortfallCoins) sendRequest({ scopes: selectedScopes, purpose, durationHours, priceBinding: requestPrice.binding }); }}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
         </div>
       </section> : null}
       {!reviewing ? <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
@@ -597,7 +600,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     /** The request this reading is for; a different card never shows it. */
     bundleId: string;
     status: InformationRequestReviewExperience["status"];
-    fields: InformationRequestReviewExperience["fields"];
+    fields: Array<InformationRequestReviewExperience["fields"][number] & { accessReady?: boolean }>;
     /** Contract C1 progress; null on an older backend, which keeps the pre-C1 card. */
     progress: RequestProgress | null;
   } | null>(null);
@@ -714,6 +717,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
         sensitivity: ledger === "standard" ? "standard" as const : ledger === "restricted" ? "restricted" as const : "sensitive" as const,
         requestId: item.requestId,
         status: item.status,
+        accessReady: item.accessReady,
         };
       });
       const progress = parseRequestProgress(bundle.progress);
@@ -797,7 +801,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   // outline. The card owns opening, the unlock prompt and ended access.
   const sharedItems: SharedWithMeCardItem[] = experience.direction === "outgoing" && experience.phase === "submitted"
     && experience.bundleId && (refreshState === "loaded" || refreshState === "checking")
-    ? (current?.fields ?? []).flatMap((field) => field.status === "granted" && field.requestId ? [{
+    ? (current?.fields ?? []).flatMap((field) => field.status === "granted" && field.accessReady !== false && field.requestId ? [{
       key: field.requestId,
       grantRef: field.requestId,
       bundleId: experience.bundleId,

@@ -360,6 +360,8 @@ const COMMERCE_STATUS_COPY: Record<string, string> = {
   cancelled: "Sharing cancelled. Reserved funds return to the buyer's balance.",
   expired: "Access has ended.",
   approved_awaiting_payment: "Approved. Payment and sharing are still pending.",
+  awaiting_owner: "Coins reserved. Waiting for approval.",
+  approved_funded: "Approved. Ready to share.",
 };
 export function scopeCommerceStatusCopy(status: unknown, role?: ScopeCommerceRequest["role"]): string {
   if (role && status === "awaiting_payment") return role === "owner" ? "Waiting for them to confirm the price." : "Review the price to continue.";

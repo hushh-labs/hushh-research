@@ -735,7 +735,12 @@ describe("ConsentCenterPage requestId deep links", () => {
       id, request_id: id, kind: "incoming_request", status: "pending", action: "REQUESTED",
       allowed_next_action: "review_request", scope, scope_description: label,
       counterpart_type: "person", counterpart_label: "Kushal Trivedi",
-      metadata: { bundle_id: "bundle-mixed", expiry_hours: 168 },
+      metadata: {
+        bundle_id: "bundle-mixed", expiry_hours: 168,
+        upfront_price_reviewed: true, commercial_required: id === "request-events",
+        request_price_coins: id === "request-events" ? 24 : 0, bundle_price_coins: 24,
+        commerce_status: id === "request-events" ? "awaiting_owner" : "free",
+      },
     });
     mocks.search = "tab=pending&bundleId=bundle-mixed&requestId=request-food";
     mocks.listEntries.mockResolvedValue(pendingListResponse({
@@ -750,6 +755,10 @@ describe("ConsentCenterPage requestId deep links", () => {
     render(<ConsentCenterPage />);
     const dialog = await screen.findByRole("dialog", { name: "Kushal Trivedi" });
     expect(within(screen.getByTestId("consent-bundle-choice")).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(dialog).getByText("Request total")).toBeTruthy();
+    expect(within(dialog).getByText("24 Hussh coins ($0.24)")).toBeTruthy();
+    expect(within(dialog).getByRole("link", { name: "View sharing" }))
+      .toHaveAttribute("href", "/one/consent?commerceRequestId=request-events");
     const modelPermission = within(dialog).getByRole("checkbox", { name: /selected model/i });
     fireEvent.click(modelPermission);
     expect(modelPermission).toBeChecked();
@@ -1039,6 +1048,23 @@ describe("ConsentCenterPage requestId deep links", () => {
     ).toBeTruthy();
     expect(screen.getByRole("option", { name: "2 days" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "7 days" })).toBeNull();
+  });
+
+  it("keeps the prepaid access duration fixed while the owner decides", async () => {
+    mocks.search="tab=requests&requestId=held-request";
+    mocks.listEntries.mockResolvedValue(pendingListResponse({
+      id:"held-request",request_id:"held-request",kind:"incoming_request",status:"pending",action:"REQUESTED",
+      scope:"attr.professional.role",scope_description:"Role",counterpart_type:"person",counterpart_id:"one",
+      counterpart_label:"Test requester",issued_at:"2026-07-24T09:00:00.000Z",
+      metadata:{expiry_hours:168,upfront_price_reviewed:true,commercial_required:true,request_price_coins:24,bundle_price_coins:24,commerce_status:"awaiting_owner"},
+    }));
+    render(<ConsentCenterPage />);
+    await screen.findByRole("button",{name:"Allow"});
+    expect(screen.getByText("Request value")).toBeTruthy();
+    expect(screen.getByText("24 Hussh coins ($0.24)")).toBeTruthy();
+    expect(screen.queryByRole("combobox",{name:"Access duration"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Allow"}));
+    await waitFor(()=>expect(mocks.handleApprove).toHaveBeenCalledWith(expect.objectContaining({id:"held-request",durationHours:168}),{modelProcessingAllowed:false}));
   });
 
   it("renders a fixed 24-hour request without a one-option selector and preserves its approval duration", async () => {

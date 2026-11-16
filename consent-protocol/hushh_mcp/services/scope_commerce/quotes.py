@@ -286,29 +286,33 @@ class QuoteApproval:
                 c, "SELECT * FROM scope_commerce_purchases WHERE quote_id=$1", quote["quote_id"]
             )
             if old:
+                if old["status"] == "awaiting_owner":
+                    reservation = await c.fetchrow(
+                        "SELECT status,created_at FROM scope_commerce_reservations "
+                        "WHERE purchase_id=$1 FOR UPDATE",
+                        old["purchase_id"],
+                    )
+                    now = await c.fetchval("SELECT clock_timestamp()")
+                    if (
+                        not reservation
+                        or reservation["status"] != "held"
+                        or reservation["created_at"] >= quote["expires_at"]
+                        or not quote["request_deadline"]
+                        or now >= quote["request_deadline"]
+                        or now >= old["fulfillment_deadline"]
+                    ):
+                        raise CommerceError("funded_pending_request_required")
+                    old = await self._row(
+                        c,
+                        "UPDATE scope_commerce_purchases SET status='reserved' "
+                        "WHERE purchase_id=$1 AND status='awaiting_owner' RETURNING *",
+                        old["purchase_id"],
+                    )
                 return public(old)
             now = await c.fetchval("SELECT clock_timestamp()")
             if now >= quote["expires_at"]:
                 raise CommerceError("quote_expired")
-            row = await self._row(
-                c,
-                """INSERT INTO scope_commerce_purchases(purchase_id,quote_id,request_id,owner_user_id,payer_user_id,buyer_app_id,seller_id,wallet_id,machine_scope,scope_handle,recipient_key_fingerprint,status,price_cents,duration_seconds,fulfillment_deadline)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'awaiting_payment',$12,$13,LEAST(clock_timestamp()+interval '24 hours',$14::timestamptz)) RETURNING *""",
-                uuid4(),
-                quote["quote_id"],
-                request_id,
-                owner_user_id,
-                quote["payer_user_id"],
-                quote["buyer_app_id"],
-                quote["seller_id"],
-                quote["wallet_id"],
-                quote["machine_scope"],
-                quote["scope_handle"],
-                quote["recipient_key_fingerprint"],
-                quote["price_cents"],
-                quote["duration_seconds"],
-                quote["request_deadline"],
-            )
+            row = await self._insert_purchase(c, quote, "awaiting_payment")
             if consent_token:
                 await self.bind_consent_token(
                     purchase_id=row["purchase_id"], token=consent_token, conn=c
@@ -316,6 +320,30 @@ class QuoteApproval:
             return public(row)
 
         return await self._transaction(operation, conn)
+
+    async def _insert_purchase(self, c, quote, status):
+        if status not in {"awaiting_payment", "awaiting_owner"}:
+            raise CommerceError("invalid_purchase_admission")
+        return await self._row(
+            c,
+            """INSERT INTO scope_commerce_purchases(purchase_id,quote_id,request_id,owner_user_id,payer_user_id,buyer_app_id,seller_id,wallet_id,machine_scope,scope_handle,recipient_key_fingerprint,status,price_cents,duration_seconds,fulfillment_deadline)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$15,$12,$13,LEAST(clock_timestamp()+interval '24 hours',$14::timestamptz)) RETURNING *""",
+            uuid4(),
+            quote["quote_id"],
+            quote["request_id"],
+            quote["owner_user_id"],
+            quote["payer_user_id"],
+            quote["buyer_app_id"],
+            quote["seller_id"],
+            quote["wallet_id"],
+            quote["machine_scope"],
+            quote["scope_handle"],
+            quote["recipient_key_fingerprint"],
+            quote["price_cents"],
+            quote["duration_seconds"],
+            quote["request_deadline"],
+            status,
+        )
 
 
 class QuoteReadProjection:

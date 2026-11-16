@@ -16,6 +16,54 @@ from .domain import (
 
 
 class PurchaseReservations:
+    async def reserve_information_request(self, *, payer_user_id, quote_id, idempotency_key, conn):
+        """Hold an exact personal request offer; this is never owner approval."""
+        from hushh_mcp.services.scope_commerce_requests import resolve_commerce_request
+
+        if conn is None:
+            raise CommerceError("request_transaction_required")
+        self._admit()
+
+        async def operation(c):
+            await self._environment(c)
+            quote = await self._row(
+                c,
+                "SELECT * FROM scope_commerce_quotes WHERE quote_id=$1 AND payer_user_id=$2 FOR UPDATE",
+                UUID(str(quote_id)),
+                payer_user_id,
+            )
+            if not quote or quote["buyer_app_id"] != "agent_one" or quote["price_cents"] <= 0:
+                raise CommerceError("personal_paid_request_required")
+            binding = await resolve_commerce_request(
+                quote["request_id"], payer_user_id, require_payer=True, connection=c
+            )
+            if binding["consent_action"] != "REQUESTED" or any(
+                str(binding[key]) != str(quote[key])
+                for key in (
+                    "owner_user_id",
+                    "payer_user_id",
+                    "buyer_app_id",
+                    "machine_scope",
+                    "scope_handle",
+                    "recipient_key_fingerprint",
+                    "duration_seconds",
+                    "purpose",
+                )
+            ):
+                raise CommerceError("pending_request_binding_required")
+            purchase = await self._row(
+                c,
+                "SELECT * FROM scope_commerce_purchases WHERE quote_id=$1 FOR UPDATE",
+                quote["quote_id"],
+            )
+            if not purchase:
+                await self._insert_purchase(c, quote, "awaiting_owner")
+            return await self._tx_reserve_purchase(
+                c, payer_user_id, quote_id, idempotency_key, None, before_owner_approval=True
+            )
+
+        return await self._transaction(operation, conn)
+
     async def reserve_purchase(
         self, *, payer_user_id, quote_id, idempotency_key, on_reserved=None, conn=None
     ):
@@ -29,7 +77,14 @@ class PurchaseReservations:
         return await self._transaction(operation, conn)
 
     async def _tx_reserve_purchase(
-        self, c: Any, payer_user_id: Any, quote_id: Any, idempotency_key: Any, on_reserved: Any
+        self,
+        c: Any,
+        payer_user_id: Any,
+        quote_id: Any,
+        idempotency_key: Any,
+        on_reserved: Any,
+        *,
+        before_owner_approval: bool = False,
     ) -> Any:
         await self._environment(c)
         p = await self._row(
@@ -39,6 +94,8 @@ class PurchaseReservations:
             payer_user_id,
         )
         if not p:
+            raise CommerceError("owner_approval_required")
+        if before_owner_approval != (p["status"] == "awaiting_owner"):
             raise CommerceError("owner_approval_required")
         if p["price_cents"]:
             self._admit_actors(p["owner_user_id"], p["payer_user_id"])
@@ -54,7 +111,8 @@ class PurchaseReservations:
                 raise CommerceError("reservation_closed")
             return public(p)
         now = await c.fetchval("SELECT clock_timestamp()")
-        if p["status"] != "awaiting_payment" or now >= p["fulfillment_deadline"]:
+        expected_status = "awaiting_owner" if before_owner_approval else "awaiting_payment"
+        if p["status"] != expected_status or now >= p["fulfillment_deadline"]:
             raise CommerceError("purchase_unavailable")
         quote_expiry = await c.fetchval(
             "SELECT expires_at FROM scope_commerce_quotes WHERE quote_id=$1", p["quote_id"]
@@ -94,9 +152,10 @@ class PurchaseReservations:
         )
         row = await self._row(
             c,
-            "UPDATE scope_commerce_purchases SET status='reserved',fee_micro_usd=$2,fulfillment_deadline=LEAST(clock_timestamp()+interval '24 hours',(SELECT request_deadline FROM scope_commerce_quotes WHERE quote_id=scope_commerce_purchases.quote_id)) WHERE purchase_id=$1 RETURNING *",
+            "UPDATE scope_commerce_purchases SET status=$3,fee_micro_usd=$2,fulfillment_deadline=LEAST(clock_timestamp()+interval '24 hours',(SELECT request_deadline FROM scope_commerce_quotes WHERE quote_id=scope_commerce_purchases.quote_id)) WHERE purchase_id=$1 RETURNING *",
             p["purchase_id"],
             fee,
+            "awaiting_owner" if before_owner_approval else "reserved",
         )
         if on_reserved is not None:
             await on_reserved(c, row)

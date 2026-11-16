@@ -3,6 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { parseCommerceReturn } from "@/lib/services/scope-commerce-return";
 import { AnswerPayoutAccount, type AnswerPayoutAccountModel } from "./answer-payout-account";
+import { PurchaseCoins } from "./purchase-coins";
 import { DocumentHashcoinPayouts } from "./document-hashcoins";
 
 /** Existing payouts with source-bound recovery for an answer Stripe return. */
@@ -12,6 +13,7 @@ export function PaymentsAndEarnings({ answer }: { answer?: AnswerPayoutAccountMo
   const arrival = parseCommerceReturn(`${pathname}?${query.toString()}`);
   return <div className="consent-presentation-surface contents">
     {arrival?.source === "answers" ? <section aria-label="Answer payout setup"><AnswerPayoutAccount model={answer} /></section> : null}
+    {arrival?.source !== "answers" ? <PurchaseCoins /> : null}
     <DocumentHashcoinPayouts />
   </div>;
 }

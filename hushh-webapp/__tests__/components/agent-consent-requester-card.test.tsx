@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   user: { uid: "requester-a", getIdToken: vi.fn(async () => "test-token") },
   unlocked: true, getViewer: vi.fn(), create: vi.fn(), getInformationRequest: vi.fn(),
   getInformationRequestExports: vi.fn(), readStoredConnector: vi.fn(), decryptScopedExport: vi.fn(),
-  searchScopeCatalog: vi.fn(),
+  searchScopeCatalog: vi.fn(), informationRequestPrice: vi.fn(),
 }));
 vi.mock("@/lib/services/agent-chat-client", () => ({ getAgentChatConsentOutcomes: async () => ({}) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }) }));
@@ -21,7 +21,7 @@ vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   PersonProfileService: {
     getViewer: mocks.getViewer, createInformationRequest: mocks.create,
     getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports,
-    searchScopeCatalog: mocks.searchScopeCatalog,
+    searchScopeCatalog: mocks.searchScopeCatalog, informationRequestPrice: mocks.informationRequestPrice,
   },
 }));
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: {
@@ -572,6 +572,11 @@ describe("One picks, you confirm", () => {
     vi.clearAllMocks();
     mocks.unlocked = true;
     mocks.getViewer.mockResolvedValue(viewer());
+    mocks.informationRequestPrice.mockImplementation(async ({personRef, scopeRefs, durationSeconds}: {personRef: string; scopeRefs: string[]; durationSeconds: number}) => ({
+      version: 1, personRef, durationSeconds, currency: "USD", coinsPerDollar: 100,
+      binding: "b".repeat(64), totalCoins: 0, availableCoins: 0, shortfallCoins: 0,
+      items: scopeRefs.map((scopeRef: string) => ({scopeRef, label: "Selected information", amountCoins: 0})),
+    }));
     mocks.create.mockResolvedValue({ personRef: person, bundleId, purpose: "dinner planning", durationSeconds: 168 * 3600,
       cancelled: false, items: [{ requestId, scopeRef: "scope-food", label: "Food preferences", sensitivity: "standard", status: "pending" }] });
     mocks.getInformationRequest.mockResolvedValue(bundle("pending", true));
@@ -768,6 +773,7 @@ describe("One picks, you confirm", () => {
     fireEvent.click(diet);
     expect(group).toHaveAttribute("aria-checked", "true");
 
+    await waitFor(() => expect(send).toBeEnabled());
     fireEvent.click(send);
     // Fully chosen, the group goes as its one broad item.
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ scopeRefs: ["scope-food-all"] })));

@@ -291,6 +291,51 @@ async def append_external_event(service: Any, event: dict, connection: Any = Non
     from hushh_mcp.consent.paid_admission import is_paid_grant, validate_free_grant_commit
 
     if (
+        (event["metadata"] or {}).get("upfront_price_reviewed") is True
+        and event["action"] in {"CONSENT_DENIED", "CANCELLED"}
+        and event.get("request_id")
+    ):
+        from db.connection import get_pool
+        from hushh_mcp.consent.paid_admission import _request_lock
+        from hushh_mcp.services.scope_commerce.service import COMMERCE_GATE, ScopeCommerceService
+
+        if connection is None:
+            pool = await get_pool()
+            if not pool.__class__.__module__.startswith("db.offline"):
+                async with pool.acquire() as conn, conn.transaction():
+                    return await append_external_event(service, event, conn)
+        else:
+            await connection.execute("SELECT pg_advisory_xact_lock($1)", COMMERCE_GATE)
+            await _request_lock(connection, event["request_id"])
+            purchase = await connection.fetchrow(
+                "SELECT * FROM scope_commerce_purchases WHERE request_id=$1 AND owner_user_id=$2 FOR UPDATE",
+                event["request_id"],
+                event["user_id"],
+            )
+            if purchase:
+                latest = await connection.fetchrow(
+                    "SELECT id,action FROM consent_audit WHERE request_id=$1 AND user_id=$2 ORDER BY issued_at DESC,id DESC LIMIT 1",
+                    event["request_id"],
+                    event["user_id"],
+                )
+                if (
+                    purchase["status"] == "revoked"
+                    and latest
+                    and latest["action"] == event["action"]
+                ):
+                    return int(latest["id"])
+                if (
+                    purchase["status"] != "awaiting_owner"
+                    or not latest
+                    or latest["action"] != "REQUESTED"
+                ):
+                    raise ValueError("request_not_pending")
+                await ScopeCommerceService().revoke_purchase(
+                    owner_user_id=event["user_id"],
+                    purchase_id=purchase["purchase_id"],
+                    conn=connection,
+                )
+    if (
         connection is None
         and event["action"] == "CONSENT_GRANTED"
         and event["scope"].startswith("attr.")
