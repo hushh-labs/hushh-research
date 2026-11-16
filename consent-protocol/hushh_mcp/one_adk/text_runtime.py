@@ -871,10 +871,26 @@ async def _memory_digest(memory_service: Any) -> str:
     try:
         from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
 
-        return str(await digest(active_pod_config().memory_digest_max_chars) or "")
+        curated = str(await digest(active_pod_config().memory_digest_max_chars) or "")
     except Exception as error:  # noqa: BLE001 - a digest must never cost the answer
         logger.warning("one_text_turn.memory_digest_failed error=%s", type(error).__name__)
-        return ""
+        curated = ""
+    try:
+        from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
+            build_wiki_hot_digest_context,
+            optional_pod_wiki_library,
+        )
+        from hushh_mcp.services.wiki_memory.contracts import WIKI_HOT_MAX_CHARS  # noqa: PLC0415
+
+        wiki_lib = optional_pod_wiki_library()
+        if wiki_lib is not None:
+            remaining = max(0, WIKI_HOT_MAX_CHARS - len(curated) - (2 if curated else 0))
+            wiki_hot = await build_wiki_hot_digest_context(wiki_lib, max_chars=remaining)
+            if wiki_hot:
+                return f"{curated}\n\n{wiki_hot}" if curated else wiki_hot
+    except Exception as error:  # noqa: BLE001 - wiki hot digest degrades cleanly
+        logger.warning("one_text_turn.wiki_digest_failed error=%s", type(error).__name__)
+    return curated
 
 
 async def _catch_up_memory_review(

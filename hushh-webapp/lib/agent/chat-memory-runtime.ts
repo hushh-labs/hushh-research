@@ -53,6 +53,7 @@ function sourceParts(message: ChatMemoryMessage, content: string): ChatMemoryMes
 export function createChatMemoryRuntime(deps: {
   getSession: () => ChatMemorySession | null;
   rewrite: (input: ChatMemoryRewriteInput) => Promise<{ markdown: string }>;
+  onConsolidated?: (input: { messages: readonly ChatMemoryMessage[]; markdown: string }) => Promise<void>;
   tokenThreshold?: number; idleMs?: number; maxTokens?: number;
 }) {
   let pending = emptyPending();
@@ -311,6 +312,13 @@ export function createChatMemoryRuntime(deps: {
       await assertCurrent();
       if (result.conflict) continue;
       if (!result.success) return false;
+      if (deps.onConsolidated) {
+        try {
+          await deps.onConsolidated({ messages: snapshot.messages, markdown: proposed.markdown });
+        } catch {
+          // Optional Personal Wiki mirror must never fail classic chat memory consolidation.
+        }
+      }
       await enqueue(async () => {
         const latest = await loadMemory(true);
         reconcile(latest.chatMemoryCheckpoint ?? emptyCheckpoint());
