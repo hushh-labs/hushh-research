@@ -21,6 +21,13 @@ import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
+import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
+
+function deferredWrite() {
+  let resolve!: (result: Awaited<ReturnType<typeof TodoListPkmService.setStatus>>) => void;
+  const promise = new Promise<Awaited<ReturnType<typeof TodoListPkmService.setStatus>>>(done => { resolve = done; });
+  return { promise, resolve };
+}
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
@@ -38,8 +45,10 @@ const mocks = vi.hoisted(() => ({
       id: "calendar-event-1",
       title: "Review the plan",
       start: { date: "2026-10-10" },
+      end: null,
+      status: null,
     },
-  ],
+  ] as RedactedCalendarEvent[],
 }));
 
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
@@ -122,6 +131,8 @@ describe("TodoListPage row actions", () => {
         id: "calendar-event-1",
         title: "Review the plan",
         start: { date: "2026-10-10" },
+        end: null,
+        status: null,
       },
     ];
     vi.spyOn(TodoListPkmService, "load").mockResolvedValue({ tasks: [] });
@@ -282,6 +293,56 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("checkbox", { name: "Mark Review refresh as completed" })).toBeVisible();
   });
 
+  it.each([
+    { status: "cancelled", start: { date: "2026-10-10" } },
+    { status: "CANCELLED", start: null },
+    { status: "cancelled", start: null, id: `event-${"a".repeat(250)}` },
+  ])("honors explicit Calendar cancellation without hiding unrelated tasks: %j", (cancellation) => {
+    const event = { ...mocks.events[0]!, id: cancellation.id ?? "calendar-event-1" };
+    mocks.events = [event];
+    const cancelled = buildTodo(todoService.calendarTodoInput(event)!);
+    const unrelated = buildTodo(todoService.calendarTodoInput({ ...event, id: "calendar-event-2" })!);
+    const gmail = buildTodo(todoService.gmailTodoInput({ id: event.id!, title: "Email follow-up" })!);
+    const manual = buildTodo({ type: "manual", title: "Owner task", sourceId: event.id });
+    let tasks = [cancelled, unrelated, manual];
+    const { result, rerender } = renderHook(() => useTodoLiveTasks({
+      userId: mocks.user.uid, vaultOwnerToken: "test-owner-token",
+      idTokenProvider: mocks.user.getIdToken, enabled: true, tasks,
+    }));
+    expect(result.current.pending.some(task => task.id === cancelled.id)).toBe(true);
+
+    mocks.events = [{ ...event, ...cancellation, title: "" }];
+    rerender();
+
+    expect(result.current.pending.map(task => task.id).sort()).toEqual(
+      [unrelated.id, manual.id].sort(),
+    );
+    expect(cancelled.status).toBe("pending");
+
+    tasks = [...tasks, gmail];
+    mocks.events = [...mocks.events, event];
+    rerender();
+    expect(result.current.pending.map(task => task.id).sort()).toEqual(
+      [unrelated.id, gmail.id, manual.id].sort(),
+    );
+  });
+
+  it("keeps saved Calendar snapshots when a read omits events or cannot identify a cancellation", () => {
+    const saved = buildTodo(todoService.calendarTodoInput(mocks.events[0]!)!);
+    const done = { ...saved, id: "calendar-done", sourceId: "done", status: "done" as const };
+    const deleted = { ...saved, id: "calendar-deleted", sourceId: "deleted", status: "deleted" as const };
+    mocks.events = [];
+    const { result, rerender } = renderHook(() => useTodoLiveTasks({
+      userId: mocks.user.uid, vaultOwnerToken: "test-owner-token",
+      idTokenProvider: mocks.user.getIdToken, enabled: true, tasks: [saved, done, deleted],
+    }));
+    expect(result.current.pending).toEqual([saved]);
+
+    mocks.events = [{ id: null, title: saved.title, start: null, end: null, status: "cancelled" }];
+    rerender();
+    expect(result.current.pending).toEqual([saved]);
+  });
+
   it("hides a completed Calendar item immediately and keeps it hidden when saved state reloads", async () => {
     let finishSave!: (
       result: Awaited<ReturnType<typeof TodoListPkmService.setStatus>>,
@@ -320,6 +381,69 @@ describe("TodoListPage row actions", () => {
 
     await screen.findByText("Completed");
     expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])("keeps independent task writes busy until each settles (first fails: %s)", async firstFails => {
+    const other = buildTodo({ id: "parallel-task", title: "Parallel task" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [other] });
+    const first = deferredWrite(), second = deferredWrite();
+    vi.spyOn(TodoListPkmService, "setStatus")
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    render(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Mark Review the plan as completed" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Mark Parallel task as completed" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Completed/ }));
+
+    expect(screen.getByRole("button", { name: "Delete Review the plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
+    expect(TodoListPkmService.remove).not.toHaveBeenCalled();
+
+    await act(async () => { first.resolve({ success: !firstFails, saveState: firstFails ? "failed" : "saved", fullBlob: {} }); });
+    expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete Review the plan" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    await waitFor(() => expect(TodoListPkmService.remove).toHaveBeenCalledOnce());
+    await act(async () => { second.resolve({ success: firstFails, saveState: firstFails ? "saved" : "failed", fullBlob: {} }); });
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeEnabled();
+  });
+
+  it.each(["completion", "deletion"] as const)("does not roll a failed %s over a newer loaded deletion", async mutation => {
+    vi.mocked(TodoListPkmService.load).mockRejectedValueOnce(new Error("offline"));
+    const write = deferredWrite();
+    const save = vi.spyOn(TodoListPkmService, "setStatus").mockImplementation(() => write.promise);
+    const remove = vi.mocked(TodoListPkmService.remove).mockImplementation(() => write.promise);
+    render(<TodoListPage />);
+    await screen.findByText("Your saved items couldn’t load.");
+    if (mutation === "completion") {
+      fireEvent.click(screen.getByRole("checkbox", { name: "Mark Review the plan as completed" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
+      fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    }
+    const task = (mutation === "completion" ? save : remove).mock.calls[0]![0].task;
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [{ ...task, status: "deleted", deletedAt: "2026-11-16T10:00:00Z" }] });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true })); });
+    expect(screen.queryByText("Your saved items couldn’t load.")).not.toBeInTheDocument();
+    await act(async () => { write.resolve({ success: false, saveState: "failed", fullBlob: {} }); });
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+  });
+
+  it.each(["manual", "automatic"] as const)("restores a %s task when deletion fails", async type => {
+    mocks.events = [];
+    const task = buildTodo({ id: `delete-failure-${type}`, title: "Retain failed deletion", type });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [task] });
+    const write = deferredWrite();
+    vi.mocked(TodoListPkmService.remove).mockImplementation(() => write.promise);
+    render(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Retain failed deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    expect(screen.queryByText(task.title)).not.toBeInTheDocument();
+    await act(async () => { write.resolve({ success: false, saveState: "failed", fullBlob: {} }); });
+    expect(await screen.findByRole("checkbox", { name: "Mark Retain failed deletion as completed" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("restores an item when completion cannot be saved", async () => {
