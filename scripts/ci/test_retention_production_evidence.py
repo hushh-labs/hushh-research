@@ -383,6 +383,38 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
         self.assertIsNone(qualify(run, job, log.replace(sha, SHA), blobs))
         self.assertIsNone(qualify(run, job, log + "\nunstamped tail", blobs))
         self.assertIsNone(qualify(run, {**job, "run_attempt": 2}, log, blobs))
+        clock_bound_job = copy.deepcopy(job)
+        clock_bound_job["steps"] = [
+            step
+            for step in clock_bound_job["steps"]
+            if step["name"] != "Post Prepare operational database verification runtime"
+        ]
+        for step in clock_bound_job["steps"]:
+            if step["name"] in {
+                "Prepare operational database verification runtime",
+                "Select maintenance Python runtime",
+                "Install operational Cloud SQL Auth Proxy",
+                "Publish operational backend reference under deployment lock",
+                evidence.SAVE,
+            }:
+                step["conclusion"] = "skipped"
+        clock_proof_line = uat_guard.PROOF_PREFIX + json.dumps(
+            {
+                "run_id": 99,
+                "attempt": 1,
+                "job_id": 98,
+                "checkout_sha": sha,
+                "qualification": "no_provider_mutation",
+            },
+            sort_keys=True,
+        )
+        with_clock_proof = log.replace(
+            "Hosted maintenance stopped: stage=publication_guard kind=safety_refusal",
+            "Hosted maintenance stopped: stage=publication_guard kind=safety_refusal\n"
+            f"{at('20:35:42.41')} {clock_proof_line}",
+            1,
+        )
+        self.assertIsNotNone(qualify(run, clock_bound_job, with_clock_proof, blobs))
 
     def test_manual_production_refusal_keeps_the_two_line_log_contract(self):
         fields = {
