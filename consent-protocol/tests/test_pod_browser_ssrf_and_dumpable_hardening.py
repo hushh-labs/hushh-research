@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -35,11 +34,9 @@ def test_gunicorn_lifecycle_restores_non_dumpable_and_zero_core_after_execve(
         gl.resource, "setrlimit", lambda kind, limits: calls.append(("rlimit", kind, limits))
     )
     monkeypatch.setattr(gl.ctypes, "CDLL", lambda *_args, **_kw: FakeLibc())
+    # Cloud Run's procfs does not expose Dumpable. Kernel readback remains authoritative.
     monkeypatch.setattr(
-        gl,
-        "open",
-        lambda *_args, **_kw: StringIO("Name:\tgunicorn\nDumpable:\t0\n"),
-        raising=False,
+        gl, "open", lambda *_a, **_kw: pytest.fail("Optional procfs field used"), raising=False
     )
     monkeypatch.setenv("HUSSH_POD_MODE", "1")
     monkeypatch.setattr(gl.os.path, "exists", lambda p: False)
@@ -48,10 +45,13 @@ def test_gunicorn_lifecycle_restores_non_dumpable_and_zero_core_after_execve(
     assert ("rlimit", gl.resource.RLIMIT_CORE, (0, 0)) in calls
     assert ("prctl", 38, 1) in calls  # PR_SET_NO_NEW_PRIVS
     assert ("prctl", 4, 0) in calls  # PR_SET_DUMPABLE = 0
+    assert ("prctl", 3, 0) in calls  # PR_GET_DUMPABLE
 
 
+@pytest.mark.parametrize("dumpable", [1, 2, -1])
 def test_gunicorn_lifecycle_fails_closed_if_dumpable_remains_set(
     monkeypatch: pytest.MonkeyPatch,
+    dumpable: int,
 ) -> None:
     import browser_runtime.gunicorn_lifecycle as gl
 
@@ -60,13 +60,9 @@ def test_gunicorn_lifecycle_fails_closed_if_dumpable_remains_set(
     monkeypatch.setattr(
         gl.ctypes,
         "CDLL",
-        lambda *_args, **_kw: SimpleNamespace(prctl=lambda *_a: 0),
-    )
-    monkeypatch.setattr(
-        gl,
-        "open",
-        lambda *_args, **_kw: StringIO("Name:\tgunicorn\nDumpable:\t1\n"),
-        raising=False,
+        lambda *_args, **_kw: SimpleNamespace(
+            prctl=lambda option, *_a: dumpable if option == 3 else 0
+        ),
     )
     with pytest.raises(RuntimeError, match="POD_WORKER_HARDENING_REFUSED"):
         gl.harden_worker_process()

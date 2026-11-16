@@ -26,9 +26,8 @@ def harden_worker_process() -> None:
     native = ctypes.CDLL(None, use_errno=True)
     if native.prctl(38, 1, 0, 0, 0) or native.prctl(4, 0, 0, 0, 0):
         raise RuntimeError("POD_WORKER_HARDENING_REFUSED")
-    with open("/proc/self/status", encoding="utf-8") as handle:
-        status = dict(line.split(":", 1) for line in handle if ":" in line)
-    if int(status.get("Dumpable", "1").strip()) != 0:
+    # Dumpable is absent from some procfs implementations; query the kernel.
+    if native.prctl(3, 0, 0, 0, 0) != 0:  # PR_GET_DUMPABLE
         raise RuntimeError("POD_WORKER_HARDENING_REFUSED")
 
 
