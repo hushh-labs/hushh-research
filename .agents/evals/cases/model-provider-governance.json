@@ -1,0 +1,29 @@
+{
+  "skill_name": "model-provider-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "upgrade the fleet Gemini text model in runtime_providers/gemini_config.py and probe supported thinking_level values on Vertex",
+        "top_k": 3
+      },
+      {
+        "prompt": "onboard a new managed AI provider deployment in managed_ai_config.py and verify subagent thinking_level latency parity across dev, uat, and prod",
+        "top_k": 3
+      },
+      {
+        "prompt": "google_search child agent is running at dynamic HIGH thinking on Gemini 4 Hydrogen in production and taking 28 seconds per web search turn",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the Next.js API proxy route is dropping a query parameter before calling FastAPI",
+        "owner": "backend-api-contracts"
+      },
+      {
+        "prompt": "audit PKM vault encryption and consent token scope enforcement on shared exports",
+        "owner": "security-audit"
+      }
+    ]
+  }
+}

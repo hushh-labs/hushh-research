@@ -101,6 +101,7 @@ EXPECTED_WORKFLOW_IDS = [
     "security-posture-maintenance",
     "reviewer-app-rehearsal",
     "pkm-upgrade-rehearsal",
+    "model-provider-rollout",
 ]
 SPECIAL_HANDOFF_TOKENS = {"selected-owner-skill"}
 MEANINGFUL_SURFACES = [

@@ -116,3 +116,30 @@ async def test_configured_vertex_search_preserves_native_grounding_and_chat_comp
     assert child.model._primary_timeout(requests[1]) == 60
     assert sum(event.type == EventType.RUN_FINISHED for event in events) == 1
     assert not any(event.type == EventType.RUN_ERROR for event in events)
+
+
+@pytest.mark.parametrize("environment", ["dev", "production"])
+def test_native_vertex_search_and_intro_heads_pin_low_thinking_across_environments(
+    monkeypatch, environment
+):
+    from hushh_mcp.one_adk.agent_tree import build_one_intro_text_agent
+
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    native = resolve_fleet_model_name("gemini-default")
+
+    root = build_one_text_agent(model=native)
+    child = next(
+        tool.agent for tool in root.tools if getattr(tool, "name", None) == "google_search"
+    )
+    assert child.generate_content_config is not None
+    assert child.generate_content_config.thinking_config is not None
+    assert child.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    assert "For direct factual lookups" in str(child.instruction)
+    assert "at most two focused searches" in str(child.instruction)
+
+    intro = build_one_intro_text_agent(model=native)
+    assert intro.generate_content_config is not None
+    assert intro.generate_content_config.thinking_config is not None
+    assert intro.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    assert intro.generate_content_config.thinking_config.include_thoughts is False
