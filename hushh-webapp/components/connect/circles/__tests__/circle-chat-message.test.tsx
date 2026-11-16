@@ -59,7 +59,9 @@ test("touch actions wait for a stationary hold, cancel on scroll, and retain qui
     expect(screen.getByRole("menu")).toBeTruthy();
     pointer("pointerup");
   } finally { vi.useRealTimers(); }
-  fireEvent.click(screen.getByRole("menuitem", { name: "Copy text" }), { detail: 1 });
+  const copyAction = screen.getByRole("menuitem", { name: "Copy text" });
+  expect(copyAction.querySelector("svg")).not.toBeNull();
+  fireEvent.click(copyAction, { detail: 1 });
   expect(api.copy).not.toHaveBeenCalled();
   expect(screen.getByRole("menu")).toBeTruthy();
   fireEvent.pointerDown(screen.getByRole("menuitem", { name: "Copy text" }), { pointerType: "touch", button: 0 });
