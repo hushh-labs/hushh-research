@@ -622,7 +622,16 @@ class PersonalKnowledgeModelService:
                     if not scope or "." in scope or not isinstance(raw_entry, dict):
                         continue
                     state = str(raw_entry.get("state") or "").strip().lower()
-                    if state not in {"materialized", "empty", "unknown"}:
+                    if state not in {
+                        "materialized",
+                        "private_candidate",
+                        "empty",
+                        "unknown",
+                        "failed",
+                        "pending",
+                        "stale",
+                        "conflicted",
+                    }:
                         continue
                     count = cls._to_non_negative_int(raw_entry.get("materialized_leaf_count"))
                     if count is None:
@@ -1253,7 +1262,16 @@ class PersonalKnowledgeModelService:
             materialization_state = (
                 str((materialization or {}).get("state") or "unknown").strip().lower()
             )
-            if materialization_state not in {"materialized", "empty", "unknown"}:
+            if materialization_state not in {
+                "materialized",
+                "private_candidate",
+                "empty",
+                "unknown",
+                "failed",
+                "pending",
+                "stale",
+                "conflicted",
+            }:
                 materialization_state = "unknown"
             materialized_leaf_count = self._to_non_negative_int(
                 (materialization or {}).get("materialized_leaf_count")

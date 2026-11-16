@@ -1,5 +1,7 @@
 /** Closed identifiers, refusal errors, and canonical Markdown contracts for Shared wiki/v1. */
 
+import { isNonExternalizablePkmDomain } from "@/lib/consent/pkm-scope-policy";
+
 export const MAX_PAGE_BODY_CHARS = 64_000;
 export const MAX_TLDR_CHARS = 600;
 export const MAX_CLAIM_CHARS = 1_000;
@@ -8,6 +10,81 @@ export const MAX_LINKS_PER_PAGE = 256;
 export const MAX_SOURCES_PER_PAGE = 256;
 export const MAX_BATCH_PAGES = 32;
 export const MAX_NOTE_CHARS = 280;
+export const WIKI_HOT_MAX_CHARS = 8_000;
+export const WIKI_RETRIEVED_MAX_CHARS = 6_000;
+
+export const WIKI_PROJECTION_STATES = [
+  "private_candidate",
+  "materialized",
+  "empty",
+  "unknown",
+  "failed",
+  "pending",
+  "stale",
+  "conflicted",
+] as const;
+export type WikiProjectionState = (typeof WIKI_PROJECTION_STATES)[number];
+
+export const NON_REQUESTABLE_PROJECTION_STATES: ReadonlySet<WikiProjectionState> =
+  new Set([
+    "private_candidate",
+    "empty",
+    "failed",
+    "pending",
+    "stale",
+    "conflicted",
+  ]);
+
+export const WIKI_RECALL_STATUSES = [
+  "ok",
+  "absent",
+  "stale",
+  "conflicted",
+  "unavailable",
+] as const;
+export type WikiRecallStatus = (typeof WIKI_RECALL_STATUSES)[number];
+
+export const WIKI_SAVE_OUTCOMES = [
+  "pending",
+  "saved",
+  "failed",
+  "withdrawn",
+  "disabled",
+] as const;
+export type WikiSaveOutcomeStatus = (typeof WIKI_SAVE_OUTCOMES)[number];
+
+export const TOMBSTONE_TARGET_KINDS = [
+  "claim",
+  "page",
+  "source",
+  "capture_conversation",
+] as const;
+export type WikiTombstoneTargetKind = (typeof TOMBSTONE_TARGET_KINDS)[number];
+
+export const TOMBSTONE_REASON_CODES = [
+  "owner_request",
+  "superseded",
+  "retracted",
+  "capture_withdrawn",
+  "source_deleted",
+] as const;
+export type WikiTombstoneReasonCode = (typeof TOMBSTONE_REASON_CODES)[number];
+
+export const NON_EXTERNALIZABLE_WIKI_DOMAINS = new Set([
+  "one_memory",
+  "one_todos",
+  "source_library",
+  "one_wiki",
+  "secrets",
+  "device_intent",
+  "financial",
+  "identity",
+  "consent",
+  "kyc_connector",
+  "kyc_workflow",
+  "runtime_secrets",
+  "wallet",
+]);
 
 export const CLAIM_STATUSES = [
   "active",
@@ -47,6 +124,9 @@ const CLAIM_ID_RE = /^wcl_[0-9a-f]{16}$/;
 const SOURCE_ID_RE = /^wsr_[0-9a-f]{16}$/;
 const BATCH_ID_RE = /^wbt_[0-9a-f]{16}$/;
 const TOMBSTONE_ID_RE = /^wtb_[0-9a-f]{16}$/;
+const PROJECTION_RECEIPT_ID_RE = /^wpr_[0-9a-f]{16}$/;
+const DOMAIN_SLUG_RE = /^[a-z][a-z0-9_]{1,63}$/;
+const JSON_PATH_RE = /^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*){0,15}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}(?:[T ][^\r\n]{1,40})?$/;
 const INLINE_LINK_RE =
@@ -162,6 +242,47 @@ export function validateTombstoneId(value: unknown): string {
     throw new WikiRefusedError("WIKI_INVALID_ID", 400);
   }
   return value;
+}
+
+export function validateProjectionReceiptId(value: unknown): string {
+  if (typeof value !== "string" || !PROJECTION_RECEIPT_ID_RE.test(value)) {
+    throw new WikiRefusedError("WIKI_INVALID_ID", 400);
+  }
+  return value;
+}
+
+export function validateProjectionDomain(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const cleaned = value.trim().toLowerCase();
+  if (cleaned.includes("/") || !DOMAIN_SLUG_RE.test(cleaned)) {
+    throw new WikiRefusedError("WIKI_PROJECTION_DOMAIN_FORBIDDEN", 403);
+  }
+  if (
+    NON_EXTERNALIZABLE_WIKI_DOMAINS.has(cleaned) ||
+    isNonExternalizablePkmDomain(cleaned) ||
+    cleaned.startsWith("kyc_")
+  ) {
+    throw new WikiRefusedError("WIKI_PROJECTION_DOMAIN_FORBIDDEN", 403);
+  }
+  return cleaned;
+}
+
+export function validateProjectionJsonPath(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const cleaned = value.trim().toLowerCase();
+  if (
+    !JSON_PATH_RE.test(cleaned) ||
+    cleaned
+      .split(".")
+      .some((seg) => seg.startsWith("_") && seg !== "_items" && seg !== "_entities")
+  ) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  return cleaned;
 }
 
 export function validateIdempotencyKey(value: unknown): string {
@@ -602,4 +723,238 @@ export async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+export interface WikiTombstone {
+  tombstone_id: string;
+  target_kind: WikiTombstoneTargetKind;
+  target_id: string;
+  reason_code?: WikiTombstoneReasonCode;
+  created_at: number;
+  page_id?: string;
+  superseded_by?: string;
+}
+
+export interface NormalizedWikiTombstone {
+  tombstone_id: string;
+  target_kind: WikiTombstoneTargetKind;
+  target_id: string;
+  reason_code: WikiTombstoneReasonCode;
+  created_at: number;
+  page_id?: string;
+  superseded_by?: string;
+}
+
+export function normalizeTombstone(input: WikiTombstone): NormalizedWikiTombstone {
+  if (!input || typeof input !== "object") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  if (!TOMBSTONE_TARGET_KINDS.includes(input.target_kind)) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  let target_id: string;
+  if (input.target_kind === "claim") {
+    target_id = validateClaimId(input.target_id);
+  } else if (input.target_kind === "page") {
+    target_id = validatePageId(input.target_id);
+  } else if (input.target_kind === "source") {
+    target_id = validateSourceId(input.target_id);
+  } else {
+    if (
+      typeof input.target_id !== "string" ||
+      !input.target_id.trim() ||
+      input.target_id.trim().length > 128 ||
+      /[\x00-\x1f]/.test(input.target_id)
+    ) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+    }
+    target_id = input.target_id.trim();
+  }
+  const reason_code = input.reason_code ?? "owner_request";
+  if (!TOMBSTONE_REASON_CODES.includes(reason_code)) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  if (!Number.isSafeInteger(input.created_at) || input.created_at < 0) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const page_id =
+    input.page_id !== undefined ? validatePageId(input.page_id) : undefined;
+  const superseded_by =
+    input.superseded_by !== undefined
+      ? validateClaimId(input.superseded_by)
+      : undefined;
+  return {
+    tombstone_id: validateTombstoneId(input.tombstone_id),
+    target_kind: input.target_kind,
+    target_id,
+    reason_code,
+    created_at: input.created_at,
+    ...(page_id ? { page_id } : {}),
+    ...(superseded_by ? { superseded_by } : {}),
+  };
+}
+
+export interface SpecialistDisagreementMetadata {
+  authority: string;
+  reason: string;
+  path?: string;
+}
+
+export interface WikiProjectionReceipt {
+  receipt_id: string;
+  domain: string;
+  json_path: string;
+  page_id: string;
+  page_revision: number;
+  claim_id: string;
+  source_ids: string[];
+  source_revision: number;
+  state: WikiProjectionState;
+  exposure_eligibility: boolean;
+  updated_at: number;
+  tombstone_id?: string;
+  specialist_disagreement?: SpecialistDisagreementMetadata;
+}
+
+export function normalizeProjectionReceipt(
+  input: Omit<WikiProjectionReceipt, "exposure_eligibility" | "source_revision"> & {
+    exposure_eligibility?: boolean;
+    source_revision?: number;
+  },
+): WikiProjectionReceipt {
+  if (!input || typeof input !== "object") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const state = String(input.state ?? "").trim().toLowerCase() as WikiProjectionState;
+  if (!WIKI_PROJECTION_STATES.includes(state)) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const source_revision = input.source_revision ?? 1;
+  if (
+    !Number.isSafeInteger(input.page_revision) ||
+    input.page_revision < 1 ||
+    !Number.isSafeInteger(source_revision) ||
+    source_revision < 1 ||
+    !Number.isSafeInteger(input.updated_at) ||
+    input.updated_at < 0
+  ) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  if (!Array.isArray(input.source_ids) || input.source_ids.length > MAX_SOURCES_PER_PAGE) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const source_ids = [...new Set(input.source_ids.map((s) => validateSourceId(s)))];
+  const rawExposure = input.exposure_eligibility ?? state === "materialized";
+  if (typeof rawExposure !== "boolean") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const tombstone_id =
+    input.tombstone_id !== undefined
+      ? validateTombstoneId(input.tombstone_id)
+      : undefined;
+  if (tombstone_id && state === "materialized") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  let specialist_disagreement: SpecialistDisagreementMetadata | undefined;
+  if (input.specialist_disagreement !== undefined) {
+    const authority = String(input.specialist_disagreement.authority ?? "").trim();
+    const reason = String(input.specialist_disagreement.reason ?? "").trim();
+    const path = String(input.specialist_disagreement.path ?? "").trim();
+    if (!authority || !reason || authority.length > 64 || reason.length > 96) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+    }
+    specialist_disagreement = {
+      authority,
+      reason,
+      ...(path ? { path: path.slice(0, 128) } : {}),
+    };
+  }
+  return {
+    receipt_id: validateProjectionReceiptId(input.receipt_id),
+    domain: validateProjectionDomain(input.domain),
+    json_path: validateProjectionJsonPath(input.json_path),
+    page_id: validatePageId(input.page_id),
+    page_revision: input.page_revision,
+    claim_id: validateClaimId(input.claim_id),
+    source_ids,
+    source_revision,
+    state,
+    exposure_eligibility: rawExposure && state === "materialized",
+    updated_at: input.updated_at,
+    ...(tombstone_id ? { tombstone_id } : {}),
+    ...(specialist_disagreement ? { specialist_disagreement } : {}),
+  };
+}
+
+export interface WikiCaptureCheckpoint {
+  capture_opt_in: boolean;
+  opt_in_updated_at: number;
+  edit_generation: number;
+  conversations: Record<string, string[]>;
+  withdrawn_conversations: string[];
+  withdrawn_event_keys: string[];
+  processed_source_ids: string[];
+  pod_reviewed_through_seq: number;
+}
+
+export function normalizeCaptureCheckpoint(
+  raw?: Partial<WikiCaptureCheckpoint> | null,
+): WikiCaptureCheckpoint {
+  if (!raw) {
+    return {
+      capture_opt_in: false,
+      opt_in_updated_at: 0,
+      edit_generation: 0,
+      conversations: {},
+      withdrawn_conversations: [],
+      withdrawn_event_keys: [],
+      processed_source_ids: [],
+      pod_reviewed_through_seq: 0,
+    };
+  }
+  if (typeof raw !== "object") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const capture_opt_in = raw.capture_opt_in ?? false;
+  if (typeof capture_opt_in !== "boolean") {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const opt_in_updated_at = raw.opt_in_updated_at ?? 0;
+  const edit_generation = raw.edit_generation ?? 0;
+  const pod_reviewed_through_seq = raw.pod_reviewed_through_seq ?? 0;
+  if (
+    !Number.isSafeInteger(opt_in_updated_at) ||
+    opt_in_updated_at < 0 ||
+    !Number.isSafeInteger(edit_generation) ||
+    edit_generation < 0 ||
+    !Number.isSafeInteger(pod_reviewed_through_seq) ||
+    pod_reviewed_through_seq < 0
+  ) {
+    throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+  }
+  const conversations: Record<string, string[]> = {};
+  for (const [cid, mids] of Object.entries(raw.conversations ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    if (!Array.isArray(mids)) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 400);
+    }
+    conversations[cid] = [...new Set(mids.map((m) => String(m)).filter(Boolean))];
+  }
+  return {
+    capture_opt_in,
+    opt_in_updated_at,
+    edit_generation,
+    conversations,
+    withdrawn_conversations: [
+      ...new Set((raw.withdrawn_conversations ?? []).map((c) => String(c)).filter(Boolean)),
+    ],
+    withdrawn_event_keys: [
+      ...new Set((raw.withdrawn_event_keys ?? []).map((k) => String(k)).filter(Boolean)),
+    ],
+    processed_source_ids: [
+      ...new Set((raw.processed_source_ids ?? []).map((s) => validateSourceId(s))),
+    ],
+    pod_reviewed_through_seq,
+  };
 }

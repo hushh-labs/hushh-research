@@ -8,6 +8,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from hushh_mcp.services.domain_contracts import (
+    INTERNAL_ONLY_DOMAIN_SLUGS,
+    is_owner_managed_reserved_domain,
+)
+
 MAX_PAGE_BODY_CHARS = 64_000
 MAX_TLDR_CHARS = 600
 MAX_CLAIM_CHARS = 1_000
@@ -16,11 +21,50 @@ MAX_LINKS_PER_PAGE = 256
 MAX_SOURCES_PER_PAGE = 256
 MAX_BATCH_PAGES = 32
 MAX_NOTE_CHARS = 280
+WIKI_HOT_MAX_CHARS = 8_000
+WIKI_RETRIEVED_MAX_CHARS = 6_000
 
 CLAIM_STATUSES = frozenset({"active", "superseded", "uncertain", "retracted"})
 LINK_RELATIONS = frozenset({"related", "supports", "contradicts", "supersedes", "part_of"})
 SOURCE_KINDS = frozenset(
     {"chat_turn", "file_object", "pkm_record", "live_activity", "owner_direct"}
+)
+WIKI_PROJECTION_STATES = (
+    "private_candidate",
+    "materialized",
+    "empty",
+    "unknown",
+    "failed",
+    "pending",
+    "stale",
+    "conflicted",
+)
+NON_REQUESTABLE_PROJECTION_STATES = frozenset(
+    {"private_candidate", "empty", "failed", "pending", "stale", "conflicted"}
+)
+WIKI_RECALL_STATUSES = frozenset({"ok", "absent", "stale", "conflicted", "unavailable"})
+WIKI_SAVE_OUTCOMES = frozenset({"pending", "saved", "failed", "withdrawn", "disabled"})
+TOMBSTONE_TARGET_KINDS = frozenset({"claim", "page", "source", "capture_conversation"})
+TOMBSTONE_REASON_CODES = frozenset(
+    {"owner_request", "superseded", "retracted", "capture_withdrawn", "source_deleted"}
+)
+NON_EXTERNALIZABLE_WIKI_DOMAINS = frozenset(
+    {
+        *INTERNAL_ONLY_DOMAIN_SLUGS,
+        "one_memory",
+        "one_todos",
+        "source_library",
+        "one_wiki",
+        "secrets",
+        "device_intent",
+        "financial",
+        "identity",
+        "consent",
+        "kyc_connector",
+        "kyc_workflow",
+        "runtime_secrets",
+        "wallet",
+    }
 )
 RESERVED_GENERATED_HEADINGS = frozenset({"tl;dr", "claims", "relations", "sources"})
 
@@ -29,6 +73,9 @@ _CLAIM_ID_RE = re.compile(r"^wcl_[0-9a-f]{16}$")
 _SOURCE_ID_RE = re.compile(r"^wsr_[0-9a-f]{16}$")
 _BATCH_ID_RE = re.compile(r"^wbt_[0-9a-f]{16}$")
 _TOMBSTONE_ID_RE = re.compile(r"^wtb_[0-9a-f]{16}$")
+_PROJECTION_RECEIPT_ID_RE = re.compile(r"^wpr_[0-9a-f]{16}$")
+_DOMAIN_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_JSON_PATH_RE = re.compile(r"^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*){0,15}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[T ][^\r\n]{1,40})?$")
 _INLINE_LINK_RE = re.compile(
@@ -70,6 +117,36 @@ def validate_batch_id(value: Any) -> str:
 
 def validate_tombstone_id(value: Any) -> str:
     return _validate_prefixed_id(value, _TOMBSTONE_ID_RE)
+
+
+def validate_projection_receipt_id(value: Any) -> str:
+    return _validate_prefixed_id(value, _PROJECTION_RECEIPT_ID_RE)
+
+
+def validate_projection_domain(value: Any) -> str:
+    if not isinstance(value, str):
+        raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+    cleaned = value.strip().lower()
+    if "/" in cleaned or not _DOMAIN_SLUG_RE.fullmatch(cleaned):
+        raise WikiRefused("WIKI_PROJECTION_DOMAIN_FORBIDDEN", 403)
+    if (
+        cleaned in NON_EXTERNALIZABLE_WIKI_DOMAINS
+        or is_owner_managed_reserved_domain(cleaned)
+        or cleaned.startswith("kyc_")
+    ):
+        raise WikiRefused("WIKI_PROJECTION_DOMAIN_FORBIDDEN", 403)
+    return cleaned
+
+
+def validate_projection_json_path(value: Any) -> str:
+    if not isinstance(value, str):
+        raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+    cleaned = value.strip().lower()
+    if not _JSON_PATH_RE.fullmatch(cleaned) or any(
+        seg.startswith("_") and seg not in {"_items", "_entities"} for seg in cleaned.split(".")
+    ):
+        raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+    return cleaned
 
 
 def validate_idempotency_key(value: Any) -> str:
@@ -572,3 +649,254 @@ def replace_markdown_section(
 def canonical_request_fingerprint(payload: dict[str, Any]) -> str:
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class WikiTombstone:
+    tombstone_id: str
+    target_kind: str
+    target_id: str
+    reason_code: str
+    created_at: int
+    page_id: str | None = None
+    superseded_by: str | None = None
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any]) -> WikiTombstone:
+        if not isinstance(raw, dict):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        target_kind = raw.get("target_kind")
+        if target_kind not in TOMBSTONE_TARGET_KINDS:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        raw_target = raw.get("target_id")
+        if target_kind == "claim":
+            target_id = validate_claim_id(raw_target)
+        elif target_kind == "page":
+            target_id = validate_page_id(raw_target)
+        elif target_kind == "source":
+            target_id = validate_source_id(raw_target)
+        else:
+            if (
+                not isinstance(raw_target, str)
+                or not 1 <= len(raw_target.strip()) <= 128
+                or any(ord(ch) < 32 for ch in raw_target)
+            ):
+                raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+            target_id = raw_target.strip()
+        reason_code = raw.get("reason_code", "owner_request")
+        if reason_code not in TOMBSTONE_REASON_CODES:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        created_at = raw.get("created_at")
+        if type(created_at) is not int or created_at < 0:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        page_id = validate_page_id(raw["page_id"]) if raw.get("page_id") is not None else None
+        superseded_by = (
+            validate_claim_id(raw["superseded_by"])
+            if raw.get("superseded_by") is not None
+            else None
+        )
+        return cls(
+            tombstone_id=validate_tombstone_id(raw.get("tombstone_id")),
+            target_kind=target_kind,
+            target_id=target_id,
+            reason_code=reason_code,
+            created_at=created_at,
+            page_id=page_id,
+            superseded_by=superseded_by,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "tombstone_id": self.tombstone_id,
+            "target_kind": self.target_kind,
+            "target_id": self.target_id,
+            "reason_code": self.reason_code,
+            "created_at": self.created_at,
+        }
+        if self.page_id is not None:
+            payload["page_id"] = self.page_id
+        if self.superseded_by is not None:
+            payload["superseded_by"] = self.superseded_by
+        return payload
+
+
+@dataclass(frozen=True)
+class WikiProjectionReceipt:
+    receipt_id: str
+    domain: str
+    json_path: str
+    page_id: str
+    page_revision: int
+    claim_id: str
+    source_ids: tuple[str, ...]
+    source_revision: int
+    state: str
+    exposure_eligibility: bool
+    updated_at: int
+    tombstone_id: str | None = None
+    specialist_disagreement: dict[str, Any] | None = None
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any]) -> WikiProjectionReceipt:
+        if not isinstance(raw, dict):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        state = str(raw.get("state") or "").strip().lower()
+        if state not in WIKI_PROJECTION_STATES:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        page_revision = raw.get("page_revision")
+        source_revision = raw.get("source_revision", 1)
+        updated_at = raw.get("updated_at")
+        if (
+            type(page_revision) is not int
+            or page_revision < 1
+            or type(source_revision) is not int
+            or source_revision < 1
+            or type(updated_at) is not int
+            or updated_at < 0
+        ):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        raw_sources = raw.get("source_ids", ())
+        if not isinstance(raw_sources, (list, tuple)) or len(raw_sources) > MAX_SOURCES_PER_PAGE:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        source_ids = tuple(dict.fromkeys(validate_source_id(item) for item in raw_sources))
+        raw_exposure = raw.get("exposure_eligibility", state == "materialized")
+        if type(raw_exposure) is not bool:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        # Non-materialized wiki projections are never externally exposable.
+        effective_exposure = bool(raw_exposure) and state == "materialized"
+        tombstone_id = (
+            validate_tombstone_id(raw["tombstone_id"])
+            if raw.get("tombstone_id") is not None
+            else None
+        )
+        if tombstone_id is not None and state == "materialized":
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        disagreement_raw = raw.get("specialist_disagreement")
+        disagreement: dict[str, Any] | None = None
+        if disagreement_raw is not None:
+            if not isinstance(disagreement_raw, dict):
+                raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+            authority = str(disagreement_raw.get("authority") or "").strip()
+            reason = str(disagreement_raw.get("reason") or "").strip()
+            path = str(disagreement_raw.get("path") or "").strip()
+            if not authority or not reason or len(authority) > 64 or len(reason) > 96:
+                raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+            disagreement = {
+                "authority": authority,
+                "reason": reason,
+                **({"path": path[:128]} if path else {}),
+            }
+        return cls(
+            receipt_id=validate_projection_receipt_id(raw.get("receipt_id")),
+            domain=validate_projection_domain(raw.get("domain")),
+            json_path=validate_projection_json_path(raw.get("json_path")),
+            page_id=validate_page_id(raw.get("page_id")),
+            page_revision=page_revision,
+            claim_id=validate_claim_id(raw.get("claim_id")),
+            source_ids=source_ids,
+            source_revision=source_revision,
+            state=state,
+            exposure_eligibility=effective_exposure,
+            updated_at=updated_at,
+            tombstone_id=tombstone_id,
+            specialist_disagreement=disagreement,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "receipt_id": self.receipt_id,
+            "domain": self.domain,
+            "json_path": self.json_path,
+            "page_id": self.page_id,
+            "page_revision": self.page_revision,
+            "claim_id": self.claim_id,
+            "source_ids": list(self.source_ids),
+            "source_revision": self.source_revision,
+            "state": self.state,
+            "exposure_eligibility": self.exposure_eligibility,
+            "updated_at": self.updated_at,
+        }
+        if self.tombstone_id is not None:
+            payload["tombstone_id"] = self.tombstone_id
+        if self.specialist_disagreement is not None:
+            payload["specialist_disagreement"] = dict(self.specialist_disagreement)
+        return payload
+
+
+@dataclass(frozen=True)
+class WikiCaptureCheckpoint:
+    capture_opt_in: bool = False
+    opt_in_updated_at: int = 0
+    edit_generation: int = 0
+    conversations: dict[str, tuple[str, ...]] = None  # type: ignore[assignment]
+    withdrawn_conversations: tuple[str, ...] = ()
+    withdrawn_event_keys: tuple[str, ...] = ()
+    processed_source_ids: tuple[str, ...] = ()
+    pod_reviewed_through_seq: int = 0
+
+    def __post_init__(self) -> None:
+        if self.conversations is None:
+            object.__setattr__(self, "conversations", {})
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any] | None) -> WikiCaptureCheckpoint:
+        if raw is None:
+            return cls()
+        if not isinstance(raw, dict):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        opt_in = raw.get("capture_opt_in", False)
+        if type(opt_in) is not bool:
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        opt_in_updated_at = raw.get("opt_in_updated_at", 0)
+        edit_generation = raw.get("edit_generation", 0)
+        pod_seq = raw.get("pod_reviewed_through_seq", 0)
+        if (
+            type(opt_in_updated_at) is not int
+            or opt_in_updated_at < 0
+            or type(edit_generation) is not int
+            or edit_generation < 0
+            or type(pod_seq) is not int
+            or pod_seq < 0
+        ):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        conv_raw = raw.get("conversations", {})
+        if not isinstance(conv_raw, dict):
+            raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+        conversations: dict[str, tuple[str, ...]] = {}
+        for conv_id, msg_ids in sorted(conv_raw.items()):
+            if not isinstance(conv_id, str) or not isinstance(msg_ids, (list, tuple)):
+                raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+            conversations[conv_id] = tuple(dict.fromkeys(str(m) for m in msg_ids if str(m)))
+        withdrawn_convs = tuple(
+            dict.fromkeys(str(c) for c in (raw.get("withdrawn_conversations") or ()) if str(c))
+        )
+        withdrawn_keys = tuple(
+            dict.fromkeys(str(k) for k in (raw.get("withdrawn_event_keys") or ()) if str(k))
+        )
+        processed_sources = tuple(
+            dict.fromkeys(validate_source_id(s) for s in (raw.get("processed_source_ids") or ()))
+        )
+        return cls(
+            capture_opt_in=opt_in,
+            opt_in_updated_at=opt_in_updated_at,
+            edit_generation=edit_generation,
+            conversations=conversations,
+            withdrawn_conversations=withdrawn_convs,
+            withdrawn_event_keys=withdrawn_keys,
+            processed_source_ids=processed_sources,
+            pod_reviewed_through_seq=pod_seq,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "capture_opt_in": self.capture_opt_in,
+            "opt_in_updated_at": self.opt_in_updated_at,
+            "edit_generation": self.edit_generation,
+            "conversations": {
+                cid: list(mids) for cid, mids in sorted((self.conversations or {}).items())
+            },
+            "withdrawn_conversations": list(self.withdrawn_conversations),
+            "withdrawn_event_keys": list(self.withdrawn_event_keys),
+            "processed_source_ids": list(self.processed_source_ids),
+            "pod_reviewed_through_seq": self.pod_reviewed_through_seq,
+        }

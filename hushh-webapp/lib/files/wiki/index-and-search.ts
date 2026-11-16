@@ -2,11 +2,14 @@
 
 import {
   type StoredWikiPageRevision,
+  type WikiClaimStatus,
   type WikiLinkRelation,
   WikiRefusedError,
   canonicalJson,
   sha256Hex,
+  validateClaimId,
   validatePageId,
+  validateSourceId,
 } from "./contracts";
 
 const TOKEN_RE = /[a-z0-9_]{2,64}/g;
@@ -368,6 +371,176 @@ export class LexicalSearchIndex {
       documents[key] = this.documents.get(key)!;
     }
     return { format: 1, documents };
+  }
+
+  async digest(): Promise<string> {
+    return sha256Hex(canonicalJson(this.toStored()));
+  }
+}
+
+export interface StoredClaimEntry {
+  claim_id: string;
+  page_id: string;
+  page_revision: number;
+  status: WikiClaimStatus;
+  confidence: number;
+  source_ids: string[];
+  observed_at: string;
+  valid_until?: string;
+  superseded_by?: string;
+}
+
+export interface StoredContradictionAnchor {
+  source_page_id: string;
+  source_revision: number;
+  target_page_id: string;
+}
+
+export interface StoredClaimIndex {
+  format: 1;
+  claims: Record<string, StoredClaimEntry>;
+  contradictions: Record<string, StoredContradictionAnchor[]>;
+}
+
+export class ClaimIndex {
+  private readonly claims = new Map<string, StoredClaimEntry>();
+  private readonly contradictions = new Map<string, StoredContradictionAnchor[]>();
+
+  constructor(
+    initialClaims?: Record<string, StoredClaimEntry>,
+    initialContradictions?: Record<string, StoredContradictionAnchor[]>,
+  ) {
+    if (initialClaims) {
+      for (const claimId of Object.keys(initialClaims).sort()) {
+        const validated = validateClaimId(claimId);
+        const entry = initialClaims[claimId];
+        if (!entry || typeof entry !== "object") {
+          throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 409);
+        }
+        this.claims.set(validated, {
+          claim_id: validated,
+          page_id: validatePageId(entry.page_id),
+          page_revision: Number(entry.page_revision ?? 1),
+          status: entry.status,
+          confidence: Number(entry.confidence ?? 1),
+          source_ids: (entry.source_ids ?? []).map((s) => validateSourceId(s)),
+          observed_at: String(entry.observed_at ?? "2026-01-01"),
+          ...(entry.valid_until ? { valid_until: String(entry.valid_until) } : {}),
+          ...(entry.superseded_by
+            ? { superseded_by: validateClaimId(entry.superseded_by) }
+            : {}),
+        });
+      }
+    }
+    if (initialContradictions) {
+      for (const anchorId of Object.keys(initialContradictions).sort()) {
+        const validated = validateClaimId(anchorId);
+        const list = (initialContradictions[anchorId] ?? []).map((c) => ({
+          source_page_id: validatePageId(c.source_page_id),
+          source_revision: Number(c.source_revision ?? 1),
+          target_page_id: validatePageId(c.target_page_id),
+        }));
+        if (list.length > 0) {
+          this.contradictions.set(validated, list);
+        }
+      }
+    }
+  }
+
+  static fromPages(pages: StoredWikiPageRevision[]): ClaimIndex {
+    const idx = new ClaimIndex();
+    for (const page of [...pages].sort((a, b) =>
+      a.page_id.localeCompare(b.page_id),
+    )) {
+      idx.upsertPage(page);
+    }
+    return idx;
+  }
+
+  static fromStored(raw: unknown): ClaimIndex {
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      (raw as { format?: unknown }).format !== 1 ||
+      typeof (raw as { claims?: unknown }).claims !== "object" ||
+      (raw as { claims?: unknown }).claims === null
+    ) {
+      throw new WikiRefusedError("WIKI_SCHEMA_INVALID", 409);
+    }
+    const stored = raw as StoredClaimIndex;
+    return new ClaimIndex(stored.claims, stored.contradictions ?? {});
+  }
+
+  removePage(pageId: string): void {
+    const validated = validatePageId(pageId);
+    for (const [cid, entry] of [...this.claims.entries()]) {
+      if (entry.page_id === validated) {
+        this.claims.delete(cid);
+      }
+    }
+    for (const [anchor, list] of [...this.contradictions.entries()]) {
+      const kept = list.filter((item) => item.source_page_id !== validated);
+      if (kept.length > 0) this.contradictions.set(anchor, kept);
+      else this.contradictions.delete(anchor);
+    }
+  }
+
+  upsertPage(page: StoredWikiPageRevision): void {
+    this.removePage(page.page_id);
+    for (const claim of page.claims) {
+      this.claims.set(claim.claim_id, {
+        claim_id: claim.claim_id,
+        page_id: page.page_id,
+        page_revision: page.revision,
+        status: claim.status,
+        confidence: claim.confidence,
+        source_ids: [...claim.source_ids],
+        observed_at: claim.observed_at,
+        ...(claim.valid_until ? { valid_until: claim.valid_until } : {}),
+        ...(claim.superseded_by ? { superseded_by: claim.superseded_by } : {}),
+      });
+    }
+    for (const edge of page.links) {
+      if (edge.relation === "contradicts" && edge.anchor_claim_id) {
+        const list = this.contradictions.get(edge.anchor_claim_id) ?? [];
+        list.push({
+          source_page_id: page.page_id,
+          source_revision: page.revision,
+          target_page_id: edge.target_page_id,
+        });
+        list.sort((a, b) =>
+          `${a.source_page_id}|${a.target_page_id}`.localeCompare(
+            `${b.source_page_id}|${b.target_page_id}`,
+          ),
+        );
+        this.contradictions.set(edge.anchor_claim_id, list);
+      }
+    }
+  }
+
+  lookupClaim(claimId: string): (StoredClaimEntry & {
+    contradictions: StoredContradictionAnchor[];
+  }) | null {
+    const validated = validateClaimId(claimId);
+    const entry = this.claims.get(validated);
+    if (!entry) return null;
+    return {
+      ...entry,
+      source_ids: [...entry.source_ids],
+      contradictions: [...(this.contradictions.get(validated) ?? [])],
+    };
+  }
+
+  toStored(): StoredClaimIndex {
+    const claims: Record<string, StoredClaimEntry> = {};
+    for (const key of [...this.claims.keys()].sort()) {
+      claims[key] = this.claims.get(key)!;
+    }
+    const contradictions: Record<string, StoredContradictionAnchor[]> = {};
+    for (const key of [...this.contradictions.keys()].sort()) {
+      contradictions[key] = this.contradictions.get(key)!;
+    }
+    return { format: 1, claims, contradictions };
   }
 
   async digest(): Promise<string> {
