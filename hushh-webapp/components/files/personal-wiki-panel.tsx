@@ -558,27 +558,179 @@ export function PersonalWikiPanel({
         )}
       </SettingsGroup>
 
-      {overview &&
-      overview.migrationState !== "v1_markdown_only" &&
-      overview.migrationState !== "wiki_primary" ? (
+      {overview ? (
         <details className="text-sm">
           <summary className="min-h-11 cursor-pointer py-2 font-medium">
-            Recovery options
+            Migration and recovery
           </summary>
           <div className="space-y-2 pb-1 text-muted-foreground">
-            <p>
-              Switch back to classic single-note memory. Forgotten facts stay
-              removed.
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="compact"
-              disabled={disabled}
-              onClick={() => setConfirmRollback(true)}
-            >
-              Switch back to classic notes
-            </Button>
+            {overview.migrationState === "v1_markdown_only" ? (
+              <>
+                <p>
+                  Compile your existing classic notes into cited wiki pages and
+                  verify parity before switching over.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="compact"
+                  disabled={disabled}
+                  onClick={() => {
+                    const activeSignal = localAbort.current?.signal ?? signal;
+                    void act(
+                      async () => {
+                        await FilesService.wikiMigrateCohort(
+                          {
+                            action: "compile_and_verify",
+                            expectedMigrationRevision: overview.migrationRevision,
+                          },
+                          activeSignal,
+                        );
+                        await loadOverview(activeSignal);
+                      },
+                      "Classic notes verified in wiki",
+                      false,
+                    );
+                  }}
+                >
+                  Verify classic notes
+                </Button>
+              </>
+            ) : null}
+
+            {overview.migrationState === "dual_read_shadow_compile" ? (
+              <>
+                <p>
+                  {overview.dualReadQualified
+                    ? "Parity verified. Switch chat recall to your personal wiki while keeping classic rollback available."
+                    : "Re-run verification to qualify parity before switching chat recall to your personal wiki."}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {overview.dualReadQualified ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
+                      disabled={disabled}
+                      onClick={() => {
+                        const activeSignal =
+                          localAbort.current?.signal ?? signal;
+                        void act(
+                          async () => {
+                            await FilesService.wikiMigrateCohort(
+                              {
+                                action: "cutover_rollback_safe",
+                                expectedMigrationRevision:
+                                  overview.migrationRevision,
+                              },
+                              activeSignal,
+                            );
+                            await loadOverview(activeSignal);
+                          },
+                          "Switched recall to personal wiki",
+                          false,
+                        );
+                      }}
+                    >
+                      Use wiki as primary
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
+                      disabled={disabled}
+                      onClick={() => {
+                        const activeSignal =
+                          localAbort.current?.signal ?? signal;
+                        void act(
+                          async () => {
+                            await FilesService.wikiMigrateCohort(
+                              {
+                                action: "compile_and_verify",
+                                expectedMigrationRevision:
+                                  overview.migrationRevision,
+                              },
+                              activeSignal,
+                            );
+                            await loadOverview(activeSignal);
+                          },
+                          "Classic notes verified in wiki",
+                          false,
+                        );
+                      }}
+                    >
+                      Re-verify classic notes
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="compact"
+                    disabled={disabled}
+                    onClick={() => setConfirmRollback(true)}
+                  >
+                    Switch back to classic notes
+                  </Button>
+                </div>
+              </>
+            ) : null}
+
+            {overview.migrationState === "wiki_primary_with_v1_rollback" ? (
+              <>
+                <p>
+                  Personal wiki is active with classic single-note rollback
+                  available. Forgotten facts stay removed.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {overview.coldRecoveryQualified ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
+                      disabled={disabled}
+                      onClick={() => {
+                        const activeSignal =
+                          localAbort.current?.signal ?? signal;
+                        void act(
+                          async () => {
+                            await FilesService.wikiMigrateCohort(
+                              {
+                                action: "graduate_wiki_primary",
+                                expectedMigrationRevision:
+                                  overview.migrationRevision,
+                              },
+                              activeSignal,
+                            );
+                            await loadOverview(activeSignal);
+                          },
+                          "Classic note writer retired",
+                          false,
+                        );
+                      }}
+                    >
+                      Retire classic writer
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="compact"
+                    disabled={disabled}
+                    onClick={() => setConfirmRollback(true)}
+                  >
+                    Switch back to classic notes
+                  </Button>
+                </div>
+              </>
+            ) : null}
+
+            {overview.migrationState === "wiki_primary" ? (
+              <p>
+                Personal wiki is your active memory store and classic
+                single-note writes are retired.
+              </p>
+            ) : null}
           </div>
         </details>
       ) : null}

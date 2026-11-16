@@ -758,26 +758,65 @@ async def run_memory_review(
             ops["prose_only"] = 1
     else:
         outcome = "applied"
-        try:
-            await _apply_sink(
-                memory_service,
-                sink,
-                review_seq_hint=through_seq,
-                source_seqs=source_seqs,
-                may_retire=may_retire,
-            )
-        except Exception as exc:  # noqa: BLE001 - partial application is reported, never hidden
-            logger.warning("one_memory_review.apply_failed reason=%s", type(exc).__name__)
-            return finish("failed", through_seq=through_seq, records=len(records), ops=ops)
-        try:
-            await _sync_sink_to_optional_pod_wiki(
-                sink,
-                facts=facts,
-                through_seq=through_seq,
-                memory_service=memory_service,
-            )
-        except Exception as exc:  # noqa: BLE001 - wiki mirror must never fail review completion
-            logger.warning("one_memory_review.wiki_sync_failed reason=%s", type(exc).__name__)
+        from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
+            is_classic_writer_retired,
+            optional_pod_wiki_library,
+            read_pod_wiki_migration_state,
+        )
+
+        active_wiki = optional_pod_wiki_library()
+        migration_state = (
+            await read_pod_wiki_migration_state(active_wiki)
+            if active_wiki is not None
+            else "v1_markdown_only"
+        )
+        wiki_opted_in = False
+        if active_wiki is not None:
+            try:
+                wiki_opted_in = bool((await active_wiki.read_capture_checkpoint()).capture_opt_in)
+            except Exception:  # noqa: BLE001
+                wiki_opted_in = False
+
+        retire_classic_writer = (
+            active_wiki is not None and wiki_opted_in and is_classic_writer_retired(migration_state)
+        )
+        if retire_classic_writer:
+            try:
+                await _sync_sink_to_optional_pod_wiki(
+                    sink,
+                    facts=facts,
+                    through_seq=through_seq,
+                    memory_service=memory_service,
+                    wiki_library=active_wiki,
+                )
+                ops["classic_writer_retired"] = 1
+            except Exception as exc:  # noqa: BLE001 - sole writer failure must hold checkpoint
+                logger.warning(
+                    "one_memory_review.wiki_primary_failed reason=%s", type(exc).__name__
+                )
+                return finish("failed", through_seq=through_seq, records=len(records), ops=ops)
+        else:
+            try:
+                await _apply_sink(
+                    memory_service,
+                    sink,
+                    review_seq_hint=through_seq,
+                    source_seqs=source_seqs,
+                    may_retire=may_retire,
+                )
+            except Exception as exc:  # noqa: BLE001 - partial application is reported, never hidden
+                logger.warning("one_memory_review.apply_failed reason=%s", type(exc).__name__)
+                return finish("failed", through_seq=through_seq, records=len(records), ops=ops)
+            try:
+                await _sync_sink_to_optional_pod_wiki(
+                    sink,
+                    facts=facts,
+                    through_seq=through_seq,
+                    memory_service=memory_service,
+                    wiki_library=active_wiki,
+                )
+            except Exception as exc:  # noqa: BLE001 - wiki mirror must never fail review completion
+                logger.warning("one_memory_review.wiki_sync_failed reason=%s", type(exc).__name__)
     if outcome == "refused_authority":
         # THE CHECKPOINT DOES NOT MOVE. An earlier revision advanced it here and
         # justified that with "the authority is a property of the binding, and it

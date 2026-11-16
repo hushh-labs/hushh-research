@@ -68,7 +68,9 @@ class PodChatMemory(BaseMemoryService):
         from hushh_mcp.one_adk.wiki_recall_tools import (
             STATE_WIKI_HOT_DIGEST,
             build_wiki_hot_digest_context,
+            is_wiki_serving_primary,
             read_fenced_pod_wiki_hot_digest,
+            read_pod_wiki_migration_state,
         )
 
         await self.context.require_access()
@@ -86,11 +88,6 @@ class PodChatMemory(BaseMemoryService):
                 review_policy=review_policy_for_session(self.context.claims),
             )
             await self.context.require_access()
-            input.state[STATE_MEMORY_AVAILABLE] = True
-            input.state[STATE_MEMORY_DIGEST] = await _memory_digest(self.service)
-        else:
-            input.state[STATE_MEMORY_AVAILABLE] = False
-            input.state[STATE_MEMORY_DIGEST] = ""
 
         wiki_hot = await read_fenced_pod_wiki_hot_digest()
         if not wiki_hot and self.wiki_library is not None:
@@ -98,6 +95,16 @@ class PodChatMemory(BaseMemoryService):
                 wiki_hot = await build_wiki_hot_digest_context(self.wiki_library)
             except Exception as exc:
                 logger.warning("pod_chat.wiki_digest_failed kind=%s", type(exc).__name__)
+        migration_state = await read_pod_wiki_migration_state(self.wiki_library)
+        suppress_classic = bool(wiki_hot) and is_wiki_serving_primary(migration_state)
+
+        if self.service is not None and not suppress_classic:
+            input.state[STATE_MEMORY_AVAILABLE] = True
+            input.state[STATE_MEMORY_DIGEST] = await _memory_digest(self.service)
+        else:
+            input.state[STATE_MEMORY_AVAILABLE] = False
+            input.state[STATE_MEMORY_DIGEST] = ""
+
         if wiki_hot:
             input.state[STATE_WIKI_HOT_DIGEST] = wiki_hot
 

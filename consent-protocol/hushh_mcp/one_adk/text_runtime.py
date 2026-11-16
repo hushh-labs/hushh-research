@@ -674,23 +674,26 @@ async def _stream_one_text_turn_once(
         # review then retires nothing.
         review_policy=memory_review_policy,
     )
-    # The always-on curated digest (pod only; empty string and False on the hub).
-    memory_digest = await _memory_digest(memory_service)
     from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
         STATE_WIKI_HOT_DIGEST,
         build_wiki_hot_digest_context,
+        is_wiki_serving_primary,
         optional_pod_wiki_library,
         read_fenced_pod_wiki_hot_digest,
+        read_pod_wiki_migration_state,
     )
 
+    wiki_lib = optional_pod_wiki_library()
     wiki_hot_digest = await read_fenced_pod_wiki_hot_digest()
-    if not wiki_hot_digest:
-        wiki_lib = optional_pod_wiki_library()
-        if wiki_lib is not None:
-            try:
-                wiki_hot_digest = await build_wiki_hot_digest_context(wiki_lib)
-            except Exception as exc:  # noqa: BLE001 - wiki hot digest degrades cleanly
-                logger.warning("one_text_turn.wiki_digest_failed error=%s", type(exc).__name__)
+    if not wiki_hot_digest and wiki_lib is not None:
+        try:
+            wiki_hot_digest = await build_wiki_hot_digest_context(wiki_lib)
+        except Exception as exc:  # noqa: BLE001 - wiki hot digest degrades cleanly
+            logger.warning("one_text_turn.wiki_digest_failed error=%s", type(exc).__name__)
+    migration_state = await read_pod_wiki_migration_state(wiki_lib)
+    suppress_classic = bool(wiki_hot_digest) and is_wiki_serving_primary(migration_state)
+    # The always-on curated digest (pod only; suppressed once Personal Wiki is primary).
+    memory_digest = "" if suppress_classic else await _memory_digest(memory_service)
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
         user_id=session_key,
@@ -699,7 +702,7 @@ async def _stream_one_text_turn_once(
             "temp:hussh:turn_started_at": turn_started_at
             if turn_started_at is not None
             else time.time(),
-            STATE_MEMORY_AVAILABLE: memory_service is not None,
+            STATE_MEMORY_AVAILABLE: (memory_service is not None) and not suppress_classic,
             STATE_MEMORY_DIGEST: memory_digest,
             **({STATE_WIKI_HOT_DIGEST: wiki_hot_digest} if wiki_hot_digest else {}),
             STATE_USER_ID: clean_user_id,

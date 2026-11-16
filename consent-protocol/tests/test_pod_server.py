@@ -423,6 +423,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/files/wiki/confirm",
         "/api/one/pod/files/wiki/projection/derive",
         "/api/one/pod/files/wiki/forget",
+        "/api/one/pod/files/wiki/migrate",
         "/api/one/pod/files/wiki/rollback",
         "/api/one/pod/files/wiki/import",
         "/api/one/pod/files/workspaces/status",

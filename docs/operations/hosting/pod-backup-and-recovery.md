@@ -35,15 +35,13 @@ only**:
 | | Written from a pod? | Survives a cold boot? |
 |---|---|---|
 | Agent memory (`PodMemoryService`) | yes — appended to the sealed commit log | yes — replayed on first use after boot |
-| PKM (`PodPkmStore`) | **no** — no production caller | n/a; nothing is written to survive |
-| Session history | **no** — `InMemorySessionService` | no |
+| PKM (`PodPkmStore`) | **no** — zero production writers (read-only replay shim via `pod_pkm_resolver.py` for V1 owners) | n/a; nothing is written to survive |
+| Session history | **no** — `InMemorySessionService` on `pod_turn.py` (encrypted `one_adk_sessions` / `pod.adk.session.v1` lives on the typed One ADK chat lane) | no on legacy `/api/one/pod/turn` |
 | Per-pod identity key | **no** — ephemeral (task #114) | no |
 
 So this is now a **runbook for the memory path and still a design review for the rest**.
-Read §1 and §4 for exactly what moved. The distinction matters operationally: a pod today
-resumes its conversation and learned preferences and starts every turn ungrounded in the
-owner's holdings, because `api/routes/one/pod_turn.py` is deliberately ungrounded and says
-so in its own docstring.
+Read §1 and §4 for exactly what moved. The distinction matters operationally: `api/routes/one/pod_turn.py`
+accepts client-supplied `pkmContext` and invokes `pod_pkm_resolver.local_grounding` for V1 owners (gated off once an owner switches to Personal Wiki primary mode on `dev`), while `PodPkmStore` still has zero production writers so no structured PKM record is persisted from `pod_turn.py`.
 
 ## Erasure verification corrections (2026-09-05)
 
@@ -93,11 +91,8 @@ on changed nothing, because the code that would honour it never ran.
 process is a pod. So `CommitLogPodStorage` is instantiated for real, and agent memory is
 appended to the sealed log as it is made and replayed on first use after a boot.
 
-**What has not changed.** PKM. `api/routes/one/pod_turn.py` is deliberately ungrounded
-(`pkm_context=None`, `grounded: false`, `InMemorySessionService`), so no PKM read or write
-happens in a pod turn at all; `PodPkmStore` is rebuild-capable and still has no production
-caller. Read every claim below about "the pod's holdings" with that split in mind:
-**agent memory is durable, PKM is not yet written from a pod.**
+**What has not changed.** Structured PKM writes on `pod_turn.py`. `api/routes/one/pod_turn.py` accepts client-supplied `pkmContext` and optional `pod_pkm_resolver.local_grounding` for V1 owners (gated off per-owner once Personal Wiki primary mode is active on `dev`), while `PodPkmStore` still has zero production writers. Read every claim below about `PodPkmStore` with that split in mind:
+**agent memory (and on `dev`, `<prefix>/wiki/v1/` Personal Wiki objects) is durable, while `PodPkmStore` is not written from a pod.**
 
 ### 2. `backup()` records a pointer; nothing writes what it points at
 
@@ -759,7 +754,7 @@ kinds beside `agent_memory` (raw transcript): `agent_memory_fact` (a curated fac
 `agent_memory_revoke` (a tombstone for one or more records), `agent_memory_review`
 (a checkpoint recording how far the review has read), `agent_memory_provider_consent`
 (the owner's decision on provider-derived memory) and `agent_memory_provider_rebuild`
-(when the provider engine was last rebuilt from the live sealed set). Hydration
+(when the stale provider engine was last deleted and replaced with a fresh empty engine). Hydration
 applies them strictly in log order and drops dead records, so a replay, a restore or
 a rebuild cannot resurrect a revoked fact; export returns live records only; the
 tombstones survive the in-process bound. The pod's own configuration is the same
@@ -770,7 +765,7 @@ would hydrate every record and serve revoked facts again. `consent-protocol/scri
 reads `memoryTombstones` from the pod's `/pod/info` and refuses (exit 2) to roll a
 pod that holds tombstones onto an image older than `MEMORY_TOMBSTONE_MIN_IMAGE_COMMIT`;
 the reconcile sweep only moves forward. Provider memory (Vertex Memory Bank) supports
-whole-engine deletion only, so a revoked fact is suppressed and filtered until the
-deterministic `/pod/tick` rebuild recreates the engine from the live sealed set; the
+whole-engine deletion only, so a revoked fact marks the engine stale and suppresses provider recall (`suppressed_stale`) until the
+deterministic `/pod/tick` rebuild deletes the old engine and provisions a fresh empty engine (`rebuilt_empty`, without backfilling historical sealed records or wiki pages); the
 rebuild is a behaviour of the pod configuration record, not an environment flag, and
 per-fact provider erasure is never claimed.

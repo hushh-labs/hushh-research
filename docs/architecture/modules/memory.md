@@ -25,11 +25,11 @@ Review and save context, encrypt the update, then explicitly recall or disclose 
 
 ## Components and dependencies
 
-Current chat memory is one canonical Markdown document in the encrypted PKM one_memory domain. Its schema is one.memory.md.v1 and its present limit is 96,000 characters. Derived exports are compatibility views.
+In shipped UAT and production, chat memory is one canonical Markdown document in the encrypted PKM `one_memory` domain (`one.memory.md.v1`, 96,000-character limit). On `dev`, the encrypted Personal Wiki (`<prefix>/wiki/v1/`, reserved `one_wiki` namespace) adds cited page/claim memory (`hot.md <= 8,000` characters plus bounded ADK recall tools) and per-owner `migration_state` cutover while structured PKM domains remain the sole external consent and disclosure authority.
 
 ## Trust boundary and limits
 
-Operational state, provider caches and discovery metadata are not durable personal memory. A proposed independent wiki/blob store is not the current implementation. Scopes govern external requests; possessing memory is not permission to share it.
+Operational state, provider caches and discovery metadata are not durable personal memory. Both `one_memory` and `one_wiki` remain owner-private (`shareable: "never"`); only confirmed or conflict-free projections written into ordinary PKM domains participate in external `attr.*` scopes. Scopes govern external requests; possessing memory is not permission to share it.
 
 ## Implementation and operation
 

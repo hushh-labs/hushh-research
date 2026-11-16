@@ -767,11 +767,12 @@ class WikiOwnerMigrator:
 
         # Provider MemoryBank acknowledgement check (never faked without real provider ack)
         provider_acknowledged = False
+        provider_local_suppressed = False
         pms = getattr(self.writer, "pod_memory_service", None)
         if pms is not None:
             record_tb = getattr(pms, "record_wiki_tombstone", None)
             forget_fn = getattr(pms, "forget_text", None)
-            status_fn = getattr(pms, "status", None)
+            status_fn = getattr(pms, "memory_status", None) or getattr(pms, "status", None)
             if callable(record_tb):
                 await record_tb(
                     tombstone_id=tomb_id,
@@ -780,17 +781,34 @@ class WikiOwnerMigrator:
                     reason_code=reason_code,
                     revoked_text=old_stmt,
                 )
+                provider_local_suppressed = True
                 if callable(status_fn):
-                    st = await status_fn()
-                    provider_state = (st.get("provider") or {}).get("rebuildSemantics")
-                    provider_acknowledged = provider_state in {"suppressed_stale", "rebuilt_empty"}
+                    maybe_status = status_fn()
+                    st = await maybe_status if hasattr(maybe_status, "__await__") else maybe_status
+                    if isinstance(st, dict):
+                        provider_info = st.get("provider") or {}
+                        provider_state = provider_info.get("rebuildSemantics")
+                        provider_local_suppressed = bool(provider_info.get("stale")) or (
+                            provider_state in {"suppressed_stale", "rebuilt_empty"}
+                        )
+                        provider_acknowledged = provider_state in {
+                            "suppressed_stale",
+                            "rebuilt_empty",
+                        }
             elif callable(forget_fn):
                 provider_res = await forget_fn(old_stmt)
                 if isinstance(provider_res, dict):
-                    provider_state = provider_res.get("provider_rebuild_semantics") or (
-                        provider_res.get("provider", {}) or {}
-                    ).get("rebuildSemantics")
-                    provider_acknowledged = provider_state in {"suppressed_stale", "rebuilt_empty"}
+                    provider_info = provider_res.get("provider", {}) or {}
+                    provider_state = provider_res.get(
+                        "provider_rebuild_semantics"
+                    ) or provider_info.get("rebuildSemantics")
+                    provider_local_suppressed = bool(provider_info.get("stale")) or (
+                        provider_state in {"suppressed_stale", "rebuilt_empty"}
+                    )
+                    provider_acknowledged = provider_state in {
+                        "suppressed_stale",
+                        "rebuilt_empty",
+                    }
 
         await self.library.rebuild_indexes()
         await self.writer.refresh_hot_digest()
@@ -820,6 +838,7 @@ class WikiOwnerMigrator:
             "tombstone_id": tomb_id,
             "staled_projection_receipt_ids": [r["receipt_id"] for r in staled_receipts],
             "staled_projection_receipts": staled_receipts,
+            "provider_local_suppressed": provider_local_suppressed,
             "outcomes": {
                 "logical_deletion": True,
                 "revoked_future_access": bool(revoked_future_access),

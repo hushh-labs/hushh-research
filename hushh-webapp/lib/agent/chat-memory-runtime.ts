@@ -53,6 +53,8 @@ function sourceParts(message: ChatMemoryMessage, content: string): ChatMemoryMes
 export function createChatMemoryRuntime(deps: {
   getSession: () => ChatMemorySession | null;
   rewrite: (input: ChatMemoryRewriteInput) => Promise<{ markdown: string }>;
+  /** When an owner has graduated to wiki_primary, consolidates directly to Personal Wiki and retires classic rewrite. */
+  consolidateDirect?: (input: { messages: readonly ChatMemoryMessage[]; signal?: AbortSignal }) => Promise<boolean>;
   onConsolidated?: (input: { messages: readonly ChatMemoryMessage[]; markdown: string }) => Promise<void>;
   onWithdrawn?: (input: { conversationId: string }) => Promise<void>;
   tokenThreshold?: number; idleMs?: number; maxTokens?: number;
@@ -282,12 +284,44 @@ export function createChatMemoryRuntime(deps: {
           requests: structuredClone(pending.requests), coversWindow: messages.length === pending.messages.length };
       });
       if (!snapshot.messages.length) return false;
-      rewriteAbort = new AbortController();
+      const currentAbort = new AbortController();
+      rewriteAbort = currentAbort;
       inFlightConversations = new Set(snapshot.messages.map(message => message.conversationId));
+      if (deps.consolidateDirect) {
+        let handledDirect = false;
+        try {
+          handledDirect = await deps.consolidateDirect({
+            messages: snapshot.messages,
+            signal: currentAbort.signal,
+          });
+        } finally {
+          if (handledDirect) {
+            rewriteAbort = null;
+            inFlightConversations = new Set();
+          }
+        }
+        if (handledDirect) {
+          await assertCurrent();
+          if (snapshot.messages.some(message => withdrawnConversations.has(message.conversationId))) {
+            continue;
+          }
+          await enqueue(async () => {
+            const consumedIds = new Set(snapshot.messages.map(key));
+            pending.messages = pending.messages.filter(m => !consumedIds.has(key(m)));
+            if (snapshot.coversWindow) {
+              const consumedReqs = new Set(snapshot.requests.map(r => r.requestId));
+              pending.requests = pending.requests.filter(r => !consumedReqs.has(r.requestId));
+            }
+            await writePending();
+          });
+          rerun ||= !snapshot.coversWindow;
+          return true;
+        }
+      }
       let proposed: { markdown: string };
       try {
         proposed = await deps.rewrite({ currentMarkdown: snapshot.memory.markdown,
-          messages: snapshot.messages, maxTokens: deps.maxTokens ?? 24_000, signal: rewriteAbort.signal });
+          messages: snapshot.messages, maxTokens: deps.maxTokens ?? 24_000, signal: currentAbort.signal });
       } finally {
         rewriteAbort = null;
         inFlightConversations = new Set();
