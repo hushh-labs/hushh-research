@@ -82,6 +82,15 @@ export type WikiPageDetail = {
     origins: string[];
   }>;
 };
+export type WikiArchiveImportResult = {
+  provider: "chatgpt" | "claude";
+  fileId: string;
+  pagesUpdated: number;
+  claimsImported: number;
+  claimsDeduplicated: number;
+  claimsSkippedTombstoned: number;
+  candidateCount: number;
+};
 
 async function json<T>(
   path: string,
@@ -432,6 +441,23 @@ export const FilesService = {
     json<{ migrationState: string; migrationRevision: number }>(
       "wiki/rollback",
       { request_id: crypto.randomUUID() },
+      "POST",
+      signal,
+    ),
+  wikiImportArchive: (
+    input: {
+      fileId: string;
+      sourceProvider?: "auto" | "chatgpt" | "claude";
+    },
+    signal?: AbortSignal,
+  ) =>
+    json<WikiArchiveImportResult>(
+      "wiki/import",
+      {
+        file_id: input.fileId,
+        source_provider: input.sourceProvider ?? "auto",
+        request_id: crypto.randomUUID(),
+      },
       "POST",
       signal,
     ),

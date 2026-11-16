@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   FilesService,
+  type FileEntry,
   type WikiOverview,
   type WikiPageDetail,
 } from "@/lib/files/service";
@@ -39,6 +40,7 @@ export function PersonalWikiPanel({
   act: FilesAction;
 }) {
   const [overview, setOverview] = useState<WikiOverview | null>(null);
+  const [savedArchives, setSavedArchives] = useState<FileEntry[]>([]);
   const [selectedPage, setSelectedPage] = useState<WikiPageDetail | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftSummary, setDraftSummary] = useState("");
@@ -52,12 +54,30 @@ export function PersonalWikiPanel({
   } | null>(null);
   const [confirmRollback, setConfirmRollback] = useState(false);
   const localAbort = useRef<AbortController | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadOverview = useCallback(
     async (activeSignal: AbortSignal) => {
-      const next = await FilesService.wikiOverview(activeSignal);
+      const [next, rootList] = await Promise.all([
+        FilesService.wikiOverview(activeSignal),
+        FilesService.list("root", "", false, activeSignal).catch(() => ({
+          entries: [] as FileEntry[],
+          cursor: "",
+          chunkBytes: 4 * 1024 * 1024,
+        })),
+      ]);
       activeSignal.throwIfAborted();
       setOverview(next);
+      setSavedArchives(
+        rootList.entries
+          .filter(
+            (entry) =>
+              entry.kind === "file" &&
+              entry.state === "ready" &&
+              /\.(zip|json)$/i.test(entry.name),
+          )
+          .slice(0, 5),
+      );
       setLoadError("");
       return next;
     },
@@ -379,6 +399,87 @@ export function PersonalWikiPanel({
             />
           }
         />
+      </SettingsGroup>
+
+      <SettingsGroup title="Import history" embedded>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".zip,.json,application/zip,application/json"
+          aria-label="Choose ChatGPT or Claude export file"
+          className="hidden"
+          disabled={disabled}
+          onChange={(event) => {
+            const chosen = event.target.files?.[0];
+            event.target.value = "";
+            if (!chosen || disabled) return;
+            const activeSignal = localAbort.current?.signal ?? signal;
+            void act(
+              async () => {
+                const uploaded = await FilesService.upload(
+                  chosen,
+                  "root",
+                  () => undefined,
+                  activeSignal,
+                );
+                await FilesService.wikiImportArchive(
+                  { fileId: uploaded.id, sourceProvider: "auto" },
+                  activeSignal,
+                );
+                await loadOverview(activeSignal);
+              },
+              "History imported into wiki",
+              false,
+            );
+          }}
+        />
+        <SettingsRow
+          title="Import ChatGPT or Claude history"
+          description="Saves your .zip or .json export into encrypted Files and compiles notes into your private wiki. Updates wait for your confirmation."
+          trailing={
+            <Button
+              type="button"
+              variant="outline"
+              size="compact"
+              disabled={disabled}
+              onClick={() => importInputRef.current?.click()}
+            >
+              Import archive
+            </Button>
+          }
+        />
+        {savedArchives.map((archive) => (
+          <SettingsRow
+            key={archive.id}
+            title={archive.name}
+            description="Saved in Files — compile into your private wiki"
+            trailing={
+              <Button
+                type="button"
+                variant="ghost"
+                size="compact"
+                aria-label={`Add ${archive.name} to wiki`}
+                disabled={disabled}
+                onClick={() => {
+                  const activeSignal = localAbort.current?.signal ?? signal;
+                  void act(
+                    async () => {
+                      await FilesService.wikiImportArchive(
+                        { fileId: archive.id, sourceProvider: "auto" },
+                        activeSignal,
+                      );
+                      await loadOverview(activeSignal);
+                    },
+                    "Archive added to wiki",
+                    false,
+                  );
+                }}
+              >
+                Add to wiki
+              </Button>
+            }
+          />
+        ))}
       </SettingsGroup>
 
       {overview && overview.candidateReceipts.length > 0 ? (

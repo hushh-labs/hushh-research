@@ -73,7 +73,6 @@ Do not modify recovery/PKM prefixes or broad lifecycle rules. SQL stores only th
 owner resource inventory, library generation, mutation lease and opaque write
 receipts; large encrypted objects remain in object storage.
 
-
 Enrollment records the immutable bucket generation, project number and creation
 time in the existing inventory before accepting a write. A same-name replacement
 or legacy unbound record is refused; checking its current name is not recovery.
@@ -199,7 +198,6 @@ flowchart LR
   A -->|"reversible proposal; no library key"| B
   G["Disabled until dev privacy and lifecycle acceptance"] -.-> H
 ```
-
 
 ## Upload, download and retention
 
@@ -419,11 +417,11 @@ versions, orphan chunks and other pod prefixes are additional. The UI lets the o
 adjust active-hour assumptions and a warning threshold for that view; it is not a
 cloud billing alert or a quota. Crossing it never stops service.
 
-| Partial monthly subtotal | 25 GiB | 50 GiB |
-|---|---:|---:|
-| Regional Standard storage | $0.50 | $1.00 |
-| Storage + 10 active hours + one software KMS key version | $1.60 | $2.10 |
-| Storage + 60 active hours + one software KMS key version | $6.82 | $7.32 |
+| Partial monthly subtotal                                 | 25 GiB | 50 GiB |
+| -------------------------------------------------------- | -----: | -----: |
+| Regional Standard storage                                |  $0.50 |  $1.00 |
+| Storage + 10 active hours + one software KMS key version |  $1.60 |  $2.10 |
+| Storage + 60 active hours + one software KMS key version |  $6.82 |  $7.32 |
 
 Illustration: $0.02/GiB-month; request-based compute at 1 vCPU/2 GiB costs
 `3600 × (0.000024 + 2 × 0.0000025) = $0.1044` per active hour; one software KMS key
@@ -446,11 +444,11 @@ Google request-based active hour or $0.108 per Azure Consumption running-replica
 (Iowa / East US, before allowances). At 50 GiB, modeled storage, keys/secrets and image
 custody produce these partial monthly subtotals:
 
-| Billable hours / month | Google | Azure |
-| --- | ---: | ---: |
-| 10 | $2.52 | $7.30 |
-| 30 | $4.61 | $9.46 |
-| 60 | $7.74 | $12.70 |
+| Billable hours / month | Google |  Azure |
+| ---------------------- | -----: | -----: |
+| 10                     |  $2.52 |  $7.30 |
+| 30                     |  $4.61 |  $9.46 |
+| 60                     |  $7.74 | $12.70 |
 
 Google assumes a 2 GiB image, one key/secret version, 10k operations in each modeled
 category and one schedule. Azure assumes Basic image registry (about $5 per 30 days),
@@ -507,11 +505,11 @@ are illustrative, not completed tasks or a quota. Current Gemini 3.8 Flash
 introductory credits and Azure GPT-6 Luna Global Standard prices are used;
 equivalent task quality and owner-pod model access remain unqualified.
 
-| Monthly use | GCP request-based + Flash | Azure Consumption + Luna |
-| --- | ---: | ---: |
-| 10 billable hours, 25 GiB, 300 model calls | $13.60 | $13.05 |
-| 30 billable hours, 50 GiB, 1,500 model calls | $38.69 | $18.74 |
-| 60 billable hours, 50 GiB, 3,000 model calls | $69.96 | $25.73 |
+| Monthly use                                  | GCP request-based + Flash | Azure Consumption + Luna |
+| -------------------------------------------- | ------------------------: | -----------------------: |
+| 10 billable hours, 25 GiB, 300 model calls   |                    $13.60 |                   $13.05 |
+| 30 billable hours, 50 GiB, 1,500 model calls |                    $38.69 |                   $18.74 |
+| 60 billable hours, 50 GiB, 3,000 model calls |                    $69.96 |                   $25.73 |
 
 Each package adds 5 GiB internet egress, ten HTTP requests per model call,
 10,000 object reads and writes each, and a **$5 planning reserve**, alongside
@@ -577,13 +575,13 @@ On `dev`, Personal Wiki objects live in an isolated `<prefix>/wiki/v1/` namespac
 
 Shared mode encrypts wiki objects in the unlocked owner browser under a random 256-bit key wrapped by `vaultKey`; the hub transports opaque ciphertext without holding the unwrapped key. Pod mode binds encryption to the pod's configured KMS or Key Vault custody through `PodObjectStore`. Owner **Forget** records a durable tombstone, rotates the content encryption key on rewritten objects, and removes matching entries from the encrypted lexical index; physical deletion of historical object generations remains governed by bucket retention and account-erasure verification.
 
-Admitted owner-pod sessions expose six app-role endpoints registered in `pod_ingress.py` (`APP_SURFACE_EXACT`) and `pod-app-access.ts` (`OWNER_POD_ROUTES`): `/api/one/pod/files/wiki/overview`, `/api/one/pod/files/wiki/page`, `/api/one/pod/files/wiki/opt-in`, `/api/one/pod/files/wiki/confirm`, `/api/one/pod/files/wiki/forget`, and `/api/one/pod/files/wiki/rollback`. When active on `dev`, `/one/files` renders the owner Personal Wiki inspection, projection confirmation, Forget, and V1 rollback controls without background keepalive timers.
+Admitted owner-pod sessions expose seven wiki app-role endpoints (`/api/one/pod/files/wiki/overview`, `/api/one/pod/files/wiki/page`, `/api/one/pod/files/wiki/opt-in`, `/api/one/pod/files/wiki/confirm`, `/api/one/pod/files/wiki/forget`, `/api/one/pod/files/wiki/rollback`, and `/api/one/pod/files/wiki/import`) alongside four workspace checkpoint and CLI supervision endpoints (`/api/one/pod/files/workspaces/status`, `/api/one/pod/files/workspaces/execute`, `/api/one/pod/files/workspaces/control`, and `/api/one/pod/files/workspaces/forget`) registered in `pod_ingress.py` (`APP_SURFACE_EXACT`) and `pod-app-access.ts` (`OWNER_POD_ROUTES`). When active on `dev`, `/one/files` renders the owner Personal Wiki inspection, ChatGPT/Claude archive import, projection confirmation, Forget, and V1 rollback controls without background keepalive timers.
 
-Local Tier-1.5 Floci HTTP wire tests verify encrypted put/get, compare-and-swap conflict rejection, key-rotating Forget, and prefix isolation across GCS, Azure Blob, AWS S3, and `PrefixTokenObjectStore`. Local wire checks do not establish installed owner-cloud acceptance; UAT and production remain disabled. See the [Memory workspace boundary](../../architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
+Local Tier-1.5 Floci HTTP wire tests verify encrypted put/get, compare-and-swap conflict rejection, key-rotating Forget, and prefix/subprefix isolation (`workspaces/v1/<workspace_id>`) across GCS, Azure Blob, AWS S3, and `PrefixTokenObjectStore`. Local wire checks do not establish installed owner-cloud acceptance; UAT and production remain disabled. See the [Memory workspace boundary](../../architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
 
 ## Implementation owners
 
-- Backend: `consent-protocol/hushh_mcp/services/pod_files/` (including `wiki_*.py`) and exact pod Files routes.
+- Backend: `consent-protocol/hushh_mcp/services/pod_files/`, `consent-protocol/hushh_mcp/services/wiki_memory/`, `consent-protocol/hushh_mcp/services/pod_workspace/`, `consent-protocol/hushh_mcp/operons/pod_workspace/`, and exact pod Files routes.
 - Agent: `consent-protocol/hushh_mcp/agents/files/agent.yaml` and bounded ADK tools.
 - Browser: `hushh-webapp/lib/files/` (including `lib/files/wiki/`), `components/files/`, and `/one/files`.
 - Device: companion Hermes direct-pod client; release its compatible changes together.

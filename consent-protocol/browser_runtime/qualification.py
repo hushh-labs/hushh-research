@@ -28,7 +28,7 @@ _GATES = frozenset(
 
 @dataclass(frozen=True)
 class RuntimeSandboxCapability:
-    """Declarative browser host capability profile across cloud substrates."""
+    """Declarative browser and CLI host capability profile across cloud substrates."""
 
     host_kind: str
     provider: str
@@ -38,6 +38,8 @@ class RuntimeSandboxCapability:
     outer_isolation: str
     landlock_fs_confinement: bool
     delivery_strategy: str
+    in_container_arbitrary_cli_allowed: bool = False
+    cli_worker_boundary: str = "ephemeral_task_worker"
 
 
 BROWSER_HOST_CAPABILITIES: dict[str, RuntimeSandboxCapability] = {
@@ -120,6 +122,28 @@ def default_chromium_sandbox_for_cloud(cloud: str) -> bool | None:
     if default_host is None:
         return None
     return BROWSER_HOST_CAPABILITIES[default_host].chromium_internal_sandbox
+
+
+def resolve_cli_execution_boundary(
+    host_kind: str,
+    *,
+    worker_configured: bool = False,
+) -> str:
+    """Resolve Phase 0 Option A vs Option B CLI boundary for `host_kind`.
+
+    `shared_owner_container` never permits unisolated arbitrary CLI packages
+    (`in_container_arbitrary_cli_allowed=False`). Arbitrary CLI/git/package
+    execution requires an Option A `ephemeral_task_worker` binding; otherwise
+    execution fails closed into `restricted_builtin_only` (Option B).
+    """
+    cap = BROWSER_HOST_CAPABILITIES.get(host_kind)
+    if cap is None:
+        return "restricted_builtin_only"
+    if worker_configured and cap.cli_worker_boundary == "ephemeral_task_worker":
+        return "ephemeral_task_worker"
+    if cap.in_container_arbitrary_cli_allowed and cap.landlock_fs_confinement:
+        return "ephemeral_task_worker"
+    return "restricted_builtin_only"
 
 
 _V2_DEFAULTS = {

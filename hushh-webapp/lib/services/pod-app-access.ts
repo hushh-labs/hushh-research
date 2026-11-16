@@ -54,6 +54,11 @@ const OWNER_POD_ROUTES = new Set([
   "files/wiki/confirm",
   "files/wiki/forget",
   "files/wiki/rollback",
+  "files/wiki/import",
+  "files/workspaces/status",
+  "files/workspaces/execute",
+  "files/workspaces/control",
+  "files/workspaces/forget",
   "commands/transcriptions",
   "commands/assess",
   "memory/proposals",
@@ -80,6 +85,7 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
+  /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
@@ -204,6 +210,10 @@ export async function ownerPodRequest(
       route === "browser/capability" ||
       (route === "browser/tasks" && method === "GET") ||
       /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
+    const isDownloadSave =
+      /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/.test(
+        route,
+      );
     const scope = read
       ? "browser.observe"
       : route === "browser/tasks"
@@ -212,6 +222,9 @@ export async function ownerPodRequest(
     if (
       session.role !== "app" ||
       !session.scopes.includes(scope) ||
+      (isDownloadSave &&
+        (!session.scopes.includes("files.read") ||
+          !session.scopes.includes("files.manage"))) ||
       method !== (read ? "GET" : "POST")
     ) {
       throw new Error("POD_BROWSER_REQUEST_REFUSED");
