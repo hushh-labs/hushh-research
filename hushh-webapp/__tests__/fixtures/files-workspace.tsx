@@ -57,6 +57,15 @@ const files = vi.hoisted(() => ({
     migrationState: "v1_markdown_only",
     migrationRevision: 2,
   })),
+  wikiImportArchive: vi.fn(async () => ({
+    provider: "chatgpt" as const,
+    fileId: "a".repeat(32),
+    pagesUpdated: 2,
+    claimsImported: 3,
+    claimsDeduplicated: 0,
+    claimsSkippedTombstoned: 0,
+    candidateCount: 1,
+  })),
 }));
 vi.mock("@/lib/files/service", () => ({ FilesService: files }));
 vi.mock("@/hooks/use-auth", () => ({

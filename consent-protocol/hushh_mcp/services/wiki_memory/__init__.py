@@ -1,5 +1,16 @@
 """Encrypted versioned Personal Wiki, capture/recall, and PKM projections (#8814 / #9370)."""
 
+from .archive_import import (
+    ARCHIVE_IMPORT_SCHEMA,
+    MAX_ARCHIVE_COMPRESSED_BYTES,
+    MAX_ARCHIVE_ENTRIES,
+    MAX_ARCHIVE_SINGLE_ENTRY_BYTES,
+    MAX_ARCHIVE_UNCOMPRESSED_BYTES,
+    NormalizedArchiveRecord,
+    WikiArchiveImporter,
+    extract_archive_json_documents,
+    parse_ai_export_documents,
+)
 from .contracts import (
     CLAIM_STATUSES,
     LINK_RELATIONS,
@@ -58,16 +69,22 @@ from .projections import (
 from .writer import CaptureEventInput, WikiKnowledgeWriter, strip_secret_spans
 
 __all__ = [
+    "ARCHIVE_IMPORT_SCHEMA",
     "BacklinkGraph",
     "CLAIM_STATUSES",
     "CaptureEventInput",
     "ClaimIndex",
     "LINK_RELATIONS",
     "LexicalSearchIndex",
+    "MAX_ARCHIVE_COMPRESSED_BYTES",
+    "MAX_ARCHIVE_ENTRIES",
+    "MAX_ARCHIVE_SINGLE_ENTRY_BYTES",
+    "MAX_ARCHIVE_UNCOMPRESSED_BYTES",
     "MAX_BATCH_PAGES",
     "MAX_PAGE_BODY_CHARS",
     "NON_EXTERNALIZABLE_WIKI_DOMAINS",
     "NON_REQUESTABLE_PROJECTION_STATES",
+    "NormalizedArchiveRecord",
     "SOURCE_KINDS",
     "TOMBSTONE_TARGET_KINDS",
     "WIKI_CLAIM_PROJECTION_MAX_ITEMS",
@@ -81,6 +98,7 @@ __all__ = [
     "WIKI_RECALL_STATUSES",
     "WIKI_RETRIEVED_MAX_CHARS",
     "WIKI_SAVE_OUTCOMES",
+    "WikiArchiveImporter",
     "WikiCaptureCheckpoint",
     "WikiClaim",
     "WikiKnowledgeWriter",
@@ -95,9 +113,11 @@ __all__ = [
     "WikiSourceRef",
     "WikiTombstone",
     "detect_specialist_disagreement",
+    "extract_archive_json_documents",
     "extract_inline_links",
     "normalize_statement_fingerprint",
     "open_revision_with_page_key",
+    "parse_ai_export_documents",
     "parse_v1_markdown_sections",
     "render_wiki_markdown",
     "replace_markdown_section",

@@ -3,10 +3,13 @@ import { SharedFilesLibrary, publicEntry } from "./library";
 import { SharedFilesForeground } from "./foreground";
 import type { SharedFilesAccess } from "./store";
 import {
+  MAX_ARCHIVE_COMPRESSED_BYTES,
+  SharedWikiArchiveImporter,
   SharedWikiKnowledgeWriter,
   SharedWikiLibrary,
   SharedWikiOwnerMigrator,
   SharedWikiProjectionEngine,
+  type ArchiveSourceProvider,
 } from "../wiki";
 
 const SOURCE_KIND_LABELS: Record<string, string> = {
@@ -260,6 +263,64 @@ export class SharedFilesAdapter {
         result = {
           migrationState: res.state,
           migrationRevision: res.migration_revision,
+        };
+        break;
+      }
+      case "/wiki/import": {
+        const targetId = String(body.file_id ?? "");
+        const { entry } = await this.library.entry(targetId, signal);
+        if (entry.kind !== "file" || entry.state !== "ready") {
+          throw new Error("FILES_NOT_READY");
+        }
+        if (entry.size <= 0) {
+          throw new Error("WIKI_ARCHIVE_EMPTY");
+        }
+        if (entry.size > MAX_ARCHIVE_COMPRESSED_BYTES) {
+          throw new Error("WIKI_ARCHIVE_TOO_LARGE");
+        }
+        const combined = new Uint8Array(entry.size);
+        let writeOffset = 0;
+        for (let idx = 0; idx < entry.chunks; idx++) {
+          const part = await this.library.chunk(targetId, idx, undefined, signal);
+          if (!ArrayBuffer.isView(part)) {
+            throw new Error("FILES_CHUNK_INVALID");
+          }
+          const partBytes = new Uint8Array(
+            part.buffer,
+            part.byteOffset,
+            part.byteLength,
+          );
+          if (writeOffset + partBytes.byteLength > entry.size) {
+            throw new Error("WIKI_ARCHIVE_TOO_LARGE");
+          }
+          combined.set(partBytes, writeOffset);
+          writeOffset += partBytes.byteLength;
+        }
+        const providerRaw = String(body.source_provider ?? "auto");
+        const sourceProvider: ArchiveSourceProvider =
+          providerRaw === "chatgpt" || providerRaw === "claude"
+            ? providerRaw
+            : "auto";
+        const res = await new SharedWikiArchiveImporter(
+          this.wiki,
+        ).importArchiveBytes(
+          {
+            fileId: targetId,
+            fileName: entry.name,
+            rawBytes: combined.subarray(0, writeOffset),
+            idempotencyKey: String(body.request_id ?? ""),
+            sourceProvider,
+          },
+          signal,
+        );
+        result = {
+          provider: res.provider,
+          fileId: res.file_id,
+          pagesUpdated: res.pages_updated,
+          claimsImported: res.claims_imported,
+          claimsDeduplicated: res.claims_deduplicated,
+          claimsSkippedTombstoned: res.claims_skipped_tombstoned,
+          candidateCount: res.candidate_receipt_ids.length,
         };
         break;
       }

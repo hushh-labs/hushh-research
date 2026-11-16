@@ -103,6 +103,33 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
       ),
     );
 
+    // 2b. Import ChatGPT / Claude archive into encrypted Files then Personal Wiki
+    files.upload.mockResolvedValueOnce({
+      id: "f".repeat(32),
+      name: "chatgpt-export.zip",
+      originalName: "chatgpt-export.zip",
+      parent: "root",
+      kind: "file",
+      size: 1024,
+      received: 1024,
+      receivedHash: "0".repeat(64),
+      state: "ready",
+      revision: 1,
+    });
+    const fileInput = screen.getByLabelText(
+      "Choose ChatGPT or Claude export file",
+    );
+    const archiveFile = new File(["{}"], "chatgpt-export.zip", {
+      type: "application/zip",
+    });
+    fireEvent.change(fileInput, { target: { files: [archiveFile] } });
+    await waitFor(() =>
+      expect(files.wikiImportArchive).toHaveBeenCalledWith(
+        { fileId: "f".repeat(32), sourceProvider: "auto" },
+        expect.any(AbortSignal),
+      ),
+    );
+
     // 3. Open note -> unwinds nested note layer on Back before leaving `/one/files`
     fireEvent.click(
       screen.getByRole("button", { name: "Open Travel Preferences" }),

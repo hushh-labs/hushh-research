@@ -151,6 +151,7 @@ export class SharedWikiProjectionEngine {
       idempotencyKey: string;
       activeRecipientCount?: number;
       ownerConfirmed?: boolean;
+      requireOwnerConfirmation?: boolean;
       proposedValue?: unknown;
       specialistSnapshot?: Record<string, unknown> | null;
       sourceRevision?: number;
@@ -270,7 +271,10 @@ export class SharedWikiProjectionEngine {
       if (detected) {
         disagreement = detected;
         state = "conflicted";
-      } else if (activeRecipients > 0 && !input.ownerConfirmed) {
+      } else if (
+        (activeRecipients > 0 || Boolean(input.requireOwnerConfirmation)) &&
+        !input.ownerConfirmed
+      ) {
         state = "private_candidate";
       } else {
         state = "materialized";

@@ -5,3 +5,4 @@ export * from "./writer";
 export * from "./recall-client-tools";
 export * from "./projections";
 export * from "./migration-and-maintenance";
+export * from "./archive-import";
