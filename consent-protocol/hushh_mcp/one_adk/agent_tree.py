@@ -2664,9 +2664,12 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
         from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
 
-        tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
-        if not pod_mode():
-            tools.append(AGUIToolset(tool_filter=sorted(WIKI_TOOL_NAMES)))
+        client_tool_names = (
+            set(RECEIPT_TOOL_NAMES)
+            if pod_mode()
+            else (set(RECEIPT_TOOL_NAMES) | set(WIKI_TOOL_NAMES))
+        )
+        tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
     return tools
 
 
