@@ -40,6 +40,7 @@ import { ConnectionPersonAvatar } from "@/components/connections/connection-pers
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
+import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
 import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
@@ -71,6 +72,7 @@ import {
   ArrowLeft,
   Check,
   CheckCheck,
+  Copy,
   Loader2,
   MessageCircle,
   Mic,
@@ -2368,6 +2370,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       composerRef.current?.focus();
                                     }}
                                   >
+                                    {!message.deletedForEveryoneAt ? <>
+                                      <MessageReactionMenu onSelect={(emoji) => saveReaction(message, emoji)} />
+                                      <DropdownMenuItem className="min-h-11" onSelect={() => {
+                                        reactionPickerTarget.current = message.id;
+                                        setOpenReactionPicker(message.id);
+                                      }}>
+                                        More reactions…
+                                      </DropdownMenuItem>
+                                    </> : null}
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
                                         <ArrowBendUpLeft weight="fill" className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2375,7 +2386,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       </DropdownMenuItem>
                                     ) : null}
                                     {openMessageMenu === message.id && !message.deletedForEveryoneAt && directMessagePlainText(message.content)?.trim() ? (
-                                      <DropdownMenuItem data-voice-control-id="messages-people-copy-text" onSelect={() => { void copyMessageText(message); }}>
+                                      <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-people-copy-text" onSelect={() => { void copyMessageText(message); }}>
+                                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                                         Copy text
                                       </DropdownMenuItem>
                                     ) : null}
