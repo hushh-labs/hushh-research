@@ -1597,7 +1597,7 @@ describe("DirectMessagesPage", () => {
     expect(timestamp?.parentElement?.parentElement).toContainElement(screen.getByLabelText("Sent"));
   });
 
-  it("keeps the long-press menu action-only and reactions in the full picker", async () => {
+  it("keeps People message actions aligned with Circle quick and expanded reactions", async () => {
     const message = {
       id: "message-1",
       conversationId: "conversation-1",
@@ -1643,12 +1643,10 @@ describe("DirectMessagesPage", () => {
       expect(screen.getByRole("menu")).toBeInTheDocument();
       pointer("pointerup");
     } finally { vi.useRealTimers(); }
-    expect(within(screen.getByRole("menu")).queryByRole("group", { name: "Quick reactions" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: "React", exact: true })).not.toBeInTheDocument();
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-    fireEvent.click(screen.getByRole("button", { name: "React to message", exact: true }));
-    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
-    fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("group", { name: "Quick reactions" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "More reactions…", exact: true })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "React ❤️", exact: true }));
     await waitFor(() =>
       expect(mocks.reactToMessage).toHaveBeenCalledWith({
         idToken: "test-token",
@@ -1661,6 +1659,12 @@ describe("DirectMessagesPage", () => {
     await waitFor(() => expect(mocks.removeReaction).toHaveBeenCalledWith({
       idToken: "test-token", conversationId: "conversation-1", messageId: "message-1", emoji: "❤️",
     }));
+
+    fireEvent.contextMenu(bubble);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "More reactions…", exact: true }));
+    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+    expect(screen.getByRole("button", { name: "Use ❤️" })).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Emoji picker" }), { key: "Escape" });
     expect(mocks.morphyToast.promise).not.toHaveBeenCalled();
 
     // Reply must work from the direct long-press opening too; changing a
@@ -1697,7 +1701,9 @@ describe("DirectMessagesPage", () => {
     const view = renderConnectionThread();
     const text = await screen.findByText(/Copy this text/);
     fireEvent.contextMenu(text);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy text" }));
+    const copyAction = await screen.findByRole("menuitem", { name: "Copy text" });
+    expect(copyAction.querySelector("svg")).not.toBeNull();
+    fireEvent.click(copyAction);
     await waitFor(() => expect(mocks.morphyToast.success).toHaveBeenCalledWith("Copied."));
     expect(mocks.copyClipboard).toHaveBeenCalledWith(message.content, expect.any(Function));
     const isCurrent = mocks.copyClipboard.mock.calls[0][1] as () => boolean;
