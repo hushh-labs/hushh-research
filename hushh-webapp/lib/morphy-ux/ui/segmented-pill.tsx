@@ -156,10 +156,10 @@ export const SegmentedPill = React.forwardRef<
         <div
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[140ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
+          className="pointer-events-none absolute left-1 top-1 bottom-1 overflow-hidden rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-transform duration-[150ms] ease-[var(--ease-out)] motion-reduce:transition-none dark:bg-white/[0.14] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
           style={{
-            width: `calc((100% - 1rem) / ${resolvedSlotCount})`,
-            transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
+            width: `calc((100% - 0.5rem) / ${resolvedSlotCount})`,
+            transform: `translate3d(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)), 0, 0)`,
           }}
         >
           <span

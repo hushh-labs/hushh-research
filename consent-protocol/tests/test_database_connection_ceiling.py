@@ -208,6 +208,11 @@ def _dedicated_per_worker() -> int:
 
 def _hub_fleet(values: dict[str, str], deploy_env: str) -> Fleet:
     per_worker = sum(int(values[key]) for key in POOL_KEYS) + _dedicated_per_worker()
+    per_worker += sum(
+        entry["connections"]
+        for entry in LIMITS["bounded_extra_pools_per_worker"].values()
+        if entry["lane"] == deploy_env
+    )
     return Fleet(
         name="hub",
         max_instances=_effective_max_instances(values, deploy_env),
@@ -577,6 +582,7 @@ def test_every_connection_source_is_counted() -> None:
         set(LIMITS["runtime_pool_modules"])
         | set(LIMITS["operator_tool_modules"])
         | set(LIMITS["dedicated_connections_per_worker"])
+        | set(LIMITS["bounded_extra_pools_per_worker"])
     )
     found = set()
     for top in ("api", "db", "hushh_mcp", "mcp_modules"):
@@ -591,3 +597,11 @@ def test_every_connection_source_is_counted() -> None:
         f"These modules open database connections the ceiling does not count: {undeclared}. "
         "Add each to consent-protocol/config/database_connection_limits.json."
     )
+
+
+def test_uat_metrics_pool_ceiling_matches_runtime_admission() -> None:
+    from hushh_mcp.services.metrics_uat_authority import UAT_METRICS_POOL_MAX_CONNECTIONS
+
+    entry = LIMITS["bounded_extra_pools_per_worker"]["hushh_mcp/services/metrics_uat_authority.py"]
+    assert entry["lane"] == "uat"
+    assert entry["connections"] == UAT_METRICS_POOL_MAX_CONNECTIONS == 2
