@@ -147,7 +147,7 @@ def _require_installed_release(
     compatibility_host = (
         is_owner_cloud_target(row.get("deployment_target"))
         or _legacy_injected_row(row, metadata)
-        or _retained_managed_files_update_host(row, metadata)
+        or _retained_managed_update_host(row, metadata)
     )
     if compatibility_host and upgrade_is_supported(release, installed):
         return
@@ -163,8 +163,8 @@ def _require_installed_release(
         )
 
 
-def _retained_managed_files_update_host(row: dict[str, Any], metadata: dict[str, Any]) -> bool:
-    """Allow managed compatibility only for a retained GCP Files placement."""
+def _retained_managed_update_host(row: dict[str, Any], metadata: dict[str, Any]) -> bool:
+    """Recognize the retained managed host independently of optional capabilities."""
     if (
         row.get("deployment_target") != "gcp"
         or metadata.get("tenancy") != "hussh-hosted"
@@ -177,10 +177,7 @@ def _retained_managed_files_update_host(row: dict[str, Any], metadata: dict[str,
         return False
     try:
         from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
-        from hushh_mcp.services.pod_update_identity import approved_files_plan
 
-        if approved_files_plan(approval) is None:
-            return False
         placement = retained_hosted_placement(row)
     except (TypeError, ValueError):
         return False
