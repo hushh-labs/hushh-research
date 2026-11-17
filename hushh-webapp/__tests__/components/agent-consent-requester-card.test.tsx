@@ -396,6 +396,15 @@ describe("InformationRequestReviewView with and without progress", () => {
     expect(card.querySelector("[aria-current='step']")).toHaveAttribute("data-step", "reading");
   });
 
+  it("keeps request review reachable when live progress replaces the receipt", async () => {
+    mocks.getInformationRequest.mockResolvedValue(bundle("pending", true));
+    render(<AgentStructuredExperienceView experience={restored} />);
+    await screen.findByTestId("requester-progress");
+    expect(screen.getByRole("link", { name: "Review request for Preferences" }))
+      .toHaveAttribute("href", `/one/consent?commerceRequestId=${requestId}`);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it("renders an already waiting request as its living card, with no Send", async () => {
     const PERSON_REF = "11111111-1111-4111-8111-111111111111";
     const BUNDLE = "0f0e0d0c-0b0a-4908-8706-050403020100";
