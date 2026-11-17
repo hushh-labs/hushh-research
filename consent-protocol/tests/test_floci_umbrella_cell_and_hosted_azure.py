@@ -825,8 +825,14 @@ def test_hosted_azure_migration_and_cell_status_routes_dev_fenced(
     with (
         patch(
             "hushh_mcp.services.hosted_azure_migration_provisioner.execute_owner_migration_to_hosted_azure",
-            new=AsyncMock(return_value={"status": "succeeded", "slotId": "slot01"}),
-        ),
+            new=AsyncMock(
+                return_value={
+                    "status": "succeeded",
+                    "slotId": "slot01",
+                    "migrationMode": "fresh_pod_log_with_source_grace",
+                }
+            ),
+        ) as mig_mock,
         patch(
             "hushh_mcp.services.hosted_azure_migration_provisioner.get_owner_hosted_azure_migration_status",
             new=AsyncMock(
@@ -834,7 +840,294 @@ def test_hosted_azure_migration_and_cell_status_routes_dev_fenced(
             ),
         ),
     ):
-        mig = _authed_client.post("/api/one/runtime/byoc/hosted/azure/migrate", json={})
+        mig = _authed_client.post(
+            "/api/one/runtime/byoc/hosted/azure/migrate", json={"allowFreshPodLog": True}
+        )
         assert mig.status_code == 200 and mig.json()["slotId"] == "slot01"
+        assert mig_mock.call_args.kwargs["allow_fresh_pod_log"] is True
         st = _authed_client.get("/api/one/runtime/byoc/hosted/azure/migrate/status")
         assert st.status_code == 200 and st.json()["directReadiness"]["verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_umbrella_pool_arm_tag_owner_isolation_and_same_owner_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    PodSkeletonPoolService.reset_process_claims()
+    cell_cfg = _cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1)
+    owner_a_hash = f"sha256:{hashlib.sha256(b'ha1_owner_a').hexdigest()}"
+
+    class _TaggedArm:
+        def __init__(self) -> None:
+            self.bound_apps: list[str] = []
+
+        def get(self, app_id: str, *, api_version: str, op: str = "") -> dict[str, Any]:
+            assert api_version and op == "hosted_azure_observe"
+            if app_id.endswith("ca-pod-slot01"):
+                return {
+                    "tags": {
+                        "hussh-pool-state": "bound_active",
+                        "hussh-owner-hash": owner_a_hash,
+                    }
+                }
+            return {"tags": {"hussh-pool-state": "warm_standby"}}
+
+        def put(
+            self, app_id: str, *, api_version: str, body: dict[str, Any], op: str
+        ) -> dict[str, Any]:
+            assert api_version and op == "hosted_azure_bind_slot"
+            self.bound_apps.append(app_id)
+            slot_name = app_id.rsplit("/", 1)[-1]
+            return {
+                "properties": {
+                    "latestReadyRevisionName": f"{slot_name}--0000001",
+                    "configuration": {
+                        "ingress": {
+                            "fqdn": f"{slot_name}.blackdesert.eastus2.azurecontainerapps.io"
+                        }
+                    },
+                    "template": body["properties"]["template"],
+                }
+            }
+
+    async def _keys(row: dict[str, Any], *, require_identity: bool = True) -> dict[str, str]:
+        assert require_identity is True and row
+        return {
+            "podPublicKey": "pub",
+            "podKeyId": "kid",
+            "podKeyWrappingAlg": WRAPPING_ALG,
+            "podSigningKey": "sig",
+            "podSigningKeyId": "skid",
+        }
+
+    # Even with an empty SQL occupied set, live ARM tags must keep Owner A's slot isolated
+    # from Owner B while letting Owner A resume idempotently onto slot01.
+    arm_b = _TaggedArm()
+    pool_b = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(cell_cfg),
+        backend_factory=lambda slot: HostedAzureBackend(slot=slot, arm_client=arm_b, live=True),  # type: ignore[arg-type]
+        key_fetcher=_keys,
+    )
+    res_b = await pool_b.claim_warm_skeleton_for_owner(
+        spec=PodSpec(
+            hushh_id="ha1_owner_b",
+            phone_e164_hash="ph_b",
+            pod_pubkey="",
+            region="eastus2",
+            deployment_target=BACKEND_AZURE,
+        ),
+        owner_id="uid-owner-b",
+        occupied_app_ids=set(),
+    )
+    assert res_b.slot.slot_id == "slot02"
+
+    PodSkeletonPoolService.reset_process_claims()
+    arm_a = _TaggedArm()
+    pool_a = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(cell_cfg),
+        backend_factory=lambda slot: HostedAzureBackend(slot=slot, arm_client=arm_a, live=True),  # type: ignore[arg-type]
+        key_fetcher=_keys,
+    )
+    res_a = await pool_a.claim_warm_skeleton_for_owner(
+        spec=PodSpec(
+            hushh_id="ha1_owner_a",
+            phone_e164_hash="ph_a",
+            pod_pubkey="",
+            region="eastus2",
+            deployment_target=BACKEND_AZURE,
+        ),
+        owner_id="uid-owner-a",
+        occupied_app_ids=set(),
+    )
+    assert res_a.slot.slot_id == "slot01"
+
+
+@pytest.mark.asyncio
+async def test_hosted_azure_migration_fresh_pod_log_opt_in_and_fail_closed_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services.pod_migration_transport import PodMigrationTransportError
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+
+    def _source_row() -> dict[str, Any]:
+        return {
+            "user_id": "uid-acc-2",
+            "hushh_id": "ha1_7o6wt3s4example",
+            "phone_e164_hash": "ph-acc-2",
+            "deployment_target": "user_azure",
+            "backend": "user_azure",
+            "external_agent_id": (
+                "/subscriptions/sub-personal/resourceGroups/rg-hussh-one/"
+                "providers/Microsoft.App/containerApps/ca-hussh-one-pod"
+            ),
+            "a2a_route": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+            "status": "provisioned",
+            "placement_epoch": 2,
+            "model_credential_mode": "byok_per_turn",
+            "pod_pubkey": "old-pubkey",
+            "user_cloud_project": None,
+            "user_cloud_tenant_id": "personal-tenant",
+            "user_cloud_subscription_id": "sub-personal",
+            "user_cloud_resource_group": "rg-hussh-one",
+            "backend_metadata": {
+                "url": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+                "service": "ca-hussh-one-pod",
+                "revision": "ca-hussh-one-pod--rev1",
+                "serviceUid": "rev1-incarnation",
+                "ingress": "direct",
+                "endpointVersion": 3,
+                "userAzureAdmission": {"subscriptionId": "sub-personal"},
+            },
+        }
+
+    class _FakeHandoff:
+        def _request(self, method: str, path: str) -> dict[str, Any]:
+            assert method and path
+            return {"state": "accepting", "incarnation": "rev1-incarnation"}
+
+        def prepare_and_wait(
+            self, *, operation_id: str, incarnation: str, timeout_seconds: float
+        ) -> dict[str, Any]:
+            assert timeout_seconds > 0
+            return {
+                "operationId": operation_id,
+                "incarnation": incarnation,
+                "activeWork": 0,
+                "committedState": "sha256:" + ("b" * 64),
+                "runtimeEpoch": "ep-src-1",
+            }
+
+        def release(self, *, operation_id: str, incarnation: str) -> dict[str, Any]:
+            return {"state": "accepting", "incarnation": incarnation, "operationId": None}
+
+    class _FakeArm:
+        def put(
+            self, app_id: str, *, api_version: str, body: dict[str, Any], op: str
+        ) -> dict[str, Any]:
+            assert app_id and api_version and op == "hosted_azure_bind_slot"
+            return {
+                "properties": {
+                    "latestReadyRevisionName": "ca-pod-slot01--0000001",
+                    "configuration": {
+                        "ingress": {
+                            "fqdn": "ca-pod-slot01.blackdesert.eastus2.azurecontainerapps.io"
+                        }
+                    },
+                    "template": body["properties"]["template"],
+                }
+            }
+
+    async def _fake_keys(_row: dict[str, Any], *, require_identity: bool = True) -> dict[str, str]:
+        assert require_identity is True
+        return {
+            "podPublicKey": "new-slot01-x25519",
+            "podKeyId": "kid-slot01",
+            "podKeyWrappingAlg": WRAPPING_ALG,
+            "podSigningKey": "new-slot01-ed25519",
+            "podSigningKeyId": "skid-slot01",
+        }
+
+    def _refusing_transport(code: str, msg: str) -> Any:
+        class _Transport:
+            @staticmethod
+            def export_from(**_kwargs: Any) -> dict[str, Any]:
+                raise PodMigrationTransportError(code, msg)
+
+            @staticmethod
+            def import_into(**_kwargs: Any) -> dict[str, Any]:
+                raise AssertionError("import_into must not run when fallback/failure triggers")
+
+        return _Transport
+
+    async def _admit_direct(row: dict[str, Any], *, db: Any = None) -> bool:
+        del db
+        row["backend_metadata"]["ingress"] = "direct"
+        row["backend_metadata"]["directReadiness"] = {"verified": True}
+        return True
+
+    # Default allow_fresh_pod_log=False refuses POD_REFUSED_400 before switch-over.
+    PodSkeletonPoolService.reset_process_claims()
+    reg_strict = _InMemoryRegistryRepo(_source_row())
+    jobs_strict = _InMemoryMigrationJobRepo()
+    pool_strict = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(_cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1)),
+        backend_factory=lambda slot: HostedAzureBackend(
+            slot=slot, arm_client=_FakeArm(), live=True
+        ),  # type: ignore[arg-type]
+        key_fetcher=_fake_keys,
+    )
+    res_strict = await execute_owner_migration_to_hosted_azure(
+        "uid-acc-2",
+        db=object(),
+        registry_repo=reg_strict,
+        job_repo=jobs_strict,  # type: ignore[arg-type]
+        pool=pool_strict,
+        handoff_factory=lambda _u, _h: _FakeHandoff(),
+        transport=_refusing_transport(
+            "POD_REFUSED_400", "memory custody transfer is not qualified"
+        ),
+        token_minter=lambda aud: f"tok:{aud}",
+        admit_direct_fn=_admit_direct,
+    )
+    assert res_strict["status"] == "failed"
+    assert reg_strict.row["deployment_target"] == "user_azure"
+
+    # Explicit allow_fresh_pod_log=True succeeds ONLY on POD_REFUSED_400 with 14-day grace.
+    PodSkeletonPoolService.reset_process_claims()
+    reg_opt = _InMemoryRegistryRepo(_source_row())
+    jobs_opt = _InMemoryMigrationJobRepo()
+    pool_opt = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(_cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1)),
+        backend_factory=lambda slot: HostedAzureBackend(
+            slot=slot, arm_client=_FakeArm(), live=True
+        ),  # type: ignore[arg-type]
+        key_fetcher=_fake_keys,
+    )
+    res_opt = await execute_owner_migration_to_hosted_azure(
+        "uid-acc-2",
+        db=object(),
+        registry_repo=reg_opt,
+        job_repo=jobs_opt,  # type: ignore[arg-type]
+        pool=pool_opt,
+        allow_fresh_pod_log=True,
+        handoff_factory=lambda _u, _h: _FakeHandoff(),
+        transport=_refusing_transport(
+            "POD_REFUSED_400", "memory custody transfer is not qualified"
+        ),
+        token_minter=lambda aud: f"tok:{aud}",
+        admit_direct_fn=_admit_direct,
+    )
+    assert res_opt["status"] == "succeeded"
+    assert res_opt["migrationMode"] == "fresh_pod_log_with_source_grace"
+    assert res_opt["directPromoted"] is True
+    assert reg_opt.row["deployment_target"] == "azure"
+    assert reg_opt.row["backend_metadata"]["migrationMode"] == "fresh_pod_log_with_source_grace"
+    assert reg_opt.row["backend_metadata"]["detachedPlacements"][0]["graceDays"] == 14
+
+    # Non-400 transport failures MUST still fail closed even when allow_fresh_pod_log=True.
+    PodSkeletonPoolService.reset_process_claims()
+    reg_err = _InMemoryRegistryRepo(_source_row())
+    jobs_err = _InMemoryMigrationJobRepo()
+    pool_err = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(_cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1)),
+        backend_factory=lambda slot: HostedAzureBackend(
+            slot=slot, arm_client=_FakeArm(), live=True
+        ),  # type: ignore[arg-type]
+        key_fetcher=_fake_keys,
+    )
+    res_err = await execute_owner_migration_to_hosted_azure(
+        "uid-acc-2",
+        db=object(),
+        registry_repo=reg_err,
+        job_repo=jobs_err,  # type: ignore[arg-type]
+        pool=pool_err,
+        allow_fresh_pod_log=True,
+        handoff_factory=lambda _u, _h: _FakeHandoff(),
+        transport=_refusing_transport("POD_UNREACHABLE", "timed out"),
+        token_minter=lambda aud: f"tok:{aud}",
+        admit_direct_fn=_admit_direct,
+    )
+    assert res_err["status"] == "failed"
+    assert reg_err.row["deployment_target"] == "user_azure"
