@@ -616,6 +616,12 @@ Gemini); the pod head itself carries 50.
 
 ### Microsoft Entra, the Hussh app registration
 
+Owned by the `HushOne Inc.` Entra directory (`e1e09f9b-313b-4c57-a925-f2a573a919e9`):
+Firebase Microsoft sign-in uses the separate confidential OAuth registration
+(`Hussh One Sign-In`, `MICROSOFT_FIREBASE_CLIENT_ID`), while Connect Azure
+uses the zero-secret workload-identity-federated registration (`Hussh Cloud Connect`,
+`HUSSH_AZURE_APP_CLIENT_ID`).
+
 1. Supported account types: any organizational directory and personal Microsoft
    accounts (personal accounts are served through tenant discovery).
 2. API permissions: Azure Service Management, delegated `user_impersonation`, and
