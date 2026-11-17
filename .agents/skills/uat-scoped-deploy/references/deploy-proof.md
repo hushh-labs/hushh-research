@@ -84,3 +84,7 @@ python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py -
 ```
 
 If the helper cannot find the service, list services in the project and stop with a blocker instead of switching regions by guesswork.
+
+## Verification Selector Contract
+
+Read the `uat-verification-plan` artifact from the exact changed-SHA selector (`scripts/ci/resolve-uat-verification-plan.py`) rather than adding a workflow-local path list. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, the paid candidate evaluator runs only with `run_live_model_checks=true`, and app-browser reviewer BYOK runs only when explicitly requested with `repeat_reviewer_byok=true` (two read-only passes). A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted base fails closed while retaining each accepted base's receipt.

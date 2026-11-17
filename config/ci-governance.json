@@ -109,7 +109,8 @@
       "consent-protocol/db/private_agent_adoption_successors.py",
       "consent-protocol/db/firebase_erasure_adoption.py",
       "consent-protocol/db/legacy_cloud_removal_adoption.py",
-      ".agents/skills/skill-authoring/"
+      ".agents/skills/skill-authoring/",
+      ".agents/skills/"
     ],
     "require_code_owner_reviews": true,
     "restrict_writes_to_merge_users": false,
@@ -235,7 +236,8 @@
       "consent-protocol/db/private_agent_adoption_successors.py",
       "consent-protocol/db/firebase_erasure_adoption.py",
       "consent-protocol/db/legacy_cloud_removal_adoption.py",
-      ".agents/skills/skill-authoring/"
+      ".agents/skills/skill-authoring/",
+      ".agents/skills/"
     ],
     "require_code_owner_reviews": true
   },

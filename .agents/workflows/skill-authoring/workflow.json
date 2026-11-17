@@ -1,7 +1,7 @@
 {
   "id": "skill-authoring",
   "title": "Skill Authoring",
-  "goal": "Create or retrofit skills, manifests, workflows, and routing metadata for the Codex operating system.",
+  "goal": "Create or retrofit skills, manifests, workflows, and routing metadata for the portable agent operating system.",
   "owner_skill": "skill-authoring",
   "default_spoke": null,
   "task_type": "skill-authoring",

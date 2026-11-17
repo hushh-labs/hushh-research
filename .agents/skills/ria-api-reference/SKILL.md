@@ -1,6 +1,6 @@
 ---
 name: ria-api-reference
-description: Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so Codex reads the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.
+description: Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so agents read the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.
 ---
 
 # Hussh RIA API Reference Skill
