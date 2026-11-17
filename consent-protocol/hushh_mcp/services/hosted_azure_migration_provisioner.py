@@ -259,7 +259,6 @@ def _switch_over_sql(
                             user_cloud_tenant_id = NULL,
                             user_cloud_subscription_id = NULL,
                             user_cloud_resource_group = NULL,
-                            operation_lease = NULL,
                             backend_metadata = CAST(:backend_metadata AS jsonb),
                             updated_at = clock_timestamp()
                         WHERE user_id = :user_id
@@ -587,6 +586,49 @@ async def execute_owner_migration_to_hosted_azure(
                     error_code="FREEZE_RECONCILED",
                     error_message=(
                         "Source pod confirmed unfenced (accepting); reconciled pre-freeze state."
+                    ),
+                )
+                reloaded = await wrapped_registry.get(user_id)
+                if isinstance(reloaded, dict):
+                    row = reloaded
+        elif (
+            isinstance(prior_job, dict)
+            and prior_job_id
+            and prior_job.get("status") == "failed"
+            and prior_job.get("error_code") == "SWITCH_OUTCOME_UNKNOWN"
+            and prior_job.get("stage") == "switching_over"
+            and source_target != BACKEND_AZURE
+        ):
+            # Authoritative registry proves switch-over rolled back and never moved
+            # deployment_target to 'azure'. Release any active drain on the source pod
+            # before restoring 'provisioned' so the retry can proceed cleanly.
+            await _ensure_source_prewarmed()
+            live_status = await asyncio.to_thread(_probe_source_upgrade_status, handoff)
+            if (
+                isinstance(live_status, dict)
+                and live_status.get("state") in {"draining", "idle"}
+                and str(live_status.get("operationId") or "").strip()
+                and str(live_status.get("incarnation") or "").strip()
+            ):
+                live_status = await asyncio.to_thread(
+                    handoff.release,
+                    operation_id=str(live_status["operationId"]).strip(),
+                    incarnation=str(live_status["incarnation"]).strip(),
+                )
+            if (
+                isinstance(live_status, dict)
+                and live_status.get("state") == "accepting"
+                and not live_status.get("operationId")
+            ):
+                await wrapped_registry.end_migration(user_id, status="provisioned")
+                await jobs.finish(
+                    user_id=user_id,
+                    job_id=prior_job_id,
+                    status="failed",
+                    error_code="SWITCH_RECONCILED_PRE_COMMIT",
+                    error_message=(
+                        "Authoritative registry remained on source; source drain released "
+                        "and pre-switch state reconciled."
                     ),
                 )
                 reloaded = await wrapped_registry.get(user_id)
