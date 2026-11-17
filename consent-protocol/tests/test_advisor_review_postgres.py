@@ -35,20 +35,23 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
             }:
                 conn.execute(text(f'CREATE TABLE IF NOT EXISTS "{table}" (id text)'))
         conn.execute(
-            text("""CREATE TABLE ria_profiles(user_id text PRIMARY KEY,verification_status text,advisory_status text);
-            INSERT INTO ria_profiles VALUES('bob','verified',NULL);
-            ALTER TABLE connections ADD COLUMN source text DEFAULT 'request',ADD COLUMN created_at timestamptz DEFAULT now(),
-              ADD COLUMN updated_at timestamptz DEFAULT now(),ADD COLUMN revoked_at timestamptz;
+            text("""CREATE TABLE IF NOT EXISTS ria_profiles(user_id text PRIMARY KEY,verification_status text,advisory_status text);
+            INSERT INTO ria_profiles(user_id,verification_status,advisory_status) VALUES('bob','verified',NULL)
+              ON CONFLICT (user_id) DO UPDATE SET verification_status='verified',advisory_status=NULL;
+            ALTER TABLE connections ADD COLUMN IF NOT EXISTS source text DEFAULT 'request',
+              ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(),
+              ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now(),
+              ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
             UPDATE connections SET status='revoked' WHERE user_a_id='alice' AND user_b_id='bob';
-            CREATE TABLE one_location_circles(id uuid PRIMARY KEY,name text);
-            CREATE TABLE connection_origins(id uuid DEFAULT gen_random_uuid(),connection_id uuid,origin_kind text,origin_key text,
+            CREATE TABLE IF NOT EXISTS one_location_circles(id uuid PRIMARY KEY,name text);
+            CREATE TABLE IF NOT EXISTS connection_origins(id uuid DEFAULT gen_random_uuid(),connection_id uuid,origin_kind text,origin_key text,
               source_circle_id uuid,source_ref text,status text,created_at timestamptz,updated_at timestamptz,revoked_at timestamptz,
               metadata jsonb,UNIQUE(connection_id,origin_key));
-            CREATE TABLE connection_requests(id uuid PRIMARY KEY,status text,requester_user_id text,addressee_user_id text,
+            CREATE TABLE IF NOT EXISTS connection_requests(id uuid PRIMARY KEY,status text,requester_user_id text,addressee_user_id text,
               responded_at timestamptz,updated_at timestamptz,metadata jsonb);
-            CREATE TABLE connection_scope_proposals(id uuid PRIMARY KEY,connection_request_id uuid,status text,expires_at timestamptz,resolved_at timestamptz);
-            CREATE TABLE connection_scope_proposal_events(id uuid DEFAULT gen_random_uuid(),connection_scope_proposal_id uuid,event_type text,actor_user_id text,reason text);
-            CREATE TABLE trusted_connections(id uuid DEFAULT gen_random_uuid(),owner_user_id text,trusted_user_id text,
+            CREATE TABLE IF NOT EXISTS connection_scope_proposals(id uuid PRIMARY KEY,connection_request_id uuid,status text,expires_at timestamptz,resolved_at timestamptz);
+            CREATE TABLE IF NOT EXISTS connection_scope_proposal_events(id uuid DEFAULT gen_random_uuid(),connection_scope_proposal_id uuid,event_type text,actor_user_id text,reason text);
+            CREATE TABLE IF NOT EXISTS trusted_connections(id uuid DEFAULT gen_random_uuid(),owner_user_id text,trusted_user_id text,
               status text,source text,created_at timestamptz,updated_at timestamptz,revoked_at timestamptz,
               UNIQUE(owner_user_id,trusted_user_id));
         """)

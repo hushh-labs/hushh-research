@@ -1110,7 +1110,6 @@
       "exact_tables": [
         "one_email_kyc_preferences",
         "one_email_mailbox_state",
-        "one_kyc_client_connectors",
         "one_kyc_workflows"
       ],
       "primary_access_path": "Retired legacy one@hushh.ai mailbox KYC workflow tables retained solely for migration replay compatibility and AccountService erasure; runtime readers and writers were removed and legacy-write scanning blocks any new INSERT or UPDATE.",
