@@ -1693,12 +1693,12 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
             template_name = policy[source_key]["merge_queue_ruleset_name"]
             state["rules"][2] = {"id": 2, "name": template_name, "target": "branch", "enforcement": "active",
                 "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
-            state["rules"][20] = {"id": 20, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
+            state["rules"][40] = {"id": 40, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
                 "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
                 "bypass_actors": [{"actor_id": 60, "actor_type": "Team", "bypass_mode": "pull_request"}],
                 "rules": copy.deepcopy(state["rules"][2]["rules"])}
             if fault == "unknown_bypass":
-                state["rules"][20]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
+                state["rules"][40]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
 
             def observed(payload):
                 value = copy.deepcopy(payload)
@@ -1751,22 +1751,22 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                     if fault == "bad_guard":
                         state["rules"][30]["enforcement"] = "disabled"
                     if fault == "changed_queue":
-                        state["rules"][20]["peer_change"] = True
+                        state["rules"][40]["peer_change"] = True
                     if fault == "changed_protection":
                         state["protections"][branch]["peer_change"] = True
-                elif path.endswith("/rulesets/20"):
+                elif path.endswith("/rulesets/40"):
                     assert guard_created and state["rules"][30]["enforcement"] == "active"
-                    state["rules"][20] = {**copy.deepcopy(payload), "id": 20}
+                    state["rules"][40] = {**copy.deepcopy(payload), "id": 40}
                     if fault == "reordered":
-                        state["rules"][20]["bypass_actors"].reverse()
+                        state["rules"][40]["bypass_actors"].reverse()
                     if fault == "duplicate_actor":
-                        state["rules"][20]["bypass_actors"].append(copy.deepcopy(payload["bypass_actors"][0]))
+                        state["rules"][40]["bypass_actors"].append(copy.deepcopy(payload["bypass_actors"][0]))
                     if fault == "bad_actor_mode":
-                        state["rules"][20]["bypass_actors"][0]["bypass_mode"] = "always"
+                        state["rules"][40]["bypass_actors"][0]["bypass_mode"] = "always"
                 elif path.endswith(f"/branches/{branch}/protection"):
                     assert guard_created
-                    assert all(actor["actor_type"] == "User" for actor in state["rules"][20]["bypass_actors"])
-                    assert {actor["actor_id"] for actor in state["rules"][20]["bypass_actors"]} == {10 + index for index in range(len(owners))}
+                    assert all(actor["actor_type"] == "User" for actor in state["rules"][40]["bypass_actors"])
+                    assert {actor["actor_id"] for actor in state["rules"][40]["bypass_actors"]} == {10 + index for index in range(len(owners))}
                     state["protections"][branch] = observed(payload)
                 else:
                     raise AssertionError(path)
@@ -1824,7 +1824,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
             return responses[args[1]]
         rules = [{**rule, "id": 10 + i} for i, rule in enumerate(module.protected_pipeline_review_rulesets(policy, read=read))]
         rules.append({**module.main_owner_admin_ruleset(policy, branch=branch, read=read), "id": 30})
-        rules.append({"id": 20, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
+        rules.append({"id": 40, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
             "bypass_actors": [{"actor_id": owners.index(owner) + 10, "actor_type": "User", "bypass_mode": "pull_request"} for owner in sorted(owners)],
             "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]})
@@ -1859,7 +1859,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
                 elif fault == "guard_disabled":
                     sample[f"repos/{module.REPO}/rulesets/30"]["enforcement"] = "disabled"
                 elif fault == "unknown_actor":
-                    sample[f"repos/{module.REPO}/rulesets/20"]["bypass_actors"].append({"actor_id": 1, "actor_type": "RepositoryRole", "bypass_mode": "always"})
+                    sample[f"repos/{module.REPO}/rulesets/40"]["bypass_actors"].append({"actor_id": 1, "actor_type": "RepositoryRole", "bypass_mode": "always"})
                 elif fault == "stale_authority":
                     sample[f"repos/{module.REPO}/contents/scripts/ci/queue_combined_result.py?ref={"b" * 40}"]["sha"] = "e" * 40
                     # Source equality still gates review-policy activation, not

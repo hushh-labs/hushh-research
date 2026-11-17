@@ -76,7 +76,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ./bin/hushh agents audit
 cd packages/hushh-mcp && npm run print-config
 ```

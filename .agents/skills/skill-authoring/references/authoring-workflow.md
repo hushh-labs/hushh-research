@@ -5,7 +5,7 @@ Use this workflow when adding or retrofitting repo-local skills.
 ## Default flow
 
 1. Start with `repo-context` if the correct owner family or repo surface is not already obvious.
-2. Run `python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py`.
+2. Run `python3 .agents/skills/skill-authoring/scripts/skill_lint.py`.
 3. Decide whether the work needs:
    - an owner skill
    - a spoke skill

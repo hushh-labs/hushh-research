@@ -66,7 +66,7 @@ REQUIRED_OWNER_SKILLS = [
     "subtree-upstream-governance",
     "planning-board",
     "comms-community",
-    "codex-skill-authoring",
+    "skill-authoring",
 ]
 REQUIRED_WORKFLOWS = [
     "repo-orientation",
@@ -596,10 +596,10 @@ def build_skills_section(verbose: bool = False) -> dict[str, Any]:
         uncovered_surfaces=uncovered,
         recommended_entrypoint="repo-context",
         next_reads=[
-            ".agents/skills/codex-skill-authoring/references/skill-contract.md",
+            ".agents/skills/skill-authoring/references/skill-contract.md",
             ".agents/skills/repo-context/references/ownership-map.md",
         ],
-        next_owner_skills=["codex-skill-authoring", "repo-context"],
+        next_owner_skills=["skill-authoring", "repo-context"],
     )
 
 
