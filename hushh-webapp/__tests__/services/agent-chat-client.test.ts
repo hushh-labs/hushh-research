@@ -111,6 +111,7 @@ vi.mock("@ag-ui/client", async () => {
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
+    getPersonalAgentStatus: vi.fn().mockResolvedValue({ hostingMode: "byoc" }),
     apiFetch: vi.fn(),
     apiFetchStream: vi.fn(),
     agentChatRequest: vi.fn(),
@@ -151,7 +152,7 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 import type { ApiFetchOptions } from "@/lib/services/api-service";
 import * as turnLocation from "@/lib/agent/turn-location";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { ChatKeyRefusalError, noteChatKeyAccepted } from "@/lib/vault/one-chat-key";
 import {
@@ -167,6 +168,44 @@ import {
 
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
+
+describe("Shared wiki stays on its selected runtime", () => {
+  it("opens Shared wiki only for explicit Shared hosting, never private or failed placement reads", async () => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId: "user-1", accountGeneration: 0 });
+    const auth = await import("@/lib/services/auth-service");
+    const authOwner = vi.spyOn(auth.AuthService, "getCurrentUser").mockReturnValue({ uid: "user-1" } as never);
+    const endpoint = await import("@/lib/services/owner-pod-endpoint");
+    const pinned = vi.spyOn(endpoint, "loadPinnedEndpoint").mockResolvedValue(null);
+    const wiki = await import("@/lib/files/wiki/active-shared-wiki");
+    const peek = vi.spyOn(wiki, "peekActiveSharedWiki").mockReturnValue(null);
+    const ensure = vi.spyOn(wiki, "ensureActiveSharedWiki").mockReturnValue(null);
+    const hosting = vi.mocked(ApiService.getPersonalAgentStatus);
+    try {
+      for (const mode of ["byoc", "hussh_pods", "shared"]) {
+        peek.mockClear();
+        ensure.mockClear();
+        hosting.mockResolvedValue({ hostingMode: mode } as never);
+        await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+          message: "Hello", vaultOwnerToken: "owner-token" });
+        expect(ensure).toHaveBeenCalledTimes(mode === "shared" ? 1 : 0);
+        expect(peek).toHaveBeenCalledTimes(mode === "shared" ? 1 : 0);
+      }
+      peek.mockClear();
+      ensure.mockClear();
+      hosting.mockRejectedValueOnce(new Error("placement unavailable"));
+      await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+        message: "Hello", vaultOwnerToken: "owner-token" });
+      expect(ensure).not.toHaveBeenCalled();
+      expect(peek).not.toHaveBeenCalled();
+    } finally {
+      hosting.mockResolvedValue({ hostingMode: "byoc" } as never);
+      peek.mockRestore();
+      ensure.mockRestore();
+      pinned.mockRestore();
+      authOwner.mockRestore();
+    }
+  });
+});
 
 describe("chat attempt observation boundary", () => {
   beforeEach(() => {

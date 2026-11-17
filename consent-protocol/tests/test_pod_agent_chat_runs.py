@@ -67,6 +67,8 @@ def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
     assert response.status_code == 200
     assert response.json()["receiptToolVersion"] == 1
     assert response.json()["podCommandCheckpointVersion"] == 1
+    assert "route.profile" in response.json()["admittedActionIds"]
+    assert "pkm.add" in response.json()["admittedActionIds"]
 
 
 def test_queue_joins_only_the_session_owners_running_turn(registry):
