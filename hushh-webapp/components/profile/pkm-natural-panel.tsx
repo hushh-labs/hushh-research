@@ -38,8 +38,9 @@ import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { ROUTES, normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { describePkmCaptureSection } from "@/lib/pkm/pkm-capture-sections";
 import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
+import { buildPkmShareBundles } from "@/lib/profile/pkm-memory-tree";
 
-import { SoulMemoryPanelBody } from "./soul-memory-panel";
+import { MemoryKnowledgeHub } from "./memory-knowledge-hub";
 import {
   MEMORY_WORKSPACE_TABS,
   cardImpactKey,
@@ -228,11 +229,26 @@ export function PkmNaturalPanelBody({
     title: string;
     count: number;
   }) {
+    const countLabel = `${domain.count} ${domain.count === 1 ? "memory" : "memories"}`;
+    const manifest =
+      domain.key !== "location" && !sharingManifestsLoading
+        ? sharingManifests[domain.key]
+        : null;
+    const bundles = manifest ? buildPkmShareBundles(manifest) : [];
+    const enabledCount = bundles.filter((bundle) => bundle.enabled).length;
+    const sharingSummary =
+      bundles.length === 0
+        ? ""
+        : enabledCount === 0
+          ? " · Private"
+          : enabledCount === bundles.length
+            ? " · Ask first"
+            : ` · ${enabledCount} of ${bundles.length} ask first`;
     return (
       <SettingsRow
         key={domain.key}
         title={domain.title}
-        description={`${domain.count} ${domain.count === 1 ? "memory" : "memories"}`}
+        description={`${countLabel}${sharingSummary}`}
         onClick={() =>
           domain.key === "location"
             ? navigate(ROUTES.PKM_LOCATION)
@@ -478,7 +494,7 @@ export function PkmNaturalPanelBody({
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
-            <SoulMemoryPanelBody model={soul} liveMirror={retainedOwners?.mirror} />
+            <MemoryKnowledgeHub soul={soul} liveMirror={retainedOwners?.mirror} />
             <div className="relative">
               <Input
                 type="search"

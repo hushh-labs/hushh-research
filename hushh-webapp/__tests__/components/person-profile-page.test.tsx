@@ -1339,9 +1339,9 @@ describe("PersonProfilePage request catalog tools", () => {
         name: "Details for Employment status",
       }),
     );
-    expect(
-      await screen.findByTestId("person-profile-bundle-details"),
-    ).toHaveTextContent("Employment status (waiting) · 7 days");
+    const trail = await screen.findByTestId("person-profile-bundle-details");
+    expect(within(trail).getByText("Waiting")).toBeInTheDocument();
+    expect(within(trail).getByText("Employment status · 7 days")).toBeInTheDocument();
   });
 
   // Localhost run 4 (S3): the history read "Tax Record Domain" beside a raw "granted" pill.

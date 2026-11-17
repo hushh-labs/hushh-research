@@ -4,29 +4,25 @@
  * Consent Handshake Timeline
  * ==========================
  *
- * Displays the full consent lifecycle between an investor and an RIA as a
- * chronological timeline.  Covers invites, requests, approvals, denials,
- * revocations, and timeouts.  Issue #122.
+ * Displays the consent lifecycle between an investor and a counterpart using
+ * the canonical ConsentHistoryEventTrail representation. Issue #122.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  CheckCircle2,
-  Clock,
-  Loader2,
-  Mail,
-  ShieldOff,
-  Timer,
-  XCircle,
-} from "@/components/icons";
+import { Loader2 } from "@/components/icons";
 
+import {
+  ConsentHistoryEventTrail,
+  formatLifecycleEventLabel,
+} from "@/components/consent/consent-history-trails";
 import { useAuth } from "@/hooks/use-auth";
+import { humanizeConsentScope } from "@/lib/consent/consent-display";
+import { formatRequestedAt } from "@/lib/consent/consent-owner-copy";
 import {
   ConsentCenterService,
   type ConsentCenterActor,
   type HandshakeTimelineEntry,
 } from "@/lib/services/consent-center-service";
-import { humanizeConsentScope } from "@/lib/consent/consent-display";
 import { cn } from "@/lib/utils";
 
 interface HandshakeTimelineProps {
@@ -36,80 +32,14 @@ interface HandshakeTimelineProps {
   className?: string;
 }
 
-async function getIdTokenFromUser(user: ReturnType<typeof useAuth>["user"]): Promise<string | null> {
+async function getIdTokenFromUser(
+  user: ReturnType<typeof useAuth>["user"],
+): Promise<string | null> {
   if (!user) return null;
   try {
     return await user.getIdToken();
   } catch {
     return null;
-  }
-}
-
-function actionIcon(action: string) {
-  switch (action) {
-    case "CONSENT_GRANTED":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-    case "CONSENT_DENIED":
-      return <XCircle className="h-4 w-4 text-rose-500" />;
-    case "REVOKED":
-      return <ShieldOff className="h-4 w-4 text-rose-500" />;
-    case "CANCELLED":
-      return <XCircle className="h-4 w-4 text-zinc-400" />;
-    case "TIMEOUT":
-      return <Timer className="h-4 w-4 text-amber-500" />;
-    case "REQUESTED":
-      return <Clock className="h-4 w-4 text-accent-strong" />;
-    case "INVITE_SENT":
-      return <Mail className="h-4 w-4 text-slate-500" />;
-    default:
-      return <Clock className="h-4 w-4 text-muted-foreground" />;
-  }
-}
-
-function actionLabel(action: string): string {
-  const labels: Record<string, string> = {
-    CONSENT_GRANTED: "Allowed",
-    CONSENT_DENIED: "Declined",
-    REVOKED: "Stopped sharing",
-    CANCELLED: "Request withdrawn",
-    TIMEOUT: "Request expired",
-    REQUESTED: "Requested",
-    INVITE_SENT: "Invite sent",
-    // The requester opened a live grant. An audit row, not a transition; the
-    // fallback would have printed it as "export read".
-    EXPORT_READ: "Opened",
-  };
-  return labels[action] || action.replace(/_/g, " ").toLowerCase();
-}
-
-function formatTimelineDate(value: number | string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function statusDot(status: string): string {
-  switch (status) {
-    case "approved":
-      return "bg-emerald-500";
-    case "request_pending":
-    case "pending":
-      return "bg-amber-500";
-    case "revoked":
-    case "denied":
-    case "cancelled":
-      return "bg-rose-500";
-    case "expired":
-      return "bg-zinc-400";
-    default:
-      return "bg-muted-foreground";
   }
 }
 
@@ -137,20 +67,31 @@ export function HandshakeTimeline({
       });
       setEntries(result.timeline);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load timeline");
+      setError(
+        err instanceof Error ? err.message : "Failed to load timeline",
+      );
     } finally {
       setLoading(false);
     }
   }, [user, counterpartId, actor]);
 
   useEffect(() => {
-    fetchTimeline();
+    void fetchTimeline();
   }, [fetchTimeline]);
 
   if (loading) {
     return (
-      <div className={cn("consent-presentation-surface flex items-center justify-center py-8", className)} role="status">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+      <div
+        className={cn(
+          "consent-presentation-surface flex items-center justify-center py-8",
+          className,
+        )}
+        role="status"
+      >
+        <Loader2
+          className="h-5 w-5 animate-spin text-muted-foreground"
+          aria-hidden="true"
+        />
         <span className="sr-only">Loading timeline...</span>
       </div>
     );
@@ -158,7 +99,12 @@ export function HandshakeTimeline({
 
   if (error) {
     return (
-      <div className={cn("consent-presentation-surface rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive", className)}>
+      <div
+        className={cn(
+          "consent-presentation-surface rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive",
+          className,
+        )}
+      >
         <span data-consent-role="status">{error}</span>
       </div>
     );
@@ -166,50 +112,46 @@ export function HandshakeTimeline({
 
   if (entries.length === 0) {
     return (
-      <div className={cn("consent-presentation-surface px-4 py-6 text-center text-sm text-muted-foreground", className)}>
-        <span data-consent-role="body">No consent history with {counterpartLabel || "this connection"}.</span>
+      <div
+        className={cn(
+          "consent-presentation-surface px-4 py-6 text-center text-sm text-muted-foreground",
+          className,
+        )}
+      >
+        <span data-consent-role="body">
+          No consent history with {counterpartLabel || "this connection"}.
+        </span>
       </div>
     );
   }
 
   return (
-    <div className={cn("consent-presentation-surface space-y-0", className)}>
-      <h3 data-consent-role="secondary-heading" className="mb-3 text-sm font-medium text-foreground">
+    <div className={cn("consent-presentation-surface space-y-3", className)}>
+      <h3
+        data-consent-role="secondary-heading"
+        className="text-sm font-medium text-foreground"
+      >
         Consent history{counterpartLabel ? ` with ${counterpartLabel}` : ""}
       </h3>
-      <ol className="relative border-l border-border ml-3">
-        {entries.map((entry, index) => (
-          <li key={entry.id || index} className="mb-4 ml-6 last:mb-0">
-            {/* Dot on the timeline line */}
-            <span
-              className={cn(
-                "absolute -left-[5px] flex h-2.5 w-2.5 rounded-full ring-4 ring-background",
-                statusDot(entry.status)
-              )}
-            />
-
-            {/* Content */}
-            <div className="flex items-start gap-2">
-              {actionIcon(entry.action)}
-              <div className="flex-1 min-w-0">
-                <p data-consent-role="row-title" className="text-sm font-medium text-foreground leading-snug">
-                  {actionLabel(entry.action)}
-                </p>
-                {entry.scope && (
-                  <p data-consent-role="helper" className="mt-0.5 text-xs text-muted-foreground truncate">
-                    {entry.scope_description || humanizeConsentScope(entry.scope)}
-                  </p>
-                )}
-                {entry.issued_at && (
-                  <p data-consent-role="helper" className="mt-0.5 text-xs text-muted-foreground/70">
-                    {formatTimelineDate(entry.issued_at)}
-                  </p>
-                )}
-              </div>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <ConsentHistoryEventTrail
+        events={entries.map((entry, index) => ({
+          key: String(entry.id || `${entry.action}-${entry.issued_at || index}`),
+          label: formatLifecycleEventLabel({
+            action: entry.action,
+            status: entry.status,
+          }),
+          detail:
+            [
+              entry.scope
+                ? entry.scope_description || humanizeConsentScope(entry.scope)
+                : null,
+              formatRequestedAt(entry.issued_at),
+            ]
+              .filter(Boolean)
+              .join(" · ") || null,
+          tone: entry.status || entry.action || null,
+        }))}
+      />
     </div>
   );
 }

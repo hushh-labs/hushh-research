@@ -40,9 +40,9 @@ vi.mock("@/lib/agent/agent-pkm-memory", async (importOriginal) => {
 
 vi.mock("@/lib/observability/client", () => ({ trackEvent }));
 
-// The document editor has its own persistence/session behavior suite.
-vi.mock("@/components/profile/soul-memory-panel", () => ({
-  SoulMemoryPanelBody: () => <div>Soul document</div>,
+// The document/wiki hub has its own persistence/session behavior suite.
+vi.mock("@/components/profile/memory-knowledge-hub", () => ({
+  MemoryKnowledgeHub: () => <div>Memory knowledge hub</div>,
 }));
 vi.mock("@/components/profile/use-soul-memory-model", () => ({ useSoulMemoryModel: () => ({}) }));
 
@@ -74,7 +74,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 const NOW = new Date().toISOString();
 const WEEK_AGO = new Date(Date.now() - 8 * 86_400_000).toISOString();
 
-it("retains the sharing expansion through a renderer handoff with one Back owner", () => {
+it("retains the sharing expansion state through a renderer handoff with one Back owner", () => {
   function RetainedSharing({ show }: { show: boolean }) {
     const owner = usePkmSharingExpansion("reviewer", true);
     return <>
@@ -89,7 +89,8 @@ it("retains the sharing expansion through a renderer handoff with one Back owner
   const view = render(<RetainedSharing show={false} />);
   fireEvent.click(screen.getByRole("button", { name: "Open sharing" }));
   view.rerender(<RetainedSharing show />);
-  expect(screen.getByRole("button", { name: "Sharing settings" }).getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByTestId("sharing-state").textContent).toBe("sharing");
+  expect(screen.queryByRole("button", { name: "Sharing settings" })).toBeNull();
   const navigate = vi.fn();
   act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
   expect(screen.getByTestId("sharing-state").textContent).toBe("closed");
@@ -467,7 +468,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Soul document")).toBeVisible();
+    expect(screen.getByText("Memory knowledge hub")).toBeVisible();
   });
 
   it("does not announce an empty Memory while metadata is still loading", async () => {
@@ -538,16 +539,21 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
     expect(screen.getByRole("tab", { name: "Saved" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Sharing settings" }));
-    const price = await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
-    await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
-    expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");
-    expect(screen.getByRole("switch", { name: "Make private Profile" })).toBeTruthy();
+    // Sharing settings is consolidated directly into Categories (no duplicate accordion below)
+    expect(screen.queryByRole("button", { name: "Sharing settings" })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId("memory-category-financial")).toHaveTextContent("2 memories · Ask first"),
+    );
     expect(screen.getByRole("link", { name: "View payments and earnings" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=payouts");
     expect(screen.getByRole("button", { name: "Download Memory" })).toBeTruthy();
     expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);
     expect(screen.queryByText("Your copy")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open category: Financial" }));
+    const price = await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
+    await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
+    expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");
+    expect(screen.getByRole("switch", { name: "Make private Profile" })).toBeTruthy();
     expect(await screen.findByRole("region", { name: "Sharing and price for Financial" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Set sharing price for Financial · Profile" })).toBeVisible();
     expect(screen.queryByText("Whole bundle price")).toBeNull();

@@ -77,6 +77,17 @@ import {
 } from "@/lib/consent";
 
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
+import {
+  buildConsentTrailEventItems,
+  consentHistoryBadgeClassName,
+  ConsentHistoryEventTrail,
+  ConsentHistoryTrails,
+  formatConsentHistoryStatus,
+  formatLifecycleEventLabel,
+  sortedConsentTrails,
+  sortedTrailEvents,
+} from "@/components/consent/consent-history-trails";
+export { formatLifecycleEventLabel };
 import { DocumentRequestReviewRouter } from "@/components/consent/calendar-meeting-review-card";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
@@ -192,8 +203,6 @@ import {
 type ConsentTab = "requests" | "active" | "history" | "connections";
 type ConsentManagerMode = ConsentCenterMode;
 type PendingNotificationAction = "review" | "approve" | "deny" | null;
-type ConsentTrail = NonNullable<ConsentCenterEntry["consent_trails"]>[number];
-type ConsentTrailEvent = NonNullable<ConsentTrail["events"]>[number];
 type ConnectionScopeProposalPresentation = {
   scopeHandle: string;
   direction: "requested" | "offered";
@@ -288,15 +297,7 @@ function resolveConsentTab(
 }
 
 function formatStatus(status?: string | null) {
-  const normalized = String(status || "pending").toLowerCase();
-  const labels: Record<string, string> = {
-    revoked: "Ended",
-    cancelled: "Withdrawn",
-    pending: "Waiting",
-    request_pending: "Waiting",
-    accepted: "Accepted",
-  };
-  return labels[normalized] || normalized.replaceAll("_", " ");
+  return formatConsentHistoryStatus(status);
 }
 
 /**
@@ -305,35 +306,6 @@ function formatStatus(status?: string | null) {
  */
 function formatDate(value?: string | number | null) {
   return formatRequestedAt(value);
-}
-
-function eventTimeMs(value?: string | number | null) {
-  if (!value) return 0;
-  const timestamp = new Date(value).getTime();
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function trailTimeMs(trail: ConsentTrail) {
-  return Math.max(
-    eventTimeMs(trail.issued_at || trail.expires_at),
-    ...(trail.events || []).map((event) =>
-      eventTimeMs(event.issued_at || event.expires_at),
-    ),
-  );
-}
-
-function sortedConsentTrails(entry: ConsentCenterEntry) {
-  return [...(entry.consent_trails || [])].sort(
-    (left, right) => trailTimeMs(right) - trailTimeMs(left),
-  );
-}
-
-function sortedTrailEvents(trail: ConsentTrail) {
-  return [...(trail.events || [])].sort(
-    (left, right) =>
-      eventTimeMs(right.issued_at || right.expires_at) -
-      eventTimeMs(left.issued_at || left.expires_at),
-  );
 }
 
 function parseDurationHours(value?: string | null) {
@@ -405,22 +377,7 @@ function isAuthConsentLoadError(error?: string | null) {
 }
 
 function badgeClassName(status?: string | null) {
-  switch (String(status || "").toLowerCase()) {
-    case "approved":
-    case "active":
-      return "border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-200";
-    case "pending":
-    case "request_pending":
-      return "border-transparent bg-amber-500/10 text-amber-800 dark:text-amber-200";
-    case "denied":
-    case "revoked":
-    case "cancelled":
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
-    case "expired":
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
-    default:
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
-  }
+  return consentHistoryBadgeClassName(status);
 }
 
 function isRevocableConsentStatus(status?: string | null) {
@@ -431,38 +388,6 @@ function isRevocableConsentStatus(status?: string | null) {
 
 function lifecycleLabel(index: number) {
   return `Access ${index + 1}`;
-}
-
-/**
- * What the owner reads for one event in a request's history.
- *
- * The backend records an EXPORT_READ row whenever the requester opens a live
- * grant. It is an audit record, not a lifecycle transition, and the generic
- * fallback below would have printed it as "Export read", a word the owner
- * never sees. Named actions get their own sentence; anything unnamed still
- * falls back to the humanised action so a new row type is never blank.
- */
-/** The owner's words for each step, never the protocol's ("Consent granted"). */
-const LIFECYCLE_EVENT_LABELS: Record<string, string> = {
-  CONSENT_GRANTED: "Allowed",
-  CONSENT_DENIED: "Declined",
-  REVOKED: "Stopped sharing",
-  CANCELLED: "Withdrawn",
-  TIMEOUT: "Expired",
-  REQUESTED: "Requested",
-  EXPORT_READ: "Opened",
-};
-
-export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
-  const action = String(event.action || "")
-    .trim()
-    .toUpperCase();
-  const named = LIFECYCLE_EVENT_LABELS[action];
-  if (named) return named;
-  const value = String(event.action || event.status || "Consent event")
-    .replaceAll("_", " ")
-    .toLowerCase();
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
@@ -942,115 +867,54 @@ function ConsentHistoryLifecycleDetails({
   if (trails.length === 0) return null;
 
   return (
-    <SettingsGroup
+    <ConsentHistoryTrails
       embedded
       title="Access history"
       description="See how each type of access changed over time."
-    >
-      <div className="divide-y divide-[color:var(--app-card-border-standard)]/45 px-[var(--settings-row-px)]">
-        {trails.map((trail, trailIndex) => {
-          const events = sortedTrailEvents(trail);
-          const status = trail.status || trail.action || "history";
-          const latestDate = formatDate(trail.issued_at || trail.expires_at);
-          const scopeLabel =
-            trail.scope_description ||
-            (trail.scope
-              ? humanizeConsentScope(trail.scope)
-              : "Shared information");
-          const canRevoke =
-            Boolean(trail.scope) && isRevocableConsentStatus(trail.status);
-          const revokeBusy = isScopeBusy(trail.scope);
-          return (
-            <div
-              key={
-                trail.id ||
-                trail.trail_key ||
-                trail.latest_request_id ||
-                `${entry.id}:${trailIndex}`
-              }
-              className="py-[var(--settings-row-py)]"
+      items={trails.map((trail, trailIndex) => {
+        const events = sortedTrailEvents(trail);
+        const status = trail.status || trail.action || "history";
+        const latestDate = formatDate(trail.issued_at || trail.expires_at);
+        const scopeLabel =
+          trail.scope_description ||
+          (trail.scope
+            ? humanizeConsentScope(trail.scope)
+            : "Shared information");
+        const canRevoke =
+          Boolean(trail.scope) && isRevocableConsentStatus(trail.status);
+        const revokeBusy = isScopeBusy(trail.scope);
+        const trailKey = String(
+          trail.id ||
+            trail.trail_key ||
+            trail.latest_request_id ||
+            `${entry.id}:${trailIndex}`,
+        );
+        return {
+          key: trailKey,
+          eyebrow: lifecycleLabel(trailIndex),
+          title: scopeLabel,
+          meta: latestDate ? `Latest ${latestDate}` : null,
+          statusLabel: formatStatus(status),
+          statusTone: status,
+          actions: canRevoke ? (
+            <Button
+              data-consent-role="compact-action"
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              disabled={revokeBusy}
+              onClick={() => onRevokeScope(String(trail.scope))}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div data-consent-role="fact-label" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                    {lifecycleLabel(trailIndex)}
-                  </div>
-                  <div data-consent-role="row-title" className="mt-1 text-sm font-semibold leading-5 text-foreground">
-                    {scopeLabel}
-                  </div>
-                  {latestDate ? (
-                    <div data-consent-role="helper" className="mt-1 text-xs text-muted-foreground">
-                      Latest {latestDate}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                  <Badge data-consent-role="status" className={cn("capitalize", badgeClassName(status))}>
-                    {formatStatus(status)}
-                  </Badge>
-                  {canRevoke ? (
-                    <Button data-consent-role="compact-action"
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      disabled={revokeBusy}
-                      onClick={() => onRevokeScope(String(trail.scope))}
-                    >
-                      {revokeBusy && activeAction?.kind === "revoke"
-                        ? "Stopping..."
-                        : "Stop active access"}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              {events.length > 0 ? (
-                <div className="mt-4 space-y-0">
-                  {events.map((event, eventIndex) => {
-                    const eventStatus = event.status || event.action;
-                    return (
-                      <div
-                        key={`${event.request_id || event.id || trailIndex}-${event.action || event.status}-${event.issued_at || eventIndex}`}
-                        className="grid grid-cols-[18px_1fr] gap-2"
-                      >
-                        <div className="flex flex-col items-center">
-                          <span
-                            className={cn(
-                              "mt-1 h-2.5 w-2.5 rounded-full border",
-                              badgeClassName(eventStatus),
-                            )}
-                          />
-                          {eventIndex < events.length - 1 ? (
-                            <span className="min-h-6 flex-1 border-l border-border/70" />
-                          ) : null}
-                        </div>
-                        <div className="pb-3 text-xs last:pb-0">
-                          <div className="font-medium text-foreground/85">
-                            {formatLifecycleEventLabel(event)}
-                          </div>
-                          <div className="mt-0.5 leading-5 text-muted-foreground">
-                            {[
-                              event.scope_description ||
-                                (event.scope
-                                  ? humanizeConsentScope(event.scope)
-                                  : null),
-                              formatDate(event.issued_at || event.expires_at),
-                            ]
-                              .filter(Boolean)
-                              .join(" · ") || "Event recorded"}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-    </SettingsGroup>
+              {revokeBusy && activeAction?.kind === "revoke"
+                ? "Stopping..."
+                : "Stop active access"}
+            </Button>
+          ) : null,
+          events: buildConsentTrailEventItems(events, String(trailIndex)),
+        };
+      })}
+    />
   );
 }
 
@@ -1868,20 +1732,14 @@ function ConsentEntryDetail({
           title="Recent changes"
           description="The latest changes to this type of access."
         >
-          {entry.consent_chain.slice(0, 6).map((event) => (
-            <SettingsRow
-              key={`${event.request_id || event.id}-${event.action || event.status}`}
-              title={formatStatus(event.status || event.action)}
-              description={
-                [
-                  event.scope ? humanizeConsentScope(event.scope) : null,
-                  formatDate(event.issued_at),
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "Event recorded"
-              }
+          <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+            <ConsentHistoryEventTrail
+              events={buildConsentTrailEventItems(
+                entry.consent_chain.slice(0, 6),
+                entry.id,
+              )}
             />
-          ))}
+          </div>
         </SettingsGroup>
       ) : null}
 

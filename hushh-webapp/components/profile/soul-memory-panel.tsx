@@ -24,7 +24,15 @@ export function SoulMemoryPanel(options: SoulMemoryModelOptions) {
 }
 
 /** Presentation only. A retained parent can supply its one existing owner. */
-export function SoulMemoryPanelBody({ model, liveMirror }: { model: SoulMemoryModel; liveMirror?: LiveMirrorViewState }) {
+export function SoulMemoryPanelBody({
+  model,
+  liveMirror,
+  hideLiveMirror = false,
+}: {
+  model: SoulMemoryModel;
+  liveMirror?: LiveMirrorViewState;
+  hideLiveMirror?: boolean;
+}) {
   const {
     active,
     verified,
@@ -47,7 +55,9 @@ export function SoulMemoryPanelBody({ model, liveMirror }: { model: SoulMemoryMo
   // The same shared Live Mirror preview as Profile and One's sheet, above
   // the Soul view. It stays out of the way while memory.md is being edited.
   const livePreview =
-    active && !editing ? <LiveMirrorPreview showOpenMemory={false} mirror={liveMirror} /> : null;
+    !hideLiveMirror && active && !editing ? (
+      <LiveMirrorPreview showOpenMemory={false} mirror={liveMirror} />
+    ) : null;
   if (failed && !editing)
     return (
       <div className="min-w-0 space-y-[var(--app-form-section-gap)]">

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { HelperText, RowLabel } from "@/components/app-ui/typography";
+import { ConsentHistoryTrails } from "@/components/consent/consent-history-trails";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "@/components/connections/person-profile-hero";
@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, ChevronDown, LockKeyhole, Mail, Phone } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
-import { SectionCard, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
 import type { RequestablePersonScope } from "@/lib/services/person-profile-service";
 import styles from "@/components/connections/person-profile-page.module.css";
@@ -68,12 +67,40 @@ function Fixture() {
       </section>
       <section className={`${styles.section} ${styles.history}`}><h2 className={styles.heading}>Request history</h2>
         <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
-        <SectionCard className={styles.historyGroup}>
-          <div className={styles.historyRow}><div className="min-w-0 flex-1"><RowLabel as="p" className={`ui-text-row-label-emphasized ${styles.historyTitle}`}>Professional details</RowLabel><HelperText className={styles.historySupporting}>For an introduction</HelperText></div>
-            <div className={styles.historyActions}><StatusPill tone="neutral">Pending</StatusPill><Button size="compact" variant="none" effect="fade">Details</Button><Button size="compact" variant="none" effect="fade">Withdraw request</Button></div>
-          </div>
-          <div className={styles.pagination}><Button size="compact" variant="none" effect="fade">Previous</Button><span className="text-muted-foreground">1 of 2</span><Button size="compact" variant="none" effect="fade">Next</Button></div>
-        </SectionCard>
+        <ConsentHistoryTrails
+          embedded
+          items={[
+            {
+              key: "fixture-request-1",
+              eyebrow: "Request 1",
+              title: "Professional details",
+              subtitle: "For an introduction",
+              statusLabel: "Waiting",
+              statusTone: "pending",
+              actions: (
+                <>
+                  <Button data-consent-role="compact-action" size="compact" variant="none" effect="fade">Details</Button>
+                  <Button data-consent-role="compact-action" size="compact" variant="none" effect="fade">Withdraw request</Button>
+                </>
+              ),
+              events: [
+                {
+                  key: "fixture-request-1:requested",
+                  label: "Requested",
+                  detail: "For 7 days",
+                  tone: "pending",
+                },
+              ],
+            },
+          ]}
+          footer={
+            <div className={styles.pagination}>
+              <Button size="compact" variant="none" effect="fade">Previous</Button>
+              <span className="text-muted-foreground">1 of 2</span>
+              <Button size="compact" variant="none" effect="fade">Next</Button>
+            </div>
+          }
+        />
       </section>
       <div className={styles.review}><Button size="compact" data-id="review" onClick={() => setReviewOpen(true)}>Review request</Button></div>
     </div>

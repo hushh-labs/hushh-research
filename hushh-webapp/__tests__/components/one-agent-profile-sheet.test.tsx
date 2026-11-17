@@ -498,7 +498,7 @@ describe("One agent profile feed preview", () => {
     expect(await screen.findByRole("heading", { name: "Live memory" })).toBeInTheDocument();
     expect(mirrorStatus().getByRole("status")).toHaveTextContent("Up to date");
     expect(mirrorStatus().getByText("Checked just now")).toBeInTheDocument();
-    expect(screen.getByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeNull();
     expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
     expect(within(factRow("Email")).getByText("a@example.test")).toBeInTheDocument();
     const seeAll = screen.getByRole("link", { name: "See all" });
