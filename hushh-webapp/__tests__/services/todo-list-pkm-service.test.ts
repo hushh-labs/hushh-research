@@ -23,6 +23,8 @@ import {
 } from "@/lib/services/todo-list-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { GoalsPkmService } from "@/lib/services/goals-pkm-service";
+import { readGoals, type Goal } from "@/lib/goals/goal-model";
 
 const persistence = {
   userId: "owner-1",
@@ -54,6 +56,125 @@ const coordinatorContext = {
   attempt: 0,
   upgradedInSession: false,
 };
+
+const goal: Goal = {
+  id: "goal_1", title: "Stay active", outcome: "Walk on three days this week",
+  category: "Wellbeing", status: "active", taskIds: [], revision: 1,
+  createdAt: task.createdAt, updatedAt: task.updatedAt, completedAt: null, deletedAt: null,
+};
+const goalPersistence = { ...persistence, confirmedByUser: true as const };
+const goalEdit = { ...goalPersistence, goalId: goal.id, expectedRevision: 1 };
+const goalDomain = (items: Goal[] = [goal], tasks: TodoItem[] = [task]) => ({
+  public_note: "preserve",
+  _private: { tasks, goals: { schemaVersion: 1, items }, other: { keep: true } },
+});
+
+describe("Goals sharing the encrypted task domain", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("loads private goals without interpreting a failed read as empty", async () => {
+    const read = vi.mocked(PersonalKnowledgeModelService.loadDomainData);
+    read.mockResolvedValueOnce(null).mockResolvedValueOnce(goalDomain());
+    await expect(GoalsPkmService.load(persistence)).resolves.toEqual({ goals: [] });
+    await expect(GoalsPkmService.load(persistence)).resolves.toEqual({ goals: [goal] });
+    expect(readGoals({ goals: [goal] })).toEqual([]);
+    read.mockRejectedValueOnce(new Error("unavailable"));
+    await expect(GoalsPkmService.load(persistence)).rejects.toThrow("unavailable");
+  });
+
+  it("roundtrips goal links through existing task writes and preserves raw task records", async () => {
+    const save = mockSuccessfulWrite();
+    const rawTask = { ...task, futureField: { keep: "verbatim" } };
+    const domain = goalDomain([goal], [rawTask]);
+    await GoalsPkmService.setTaskLinks({ ...goalEdit, taskIds: [task.id] });
+    const goalWrite = save.mock.calls[0]![0];
+    const first = await goalWrite.build({ ...coordinatorContext, currentDomainData: domain });
+    expect(first.domainData).toMatchObject({ public_note: "preserve", _private: { tasks: [rawTask], other: { keep: true } } });
+    expect(readGoals(first.domainData)[0]).toMatchObject({ taskIds: [task.id], revision: 2 });
+    expect(first.summary).toEqual({ item_count: 1, open_item_count: 1, completed_item_count: 0, last_updated: expect.any(String) });
+    expect(goalWrite).toMatchObject({ domain: TODO_LIST_PKM_DOMAIN, userId: persistence.userId, vaultKey: persistence.vaultKey, vaultOwnerToken: persistence.vaultOwnerToken, confirmation: { confirmedByUser: true } });
+
+    await TodoListPkmService.setStatus({ ...persistence, task, status: "done" });
+    const second = await save.mock.calls[1]![0].build({ ...coordinatorContext, currentDomainData: first.domainData });
+    expect(readGoals(second.domainData)).toEqual(readGoals(first.domainData));
+    expect(readTodoListState(second.domainData).tasks[0]).toMatchObject({ status: "done" });
+    // Completion belongs to the task; it cannot silently complete the goal.
+    expect(readGoals(second.domainData)[0]?.status).toBe("active");
+    await GoalsPkmService.update({ ...goalEdit, expectedRevision: 2, update: { title: "Updated goal", outcome: goal.outcome } });
+    const third = await save.mock.calls[2]![0].build({ ...coordinatorContext, currentDomainData: second.domainData });
+    expect((third.domainData._private as Record<string, unknown>).tasks).toEqual((second.domainData._private as Record<string, unknown>).tasks);
+    expect(readGoals(third.domainData)[0]?.category).toBe(goal.category);
+  });
+
+  it("creates one unscheduled goal identity across retries without overwriting other goals", async () => {
+    const save = mockSuccessfulWrite();
+    const { goalId } = await GoalsPkmService.create({ title: "New outcome", outcome: "Reviewed criteria" }, goalPersistence);
+    const build = save.mock.calls[0]![0].build;
+    const first = await build({ ...coordinatorContext, currentDomainData: goalDomain() });
+    const newer = { ...goal, title: "Concurrent owner edit", revision: 2 };
+    const retried = await build({ ...coordinatorContext, attempt: 1, currentDomainData: goalDomain([newer]) });
+    expect(readGoals(retried.domainData)).toEqual([newer, expect.objectContaining({ id: goalId, revision: 1, taskIds: [], status: "active" })]);
+    expect(readGoals(first.domainData)[1]).toEqual(readGoals(retried.domainData)[1]);
+    const replay = await build({ ...coordinatorContext, currentDomainData: retried.domainData });
+    expect(replay.unchanged).toBe(true);
+  });
+
+  it("rejects stale edits and cannot revive deleted goals", async () => {
+    const save = mockSuccessfulWrite();
+    await GoalsPkmService.update({ ...goalEdit, update: { title: "Late edit", outcome: goal.outcome } });
+    const build = save.mock.calls[0]![0].build;
+    await build({ ...coordinatorContext, currentDomainData: goalDomain() });
+    expect(() => build({ ...coordinatorContext, attempt: 1, currentDomainData: goalDomain([{ ...goal, revision: 2 }]) })).toThrow("goal_conflict");
+    expect(() => build({ ...coordinatorContext, currentDomainData: goalDomain([{ ...goal, status: "deleted", deletedAt: goal.updatedAt }]) })).toThrow("goal_conflict");
+    expect(() => build({ ...coordinatorContext, currentDomainData: goalDomain([]) })).toThrow("goal_conflict");
+  });
+
+  it("allows a saved task to support multiple goals but refuses missing/deleted task links on retry", async () => {
+    const save = mockSuccessfulWrite();
+    const other = { ...goal, id: "goal_2", taskIds: [task.id] };
+    await GoalsPkmService.setTaskLinks({ ...goalEdit, taskIds: [task.id] });
+    const build = save.mock.calls[0]![0].build;
+    const linked = await build({ ...coordinatorContext, currentDomainData: goalDomain([goal, other]) });
+    expect(readGoals(linked.domainData).map((row) => row.taskIds)).toEqual([[task.id], [task.id]]);
+    for (const tasks of [[], [{ ...task, status: "deleted" as const, deletedAt: task.updatedAt }]]) {
+      expect(() => build({ ...coordinatorContext, attempt: 1, currentDomainData: goalDomain([goal, other], tasks) })).toThrow("task_unavailable");
+    }
+    expect(() => GoalsPkmService.setTaskLinks({ ...goalEdit, taskIds: [task.id, task.id] })).toThrow("invalid_goal");
+  });
+
+  it("retains deletion receipts and removes links without mutating task state", async () => {
+    const save = mockSuccessfulWrite();
+    await GoalsPkmService.setTaskLinks({ ...goalEdit, taskIds: [] });
+    const unlinked = await save.mock.calls[0]![0].build({ ...coordinatorContext, currentDomainData: goalDomain([{ ...goal, taskIds: [task.id] }], []) });
+    expect(readGoals(unlinked.domainData)[0]).toMatchObject({ taskIds: [], revision: 2 });
+    await GoalsPkmService.setStatus({ ...goalEdit, status: "completed" });
+    const completed = await save.mock.calls[1]![0].build({ ...coordinatorContext, currentDomainData: goalDomain() });
+    expect(readGoals(completed.domainData)[0]).toMatchObject({ status: "completed", completedAt: expect.any(String), revision: 2 });
+    await GoalsPkmService.setStatus({ ...goalEdit, expectedRevision: 2, status: "deleted" });
+    const deleted = await save.mock.calls[2]![0].build({ ...coordinatorContext, currentDomainData: completed.domainData });
+    expect(readGoals(deleted.domainData)[0]).toMatchObject({ status: "deleted", deletedAt: expect.any(String), revision: 3 });
+    expect((deleted.domainData._private as Record<string, unknown>).tasks).toEqual([task]);
+  });
+
+  it("blocks unsupported or malformed saved goals rather than erasing them", async () => {
+    const save = mockSuccessfulWrite();
+    await GoalsPkmService.create({ title: goal.title, outcome: goal.outcome }, goalPersistence);
+    const build = save.mock.calls[0]![0].build;
+    for (const envelope of [{ schemaVersion: 2, items: [goal] }, { schemaVersion: 1, items: [goal, goal] }, { schemaVersion: 1, items: [{ ...goal, revision: -1 }] }, { schemaVersion: 1, items: [{ ...goal, status: ["active"] }] }]) {
+      expect(() => build({ ...coordinatorContext, currentDomainData: { _private: { goals: envelope } } })).toThrow();
+    }
+    const extended = { ...goal, futureField: "retain" };
+    const saved = await build({ ...coordinatorContext, currentDomainData: { _private: { goals: { schemaVersion: 1, futureEnvelope: "retain", items: [extended] } } } });
+    expect(saved.domainData).toMatchObject({ _private: { goals: { futureEnvelope: "retain", items: [extended, expect.any(Object)] } } });
+  });
+
+  it("requires explicit confirmation before entering the protected write coordinator", async () => {
+    const save = mockSuccessfulWrite();
+    const unconfirmed = { ...goalEdit, confirmedByUser: false as unknown as true };
+    expect(() => GoalsPkmService.setStatus({ ...unconfirmed, status: "completed" })).toThrow("confirmation_required");
+    expect(save).not.toHaveBeenCalled();
+  });
+});
 
 function mockSuccessfulWrite() {
   const save = vi.mocked(PkmWriteCoordinator.saveMergedDomain);

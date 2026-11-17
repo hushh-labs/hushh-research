@@ -4617,6 +4617,36 @@ asked for it. `gmail.modify` is a Google restricted scope and needs Google's
 restricted-scope verification before production use. Native Google sign-in does not yet
 request it.
 
+### Durable goal planning in the encrypted task domain
+
+`GoalsPkmService` stores owner-confirmed goals in
+`one_todos._private.goals`, a version-1 envelope with `schemaVersion` and
+`items`. Each goal records its outcome, optional category, explicit status,
+ordered `taskIds`, revision and lifecycle timestamps. A task may support
+multiple goals; task completion remains authoritative in `_private.tasks`.
+Completing tasks never automatically completes a goal. Goal completion is an
+explicit reviewed operation, and deletion retains a tombstone.
+
+The service uses the existing owner-scoped `PkmWriteCoordinator`, vault keys,
+owner token, serialized writes and revision-CAS retries. Edits require the
+expected goal revision; stale edits and edits to deleted goals fail. Every
+retry checks links against the latest saved task snapshot. Missing, live-only
+and deleted tasks cannot be newly linked; removing their references is allowed.
+Saving or deleting a goal never creates, completes, restores or deletes tasks.
+
+The additive sibling preserves compatibility with existing To-do writers,
+which retain `_private` siblings but normalize individual task fields. Goal
+writes preserve raw task records and unrelated branches. Unsupported goal
+versions or malformed records stop a write rather than being discarded.
+Goal details and links remain encrypted; metadata keeps the existing task
+counters and timestamp only. The `one_todos` domain stays unshareable.
+
+This is a client-service foundation with contract tests, not an installed
+Goals/Tasks workspace or an execution API. No new endpoint, native plugin,
+database table or consent scope is introduced. Web, iOS and Android reuse the
+existing PKM transport. A saved plan grants no scheduled/background authority;
+Pod and Puppy scheduling retain their separate qualification and approval gates.
+
 ### Owner-confirmed Gmail To-do follow-ups
 
 An owner may explicitly ask One to prepare Gmail follow-ups for the encrypted
