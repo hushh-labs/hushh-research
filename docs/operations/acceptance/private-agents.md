@@ -4,7 +4,7 @@
 
 [Operations](../README.md) · [Capabilities](../../product/capabilities.md)
 
-**Evidence review: 16 November 2026.** This page separates source functionality,
+**Evidence review: 17 November 2026.** This page separates source functionality,
 application release acceptance and installed-owner verification. It does not
 certify the currently serving image or replace the original operation receipts.
 
@@ -13,24 +13,70 @@ certify the currently serving image or replace the original operation receipts.
 Use the [hosting module](../../architecture/modules/hosting.md) and
 [Browser module](../../architecture/modules/browser.md) for system boundaries.
 
-## Current Dev sharing checkpoint — 16 November 2026
+## Current Dev sharing checkpoint — 17 November 2026
 
-Real Stripe Sandbox funding credited 100 coins once. A 24-coin Profile request,
-owner approval, direct encrypted information delivery and fresh authenticated
-recovery passed. The retained fixture was synthetic; it does not establish the
-requested two-Chat demonstration with a saved human preference. Profile withdrawal
-released the second reservation once, while payment-review cancellation failed.
-Its correction [#9630](https://github.com/hushh-labs/hushh-research/pull/9630) is
-merged but not yet deployed. The Memory sharing-impact correction
-[#9634](https://github.com/hushh-labs/hushh-research/pull/9634) has exact-source CI
-and awaits Dev queue acceptance and deployment.
+Three Stripe Sandbox cases passed through the private Chats: funding credited
+100 coins once; cancelling a 24-coin request returned the full reservation; a
+separate 24-coin request received owner approval and delivered encrypted
+information for on-device reading. The preference is an owner-authorized
+illustration, not a verified biographical claim. Native financial readback at
+09:51 UTC retained 76 buyer coins available, zero held, 16.08 owner coins pending
+and balanced journals. No second funding or paid approval was submitted during
+the update verification.
 
-Normal signed-in Chrome earlier identified two Chat blockers: Azure's installed predecessor
-required the old discovery confirmation, while GCP wake marked
-a still-present managed host for reinitialization after reading the fleet project.
-Same-host recovery and guarded UI controls landed on `dev` ([#9638](https://github.com/hushh-labs/hushh-research/pull/9638), [#9641](https://github.com/hushh-labs/hushh-research/pull/9641)), preserving the original placement and keys (a replacement pod is not recovery). On 16 November in silent background Chrome on `dev`: (1) **Sovereign Azure BYOC (`user_azure`, `Dev 38`)** confirmed `installedVerified: true` and completed live streaming chat against configured Azure OpenAI; and (2) **Hussh-Hosted GCP Slot #3 (`hussh_pods` / `gcp`, `Dev 39`)** — admitted under the governed Dev-only extension (`consent-protocol/config/dev-hosted-pilot-extension.json`, US$200 work / US$50 cleanup ceiling via [#9609](https://github.com/hushh-labs/hushh-research/pull/9609), [#9611](https://github.com/hushh-labs/hushh-research/pull/9611), [#9627](https://github.com/hushh-labs/hushh-research/pull/9627)) with Cloud Run gVisor `prctl(PR_GET_DUMPABLE) == 0` hardening ([#9618](https://github.com/hushh-labs/hushh-research/pull/9618)) — completed isolated GCP project bootstrap (`18/18` steps + `5/5` hosted model preparation), direct-ingress readiness (`has_direct_readiness: true`), live browser-to-pod streaming chat, and compounding memory rewrite (`HTTP 200`). The original synthetic two-owner managed Cohort-1 remains **0/2 and paused**, and Tier-1.5 [Floci multi-cloud wire verification](../../development/quality/floci-multicloud-wire-verification.md) ([#9629](https://github.com/hushh-labs/hushh-research/pull/9629)) stays strictly separated from live cloud qualification.
+The requester’s existing managed GCP pod now runs qualified image `9f771f10…`
+(source `e323f94ccc17`), preserving its owner, placement, service UID and keys.
+Two narrow control-plane fixes, [#9663](https://github.com/hushh-labs/hushh-research/pull/9663)
+and [#9666](https://github.com/hushh-labs/hushh-research/pull/9666), corrected managed
+image-only admission and execution with the lease-bound backend. The
+[backend-only Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/44048360525)
+passed; native revision `consent-protocol-00415-vmg` serves tested source
+`e512cf430aec` at 100%. The same original owner approval settled successfully.
+The failed pre-dispatch attempt remains archived; its terminated worker and
+native job absence were verified before recovery. The successful worker also
+terminated and its temporary job was removed. No new pod image was built for
+these hub corrections.
 
-Current acceptance and next actions stay in the existing tasks:
+On the installed image, fresh normal Chat turns completed without an error.
+A new free request saved and recovered its private Chat receipt, then was
+withdrawn. A further **24-coin** Food request saved its receipt with HTTP 200 and
+reopened as **Request sent**. The owner’s Details showed that exact request,
+price and purpose without approving it. Native accounting proved 52 coins
+available and 24 held before normal requester cancellation, then 76 available
+and zero held afterward. The original paid grant and owner earnings remained
+unchanged. Both the Food bundle and its preference use the owner-confirmed
+24-coin daily tariff. No new funding or paid approval was submitted.
+
+That paid cancellation exposed an outcome-projection defect: per-item
+`CANCELLED` transitions without whole-bundle retirement fell through to expired.
+The aggregate now identifies an entirely cancelled set, preserving mixed-state
+precedence; Chat labels it **Request withdrawn**. Financial and approval writers
+are unchanged. Verify this status correction on the governed Dev release;
+current deployment and human-review results stay in the linked acceptance task.
+The new receipt proof does not reconstruct the older paid conversation’s missing
+receipt. The original paid grant remains active until its recorded expiry.
+
+Human review remains pending. One earlier post-update turn ended with a generic
+execution error; its cause is unproven. A fresh reload and normal unlock then
+completed the subsequent turn. Protected decrypted values remain concealed
+while Chrome reports the background page hidden; that guard was not bypassed.
+Local-only review changes cover compact Hosting and consent sheets, accurate
+provider labels and the false cold-wake notice. These density changes remain
+local; the functional cancellation label is isolated in this correction.
+The local server on port 3001 remains stopped at the owner’s request.
+
+The owner’s Azure pod remains on its identified `da9e0dc9…` image with retained
+Azure OpenAI, Memory, approval and export evidence; this is not a new Azure
+installation qualification. GCP uses Gemini, Azure its configured OpenAI and
+Shared its configured runtime. The original synthetic managed two-owner cohort
+remains **0/2 and paused**. The operational third GCP placement does not complete
+that cohort. [Floci wire verification](../../development/quality/floci-multicloud-wire-verification.md)
+remains separate from native provider acceptance, and installed Browser/Puppy
+obligations remain in the existing checklist. Qualification fixture resources
+are removed; scheduled key destruction on 18 November is still pending native
+readback.
+
+Current acceptance and remaining review stay in the existing tasks:
 [#7587 Consumer-controlled paid scope access and Stripe sandbox acceptance](https://github.com/hushh-labs/hushh-research/issues/7587)
 and [#5507 Owner-controlled GCP and Azure private pods — dev readiness](https://github.com/hushh-labs/hushh-research/issues/5507).
 
