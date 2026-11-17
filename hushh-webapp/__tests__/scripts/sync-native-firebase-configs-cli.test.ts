@@ -24,7 +24,7 @@ it("stages isolated UAT Analytics with shared Auth and FCM, then clears the extr
     `<plist><dict><key>PROJECT_ID</key><string>${project}</string>` +
     `<key>GCM_SENDER_ID</key><string>${sender}</string><key>GOOGLE_APP_ID</key><string>${appId}</string>` +
     "<key>BUNDLE_ID</key><string>com.hushh.app</string><key>API_KEY</key><string>fixture</string>" +
-    "<key>CLIENT_ID</key><string>fixture</string><key>REVERSED_CLIENT_ID</key><string>fixture</string></dict></plist>";
+    "<key>CLIENT_ID</key><string>fixture.apps.googleusercontent.com</string><key>REVERSED_CLIENT_ID</key><string>com.googleusercontent.apps.fixture</string></dict></plist>";
   const shared = plist("hushh-pda", "1006304528804", "1:1006304528804:ios:eb2720b5eda7da4bcfd931");
   const analytics = plist("hushh-pda-uat", "745506018753", "1:745506018753:ios:efea0fede200b1d1778b40");
   const localAnalytics = path.join(appRoot, ".env.local.d/ios/uat-analytics/GoogleService-Info.plist");
@@ -41,6 +41,8 @@ it("stages isolated UAT Analytics with shared Auth and FCM, then clears the extr
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "hushh-pda");
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "1006304528804");
     mkdirSync(path.dirname(localAnalytics), { recursive: true });
+    mkdirSync(appPath, { recursive: true });
+    copyFileSync(path.join(process.cwd(), "ios/App/App/Info.plist"), path.join(appPath, "Info.plist"));
     writeFileSync(path.join(root, "GoogleService-Info.plist"), shared);
     writeFileSync(localAnalytics, shared);
     expect(sync).toThrow(/invalid Firebase plist for hushh-pda-uat/);

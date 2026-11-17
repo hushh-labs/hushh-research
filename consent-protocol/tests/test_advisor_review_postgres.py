@@ -22,7 +22,17 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
     monkeypatch.setattr(OneLocationAgentService, "is_directory_candidate", lambda *a, **k: True)
     with db.engine.begin() as conn:
         for table in _IAM_REQUIRED_TABLES:
-            if table not in {"actor_profiles", "ria_profiles", "connection_scope_proposals"}:
+            if table not in {
+                "actor_profiles",
+                "ria_profiles",
+                "connections",
+                "one_location_circles",
+                "connection_origins",
+                "connection_requests",
+                "connection_scope_proposals",
+                "connection_scope_proposal_events",
+                "trusted_connections",
+            }:
                 conn.execute(text(f'CREATE TABLE IF NOT EXISTS "{table}" (id text)'))
         conn.execute(
             text("""CREATE TABLE ria_profiles(user_id text PRIMARY KEY,verification_status text,advisory_status text);

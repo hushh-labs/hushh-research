@@ -33,7 +33,8 @@ describe("@feature_auth_reliability @trace_loop native phone verification recove
   beforeEach(resetNativeAuthMocks);
   afterEach(() => { cleanupNativeAuthMocks(); vi.restoreAllMocks(); });
 
-  it.each(["transfer", "delete"] as const)("releases the native challenge after approved %s settles", async action => {
+  it("releases the native challenge after approved delete settles", async () => {
+    const action = "delete" as const;
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
     mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
     mocks.phoneConfirm.mockImplementationOnce(async params => {

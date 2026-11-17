@@ -1030,7 +1030,6 @@ first-quota-stop rule and requirement for an actual nonempty, non-truncated repl
 This is a probe budget correction, not a claim that private model or memory
 acceptance has passed.
 
-
 ### One-time legacy bootstrap exception
 
 An installed release may predate the handoff protocol. Check with the configured
@@ -1064,7 +1063,6 @@ Do not add a permanent bypass flag or silently bootstrap other owners.
 
 Record bootstrap results separately from the subsequent owner-approved update
 acceptance. Do not repeat a bootstrap merely because later authentication fails.
-
 
 ### Dev hosted pilot: memory consent transport
 

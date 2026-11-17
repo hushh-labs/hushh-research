@@ -28,15 +28,15 @@ source, application deployment and installed-owner evidence.
 
 ## Existing-user continuity
 
-| Cohort | Required outcome |
-| --- | --- |
+| Cohort                        | Required outcome                                                            |
+| ----------------------------- | --------------------------------------------------------------------------- |
 | Evidenced legacy Shared owner | Continue without repeating hosting; retain memory and supported connections |
-| Existing BYOC owner | Preserve cloud, model choice, owner/incarnation, keys and resources |
-| New owner | Hosting first, then one provider-aware AI step; no duplicate wizard |
-| Pending setup | Resume the recorded operation; do not allocate a second project or service |
-| Detached or unknown placement | Resolve the actual placement or request a choice |
-| Returning eligible owner | One concise changelog with owner-scoped acknowledgement |
-| Newly registered owner | Onboarding without historical catch-up announcements |
+| Existing BYOC owner           | Preserve cloud, model choice, owner/incarnation, keys and resources         |
+| New owner                     | Hosting first, then one provider-aware AI step; no duplicate wizard         |
+| Pending setup                 | Resume the recorded operation; do not allocate a second project or service  |
+| Detached or unknown placement | Resolve the actual placement or request a choice                            |
+| Returning eligible owner      | One concise changelog with owner-scoped acknowledgement                     |
+| Newly registered owner        | Onboarding without historical catch-up announcements                        |
 
 Use current migration manifests and installed ledgers. Preserve applied checksums;
 forward corrections must distinguish inferred legacy choices from explicit owner
@@ -55,15 +55,15 @@ Use authoritative placement and capability observations in onboarding, Settings,
 chat and backend enforcement. Preserve last verified information while refreshing.
 Keep unavailable, not connected, permission denied, offline and checking distinct.
 
-| Attempted action | Required experience |
-| --- | --- |
-| Puppy on Shared | Explain that Puppy needs the owner’s cloud; offer Hosting without attempting a relay |
-| Browser on Shared or unqualified pod | Explain the capability requirement on demand; do not imply provisioning immediately enables it |
-| Background Files work | Preserve supported foreground analysis; explain the separate private-agent requirement |
-| Unsupported private schedule | Refuse clearly without promising a general cron capability |
-| Shared software update | Show managed version information; do not offer pod Install/Restart controls |
-| Files unavailable in this environment | Explain the rollout limit; do not direct the owner to buy hosting for an environment gate |
-| Hosting change blocked by a library | Explain that information transfer is unavailable; preserve the library and current placement |
+| Attempted action                      | Required experience                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Puppy on Shared                       | Explain that Puppy needs the owner’s cloud; offer Hosting without attempting a relay           |
+| Browser on Shared or unqualified pod  | Explain the capability requirement on demand; do not imply provisioning immediately enables it |
+| Background Files work                 | Preserve supported foreground analysis; explain the separate private-agent requirement         |
+| Unsupported private schedule          | Refuse clearly without promising a general cron capability                                     |
+| Shared software update                | Show managed version information; do not offer pod Install/Restart controls                    |
+| Files unavailable in this environment | Explain the rollout limit; do not direct the owner to buy hosting for an environment gate      |
+| Hosting change blocked by a library   | Explain that information transfer is unavailable; preserve the library and current placement   |
 
 Keep the explanation short, with one relevant next action. Hide unusable execution
 controls from primary navigation; typed requests and direct routes still need a useful

@@ -36,7 +36,7 @@ import {
   User,
   onAuthStateChanged,
 } from "firebase/auth";
-import { app, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import {
   FirebaseAuthentication,
 } from "@capacitor-firebase/authentication";

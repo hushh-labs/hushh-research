@@ -191,7 +191,7 @@ function OwnedFinanceImportSetup({
             rootSetup={coordinator.isInitialSetup}
             deferred={sourceSettled === "later"}
             onFinish={() => {
-              void coordinator.finish();
+              void coordinator.finish({ recordAttempt: true });
             }}
           />
         ) : (

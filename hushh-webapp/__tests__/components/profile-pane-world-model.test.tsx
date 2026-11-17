@@ -190,10 +190,8 @@ describe("Profile pane: Personal World Model", () => {
     expect(start).toHaveBeenCalledWith("+16505550101", expect.objectContaining({ transport: "sms" }));
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     await screen.findByRole("button", { name: "Delete my previous account" });
-    const transferReview = screen.getByRole("button", { name: "Use this number on this account" });
-    expect(transferReview).toBeDisabled();
-    fireEvent.click(transferReview);
-    expect(screen.getByRole("button", { name: "Recover my previous account" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Recover my previous account" })).toBeNull();
     expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();

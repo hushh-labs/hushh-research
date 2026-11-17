@@ -135,6 +135,19 @@ export function syncNativeFirebaseConfigs({
   );
   const androidDestination = path.join(appRoot, "android/app/google-services.json");
 
+  // Dev also labels product events "uat"; only the UAT build profile owns this
+  // stream and its separate native identity resource.
+  const isolateIosAnalytics = includeIos && profile === "uat";
+  const sharedDestination = path.join(path.dirname(iosDestination), SHARED_IOS_FIREBASE_RESOURCE);
+  let defaultIosSource = iosSource;
+  if (isolateIosAnalytics) {
+    defaultIosSource = readUatIosAnalyticsPlist(appRoot);
+    verifySharedIosFirebasePlist(iosSource);
+    bindIosFirebaseBridges(appRoot);
+    copyIfDifferent(iosSource, sharedDestination);
+  } else if (includeIos) {
+    fs.rmSync(sharedDestination, { force: true });
+  }
   let iosGoogleSignInUpdated = false;
   if (includeIos) {
     try {
@@ -148,19 +161,6 @@ export function syncNativeFirebaseConfigs({
       if (detail) throw new Error(detail);
       throw error;
     }
-  }
-  // Dev also labels product events "uat"; only the UAT build profile owns this
-  // stream and its separate native identity resource.
-  const isolateIosAnalytics = includeIos && profile === "uat";
-  const sharedDestination = path.join(path.dirname(iosDestination), SHARED_IOS_FIREBASE_RESOURCE);
-  let defaultIosSource = iosSource;
-  if (isolateIosAnalytics) {
-    defaultIosSource = readUatIosAnalyticsPlist(appRoot);
-    verifySharedIosFirebasePlist(iosSource);
-    bindIosFirebaseBridges(appRoot);
-    copyIfDifferent(iosSource, sharedDestination);
-  } else if (includeIos) {
-    fs.rmSync(sharedDestination, { force: true });
   }
   const iosCopied = includeIos ? copyIfDifferent(defaultIosSource, iosDestination) : false;
   const androidCopied = includeAndroid ? copyIfDifferent(androidSource, androidDestination) : false;
