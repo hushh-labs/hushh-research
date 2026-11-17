@@ -1,7 +1,7 @@
 {
   "id": "security-posture-maintenance",
   "title": "Security Posture Maintenance",
-  "goal": "Review live GitHub security drift and Codex-system integrity when security posture work needs a focused repo-level audit.",
+  "goal": "Review live GitHub security drift and agent-system integrity when security posture work needs a focused repo-level audit.",
   "owner_skill": "security-audit",
   "default_spoke": null,
   "task_type": "security-posture-maintenance",
@@ -26,19 +26,19 @@
     "id": "security-posture-maintenance",
     "commands": [
       "./bin/hushh agents audit --json",
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
       "./bin/hushh docs verify",
       "./scripts/ci/github-security-alerts.sh"
     ],
     "tests": [
       "./bin/hushh agents audit --json",
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
       "./bin/hushh docs verify"
     ]
   },
   "deliverables": [
     "security severity snapshot",
-    "Codex audit scorecard",
+    "agent audit scorecard",
     "repo security posture review",
     "verification summary"
   ],
@@ -50,7 +50,7 @@
   "handoff_chain": [
     "security-audit",
     "repo-operations",
-    "codex-skill-authoring",
+    "skill-authoring",
     "docs-governance"
   ],
   "common_failures": [

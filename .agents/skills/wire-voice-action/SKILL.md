@@ -1,6 +1,6 @@
 ---
 name: wire-voice-action
-description: Wire a functional voice action -- one that mutates state, reads and speaks real data, sends/cancels/confirms something, or calls a backend -- into the Kai action gateway. Use for anything on the "Action" list produced by wire-voice-navigation's Step 0 (never for pure "go to this screen" navigation -- that skill handles those directly and this one refuses to). This is a decision guide, not a linear recipe: functional actions genuinely branch on what they do, and picking the wrong branch either silently no-ops or ships an unconfirmed irreversible mutation.
+description: Wire a functional voice action -- one that mutates state, reads and speaks real data, sends/cancels/confirms something, or calls a backend -- into the Kai action gateway. Use for anything on the "Action" list produced by Step 0 of `.agents/skills/one-voice-governance/references/wire-voice-navigation.md` (never for pure "go to this screen" navigation -- that reference handles those directly and this skill refuses to). This is a decision guide, not a linear recipe: functional actions genuinely branch on what they do, and picking the wrong branch either silently no-ops or ships an unconfirmed irreversible mutation.
 ---
 
 # Wire a functional voice action
@@ -17,8 +17,8 @@ without the safety behavior you assumed the JSON gave it for free.
 
 Written from tracing `analysis.start` / `analysis.resume_active` /
 `analysis.cancel_active` and the `location.*`/`connect.*` backend-direct
-actions end to end, 2026-09. Companion to `wire-voice-navigation` — that
-skill's Step 0 is where an action ends up on this skill's plate in the first
+actions end to end, 2026-09. Companion to `.agents/skills/one-voice-governance/references/wire-voice-navigation.md` — that
+reference's Step 0 is where an action ends up on this skill's plate in the first
 place.
 
 ## Before anything: does the capability already exist?
@@ -198,7 +198,7 @@ directly.
 ## Step 4 — regenerate + verify
 
 Same three-artifact regeneration as navigation actions
-(`wire-voice-navigation` Step 3), plus:
+(`.agents/skills/one-voice-governance/references/wire-voice-navigation.md` Step 3), plus:
 
 ```bash
 cd hushh-webapp

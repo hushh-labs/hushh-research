@@ -43,7 +43,7 @@ Non-owned surfaces:
 
 1. `.agents/skills/comms-community/references/reply-rules.md`
 2. `.agents/skills/comms-community/references/whatsapp-formatting.md` when drafting WhatsApp/mobile-chat copy
-3. `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+3. `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`
 4. `docs/architecture/identity/README.md`
 5. `consent-protocol/docs/reference/developer-api.md`
 
@@ -78,7 +78,7 @@ Non-owned surfaces:
    - for long posts, output `Discord copy batch 1/N`, `2/N`, etc. with each batch inside its own fenced block so the user can copy one Discord-safe message at a time
    - prefer splitting at paragraph or section boundaries; if one paragraph exceeds the limit, split at a word boundary
    - use `.agents/skills/comms-community/scripts/discord_chunk.py` for deterministic chunking when the message is long or close to the limit
-9. For Discord posts that explain a Codex skill, use this structure by default:
+9. For Discord posts that explain a repo-local skill, use this structure by default:
    - headline: what was created or changed
    - one-line thesis in a block quote
    - `What it does`: 3-5 bullets focused on outcomes

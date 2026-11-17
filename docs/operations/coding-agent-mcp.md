@@ -257,7 +257,7 @@ Rules:
 Private workspace audit:
 
 ```bash
-python3 .agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py \
+python3 .agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py \
   --mcp-url https://mcp.hushh.ai/mcp \
   --output tmp/founder-wiki-workspace-audit-$(date +%F).md
 ```
@@ -304,7 +304,7 @@ Operator precedence:
 15. Use `.agents/skills/reviewer-app-testing/` with workflow `reviewer-app-rehearsal` for canonical reviewer BYOK unlock, memory-only protected information, same-session Next navigation, and separate cold-session re-unlock proof.
 16. Use `.agents/skills/pkm-upgrade-rehearsal/` with workflow `pkm-upgrade-rehearsal` for zero-loss historical fixtures, scope/rollback acceptance, and reviewer payload rehearsal before PKM upgrades.
 17. Use `.agents/skills/morphy-ax/` for shared Agent Experience state, typed semantic-assessment validation, compatibility projection, and performance budgets.
-18. Use `.agents/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+18. Use `.agents/skills/skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
 19. Use `.agents/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
 20. Use `.agents/skills/planning-board/` for `Hussh Engineering Core` board work and `.agents/skills/comms-community/` for public/community explanation workflows.
 21. Use `.agents/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.agents/config.json` agent limits, or delegation authority and handoff rules.

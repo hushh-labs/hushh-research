@@ -166,25 +166,31 @@ These rules apply to parent sessions, subagents, verification workers and local 
 7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. Generated audit/review JSON, run reports, screenshots, traces and evaluation ledgers are ignored local or CI artifacts, never source commits. Preserve authored contracts, runtime mirrors, dependency locks, fixtures, required app assets and compact policy inputs. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
 8. Track every task-created temporary worktree from creation in the existing task
    handoff, which is its ownership register. Reuse a suitable existing checkout
-   first. Record its canonical path, base/head revision, owning task/session,
-   purpose, owned process IDs and ports, and completion or handoff condition. A
-   finished verification run is not a reason to retain a duplicate checkout.
-9. Permanently remove registered temporary worktrees after successful verification
-   and handoff. Before removal, verify final changes are integrated or durably
-   recoverable in another explicitly retained branch; inspect tracked, untracked,
-   and ignored paths for unique work and required evidence without opening
-   credential or `.env` contents; preserve needed work and sanitized evidence
-   outside the checkout; and confirm no active task or peer process has its cwd in
-   the checkout or holds files there open. Gracefully stop only task-owned
-   processes, then remove only the exact registered path with
-   `git worktree remove <path>` without `--force`. Only after actual checkout
-   removal, preview `git worktree prune --dry-run --verbose` and prune only if its
-   output is limited to this task's stale metadata. Do not remove preexisting or
-   active peer worktrees, unique uncommitted work, or required evidence. Delete
-   task-owned branch refs only when the branch-preservation gate permits it;
-   remove residual generated directories only when task-owned, safe, and
-   authorized. Never use broad recursive deletion or follow dependency symlinks
-   into retained checkouts. For failed or
+   first. Record its canonical path, declared target base branch (`dev`, `uat`, or
+   `main`), base/head revision, owning task/session, purpose, owned process IDs and
+   ports, and completion or handoff condition. Avoid duplicating `node_modules` or
+   `.venv` trees when safe read-only symlinks suffice. A finished verification run
+   is not a reason to retain a duplicate checkout.
+9. Synchronize with the declared base branch before clearing any temporary worktree.
+   Verify final changes are merged into `origin/<base>` (or durably preserved on an
+   explicitly retained branch) and fetch/fast-forward local base refs so sibling
+   worktrees and local servers stay aligned. Before rebasing, clearing caches,
+   unlinking dependency symlinks, or removing any worktree, audit `git worktree list`,
+   `git status --short`, open PRs, and active processes (`ps`/`lsof`) across all
+   simultaneous worktrees; inspect tracked, untracked, and ignored paths for unique
+   work and required evidence without opening credential or `.env` contents; preserve
+   needed work and sanitized evidence outside the checkout; and confirm no active
+   task or peer process has its cwd in the checkout or holds files or symlinked
+   dependencies there open. Gracefully stop only task-owned processes, unlink
+   checkout-local dependency symlinks without recursing into shared targets, then
+   remove only the exact registered path with `git worktree remove <path>` without
+   `--force`. Only after actual checkout removal, preview
+   `git worktree prune --dry-run --verbose` and prune only if its output is limited
+   to this task's stale metadata. Do not remove preexisting or active peer worktrees,
+   unique uncommitted work, or required evidence. Delete task-owned branch refs only
+   when the branch-preservation gate permits it; remove residual generated
+   directories only when task-owned, safe, and authorized. Never use broad recursive
+   deletion or follow dependency symlinks into retained checkouts. For failed or
    interrupted runs, remove only proven-disposable resources; otherwise retain
    and report the owner, reason, and next cleanup condition. If safe removal
    cannot be established, retain the checkout and report the blocker. Verify
@@ -231,7 +237,7 @@ Before accepting a premise, drafting a reply, proposing a plan, patching code, r
 
 This applies to every non-trivial coding-agent task in this repo. The goal is to prevent drift where an agent agrees with a user or contributor claim that the repo already contradicts.
 
-The canonical shared contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
+The canonical shared contract lives at `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
 
 1. Extract material claims and inspect their owning code, generated contracts, schemas, tests and relevant runtime evidence.
 2. Classify them as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction` or `needs_verification`.
@@ -368,18 +374,18 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
-This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: editing on stale root checkouts, spawning redundant ad hoc branches, leaving developers parked on stray branches, and leaving temporary worktrees uncleaned. Do not repeat this.
 
 Freshness drift or a newer Main head can require branch resynchronization and
 CI revalidation; neither that drift nor green CI authorizes deployment to an
 environment the current request did not ask to deploy.
 
-1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
-2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.
-3. NEVER end a task with the developer parked on a different branch than where they started, unless they explicitly asked for that final state. If branch switching happened during the task, switch back to the developer's branch before handoff and state that you did.
-4. ALWAYS delete temporary branches you created (local AND remote) once the work is safely preserved on the kept branches. Before deleting, verify every unique piece (commits/files) is represented on a branch you are keeping; only then delete. Close any throwaway PR opened from that temp branch.
-5. After cleanup, leave agent-owned changes committed or explicitly handed off, and the developer on their original branch. Preserve all pre-existing edits and independently active worktrees. Retain temporary branches with unique unintegrated work or open reviews, record why, and remove them only after preservation is verified. State the final branch and cleanup.
-6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
+1. Keep the root workspace checkout parked cleanly on the **active base branch** (`dev` by default for ongoing development, or `uat` when explicitly working a UAT release/fix stream) and synced with `origin/<active-base>`, so local servers and inspections always see fresh base state. If the developer explicitly started work on a named feature branch, record it as the preservation/return target.
+2. Isolate task implementation, fixes, and PRs inside an **ephemeral registered task worktree** created from fresh `origin/<active-base>` (e.g., under `~/.local/share/hushh-task-worktrees/<task>`) and tracked under the Local Resource and Process Lifecycle Gate (items 8–9). When continuing work already open on an active task worktree or user-named branch, stay on that branch instead of spawning redundant "phase N" or duplicate temp branches.
+3. NEVER leave the root workspace detached, parked on `main` (unless explicitly requested), or parked on a temporary branch. When switching active bases (`dev` ↔ `uat`) is requested, verify the root checkout ends cleanly on the requested active base.
+4. ALWAYS delete temporary task branches (local AND remote) once every commit is safely merged/integrated onto its target base (`main`, `uat`, `dev`), downstream syncs are complete, and any throwaway PR is closed. Before removing anything, verify every unique commit/file is represented on a kept branch.
+5. After landing and verification, permanently remove all session-created temporary worktrees (unlink checkout-local dependency symlinks without recursing into shared targets, then `git worktree remove <path>` without `--force`), fast-forward the root active base checkout, preserve all pre-existing edits and independent peer worktrees, and report final branch, worktree, and reclaimed disk state.
+6. If you discover a stray branch or orphaned task worktree you created earlier, self-correct: move its real commits onto the proper target base/worktree, remove the stray checkout/branch (local and remote if unmerged), and report the correction.
 
 This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.
 

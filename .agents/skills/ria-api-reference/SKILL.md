@@ -1,6 +1,6 @@
 ---
 name: ria-api-reference
-description: Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so Codex reads the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.
+description: Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so agents read the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.
 ---
 
 # Hussh RIA API Reference Skill
@@ -65,6 +65,6 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q
 ```

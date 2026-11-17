@@ -56,73 +56,15 @@ Non-owned surfaces:
 
 ## Workflow
 
-Follow [Main-owned release control](../../../docs/operations/releases/ci.md#main-owned-release-control) for live-team authority, exact-source admission and protected secret pass-through. Workflow execution stays on Main; application sources remain isolated; a merge never deploys.
+Follow [Main-owned release control](../../../docs/operations/releases/ci.md#main-owned-release-control), [the Dev pod runbook](../../../docs/operations/hosting/dev-pod-first-light-runbook.md), and [release and pod authority](references/release-and-pod-authority.md) for live-team review, CI timing, WIF provenance, queue owner-merge, and private pod hosting.
 
-For CI timing work, follow the runbook's [deployment-overhead policy](../../../docs/operations/releases/ci.md#deployment-overhead-and-retention-limits). Preserve normal worker rollout until complete accepted input/state proof and measured benefit qualify reuse; image equality alone is insufficient. Selected UAT SQL preservation does not repeat already-qualified source suites or install browser dependencies. Browser analytics remains explicit secondary diagnostics; failed restoration of any partially changed deployment template still blocks promotion. Keep measurements separate from the 10–15-minute routine design target.
-
-For private pod hosting, owner updates and legacy bootstrap, follow the
-[Dev pod runbook](../../../docs/operations/hosting/dev-pod-first-light-runbook.md).
-It owns durable admission, spend, owner custody, release provenance and cleanup.
-
-1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
-2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
-3. Use `./bin/hushh` as the canonical repo command surface. Choose supported CLI or connector access according to task requirements and the operator's explicit instructions. Before writes, verify the acting identity, target repository/environment and required permissions; never assume account parity between tools. For cloud administration, verify the selected CLI account, project and ADC through `admin-release-sop.md`; distinguish account-selection errors from ADC failures.
-4. For merge or deploy work, follow `admin-release-sop.md` as the single state machine; verify pre-PR, DCO, current head SHA, required gates, queue state, landed SHA, post-merge smoke, and requested environment separately.
-5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done. For iOS uploads or tester-visibility reports, apply `.agents/skills/release-ios-appstore/references/release-proof.md`, including live marketing-version and concurrent-release admission before treating a higher build number as the latest update.
-6. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.
-7. For DB migration/contract changes, run the DB release gate before calling UAT ready. Where canonical replay coexists with pending-only overlays, verify affected installed constraints through a complete replay; matching ledger checksums alone do not prove semantic parity. Follow `docs/operations/releases/migration-governance.md` for the owning repair and rollback boundaries.
-8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, health-probe rules, and the native auth-health fallback retirement gate.
-9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
-10. After creating, updating or retargeting a ready PR, run `./bin/hushh agents review-route --pr <number> --apply` for visible Team routing under the Admin SOP. It changes notifications only and adds no Actions run. Use a pull request and the authorized Admin SOP for a reviewed, exact-head merge when appropriate. Verify the current destination, required CI and applicable approvals; admin authority never grants permission to skip validation or deploy.
-11. Follow `maintainer-branch-freshness.md`: inspect the actual destination and reconcile relevant stable fixes during development. Branch age alone does not block a merge; queue validation proves the combined result. Preserve shared history and run affected checks after conflict resolution. A source sync never deploys.
-12. GitHub teams own access membership. Only authorized leadership accounts may manage membership; ordinary team members must not have team-maintainer or equivalent organization authority. Never run an old roster reconciler or restore revoked access from `config/ci-governance.json` username arrays. The current `apply-governance.py` manages safeguards and never writes team membership. During the live-team migration, distinguish the explicit Main release broker, native protected review and verified runtime enforcement; inspect the actual active admission before claiming every consumer uses current teams. No PR authority observer runs. Capability, permission and release-policy changes remain protected PRs. Follow `branch-governance.md` and the canonical Admin SOP; no merge or membership update deploys an application. Dev intake and direct exact-commit UAT qualification retain their independent boundaries. Governed maintainers may propose operations PRs directly into `main` by actor identity; CI, current reviews, combined-result evidence and landed smoke still apply.
-13. Resolve expensive PKM and reviewer-browser verification through `scripts/ci/resolve-uat-verification-plan.py`; it is the only changed-SHA selector for deterministic preservation checks in PR, queue, post-merge, and UAT. App-browser reviewer diagnostics require the explicit UAT input and do not run automatically. Preserve non-skippable authority, migration, provenance, health, and changed-surface gates. Do not add a second path classifier or run the PKM upgrade rehearsal for ordinary UI, consent, or MCP changes.
-14. When production GitHub WIF configuration is absent or drifted, use `deploy/iam/setup_production_github_wif.sh`; do not create a parallel provider, reuse UAT authority, or restore a JSON service-account key. Detect the drift with `python3 scripts/ci/verify-deploy-identity-provenance.py`, which compares that script's own literals — attribute mapping, attribute condition, deploy-account project roles — against live GCP. Its `--record-only` half needs no cloud and runs in `repo-governance-check.sh`; a refused live read reports `deploy_identity_unverifiable` and never a pass. Never restate the condition anywhere else: the setup script is the record, and a second copy is a second thing to drift.
-15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/operations/releases/ci.md`.
-16. Use `./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one exact-source validation retry. The authenticated user needs live repository write access, not pipeline-editor approval. The helper observes attempt `n+1` and never dispatches another workflow. Retry authority grants no merge, protected-edit or deployment permission. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
-
-The five governed destinations are `main`, `dev`, `uat`, `uat-isolated` and
-`integration/pr-train`. Ordinary maintainers use the merge queue: its trusted
-destination-owned authority validates the actual combined result, not branch age.
-Native protected-path review remains independent on every destination; changing
-CI, release policy or fundamental guidance requires the configured pipeline editors' authority.
-Dev/UAT's review reduction is a staged governance operation: verify the additive
-native review rules, install/read back each owner strict-status/PR guard, narrow
-queue exceptions to the configured protected owners, then reduce classic blanket review.
-Do not claim this source policy is live until the read-only verifier passes.
-Before reducing Dev/UAT reviews, source-sync the exact Main queue/guard/classifier
-blobs and policy into each destination; activation refuses stale destination code.
-Installed native path partitions keep their assignments; new CI controllers use
-supplemental partitions of at most 15 patterns, never an in-place coverage shift.
-The trusted protected-edit classifier distinguishes CI-reachable npm script
-changes (including lifecycle/transitive hooks) from dependency or local-only
-script edits. Backend test additions/comments stay ordinary; removing existing
-CI identities needs owner authority, and malformed/option-like entries refuse.
-These controls protect authored pipeline authority, not arbitrary hostile product
-or test code executing inside a test process.
-`uat-isolated` retains strict classic CI and blanket review, with live pipeline-editor
-Admin exceptions applied through the SOP. The legacy train retains its existing safeguards.
-
-When the approving user is a configured pipeline editor and authored a Main, Dev, UAT or isolated UAT PR, use the
-existing `queue_combined_result.py owner-merge` Admin SOP. GitHub's native queue
-still refuses the author-only bypass despite a separate path-review exception;
-preserve the authenticated team-member self-approval route; never weaken required CI to evade it.
-The direct exception requires explicit authenticated owner approval, exact head,
-the current destination as an ancestor, uncontested reviews, live strict
-GitHub-Actions status/PR protection and identical successful combined-tree input
-evidence, checked again before submission. Other maintainers do not inherit that
-queue exception. Generic organization-admin status is not merge authority.
-
-No merge on any destination deploys an application. Dev/UAT/production deployment
-remains a separate explicit, governed operation with its own source, attempt,
-environment, compatibility and rollback admission.
-
-For Dev/UAT deployments, follow the CI runbook's
-**Main-owned release control** section. Keep the protected security token on
-Main; All explicit deployment entrypoints execute from Main and use the protected inline job. The existing
-nonproduction WIF updater owns its observed provider condition. Verify both caller
-and reusable-workflow permissions, source/attempt receipts and live admission;
-source extraction alone does not activate branch routing. No merge implies deployment.
+1. Keep the root checkout on the active base branch (`dev`, or `uat` when working UAT) so local servers run cleanly against fresh base state; execute agent edits in an ephemeral registered task worktree branched from fresh `origin/<base>` (or on the named developer branch when explicitly active) and remove it cleanly after integration per `branch-runtime-ops.md`.
+2. Prefer live verification over assumptions for GitHub, CI, ruleset, and runtime state; verify acting CLI/connector identity, permissions, and selected `kushal@hushh.ai` ADC (distinct from stale account selection) via `./bin/hushh`, `gh`, and `.agents/skills/repo-operations/references/admin-release-sop.md`.
+3. Follow `admin-release-sop.md` as the single state machine for merge/deploy cadences (verify pre-PR, DCO, exact head SHA, gates, queue state, landed SHA, smoke, and requested environment separately; `merge to main` never deploys) and monitor core runs until terminal completion.
+4. For DB migration/contract changes, run the DB release gate and `docs/operations/releases/migration-governance.md` complete replay checks before calling UAT ready; verify iOS release proof via `.agents/skills/release-ios-appstore/references/release-proof.md`, live Firebase Auth checks, and native auth-health fallback retirement independently.
+5. Run local servers via in-session three-terminal commands in `branch-runtime-ops.md`, diagnose UAT failures with `./bin/hushh agents rca --surface uat --text`, route ready PRs with `./bin/hushh agents review-route --pr <number> --apply`, and select PKM/browser checks solely via `scripts/ci/resolve-uat-verification-plan.py`.
+6. Follow `maintainer-branch-freshness.md` across Main, UAT, and Dev: sync landed deltas downstream promptly without conflating source syncs with deployment, batch pushes cleanly, and retry unchanged failed runs via `./bin/hushh agents ci-rerun`.
+7. Enforce the five governed destinations (`main`, `dev`, `uat`, `uat-isolated`, `integration/pr-train`): **Dev intake** owns feature integration, governed operations PRs may target directly into `main` by actor identity, and changes to CI, release policy, or `.agents/skills/` require `@hushh-labs/pipeline-editors` authority.
 
 ## Handoff Rules
 

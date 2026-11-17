@@ -2,7 +2,7 @@
 
 | Rationalization | Reality |
 |---|---|
-| "It's cleaner to do this on a fresh branch" | The Branch Discipline Gate (AGENTS.md, HARD RULE) forbids auto-creating branches for convenience. "Creating or staying on a temporary branch when the preserved developer branch should carry the follow-up" is a named ci-watch-and-heal failure. Continue on the existing branch. |
+| "It's cleaner to do this on a second fresh branch beside an open PR" | The Branch Discipline Gate (`.agents/instructions.md`, HARD RULE) allows an ephemeral registered task worktree branched from fresh `origin/<active-base>` for a new task, but forbids spawning duplicate "phase N" branches or leaving temporary worktrees/branches uncleaned after integration. |
 | "I'll switch back to their branch later" | NEVER end a task with the developer parked elsewhere. "Later" is how agents have repeatedly stranded the developer — the gate exists because this actually happened. |
 | "The red check is in someone else's lane" | "Treating a red check as someone else's problem" — triage and route it to the owning skill; unrouted red checks compound. |
 | "Rerun fixed it, moving on" | "Stopping after rerun without monitoring terminal state" — a rerun that lands green without a cause classification is a masked flake or a masked regression. Watch to terminal state. |
@@ -13,7 +13,7 @@
 
 ## Red Flags
 
-- Any `git checkout -b` or branch switch without an explicit user request or recorded isolation need
+- Mutating files on a stale root checkout instead of syncing the active base (`dev`/`uat`) and working inside a registered task worktree, or leaving task worktrees/branches uncleaned after merge
 - A handoff message that does not state the final branch and cleanup performed
 - A rerun-to-green with no cause classification recorded
 - A deploy claim with no Cloud Build/Cloud Run evidence attached

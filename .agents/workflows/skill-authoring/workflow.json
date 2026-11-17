@@ -1,8 +1,8 @@
 {
   "id": "skill-authoring",
   "title": "Skill Authoring",
-  "goal": "Create or retrofit skills, manifests, workflows, and routing metadata for the Codex operating system.",
-  "owner_skill": "codex-skill-authoring",
+  "goal": "Create or retrofit skills, manifests, workflows, and routing metadata for the portable agent operating system.",
+  "owner_skill": "skill-authoring",
   "default_spoke": null,
   "task_type": "skill-authoring",
   "affected_surfaces": [
@@ -12,26 +12,26 @@
     "README.md"
   ],
   "required_reads": [
-    ".agents/skills/codex-skill-authoring/references/skill-contract.md",
-    ".agents/skills/codex-skill-authoring/references/authoring-workflow.md",
+    ".agents/skills/skill-authoring/references/skill-contract.md",
+    ".agents/skills/skill-authoring/references/authoring-workflow.md",
     ".agents/skills/repo-context/references/index-contract.md"
   ],
   "required_commands": [
     "./bin/hushh agents route-task skill-authoring",
-    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-    "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text"
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
+    "python3 .agents/skills/skill-authoring/scripts/trigger_evals.py --text"
   ],
   "verification_bundle": {
     "id": "skill-authoring",
     "commands": [
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-      "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
+      "python3 .agents/skills/skill-authoring/scripts/trigger_evals.py --text",
       "./bin/hushh agents audit",
       "./bin/hushh docs verify"
     ],
     "tests": [
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-      "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
+      "python3 .agents/skills/skill-authoring/scripts/trigger_evals.py --text",
       "./bin/hushh agents audit"
     ]
   },
@@ -45,7 +45,7 @@
     "Verification commands executed"
   ],
   "handoff_chain": [
-    "codex-skill-authoring",
+    "skill-authoring",
     "repo-context",
     "docs-governance"
   ],

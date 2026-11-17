@@ -41,7 +41,7 @@
     "governance rerun state for skill/docs/config/scripts changes",
     "blocking-vs-advisory lane choice",
     "pre-PR readiness summary",
-    "post-trigger monitoring state when Codex opens, updates, or queues a PR merge"
+    "post-trigger monitoring state when an agent opens, updates, or queues a PR merge"
   ],
   "impact_fields": [
     "Workflow mirrored",
@@ -62,11 +62,11 @@
   "common_failures": [
     "opening or updating a PR without running the local mirror first",
     "pushing unsigned commits and discovering DCO only on GitHub",
-    "changing .codex/docs/config/scripts without rerunning the governance lane",
+    "changing .agents/docs/config/scripts without rerunning the governance lane",
     "inventing a second local CI path instead of reusing ./bin/hushh ci",
     "treating advisory checks as blocking by default",
     "treating merge-queue entry as completion instead of monitoring queue and post-merge authority surfaces",
-    "creating a new PR branch for routine follow-up when the existing developer branch should be preserved",
-    "leaving the workspace on an isolated branch after the PR lands"
+    "spawning redundant phase-N branches alongside an open task worktree instead of continuing cleanly",
+    "leaving uncleaned task worktrees or temp branches behind, or leaving the root checkout off the active base"
   ]
 }

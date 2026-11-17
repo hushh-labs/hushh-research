@@ -54,23 +54,12 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Default to `scope=auto`; let the resolver compare the target SHA with each service's currently deployed SHA and record both requested and resolved scope.
-2. Force `frontend`, `backend`, or `all` only after target-to-deployed-service delta proof establishes that the override covers every accumulated runtime change.
-3. Use `admin-release-sop.md` for the queue-first path and any explicitly authorized Admin PR landing; do not duplicate or reinterpret its exact-head authority gate here.
-4. Dispatch `deploy-uat.yml` from `main`; select the application independently from protected `uat` history. Select application source only from protected `uat` history. For direct UAT, qualify the selected SHA in protected UAT history with full-scope CI against the observed serving base, then supply its exact SHA, run, attempt, and base to the release workflow. Ordinary UAT needs no manually assembled PR chain or serving-commit ancestry; the locked release rechecks both captured service revisions, compatibility and rollback. Main smoke or a Main-only SHA does not authorize a new UAT application selection.
-
-   A refusal that “Privileged build or migration authority differs from Main”
-   requires a reviewed, bounded sync of those privileged inputs, not another
-   personal approval or wholesale Main adoption. Preserve UAT application code
-   and canonical tests; qualify the resulting source before deployment.
-
-   See the [deploy proof reference](references/deploy-proof.md) for exact commands.
-
-5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
-6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
-7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
-8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
-9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, and the paid candidate evaluator runs only with `run_live_model_checks=true`; app-browser reviewer BYOK runs only when explicitly requested with `repeat_reviewer_byok=true` (two read-only passes). A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted one fails closed, and the artifact keeps each accepted base's receipt. Never replace this selector with a workflow-local path list.
+1. Default to `scope=auto` so the resolver compares the target SHA against each service's deployed SHA and records both requested and resolved scope.
+2. Force `frontend`, `backend`, or `all` only with target-to-deployed-service delta proof covering every accumulated runtime change.
+3. Follow `admin-release-sop.md` for queue-first or authorized Admin landing without redefining its exact-head authority gate.
+4. Dispatch `deploy-uat.yml` from `main` using only an exact SHA from protected `uat` history; qualify direct candidates against observed serving bases first (see [deploy proof](references/deploy-proof.md) for pins, privilege refusals, and verification selector rules).
+5. Watch the GitHub run to terminal success or concrete blocker, confirm skipped lanes, and discover `(project, region)` via the evidence helper before `gcloud run services describe`.
+6. Capture touched revisions, images, labels, timeout, traffic, env contracts, request IDs, and logs; read `uat-verification-plan` from the exact changed-SHA selector without replacing it with a local list, and never report queued work as done.
 
 ## Handoff Rules
 
@@ -84,5 +73,5 @@ Non-owned surfaces:
 ```bash
 gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url
 python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```
