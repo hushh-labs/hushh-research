@@ -1,6 +1,6 @@
 # Repo-Local Skill Contract
 
-This is the canonical contract for the Codex operating system under `.agents/skills/` and `.agents/workflows/`.
+This is the canonical contract for the portable agent operating system under `.agents/skills/` and `.agents/workflows/`.
 
 The shared truth-first reasoning contract lives at `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
 

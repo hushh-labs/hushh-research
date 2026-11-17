@@ -103,7 +103,7 @@ These commands must use `.agents/workflows/*/workflow.json` plus the per-skill `
 The scanner must support:
 
 1. stable JSON for tooling
-2. concise `--text` output for low-token human/Codex routing
+2. concise `--text` output for low-token human/agent routing
 3. compact default payloads for heavy sections, with `--verbose` available when deeper inspection is required
 
 ## Advisory audit

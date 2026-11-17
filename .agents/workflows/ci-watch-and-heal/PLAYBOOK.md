@@ -9,7 +9,7 @@ Monitor PR checks live, classify failures into the correct owner skill, and keep
 ## Steps
 
 1. Start with `repo-operations` and use `owner skill only` as the default narrow path.
-2. Run the repo-operations Branch Preservation Gate: identify the active developer branch, keep fixes on it when safe, and record it as the return target before any merge, checkout, or hotfix branch.
+2. Run the repo-operations Branch Preservation Gate: verify the root checkout is aligned on the active base (`dev` or `uat`), continue fixes inside the active PR worktree/branch when safe, and plan clean worktree removal + downstream syncs after landing.
 3. For any merge, Admin bypass, deploy, or rollback transition, follow `.agents/skills/repo-operations/references/admin-release-sop.md`; do not infer the next transition from a green prior stage.
 4. Run `./bin/hushh agents ci-status --watch` on the active PR or current branch.
 5. Distinguish the failing stage before editing code:
@@ -27,5 +27,5 @@ Monitor PR checks live, classify failures into the correct owner skill, and keep
 3. treating queue failures and post-merge smoke failures as the same class of problem
 4. rerunning once and walking away before terminal green
 5. treating every merge as an implicit UAT deploy instead of a separate explicit cadence
-6. creating or staying on a temporary branch when the existing developer branch should carry the follow-up
-7. landing a hotfix on `main` without back-syncing it into the preserved developer branch
+6. orphaning an uncleaned task worktree or spawning redundant "phase N" branches when continuing an active PR worktree
+7. landing a fix on `main` or `uat` without downstream source synchronization and clean active-base restoration

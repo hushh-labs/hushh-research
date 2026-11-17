@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `skill-authoring`.
 
 ## Goal
 
-Create or retrofit skills, manifests, workflows, and routing metadata for the Codex operating system.
+Create or retrofit skills, manifests, workflows, and routing metadata for the portable agent operating system.
 
 ## Steps
 

@@ -136,7 +136,7 @@ BROAD_PATTERNS = [
     r"\beverything\b",
 ]
 PATH_PREFIXES = (
-    ".codex/",
+    ".agents/",
     "README.md",
     "docs/",
     "bin/",
@@ -248,8 +248,11 @@ def parse_coverage(section_text: str) -> dict[str, object]:
 def extract_code_paths(text: str) -> list[str]:
     paths = []
     for value in extract_backticks(text):
-        if value.startswith(PATH_PREFIXES) or value.endswith(".md"):
-            paths.append(value)
+        token = value.split()[0].rstrip(".,:;)")
+        if any(marker in token for marker in ("<", ">", "*", "{", "}", "...")):
+            continue
+        if token.startswith(PATH_PREFIXES) or token.endswith(".md"):
+            paths.append(token)
     return paths
 
 
@@ -1392,6 +1395,81 @@ def validate_truth_first_contract(errors: list[str]) -> None:
             )
 
 
+VENDOR_PROSE_PATTERN = re.compile(r"\b(?:Codex|Claude|Cursor|Antigravity|Gemini CLI)\b")
+
+
+def audit_skills_governance_and_hygiene(repo_root: Path = REPO_ROOT) -> tuple[list[str], int]:
+    """Verify `.agents/skills/` pipeline-editor lock and vendor-neutral hygiene across all skills and workflows."""
+    errors: list[str] = []
+
+    gov_path = repo_root / "config/ci-governance.json"
+    if not gov_path.exists():
+        errors.append("missing config/ci-governance.json for `.agents/skills/` protection check")
+    else:
+        gov = load_json(gov_path)
+        for section in ("main", "uat_merge"):
+            protected = gov.get(section, {}).get("protected_pipeline_paths", [])
+            if ".agents/skills/" not in protected:
+                errors.append(f"config/ci-governance.json: `{section}.protected_pipeline_paths` must lock `.agents/skills/`")
+
+    codeowners_path = repo_root / ".github/CODEOWNERS"
+    if not codeowners_path.exists():
+        errors.append("missing .github/CODEOWNERS for `.agents/skills/` ownership check")
+    else:
+        codeowners_lines = {line.strip() for line in codeowners_path.read_text(encoding="utf-8").splitlines()}
+        if "/.agents/skills/ @hushh-labs/pipeline-editors" not in codeowners_lines:
+            errors.append(".github/CODEOWNERS: missing `/.agents/skills/ @hushh-labs/pipeline-editors`")
+
+    practice_sources = json.loads(
+        (repo_root / ".agents/skills/agent-orchestration-governance/references/platform-source-inventory.json").read_text(
+            encoding="utf-8"
+        )
+    ).get("practice_sources", {})
+
+    candidate_files: list[Path] = []
+    skills_readme = repo_root / ".agents/skills/README.md"
+    if skills_readme.exists():
+        candidate_files.append(skills_readme)
+    for skill_dir in sorted((repo_root / ".agents/skills").iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        for sub in sorted(skill_dir.rglob("*")):
+            if not sub.is_file():
+                continue
+            rel = sub.relative_to(repo_root).as_posix()
+            if "/scripts/" in f"/{rel}" or sub.suffix not in {".md", ".json"}:
+                continue
+            candidate_files.append(sub)
+    for wf_dir in sorted((repo_root / ".agents/workflows").iterdir()):
+        if not wf_dir.is_dir():
+            continue
+        for name in ("PLAYBOOK.md", "workflow.json"):
+            candidate = wf_dir / name
+            if candidate.exists():
+                candidate_files.append(candidate)
+
+    for file_path in candidate_files:
+        rel = file_path.relative_to(repo_root).as_posix()
+        text = file_path.read_text(encoding="utf-8")
+        if ".claude/" in text or ".codex/" in text:
+            errors.append(f"{rel}: must not reference retired `.claude/` or `.codex/` host paths")
+        if "adapter generator" in text:
+            errors.append(f"{rel}: must not reference retired `adapter generator`")
+        sanitized_nav = re.sub(r"references/wire-voice-navigation\.md", "", text)
+        if re.search(r"\bwire-voice-navigation\b", sanitized_nav):
+            errors.append(f"{rel}: broken standalone `wire-voice-navigation` reference; point to `.agents/skills/one-voice-governance/references/wire-voice-navigation.md`")
+        if rel in practice_sources:
+            for candidate in extract_code_paths(text):
+                if candidate.startswith(".agents/") and not (repo_root / candidate.rstrip("/")).exists():
+                    errors.append(f"{rel}: referenced path does not exist: {candidate}")
+        for line_no, line in enumerate(text.splitlines(), 1):
+            match = VENDOR_PROSE_PATTERN.search(line)
+            if match:
+                errors.append(f"{rel}:{line_no}: non-vendor-neutral coding agent reference `{match.group(0)}`")
+
+    return errors, len(practice_sources)
+
+
 def collect_anti_rationalization_advisories(skill_manifests) -> list[str]:
     """Advisory-only: high-risk lanes should carry references/anti-rationalization.md.
 
@@ -1432,6 +1510,8 @@ def main() -> int:
     portable_audit = runpy.run_path(str(REPO_ROOT / "scripts/ops/audit_agents_md_alignment.py"))
     errors.extend(portable_audit["bridge_findings"](REPO_ROOT))
     errors.extend(portable_audit["classification_findings"](REPO_ROOT))
+    hygiene_errors, practice_count = audit_skills_governance_and_hygiene(REPO_ROOT)
+    errors.extend(hygiene_errors)
 
     if errors:
         print("Skill lint failed:")
@@ -1441,7 +1521,8 @@ def main() -> int:
 
     print("Skill lint passed")
     print(
-        f"Validated {len(skills)} skills, {len(skill_manifests)} skill manifests, "
+        f"Validated {len(skills)} governed skills, {practice_count} portable practices "
+        f"({len(skills) + practice_count} total), {len(skill_manifests)} skill manifests, "
         f"{len(EXPECTED_WORKFLOW_IDS)} workflow packs, and {len(MEANINGFUL_SURFACES)} meaningful repo surfaces"
     )
     advisories = budget_advisories + collect_anti_rationalization_advisories(skill_manifests)
