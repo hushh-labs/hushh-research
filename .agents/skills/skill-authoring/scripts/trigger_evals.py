@@ -21,8 +21,8 @@ What it checks (zero tokens, CI-safe, stdlib only):
 Exit codes: 0 = all clear, 1 = one or more errors.
 
 Usage:
-  python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py [--text]
-  python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --json
+  python3 .agents/skills/skill-authoring/scripts/trigger_evals.py [--text]
+  python3 .agents/skills/skill-authoring/scripts/trigger_evals.py --json
 """
 
 from __future__ import annotations

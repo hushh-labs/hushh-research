@@ -43,7 +43,7 @@ Non-owned surfaces:
 
 1. `.agents/skills/comms-community/references/reply-rules.md`
 2. `.agents/skills/comms-community/references/whatsapp-formatting.md` when drafting WhatsApp/mobile-chat copy
-3. `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+3. `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`
 4. `docs/architecture/identity/README.md`
 5. `consent-protocol/docs/reference/developer-api.md`
 

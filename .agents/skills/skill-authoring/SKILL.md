@@ -1,20 +1,20 @@
 ---
-name: codex-skill-authoring
-description: Use when creating, renaming, retrofitting, linting, or scaffolding repo-local Codex skills for hushh-research.
+name: skill-authoring
+description: Use when creating, renaming, retrofitting, linting, or scaffolding repo-local skills for hushh-research.
 ---
 
-# Hussh Codex Skill Authoring Skill
+# Hussh Skill Authoring Skill
 
 ## Purpose and Trigger
 
-- Primary scope: `codex-skill-authoring-intake`
+- Primary scope: `skill-authoring-intake`
 - Trigger on creating or renaming repo-local skills, tightening the skill contract, adding skill tooling, or evolving the owner/spoke taxonomy.
 - Avoid overlap with `repo-context` and `docs-governance`.
 
 ## Coverage and Ownership
 
 - Role: `owner`
-- Owner family: `codex-skill-authoring`
+- Owner family: `skill-authoring`
 
 Owned repo surfaces:
 
@@ -39,9 +39,9 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `.agents/skills/codex-skill-authoring/references/skill-contract.md`
-2. `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
-3. `.agents/skills/codex-skill-authoring/references/authoring-workflow.md`
+1. `.agents/skills/skill-authoring/references/skill-contract.md`
+2. `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`
+3. `.agents/skills/skill-authoring/references/authoring-workflow.md`
 4. `.agents/skills/repo-context/references/index-contract.md`
 
 ## Workflow
@@ -73,12 +73,12 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-python3 .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py
-python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
-python3 .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py --text
-python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text
-python3 .agents/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run
+python3 .agents/skills/skill-authoring/scripts/truth_first_smoke.py
+python3 .agents/skills/skill-authoring/scripts/compact_kernel_smoke.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_fleet_audit.py --text
+python3 .agents/skills/skill-authoring/scripts/trigger_evals.py --text
+python3 .agents/skills/skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run
 ./bin/hushh agents audit
-python3 -m py_compile .agents/skills/codex-skill-authoring/scripts/skill_lint.py .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py .agents/skills/codex-skill-authoring/scripts/init_skill.py .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py .agents/skills/codex-skill-authoring/scripts/trigger_evals.py .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py
+python3 -m py_compile .agents/skills/skill-authoring/scripts/skill_lint.py .agents/skills/skill-authoring/scripts/truth_first_smoke.py .agents/skills/skill-authoring/scripts/init_skill.py .agents/skills/skill-authoring/scripts/compact_kernel_smoke.py .agents/skills/skill-authoring/scripts/skill_fleet_audit.py .agents/skills/skill-authoring/scripts/trigger_evals.py .agents/skills/skill-authoring/scripts/test_trigger_evals.py
 ```
