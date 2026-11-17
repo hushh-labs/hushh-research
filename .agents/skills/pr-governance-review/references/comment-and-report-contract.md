@@ -44,8 +44,8 @@ like.
 
 ## Maintainer Patch Preference
 
-Before using the `Changes Requested` heading, Codex must check whether the
-change can be resolved as a maintainer patch. If Codex can name the accepted
+Before using the `Changes Requested` heading, agents must check whether the
+change can be resolved as a maintainer patch. If the reviewer can name the accepted
 value, canonical attach point, patch files, dropped/deferred pieces, and
 smallest proof command, prefer `maintainer_patch_then_merge` or
 `maintainer_harvest` over asking the contributor to redo the branch.

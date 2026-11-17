@@ -374,18 +374,18 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
-This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: editing on stale root checkouts, spawning redundant ad hoc branches, leaving developers parked on stray branches, and leaving temporary worktrees uncleaned. Do not repeat this.
 
 Freshness drift or a newer Main head can require branch resynchronization and
 CI revalidation; neither that drift nor green CI authorizes deployment to an
 environment the current request did not ask to deploy.
 
-1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
-2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.
-3. NEVER end a task with the developer parked on a different branch than where they started, unless they explicitly asked for that final state. If branch switching happened during the task, switch back to the developer's branch before handoff and state that you did.
-4. ALWAYS delete temporary branches you created (local AND remote) once the work is safely preserved on the kept branches. Before deleting, verify every unique piece (commits/files) is represented on a branch you are keeping; only then delete. Close any throwaway PR opened from that temp branch.
-5. After cleanup, leave agent-owned changes committed or explicitly handed off, and the developer on their original branch. Preserve all pre-existing edits and independently active worktrees. Retain temporary branches with unique unintegrated work or open reviews, record why, and remove them only after preservation is verified. State the final branch and cleanup.
-6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
+1. Keep the root workspace checkout parked cleanly on the **active base branch** (`dev` by default for ongoing development, or `uat` when explicitly working a UAT release/fix stream) and synced with `origin/<active-base>`, so local servers and inspections always see fresh base state. If the developer explicitly started work on a named feature branch, record it as the preservation/return target.
+2. Isolate task implementation, fixes, and PRs inside an **ephemeral registered task worktree** created from fresh `origin/<active-base>` (e.g., under `~/.local/share/hushh-task-worktrees/<task>`) and tracked under the Local Resource and Process Lifecycle Gate (items 8–9). When continuing work already open on an active task worktree or user-named branch, stay on that branch instead of spawning redundant "phase N" or duplicate temp branches.
+3. NEVER leave the root workspace detached, parked on `main` (unless explicitly requested), or parked on a temporary branch. When switching active bases (`dev` ↔ `uat`) is requested, verify the root checkout ends cleanly on the requested active base.
+4. ALWAYS delete temporary task branches (local AND remote) once every commit is safely merged/integrated onto its target base (`main`, `uat`, `dev`), downstream syncs are complete, and any throwaway PR is closed. Before removing anything, verify every unique commit/file is represented on a kept branch.
+5. After landing and verification, permanently remove all session-created temporary worktrees (unlink checkout-local dependency symlinks without recursing into shared targets, then `git worktree remove <path>` without `--force`), fast-forward the root active base checkout, preserve all pre-existing edits and independent peer worktrees, and report final branch, worktree, and reclaimed disk state.
+6. If you discover a stray branch or orphaned task worktree you created earlier, self-correct: move its real commits onto the proper target base/worktree, remove the stray checkout/branch (local and remote if unmerged), and report the correction.
 
 This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.
 

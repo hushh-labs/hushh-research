@@ -14,8 +14,7 @@ relative links; do not copy procedures or frontmatter into another tool's folder
 | UI library lookup (explicit invocation) | [pick-ui-library](./pick-ui-library/SKILL.md) |
 | Portable PDF artifacts | [pdf-artifact-generation](./pdf-artifact-generation/SKILL.md) — including monthly executive calendar reports |
 
-Author changes here, then use the existing adapter generator to check native links.
-`skill_lint.py` verifies canonical sources and discovery without a second skill copy.
+Author changes here directly; run `skill_lint.py` to verify canonical sources and discovery without creating a second skill copy or per-host adapter.
 Native invocation belongs in [the unified framework](../README.md); it does not
 create another policy or subagent fleet.
 

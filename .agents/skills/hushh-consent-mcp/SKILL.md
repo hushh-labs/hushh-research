@@ -38,7 +38,7 @@ Non-owned surfaces:
 
 1. Verifying whether a specific user resolves to any requestable scopes.
 2. Comparing prod vs UAT connector behavior for the same identifier.
-3. Debugging connector startup/config mismatches across Codex, Claude Desktop, or other MCP hosts.
+3. Debugging connector startup/config mismatches across supported MCP hosts and coding agents.
 4. Verifying whether a missing result is a connector/config issue versus an actual empty discovery response.
 
 ## Do Not Use

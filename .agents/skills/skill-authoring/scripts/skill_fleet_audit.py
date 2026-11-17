@@ -313,28 +313,51 @@ def audit() -> OrderedDict[str, Any]:
         (read, count) for read, count in sorted(read_counter.items()) if count >= 4
     )
     failures = [row for row in rows if row["budget_status"] != "pass"]
+    lint_mod = runpy.run_path(str(Path(__file__).resolve().with_name("skill_lint.py")))
+    hygiene_failures, practice_count = lint_mod["audit_skills_governance_and_hygiene"](REPO_ROOT)
+    practice_inventory = _read_json(
+        REPO_ROOT / ".agents/skills/agent-orchestration-governance/references/platform-source-inventory.json"
+    ).get("practice_sources", {})
+    practice_rows = [
+        OrderedDict(
+            skill_id=Path(rel).parent.name,
+            path=rel,
+            classification=meta.get("classification", "portable_practice"),
+            line_count=_line_count(REPO_ROOT / rel) if (REPO_ROOT / rel).exists() else 0,
+        )
+        for rel, meta in sorted(practice_inventory.items())
+    ]
     return OrderedDict(
         schema_version="skill-fleet-audit.v1",
         skill_count=len(rows),
+        practice_count=practice_count,
+        total_skill_count=len(rows) + practice_count,
         compact_kernel_label="owner role is reported as owner; manifest role remains owner",
-        update_required=bool(failures),
+        update_required=bool(failures or hygiene_failures),
         budget_failures=[row["skill_id"] for row in failures],
+        hygiene_failures=hygiene_failures,
         repeated_required_reads=repeated_reads,
         family_breakdown=family_breakdown,
         skills=rows,
+        practices=practice_rows,
     )
 
 
 def _text(payload: dict[str, Any]) -> str:
     lines = [
         "Skill Fleet Audit",
-        f"Skills: {payload['skill_count']}",
+        f"Skills: {payload['skill_count']} governed + {payload['practice_count']} portable practices ({payload['total_skill_count']} total)",
         f"Compact label: {payload['compact_kernel_label']}",
         f"Update required: {payload['update_required']}",
         "Budget failures:",
     ]
     if payload["budget_failures"]:
         lines.extend(f"- {item}" for item in payload["budget_failures"])
+    else:
+        lines.append("- none")
+    lines.append("Hygiene and protection failures:")
+    if payload["hygiene_failures"]:
+        lines.extend(f"- {item}" for item in payload["hygiene_failures"])
     else:
         lines.append("- none")
     lines.append("Repeated required reads:")
@@ -369,11 +392,16 @@ def _text(payload: dict[str, Any]) -> str:
             f"mechanisms={','.join(row['detection_mechanisms'])} duplication={signals} "
             f"refinement={row['refinement_action']}"
         )
+    lines.append("Portable practices:")
+    for item in payload["practices"]:
+        lines.append(
+            f"- practice {item['skill_id']}: classification={item['classification']} lines={item['line_count']}"
+        )
     return "\n".join(lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audit compact-kernel status across repo-local Codex skills.")
+    parser = argparse.ArgumentParser(description="Audit compact-kernel and hygiene status across repo-local skills.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
     args = parser.parse_args()
