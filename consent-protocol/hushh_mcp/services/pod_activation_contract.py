@@ -167,6 +167,27 @@ POD_TARGET_ACTIVATION_ESSENTIALS: dict[str, PodTargetActivationSpec] = {
         standing_model_activation=ACTIVATION_USER_AZURE_MI,
         standing_model_precondition="azure_openai_managed_identity_binding",
     ),
+    "azure": PodTargetActivationSpec(
+        target_id="azure",
+        workload_platform="azure",
+        incarnation_env_pair=_PLATFORM_NAME_PAIRS["azure"],
+        platform_sets_incarnation_natively=True,
+        required_runtime_env=(
+            "HUSSH_HUB_BASE_URL",
+            "POD_STORAGE_BACKEND",
+            "POD_STORAGE_AZURE_BLOB_URL",
+            "AZURE_CLIENT_ID",
+            "HUSSH_POD_HUB_CALLER_EMAILS",
+            "APP_SIGNING_KEY",
+        ),
+        custody_required_env_by_mode={
+            "owner_vault": ("HUSSH_POD_KEY_VAULT_KEY",),
+            "ace_envelope": (),
+            "hub_broker": ("HUSSH_HUB_BASE_URL",),
+        },
+        standing_model_activation=ACTIVATION_USER_AZURE_MI,
+        standing_model_precondition="azure_openai_managed_identity_binding",
+    ),
     "user_aws": PodTargetActivationSpec(
         target_id="user_aws",
         workload_platform="aws",

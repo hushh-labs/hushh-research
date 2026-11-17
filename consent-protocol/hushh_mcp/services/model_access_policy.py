@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from hushh_mcp.services.compute_backend import (
     BACKEND_ACE,
+    BACKEND_AZURE,
     BACKEND_GCP,
     BACKEND_NULL,
     BACKEND_USER_AWS,
@@ -106,6 +107,9 @@ def model_access_for(backend_id: str, provider: str) -> ModelAccessVerdict:
         )
 
     if backend == BACKEND_USER_AZURE:
+        return _owner_azure_verdict(managed)
+
+    if backend == BACKEND_AZURE:
         return _owner_azure_verdict(managed)
 
     if backend == BACKEND_USER_AWS:

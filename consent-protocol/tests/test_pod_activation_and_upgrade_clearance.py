@@ -40,6 +40,7 @@ from hushh_mcp.services.aws_setup_plan import (
 )
 from hushh_mcp.services.compute_backend import (
     BACKEND_ACE,
+    BACKEND_AZURE,
     BACKEND_GCP,
     BACKEND_USER_AWS,
     BACKEND_USER_AZURE,
@@ -47,6 +48,7 @@ from hushh_mcp.services.compute_backend import (
     PodSpec,
 )
 from hushh_mcp.services.gcp_backend import GcpBackend
+from hushh_mcp.services.hosted_azure_backend import HostedAzureBackend
 from hushh_mcp.services.model_access_policy import (
     ACTIVATION_BYOK_PER_TURN,
     ACTIVATION_FLEET_ADC,
@@ -169,6 +171,13 @@ def test_all_five_rendered_backends_pass_pod_activation_readiness() -> None:
         },
     )
     assert uaz_res["ready"] is True, uaz_res["missingSurfaces"]
+
+    az_cfg = HostedAzureBackend(live=False).render_deploy_config(spec)
+    az_res = evaluate_pod_activation_readiness(
+        BACKEND_AZURE,
+        rendered_env=az_cfg["properties"]["template"]["containers"][0]["env"],
+    )
+    assert az_res["ready"] is True, az_res["missingSurfaces"]
 
     ace_cfg = AceComputeBackend(
         cell_project="hushh-ace-cell",
@@ -369,11 +378,12 @@ def test_multi_cloud_release_and_upgrade_clearance_matrix(
         model_provider="gemini",
         require_browser_qualification=True,
     )
-    assert set(matrix) == {"gcp", "ace", "user_gcp", "user_azure", "user_aws"}
-    # Qualified owner clouds with attached browser receipts are fully cleared:
+    assert set(matrix) == {"gcp", "azure", "ace", "user_gcp", "user_azure", "user_aws"}
+    # Qualified clouds with attached browser receipts are fully cleared:
     assert matrix["user_gcp"]["cleared"] is True
     assert matrix["user_azure"]["cleared"] is True
     assert matrix["gcp"]["cleared"] is True
+    assert matrix["azure"]["cleared"] is True
     # Unadmitted live targets report exact blocking gates instead of silent failure:
     assert matrix["user_aws"]["cleared"] is False
     assert "owner_update_not_qualified" in matrix["user_aws"]["blockingGates"]

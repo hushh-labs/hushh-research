@@ -451,6 +451,8 @@ _AZURE_OWNER_CLOUD_BY_PROJECT: dict[str, dict[str, str]] = {
     "hushh-pda-dev": {
         # HushOne Inc. Entra App ("Hussh Cloud Connect", zero-secret WIF).
         "hussh_azure_app_client_id": "4a6188ee-2a5b-4ed8-b650-35e4d560f72d",
+        # HushOne Inc. Entra App ("Hussh Hosted Azure Cell Controller Dev", zero-secret WIF).
+        "hussh_hosted_azure_client_id": "815df3ec-c8c4-4df3-a01a-f611dd6eb3c4",
         "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
         "hussh_pod_image_reader_sa": "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com",
         "hussh_azure_pod_image_repository": "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod",

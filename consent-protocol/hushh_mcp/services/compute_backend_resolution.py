@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional
 
 from hushh_mcp.services.compute_backend import (
     BACKEND_ACE,
+    BACKEND_AZURE,
     BACKEND_GCP,
     BACKEND_NULL,
     BACKEND_USER_AWS,
@@ -38,6 +39,11 @@ def resolve_deployment_backend(backend_id: Optional[str] = None) -> ComputeBacke
 
         ace: ComputeBackend = AceComputeBackend()
         return ace
+    if chosen == BACKEND_AZURE:
+        from hushh_mcp.services.hosted_azure_backend import HostedAzureBackend
+
+        azure_hosted: ComputeBackend = HostedAzureBackend()
+        return azure_hosted
     if chosen == BACKEND_USER_GCP:
         from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
@@ -173,6 +179,10 @@ def private_pod_row(row: Any) -> bool:
     """Known owner cloud or a verified per-owner managed placement; never a fleet flag."""
     from collections.abc import Mapping
 
+    from hushh_mcp.services.hosted_azure_placement import (
+        has_hosted_azure_evidence,
+        retained_hosted_azure_placement,
+    )
     from hushh_mcp.services.hosted_gcp_placement import (
         has_hosted_evidence,
         retained_hosted_placement,
@@ -181,6 +191,8 @@ def private_pod_row(row: Any) -> bool:
     if not isinstance(row, Mapping):
         return False
     candidate = dict(row)
+    if has_hosted_azure_evidence(candidate):
+        return retained_hosted_azure_placement(candidate) is not None
     if has_hosted_evidence(candidate):
         return retained_hosted_placement(candidate) is not None
     return is_owner_cloud_target(row.get("deployment_target"))

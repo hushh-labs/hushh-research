@@ -234,6 +234,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_voice_mail_narration_enabled": "ONE_VOICE_MAIL_NARRATION_ENABLED",
     # Connect Azure hub settings (public identifiers); absent, the routes refuse.
     "hussh_azure_app_client_id": "HUSSH_AZURE_APP_CLIENT_ID",
+    "hussh_hosted_azure_client_id": "HUSSH_HOSTED_AZURE_CLIENT_ID",
     "hussh_azure_broker_sa": "HUSSH_AZURE_BROKER_SA",
     "hussh_azure_oauth_redirect_uri": "HUSSH_AZURE_OAUTH_REDIRECT_URI",
     "hussh_pod_image_reader_sa": "HUSSH_POD_IMAGE_READER_SA",

@@ -86,7 +86,12 @@ export function isPrivatePodBinding(binding: Record<string, unknown>): boolean {
   if (isOwnerCloudTarget(binding.deployment_target)) {
     return !("hosting_mode" in binding);
   }
-  return binding.deployment_target === "gcp"
+  if (binding.deployment_target === "ace" && !("hosting_mode" in binding)) {
+    return binding.environment === "dev";
+  }
+  return (
+    (binding.deployment_target === "gcp" || binding.deployment_target === "azure")
     && binding.hosting_mode === "hussh_hosted"
-    && binding.environment === "dev";
+    && binding.environment === "dev"
+  );
 }

@@ -94,12 +94,13 @@ from hushh_mcp.services.user_cloud_service import UserCloud
 def test_provider_and_browser_capability_registries_stay_in_lockstep() -> None:
     assert set(PROVIDER_CAPABILITY_REGISTRY) == {
         "gcp",
+        "azure",
         "ace",
         "user_gcp",
         "user_azure",
         "user_aws",
     }
-    assert hosted_cloud_targets() == ("gcp", "ace")
+    assert hosted_cloud_targets() == ("gcp", "azure", "ace")
     assert owner_cloud_targets() == ("user_gcp", "user_azure", "user_aws")
     assert verify_browser_contract_alignment(_CLOUD_SHARED_CONTAINER_SANDBOX)
     for cloud, expected in _CLOUD_SHARED_CONTAINER_SANDBOX.items():
