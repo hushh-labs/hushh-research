@@ -6,7 +6,9 @@ import {
   inspectPkmConflictsForProjection,
   materializeWikiReceiptToPkm,
   retractStaleWikiProjectionsFromPkm,
+  syncWikiPagesToPkmProjections,
   type StaledWikiProjectionDescriptor,
+  type WikiProjectionSyncTransport,
 } from "./wiki/pkm-projection-sync";
 import { FilesLocalError } from "./local-error";
 
@@ -83,6 +85,7 @@ export type WikiOverview = {
   pages: WikiSummaryPage[];
   candidateReceipts: WikiCandidateItem[];
   staleReceipts?: StaledWikiProjectionDescriptor[];
+  projectedClaimKeys?: string[];
 };
 export type WikiMigrationAction =
   | "compile_and_verify"
@@ -146,6 +149,52 @@ async function json<T>(
     );
   }
   return response.json() as Promise<T>;
+}
+
+function filesWikiSyncTransport(): WikiProjectionSyncTransport {
+  return {
+    overview: (signal) =>
+      json<WikiOverview>("wiki/overview", undefined, "GET", signal),
+    readPage: (pageId, signal) =>
+      json<WikiPageDetail>(
+        `wiki/page?${new URLSearchParams({ page_id: pageId })}`,
+        undefined,
+        "GET",
+        signal,
+      ),
+    deriveProjection: (input, signal) =>
+      json<{
+        receiptId: string;
+        state: string;
+        domain: string;
+        jsonPath: string;
+        pageId: string;
+        pageRevision: number;
+        claimId: string;
+        sourceRevision: number;
+      }>(
+        "wiki/projection/derive",
+        {
+          page_id: input.pageId,
+          claim_id: input.claimId,
+          target_domain: input.targetDomain,
+          json_path: input.jsonPath,
+          active_recipient_count: input.activeRecipientCount,
+          owner_confirmed: input.ownerConfirmed,
+          require_owner_confirmation: input.requireOwnerConfirmation,
+          ...(input.conflictAuthority
+            ? { conflict_authority: input.conflictAuthority }
+            : {}),
+          ...(input.conflictReason
+            ? { conflict_reason: input.conflictReason }
+            : {}),
+          ...(input.conflictPath ? { conflict_path: input.conflictPath } : {}),
+          request_id: input.requestId,
+        },
+        "POST",
+        signal,
+      ),
+  };
 }
 
 export const FilesService = {
@@ -493,6 +542,13 @@ export const FilesService = {
         () => undefined,
       );
     }
+    if (access) {
+      await syncWikiPagesToPkmProjections(access, filesWikiSyncTransport(), {
+        explicitChatSave: true,
+        surface: "web",
+        signal,
+      }).catch(() => undefined);
+    }
     return res;
   },
   wikiConfirmCandidate: async (
@@ -501,12 +557,36 @@ export const FilesService = {
     candidateHint?: WikiCandidateItem,
   ) => {
     const access = activeFilesAccess();
-    const hint = candidateHint ?? latestCandidateHints.get(receiptId);
+    let hint = candidateHint ?? latestCandidateHints.get(receiptId);
+    let proposedValue: unknown;
+    if (
+      access &&
+      hint?.statement &&
+      (!hint.jsonPath ||
+        hint.domain === "agent_memory" ||
+        hint.jsonPath.startsWith("agent_memory.item_"))
+    ) {
+      const classified = await classifyWikiClaimsForPkm(
+        access,
+        [hint.statement],
+        signal,
+      ).catch(() => []);
+      const semantic = classified[0];
+      if (semantic) {
+        hint = {
+          ...hint,
+          domain: semantic.targetDomain,
+          jsonPath: semantic.jsonPath,
+        };
+        proposedValue = semantic.proposedValue;
+      }
+    }
     if (access && hint?.jsonPath && hint.pageId && hint.claimId) {
       const { conflict } = await inspectPkmConflictsForProjection(access, {
         domain: hint.domain,
         jsonPath: hint.jsonPath,
         statement: hint.statement,
+        ...(proposedValue !== undefined ? { proposedValue } : {}),
       });
       if (conflict) {
         await json<{ receiptId: string; state: string }>(
@@ -538,6 +618,7 @@ export const FilesService = {
           claimId: hint.claimId,
           sourceRevision: (hint.sourceRevision ?? 1) + 1,
           statement: hint.statement,
+          ...(proposedValue !== undefined ? { proposedValue } : {}),
         },
         { ownerConfirmed: true },
       );
@@ -682,7 +763,7 @@ export const FilesService = {
         chatKeyVerified = false;
       }
     }
-    return json<WikiMigrationResult>(
+    const res = await json<WikiMigrationResult>(
       "wiki/migrate",
       {
         action: input.action,
@@ -697,6 +778,14 @@ export const FilesService = {
       "POST",
       signal,
     );
+    if (input.action === "compile_and_verify" && access) {
+      await syncWikiPagesToPkmProjections(access, filesWikiSyncTransport(), {
+        explicitChatSave: true,
+        surface: "web",
+        signal,
+      }).catch(() => undefined);
+    }
+    return res;
   },
   wikiRollbackClassic: async (
     signal?: AbortSignal,

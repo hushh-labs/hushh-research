@@ -396,6 +396,22 @@ describe("InformationRequestReviewView with and without progress", () => {
     expect(card.querySelector("[aria-current='step']")).toHaveAttribute("data-step", "reading");
   });
 
+  it("labels a withdrawn request without claiming information was shared", async () => {
+    const pending = bundle("pending", true);
+    mocks.getInformationRequest.mockResolvedValue({
+      ...pending, cancelled: true,
+      items: pending.items.map(item => ({ ...item, status: "cancelled" })),
+      progress: { ...pending.progress!, outcome: "cancelled",
+        fields: pending.progress!.fields.map(field => ({ ...field, status: "cancelled" })) },
+    });
+    render(<AgentStructuredExperienceView experience={restored} />);
+    await screen.findByTestId("requester-progress");
+    expect(screen.getByText("Request withdrawn")).toBeInTheDocument();
+    expect(screen.getByText("You withdrew this request")).toBeInTheDocument();
+    expect(screen.queryByText("Shared with you")).toBeNull();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it("keeps request review reachable when live progress replaces the receipt", async () => {
     mocks.getInformationRequest.mockResolvedValue(bundle("pending", true));
     render(<AgentStructuredExperienceView experience={restored} />);

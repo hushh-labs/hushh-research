@@ -84,7 +84,7 @@ Package count: 219
 - `defusedxml` `0.7.1` — Python Software Foundation License
 - `Deprecated` `1.3.1` — MIT License
 - `distro` `1.9.0` — Apache Software License
-- `dnspython` `2.9.0` — ISC
+- `dnspython` `2.9.2` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
 - `exchange_calendars` `4.13.2` — Apache-2.0
@@ -189,7 +189,7 @@ Package count: 219
 - `propcache` `0.4.1` — Apache Software License
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
-- `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
+- `psycopg2-binary` `2.9.13` — GNU Library or Lesser General Public License (LGPL)
 - `pyasn1` `0.6.5` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
@@ -210,13 +210,13 @@ Package count: 219
 - `python-a2a` `0.5.10` — MIT License
 - `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
 - `python-dotenv` `1.2.2` — BSD-3-Clause
-- `python-multipart` `0.0.32` — Apache-2.0
+- `python-multipart` `0.0.34` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
 - `regex` `2026.9.3` — Apache-2.0 AND CNRI-Python
-- `requests` `2.33.1` — Apache Software License
+- `requests` `2.34.2` — Apache Software License
 - `requests-toolbelt` `1.0.0` — Apache Software License
 - `rich` `15.0.0` — MIT License
 - `rpds-py` `0.30.0` — MIT
@@ -229,7 +229,7 @@ Package count: 219
 - `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
-- `slowapi` `0.1.9` — MIT License
+- `slowapi` `0.1.10` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
 - `soupsieve` `4.1` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
@@ -247,18 +247,18 @@ Package count: 219
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
-- `typing-inspection` `0.4.2` — MIT
-- `typing_extensions` `4.15.0` — PSF-2.0
-- `tzdata` `2026.1` — Apache-2.0
+- `typing-inspection` `0.4.5` — MIT
+- `typing_extensions` `4.16.0` — PSF-2.0
+- `tzdata` `2026.6` — Apache-2.0
 - `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
 - `watchdog` `6.0.0` — Apache Software License
-- `watchfiles` `1.2.0` — MIT License
-- `webauthn` `3.0.0` — BSD-3-Clause
+- `watchfiles` `1.3.0` — MIT License
+- `webauthn` `3.0.1` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
 - `Werkzeug` `3.1.9` — BSD-3-Clause
-- `workos` `10.5.0` — MIT
+- `workos` `10.9.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
 - `yarl` `1.25.1` — Apache-2.0

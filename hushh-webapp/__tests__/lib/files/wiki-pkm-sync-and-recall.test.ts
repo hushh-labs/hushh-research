@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const prepMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/agent/agent-pkm-memory-preparation", () => ({
+  requestPkmMemoryPreparation: prepMock,
+}));
 import { WIKI_PROJECTIONS_BRANCH } from "@/lib/personal-knowledge-model/manifest";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -11,6 +15,7 @@ import {
 import {
   materializeWikiReceiptToPkm,
   retractStaleWikiProjectionsFromPkm,
+  syncWikiPagesToPkmProjections,
 } from "@/lib/files/wiki/pkm-projection-sync";
 
 describe("Personal Wiki <-> PKM write-through, existing-domain safety & recall contracts", () => {
@@ -401,6 +406,120 @@ describe("Personal Wiki <-> PKM write-through, existing-domain safety & recall c
     // Classic rewrite and classic one_memory.markdown save are completely bypassed!
     expect(rewriteSpy).not.toHaveBeenCalled();
     expect(replaceSpy).not.toHaveBeenCalled();
+  });
+
+  it("syncs compiled wiki claims into default PKM consent scopes while holding shared-grant items as candidates", async () => {
+    prepMock.mockResolvedValueOnce({
+      payload: {
+        preview_cards: [
+          {
+            target_domain: "professional",
+            structure_decision: { target_domain: "professional" },
+            target_entity_scope: "role.title",
+            primary_json_path: "role.title",
+            source_quote: "Works as principal engineer at Hussh.",
+            source_text: "Works as principal engineer at Hussh.",
+            write_mode: "can_save",
+            requires_confirmation: false,
+            candidate_payload: { role: { title: "Principal Engineer at Hussh" } },
+          },
+          {
+            target_domain: "travel",
+            structure_decision: { target_domain: "travel" },
+            target_entity_scope: "preferences.seat",
+            primary_json_path: "preferences.seat",
+            source_quote: "Prefers window seats on red-eye flights.",
+            source_text: "Prefers window seats on red-eye flights.",
+            write_mode: "can_save",
+            requires_confirmation: false,
+            candidate_payload: { preferences: { seat: "Window" } },
+            sharing_impact: {
+              active_recipient_count: 1,
+              recipient_labels: ["Travel Concierge"],
+              enters_next_export_revision: true,
+              summary: "Updates shared travel preference.",
+              affected_grant_ids: ["grant_travel_1"],
+              affected_export_ids: [],
+            },
+          },
+        ],
+      },
+    } as any);
+
+    const derivedCalls: Array<{ domain: string; requireOwnerConfirmation: boolean; activeRecipientCount: number }> = [];
+    const syncResult = await syncWikiPagesToPkmProjections(
+      access,
+      {
+        overview: async () => ({
+          captureOptIn: false,
+          pages: [
+            { pageId: "wpg_1111222233334444", revision: 1 },
+            { pageId: "wpg_5555666677778888", revision: 1 },
+          ],
+          projectedClaimKeys: [],
+        }),
+        readPage: async (pageId) =>
+          pageId === "wpg_1111222233334444"
+            ? {
+                pageId,
+                revision: 1,
+                claims: [
+                  { claimId: "wcl_1111222233334444", statement: "Works as principal engineer at Hussh.", status: "active" },
+                ],
+              }
+            : {
+                pageId,
+                revision: 1,
+                claims: [
+                  { claimId: "wcl_5555666677778888", statement: "Prefers window seats on red-eye flights.", status: "active" },
+                ],
+              },
+        deriveProjection: async (input) => {
+          derivedCalls.push({
+            domain: input.targetDomain,
+            requireOwnerConfirmation: input.requireOwnerConfirmation,
+            activeRecipientCount: input.activeRecipientCount,
+          });
+          const state =
+            input.activeRecipientCount > 0 || input.requireOwnerConfirmation
+              ? "private_candidate"
+              : "materialized";
+          return {
+            receiptId: `wpr_${input.claimId.slice(4)}`,
+            state,
+            domain: input.targetDomain,
+            jsonPath: input.jsonPath,
+            pageId: input.pageId,
+            pageRevision: 1,
+            claimId: input.claimId,
+            sourceRevision: 1,
+          };
+        },
+      },
+      { explicitChatSave: true, surface: "chat" },
+    );
+
+    expect(syncResult.materializedCount).toBe(1);
+    expect(syncResult.candidateCount).toBe(1);
+    expect(derivedCalls).toEqual([
+      { domain: "professional", requireOwnerConfirmation: false, activeRecipientCount: 0 },
+      { domain: "travel", requireOwnerConfirmation: false, activeRecipientCount: 1 },
+    ]);
+    // Unshared safe professional claim automatically materialized its consent scope via owner-confirmed chat save!
+    expect((storedDomainData.professional?.role as any)?.title).toBe("Principal Engineer at Hussh");
+    expect(storedManifests.professional?.top_level_scope_paths).toContain("role");
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "professional",
+        confirmation: expect.objectContaining({
+          confirmedByUser: true,
+          surface: "chat",
+          source: "agent_chat_owner_request",
+        }),
+      }),
+    );
+    // Negative control: shared-grant travel claim NEVER auto-wrote into storedDomainData.travel.preferences!
+    expect(storedDomainData.travel?.preferences).toBeUndefined();
   });
 });
 

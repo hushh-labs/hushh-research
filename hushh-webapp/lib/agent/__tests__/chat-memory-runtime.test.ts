@@ -309,4 +309,24 @@ describe("incremental owner chat memory", () => {
     await vi.waitFor(() => expect(mocks.rewrite).toHaveBeenCalledOnce());
     expect(mocks.rewrite.mock.calls[0]![0].messages.map((m: ChatMemoryMessage) => m.id)).toEqual(["hydrated-turn"]);
   });
+
+  it("threads explicit remember reason (and merged triggers) plus previousMarkdown to onConsolidated", async () => {
+    const onConsolidated = vi.fn(async () => undefined);
+    const { runtime } = create(
+      vi.fn(async () => ({ markdown: "# Work\n- Works at Hussh\n" })),
+      { onConsolidated },
+    );
+    await runtime.registerSnapshot({
+      conversationId: "chat",
+      messages: [source("exp-1", "Please save this about me in a wiki format")],
+    });
+    expect(await runtime.trigger("remember")).toBe(true);
+    expect(onConsolidated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "remember",
+        previousMarkdown: "- Existing fact\n",
+        markdown: "# Work\n- Works at Hussh\n",
+      }),
+    );
+  });
 });

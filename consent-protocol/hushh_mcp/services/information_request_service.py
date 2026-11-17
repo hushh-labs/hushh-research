@@ -209,12 +209,15 @@ def bundle_outcome_from_statuses(statuses: list[str], *, cancelled: bool = False
 
     Any field still waiting keeps the request pending. Otherwise granted wins
     (partially when anything else was declined or has ended); then revoked,
-    denied and expired, in that order.
+    denied and expired, in that order. An entirely withdrawn set is cancelled
+    even when cancellation was per-item rather than whole-bundle.
     """
     if cancelled:
         return "cancelled"
     if not statuses or "pending" in statuses:
         return "pending"
+    if all(value == "cancelled" for value in statuses):
+        return "cancelled"
     if "granted" in statuses:
         return "granted" if all(value == "granted" for value in statuses) else "partially_granted"
     if "revoked" in statuses:

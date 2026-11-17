@@ -70,10 +70,10 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
     # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
-    "tzdata==2026.1",
+    "tzdata==2026.6",
     "uvicorn>=0.34.0",
     # WorkOS enterprise SSO (behind an adapter; see docs/architecture/enterprise-sso-workos-adr.md).
-    "workos==10.5.0",
+    "workos==10.9.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",

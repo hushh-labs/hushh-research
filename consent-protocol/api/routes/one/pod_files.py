@@ -386,7 +386,10 @@ async def read_wiki_overview(owner: Owner):
             receipts = await wiki.list_projection_receipts()
             candidates: list[dict[str, object]] = []
             stale_receipts: list[dict[str, object]] = []
+            projected_claim_keys: list[str] = []
             for rec in receipts:
+                if rec["state"] in {"materialized", "private_candidate", "conflicted"}:
+                    projected_claim_keys.append(f"{rec['page_id']}:{rec['claim_id']}")
                 if rec["state"] == "stale":
                     stale_receipts.append(
                         {
@@ -446,6 +449,7 @@ async def read_wiki_overview(owner: Owner):
                 ],
                 "candidateReceipts": candidates,
                 "staleReceipts": stale_receipts,
+                "projectedClaimKeys": projected_claim_keys,
             }
     except (WikiRefused, FilesRefused) as exc:
         raise wiki_refusal(exc) from exc
