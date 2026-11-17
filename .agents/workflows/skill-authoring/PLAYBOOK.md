@@ -8,7 +8,7 @@ Create or retrofit skills, manifests, workflows, and routing metadata for the Co
 
 ## Steps
 
-1. Start with `codex-skill-authoring` and use `owner skill only` as the default narrow path.
+1. Start with `skill-authoring` and use `owner skill only` as the default narrow path.
 2. Open only the required reads listed in `workflow.json` plus the selected skill manifests.
 3. Run the required commands first, then the verification bundle.
 4. Capture every field listed in `impact_fields` before calling the work complete.

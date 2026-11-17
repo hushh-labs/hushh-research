@@ -28,14 +28,24 @@ push safety, local runtime terminals, deploy cadence, and UAT release gates.
    branch unless the user explicitly asked for that state. If branch switching
    happened mid-task (including from another terminal), switch BACK to the
    developer's starting branch before handoff and say so.
-9. HARD CLEANUP RULE: always delete temporary branches you created, both local
-   and remote, once the work is safely preserved on the kept branches. Before
-   deleting, verify every unique commit/file is represented on a branch you are
-   keeping (`git --no-pager log --oneline <kept-branch> | grep <subject>` for
-   each piece). Close any throwaway PR opened from the temp branch. After
-   cleanup, confirm: developer on their branch, no stray local temp branches
-   (`git branch | grep -iE 'ship/|phase|tmp/'`), no stray remote temp branches
-   (`git ls-remote --heads origin '*<name>*'`), no dangling throwaway PRs.
+9. HARD CLEANUP & MULTI-WORKTREE SYNC RULE: every task worktree binds to a canonical
+   base branch (`dev`, `uat`, or `main`) and merges all unique commits into
+   `origin/<base>` through the governed PR queue before teardown. Fetch and
+   fast-forward local base tracking refs after merge so parallel checkouts stay in
+   sync. Before clearing caches, unlinking `node_modules`/`.venv` symlinks, or
+   removing a worktree, audit `git worktree list`, `git status --short`, open PRs,
+   and active processes (`ps`/`lsof`) across simultaneous peer worktrees so
+   in-flight peer edits and shared dependencies are never disturbed. Verify every
+   unique commit/file is represented on `origin/<base>` (`git --no-pager log
+   --oneline origin/<base> | grep <subject>`), close any throwaway PR, and delete
+   task-owned local/remote temporary branches once merged. After cleanup, confirm:
+   developer on their starting branch, no stray local/remote temp branches, and no
+   dangling throwaway PRs.
+10. DOWNSTREAM DELTA ORCHESTRATION (`main -> uat -> dev`): synchronize `Main -> UAT`,
+    `Main -> Dev`, and `UAT -> Dev` downstream by behavior while preserving
+    destination-owned migrations and overlays, regenerating destination-scoped
+    contracts (`CapabilityGraphV1`, UI contracts) against the target base, and never
+    wholesale-promoting `dev` upward into `uat` or `main`.
 
 ## Shared Branch A Teammate Is Actively Pushing
 

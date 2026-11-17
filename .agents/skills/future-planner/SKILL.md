@@ -55,7 +55,7 @@ Non-owned surfaces:
 
 1. Ground the idea in current repo reality before planning future behavior.
 2. Classify the request explicitly as `vision`, `future roadmap`, or `execution`.
-3. For material Hussh product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or roadmap positioning, run the Founder Wiki North-Star Probe from `.agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md`.
+3. For material Hussh product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or roadmap positioning, run the Founder Wiki North-Star Probe from `.agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md`.
 4. Treat the founder wiki as north-star and future-state evidence, not proof that a runtime feature exists today. Record repo/wiki disagreement as `current_state_vs_north_star_drift`.
 5. Keep private wiki evidence local-only unless the user explicitly asks for an internal private artifact.
 6. Assess edge cases before writing:
@@ -80,7 +80,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ./bin/hushh docs verify
 ./bin/hushh agents audit
 ```

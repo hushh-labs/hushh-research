@@ -166,25 +166,31 @@ These rules apply to parent sessions, subagents, verification workers and local 
 7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. Generated audit/review JSON, run reports, screenshots, traces and evaluation ledgers are ignored local or CI artifacts, never source commits. Preserve authored contracts, runtime mirrors, dependency locks, fixtures, required app assets and compact policy inputs. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
 8. Track every task-created temporary worktree from creation in the existing task
    handoff, which is its ownership register. Reuse a suitable existing checkout
-   first. Record its canonical path, base/head revision, owning task/session,
-   purpose, owned process IDs and ports, and completion or handoff condition. A
-   finished verification run is not a reason to retain a duplicate checkout.
-9. Permanently remove registered temporary worktrees after successful verification
-   and handoff. Before removal, verify final changes are integrated or durably
-   recoverable in another explicitly retained branch; inspect tracked, untracked,
-   and ignored paths for unique work and required evidence without opening
-   credential or `.env` contents; preserve needed work and sanitized evidence
-   outside the checkout; and confirm no active task or peer process has its cwd in
-   the checkout or holds files there open. Gracefully stop only task-owned
-   processes, then remove only the exact registered path with
-   `git worktree remove <path>` without `--force`. Only after actual checkout
-   removal, preview `git worktree prune --dry-run --verbose` and prune only if its
-   output is limited to this task's stale metadata. Do not remove preexisting or
-   active peer worktrees, unique uncommitted work, or required evidence. Delete
-   task-owned branch refs only when the branch-preservation gate permits it;
-   remove residual generated directories only when task-owned, safe, and
-   authorized. Never use broad recursive deletion or follow dependency symlinks
-   into retained checkouts. For failed or
+   first. Record its canonical path, declared target base branch (`dev`, `uat`, or
+   `main`), base/head revision, owning task/session, purpose, owned process IDs and
+   ports, and completion or handoff condition. Avoid duplicating `node_modules` or
+   `.venv` trees when safe read-only symlinks suffice. A finished verification run
+   is not a reason to retain a duplicate checkout.
+9. Synchronize with the declared base branch before clearing any temporary worktree.
+   Verify final changes are merged into `origin/<base>` (or durably preserved on an
+   explicitly retained branch) and fetch/fast-forward local base refs so sibling
+   worktrees and local servers stay aligned. Before rebasing, clearing caches,
+   unlinking dependency symlinks, or removing any worktree, audit `git worktree list`,
+   `git status --short`, open PRs, and active processes (`ps`/`lsof`) across all
+   simultaneous worktrees; inspect tracked, untracked, and ignored paths for unique
+   work and required evidence without opening credential or `.env` contents; preserve
+   needed work and sanitized evidence outside the checkout; and confirm no active
+   task or peer process has its cwd in the checkout or holds files or symlinked
+   dependencies there open. Gracefully stop only task-owned processes, unlink
+   checkout-local dependency symlinks without recursing into shared targets, then
+   remove only the exact registered path with `git worktree remove <path>` without
+   `--force`. Only after actual checkout removal, preview
+   `git worktree prune --dry-run --verbose` and prune only if its output is limited
+   to this task's stale metadata. Do not remove preexisting or active peer worktrees,
+   unique uncommitted work, or required evidence. Delete task-owned branch refs only
+   when the branch-preservation gate permits it; remove residual generated
+   directories only when task-owned, safe, and authorized. Never use broad recursive
+   deletion or follow dependency symlinks into retained checkouts. For failed or
    interrupted runs, remove only proven-disposable resources; otherwise retain
    and report the owner, reason, and next cleanup condition. If safe removal
    cannot be established, retain the checkout and report the blocker. Verify
@@ -231,7 +237,7 @@ Before accepting a premise, drafting a reply, proposing a plan, patching code, r
 
 This applies to every non-trivial coding-agent task in this repo. The goal is to prevent drift where an agent agrees with a user or contributor claim that the repo already contradicts.
 
-The canonical shared contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
+The canonical shared contract lives at `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
 
 1. Extract material claims and inspect their owning code, generated contracts, schemas, tests and relevant runtime evidence.
 2. Classify them as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction` or `needs_verification`.
