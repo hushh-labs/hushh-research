@@ -53,11 +53,13 @@ from hushh_mcp.services.pod_object_version import ABSENT
 from hushh_mcp.services.pod_storage import resolve_pod_object_store
 from hushh_mcp.services.pod_umbrella_cell_pool import (
     CellCapacityExceededError,
+    ClaimedSkeletonResult,
     NoWarmSkeletonAvailableError,
     PodSkeletonPoolService,
     UmbrellaCellRegistry,
 )
 from tests.floci_wire_harness import floci_azure_wire_environment
+from tests.test_data_model_audit_postgres import isolated_postgres as isolated_postgres
 
 _DEV39_DIGEST = "sha256:9f771f108e06ad3fe51a433b6cd3753a0b4f8d5b24a00c82c511a421d01a9b64"
 
@@ -1449,3 +1451,292 @@ async def test_pod_migration_job_repo_and_registry_retry_transient_vm_placement_
     assert await adapter.begin_migration("u-1") is True
     assert await adapter.end_migration("u-1") is True
     assert adapter._inner.begin_calls == 3
+
+
+def test_switch_over_sql_executes_against_real_postgres_registry_columns(
+    isolated_postgres: str,
+) -> None:
+    import psycopg2
+    from sqlalchemy import create_engine, text
+
+    from db.db_client import DatabaseClient
+    from hushh_mcp.services.compute_backend import BackendHandle
+    from hushh_mcp.services.hosted_azure_migration_provisioner import _switch_over_sql
+
+    engine = create_engine(
+        "postgresql+psycopg2://", creator=lambda: psycopg2.connect(isolated_postgres)
+    )
+    client = DatabaseClient(engine=engine)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE public.personal_agent_registry (
+                        user_id text PRIMARY KEY,
+                        hushh_id text NOT NULL,
+                        phone_e164_hash text,
+                        space_id text,
+                        backend text,
+                        external_agent_id text,
+                        a2a_route text,
+                        backend_metadata jsonb,
+                        attestation_ref text,
+                        pod_pubkey text,
+                        pod_key_id text,
+                        pod_key_wrapping_alg text,
+                        runtime_version text,
+                        prompt_version text,
+                        status text NOT NULL,
+                        region text,
+                        provisioned_at timestamptz,
+                        created_at timestamptz NOT NULL DEFAULT now(),
+                        updated_at timestamptz NOT NULL DEFAULT now(),
+                        last_heartbeat_at timestamptz,
+                        health_state text DEFAULT 'unknown',
+                        liveness_mode text DEFAULT 'economy',
+                        last_probe_at timestamptz,
+                        liveness_failures integer DEFAULT 0,
+                        last_healed_at timestamptz,
+                        deployment_target text,
+                        model_credential_mode text,
+                        user_cloud_project text,
+                        user_cloud_region text,
+                        user_cloud_bootstrap_sa text,
+                        user_cloud_authorized_at timestamptz,
+                        billing_space_id text,
+                        pod_signing_pubkey text,
+                        pod_signing_key_id text,
+                        identity_mode text,
+                        user_cloud_tenant_id text,
+                        user_cloud_subscription_id text,
+                        user_cloud_resource_group text,
+                        placement_epoch bigint DEFAULT 0,
+                        CONSTRAINT personal_agent_registry_hosted_azure_no_owner_cloud_check CHECK (
+                            deployment_target IS DISTINCT FROM 'azure'
+                            OR (
+                                user_cloud_project IS NULL
+                                AND user_cloud_region IS NULL
+                                AND user_cloud_bootstrap_sa IS NULL
+                                AND user_cloud_authorized_at IS NULL
+                                AND user_cloud_tenant_id IS NULL
+                                AND user_cloud_subscription_id IS NULL
+                                AND user_cloud_resource_group IS NULL
+                            )
+                        )
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO public.personal_agent_registry (
+                        user_id, hushh_id, backend, external_agent_id, a2a_route,
+                        backend_metadata, pod_pubkey, pod_key_id, pod_key_wrapping_alg,
+                        status, deployment_target, model_credential_mode,
+                        user_cloud_tenant_id, user_cloud_subscription_id, user_cloud_resource_group,
+                        placement_epoch
+                    ) VALUES (
+                        'uid-pg-switch', 'ha1_pg_switch', 'user_azure',
+                        '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/containerApps/ca',
+                        'https://ca.example.eastus2.azurecontainerapps.io',
+                        CAST(:meta AS jsonb),
+                        'old-pub', 'podk_old', 'X25519-HKDF-SHA256-AES256GCM',
+                        'migrating', 'user_azure', 'byok_per_turn',
+                        '11111111-1111-1111-1111-111111111111',
+                        '22222222-2222-2222-2222-222222222222',
+                        'rg-hussh-one',
+                        2
+                    )
+                    """
+                ),
+                {
+                    "meta": '{"url":"https://ca.example.eastus2.azurecontainerapps.io","ingress":"direct","endpointVersion":3}'
+                },
+            )
+        registry = UmbrellaCellRegistry(_cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1))
+        cell = registry.azure_cell()
+        slot = cell.slots[0]
+        claimed = ClaimedSkeletonResult(
+            cell=cell,
+            slot=slot,
+            handle=BackendHandle(
+                external_agent_id=slot.app_id,
+                a2a_route=f"https://{slot.fqdn}",
+                status="connecting",
+                backend=BACKEND_AZURE,
+                backend_metadata={
+                    "url": f"https://{slot.fqdn}",
+                    "revision": "ca-pod-slot01--0000001",
+                },
+            ),
+            published_keys={
+                "podPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "podKeyId": "podk_0123456789abcdef0123456789abcdef",
+                "podKeyWrappingAlg": WRAPPING_ALG,
+                "podSigningKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+                "podSigningKeyId": "pods_0123456789abcdef0123456789abcdef",
+            },
+            claim_latency_ms=120,
+            relay_ready=True,
+            remaining_warm_standby=1,
+            replenishment_recommended=False,
+        )
+        updated = _switch_over_sql(
+            client,
+            user_id="uid-pg-switch",
+            hushh_id="ha1_pg_switch",
+            claimed=claimed,
+            service_uid="0123456789abcdef0123456789abcdef",
+            migration_mode="fresh_pod_log_with_source_grace",
+        )
+        assert updated["deployment_target"] == "azure"
+        assert updated["status"] == "provisioned"
+        assert updated["placement_epoch"] == 3
+        assert updated["user_cloud_resource_group"] is None
+        assert updated["backend_metadata"]["detachedPlacements"][0]["graceDays"] == 14
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_self_heals_pre_commit_switch_outcome_unknown_releases_source_drain_and_completes_move(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    PodSkeletonPoolService.reset_process_claims()
+    stuck_row = {
+        "user_id": "uid-account-2",
+        "hushh_id": "ha1_7o6wt3s4sw",
+        "phone_e164_hash": "ph-acc-2",
+        "deployment_target": "user_azure",
+        "backend": "user_azure",
+        "external_agent_id": (
+            "/subscriptions/sub-personal/resourceGroups/rg-hussh-one/"
+            "providers/Microsoft.App/containerApps/ca-hussh-one-pod"
+        ),
+        "a2a_route": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+        "status": "migrating",
+        "placement_epoch": 2,
+        "model_credential_mode": "byok_per_turn",
+        "pod_pubkey": "old-pubkey",
+        "user_cloud_tenant_id": "personal-tenant",
+        "user_cloud_subscription_id": "sub-personal",
+        "user_cloud_resource_group": "rg-hussh-one",
+        "backend_metadata": {
+            "url": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+            "service": "ca-hussh-one-pod",
+            "revision": "ca-hussh-one-pod--rev1",
+        },
+    }
+    reg = _InMemoryRegistryRepo(stuck_row)
+    jobs = _InMemoryMigrationJobRepo()
+    jobs.job = {
+        "user_id": "uid-account-2",
+        "job_id": "mig_switch_unk1",
+        "status": "failed",
+        "stage": "switching_over",
+        "error_code": "SWITCH_OUTCOME_UNKNOWN",
+        "updated_at": "2026-11-17T00:00:00+00:00",
+    }
+
+    class _IdleThenReleasedHandoff:
+        def __init__(self) -> None:
+            self.released_ops: list[str] = []
+            self.state = "idle"
+            self.op_id: str | None = "op_prev_1"
+
+        def _request(self, method: str, path: str) -> dict[str, Any]:
+            assert method == "GET" and path == "/api/one/pod/upgrade/status"
+            return {
+                "state": self.state,
+                "operationId": self.op_id,
+                "incarnation": "ca-hussh-one-pod--rev1",
+            }
+
+        def prepare_and_wait(
+            self, *, operation_id: str, incarnation: str, timeout_seconds: float
+        ) -> dict[str, Any]:
+            assert timeout_seconds > 0
+            return {
+                "operationId": operation_id,
+                "incarnation": incarnation,
+                "activeWork": 0,
+                "committedState": "sha256:" + ("d" * 64),
+                "runtimeEpoch": "ep-src-3",
+            }
+
+        def release(self, *, operation_id: str, incarnation: str) -> dict[str, Any]:
+            self.released_ops.append(operation_id)
+            self.state = "accepting"
+            self.op_id = None
+            return {"state": "accepting", "incarnation": incarnation, "operationId": None}
+
+    handoff = _IdleThenReleasedHandoff()
+
+    class _FakeArm:
+        def put(
+            self, app_id: str, *, api_version: str, body: dict[str, Any], op: str
+        ) -> dict[str, Any]:
+            assert app_id and api_version and op == "hosted_azure_bind_slot"
+            return {
+                "properties": {
+                    "latestReadyRevisionName": "ca-pod-slot01--0000001",
+                    "configuration": {
+                        "ingress": {
+                            "fqdn": "ca-pod-slot01.blackdesert.eastus2.azurecontainerapps.io"
+                        }
+                    },
+                    "template": body["properties"]["template"],
+                }
+            }
+
+    async def _fake_keys(_row: dict[str, Any], *, require_identity: bool = True) -> dict[str, str]:
+        assert require_identity is True
+        return {
+            "podPublicKey": "new-slot01-x25519",
+            "podKeyId": "kid-slot01",
+            "podKeyWrappingAlg": WRAPPING_ALG,
+            "podSigningKey": "new-slot01-ed25519",
+            "podSigningKeyId": "skid-slot01",
+        }
+
+    class _OkTransport:
+        @staticmethod
+        def export_from(**_kwargs: Any) -> dict[str, Any]:
+            return {"headSha": "deadbeef" * 8, "recordCount": 2, "bundle": {"sealedBlobB64": "ok"}}
+
+        @staticmethod
+        def import_into(**_kwargs: Any) -> dict[str, Any]:
+            return {"headSha": "deadbeef" * 8, "recordCount": 2}
+
+    async def _admit_direct(row: dict[str, Any], *, db: Any = None) -> bool:
+        del db
+        row["backend_metadata"]["ingress"] = "direct"
+        row["backend_metadata"]["directReadiness"] = {"verified": True}
+        return True
+
+    pool = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(_cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1)),
+        backend_factory=lambda slot: HostedAzureBackend(
+            slot=slot, arm_client=_FakeArm(), live=True
+        ),  # type: ignore[arg-type]
+        key_fetcher=_fake_keys,
+    )
+    res = await execute_owner_migration_to_hosted_azure(
+        "uid-account-2",
+        db=object(),
+        registry_repo=reg,
+        job_repo=jobs,  # type: ignore[arg-type]
+        pool=pool,
+        handoff_factory=lambda _u, _h: handoff,
+        prewarm_fn=lambda _url: None,
+        transport=_OkTransport(),
+        token_minter=lambda **_kwargs: "tok",
+        admit_direct_fn=_admit_direct,
+    )
+    assert "op_prev_1" in handoff.released_ops
+    assert res["status"] == "succeeded"
+    assert reg.row["deployment_target"] == "azure"
+    assert reg.row["status"] == "provisioned"
