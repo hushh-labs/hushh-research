@@ -12,7 +12,6 @@ import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  LIVE_MEMORY_BOUNDARY_COPY,
   LIVE_MIRROR_HIDDEN_PREDICATES,
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_SOURCE_LABELS,
@@ -181,7 +180,6 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
     <>
       {title}
       <StatusLine status={liveMirrorStatus(view.overall, view)} />
-      <Footnote className="px-1">{LIVE_MEMORY_BOUNDARY_COPY}</Footnote>
       <Tabs defaultValue="facts" className="min-w-0 gap-3">
         <TabsList className="w-full">
           <TabsTrigger value="facts" className="min-h-11">Facts</TabsTrigger>
@@ -297,7 +295,6 @@ export function LivingMemoryDocument() {
         <>
           {title}
           <StatusLine status={liveMirrorStatus("loading")} />
-          <Footnote className="px-1">{LIVE_MEMORY_BOUNDARY_COPY}</Footnote>
         </>
       ) : (
         // Local selection and paging never carry across owners or vault epochs.

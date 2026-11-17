@@ -1,6 +1,12 @@
 "use client";
-import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
 import { PersonNetworkSummary } from "./person-network-summary";
+import {
+  ConsentHistoryTrails,
+  consentHistoryStatusToAction,
+  formatLifecycleEventLabel,
+  type ConsentHistoryTrailEvent,
+} from "@/components/consent/consent-history-trails";
+import { formatRequestedAt, joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 
 import { useCallback, useEffect, useMemo, useState, useRef, useId } from "react";
 
@@ -54,7 +60,6 @@ import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-st
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
 import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
-import { joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 import {
   PersonProfileService,
   type InformationRequestPrice,
@@ -132,6 +137,77 @@ function historyTitle(
   const named = itemLabels.filter((label) => typeof label === "string" && label.trim());
   if (named.length) return joinInformationLabels(named.map(historyItemLabel), 2);
   return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
+}
+
+function buildPersonRequestTrailEvents(params: {
+  bundleId: string;
+  details: InformationRequestBundle | undefined;
+  singleStatus: string | null;
+  itemCount: number;
+  durationSeconds: number;
+  createdAt: string | null | undefined;
+}): ConsentHistoryTrailEvent[] {
+  const { bundleId, details, singleStatus, itemCount, durationSeconds, createdAt } = params;
+  const createdLabel = formatRequestedAt(createdAt);
+  if (details) {
+    const durationLabel = requestDurationLabel(Math.round(details.durationSeconds / 3600));
+    const itemEvents: ConsentHistoryTrailEvent[] = details.items.map((entry, index) => {
+      const action = consentHistoryStatusToAction(entry.status);
+      const label =
+        entry.status === "pending"
+          ? "Waiting"
+          : formatLifecycleEventLabel({ action, status: entry.status });
+      return {
+        key: `${bundleId}:item:${entry.requestId || index}`,
+        label,
+        detail: [
+          historyItemLabel(entry.label),
+          durationLabel,
+          details.cancelled && entry.status !== "cancelled" ? "Withdrawn" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        tone: entry.status,
+      };
+    });
+    if (createdLabel) {
+      itemEvents.push({
+        key: `${bundleId}:requested`,
+        label: "Requested",
+        detail: createdLabel,
+        tone: "neutral",
+      });
+    }
+    return itemEvents;
+  }
+
+  const durationHours = Math.round(durationSeconds / 3600);
+  const durationLabel = durationHours > 0 ? requestDurationLabel(durationHours) : null;
+  const events: ConsentHistoryTrailEvent[] = [];
+  if (singleStatus && singleStatus !== "pending") {
+    const action = consentHistoryStatusToAction(singleStatus);
+    events.push({
+      key: `${bundleId}:outcome`,
+      label: formatLifecycleEventLabel({ action, status: singleStatus }),
+      detail:
+        [durationLabel, itemCount > 1 ? `${itemCount} items` : null]
+          .filter(Boolean)
+          .join(" · ") || null,
+      tone: singleStatus,
+    });
+  }
+  if (singleStatus || createdLabel) {
+    events.push({
+      key: `${bundleId}:requested`,
+      label: "Requested",
+      detail:
+        [createdLabel, durationLabel ? `For ${durationLabel}` : null]
+          .filter(Boolean)
+          .join(" · ") || "Waiting for response",
+      tone: singleStatus === "pending" ? "pending" : "neutral",
+    });
+  }
+  return events;
 }
 
 function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | "pink" | "lilac" | "amber") {
@@ -236,6 +312,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       items: recent?.items ?? [],
       itemCount: summary.itemCount,
       itemLabels: Array.isArray(summary.itemLabels) ? summary.itemLabels : [],
+      durationSeconds: summary.durationSeconds,
+      cancelled: summary.cancelled,
       purpose: summary.purpose,
       createdAt: summary.createdAt,
     };
@@ -243,6 +321,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     ...group,
     itemCount: group.items.length,
     itemLabels: [] as string[],
+    durationSeconds: group.first.durationSeconds,
+    cancelled: group.items.every((item) => item.status === "cancelled"),
     purpose: group.first.purpose,
     createdAt: group.first.createdAt,
   }));
@@ -1166,32 +1246,88 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                 <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
               ) : null}
               {historyGroups.length ? (
-                <SectionCard className={styles.historyGroup}>
-                  <div className="divide-y divide-border/60">
-                    {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, itemLabels, purpose: requestPurpose, createdAt }) => {
+                <ConsentHistoryTrails
+                  embedded
+                  items={visibleHistoryGroups.map(
+                    (
+                      {
+                        bundleId,
+                        first,
+                        items,
+                        itemCount,
+                        itemLabels,
+                        durationSeconds,
+                        cancelled,
+                        purpose: requestPurpose,
+                        createdAt,
+                      },
+                      groupIndex,
+                    ) => {
                       const details = bundleDetails[bundleId];
-                      const statusItems = details?.items ?? (items.length === itemCount ? items : []);
+                      const statusItems =
+                        details?.items ?? (items.length === itemCount ? items : []);
                       const statuses = new Set(statusItems.map((item) => item.status));
-                      const grantedCount = statusItems.filter((item) => item.status === "granted").length;
-                      const statusLabel = !statusItems.length ? "Check status"
-                        : statuses.size === 1 ? historyStatusLabel(statusItems[0]!.status) : `${grantedCount} of ${itemCount} shared`;
+                      const grantedCount = statusItems.filter(
+                        (item) => item.status === "granted",
+                      ).length;
+                      const singleStatus =
+                        statuses.size === 1
+                          ? statusItems[0]!.status
+                          : cancelled
+                            ? "cancelled"
+                            : null;
+                      const statusLabel = !statusItems.length
+                        ? cancelled
+                          ? "Withdrawn"
+                          : "Check status"
+                        : statuses.size === 1
+                          ? historyStatusLabel(statusItems[0]!.status)
+                          : `${grantedCount} of ${itemCount} shared`;
                       const title = historyTitle(
-                        statusItems.length ? statusItems.map((item) => item.label) : first ? [first.label] : [],
+                        statusItems.length
+                          ? statusItems.map((item) => item.label)
+                          : first
+                            ? [first.label]
+                            : [],
                         itemCount,
                         itemLabels,
                       );
-                      return (
-                        <div key={bundleId} className={styles.historyRow}>
-                          <PersonRequestHistoryHeading title={title} requestPurpose={requestPurpose} createdAt={createdAt} />
-                          <div className={styles.historyActions}>
-                            <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
-                              {statusLabel}
-                            </StatusPill>
-                            {statusItems.filter(item => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId)).map(item => (
-                              <Button key={item.requestId} asChild type="button" variant="none" effect="fade"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}>Review request</Link></Button>
-                            ))}
+                      const createdLabel = formatRequestedAt(createdAt);
+                      return {
+                        key: bundleId,
+                        eyebrow: `Request ${(visibleHistoryPage - 1) * 8 + groupIndex + 1}`,
+                        title,
+                        subtitle: requestPurpose,
+                        meta: createdLabel ? `Latest ${createdLabel}` : null,
+                        statusLabel,
+                        statusTone:
+                          statusItems.length === itemCount && grantedCount === itemCount
+                            ? "approved"
+                            : singleStatus ?? "neutral",
+                        actions: (
+                          <>
+                            {statusItems
+                              .filter((item) => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId))
+                              .map((item) => (
+                                <Button
+                                  key={item.requestId}
+                                  data-consent-role="compact-action"
+                                  asChild
+                                  type="button"
+                                  size="compact"
+                                  variant="none"
+                                  effect="fade"
+                                >
+                                  <Link
+                                    href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}
+                                  >
+                                    Review request
+                                  </Link>
+                                </Button>
+                              ))}
                             {!details ? (
                               <Button
+                                data-consent-role="compact-action"
                                 type="button"
                                 size="compact"
                                 variant="none"
@@ -1205,6 +1341,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                             ) : null}
                             {statusItems.some((item) => item.status === "pending") ? (
                               <Button
+                                data-consent-role="compact-action"
                                 type="button"
                                 size="compact"
                                 variant="none"
@@ -1212,33 +1349,75 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                                 disabled={cancellingBundleId === bundleId}
                                 onClick={() => void cancelInformationRequest(bundleId)}
                               >
-                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw request"}
+                                {cancellingBundleId === bundleId
+                                  ? "Withdrawing…"
+                                  : "Withdraw request"}
                               </Button>
                             ) : null}
-                          </div>
-                          {details ? (
-                            <p className="max-h-40 w-full overflow-y-auto text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
-                              {details.items.map((entry) => `${historyItemLabel(entry.label)} (${historyStatusLabel(entry.status).toLowerCase()})`).join(", ")}
-                              {" · "}
-                              {requestDurationLabel(Math.round(details.durationSeconds / 3600))}
-                              {details.cancelled ? " · withdrawn" : ""}
-                            </p>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
-                    <div className={styles.pagination}>
-                      <Button type="button" size="compact" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
-                      <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
-                      <Button type="button" size="compact" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
-                        if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
-                        setHistoryPage((page) => page + 1);
-                      }}>Next</Button>
-                    </div>
-                  ) : null}
-                </SectionCard>
+                          </>
+                        ),
+                        events: buildPersonRequestTrailEvents({
+                          bundleId,
+                          details,
+                          singleStatus,
+                          itemCount,
+                          durationSeconds,
+                          createdAt,
+                        }),
+                        eventsTestId: details
+                          ? "person-profile-bundle-details"
+                          : undefined,
+                      };
+                    },
+                  )}
+                  footer={
+                    currentHistory?.result?.nextCursor ||
+                    historyPage > 1 ||
+                    (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
+                      <div className={styles.pagination}>
+                        <Button
+                          type="button"
+                          size="compact"
+                          variant="none"
+                          effect="fade"
+                          disabled={visibleHistoryPage <= 1}
+                          onClick={() =>
+                            setHistoryPage((page) => Math.max(1, page - 1))
+                          }
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-muted-foreground">
+                          {currentHistory?.result
+                            ? `Page ${visibleHistoryPage}`
+                            : `${visibleHistoryPage} of ${historyPageCount}`}
+                        </span>
+                        <Button
+                          type="button"
+                          size="compact"
+                          variant="none"
+                          effect="fade"
+                          disabled={
+                            currentHistory?.result
+                              ? !currentHistory.result.nextCursor
+                              : visibleHistoryPage >= historyPageCount
+                          }
+                          onClick={() => {
+                            if (currentHistory?.result?.nextCursor) {
+                              setHistoryCursors((cursors) => [
+                                ...cursors.slice(0, historyPage),
+                                currentHistory.result!.nextCursor,
+                              ]);
+                            }
+                            setHistoryPage((page) => page + 1);
+                          }}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    ) : undefined
+                  }
+                />
               ) : (
                 <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
               )}

@@ -362,7 +362,7 @@ describe("Profile Live Mirror", () => {
     expect(within(rowIn(dialog, "Mode")).getByText("Live")).toBeInTheDocument();
   });
 
-  it("states the open-and-unlocked boundary in plain words and never shows raw states", () => {
+  it("omits the obsolete open-and-unlocked subtitle and never shows raw states", () => {
     m.view = mirror({
       status: "refresh_failed",
       steps: [{ inputs: [profile("Ankit"), consent("c1", "attr.food.*")], kinds: ["profile", "consent", "connection"], now: T1 },
@@ -373,7 +373,7 @@ describe("Profile Live Mirror", () => {
       },
     });
     const { container } = render(<LivingMemoryDocument />);
-    expect(screen.getByText("Updates while the app is open and unlocked.")).toBeInTheDocument();
+    expect(screen.queryByText("Updates while the app is open and unlocked.")).toBeNull();
     expect(within(row("Sources", "Consents")).getByText("Couldn’t check · last checked 1 min ago · 3 changes waiting")).toBeInTheDocument();
     expect(within(row("Sources", "Connections")).getByText(/Updated 42 sec after change/)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/partial|refresh_failed|refresh pending|refresh_pending|24\/7|always on|while (the app is )?closed/i);

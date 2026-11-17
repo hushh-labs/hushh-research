@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
-  LIVE_MEMORY_BOUNDARY_COPY,
   LIVE_MIRROR_HIDDEN_PREDICATES,
   type LiveMirrorConflict,
 } from "@/lib/pkm/live-mirror-contract";
@@ -115,7 +114,6 @@ function LiveMirrorPreviewBody({ onNavigate, showOpenMemory = true, mirror }: Li
         embedded
         separatorInset
         title="Live memory"
-        description={locked ? undefined : LIVE_MEMORY_BOUNDARY_COPY}
         titleAction={
           locked ? undefined : (
             <Link
