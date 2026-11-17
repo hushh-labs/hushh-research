@@ -273,3 +273,30 @@ def test_calendar_oauth_callback_uses_the_dedicated_return_path():
         "https://uat.one.hushh.ai/",
         module.CALENDAR_OAUTH_RETURN_PATH,
     ) == "https://uat.one.hushh.ai/one/profile/google/oauth/return"
+
+
+def test_uat_release_requires_isolated_auth_credentials_and_client(monkeypatch):
+    import json
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
+    module = _module()
+    for admin, client, expected_status in (
+        ("hushh-pda-uat", "hushh-pda-uat", "valid"),
+        ("hushh-pda", "hushh-pda", "unexpected_project"),
+        ("hushh-pda", "hushh-pda-uat", "mismatch"),
+        ("hushh-pda-dev", "hushh-pda-dev", "unexpected_project"),
+    ):
+        secrets = {
+            "FIREBASE_ADMIN_CREDENTIALS_JSON": json.dumps({"project_id": admin}),
+            "NEXT_PUBLIC_FIREBASE_PROJECT_ID": client,
+        }
+        monkeypatch.setattr(module, "_read_secret_value", lambda project, name: secrets[name])
+        result = module._firebase_project_contract(
+            "hushh-pda-uat",
+            expected_project=workflow["env"]["UAT_FIREBASE_PROJECT_ID"],
+        )
+        assert result["status"] == expected_status

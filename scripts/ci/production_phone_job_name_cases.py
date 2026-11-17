@@ -464,3 +464,55 @@ class ProductionPhoneSkippedNameCases:
                 with mock.patch.dict("os.environ", environment):
                     self.assertTrue(lease._current(self.repo, attempt, selected, True))
                     self.assertIsNone(lease._steps(selected, current=True))
+
+    def test_upstream_prerequisite_cancellation_before_runner_allocation_is_nonexecuted(
+        self,
+    ):
+        self.setUp()
+        case = LeaseFixture(self)
+        case.runs[0].update(status="completed", conclusion="cancelled")
+        case.attempts[(300, 2)].update(status="completed", conclusion="cancelled")
+        inventory = case.jobs[(300, 2)]
+        for candidate in inventory["jobs"]:
+            candidate.update(
+                status="completed",
+                conclusion="cancelled",
+                steps=[],
+                runner_id=None,
+                runner_name=None,
+            )
+        prerequisite = {
+            "name": "Deployment security / Verify repository secret clearance",
+            "run_id": 300,
+            "run_attempt": 2,
+            "head_sha": case.runs[0]["head_sha"],
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "runner_id": 1001,
+            "runner_name": "GitHub Actions 1001",
+            "steps": [{"name": "Verify repository secret clearance"}],
+        }
+        inventory["jobs"].insert(0, prerequisite)
+        inventory["total_count"] = len(inventory["jobs"])
+        self.assertIsNone(self.lease_check(case))
+        self.assertIn("runs/300/attempts/1/jobs?per_page=100", case.calls)
+
+        # Older unresolved lease must still block even after an upstream-cancelled attempt.
+        older = copy.deepcopy(case)
+        self.lease_defect(older, "older_pending")
+        with self.assertRaises(lease.retention.UnsafeState):
+            self.lease_check(older)
+
+        # Negative controls: runner allocation, executed step, or no cancelled upstream prerequisite.
+        for defect in ("runner_assigned", "step_present", "no_upstream_cancel"):
+            broken = copy.deepcopy(case)
+            jobs = broken.jobs[(300, 2)]["jobs"]
+            if defect == "runner_assigned":
+                jobs[1]["runner_id"] = 2002
+            elif defect == "step_present":
+                jobs[1]["steps"] = [{"name": lease.BEGIN}]
+            else:
+                jobs[0]["conclusion"] = "success"
+            with self.subTest(defect=defect), self.assertRaises(lease.retention.UnsafeState):
+                self.lease_check(broken)

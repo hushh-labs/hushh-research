@@ -43,26 +43,27 @@ def roundtrip_failure(deltas: str, answer: str, expected: dict[str, str]) -> str
 async def _root_contract() -> tuple[Any, str, list[types.FunctionDeclaration]]:
     from hushh_mcp.managed_ai_config import load_managed_runtime_policy
     from hushh_mcp.one_adk.agent_tree import build_one_text_agent
-    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+    from hushh_mcp.runtime_providers.managed_text import (
+        ManagedPrimaryTextModel,
+        managed_text_binding,
+    )
 
     root = build_one_text_agent(allow_workspace_tools=True, include_client_receipt_tools=False)
     policy = load_managed_runtime_policy()
     descriptor = policy["azure"]["one_text_root"] if policy else None
     model = root.model
-    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
-
-    vertex = policy is not None and policy["provider"] == "vertex"
+    binding = managed_text_binding(scope="one_text_chat")
+    vertex = binding["provider"] == "gemini"
     if (
         not isinstance(model, ManagedPrimaryTextModel)
         or descriptor is None
-        or model.primary_provider != policy["provider"]
+        or model.primary_provider != ("vertex" if vertex else "azure_openai")
+        or model.model != binding["deployment"]
         or model.allow_web_search
         or (
-            model.model != resolve_fleet_model_name("gemini-default")
-            if vertex
-            else (
-                model.model != descriptor["deployment"]
-                or model.default_reasoning_effort != descriptor["reasoning_effort"]
+            not vertex
+            and (
+                model.default_reasoning_effort != descriptor["reasoning_effort"]
                 or model.text_verbosity != descriptor["text_verbosity"]
             )
         )

@@ -11,6 +11,7 @@ import {
   isKaiTestProfileUser,
 } from "@/components/ria/ria-client-test-profile";
 import { NearbyAroundYou } from "@/components/ria/nearby/nearby-around-you";
+import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import { SettingsGroup, SegmentedTabs } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
@@ -232,6 +233,7 @@ export default function RiaClientsPage() {
       }}
     >
       <RiaVerificationGate>
+            <AdvisorReviewHub advisor />
             {/* Connected is the roster of investors who already granted access.
               Around you is prospecting against public records — a different
               kind of person entirely, which is why they are separate views on

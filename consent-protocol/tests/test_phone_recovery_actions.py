@@ -449,7 +449,8 @@ def test_confirm_requires_literal_true_and_does_not_echo_credentials(monkeypatch
     cancel.assert_awaited_once_with("previous", operation)
 
 
-def test_linked_deletion_routes_hide_credentials_and_stay_off_in_production(monkeypatch):
+@pytest.mark.parametrize("environment", ["production", "uat", "dev"])
+def test_linked_deletion_cannot_release_another_email_accounts_number(monkeypatch, environment):
     from api.routes import account_phone_linked_deletion as linked_routes
     from hushh_mcp.services import phone_linked_deletion
 
@@ -470,10 +471,29 @@ def test_linked_deletion_routes_hide_credentials_and_stay_off_in_production(monk
         assert response.json() == {"detail": {"code": "PHONE_RECOVERY_INVALID_REQUEST"}}
     for name in ("HUSHH_PHONE_LINKED_DELETION_ENABLED", "APP_RUNTIME_PROFILE", "HUSHH_DEPLOY_ENV"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    # A stale deployment flag cannot re-enable cross-account takeover.
+    monkeypatch.setenv("HUSHH_PHONE_LINKED_DELETION_ENABLED", "true")
     assert phone_linked_deletion.enabled() is False
     response = client.post(
         "/api/account/phone/linked-account/deletions", json={"phone_number": PHONE}
     )
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "PHONE_LINKED_DELETION_UNAVAILABLE"
+    proof = AsyncMock()
+    dispatch = AsyncMock()
+    monkeypatch.setattr(phone_linked_deletion, "_verify_proof", proof)
+    monkeypatch.setattr(phone_linked_deletion, "_dispatch", dispatch)
+    response = client.post(
+        "/api/account/phone/linked-account/deletions/confirm",
+        json={
+            "operation_id": str(uuid4()),
+            "phone_number": PHONE,
+            "confirmed": True,
+            "phone_id_token": secret,
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "PHONE_LINKED_DELETION_UNAVAILABLE"
+    proof.assert_not_awaited()
+    dispatch.assert_not_awaited()

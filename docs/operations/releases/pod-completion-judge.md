@@ -1,6 +1,6 @@
 # The pod completion judge
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Map
 

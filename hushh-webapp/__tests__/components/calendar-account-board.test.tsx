@@ -119,12 +119,61 @@ describe("three-account Calendar board", () => {
     expect(mocks.reviewWorkspaceConflict.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
     expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message).toContain("I need to join the client call.");
     expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message).toContain("Planning review");
+    // The owner's own words travel separately so every copy of the meeting can explain the decline.
+    expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].reason).toBe("I need to join the client call.");
     expect(mocks.confirmWorkspaceConflict).not.toHaveBeenCalled();
     expect(within(dialog).getByText("To: organizer-one@example.com")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm selected changes" }));
     await waitFor(() => expect(mocks.confirmWorkspaceConflict).toHaveBeenCalledOnce());
     expect(within(dialog).getByText("Calendar: declined · Mail: sent")).toBeTruthy();
     expect(mocks.onChat).not.toHaveBeenCalled();
+  });
+
+  it("dims a declined one-to-one meeting for both people and says who declined and why", async () => {
+    const reason = "I have another important meeting";
+    const view = { email: "second@example.com", display_name: "Sam", comment: reason };
+    const guests = [{ email: "organizer-host@example.com", response_status: "accepted" }, { email: "second@example.com", response_status: "declined", display_name: "Sam", comment: reason }];
+    const hostCopy = { ...event("default", "host", "Testing", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"), can_decline: false,
+      organizer: { email: "organizer-host@example.com", self: true }, attendees: guests, decline_view: { kind: "only_guest" as const, ...view } };
+    const guestCopy = { ...event("second", "guest", "Testing", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"),
+      attendees: [{ ...guests[1], self: true }], decline_view: { kind: "self" as const, ...view } };
+    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], accounts: [
+      { ...board.accounts[0], events: [hostCopy] }, { ...board.accounts[1], events: [guestCopy] }, board.accounts[2],
+    ] });
+    render(page());
+    const host = within(await screen.findByRole("group", { name: "Calendar account default@example.com" }));
+    const guest = within(screen.getByRole("group", { name: "Calendar account second@example.com" }));
+    expect(host.getByText("Sam declined")).toBeTruthy();
+    expect(guest.getByText("You declined this")).toBeTruthy();
+    for (const copy of [host, guest]) expect(copy.getByRole("button", { name: /^Open Testing/ }).closest("li")).toHaveAttribute("data-declined", "true");
+    fireEvent.click(host.getByRole("button", { name: /^Open Testing/ }));
+    const note = within(await screen.findByTestId("calendar-declined-note"));
+    expect(note.getByText("Sam declined this meeting")).toBeTruthy();
+    expect(note.getByText(reason)).toBeTruthy();
+  });
+
+  it("keeps a group meeting normal for the organiser and lists who declined with their reasons", async () => {
+    const organizer = { email: "organizer-host@example.com", self: true };
+    const attendees = [
+      { email: "organizer-host@example.com", response_status: "accepted" },
+      { email: "ann@example.com", response_status: "declined", display_name: "Ann", comment: "On leave that week" },
+      { email: "bob@example.com", response_status: "declined", comment: "  " },
+      { email: "cy@example.com", response_status: "accepted" },
+    ];
+    const hostCopy = { ...event("default", "group", "Planning", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"), can_decline: false, organizer, attendees };
+    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], accounts: [{ ...board.accounts[0], events: [hostCopy] }, board.accounts[1], board.accounts[2]] });
+    render(page());
+    const host = within(await screen.findByRole("group", { name: "Calendar account default@example.com" }));
+    const row = host.getByRole("button", { name: /^Open Planning/ });
+    expect(row.closest("li")).not.toHaveAttribute("data-declined");
+    expect(host.getByText("2 guests declined")).toBeTruthy();
+    fireEvent.click(row);
+    const note = within(await screen.findByTestId("calendar-declined-note"));
+    expect(note.getByText("Declined (2)")).toBeTruthy();
+    expect(note.getByText("Ann")).toBeTruthy();
+    expect(note.getByText("On leave that week")).toBeTruthy();
+    expect(note.getByText("bob@example.com")).toBeTruthy();
+    expect(note.getByText("No reason shared.")).toBeTruthy();
   });
 
   it("selects each of the three accounts in Insights without the Board summary", async () => {
@@ -222,6 +271,8 @@ describe("three-account Calendar board", () => {
     expect(within(dialog).queryByText("Your calendar updates after Google confirms the event.")).toBeNull();
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
     expect(within(dialog).getByRole("combobox", { name: "Duration" })).toHaveValue("60");
+    expect(dialog).not.toHaveTextContent("Primary calendar");
+    expect(dialog).not.toHaveTextContent("No guests creates");
     fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
     await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledOnce());
     expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "default", checkedAccountIds: ["default"], title: "Bug Bash", startAt: "2026-10-21T12:00:00.000Z", endAt: "2026-10-21T13:00:00.000Z" }));
@@ -237,6 +288,8 @@ describe("three-account Calendar board", () => {
     fireEvent.click(screen.getByRole("button", { name: /Schedule from shared free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
     expect(within(dialog).getByRole("button", { name: "Review meeting" })).toBeDisabled();
+    expect(within(dialog).getByRole("option", { name: "third@example.com" })).toBeTruthy();
+    expect(dialog).not.toHaveTextContent("Primary calendar");
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "third" } });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
@@ -402,6 +455,23 @@ describe("three-account Calendar board", () => {
     expect(within(occasions).getByText("Birthday")).toBeInTheDocument();
     expect(within(occasions).getByText("Festival")).toBeInTheDocument();
     expect(occasions.querySelectorAll("[data-kind]")).toHaveLength(2);
+    expect(within(occasions).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
+    expect(within(occasions).queryByText("More details")).toBeNull();
+  });
+
+  it("shows occasions the way Google Calendar does: day, note and calendar, without observance text or a provider link", async () => {
+    const holiday = { ...event("default", "diwali", "Diwali/Deepavali", "2026-11-08T00:00:00Z", "2026-11-09T00:00:00Z"), start: { date: "2026-11-08" }, end: { date: "2026-11-09" }, source_calendar_id: "en.indian#holiday@group.v.calendar.google.com", calendar_name: "Holidays in India", description: "Public holiday" };
+    const observance = { ...event("default", "naraka", "Naraka Chaturdasi", "2026-11-08T00:00:00Z", "2026-11-09T00:00:00Z"), start: { date: "2026-11-08" }, end: { date: "2026-11-09" }, source_calendar_id: "en.indian#holiday@group.v.calendar.google.com", calendar_name: "Holidays in India", description: "Observance\nTo hide observances, go to Google Calendar Settings > Holidays in India" };
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [holiday, observance] }], conflicts: [] });
+    render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
+    fireEvent.click(await screen.findByRole("button", { name: "View 2 occasions for default@example.com" }));
+    const dialog = screen.getByRole("dialog", { name: "Occasions" });
+    expect(within(dialog).getAllByText("Sunday, November 8")).toHaveLength(2);
+    expect(within(dialog).getByText("Public holiday")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("Holidays in India")).toHaveLength(2);
+    expect(within(dialog).queryByText(/observance/i)).toBeNull();
+    expect(within(dialog).queryByText("More details")).toBeNull();
+    expect(within(dialog).queryByRole("link")).toBeNull();
   });
 
   it("keeps initials when Google has not verified the account email", async () => {

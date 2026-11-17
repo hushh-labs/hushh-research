@@ -1,6 +1,16 @@
 # Account deletion rollout and rollback
 
-[Operations](../../README.md)
+[Operations](../README.md)
+
+## UAT native identity
+
+The UAT iOS build keeps its existing default Analytics registration and named
+identity routing, but both must belong to UAT. Source, runtime and bundled-plist
+checks reject a production identity. Production packaging retains its production
+Firebase configuration. Existing Google OAuth identifiers may be explicitly
+allowed by UAT without sharing its Firebase user store. Installed clients require
+an update and fresh sign-in; source validation does not qualify physical-device
+Google sign-in, SMS or push delivery.
 
 ## Visual Map
 
@@ -1856,3 +1866,20 @@ works. Operators identify legacy settlements as rows whose `cleanup_operation`
 equals `account_legacy_cleanup_reference(identity_hash, generation)`. Both
 rollbacks refuse (forward recovery). A replay of 419 restores its stricter guard
 until 437 runs again and leaves settled rows unchanged.
+
+## Cloud cleanup compatibility and exit
+
+Before a new GCP removal reservation, inspection qualifies the recorded owner,
+creation acknowledgement and fresh native runtime identity. A missing provenance
+record or changed runtime refuses before suspending the owner. Execution repeats
+that qualification before the pod fence and retains the independent Memory
+receipt, durable readback and fresh runtime check afterward. This ordering does
+not repair an existing fenced operation or authorize legacy recovery.
+
+Pending cleanup offers the existing sign-out action without cancelling or
+replaying the approved operation. Provider retention remains pending; progress
+counts verified cleanup checks rather than claiming every check is a resource.
+A background Profile pane can mount after normal admission without waiting for
+an animation frame that a hidden tab may never receive. Visibility does not
+bypass authentication, vault admission or owner fencing. Native/provider
+acceptance and each environment release remain separate from source tests.

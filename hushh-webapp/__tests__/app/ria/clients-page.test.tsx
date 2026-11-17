@@ -121,6 +121,10 @@ vi.mock("@/components/ria/ria-page-shell", () => ({
   ),
 }));
 
+vi.mock("@/components/kai/advisor/advisor-review-hub", () => ({
+  AdvisorReviewHub: () => null,
+}));
+
 vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
   NearbyAroundYou: () => <div>Nearby records pane</div>,
 }));

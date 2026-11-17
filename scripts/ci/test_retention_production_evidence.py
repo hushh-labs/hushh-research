@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retention_preflight_evidence as base  # noqa: E402
 import retention_production_clock_evidence as clock_evidence  # noqa: E402
 import retention_production_evidence as evidence  # noqa: E402
+import retention_uat_guard_evidence as uat_guard  # noqa: E402
 
 SHA = "c" * 40
 STYLE_ON, STYLE_OFF = "\x1b[36;1m", "\x1b[0m"
@@ -339,9 +340,27 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
     def test_static_manual_guard_refusal_preserves_custody_and_rejects_drift(self):
         run, job, log, blobs = static_manual_fixture()
         sha = run["head_sha"]
-        proof = qualify(run, job, log, blobs)
-        self.assertEqual(proof, {"run_id": 100, "attempt": 1, "job_id": 200,
-                                 "checkout_sha": sha, "qualification": "no_provider_mutation"})
+        for profile_sha, profile in evidence.MANUAL_STATIC_SOURCE_PROFILES.items():
+            profile_blobs = {
+                path: {"sha": blob, "size": size}
+                for path, (blob, size) in profile.items()
+            }
+            proof = qualify(
+                {**run, "head_sha": profile_sha},
+                {**job, "head_sha": profile_sha},
+                log.replace(sha, profile_sha),
+                profile_blobs,
+            )
+            self.assertEqual(
+                proof,
+                {
+                    "run_id": 100,
+                    "attempt": 1,
+                    "job_id": 200,
+                    "checkout_sha": profile_sha,
+                    "qualification": "no_provider_mutation",
+                },
+            )
         for field, value in (("actor", {"id": 1, "type": "Bot", "login": "robot"}),
                              ("created_at", at("20:40:20")), ("head_sha", "d" * 40)):
             with self.subTest(run=field):
@@ -364,6 +383,57 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
         self.assertIsNone(qualify(run, job, log.replace(sha, SHA), blobs))
         self.assertIsNone(qualify(run, job, log + "\nunstamped tail", blobs))
         self.assertIsNone(qualify(run, {**job, "run_attempt": 2}, log, blobs))
+        clock_bound_job = copy.deepcopy(job)
+        clock_bound_job["steps"] = [
+            step
+            for step in clock_bound_job["steps"]
+            if step["name"] != "Post Prepare operational database verification runtime"
+        ]
+        for step in clock_bound_job["steps"]:
+            if step["name"] in {
+                "Prepare operational database verification runtime",
+                "Select maintenance Python runtime",
+                "Install operational Cloud SQL Auth Proxy",
+                "Publish operational backend reference under deployment lock",
+                evidence.SAVE,
+            }:
+                step["conclusion"] = "skipped"
+        clock_proof_line = uat_guard.PROOF_PREFIX + json.dumps(
+            {
+                "run_id": 99,
+                "attempt": 1,
+                "job_id": 98,
+                "checkout_sha": sha,
+                "qualification": "no_provider_mutation",
+            },
+            sort_keys=True,
+        )
+        with_clock_proof = log.replace(
+            "Hosted maintenance stopped: stage=publication_guard kind=safety_refusal",
+            "Hosted maintenance stopped: stage=publication_guard kind=safety_refusal\n"
+            f"{at('20:35:42.41')} {clock_proof_line}",
+            1,
+        )
+        self.assertIsNotNone(qualify(run, clock_bound_job, with_clock_proof, blobs))
+
+    def test_manual_production_refusal_keeps_the_two_line_log_contract(self):
+        fields = {
+            "run_id": 99,
+            "attempt": 1,
+            "job_id": 98,
+            "checkout_sha": SHA,
+            "qualification": "no_provider_mutation",
+            "clock_run_id": 97,
+        }
+        progress = uat_guard.PROOF_PREFIX + json.dumps(fields, sort_keys=True)
+        run, job, log, blobs = fixture()
+        diagnostic = GUARD
+        buffered = log.replace(
+            diagnostic,
+            diagnostic + f"\n2026-10-29T20:35:42.41Z {progress}",
+            1,
+        )
+        self.assertIsNone(qualify(run, job, buffered, blobs))
 
     def test_other_diagnostics_or_output_after_the_guard_refuse(self):
         refusals = (
@@ -478,7 +548,7 @@ class PublicationRoutingTest(unittest.TestCase):
         with mock.patch.object(publication, "_log", return_value=log):
             proof = publication.qualify(owner, base.REPOSITORY, "production", run, job)
         self.assertEqual(proof["qualification"], "no_provider_mutation")
-        self.assertEqual(
+        self.assertCountEqual(
             reads,
             [*((path, run["head_sha"]) for path in blobs), (base.WORKFLOW, run["head_sha"])],
         )
@@ -488,7 +558,9 @@ class PublicationRoutingTest(unittest.TestCase):
         publication = importlib.import_module("retention_publication")
         self._qualify_production(publication, static_manual_fixture)
 
-    def test_unlisted_repository_dispatch_stops_before_log_or_source_reads(self):
+    def test_unlisted_legacy_dispatch_without_clock_stops_before_log_reads(
+        self,
+    ):
         run, job, _, _ = fixture()
         profile = importlib.import_module("retention_production_profile_evidence")
         run.update(
@@ -511,16 +583,42 @@ class PublicationRoutingTest(unittest.TestCase):
             completed_at=at("20:35:46"),
         )
         owner = mock.Mock()
-        owner.api.return_value = run
-        with mock.patch.object(
-            importlib.import_module("retention_publication"), "_log"
-        ) as log:
-            self.assertIsNone(
-                importlib.import_module("retention_publication").qualify(
-                    owner, base.REPOSITORY, "production", run, job
-                )
+        owner.Path = Path
+        owner.__file__ = str(
+            Path(__file__).resolve().parent / "uat-retention-maintenance.py"
+        )
+        maintenance = importlib.import_module("uat-retention-maintenance")
+        publication = importlib.import_module("retention_publication")
+        owner.retention = maintenance.retention
+        owner.SCOPED_TICK_TITLES = maintenance.SCOPED_TICK_TITLES
+        owner.UNSCOPED_TICK_TITLE = publication.UNSCOPED_TICK_TITLE
+        calls = []
+
+        def api(_repository, endpoint):
+            calls.append(endpoint)
+            if endpoint == "runs/999/attempts/1":
+                return run
+            if endpoint.startswith("workflows/capacity-maintenance-clock.yml/runs?"):
+                return {"workflow_runs": [], "total_count": 0}
+            self.fail(f"unexpected repository dispatch authority read: {endpoint}")
+
+        owner.api.side_effect = api
+        with (
+            mock.patch.object(publication, "_log") as log,
+            mock.patch.object(publication, "_source") as source,
+            self.assertRaises(maintenance.retention.UnsafeState),
+        ):
+            source.return_value = {}
+            publication.qualify(owner, base.REPOSITORY, "production", run, job)
+
+        self.assertTrue(
+            any(
+                endpoint.startswith("workflows/capacity-maintenance-clock.yml/runs?")
+                for endpoint in calls
             )
+        )
         log.assert_not_called()
+        source.assert_called_once()
         owner.command.assert_not_called()
 
 

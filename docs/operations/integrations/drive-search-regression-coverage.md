@@ -1,6 +1,6 @@
 # Drive Search Regression Coverage
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 Status: implemented candidate-verification regression map. The latest reported local core run passed in 268 seconds; date-intent model corrections and their live acceptance remain separate work. UAT deployment has not been established by this document. Baseline 1ec87ff9f9f5ff0c1986b33a2a974fbed997abbf. A valid story is a valid requirement, **not** a claim that a model, provider, deployment or all 269 cases passed.
 
@@ -16,7 +16,7 @@ The failed request's payment was fully refunded. Its terminal state is restored 
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). The narrower request flow
+Canonical visual owner: [Operations Index](../README.md). The narrower request flow
 below locates the evidence and delivery boundaries covered by this regression map.
 
 ```mermaid

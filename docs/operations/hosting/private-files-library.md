@@ -1,6 +1,6 @@
 # Private Files library
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 **Dev status — 2026-10-12:** the personal Azure owner completed the exact Settings-approved
 Dev 17 update during active chat, with authenticated drain, encrypted recovery and

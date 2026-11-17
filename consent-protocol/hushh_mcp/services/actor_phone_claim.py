@@ -69,6 +69,11 @@ async def claim_verified_phone(
     if not normalized_user_id or not normalized_phone_number:
         return None
 
+    # A possession proof cannot authorize moving another email account's number.
+    # Refuse before reserving mutations, consuming intent, or revoking capabilities.
+    if transfer is not None:
+        raise ActorIdentityPhoneClaimConflictError()
+
     pool = await get_pool()
 
     # Two fully static SQL literals (no string interpolation/concatenation,
@@ -80,21 +85,12 @@ async def claim_verified_phone(
     try:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                if transfer is not None:
-                    from hushh_mcp.services.phone_transfer_service import consume, lock_transfer
-
-                    await lock_transfer(conn, normalized_user_id, transfer)
                 await self._ensure_actor_spine(conn, normalized_user_id)
-                if transfer is not None:
-                    await consume(conn, normalized_user_id, normalized_phone_number, transfer)
                 phone_write_allowed = await self._lock_and_clear_verified_phone_binding(
                     conn,
                     user_id=normalized_user_id,
                     phone_number=normalized_phone_number,
-                    # Fixed test codes do not prove fresh phone possession.
-                    # Only the Firebase phone-token route can transfer a
-                    # verified owner; retries by the same owner remain valid.
-                    allow_owner_transfer=transfer is not None,
+                    allow_owner_transfer=False,
                 )
                 if not phone_write_allowed:
                     raise ActorIdentityPhoneClaimConflictError()

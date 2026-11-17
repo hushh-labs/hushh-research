@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import importlib.util
 import json
+import sys
 from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
@@ -145,3 +147,134 @@ def test_source_review_requires_exact_distribution_payload(tmp_path, monkeypatch
     monkeypatch.setattr(notices.importlib.metadata, "distribution", lambda name: distribution)
     expected = [{"name": "example", "version": "1.0", "license": "MIT"}] if change is None else []
     assert notices.python_license_evidence() == expected
+
+
+def test_absent_email_runtime_preserves_existing_notice_outputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(notices, "REPO_ROOT", tmp_path)
+    assert notices.load_email_runtime_resources() == []
+    packages = [{"name": "synthetic", "version": "1", "license": "MIT"}]
+    for name in (
+        "load_web_packages",
+        "load_python_packages",
+        "load_vendored_packages",
+        "load_pod_runtime_resources",
+    ):
+        monkeypatch.setattr(notices, name, lambda: packages)
+    monkeypatch.setattr(notices, "ROOT_NOTICES", tmp_path / "root.md")
+    monkeypatch.setattr(notices, "PROTOCOL_NOTICES", tmp_path / "protocol.md")
+    expected_root, expected_protocol = (
+        tmp_path / "expected-root.md",
+        tmp_path / "expected-protocol.md",
+    )
+    notices.write_markdown(
+        expected_root,
+        "Third-Party Notices",
+        "Third-party dependency inventory for the hushh-research monorepo.",
+        [
+            (heading, packages)
+            for heading in (
+                "Frontend npm packages",
+                "Backend Python packages",
+                "Vendored engineering resources",
+                "Private pod runtime resources",
+            )
+        ],
+    )
+    notices.write_markdown(
+        expected_protocol,
+        "Third-Party Notices",
+        "Third-party dependency inventory for the Hushh Consent Protocol.",
+        [("Python packages", packages), ("Private pod runtime resources", packages)],
+    )
+    assert notices.main() == 0
+    assert notices.ROOT_NOTICES.read_bytes() == expected_root.read_bytes()
+    assert notices.PROTOCOL_NOTICES.read_bytes() == expected_protocol.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        "vendor_missing",
+        "provenance_missing",
+        "invalid_json",
+        "empty_sources",
+        "notice_missing",
+        "license_missing",
+        "digest",
+        "path_escape",
+    ],
+)
+def test_present_email_runtime_requires_complete_provenance(tmp_path, monkeypatch, failure):
+    monkeypatch.setattr(notices, "REPO_ROOT", tmp_path)
+    runtime = tmp_path / "consent-protocol/hushh_mcp/services/email_oss"
+    directory = runtime / "vendor"
+    directory.mkdir(parents=True)
+    license_file = directory / "LICENSE"
+    license_file.write_bytes(b"Synthetic GPL license evidence")
+    notice = directory / "PROVENANCE.md"
+    notice.write_text("Synthetic upstream notice")
+    inventory = {
+        "schema_version": "email_oss_vendor.v1",
+        "sources": [
+            {
+                "repository": "https://github.com/synthetic/example",
+                "commit": "a" * 40,
+                "license": "GPL-3.0-only",
+                "files": [
+                    {
+                        "path": "LICENSE",
+                        "upstream_path": "LICENSE",
+                        "sha256": hashlib.sha256(license_file.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ],
+    }
+    if failure == "empty_sources":
+        inventory["sources"] = []
+    if failure == "path_escape":
+        outside = runtime / "outside"
+        outside.write_bytes(license_file.read_bytes())
+        inventory["sources"][0]["files"][0]["path"] = "../outside"
+    provenance = directory / "PROVENANCE.json"
+    provenance.write_text("{" if failure == "invalid_json" else json.dumps(inventory))
+    if failure in {"vendor_missing", "provenance_missing"}:
+        provenance.unlink()
+    if failure in {"vendor_missing", "notice_missing"}:
+        notice.unlink()
+    if failure in {"vendor_missing", "license_missing"}:
+        license_file.unlink()
+    if failure == "vendor_missing":
+        directory.rmdir()
+    if failure == "digest":
+        license_file.write_bytes(b"Changed license")
+    if failure is not None:
+        with pytest.raises((OSError, ValueError)):
+            notices.load_email_runtime_resources()
+        return
+    assert notices.load_email_runtime_resources() == [
+        {
+            "name": "synthetic/example",
+            "version": "a" * 40,
+            "license": "GPL-3.0-only",
+            "license_file": str(license_file.relative_to(tmp_path)),
+            "notice_file": str(notice.relative_to(tmp_path)),
+        }
+    ]
+
+
+def test_email_model_bake_import_needs_only_standard_library(monkeypatch):
+    script = _SCRIPT.parents[2] / "consent-protocol/scripts/ops/bake_email_router_model.py"
+    original_import = builtins.__import__
+
+    def standard_library_only(name, *args, **kwargs):
+        if name.split(".", 1)[0] not in sys.stdlib_module_names:
+            raise AssertionError("Bake script imported a runtime dependency before execution")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", standard_library_only)
+    spec = importlib.util.spec_from_file_location("email_router_bake_import_safety", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(module.bake_model) and callable(module.verify_model) and callable(module.main)

@@ -6,7 +6,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+Canonical visual owner: [Operations Index](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
 See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.example](../../../consent-protocol/.env.example), [hushh-webapp/.env.example](../../../hushh-webapp/.env.example), [deploy/.env.backend.example](../../../deploy/.env.backend.example), [deploy/.env.frontend.example](../../../deploy/.env.frontend.example). For FCM push notifications, see [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md).
 
@@ -364,9 +364,11 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | Setting in that file | Consumers and boundary |
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `vertex`. The existing resolver supplies text, research, audio and embedding callers across Dev, UAT, production and local; Azure descriptors remain validated on standby. |
+| `drive_text_uat` | UAT Documents genes and Drive request models use native Vertex independently of the fleet default: `gemini-4-hydrogen` at the global endpoint, LOW thinking, 16,384 output tokens, and no Azure fallback. Existing prompts and processing stages remain unchanged. |
+| `one_chat_text_uat` | The UAT managed One chat model, its inherited Search model, and conversation titles use Vertex `gemini-4-hydrogen` at the global endpoint with LOW thinking, a 16,384-token output cap, and no Azure fallback. Explicit owner model connections follow their own bindings. |
 | `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
 | `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
-| `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
+| `managed_runtime_uat.azure.one_text_root` | Azure One root deployment and generation budget for releases using the legacy fleet text binding. |
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
 
@@ -393,12 +395,24 @@ For exhausted Azure quota, choose a compatible provisioned Azure resource or
 deployment with available capacity and update the relevant entries in this file.
 Changing a deployment name alone does not create quota or provision a model.
 To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
-back to `azure_openai` to restore Azure. One chat, its specialists and Search,
-voice and the existing managed capability ports use the selected provider.
-New Drive activity-date requests use the same selected managed planner and preserve
+back to `azure_openai` to restore Azure. The fleet selection supplies independently
+owned capabilities such as voice and research. The Drive and managed One chat
+policies take precedence for their scoped model callers. Activity-date requests preserve
 their existing single interpretation stage, native retrieval and deterministic date
 checks. Provider changes require the affected authored v2 planner qualification. Saved
 requests retain their processor binding and its current-authority validation.
+Legacy Azure chat may use the explicit Vertex alternate once after a classified
+transport/quota failure before any response is observed. It never replays tools
+or emitted output. Configured Vertex chat remains single-provider. Authority,
+identity denials, content filtering and malformed output never trigger fallback.
+A classified token-exchange transport outage may use the same bounded alternate;
+an invalid credential or 401/403 denial cannot.
+The scoped policies disable cross-provider fallback. The existing UAT core proof
+checks both scopes' effective model, policy generation and runtime binding and
+grades the authored Drive planner cases. The Azure readiness job still verifies
+the independently configured PWM model. Broader capabilities remain
+separate diagnostics under the [CI policy](../releases/ci.md#managed-provider-readiness-policy).
+
 Chat stays on that one provider for the invocation: an outage does not replay
 its tools or output through another model. The existing eligible Drive transport
 fallback retains its separate contract. A new fleet provider needs an adapter
@@ -414,6 +428,19 @@ python3 scripts/ops/managed_ai_config.py --environment uat --format validate
 python3 scripts/ops/managed_ai_config.py --environment uat --format provider
 python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account
 ```
+
+Qualify the exact candidate image under the UAT runtime service account with
+`python scripts/verify_drive_vertex_journey.py`, inside a temporary Cloud Run Job.
+This explicitly invoked script is not a CI/CD hook. It grades the authored v2
+planner with synthetic inputs. The Vertex project's `vertexai.allowedModels`
+policy must permit the configured model before qualification can pass.
+The optional `--live --allow-fixture-mutations` mode requires the designated,
+already Google-connected `REVIEWER_UID` / `REVIEWER_COUNTERPART_UID` pair and normal
+runtime authentication. It separately exercises the existing free `/queries`
+flow, exact-file access and revocation, then trashes its synthetic fixtures.
+It does not certify paid delivery or the new `/requests` pipeline end to end.
+Unknown writes retain fixtures and produce an incomplete cleanup receipt;
+reconcile them before another live run. Never seed consent or payment to pass.
 
 #### Switching the managed Azure account
 
@@ -453,7 +480,7 @@ host, from this file. To move UAT to another Azure account:
    capacity, so fix that and dispatch once more. A semantic or configuration
    failure is deterministic: never retry it; fix the account or select the last
    passing one.
-4. The switch rotates Azure bindings without new owner consent. Trusted (Allow)
+4. Without the scoped Drive override, the switch rotates Azure bindings without new owner consent. Trusted (Allow)
    Drive requests with a ready plan migrate once, on their next claim; an owner's
    own requests migrate once when that owner acts on them. A request migrates only
    once, so a later switch, including a rollback, supersedes it and its owner makes
@@ -462,6 +489,11 @@ host, from this file. To move UAT to another Azure account:
    20 eligible requests; a preview is `consent-protocol/scripts/recover_uat_text_requests.py`
    without `--apply`, inside the runtime. Saved personal research restarts within
    its preserved budget.
+
+   The scoped Drive rollout permits one exact subsequent Azure-to-Vertex
+   transition and retains the earlier migration receipt. It preserves saved
+   results, cursors, request revision, consent, payments and sharing effects;
+   active leases cannot be replaced. Further switches still fail closed.
 
 To roll back, select the previous account while it still serves. Once it is gone,
 fix forward: an image from before the switch points at the old account. Selecting
@@ -478,7 +510,8 @@ change those pins independently. The existing exact-image readiness and
 promotion gates remain mandatory. They require the configured provider's complete
 bundle, including chat tool round trips and voice audio; a healthy alternate
 cannot silently replace the configured choice. Config validation proves shape,
-not live quota, model quality or availability. Azure remains the checked-in default.
+not live quota, model quality or availability. Azure remains the fleet default;
+the packaged Drive override selects Vertex in the API and both Drive workers.
 
 The file is packaged with the backend. A source edit takes effect through the
 normal authorized backend release/restart, including affected workers; it does
@@ -692,6 +725,9 @@ Used by:
 | `ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED` | `hushh_mcp/one_voice/config.py` | No | One Voice scheduled send (`schedule_mail`, `list_scheduled_mail`, `cancel_scheduled_mail`); also their kill switch. Off unless set; `deploy-uat.yml` passes `--one-voice-mail-schedule-send-enabled` (`vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT`, default `true`) and production passes `false`, through `BACKEND_RUNTIME_CONFIG_JSON`'s `one_voice_mail_schedule_send_enabled` key |
 | `ONE_VOICE_MAIL_DRAFTS_ENABLED` | `hushh_mcp/one_voice/config.py`, `api/routes/one/voice.py` | No | One Voice Gmail drafts (`list_drafts`, `open_draft`, `send_draft` and the draft open route); also their kill switch. Off unless set; `deploy-uat.yml` passes `--one-voice-mail-drafts-enabled` (`vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT`, default `true`) and production passes `false`, through `BACKEND_RUNTIME_CONFIG_JSON`'s `one_voice_mail_drafts_enabled` key |
 | `MAIL_SCHEDULED_DRAIN_ENABLED` | `api/routes/one/scheduled_mail_drain.py` | No | Opens `POST /api/one/email/scheduled/drain`, the Cloud Scheduler drain that delivers scheduled mail; the route answers 404 unless this is exactly `true`. Turning it off pauses delivery without withdrawing scheduling. `deploy-uat.yml` passes `--mail-scheduled-drain-enabled` (`vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT`, default `true`; the same variable pauses or resumes the `mail-scheduled-send-uat` job) and production passes `false`, through `BACKEND_RUNTIME_CONFIG_JSON`'s `mail_scheduled_drain_enabled` key |
+| `CALENDAR_EMAIL_FOLLOWUPS` | `api/routes/one/calendar_email_followups.py`, `api/routes/one/calendar_email_followup_drain.py` | No | Opens the Calendar follow-ups routes; every route answers 503 `FOLLOWUPS_DISABLED` unless this is `1`, `true` or `yes`. UAT sets it from the checked-in gate `deploy/uat-surface-gates.txt` (line `calendar_email_followups=true` or `=false`, read by `scripts/deploy/backend-deploy.sh`) because the combined UAT build is at Cloud Build's 200-substitution ceiling and a substitution cannot be added; each UAT revision carries the gate of the commit it was built from. Dev and production never read the file and leave the flag unset. With the gate on, the deploy stops before creating a revision unless `CALENDAR_EMAIL_FOLLOWUP_KEY` is readable. Turning it on does not enable monitoring for anyone: each account still opts in. Rollback: set both gate lines to `false` and run Deploy to UAT |
+| `CALENDAR_EMAIL_FOLLOWUP_DRAIN_ENABLED` | `api/routes/one/calendar_email_followups.py`, `api/routes/one/calendar_email_followup_drain.py` | No | Opens the OIDC-only drain route (`POST /api/one/calendar/followups/drain`, 404 otherwise) and lets a preference turn reminders on (`background_reminders_unavailable` otherwise). UAT sets it from the second gate line `calendar_email_followup_drain`, which may be `true` only while `calendar_email_followups` is `true`. The same release resumes the Cloud Scheduler job `calendar-email-followups-uat` (service account `calendar-email-followups`, audience `https://api.uat.hushh.ai`) through `deploy/calendar/setup_followup_scheduler.sh`, and `deploy/calendar/verify_followup_release.py` proves the serving revisions match the gate. Gate `false` pauses the job. Production has no job |
+| `CALENDAR_EMAIL_FOLLOWUP_KEY` | `hushh_mcp/services/calendar_email_followup_crypto.py` | Yes while follow-ups are on | Purpose-separated server key (URL-safe base64 of 32 bytes) that seals owner-visible follow-up rows. Bound from the Secret Manager secret of the same name only while the UAT gate is `true`; the infrastructure owner creates it once (value generated straight into Secret Manager, never printed) and grants the runtime service account `roles/secretmanager.secretAccessor` on it. The deploy only references it, never creates or rotates it, so rolling the gate back keeps the secret and every sealed row readable |
 | `MAIL_SCHEDULED_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL` | `api/routes/one/scheduled_mail_drain.py` | No | Optional restatement of the hard-coded scheduler identity (`mail-scheduled-send@hushh-pda-uat.iam.gserviceaccount.com` in UAT/test/local, `mail-scheduled-send@hushh-pda.iam.gserviceaccount.com` in production). Any other value makes the drain answer 503; it cannot widen who may call it |
 | `MAIL_SCHEDULED_DRAIN_SCHEDULER_AUDIENCE` | `api/routes/one/scheduled_mail_drain.py` | No | Optional restatement of the hard-coded OIDC audience (`https://api.uat.hushh.ai` in UAT/test/local, `https://api.hushh.ai` in production). Any other value makes the drain answer 503 |
 | `HUSSH_TECH_DEVELOPER_APP_ID` | `api/routes/hushh_tech.py` | No | Exact UAT product registration id from `BACKEND_RUNTIME_CONFIG_JSON` |

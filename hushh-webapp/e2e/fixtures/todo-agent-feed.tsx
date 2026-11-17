@@ -30,6 +30,7 @@ function Fixture() {
         <button onClick={() => setMount((value) => value + 1)}>
           Reopen list
         </button>
+        <button onClick={() => change({ providerTasks: true })}>Load Calendar and email</button>
         <button onClick={() => { change({ preview: true }); setPreview(true); }}>Open agent Todo</button>
       </nav>
       {state.message ? <p role="alert">{state.message}</p> : null}

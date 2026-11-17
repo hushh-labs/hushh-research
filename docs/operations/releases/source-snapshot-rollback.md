@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). This runbook covers
+Canonical visual owner: [Operations Index](../README.md). This runbook covers
 source, hosted runtime, and native release recovery; merge and release
 authority stays in the [Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 

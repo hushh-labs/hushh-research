@@ -7,6 +7,106 @@ import json
 import re
 
 
+UAT_DRIVE_WORKER = "consent-protocol-drive-worker"
+_WORKER_STARTUP_FAILURE = "HealthCheckContainerError"
+
+
+def uat_worker_release_run_id(args, run_id: int) -> int | None:
+    if (
+        args.environment == "uat"
+        and getattr(args, "force_inspection", False)
+        and getattr(args, "release_run_id", "") == str(run_id)
+    ):
+        return run_id
+    return None
+
+
+def _condition(snapshot, kind, status, *, reason=None) -> bool:
+    conditions = [
+        row for row in (snapshot.get("status") or {}).get("conditions", [])
+        if row.get("type") == kind
+    ]
+    return (
+        len(conditions) == 1
+        and conditions[0].get("status") == status
+        and (reason is None or conditions[0].get("reason") == reason)
+    )
+
+
+def _settled_worker_traffic(state, traffic, serving, failed) -> bool:
+    generation = (state.get("metadata") or {}).get("generation")
+    status = state.get("status") or {}
+    desired = (state.get("spec") or {}).get("traffic")
+    if (
+        type(generation) is not int
+        or generation < 1
+        or status.get("observedGeneration") != generation
+        or status.get("latestReadyRevisionName") != serving
+        or failed == serving
+        or not isinstance(failed, str)
+        or not failed.startswith(f"{UAT_DRIVE_WORKER}-")
+        or not _condition(state, "Ready", "False", reason=_WORKER_STARTUP_FAILURE)
+        or not traffic
+        or any(name != serving for name, _, _ in traffic)
+        or not isinstance(desired, list)
+    ):
+        return False
+    if any(
+        not isinstance(row, dict)
+        or row.get("latestRevision", False) is not False
+        or row.get("revisionName") not in {serving, failed}
+        or type(row.get("percent", 0)) is not int
+        or row.get("percent", 0) not in {0, 100}
+        for row in desired
+    ):
+        return False
+    return [(row["revisionName"], row["percent"]) for row in desired if row.get("percent")] == [
+        (serving, 100)
+    ]
+
+
+def _worker_revision(revisions, name):
+    matches = [
+        row for row in revisions
+        if (row.get("metadata") or {}).get("name") == name
+    ]
+    if len(matches) != 1:
+        return None
+    labels = (matches[0].get("metadata") or {}).get("labels") or {}
+    return matches[0] if labels.get("serving.knative.dev/service") == UAT_DRIVE_WORKER else None
+
+
+def accepted_worker_with_failed_candidate(retention, state, traffic, serving, release, run_id):
+    """Prove the accepted worker still serves while the latest candidate is unrouted."""
+    verification = release.get("verification") or {}
+    failed = (state.get("status") or {}).get("latestCreatedRevisionName")
+    if (
+        type(run_id) is not int
+        or run_id < 1
+        or release.get("status") != "healthy"
+        or verification.get("drive_worker") != "success"
+        or verification.get("drive_worker_gate_success") is not True
+        or not re.fullmatch(r"[0-9a-f]{40}", str(release.get("sha", "")))
+        or not _settled_worker_traffic(state, traffic, serving, failed)
+    ):
+        return False
+    revisions = retention.revision_state(UAT_DRIVE_WORKER, "hushh-pda-uat", "us-central1")
+    active = _worker_revision(revisions, serving)
+    rejected = _worker_revision(revisions, failed)
+    if active is None or rejected is None:
+        return False
+    labels = active["metadata"]["labels"]
+    return (
+        labels.get("deploy-sha") == release["sha"]
+        and labels.get("github-run-id") == str(run_id)
+        and _condition(active, "Ready", "True")
+        and _condition(active, "Active", "True")
+        and _condition(active, "ContainerHealthy", "True")
+        and _condition(rejected, "Ready", "False", reason=_WORKER_STARTUP_FAILURE)
+        and _condition(rejected, "Active", "False")
+    )
+
+
 def cleanup_arguments(args, parser):
     if args.keep_count < 1 or args.drain_seconds < 0:
         parser.error("keep_count must be positive and drain-seconds nonnegative")

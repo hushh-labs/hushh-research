@@ -15,7 +15,7 @@ from hushh_mcp.services.drive_request_recovery_view import (
 )
 from hushh_mcp.services.drive_request_requester_store import recovery_for
 from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
-from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
+from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError, calendar_kinds
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -104,7 +104,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 result.append(
                     {
                         **self._summary(row, recipient=True),
-                        "requestedTypes": calendar["requested_types"],
+                        **calendar_kinds(calendar),
                         "recipient": private["recipient"],
                         "files": files,
                     }

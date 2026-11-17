@@ -2,7 +2,9 @@ import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readTodoCapabilities, type TaskReadContext } from "@/lib/services/todo-capability-sources";
 
-const mocks = vi.hoisted(() => ({ messages: vi.fn(), wallet: vi.fn(), persona: vi.fn(), home: vi.fn(), mail: vi.fn(), invitations: vi.fn(), memory: vi.fn() }));
+const mocks = vi.hoisted(() => ({ messages: vi.fn(), wallet: vi.fn(), persona: vi.fn(), home: vi.fn(), mail: vi.fn(), invitations: vi.fn(), memory: vi.fn(), privateOwner: false, privateMail: vi.fn() }));
+vi.mock("@/lib/services/private-agent-specialist-chat", () => ({ ownerContentIsPrivate: async () => mocks.privateOwner }));
+vi.mock("@/lib/services/private-google-task-sources", () => ({ privateMailTasks: mocks.privateMail }));
 vi.mock("@/lib/services/direct-messages-service", () => ({ DirectMessagesService: { unreadCount: mocks.messages } }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { listRequests: mocks.wallet } }));
 vi.mock("@/lib/services/ria-service", () => ({ RiaService: { getPersonaState: mocks.persona, getHome: mocks.home } }));
@@ -15,6 +17,7 @@ describe("owner-safe capability task reads", () => {
   beforeEach(() => {
     vi.stubGlobal("crypto", webcrypto);
     vi.clearAllMocks();
+    mocks.privateOwner = false;
     mocks.messages.mockResolvedValue(3);
     mocks.wallet.mockResolvedValue({ items: [], hasMore: false, nextCursor: null });
     mocks.persona.mockResolvedValue({ personas: ["investor"] });
@@ -30,6 +33,9 @@ describe("owner-safe capability task reads", () => {
     expect(serialized).not.toContain("raw-thread");
     expect(serialized).not.toContain("raw-message");
     expect(result.find(row => row.coverage.capability === "gmail")?.coverage.status).toBe("incomplete");
+    expect(result.find(row => row.coverage.capability === "gmail")?.evidence[0]).toMatchObject({
+      pendingTitle: "Reply: Reply about the meeting", href: "/one/gmail",
+    });
   });
   it("paginates pending Wallet work and keeps the exact reviewed request destination", async () => {
     mocks.wallet.mockResolvedValueOnce({ items: [{ id: requestId }], hasMore: true, nextCursor: requestId }).mockResolvedValueOnce({ items: [], hasMore: false, nextCursor: null });
@@ -38,6 +44,17 @@ describe("owner-safe capability task reads", () => {
     expect(mocks.wallet).toHaveBeenCalledTimes(2);
     expect(wallet.coverage.count).toBe(1);
     expect(wallet.evidence[0].href).toContain(`card_request=${requestId}`);
+  });
+  it("gets private Mail tasks only from the owner pod and never probes shared provider reads", async () => {
+    mocks.privateOwner = true;
+    const key = "a".repeat(64);
+    mocks.privateMail.mockResolvedValue({ items: [{ key, title: "Reply to Saru: Meeting details" }], complete: false, scope: "recent_threads" });
+    const result = await readTodoCapabilities(context());
+    expect(result.find(row => row.coverage.capability === "gmail")?.evidence[0]).toMatchObject({
+      key: `mail:${key}`, pendingTitle: "Reply to Saru: Meeting details", href: "/one/gmail",
+    });
+    expect(mocks.mail).not.toHaveBeenCalled();
+    expect(mocks.invitations).not.toHaveBeenCalled();
   });
   it("preserves other sources and marks failed reads unavailable", async () => {
     mocks.wallet.mockRejectedValue(new Error("Offline"));

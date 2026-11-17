@@ -348,6 +348,7 @@ export function PhoneMandatePageContent() {
         className={styles.backButton}
       >
         <ChevronLeft className="h-[18px] w-[18px]" weight="bold" />
+        <span className={styles.backLabel}>Back</span>
       </button>
 
       <div className={styles.accountActions}>

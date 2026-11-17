@@ -26443,9 +26443,11 @@
       "navigation": {
         "fallback": "setup.finish_finance",
         "routes": [
+          "/one/setup/finance",
           "/one/setup/finance/import"
         ],
         "screens": [
+          "one_setup_finance",
           "one_setup_finance_import"
         ]
       },
@@ -27156,17 +27158,17 @@
       },
       "description": "Answers the investment horizon question in the Kai preferences wizard.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.answer_horizon",
+        "binding_ref": "render:kai.setup.answer_horizon",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.answer_horizon"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.answer_horizon",
@@ -27203,7 +27205,7 @@
       "kind": "action",
       "label": "Answer Investment Horizon",
       "navigation": {
-        "fallback": "kai.setup.answer_horizon",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -27255,16 +27257,16 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "horizon",
         "how long",
         "invested"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -27318,17 +27320,17 @@
       },
       "description": "Answers the portfolio-drawdown-reaction question in the Kai preferences wizard.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.answer_drawdown",
+        "binding_ref": "render:kai.setup.answer_drawdown",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.answer_drawdown"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.answer_drawdown",
@@ -27365,7 +27367,7 @@
       "kind": "action",
       "label": "Answer Drawdown Response",
       "navigation": {
-        "fallback": "kai.setup.answer_drawdown",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -27417,16 +27419,16 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "drawdown",
         "drop",
         "reaction"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -27480,17 +27482,17 @@
       },
       "description": "Answers the volatility-comfort question in the Kai preferences wizard.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.answer_volatility",
+        "binding_ref": "render:kai.setup.answer_volatility",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.answer_volatility"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.answer_volatility",
@@ -27527,7 +27529,7 @@
       "kind": "action",
       "label": "Answer Volatility Preference",
       "navigation": {
-        "fallback": "kai.setup.answer_volatility",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -27579,16 +27581,16 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "volatility",
         "comfort",
         "swings"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -27612,8 +27614,7 @@
       "aliases": [
         "Save Finance Preferences",
         "save finance preferences",
-        "looks good, continue",
-        "finish finance setup"
+        "looks good, continue"
       ],
       "authorization": {
         "guard_ids": [
@@ -27642,17 +27643,17 @@
       },
       "description": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.launch_dashboard",
+        "binding_ref": "render:kai.setup.launch_dashboard",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.launch_dashboard"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.launch_dashboard",
@@ -27675,7 +27676,7 @@
       "kind": "action",
       "label": "Save Finance Preferences",
       "navigation": {
-        "fallback": "kai.setup.launch_dashboard",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -27727,7 +27728,7 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": null,
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "save",
@@ -27736,9 +27737,9 @@
         "continue",
         "import"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -31124,632 +31125,9 @@
     },
     {
       "aliases": [
-        "Send a real SMS code",
-        "send a real SMS code"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.send_real_sms",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.send_real_sms",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.send_real_sms",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Send a real SMS code",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Use this number on this account",
-        "use this number on this account"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.transfer_review",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Review a transfer after fresh real SMS verification; no account information moves or is erased.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.transfer_review",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.transfer_review",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Use this number on this account",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Confirm phone transfer",
-        "confirm phone transfer"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.transfer_confirm",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Explicit human confirmation moves only the phone link; pending work must settle before completion.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.transfer_confirm",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.transfer_confirm",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Confirm phone transfer",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Recover my previous account",
-        "recover my previous account"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.recover",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Open the existing Google or Apple sign-in to recover the previous account without exposing its identity.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.recover",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.recover",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Recover my previous account",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
         "Delete my previous account",
-        "delete my previous account"
+        "delete my previous account",
+        "review previous account deletion"
       ],
       "authorization": {
         "guard_ids": [
@@ -31775,16 +31153,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "phone_mandate.delete_previous",
+      "capability_id": "phone_mandate.review_previous_deletion",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "description": "Starts a server-bound deletion review requiring independent sign-in to the previous account and a separate confirmation. This action never deletes an account.",
       "execution": {
-        "binding_ref": "render:phone_mandate.delete_previous",
+        "binding_ref": "render:phone_mandate.review_previous_deletion",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -31797,7 +31175,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.phone_mandate.delete_previous",
+      "goal_id": "goal.phone_mandate.review_previous_deletion",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -31878,632 +31256,8 @@
       "required_entities": [],
       "search_keywords": [
         "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Delete and continue",
-        "delete and continue"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.delete_previous_confirm",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.delete_previous_confirm",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.delete_previous_confirm",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Delete and continue",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Cancel deletion review",
-        "cancel deletion review"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.delete_previous_cancel",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.delete_previous_cancel",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.delete_previous_cancel",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Cancel deletion review",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Verify this number again",
-        "verify this number again"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.delete_previous_verify_again",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Return to number entry after the code used for deletion expired; nothing is deleted.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.delete_previous_verify_again",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.delete_previous_verify_again",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Verify this number again",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Review previous device access",
-        "review previous device access"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.review_previous_devices",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.review_previous_devices",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.review_previous_devices",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Review previous device access",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery",
-        "devices"
+        "previous account",
+        "deletion review"
       ],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
@@ -32563,7 +31317,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Retire this phone attempt and return to number entry before a transfer has been dispatched.",
+      "description": "Returns to phone entry without changing the existing email account that owns an occupied number.",
       "execution": {
         "binding_ref": "render:phone_mandate.change_number",
         "executor": {
@@ -32597,162 +31351,6 @@
       },
       "kind": "action",
       "label": "Use a different number",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/register-phone",
-          "/one/profile/account/phone",
-          "/ria/profile/account/phone"
-        ],
-        "screens": [
-          "phone_mandate",
-          "register_phone",
-          "profile_account"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "phone",
-        "recovery"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Cancel phone transfer review",
-        "cancel phone transfer review"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "phone_mandate.transfer_cancel",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Return to recovery choices before confirmation; pending transfers cannot be cancelled.",
-      "execution": {
-        "binding_ref": "render:phone_mandate.transfer_cancel",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.phone_mandate.transfer_cancel",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Cancel phone transfer review",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -54407,7 +53005,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "a3033ab8b32db12de429100ef4f9a8be49d9ed2cbdb6bc142d8a839e0d1838d8",
+      "projection_digest": "b364fbd337ec08348bb9eab0211101fdb863ca2cede9de34e909f8ac12d51b3a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54417,7 +53015,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "a0e9693ff240714ced0b1c1c643bcbf4de7defe5688d13713fd892636ba87061",
+        "capability_graph_evolution": "a3da5789cd687b268cfcf1c5dcecd1af829744567a1ccab70fb48b650ac9bfce",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -54426,7 +53024,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "ba35007ae29f72d1",
+      "source_revision": "225fd9551e787568",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -55944,7 +54542,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "ba35007ae29f72d1",
+    "source_revision": "225fd9551e787568",
     "web": {
       "actions": [
         {
@@ -55987,7 +54585,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "5152df88f8ed1264b5a2a8828ce89c4ae021a3767a5183cdada1bbe80b3bf29c",
+      "projection_digest": "14c5d9e21a00fadb155dfe070cff05960915cdcb3ffbb5963a32876b6efcc049",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -55997,7 +54595,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "a0e9693ff240714ced0b1c1c643bcbf4de7defe5688d13713fd892636ba87061",
+        "capability_graph_evolution": "a3da5789cd687b268cfcf1c5dcecd1af829744567a1ccab70fb48b650ac9bfce",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -56006,7 +54604,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "ba35007ae29f72d1",
+      "source_revision": "225fd9551e787568",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -57563,7 +56161,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "ba35007ae29f72d1",
+  "revision": "225fd9551e787568",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -59187,10 +57785,7 @@
     },
     {
       "action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard",
+        "setup.finish_finance",
         "setup.skip_finance"
       ],
       "capability_id": "screen:/one/setup/finance",
@@ -59582,14 +58177,54 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:phone_mandate.review_previous_deletion"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:kai.setup.answer_drawdown",
+      "actions:kai.setup.answer_horizon",
+      "actions:kai.setup.answer_volatility",
+      "actions:kai.setup.launch_dashboard",
+      "actions:phone_mandate.change_number",
+      "actions:setup.finish_finance",
+      "screens:screen:/one/setup/finance",
+      "workflows:workflow.setup.finance"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": null,
+    "deprecated": [
+      "actions:kai.setup.answer_drawdown",
+      "actions:kai.setup.answer_horizon",
+      "actions:kai.setup.answer_volatility",
+      "actions:kai.setup.launch_dashboard",
+      "actions:phone_mandate.change_number",
+      "actions:phone_mandate.delete_previous",
+      "actions:phone_mandate.delete_previous_cancel",
+      "actions:phone_mandate.delete_previous_confirm",
+      "actions:phone_mandate.delete_previous_verify_again",
+      "actions:phone_mandate.recover",
+      "actions:phone_mandate.review_previous_devices",
+      "actions:phone_mandate.send_real_sms",
+      "actions:phone_mandate.transfer_cancel",
+      "actions:phone_mandate.transfer_confirm",
+      "actions:phone_mandate.transfer_review",
+      "actions:setup.finish_finance",
+      "workflows:workflow.setup.finance"
+    ],
+    "from_revision": "ba35007ae29f72d1",
     "migrated": [],
-    "removed": []
+    "removed": [
+      "actions:phone_mandate.delete_previous",
+      "actions:phone_mandate.delete_previous_cancel",
+      "actions:phone_mandate.delete_previous_confirm",
+      "actions:phone_mandate.delete_previous_verify_again",
+      "actions:phone_mandate.recover",
+      "actions:phone_mandate.review_previous_devices",
+      "actions:phone_mandate.send_real_sms",
+      "actions:phone_mandate.transfer_cancel",
+      "actions:phone_mandate.transfer_confirm",
+      "actions:phone_mandate.transfer_review"
+    ]
   },
   "services": [
     {
@@ -61957,25 +60592,26 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "a0e9693ff240714ced0b1c1c643bcbf4de7defe5688d13713fd892636ba87061",
+    "capability_graph_evolution": "a3da5789cd687b268cfcf1c5dcecd1af829744567a1ccab70fb48b650ac9bfce",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "6eaf2d973115c99cdb1de3cf0c8dfcc5d21b499f0c0f5e050530aca1e06e2a45",
+    "kai_action_gateway": "2422f9ed07d814003ab314cefb6ccd5c45701d1eda5a66ec902feaa6f8370f47",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "ea434965d35658d843c6b78103e066073a2b512355cea89b3bbe10ac46e7be06",
-    "route_orchestration_index": "fdbcdca058238615e55266343ba3fc6ea4602c69e8895042e9ed4e4f64b856e2",
+    "product_agent_registry": "95bf915f96421c6ae0c0103afbcf9116f18d87671714180a8c44c3dedde3bc69",
+    "route_orchestration_index": "29c8e44cdfb2c570bebfeed1b47bc4e2296a17ded469171ddaecbceec7adce71",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "ba35007ae29f72d1",
+  "source_revision": "225fd9551e787568",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "ba35007ae29f72d1",
+    "current_graph_revision": "225fd9551e787568",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -61991,6 +60627,7 @@
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0d77b0e0d1a2377b",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0ed6343a6fd9e823",
@@ -62017,6 +60654,7 @@
           "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -62055,6 +60693,7 @@
           "3b4a692078832301",
           "3ba87d0e532e05b9",
           "3c364d0a46aab416",
+          "3c485e1154148116",
           "3c84b78e51438c4a",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
@@ -62065,11 +60704,13 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -62095,6 +60736,7 @@
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
           "53c411e01494034b",
+          "54ad44da9d67fca0",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
           "57ed1be834d905e3",
@@ -62107,6 +60749,7 @@
           "5e3f5578cbabd453",
           "5f122f298e673dd4",
           "5fe7cf2eaf8964c8",
+          "6019c40d049d820e",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "6206b87e1b5ed929",
@@ -62116,6 +60759,7 @@
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -62141,6 +60785,7 @@
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -62169,6 +60814,7 @@
           "80cfa3eecb259f1e",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "829f3232fe71d8e6",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -62179,6 +60825,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8845cf8eae4a24fb",
@@ -62186,6 +60833,7 @@
           "892bcac722d55357",
           "8a957610367a7fda",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
           "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
@@ -62229,6 +60877,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a03037055c8114bf",
           "a0cd8997edf6708d",
@@ -62269,6 +60918,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -62276,6 +60926,7 @@
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "ba18c0e75894966d",
+          "ba35007ae29f72d1",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
@@ -62311,7 +60962,10 @@
           "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d0767c6aa966b12c",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
+          "d189716db83ece80",
           "d2fb4bf373169b8d",
           "d3007ff6184e4f81",
           "d3412cfe7b8de515",
@@ -62345,6 +60999,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e29b1163bbf8a333",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -62361,6 +61016,7 @@
           "e8271249204ca000",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "e96f2692148658c9",
           "ea183f0f5321f862",
           "eafe0dcb94f7f923",
@@ -62398,6 +61054,7 @@
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
+          "fea32131fcdd3a30",
           "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
@@ -62408,6 +61065,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "05b225bb370b6e59",
           "06db6538bfac1f45",
           "07974bdfcc821de5",
@@ -62416,6 +61074,7 @@
           "0989d512b728a7ca",
           "0d1f4106e4b3ae29",
           "0d77b0e0d1a2377b",
+          "0e067db9029f2723",
           "0ed6343a6fd9e823",
           "101c32b70ab14a4d",
           "12363284b3810ef5",
@@ -62424,6 +61083,7 @@
           "1607fca3c0905ff8",
           "2168af5df998b238",
           "22194555a3198d88",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -62441,12 +61101,15 @@
           "38ba4c36bc194c1a",
           "3b4a692078832301",
           "3ba87d0e532e05b9",
+          "3c485e1154148116",
           "3c84b78e51438c4a",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
           "3d7452b2e4a5dbe2",
+          "427976fdc9c31f85",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "45004b343a415b2d",
           "45be718cd9891cd4",
           "476a8c21042e9057",
           "483f2c0de996d0be",
@@ -62460,17 +61123,20 @@
           "517c9930b9afa60f",
           "51c19a1b7121c147",
           "53c411e01494034b",
+          "54ad44da9d67fca0",
           "55b716a16f80dacd",
           "57ed1be834d905e3",
           "5996287e8a4d4b35",
           "5c956819a0408b8a",
           "5e3f5578cbabd453",
           "5f122f298e673dd4",
+          "6019c40d049d820e",
           "6206b87e1b5ed929",
           "6211b0f6552f51b8",
           "624cb10c4072d713",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "657c474596de4d84",
           "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
@@ -62479,6 +61145,7 @@
           "6e3d660eb6ab0f37",
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
+          "6f64b2b5731c4d8d",
           "71994ca61dcf303b",
           "7418c12411dea739",
           "7642931e841d6f5c",
@@ -62491,12 +61158,15 @@
           "7fe68d8f752aa842",
           "8052e8fc866f98cd",
           "80cfa3eecb259f1e",
+          "8258d1f315a04ea0",
           "829f3232fe71d8e6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "892bcac722d55357",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8c9ff82fc2da6cbf",
           "8d6d782606fc5ce1",
           "8ec6ff7c494b94d1",
@@ -62514,6 +61184,7 @@
           "9e28477ae61ba4ef",
           "9e340c6f107b27c0",
           "9e76e7495565063d",
+          "9ea5b914a24b6f47",
           "a03037055c8114bf",
           "a2b80c4cd47f7fc6",
           "a3401ab3147c4d60",
@@ -62531,7 +61202,9 @@
           "af4afd41b0d7ed48",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b78352783d3460bc",
+          "ba35007ae29f72d1",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
           "c39f0674bed1fca1",
@@ -62543,6 +61216,9 @@
           "cc8583ed18265cdb",
           "cd963fae74716e9b",
           "ce5392b8bb1c6e80",
+          "d0767c6aa966b12c",
+          "d09d158e6855de4f",
+          "d189716db83ece80",
           "d3007ff6184e4f81",
           "d4bb763b08bb6ad3",
           "d5b96ab713cadb7f",
@@ -62557,12 +61233,14 @@
           "de6d576a06f1dde6",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e29b1163bbf8a333",
           "e50712a0470113b4",
           "e58941a9112d3bac",
           "e6cd5a9cfb4bf0a3",
           "e72a95655f220acd",
           "e746225912756998",
           "e8271249204ca000",
+          "e96761ff3e2db4d2",
           "e96f2692148658c9",
           "eafe0dcb94f7f923",
           "ebdc0bba363a1784",
@@ -62577,6 +61255,7 @@
           "fb9a089556077ad3",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
+          "fea32131fcdd3a30",
           "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
@@ -62601,7 +61280,9 @@
           "4a43af7c168529de",
           "4f73662d0429f94e",
           "5131dac7d5ab2776",
+          "54ad44da9d67fca0",
           "5f122f298e673dd4",
+          "6019c40d049d820e",
           "6206b87e1b5ed929",
           "6ca0aff78a901862",
           "6e5adfcaac095f5e",
@@ -62617,8 +61298,11 @@
           "a03037055c8114bf",
           "a8d7ac308f0ffb1a",
           "a9caa94f1b614e5d",
+          "b3c51a0a9d2d96e8",
+          "ba35007ae29f72d1",
           "c67a1e4d82ad4f24",
           "cc574cc25b614d5e",
+          "d0767c6aa966b12c",
           "d5b96ab713cadb7f",
           "db09d5e4c64ff92f",
           "dbedaff95c8093f8",
@@ -62627,10 +61311,12 @@
           "e96f2692148658c9",
           "f495a76e76d62e38",
           "f85fb4034950f39f",
-          "fdf3e8c081a8528a"
+          "fdf3e8c081a8528a",
+          "fea32131fcdd3a30"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -62642,6 +61328,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0ed6343a6fd9e823",
@@ -62666,6 +61353,7 @@
           "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -62697,6 +61385,7 @@
           "3993b73221f2be93",
           "3b4a692078832301",
           "3c364d0a46aab416",
+          "3c485e1154148116",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
@@ -62706,10 +61395,12 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -62747,6 +61438,7 @@
           "62fecdf7944d63a5",
           "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -62769,6 +61461,7 @@
           "6e3d660eb6ab0f37",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -62787,16 +61480,19 @@
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86c6f54fcf77ae8c",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
           "892bcac722d55357",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
           "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
@@ -62831,6 +61527,7 @@
           "9e28477ae61ba4ef",
           "9e340c6f107b27c0",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a0cd8997edf6708d",
           "a165740521c96115",
@@ -62904,7 +61601,9 @@
           "ce3d0f0b6b9d9199",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
+          "d189716db83ece80",
           "d2fb4bf373169b8d",
           "d3007ff6184e4f81",
           "d3412cfe7b8de515",
@@ -62930,6 +61629,7 @@
           "de6d576a06f1dde6",
           "df37a235665ef89d",
           "df4366957bbf9e17",
+          "e29b1163bbf8a333",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -62943,6 +61643,7 @@
           "e8271249204ca000",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "ea183f0f5321f862",
           "eafe0dcb94f7f923",
           "ebdc0bba363a1784",
@@ -62983,6 +61684,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "05b225bb370b6e59",
           "06db6538bfac1f45",
@@ -62994,6 +61696,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d77b0e0d1a2377b",
+          "0e067db9029f2723",
           "0ed573b111c33adc",
           "0ed6343a6fd9e823",
           "0f847cb897c39c4a",
@@ -63012,6 +61715,7 @@
           "1de69a43f289bcd9",
           "2168af5df998b238",
           "22194555a3198d88",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -63048,6 +61752,7 @@
           "3b4a692078832301",
           "3ba87d0e532e05b9",
           "3c364d0a46aab416",
+          "3c485e1154148116",
           "3c84b78e51438c4a",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
@@ -63057,10 +61762,12 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "412347810e5f697b",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -63082,6 +61789,7 @@
           "517c9930b9afa60f",
           "51c19a1b7121c147",
           "53c411e01494034b",
+          "54ad44da9d67fca0",
           "55b716a16f80dacd",
           "57ed1be834d905e3",
           "5909c4277d032171",
@@ -63091,6 +61799,7 @@
           "5dd05b725c815199",
           "5e3f5578cbabd453",
           "5f122f298e673dd4",
+          "6019c40d049d820e",
           "60f052ad508244d1",
           "6206b87e1b5ed929",
           "6211b0f6552f51b8",
@@ -63098,6 +61807,7 @@
           "62fecdf7944d63a5",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -63121,6 +61831,7 @@
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -63144,6 +61855,7 @@
           "80cfa3eecb259f1e",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "829f3232fe71d8e6",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
@@ -63151,6 +61863,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8845cf8eae4a24fb",
@@ -63158,6 +61871,7 @@
           "892bcac722d55357",
           "8a957610367a7fda",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
           "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
@@ -63193,6 +61907,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a1d95f8fe1087d06",
@@ -63225,6 +61940,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -63232,6 +61948,7 @@
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "ba18c0e75894966d",
+          "ba35007ae29f72d1",
           "bae648fb1e85fb89",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
@@ -63253,6 +61970,9 @@
           "cd963fae74716e9b",
           "ce5392b8bb1c6e80",
           "d01f9a7a5198c5c9",
+          "d0767c6aa966b12c",
+          "d09d158e6855de4f",
+          "d189716db83ece80",
           "d2fb4bf373169b8d",
           "d3007ff6184e4f81",
           "d3412cfe7b8de515",
@@ -63284,6 +62004,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e29b1163bbf8a333",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
           "e58941a9112d3bac",
@@ -63297,6 +62018,7 @@
           "e816c23283695a99",
           "e8271249204ca000",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "e96f2692148658c9",
           "eafe0dcb94f7f923",
           "ebdc0bba363a1784",
@@ -63326,6 +62048,7 @@
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
+          "fea32131fcdd3a30",
           "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
@@ -63407,6 +62130,24 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
+          "0e067db9029f2723",
+          "22cf4ef00a31d756",
+          "3c485e1154148116",
+          "54ad44da9d67fca0",
+          "6019c40d049d820e",
+          "8258d1f315a04ea0",
+          "8b2c2ce0335c1211",
+          "9ea5b914a24b6f47",
+          "b3c51a0a9d2d96e8",
+          "d0767c6aa966b12c",
+          "d189716db83ece80",
+          "e29b1163bbf8a333",
+          "e96761ff3e2db4d2",
+          "fea32131fcdd3a30"
+        ],
+        "migration_required_graph_revisions": [],
+        "rejected_graph_revisions": [
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -63496,11 +62237,13 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -63547,6 +62290,7 @@
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -63572,6 +62316,7 @@
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -63610,6 +62355,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8845cf8eae4a24fb",
@@ -63707,6 +62453,7 @@
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "ba18c0e75894966d",
+          "ba35007ae29f72d1",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
@@ -63742,6 +62489,7 @@
           "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
           "d2fb4bf373169b8d",
           "d3007ff6184e4f81",
@@ -63831,14 +62579,13 @@
           "fe7124ad349b7300",
           "fed9c40b9bb74ea8"
         ],
-        "migration_required_graph_revisions": [],
-        "rejected_graph_revisions": [],
-        "workflow_digest": "b9af308cacdcfc415282ac8e217b71484c46041286b75585d725ae784fc666d9",
+        "workflow_digest": "3ad3db3f205b72d13c3c6d5e06ca6aa31b0c5a0018c11d23fcba22596f8fab1a",
         "workflow_id": "workflow.setup.finance",
         "workflow_version": 1
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -63854,6 +62601,7 @@
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0d77b0e0d1a2377b",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0ed6343a6fd9e823",
@@ -63880,6 +62628,7 @@
           "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -63918,6 +62667,7 @@
           "3b4a692078832301",
           "3ba87d0e532e05b9",
           "3c364d0a46aab416",
+          "3c485e1154148116",
           "3c84b78e51438c4a",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
@@ -63928,11 +62678,13 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -63958,6 +62710,7 @@
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
           "53c411e01494034b",
+          "54ad44da9d67fca0",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
           "57ed1be834d905e3",
@@ -63970,6 +62723,7 @@
           "5e3f5578cbabd453",
           "5f122f298e673dd4",
           "5fe7cf2eaf8964c8",
+          "6019c40d049d820e",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "6206b87e1b5ed929",
@@ -63979,6 +62733,7 @@
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -64004,6 +62759,7 @@
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -64032,6 +62788,7 @@
           "80cfa3eecb259f1e",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "829f3232fe71d8e6",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -64042,6 +62799,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8845cf8eae4a24fb",
@@ -64049,6 +62807,7 @@
           "892bcac722d55357",
           "8a957610367a7fda",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
           "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
@@ -64092,6 +62851,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a03037055c8114bf",
           "a0cd8997edf6708d",
@@ -64132,6 +62892,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -64139,6 +62900,7 @@
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "ba18c0e75894966d",
+          "ba35007ae29f72d1",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
@@ -64174,7 +62936,10 @@
           "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d0767c6aa966b12c",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
+          "d189716db83ece80",
           "d2fb4bf373169b8d",
           "d3007ff6184e4f81",
           "d3412cfe7b8de515",
@@ -64208,6 +62973,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e29b1163bbf8a333",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -64224,6 +62990,7 @@
           "e8271249204ca000",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "e96f2692148658c9",
           "ea183f0f5321f862",
           "eafe0dcb94f7f923",
@@ -64261,6 +63028,7 @@
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
+          "fea32131fcdd3a30",
           "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
@@ -64271,6 +63039,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -64286,6 +63055,7 @@
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0d77b0e0d1a2377b",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0ed6343a6fd9e823",
@@ -64312,6 +63082,7 @@
           "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -64350,6 +63121,7 @@
           "3b4a692078832301",
           "3ba87d0e532e05b9",
           "3c364d0a46aab416",
+          "3c485e1154148116",
           "3c84b78e51438c4a",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
@@ -64360,11 +63132,13 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -64390,6 +63164,7 @@
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
           "53c411e01494034b",
+          "54ad44da9d67fca0",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
           "57ed1be834d905e3",
@@ -64402,6 +63177,7 @@
           "5e3f5578cbabd453",
           "5f122f298e673dd4",
           "5fe7cf2eaf8964c8",
+          "6019c40d049d820e",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "6206b87e1b5ed929",
@@ -64411,6 +63187,7 @@
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -64436,6 +63213,7 @@
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -64464,6 +63242,7 @@
           "80cfa3eecb259f1e",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "829f3232fe71d8e6",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -64474,6 +63253,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8845cf8eae4a24fb",
@@ -64481,6 +63261,7 @@
           "892bcac722d55357",
           "8a957610367a7fda",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
           "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
@@ -64524,6 +63305,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a03037055c8114bf",
           "a0cd8997edf6708d",
@@ -64564,12 +63346,14 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
           "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
+          "ba35007ae29f72d1",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
@@ -64605,7 +63389,10 @@
           "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d0767c6aa966b12c",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
+          "d189716db83ece80",
           "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
@@ -64638,6 +63425,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e29b1163bbf8a333",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -64654,6 +63442,7 @@
           "e8271249204ca000",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "e96f2692148658c9",
           "ea183f0f5321f862",
           "eafe0dcb94f7f923",
@@ -64691,6 +63480,7 @@
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
+          "fea32131fcdd3a30",
           "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
@@ -64701,6 +63491,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -64716,6 +63507,7 @@
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0d77b0e0d1a2377b",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0ed6343a6fd9e823",
@@ -64742,6 +63534,7 @@
           "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
+          "22cf4ef00a31d756",
           "237337e95eed6c93",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -64780,6 +63573,7 @@
           "3b4a692078832301",
           "3ba87d0e532e05b9",
           "3c364d0a46aab416",
+          "3c485e1154148116",
           "3c84b78e51438c4a",
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
@@ -64790,11 +63584,13 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -64820,6 +63616,7 @@
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
           "53c411e01494034b",
+          "54ad44da9d67fca0",
           "55a233b9b6e923ea",
           "55b716a16f80dacd",
           "57ed1be834d905e3",
@@ -64832,6 +63629,7 @@
           "5e3f5578cbabd453",
           "5f122f298e673dd4",
           "5fe7cf2eaf8964c8",
+          "6019c40d049d820e",
           "60f052ad508244d1",
           "60f9c47270b215a8",
           "6206b87e1b5ed929",
@@ -64841,6 +63639,7 @@
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
@@ -64866,6 +63665,7 @@
           "6e5adfcaac095f5e",
           "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -64894,6 +63694,7 @@
           "80cfa3eecb259f1e",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "829f3232fe71d8e6",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -64904,6 +63705,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "86a81ce5c2ff6a00",
+          "86c6f54fcf77ae8c",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8845cf8eae4a24fb",
@@ -64911,6 +63713,7 @@
           "892bcac722d55357",
           "8a957610367a7fda",
           "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
           "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
@@ -64954,6 +63757,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a03037055c8114bf",
           "a0cd8997edf6708d",
@@ -64994,6 +63798,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -65001,6 +63806,7 @@
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "ba18c0e75894966d",
+          "ba35007ae29f72d1",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
@@ -65036,7 +63842,10 @@
           "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d0767c6aa966b12c",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
+          "d189716db83ece80",
           "d2fb4bf373169b8d",
           "d3007ff6184e4f81",
           "d3412cfe7b8de515",
@@ -65070,6 +63879,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e29b1163bbf8a333",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -65086,6 +63896,7 @@
           "e8271249204ca000",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "e96f2692148658c9",
           "ea183f0f5321f862",
           "eafe0dcb94f7f923",
@@ -65123,6 +63934,7 @@
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
+          "fea32131fcdd3a30",
           "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
@@ -66064,10 +64876,7 @@
         "server_revalidation": "identity_and_persisted_onboarding_state"
       },
       "available_action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard",
+        "setup.finish_finance",
         "setup.skip_finance"
       ],
       "capability_id": "workflow.setup.finance",
@@ -66161,7 +64970,7 @@
           "step_id": "workflow.setup.finance.navigate"
         },
         {
-          "description": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
+          "description": "The introduction never completes setup. A verified source result or explicit later choice enables the existing terminal finish.",
           "directive": null,
           "outcome": "RENDER",
           "render_surface": "existing_route_surface",

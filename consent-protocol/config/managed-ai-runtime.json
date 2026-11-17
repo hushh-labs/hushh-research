@@ -170,5 +170,21 @@
       "compact_public_search",
       "one_text_root"
     ]
+  },
+  "one_chat_text_uat": {
+    "version": "one-chat-vertex-hydrogen-v1",
+    "provider": "vertex",
+    "model": "gemini-4-hydrogen",
+    "thinking_level": "low",
+    "max_output_tokens": 16384,
+    "allow_cross_provider_fallback": false
+  },
+  "drive_text_uat": {
+    "version": "drive-vertex-hydrogen-v1",
+    "provider": "vertex",
+    "model": "gemini-4-hydrogen",
+    "thinking_level": "low",
+    "max_output_tokens": 16384,
+    "allow_cross_provider_fallback": false
   }
 }

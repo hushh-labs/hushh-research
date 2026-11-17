@@ -141,3 +141,11 @@ describe("advisor policy access modes", () => {
     expect(financePolicySchema.safeParse({ ...advisor, durationSeconds: 60 }).success).toBe(false);
   });
 });
+
+it("binds curated advisor Always access to its own policy domain and accepts bounded custom durations", () => {
+  const curated = { ...policy, version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null } as const;
+  expect(financePolicySchema.parse(curated)).toMatchObject({ version: 3, showAmounts: false, durationSeconds: null });
+  expect(financeContext({ requestId: "request", id: "grant", ownerUserId: "owner", recipientUserId: "recipient", policy: curated, revision: 1 })).toContain("finance-share-v3:verified_ria_share");
+  expect(financePolicySchema.safeParse({ ...policy, durationSeconds: 10800 }).success).toBe(true);
+  for (const value of [0, 59, 604801, 0.5, "3600", true]) expect(financePolicySchema.safeParse({ ...policy, durationSeconds: value }).success).toBe(false);
+});

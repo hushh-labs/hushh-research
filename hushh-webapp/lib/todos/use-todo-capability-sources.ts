@@ -26,7 +26,7 @@ export function useTodoCapabilitySources(input: {
     abort.current = controller;
     const revision = ++request.current;
     const isCurrent = () => current.current === identity && request.current === revision && !controller.signal.aborted && isVaultSessionEpochCurrent(epoch);
-    setSnapshot(previous => ({ identity, reads: previous.identity === identity ? previous.reads : [], loading: true, error: false }));
+    setSnapshot({ identity, reads: [], loading: true, error: false });
     try {
       const reads = await readTodoCapabilities({ userId, vaultOwnerToken, getIdToken: provider.current, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, signal: controller.signal, isCurrent });
       if (isCurrent()) setSnapshot({ identity, reads, loading: false, error: false });
@@ -38,6 +38,16 @@ export function useTodoCapabilitySources(input: {
     void load();
     return () => { request.current += 1; abort.current?.abort(); };
   }, [load]);
+  useEffect(() => {
+    if (!enabled) return;
+    const refresh = () => { if (document.visibilityState === "visible") void load(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [enabled, load]);
   const visible = enabled && snapshot.identity === identity;
   return { reads: visible ? snapshot.reads : [], loading: enabled && (!visible || snapshot.loading), error: visible && snapshot.error, refresh: load };
 }

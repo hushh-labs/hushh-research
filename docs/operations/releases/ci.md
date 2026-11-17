@@ -1,6 +1,6 @@
 # CI Configuration Reference
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Main-owned release control
 

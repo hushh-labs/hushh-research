@@ -101,6 +101,14 @@ export function pendingFinanceShare(context: FinanceShareContext | null): Prepar
 }
 
 export const FinanceSharingService = {
+  async activeRecipientRefs(context: FinanceShareContext): Promise<Set<string>> {
+    const value = await request<{ personRefs: string[] }>(context, "/active-recipients");
+    if (!Array.isArray(value.personRefs) || value.personRefs.length > 10000 || value.personRefs.some(ref => typeof ref !== "string" || !/^[0-9a-f-]{36}$/i.test(ref))) throw new Error("Current sharing could not be checked. Open Manage sharing.");
+    return new Set(value.personRefs);
+  },
+  async recipient(context: FinanceShareContext, personRef: string) {
+    return (await currentRecipients(context, [personRef]))[0]!;
+  },
   async recipients(context: FinanceShareContext, query: string, page = 1) {
     requireFinanceSession(context);
     const result = await OneLocationService.listRecipientsPage({ vaultOwnerToken: context.vaultOwnerToken, query, page, limit: 30 });
@@ -132,7 +140,7 @@ export const FinanceSharingService = {
         seen.add(g.id);
         return false;
       }) || items.some(g =>
-        g.policy.selectionHash !== prepared.policy.selectionHash || g.policy.version !== prepared.policy.version || (g.policy.version === 2 && (prepared.policy.version !== 2 || g.policy.purpose !== prepared.policy.purpose)) || g.policy.mode !== prepared.policy.mode
+        g.policy.selectionHash !== prepared.policy.selectionHash || g.policy.version !== prepared.policy.version || (g.policy.version !== 1 && (prepared.policy.version === 1 || g.policy.purpose !== prepared.policy.purpose)) || g.policy.mode !== prepared.policy.mode
         || g.policy.durationSeconds !== prepared.policy.durationSeconds || g.policy.showAmounts !== prepared.policy.showAmounts
         || g.policy.model_processing.allowed !== prepared.policy.model_processing.allowed
         || [...g.policy.sections].sort().join() !== [...prepared.policy.sections].sort().join())) throw new Error("The sharing receipt did not match the confirmation.");

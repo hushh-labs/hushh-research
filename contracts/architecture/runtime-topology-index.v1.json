@@ -848,9 +848,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "account_phone_transfers",
+        "account_device_actions",
         "account_phone_recovery_continuations",
-        "account_device_actions"
+        "account_phone_transfers"
       ],
       "id": "account_phone_transfer_workflow",
       "lifecycle_status": "release_schema_qualification",
@@ -860,12 +860,12 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "actor_profiles",
         "actor_identity_cache",
+        "actor_profiles",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens",
-        "user_push_installations"
+        "user_push_installations",
+        "user_push_tokens"
       ],
       "id": "actor_identity_state",
       "lifecycle_status": "current",
@@ -898,11 +898,11 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "calendar_email_followup_monitors",
         "calendar_email_followup_conversations",
+        "calendar_email_followup_monitors",
+        "calendar_email_followup_mutations",
         "calendar_email_followup_requests",
-        "calendar_email_followup_scanned_messages",
-        "calendar_email_followup_mutations"
+        "calendar_email_followup_scanned_messages"
       ],
       "id": "calendar_email_followup_operational_state",
       "lifecycle_status": "current",
@@ -923,8 +923,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "circle_chat_reactions",
-        "circle_chat_membership_events"
+        "circle_chat_membership_events",
+        "circle_chat_reactions"
       ],
       "id": "circle_chat_interaction_metadata",
       "lifecycle_status": "current",
@@ -935,8 +935,8 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "circle_chat_messages",
-        "circle_chat_recipients",
-        "circle_chat_preferences"
+        "circle_chat_preferences",
+        "circle_chat_recipients"
       ],
       "id": "circle_member_chat",
       "lifecycle_status": "current",
@@ -966,10 +966,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "connected_system_intent_approval_challenges",
         "connected_system_intents",
         "connected_system_record_bindings",
-        "connected_system_zk_contexts",
-        "connected_system_intent_approval_challenges"
+        "connected_system_zk_contexts"
       ],
       "id": "connected_system_workflows",
       "lifecycle_status": "customer0",
@@ -991,8 +991,8 @@
       "exact_tables": [
         "consent_audit",
         "consent_audit_receipts",
-        "internal_access_events",
-        "consent_scope_templates"
+        "consent_scope_templates",
+        "internal_access_events"
       ],
       "id": "consent_authority_audit",
       "lifecycle_status": "current",
@@ -1012,8 +1012,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "consent_exports",
-        "consent_export_refresh_jobs"
+        "consent_export_refresh_jobs",
+        "consent_exports"
       ],
       "id": "consent_export_workflows",
       "lifecycle_status": "current",
@@ -1031,8 +1031,8 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "crm_schema_mapping_cache",
-        "crm_schema_catalog_cache"
+        "crm_schema_catalog_cache",
+        "crm_schema_mapping_cache"
       ],
       "id": "crm_schema_mapping_cache",
       "lifecycle_status": "customer0",
@@ -1066,8 +1066,8 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "messages",
-        "direct_message_attachments"
+        "direct_message_attachments",
+        "messages"
       ],
       "id": "direct_message_encrypted_content",
       "lifecycle_status": "current",
@@ -1109,11 +1109,11 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "drive_bulk_shares",
-        "drive_bulk_share_files",
-        "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
+        "drive_bulk_share_files",
         "drive_bulk_share_notifications",
+        "drive_bulk_share_recipients",
+        "drive_bulk_shares",
         "drive_request_bulk_removals"
       ],
       "id": "drive_bulk_share",
@@ -1126,14 +1126,14 @@
       "exact_tables": [
         "drive_collection_sync",
         "drive_document_extractions",
-        "drive_document_pages",
-        "drive_document_facts",
         "drive_document_fact_pages",
+        "drive_document_facts",
+        "drive_document_pages",
         "drive_packet_heads",
+        "drive_packet_listings",
         "drive_packet_members",
-        "drive_packet_versions",
         "drive_packet_version_sources",
-        "drive_packet_listings"
+        "drive_packet_versions"
       ],
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
@@ -1153,8 +1153,8 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "drive_group_index_state",
-        "drive_group_index"
+        "drive_group_index",
+        "drive_group_index_state"
       ],
       "id": "drive_four_group_index",
       "lifecycle_status": "customer0",
@@ -1194,12 +1194,12 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "drive_share_file_claims",
-        "drive_share_events",
         "drive_query_events",
-        "drive_share_management_contexts",
+        "drive_rest_call_leases",
         "drive_rest_owner_admission",
-        "drive_rest_call_leases"
+        "drive_share_events",
+        "drive_share_file_claims",
+        "drive_share_management_contexts"
       ],
       "id": "drive_original_sharing_coordination",
       "lifecycle_status": "customer0",
@@ -1209,10 +1209,10 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "drive_share_requests",
-        "drive_share_reviews",
+        "drive_share_live_sources",
         "drive_share_permission_operations",
-        "drive_share_live_sources"
+        "drive_share_requests",
+        "drive_share_reviews"
       ],
       "id": "drive_original_sharing_records",
       "lifecycle_status": "customer0",
@@ -1273,10 +1273,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "drive_request_payment_orders",
         "drive_request_payment_obligations",
-        "drive_request_payment_webhook_events",
-        "drive_request_payment_refunds"
+        "drive_request_payment_orders",
+        "drive_request_payment_refunds",
+        "drive_request_payment_webhook_events"
       ],
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
@@ -1286,9 +1286,9 @@
     {
       "data_class": "reference",
       "exact_tables": [
-        "enterprise_crm_registry",
+        "crm_encrypted_fields_recipient_keys",
         "crm_operation_endpoints",
-        "crm_encrypted_fields_recipient_keys"
+        "enterprise_crm_registry"
       ],
       "id": "enterprise_crm_registry",
       "lifecycle_status": "customer0",
@@ -1338,8 +1338,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "feed_events",
-        "feed_event_counterparts"
+        "feed_event_counterparts",
+        "feed_events"
       ],
       "id": "feed_events",
       "lifecycle_status": "current",
@@ -1349,8 +1349,20 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "finance_share_requests",
-        "finance_access_grants"
+        "advisor_review_requests",
+        "advisor_review_subscriptions",
+        "advisor_billing_cleanup"
+      ],
+      "id": "finance_advisor_handshake",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "finance_access_grants",
+        "finance_share_requests"
       ],
       "id": "finance_connection_sharing",
       "lifecycle_status": "release_schema_qualification",
@@ -1360,9 +1372,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "gmail_mailbox_action_proposals",
         "gmail_owner_send_actions",
-        "google_email_send_actions",
-        "gmail_mailbox_action_proposals"
+        "google_email_send_actions"
       ],
       "id": "gmail_owner_approved_delivery",
       "lifecycle_status": "current",
@@ -1384,12 +1396,12 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "google_provider_connections",
-        "google_calendar_additional_accounts",
-        "google_service_grants",
-        "google_oauth_attempts",
+        "calendar_attendance_reviews",
         "google_calendar_action_proposals",
-        "calendar_attendance_reviews"
+        "google_calendar_additional_accounts",
+        "google_oauth_attempts",
+        "google_provider_connections",
+        "google_service_grants"
       ],
       "id": "google_integrations_provider_state",
       "lifecycle_status": "current",
@@ -1399,9 +1411,9 @@
     {
       "data_class": "audit_regulated",
       "exact_tables": [
-        "hashcoin_wallets",
         "hashcoin_ledger_entries",
-        "hashcoin_redemptions"
+        "hashcoin_redemptions",
+        "hashcoin_wallets"
       ],
       "id": "hashcoin_owner_earnings",
       "lifecycle_status": "current",
@@ -1472,11 +1484,11 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "email_auth_policy_state",
-        "email_auth_domain_decisions",
         "email_auth_budgets",
+        "email_auth_challenges",
+        "email_auth_domain_decisions",
         "email_auth_enrollments",
-        "email_auth_challenges"
+        "email_auth_policy_state"
       ],
       "id": "independent_email_auth",
       "lifecycle_status": "current",
@@ -1486,8 +1498,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "marketplace_recipient_keys",
-        "marketplace_delivery_envelopes"
+        "marketplace_delivery_envelopes",
+        "marketplace_recipient_keys"
       ],
       "id": "information_marketplace_delivery",
       "lifecycle_status": "current",
@@ -1552,16 +1564,16 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "pkm_data",
-        "pkm_embeddings",
-        "world_model_data",
-        "world_model_index",
-        "world_model_index_v2",
-        "world_model_attributes",
-        "world_model_embeddings",
         "chat_conversations",
         "chat_messages",
-        "vault_portfolios"
+        "pkm_data",
+        "pkm_embeddings",
+        "vault_portfolios",
+        "world_model_attributes",
+        "world_model_data",
+        "world_model_embeddings",
+        "world_model_index",
+        "world_model_index_v2"
       ],
       "id": "legacy_memory_cutover",
       "lifecycle_status": "legacy_migration",
@@ -1571,8 +1583,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "live_memory_connector_streams",
-        "live_memory_connector_events"
+        "live_memory_connector_events",
+        "live_memory_connector_streams"
       ],
       "id": "live_memory_connector_journal",
       "lifecycle_status": "current",
@@ -1602,8 +1614,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "live_memory_source_streams",
-        "live_memory_source_events"
+        "live_memory_source_events",
+        "live_memory_source_streams"
       ],
       "id": "live_memory_source_journal",
       "lifecycle_status": "current",
@@ -1693,8 +1705,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "one_email_mailbox_state",
         "one_email_kyc_preferences",
+        "one_email_mailbox_state",
         "one_kyc_workflows"
       ],
       "id": "one_email_kyc_workflow",
@@ -1715,10 +1727,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "kai_location_referrals",
         "one_location_access_requests",
         "one_location_auto_approve_preferences",
-        "one_location_visibility_preferences",
-        "one_location_visibility_exclusions",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -1727,18 +1738,19 @@
         "one_location_nearby_check_in_preferences",
         "one_location_nearby_presences",
         "one_location_network_connections",
+        "one_location_onboarding_drafts",
+        "one_location_onboarding_interactions",
+        "one_location_onboarding_receipts",
+        "one_location_pkm_finalize_authorizations",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
-        "kai_location_referrals",
-        "one_location_onboarding_interactions",
-        "one_location_onboarding_receipts",
-        "one_location_onboarding_drafts",
-        "one_location_pkm_finalize_authorizations",
-        "one_location_sms_contacts",
         "one_location_share_grants",
-        "one_location_sos_voice_preferences"
+        "one_location_sms_contacts",
+        "one_location_sos_voice_preferences",
+        "one_location_visibility_exclusions",
+        "one_location_visibility_preferences"
       ],
       "id": "one_location_agent",
       "lifecycle_status": "current",
@@ -1748,9 +1760,9 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "one_location_circles",
         "one_location_circle_member_invites",
-        "one_location_circle_memberships"
+        "one_location_circle_memberships",
+        "one_location_circles"
       ],
       "id": "one_location_named_circle_relationships",
       "lifecycle_status": "current",
@@ -1770,8 +1782,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "one_location_place_ratings",
-        "one_location_place_rating_aggregates"
+        "one_location_place_rating_aggregates",
+        "one_location_place_ratings"
       ],
       "id": "one_location_place_ratings",
       "lifecycle_status": "current",
@@ -1792,8 +1804,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "one_marketing_preferences",
-        "one_marketing_changes"
+        "one_marketing_changes",
+        "one_marketing_preferences"
       ],
       "id": "one_marketing_permission",
       "lifecycle_status": "current",
@@ -1836,9 +1848,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "one_profile_discovery_jobs",
         "one_profile_discovery_events",
-        "one_profile_discovery_feed_outbox"
+        "one_profile_discovery_feed_outbox",
+        "one_profile_discovery_jobs"
       ],
       "id": "one_profile_discovery_handoff",
       "lifecycle_status": "current",
@@ -1912,10 +1924,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events",
-        "personal_agent_deletion_tombstones"
+        "personal_agent_deletion_tombstones",
+        "personal_agent_registry",
+        "pod_lifecycle_events"
       ],
       "id": "personal_agent_provisioning",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
@@ -1925,8 +1937,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "personal_agent_registry",
-        "personal_agent_deletion_tombstones"
+        "personal_agent_deletion_tombstones",
+        "personal_agent_registry"
       ],
       "id": "personal_agent_registry",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
@@ -1956,8 +1968,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_answer_payment_orders",
         "pkm_answer_payment_obligations",
+        "pkm_answer_payment_orders",
         "pkm_answer_payment_webhook_events"
       ],
       "id": "pkm_answer_payment_authority",
@@ -1968,8 +1980,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "pkm_answer_requests",
-        "pkm_answer_request_scopes"
+        "pkm_answer_request_scopes",
+        "pkm_answer_requests"
       ],
       "id": "pkm_answer_requests",
       "lifecycle_status": "customer0",
@@ -1979,8 +1991,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_answer_payment_refunds",
-        "pkm_answer_owner_payouts"
+        "pkm_answer_owner_payouts",
+        "pkm_answer_payment_refunds"
       ],
       "id": "pkm_answer_settlement",
       "lifecycle_status": "customer0",
@@ -2000,8 +2012,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_credit_subscriptions",
-        "pkm_credit_ledger"
+        "pkm_credit_ledger",
+        "pkm_credit_subscriptions"
       ],
       "id": "pkm_credits",
       "lifecycle_status": "current",
@@ -2022,8 +2034,8 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "pkm_blobs",
-        "pkm_domain_revisions",
-        "pkm_domain_revision_segments"
+        "pkm_domain_revision_segments",
+        "pkm_domain_revisions"
       ],
       "id": "pkm_encrypted_memory",
       "lifecycle_status": "current",
@@ -2033,11 +2045,11 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
+        "pkm_events",
         "pkm_index",
-        "pkm_manifests",
         "pkm_manifest_paths",
-        "pkm_scope_registry",
-        "pkm_events"
+        "pkm_manifests",
+        "pkm_scope_registry"
       ],
       "id": "pkm_metadata_and_scope",
       "lifecycle_status": "current",
@@ -2078,11 +2090,11 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_migration_state",
-        "pkm_upgrade_runs",
-        "pkm_upgrade_steps",
         "pkm_domain_commits",
-        "pkm_upgrade_claims"
+        "pkm_migration_state",
+        "pkm_upgrade_claims",
+        "pkm_upgrade_runs",
+        "pkm_upgrade_steps"
       ],
       "id": "pkm_upgrade_workflows",
       "lifecycle_status": "current",
@@ -2132,10 +2144,10 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "document_delivery_packages",
         "document_delivery_artifacts",
+        "document_delivery_background_chunks",
         "document_delivery_background_files",
-        "document_delivery_background_chunks"
+        "document_delivery_packages"
       ],
       "id": "protected_document_delivery_artifacts",
       "lifecycle_status": "current",
@@ -2145,14 +2157,14 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "document_delivery_contracts",
-        "document_delivery_public_keys",
-        "document_delivery_file_receipts",
-        "document_delivery_key_challenges",
         "document_delivery_activity",
-        "document_delivery_idempotency",
+        "document_delivery_background_activity",
         "document_delivery_background_requests",
-        "document_delivery_background_activity"
+        "document_delivery_contracts",
+        "document_delivery_file_receipts",
+        "document_delivery_idempotency",
+        "document_delivery_key_challenges",
+        "document_delivery_public_keys"
       ],
       "id": "protected_document_delivery_authority",
       "lifecycle_status": "current",
@@ -2162,8 +2174,8 @@
     {
       "data_class": "audit_regulated",
       "exact_tables": [
-        "document_delivery_financial_bindings",
-        "document_delivery_cleanup"
+        "document_delivery_cleanup",
+        "document_delivery_financial_bindings"
       ],
       "id": "protected_document_delivery_retained_obligations",
       "lifecycle_status": "current",
@@ -2185,9 +2197,9 @@
       "data_class": "reference",
       "exact_tables": [
         "one_public_profile_entities",
+        "one_public_profile_findings",
         "one_public_profile_identity_anchors",
-        "one_public_profile_sources",
-        "one_public_profile_findings"
+        "one_public_profile_sources"
       ],
       "id": "public_profile_evidence_pool",
       "lifecycle_status": "current",
@@ -2217,8 +2229,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pwm_research_preferences",
-        "pwm_completion_events"
+        "pwm_completion_events",
+        "pwm_research_preferences"
       ],
       "id": "pwm_research_lifecycle",
       "lifecycle_status": "current",
@@ -2267,10 +2279,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events",
         "stripe_connect_balance_snapshots",
         "stripe_connect_balance_transactions",
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_bank_payouts",
         "stripe_connect_payout_reconciliations"
       ],
       "id": "stripe_connect_bank_payout_status",
@@ -2311,8 +2323,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "system_push_outbox",
-        "system_push_device_deliveries"
+        "system_push_device_deliveries",
+        "system_push_outbox"
       ],
       "id": "system_push_delivery",
       "lifecycle_status": "current",
@@ -2363,11 +2375,11 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "connection_requests",
-        "connections",
         "connection_origins",
-        "contact_sync_lookup_budgets",
-        "connection_voice_preferences"
+        "connection_requests",
+        "connection_voice_preferences",
+        "connections",
+        "contact_sync_lookup_budgets"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
@@ -2377,8 +2389,8 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "vault_keys",
-        "vault_key_wrappers"
+        "vault_key_wrappers",
+        "vault_keys"
       ],
       "id": "vault_key_material",
       "lifecycle_status": "current",
@@ -2398,12 +2410,12 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "wallet_card_access_audit",
+        "wallet_card_access_grants",
         "wallet_card_registrations",
         "wallet_card_share_requests",
-        "wallet_card_access_grants",
-        "wallet_card_access_audit",
-        "wallet_profile_share_requests",
-        "wallet_profile_access_grants"
+        "wallet_profile_access_grants",
+        "wallet_profile_share_requests"
       ],
       "id": "wallet_temporary_card_access",
       "lifecycle_status": "current",
@@ -6364,10 +6376,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "kai.setup.answer_drawdown",
-          "kai.setup.answer_horizon",
-          "kai.setup.answer_volatility",
-          "kai.setup.launch_dashboard",
+          "setup.finish_finance",
           "setup.skip_finance"
         ],
         "delegate_agent_ids": [],
@@ -7344,21 +7353,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "6eaf2d973115c99cdb1de3cf0c8dfcc5d21b499f0c0f5e050530aca1e06e2a45",
-    "agent_registry": "ea434965d35658d843c6b78103e066073a2b512355cea89b3bbe10ac46e7be06",
-    "cache_manifest": "24b8b1d31e76f563c9949405f5c9f0c3cec8656c0f1d3b92fdcfe1d7f5ed2e31",
-    "data_plane": "715654dc3c0e2efe1f980ccb6fc6128b0895e2bc868571a8ebf7c0bea628e9fe",
+    "action_gateway": "2422f9ed07d814003ab314cefb6ccd5c45701d1eda5a66ec902feaa6f8370f47",
+    "agent_registry": "95bf915f96421c6ae0c0103afbcf9116f18d87671714180a8c44c3dedde3bc69",
+    "cache_manifest": "2d6ab89252cbc8fd6453d473de1dc23cef2d5c587734f495f5797baa74f7e46c",
+    "data_plane": "c8fbcc295480ad1d07e9571e563f93e7e711b1b7154e965fcff4b67d89f907b1",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ac9a2086b9d4edeae009c027253a4ef4306492275220ae2d511ad1e20fb99498",
-    "route_index": "fdbcdca058238615e55266343ba3fc6ea4602c69e8895042e9ed4e4f64b856e2",
-    "route_layout": "0b3850aba421d4ec1f278fd6e3e0dba0b2663beba77a46545eaf3dbc6c83ad59",
-    "surface_map": "39a9b31d538a91148865ae6eb05b5040bca050ecf05cc85856c2c3d636d1c21b",
+    "route_index": "29c8e44cdfb2c570bebfeed1b47bc4e2296a17ded469171ddaecbceec7adce71",
+    "route_layout": "c11be2109f7cd8615e538aa69872b80429c34c62cf77e2b6fe7ae83396dd7b43",
+    "surface_map": "70956277dfe7a3de7d6b23d32a0a5fb6846e95b81de440caf9a49045cc77c328",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 339,
+    "actions": 330,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,
@@ -7366,6 +7375,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 145
+    "table_families": 146
   }
 }

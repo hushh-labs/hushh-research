@@ -22,14 +22,14 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, Search, SlidersHorizontal } from "@/components/icons";
+import { ChevronLeft, SlidersHorizontal } from "@/components/icons";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { Input } from "@/components/ui/input";
+import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import {
   SCOPE_SEARCH_THRESHOLD,
@@ -154,6 +154,7 @@ export function ConsentScopeNestedList({
         density="compact"
         description={item.description || undefined}
         disabled={disabled}
+        stackTrailingOnMobile={Boolean(renderTrailing)}
         chevron={Boolean(onOpenItem)}
         onClick={
           isGranted
@@ -246,21 +247,15 @@ export function ConsentScopeNestedList({
 
       {showSearch ? (
         <div className="flex items-start gap-3">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
+          <SheetSearch
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onValueChange={setQuery}
             placeholder={searchPlaceholder}
-            aria-label="Search this list"
-            className="pl-9"
+            label="Search this list"
+            className="min-w-0 flex-1"
             data-consent-input="true"
             data-testid={`${testIdPrefix}-search`}
           />
-        </div>
         {showDomainFilter ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

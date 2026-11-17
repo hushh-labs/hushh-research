@@ -1,6 +1,6 @@
 # Observability Architecture Map
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Map
 

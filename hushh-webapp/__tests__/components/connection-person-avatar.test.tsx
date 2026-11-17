@@ -80,6 +80,23 @@ describe("canonical person avatar", () => {
     }
   });
 
+  it("opens a compact profile from its larger target without activating the parent row", () => {
+    const onRow = vi.fn();
+    const onProfile = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", onProfile);
+    try {
+      render(<div onClick={onRow}><ConnectionPersonAvatar label="Aadhi" userId="aadhi" size="compact" minimumHitArea /></div>);
+      const button = screen.getByRole("button", { name: "View Aadhi's profile" });
+      expect(button).toHaveClass("size-11");
+      fireEvent.click(button);
+      expect(onProfile).toHaveBeenCalledOnce();
+      expect((onProfile.mock.calls[0][0] as CustomEvent).detail.userId).toBe("aadhi");
+      expect(onRow).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("hussh:person-profile-preview", onProfile);
+    }
+  });
+
   it("preserves a complete uploaded image, and shows initials after an image error", async () => {
     const photo = "data:image/png;base64," + "YWJj".repeat(400);
     const { container } = render(

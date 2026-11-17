@@ -293,8 +293,13 @@ export function CalendarAgentPage({
     onSettled?.();
   };
 
-  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false,
-    accountId?: string, includeMeetingFiles = false, meetingReturn?: CalendarMeetingReturnContext) => {
+  /**
+   * `mailAccess` adds Gmail to the same Google consent. It is requested only for
+   * a brand-new account (the first, or one added), never when renewing a lapsed one.
+   */
+  const connect = async (accessLevel: "read" | "manage" = "manage", includeCalendarList = false, additional = false,
+    accountId?: string, includeMeetingFiles = false,
+    { meetingReturn, mailAccess = false }: { meetingReturn?: CalendarMeetingReturnContext; mailAccess?: boolean } = {}) => {
     if (!user || !userId || busyRef.current) return;
     const targetAccountId = accountId || "default";
     const strictMeetingUpgrade = Boolean(meetingReturn);
@@ -427,6 +432,7 @@ export function CalendarAgentPage({
         ...(accountId ? { accountId } : {}),
         ...(accountId ? { loginHint: status?.accounts?.find(account => account.account_id === accountId)?.google_email || undefined } : {}),
           ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
+          ...(mailAccess ? { includeMailAccess: true } : {}),
       });
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
@@ -632,7 +638,7 @@ export function CalendarAgentPage({
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
-        <AlertDialogContent size="sm" className={presentationStyles.portal} onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+        <AlertDialogContent size="sm" className={presentationStyles.portal} data-profile-type-scale="calendar" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -792,13 +798,19 @@ export function CalendarAgentPage({
     }
   };
 
+  // A first account and an added account get the same single Google consent:
+  // Calendar, Meet files, Drive details and Gmail. Google owns the account
+  // chooser and the consent screen; there is no Hussh step in between.
+  const firstConnection = status?.status !== "needs_reauth" && !status?.accounts?.length;
+  const connectFirstAccount = () => { void connect("manage", true, false, undefined, firstConnection, { mailAccess: firstConnection }); };
+
   if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
     return <NativeCalendarRoute frame={nativeFrame} model={nativeModel}>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => connect(access, includeCalendarList)}
-        onAddAccount={() => connect("manage", true, true, undefined, true)}
+        onAddAccount={() => connect("manage", true, true, undefined, true, { mailAccess: true })}
         onReconnectAccount={(accountId) => connect("manage", true, true, accountId)}
-        onAllowMeetingFiles={(accountId, returnContext) => { const selected = status.accounts?.find(account => account.account_id === accountId); return connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
+        onAllowMeetingFiles={(accountId, returnContext) => connect("manage", true, accountId !== "default", accountId === "default" ? undefined : accountId, true, { meetingReturn: returnContext })}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
@@ -811,6 +823,7 @@ export function CalendarAgentPage({
 
   return (
     <NativeCalendarRoute frame={nativeFrame} model={nativeModel}><AppPageShell ref={nativeFrame}
+      data-profile-type-scale="page"
       width="reading"
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
@@ -853,7 +866,7 @@ export function CalendarAgentPage({
             journeyVariant={journeyVariant}
             busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
-            onConnect={() => void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length)}
+            onConnect={connectFirstAccount}
           >
             {popupWaitingNotice}
           </CalendarConnectHero>
@@ -911,7 +924,7 @@ export function CalendarAgentPage({
                         type="button"
                         className={`${presentationStyles.utility} text-[color:var(--app-tint)] underline-offset-4 hover:underline`}
                         disabled={busy}
-                        onClick={() => void connect("read")}
+                        onClick={() => void connect("manage", true)}
                       >
                         Allow One to find subscribed calendars
                       </button>
@@ -941,7 +954,7 @@ export function CalendarAgentPage({
                         size="prominent"
                         className="w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
                         disabled={busy}
-                        onClick={() => void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length)}
+                        onClick={connectFirstAccount}
                         data-voice-control-id="open_calendar_connector"
                         data-voice-action-id={
                           journeyVariant === "onboarding"

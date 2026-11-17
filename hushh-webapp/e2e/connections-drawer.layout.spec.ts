@@ -1422,7 +1422,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
         configured: true,
         connected: calendar.connected,
         status: calendar.connected ? "connected" : "disconnected",
-        access_level: calendar.connected ? "read" : null,
+        access_level: calendar.connected ? "manage" : null, calendar_list_access: calendar.connected,
         google_email: calendar.connected ? "calendar-owner@synthetic.invalid" : null,
       }),
     });
@@ -1599,7 +1599,7 @@ async function armChatConnect(page: import("@playwright/test").Page) {
         configured: true,
         connected: true,
         status: "connected",
-        access_level: server.calendarManage ? "manage" : "read",
+        access_level: server.calendarManage ? "manage" : "read", calendar_list_access: server.calendarManage,
       }),
     });
   });

@@ -19,11 +19,18 @@ export type GoogleConnectionStatus = {
   guest_photo_access?: boolean;
 };
 
+const MAIL_ACCESS_OUTCOMES = ["granted", "declined", "unavailable", "not_requested"] as const;
+
 export type GoogleConnectionCompletion = GoogleConnectionStatus & {
   service: "calendar";
   /** Identifies the grant published by an Add account attempt, including "default" when reauthorized. */
   completed_account_id?: string;
   accounts?: GoogleCalendarAccount[];
+  /**
+   * What Google returned for Gmail on this attempt. `declined` and `unavailable`
+   * leave Calendar connected with Mail off; monitoring is a separate opt-in.
+   */
+  mail_access?: (typeof MAIL_ACCESS_OUTCOMES)[number];
 };
 
 /** Legacy Calendar callback transport; Drive uses `/api/connectors` instead. */
@@ -78,7 +85,9 @@ export class GoogleConnectionService {
       (result.completed_account_id !== undefined &&
         (typeof result.completed_account_id !== "string" ||
           !result.completed_account_id ||
-          !Array.isArray(result.accounts)))
+          !Array.isArray(result.accounts))) ||
+      (result.mail_access !== undefined &&
+        !MAIL_ACCESS_OUTCOMES.includes(result.mail_access))
     ) {
       throw new Error("Google connection could not be verified.");
     }

@@ -1,0 +1,765 @@
+.phone {
+  --demo-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  width: 212px;
+  height: 428px;
+  flex: none;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 36px;
+  background: #161618;
+  border: 1px solid var(--border);
+  box-shadow: 0 28px 48px -18px rgb(16 24 40 / 0.42);
+  transform: scale(0.92);
+  transition: transform 900ms var(--demo-ease);
+}
+.phone[data-demo-slide="1"] {
+  transform: scale(1);
+}
+.phone[data-demo-slide="2"] {
+  transform: scale(1.1);
+}
+.phoneScreen {
+  position: relative;
+  height: 100%;
+  border-radius: 30px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.island {
+  position: absolute;
+  width: 48px;
+  height: 13px;
+  border-radius: 20px;
+  top: 8px;
+  left: calc(50% - 24px);
+  background: #000;
+}
+.phoneTabs {
+  position: absolute;
+  top: 28px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  height: 26px;
+  border-radius: 9px;
+  background: var(--border);
+  padding: 2px;
+}
+.phoneTabs > i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  height: 22px;
+  width: calc((100% - 4px) / 3);
+  background: var(--background);
+  border-radius: 7px;
+  transition: transform 700ms var(--demo-ease);
+}
+.phoneTabs > span {
+  position: relative;
+  flex: 1;
+  font-size: 9px;
+  line-height: 22px;
+  text-align: center;
+  color: var(--muted-foreground);
+  transition: color 300ms ease;
+}
+.phoneTabs > span[data-active="true"] {
+  color: var(--app-accent);
+}
+.viewport {
+  position: absolute;
+  top: 60px;
+  left: 0;
+  right: 0;
+  bottom: 34px;
+  overflow: hidden;
+}
+.scene {
+  position: absolute;
+  inset: 0;
+  width: 200px;
+  transition: none;
+}
+.scene[data-transition="true"] {
+  transition: transform 700ms var(--demo-ease);
+}
+.marketScroll,
+.portfolio,
+.stockList {
+  padding: 6px 10px 0;
+}
+.card,
+.marketTiles,
+.newsCard,
+.agentCard,
+.decision,
+.stockChart {
+  background: var(--app-card-surface-default-solid, var(--background));
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.025);
+}
+.card {
+  padding: 12px;
+}
+.scene i,
+.scene b {
+  display: block;
+  border-radius: 3px;
+  height: 4px;
+  width: 55%;
+  background: var(--muted-foreground);
+  opacity: 0.25;
+  margin: 0 0 5px;
+}
+.scene b {
+  height: 7px;
+  width: 65%;
+  background: var(--foreground);
+  opacity: 0.75;
+}
+.scene strong {
+  display: block;
+  font-size: 9px;
+  line-height: 12px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.scene svg {
+  display: block;
+  fill: none;
+}
+.scene path {
+  stroke: var(--app-success-deep, #1e7b34);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.scene path[data-down="true"] {
+  stroke: var(--app-destructive-deep, #d3302b);
+}
+.scene [data-tone="0"] {
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+}
+.scene [data-tone="1"] {
+  background: color-mix(in srgb, #5bb5c9 15%, transparent);
+}
+.scene [data-tone="2"] {
+  background: color-mix(in srgb, #8050df 12%, transparent);
+}
+.marketTiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+}
+.marketTiles > div {
+  padding: 7px 7px 5px;
+  border-radius: 10px;
+  background: var(--muted);
+}
+.marketTiles svg {
+  width: 64px;
+  height: 18px;
+  margin-top: 5px;
+}
+.scene .change {
+  width: 32%;
+  background: var(--app-success-deep, #1e7b34);
+  opacity: 0.45;
+}
+.scene .change[data-down="true"] {
+  background: var(--app-destructive-deep, #d3302b);
+}
+.newsCard {
+  margin-top: 8px;
+  padding: 2px 10px;
+}
+.newsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+}
+.newsRow:first-child {
+  border: 0;
+}
+.newsRow > div {
+  flex: 1;
+}
+.newsRow > span {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+.newsRow b {
+  width: 92%;
+  height: 5px;
+  background: var(--muted-foreground);
+  opacity: 0.35;
+}
+.newsRow i {
+  width: 64%;
+  height: 5px;
+}
+.newsRow i:last-child {
+  width: 30%;
+  height: 4px;
+  margin-top: 7px;
+  margin-bottom: 0;
+}
+.portfolio {
+  display: grid;
+  gap: 8px;
+}
+.scene .valueLine {
+  width: 74%;
+  height: 15px;
+  margin: 9px 0 12px;
+}
+.facts {
+  display: flex;
+  gap: 16px;
+}
+.facts > div {
+  flex: 1;
+}
+.facts b {
+  width: 78%;
+  margin-bottom: 0;
+}
+.ringCard {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.ringCard > div:last-child {
+  flex: 1;
+}
+.ring {
+  width: 66px;
+  height: 66px;
+  position: relative;
+  flex: none;
+}
+.ring circle {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 7;
+}
+.ring .ringFill {
+  stroke: var(--app-accent);
+  stroke-dasharray: 100;
+  stroke-dashoffset: 35;
+  stroke-linecap: round;
+}
+.ring b {
+  position: absolute;
+  top: 30px;
+  left: 21px;
+  width: 24px;
+  height: 6px;
+  margin: 0;
+}
+.allocation {
+  height: 8px;
+  margin-top: 11px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.allocationFill {
+  display: flex;
+  height: 100%;
+  transform-origin: left;
+}
+.allocationFill span:nth-child(1),
+.legend div:nth-child(1) > span {
+  background: #2f6df6;
+}
+.allocationFill span:nth-child(2),
+.legend div:nth-child(2) > span {
+  background: #5bb5c9;
+}
+.allocationFill span:nth-child(3),
+.legend div:nth-child(3) > span {
+  background: #63c174;
+}
+.legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 11px;
+}
+.legend > div {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+}
+.legend span {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  flex: none;
+}
+.legend i {
+  flex: 1;
+  margin: 0;
+}
+.stockList {
+  opacity: 0;
+  transform: translateX(-28px);
+}
+.stockList .card {
+  padding: 4px;
+}
+.stockRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 42px;
+  padding: 0 8px;
+  border-radius: 12px;
+}
+.stockRow > span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+}
+.stockRow > div {
+  flex: 1;
+}
+.stockRow svg {
+  width: 34px;
+  height: 12px;
+}
+.stockDetail {
+  position: absolute;
+  inset: 0;
+}
+.stockHeader {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  right: 10px;
+  height: 24px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.stockHeader > span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--border);
+  text-align: center;
+  line-height: 20px;
+}
+.stockHeader > div {
+  flex: 1;
+}
+.stockChart {
+  position: absolute;
+  top: 38px;
+  left: 10px;
+  right: 10px;
+  height: 64px;
+  padding: 8px;
+  border-radius: 14px;
+  opacity: 0;
+}
+.stockChart svg {
+  width: 160px;
+  height: 48px;
+}
+.stockChart .chartArea {
+  fill: color-mix(in srgb, var(--app-accent) 12%, transparent);
+  stroke: none;
+}
+.stockChart .chartDraw {
+  stroke: var(--app-accent);
+  stroke-width: 2;
+}
+.debateCta {
+  position: absolute;
+  top: 36px;
+  left: 52px;
+  right: 52px;
+  height: 22px;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+  color: var(--app-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+.debateCta > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  white-space: nowrap;
+}
+.startLabel,
+.roundOne,
+.roundTwo {
+  opacity: 0;
+}
+.listTap,
+.debateTap {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--app-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.listTap {
+  top: 59px;
+  left: 86px;
+}
+.debateTap {
+  top: 109px;
+  left: 86px;
+}
+.agentCard {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 56px;
+  padding: 8px;
+  border-radius: 12px;
+  display: flex;
+  gap: 7px;
+}
+.agentCard > span {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 7px;
+  padding: 4px;
+}
+.agentCard svg {
+  width: 14px;
+  height: 14px;
+}
+.agentCard path {
+  stroke: var(--app-accent);
+  stroke-width: 2;
+}
+.agentCard > div {
+  flex: 1;
+}
+.scene .agentLine {
+  height: 3px;
+  margin-bottom: 4px;
+  transform-origin: left;
+}
+.decision {
+  position: absolute;
+  top: 252px;
+  left: 10px;
+  right: 10px;
+  padding: 10px;
+  border-radius: 12px;
+}
+.decision > div {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.decisionFill {
+  display: block;
+  height: 100%;
+  width: 78%;
+  background: var(--app-success-deep, #1e7b34);
+  transform-origin: left;
+}
+.phoneDock {
+  border: 1px solid var(--border);
+  position: absolute;
+  bottom: 7px;
+  left: 10px;
+  right: 10px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  border-radius: 16px;
+  background: var(--app-card-surface-default-solid, var(--background));
+}
+.phoneDock span {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.phoneDock [data-active] {
+  background: var(--app-accent);
+}
+/* Each scene retains its DOM during transitions. CSS owns the timeline; no per-frame React renders. */
+.scene[data-active="true"] .enter {
+  animation: enter 600ms var(--demo-ease) both;
+}
+.scene[data-active="true"] .draw {
+  stroke-dasharray: 1;
+  animation: draw 900ms ease both;
+}
+.scene[data-active="true"] .marketScroll {
+  animation: newsScroll 2800ms linear 2600ms both;
+}
+.scene[data-active="true"] .ringFill {
+  animation: ring 1400ms var(--demo-ease) 800ms both;
+}
+.scene[data-active="true"] .allocationFill {
+  animation: grow 1000ms var(--demo-ease) 1300ms both;
+}
+.scene[data-active="true"] .stockList {
+  animation: listExit 600ms var(--demo-ease) 1700ms both;
+}
+.scene[data-active="true"] .stockRow:nth-child(2)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+  animation: appear 300ms ease 1150ms both;
+}
+.stockRow {
+  position: relative;
+}
+.scene[data-active="true"] .stockDetail {
+  animation: detailEnter 650ms var(--demo-ease) 1700ms both;
+}
+.scene[data-active="true"] .listTap {
+  animation: tap 600ms ease-out 900ms both;
+}
+.scene[data-active="true"] .debateTap {
+  animation: tap 600ms ease-out 3000ms both;
+}
+.scene[data-active="true"] .stockChart {
+  animation: chart 1850ms var(--demo-ease) 2100ms both;
+}
+.scene[data-active="true"] .chartDraw {
+  stroke-dasharray: 1;
+  animation: draw 1000ms ease 2200ms both;
+}
+.scene[data-active="true"] .debateCta {
+  animation: cta 4150ms var(--demo-ease) both;
+}
+.scene[data-active="true"] .startLabel {
+  animation: showUntil 1200ms linear 2300ms both;
+}
+.scene[data-active="true"] .roundOne {
+  animation: showUntil 3500ms linear 3500ms both;
+}
+.scene[data-active="true"] .roundTwo {
+  animation: showUntil 1800ms linear 7000ms both;
+}
+.scene[data-active="true"] .consensusLabel {
+  animation: appear 1ms linear 8800ms both;
+}
+.scene[data-active="true"] .agentLine {
+  animation: grow 800ms var(--demo-ease) both;
+}
+.scene[data-active="true"] .decisionFill {
+  animation: grow 900ms var(--demo-ease) 9200ms both;
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes newsScroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-12px);
+  }
+}
+@keyframes ring {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 35;
+  }
+}
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes listExit {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes detailEnter {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes tap {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  40% {
+    opacity: 0.32;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+@keyframes chart {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  24%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.96);
+  }
+}
+@keyframes cta {
+  0%,
+  55% {
+    opacity: 0;
+    top: 108px;
+    left: 10px;
+    right: 10px;
+    height: 30px;
+    background: var(--app-accent);
+    color: #fff;
+  }
+  66%,
+  73% {
+    opacity: 1;
+    top: 108px;
+    left: 10px;
+    right: 10px;
+    height: 30px;
+    transform: scale(1);
+    background: var(--app-accent);
+    color: #fff;
+  }
+  84% {
+    opacity: 1;
+    top: 108px;
+    left: 10px;
+    right: 10px;
+    height: 30px;
+    transform: scale(0.96);
+    background: var(--app-accent);
+    color: #fff;
+  }
+  100% {
+    opacity: 1;
+    top: 36px;
+    left: 52px;
+    right: 52px;
+    height: 22px;
+    transform: none;
+  }
+}
+@keyframes showUntil {
+  0% {
+    opacity: 0;
+  }
+  .1%,
+  99.9% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+:global([data-playing="false"]) .phone * {
+  animation-play-state: paused !important;
+}
+:global([data-reduced-motion="true"]) .phone,
+:global([data-reduced-motion="true"]) .phone * {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone,
+  .phone * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-height: 740px) and (max-width: 767px) {
+  .phone {
+    transform: scale(0.7544);
+  }
+  .phone[data-demo-slide="1"] {
+    transform: scale(0.82);
+  }
+  .phone[data-demo-slide="2"] {
+    transform: scale(0.902);
+  }
+}
+
+.decision strong {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.decision strong span {
+  color: var(--app-success-deep, #1e7b34);
+  background: color-mix(
+    in srgb,
+    var(--app-success-deep, #1e7b34) 12%,
+    transparent
+  );
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  line-height: 16px;
+}

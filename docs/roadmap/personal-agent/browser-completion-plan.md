@@ -32,12 +32,12 @@ remains the follow-on scope, not a prerequisite for demonstrating the MVP.
 Neither cloud is currently Browser-qualified. Complete one vertical journey
 through the existing runtime before expanding capabilities.
 
-| Order | Deliverable | Acceptance |
-| --- | --- | --- |
-| 1 | Protected browser in the existing pod image | Sandboxed Chromium loads one approved synthetic public page and produces a frame. One and Browser share the owner boundary; normal requests follow the broker and deployed identity is owner scoped. Teardown is verified. |
-| 2 | One delegates a public research task | Existing ADK specialist observes, navigates, clicks and scrolls within approved origins; it returns a bounded outcome through the approved result boundary. No cloud/model fallback. |
-| 3 | Owner can watch and intervene | View browser, Take control, Resume agent and Stop share the same task. Mouse, touch, scroll and keyboard map to the displayed frame. Takeover fences autonomous actions and model observations; handback requires a fresh observation. |
-| 4 | Reconnect and failure are truthful | Refresh discovers the same live task without resubmitting the goal. Interrupted execution is reported explicitly. Stop terminates owned browser work; idle teardown releases resources. |
+| Order | Deliverable                                 | Acceptance                                                                                                                                                                                                                             |
+| ----- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Protected browser in the existing pod image | Sandboxed Chromium loads one approved synthetic public page and produces a frame. One and Browser share the owner boundary; normal requests follow the broker and deployed identity is owner scoped. Teardown is verified.             |
+| 2     | One delegates a public research task        | Existing ADK specialist observes, navigates, clicks and scrolls within approved origins; it returns a bounded outcome through the approved result boundary. No cloud/model fallback.                                                   |
+| 3     | Owner can watch and intervene               | View browser, Take control, Resume agent and Stop share the same task. Mouse, touch, scroll and keyboard map to the displayed frame. Takeover fences autonomous actions and model observations; handback requires a fresh observation. |
+| 4     | Reconnect and failure are truthful          | Refresh discovers the same live task without resubmitting the goal. Interrupted execution is reported explicitly. Stop terminates owned browser work; idle teardown releases resources.                                                |
 
 Use one page and one active task, with the existing 60-action/15-minute bound.
 Start with a fixed remote viewport scaled responsively to the preview container;
@@ -99,10 +99,10 @@ authority, action ledger and recovery owner. Installed acceptance remains open.
 
 ## Documented integration and models
 
-| Cloud | Initial qualification target | Integration |
-| --- | --- | --- |
-| GCP | Owner-authorized Gemini 3.8 Flash through the verified owner-project connection | ADK task-mode `LlmAgent`, `ComputerUseToolset`, existing `PodComputer(BaseComputer)` |
-| Azure | Qualify an owner-authorized `gpt-6-luna` Computer Use deployment | Same ADK task lifecycle, browser-specific native Responses `BaseLlm` adapter and provider toolset adaptation over existing `BrowserControl` |
+| Cloud | Initial qualification target                                                    | Integration                                                                                                                                 |
+| ----- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| GCP   | Owner-authorized Gemini 3.8 Flash through the verified owner-project connection | ADK task-mode `LlmAgent`, `ComputerUseToolset`, existing `PodComputer(BaseComputer)`                                                        |
+| Azure | Qualify an owner-authorized `gpt-6-luna` Computer Use deployment                | Same ADK task lifecycle, browser-specific native Responses `BaseLlm` adapter and provider toolset adaptation over existing `BrowserControl` |
 
 Google documents [ComputerUseToolset/BaseComputer](https://adk.dev/integrations/computer-use/)
 and lists Gemini 3.8 Flash among [supported browser models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/computer-use#supported-models).
@@ -161,15 +161,15 @@ task session; do not fork ADK or add an independent orchestration engine.
 Chromium stays headless in the selected owner's pod service. A visible
 desktop is unnecessary. Opening the preview displays the same task and page.
 
-| Action | Required behavior |
-| --- | --- |
-| Ask One to use a website | Start one bounded task and show actual progress or waiting state |
-| View browser | Desktop panel or mobile sheet; opening it neither restarts the browser nor transfers control |
-| Take control | Fence autonomous inputs and all model observations before acknowledging exclusive owner input |
-| Mouse, touch and keyboard | Operate the same page with ordered focus, drag, scrolling and input within the current epoch |
-| Fit this screen | Scale the preview; explicit remote-page reflow requires owner control and an acknowledged fresh frame |
-| Resume agent | Explicit handback, fresh observation and still-valid processing/action authority |
-| Stop or reconnect | Server-side cancellation or rediscovery of the same task; no duplicate submission |
+| Action                    | Required behavior                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Ask One to use a website  | Start one bounded task and show actual progress or waiting state                                      |
+| View browser              | Desktop panel or mobile sheet; opening it neither restarts the browser nor transfers control          |
+| Take control              | Fence autonomous inputs and all model observations before acknowledging exclusive owner input         |
+| Mouse, touch and keyboard | Operate the same page with ordered focus, drag, scrolling and input within the current epoch          |
+| Fit this screen           | Scale the preview; explicit remote-page reflow requires owner control and an acknowledged fresh frame |
+| Resume agent              | Explicit handback, fresh observation and still-valid processing/action authority                      |
+| Stop or reconnect         | Server-side cancellation or rediscovery of the same task; no duplicate submission                     |
 
 Separate preview frames from model observations. Handle orientation, device-pixel
 ratio and letterboxing without corrupting coordinates. Reject stale input after
@@ -230,13 +230,13 @@ The recovery probe moved to `northcentralus` only after `westus2` returned
 `AllocationFailed` and fresh quota, SKU and pinned-OS checks passed there.
 That diagnostic selection does not change the user's selected hosting region.
 
-| Boundary | Required implementation and proof |
-| --- | --- |
-| Identity / custody | VM IMDS transport, host binding and synthetic Key Vault/Blob recovery pass. Compose them into the owner setup's user-assigned identity, exact tags and actual application startup; do not synthesize ACA platform variables |
-| Private ingress | Stable HTTPS endpoint with the existing signed owner/pod admission and CORS checks. The probe's deny-all inbound policy is not customer ingress |
-| Wake / idle | Scope start/deallocate permission to the selected VM through the existing control plane. Coalesce concurrent requests. Persist scheduled work before wake; admit it only after authenticated recovery. Drain browser and relay before deallocation; verify provider power state |
-| Update / transition | Exact owner hosting offer, immutable image, predecessor recovery, old-writer fence and installed-digest readback. Preserve keys/storage; do not automatically move current ACA owners |
-| Erasure | Inventory VM, disks, network, identity, registry and custody through existing cleanup authority; retain repairable state until absence/retention is established |
+| Boundary            | Required implementation and proof                                                                                                                                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity / custody  | VM IMDS transport, host binding and synthetic Key Vault/Blob recovery pass. Compose them into the owner setup's user-assigned identity, exact tags and actual application startup; do not synthesize ACA platform variables                                                     |
+| Private ingress     | Stable HTTPS endpoint with the existing signed owner/pod admission and CORS checks. The probe's deny-all inbound policy is not customer ingress                                                                                                                                 |
+| Wake / idle         | Scope start/deallocate permission to the selected VM through the existing control plane. Coalesce concurrent requests. Persist scheduled work before wake; admit it only after authenticated recovery. Drain browser and relay before deallocation; verify provider power state |
+| Update / transition | Exact owner hosting offer, immutable image, predecessor recovery, old-writer fence and installed-digest readback. Preserve keys/storage; do not automatically move current ACA owners                                                                                           |
+| Erasure             | Inventory VM, disks, network, identity, registry and custody through existing cleanup authority; retain repairable state until absence/retention is established                                                                                                                 |
 
 The image-update preparation now retains exact request-body commitments, installed
 configuration/updater hashes, placement and key identities. It does not export the
@@ -295,10 +295,10 @@ approximately **$11.12/month retained infrastructure floor**. VM compute adds
 $0.0376 per billed hour, including startup and idle grace.
 
 | Billed VM hours/month | Compute | Retained disk + IP + registry | Infrastructure subtotal |
-| ---: | ---: | ---: | ---: |
-| 30 | $1.13 | $11.12 | $12.25 |
-| 120 | $4.51 | $11.12 | $15.63 |
-| 730 | $27.45 | $11.12 | $38.57 |
+| --------------------: | ------: | ----------------------------: | ----------------------: |
+|                    30 |   $1.13 |                        $11.12 |                  $12.25 |
+|                   120 |   $4.51 |                        $11.12 |                  $15.63 |
+|                   730 |  $27.45 |                        $11.12 |                  $38.57 |
 
 This is not an all-inclusive price: add Files/recovery storage and operations,
 Key Vault, queues, egress, monitoring, model calls and allocated control-plane
@@ -327,14 +327,15 @@ receipts, and neither set establishes installed-owner acceptance.
 - **GCP Cloud Run (`outer_isolation="gvisor"`):** `chromium_internal_sandbox=True` confines untrusted web renderers, while `landlock_fs_confinement=False` (`ENOSYS` under gVisor) and unprivileged nested network/mount namespaces are unavailable inside the serving container. Because `container_worker.py` supervises Browser under the same non-root UID (`shared_owner_container`) as One, spawning an ordinary shell subprocess inside the serving pod shares process/filesystem visibility with One's serving keys and memory. It is not an arbitrary-code boundary for untrusted `npm`, `pip`, or downloaded binaries.
 - **Azure Container Apps (`outer_isolation="hyperv"`):** Hyper-V isolates the outer pod and `landlock_fs_confinement=True` is available (`chromium_internal_sandbox=False`), while any in-pod shell still requires explicit credential scrubbing, metadata-endpoint blocking, and bounded scratch.
 
-### CLI execution boundary and proactive resource guardrails (Phase 0 approved — `dev` source implemented)
+### CLI execution boundary and proactive resource guardrails (Phase 0 approved — updated 2026-11-16 `dev` single-runtime contract)
 
-Lead review approved **Option A** (with **Option B** fail-closed refusal inside `shared_owner_container`) paired with mandatory continuous resource monitoring so agent CLI tasks degrade gracefully instead of crashing under memory or scratch exhaustion:
+Lead review on 2026-11-16 (`#9511`) superseded per-command external Cloud Jobs as the default interactive CLI path in favor of **One Unified Runtime** inside the single owner pod container, paired with continuous proactive resource monitoring and fail-closed fallback before the separate workspace UID activates:
 
-| Option | Enforcement mechanism (`dev` source) | Retained workspace & resource guardrails | Trade-off |
-| --- | --- | --- | --- |
-| **Option A (Approved primary boundary): Ephemeral task-scoped execution worker over encrypted `ObjectStore` checkpoints** | Runs CLI, `git`, and package commands via declarative `cli_worker_job_mode` dispatchers (`GcpCloudRunJobDispatcher` over Cloud Run Admin v2 `Jobs` and `AzureContainerAppsJobDispatcher` over `Microsoft.App/jobs`, with dedicated non-pod worker identity, `maxRetries=0` / `replicaRetryLimit=0`, immutable `@sha256:` image digests, `169.254.169.254` excluded, Landlock confinement where supported, and `CLI_OWNER_TAKEOVER_ACTIVE` fencing). | Pre-stages a one-shot AES-256-GCM `run_key` input envelope (`runs/{run_id}_in.bin`) under `<prefix>/workspaces/v1/<ws_id>/` using narrow `validated_workspace_subprefix` tokens (`pods/{hushh_id}/workspaces/v1/{ws_id}` — zero pod DEK or cross-workspace keys in job env). `worker_runner.py` executes under `WorkspaceResourceGuard` (`<70%` normal, `70–85%` warn, `85–92%` cache eviction + pre-OOM `_ckpt.bin`, `>=92%` child-group stop returning `RESOURCE_BUDGET_EXCEEDED`), and the Pod sanitizes returned archives (`sanitize_and_measure_workspace_archive`) before CAS commit (`save_checkpoint_archive`) and `runs/*` cleanup. | Adds cold task-worker startup (~2–6 s) and archive checkpoint I/O while keeping arbitrary code out of the serving pod's key boundary and recovering pre-OOM checkpoints even if the worker container exits early. |
-| **Option B (Active serving-pod fallback): Restricted in-container builtin file/script mode** | Permits curated non-package inspection builtins inside `shared_owner_container` and refuses arbitrary shell, `npm`/`pip`, and network-fetching commands fail-closed (`CLI_WORKER_BOUNDARY_REQUIRED`) when `POD_CLI_EPHEMERAL_WORKER_ENABLED` is off. | Reuses bounded task scratch and `BoundedStreamRingBuffer` (`64 KiB` per stream) without persistent container state. | Zero extra infrastructure, while refusing arbitrary third-party packages until Option A worker substrate is enabled per cloud. |
+| Mode                                                                                                   | Enforcement mechanism (`dev` contract & source)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Retained workspace & resource guardrails                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Trade-off                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One Unified Runtime (Approved primary interactive boundary): In-pod dual-UID workspace supervisor**  | Keeps One + Browser (`UID 10001`, `/app` `0700`) and a persistent unprivileged `workspace` supervisor (`UID 10002`, `/tmp/hussh-workspaces` `0700`) inside the single owner pod container (spawned from `browser_runtime/pod_entrypoint.py` over `AF_UNIX` `SOCK_SEQPACKET`, symmetric with Puppy Private Relay), with `build_scrubbed_worker_env()`, `RLIMIT_CORE=0`, post-`execve` `PR_SET_DUMPABLE=0` verified via `prctl(PR_GET_DUMPABLE) == 0` (`browser_runtime/gunicorn_lifecycle.py` — never `/proc/self/status` `Dumpable:`, which Cloud Run Gen1 gVisor omits), and Landlock ABI v1–v3 where kernel-supported. | Hydrates encrypted `<prefix>/workspaces/v1/<ws_id>/` checkpoints once per warm session (`~5–20 ms` stateful commands, direct approved Browser-download handoff), enforces the 4-stage `WorkspaceResourceGuard` (`<70%` normal, `70–85%` warn, `85–92%` cache eviction + pre-OOM checkpoint, `>=92%` `UID 10002` process-group stop returning `RESOURCE_BUDGET_EXCEEDED`), and flushes CAS checkpoints on milestones, idle, and `SIGTERM` drain. Verify storage/CAS/subprefix contracts locally with [Floci multi-cloud wire verification](../../development/quality/floci-multicloud-wire-verification.md). | Millisecond interactive CLI + zero extra cloud Job services or BYOC IAM roles; the single-owner pod container remains the outer network compromise boundary.                                                           |
+| **Retained Opt-In Batch Mode (`POD_CLI_EXTERNAL_JOB_MODE=1`): Ephemeral task-scoped Cloud Job worker** | Retains `#9619` declarative dispatchers (`GcpCloudRunJobDispatcher` over Cloud Run Admin v2 `Jobs` and `AzureContainerAppsJobDispatcher` over `Microsoft.App/jobs`, immutable `@sha256:` digests, `maxRetries=0`, `169.254.169.254` excluded, `CLI_OWNER_TAKEOVER_ACTIVE` fencing) strictly behind explicit opt-in batch configuration, never required for normal pod or BYOC setup.                                                                                                                                                                                                                                     | Pre-stages one-shot AES-256-GCM `run_key` envelopes (`runs/{run_id}_in.bin`) under narrow `validated_workspace_subprefix` tokens (`pods/{hushh_id}/workspaces/v1/{ws_id}`) and sanitizes returned archives (`sanitize_and_measure_workspace_archive`) before CAS commit.                                                                                                                                                                                                                                                                                                                                    | Cold task-worker startup (`~2–6 s`) reserved for optional heavy batch isolation when explicitly enabled.                                                                                                               |
+| **Active Serving-Pod Fallback (Before `UID 10002` supervisor activation): Restricted builtin mode**    | Permits curated non-package inspection builtins inside `shared_owner_container` and refuses arbitrary shell, `npm`/`pip`, and network-fetching commands fail-closed (`CLI_WORKER_BOUNDARY_REQUIRED`) when neither the `UID 10002` supervisor nor opt-in external worker mode is active.                                                                                                                                                                                                                                                                                                                                  | Reuses bounded task scratch and `BoundedStreamRingBuffer` (`64 KiB` per stream) without persistent container state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Zero extra infrastructure while refusing arbitrary third-party packages until the `UID 10002` supervisor is qualified per cloud (`Dev 38` Azure BYOC and `Dev 39` Hussh-Hosted GCP Slot #3 are active `dev` testbeds). |
 
 ### Protected CLI credential mediation
 
@@ -354,14 +355,14 @@ Execute the immediate MVP above first. The following table retains the broader
 completion requirements for subsequent slices; it must not expand the first
 acceptance window.
 
-| Stage | Deliverable | Exit proof |
-| --- | --- | --- |
-| 1. Built-in execution | Qualified separate-UID Chromium and private bridge in each owner cloud service | Real frame, process/filesystem/network negative controls, immutable source and teardown receipts |
-| 2. Native model contracts | Gemini verified; Azure model/toolset adapter and exact action mapping | Extend existing browser/Responses suites for images, instructions, call correlation, safety review, focused typing and unsupported-action negative controls |
-| 3. Cloud execution | Qualified in-pod launcher and private bridge per cloud | Actual Chromium, controlled network and teardown receipts |
-| 4. Runtime composition | Install `browser_task_runtime` with real ledger, exports, storage, model and update ports | Admitted start/reconnect/review/cancel; no fake readiness or duplicate task/effect |
-| 5. Owner experience | Headless work, responsive preview and exclusive takeover | Controlled mouse/touch/keyboard, viewport changes, login suppression and explicit fresh handback |
-| 6. Installed-image acceptance | Separate GCP and Azure evidence | Research, manual login, reviewed submission, scoped byte-exact Files download, Forget, update drain/recovery and idle wake |
+| Stage                         | Deliverable                                                                               | Exit proof                                                                                                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Built-in execution         | Qualified separate-UID Chromium and private bridge in each owner cloud service            | Real frame, process/filesystem/network negative controls, immutable source and teardown receipts                                                            |
+| 2. Native model contracts     | Gemini verified; Azure model/toolset adapter and exact action mapping                     | Extend existing browser/Responses suites for images, instructions, call correlation, safety review, focused typing and unsupported-action negative controls |
+| 3. Cloud execution            | Qualified in-pod launcher and private bridge per cloud                                    | Actual Chromium, controlled network and teardown receipts                                                                                                   |
+| 4. Runtime composition        | Install `browser_task_runtime` with real ledger, exports, storage, model and update ports | Admitted start/reconnect/review/cancel; no fake readiness or duplicate task/effect                                                                          |
+| 5. Owner experience           | Headless work, responsive preview and exclusive takeover                                  | Controlled mouse/touch/keyboard, viewport changes, login suppression and explicit fresh handback                                                            |
+| 6. Installed-image acceptance | Separate GCP and Azure evidence                                                           | Research, manual login, reviewed submission, scoped byte-exact Files download, Forget, update drain/recovery and idle wake                                  |
 
 Run focused checks while building; use one core mirror and exact-SHA hosted
 verification on the finished candidate. Model checks stay synthetic, bounded and

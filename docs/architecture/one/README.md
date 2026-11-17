@@ -1,5 +1,7 @@
 # Hussh One Index
 
+[Architecture](../README.md)
+
 People communication: [disabled People calling implementation](./people-calling.md).
 
 ## Visual Map
@@ -83,8 +85,13 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 - [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md): default-on background research after setup and vault unlock, the dedicated `/one/profile/world-model` page, and per-fact Yes / No / Edit / Remove saved to the owner's encrypted Soul.md memory.
 
-## Related One contracts
+## Further reading
 
-- [Calendar email follow-ups](calendar-email-followups.md): account-specific monitoring and review authority.
-- [Meeting file requests](calendar-meeting-file-requests.md): Calendar, Meet and Drive access boundaries.
-- [Voice routing trace](save-my-soul-voice-trace.md): retained diagnostic context and its limits.
+- [Agent Chat migration measurements](agent-chat-migration-baseline.md)
+- [Calendar email follow-ups contract](calendar-email-followups.md)
+- [Calendar meeting file requests: typed Drive integration](calendar-meeting-file-requests.md)
+- [Runtime provider brand inventory](runtime-provider-brand-inventory.md)
+- [Save My Soul in One Voice: source trace](save-my-soul-voice-trace.md)
+- [Wallet original artwork providers](wallet-artwork-providers.md)
+- [Wallet bank designs from the supplied card atlas](wallet-card-atlas.md)
+- [Wallet sharing and activity](wallet-sharing.md)

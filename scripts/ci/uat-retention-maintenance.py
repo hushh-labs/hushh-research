@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterator
-from contextvars import ContextVar
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -28,6 +29,7 @@ import production_phone_receipt
 import production_phone_lease
 import production_phone_nonproducer
 import production_retention_context
+import retention_admission
 import retention_pass_diagnostics as pass_diagnostics
 
 retention = importlib.import_module("cloudrun-retention")
@@ -109,7 +111,7 @@ REQUIRED_PRODUCTION_STEPS = (
 )
 
 
-GITHUB_LOOKUP_SECONDS = 90
+GITHUB_LOOKUP_SECONDS = 180
 PRODUCTION_RELEASE_LOOKUP_SECONDS = 150
 PASS_SECONDS = 300
 _LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
@@ -171,23 +173,42 @@ def trusted_run(run: dict, repository: str, workflow: str) -> bool:
 
 
 def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
+    branch_admitted = run.get("head_branch") == "main"
+    if not branch_admitted and workflow == "deploy-uat.yml":
+        try:
+            release_provenance.deployment_authority(run, "uat")
+            branch_admitted = True
+        except ValueError:
+            return False
     return (
         run.get("path") == f".github/workflows/{workflow}"
-        and run.get("head_branch") == "main"
+        and branch_admitted
         and run.get("status") == "completed"
         and (run.get("repository") or {}).get("full_name") == repository
         and (run.get("head_repository") or {}).get("full_name") == repository
     )
 
 
-def verify_post_release_failure(repository: str, run: dict, release: dict) -> bool | None:
+def verify_post_release_failure(repository: str, run: dict, release: dict) -> bool:
     """A failed hygiene step never substitutes for successful release gates."""
-    result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
-    jobs = result.get("jobs") or []
-    if isinstance(jobs, list) and any(
-        isinstance(job, dict) and job.get("name") == "Deploy Production Scope · Phone activation"
-        for job in jobs
-    ):
+    attempt = run.get("run_attempt", 1)
+    if type(attempt) is not int or attempt < 1:
+        raise retention.UnsafeState("production deployment attempt is invalid")
+    result = api(repository, f"runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
+    jobs = result.get("jobs")
+    if (not isinstance(jobs, list) or not 1 <= len(jobs) <= 100
+            or result.get("total_count") != len(jobs)
+            or any(not isinstance(job, dict) for job in jobs)):
+        raise retention.UnsafeState("production deployment job inventory is incomplete")
+    activation = [job for job in jobs if job.get("name") == "Deploy Production Scope · Phone activation"]
+    if len(activation) == 1 and activation[0].get("conclusion") == "failure":
+        if any(job.get("status") != "completed" or job.get("conclusion") not in {"success", "skipped"}
+               for job in jobs if job is not activation[0]):
+            raise retention.UnsafeState("activation publication failure includes another job")
+        for name in ("Validate Production dispatch mode", "Deployment security / Verify repository secret clearance"):
+            matched = [job for job in jobs if job.get("name") == name]
+            if len(matched) != 1 or matched[0].get("conclusion") != "success":
+                raise retention.UnsafeState("activation publication mandatory preflight did not succeed")
         context = importlib.import_module("production_activation_continuation").archive_context(
             repository, run, release, LANES["production"], api=api,
             governed=governed_dispatch, timestamp=_github_timestamp,
@@ -196,9 +217,29 @@ def verify_post_release_failure(repository: str, run: dict, release: dict) -> bo
         if context is None or "publication_reconciliation" not in context:
             raise retention.UnsafeState("activation publication is unproved")
         return True
-    if result.get("total_count") != 1 or len(jobs) != 1:
-        raise retention.UnsafeState("production deployment job inventory is incomplete")
-    job = jobs[0]
+    deploy = [job for job in jobs if job.get("name") == "Deploy Production Scope"]
+    if len(deploy) != 1 or any(
+        job.get("status") != "completed"
+        or job.get("conclusion") not in {"success", "skipped"}
+        for job in jobs if job.get("name") != "Deploy Production Scope"
+    ):
+        raise retention.UnsafeState("production failure includes another job")
+    # New workflows include dispatch/security and conditional activation jobs.
+    # A skipped mandatory clearance is not a legitimate skipped activation.
+    if len(jobs) > 1:
+        for name in ("Validate Production dispatch mode",
+                     "Deployment security / Verify repository secret clearance"):
+            matched = [job for job in jobs if job.get("name") == name]
+            if len(matched) != 1 or matched[0].get("conclusion") != "success":
+                raise retention.UnsafeState("production mandatory preflight did not succeed")
+    current = uncached_api(repository, f"runs/{run['id']}")
+    if current.get("run_attempt", 1) != attempt or current.get("status") != "completed":
+        raise retention.UnsafeState("production deployment attempt changed during inspection")
+    if importlib.import_module("production_backend_successor_control").reconciled_auth_domain_publication(
+        repository, run, release
+    ):
+        return True
+    job = deploy[0]
     steps = job.get("steps") or []
     by_name = {step.get("name"): step for step in steps}
     failed = [step.get("name") for step in steps if step.get("conclusion") == "failure"]
@@ -255,6 +296,7 @@ def verify_post_release_failure(repository: str, run: dict, release: dict) -> bo
         raise retention.UnsafeState(
             "production artifact does not prove complete release health"
         )
+    return False
 
 
 def verify_post_uat_hygiene_failure(repository: str, run: dict, release: dict) -> None:
@@ -534,7 +576,7 @@ def bounded_uat_runs(repository: str, workflow: str, status: str) -> list[dict]:
     for page in range(1, 11):
         batch = api(
             repository,
-            f"workflows/{workflow}/runs?branch=main&status={status}&per_page=100&page={page}",
+            f"workflows/{workflow}/runs?{'branch=main&' if workflow != 'deploy-uat.yml' else ''}status={status}&per_page=100&page={page}",
         )["workflow_runs"]
         if not isinstance(batch, list) or any(not isinstance(run, dict) for run in batch):
             raise retention.UnsafeState("UAT deployment history is invalid")
@@ -618,7 +660,6 @@ def prior_healthy_uat_backend_release(
     runs = candidate_runs
     if runs is None:
         runs = bounded_uat_runs(repository, standard, "completed")
-        runs += successful_uat_runs(repository, ONE_CHAT_WORKFLOW)
     for run in sorted(
         {run.get("id"): run for run in runs}.values(),
         key=lambda item: int(item.get("id") or 0),
@@ -928,13 +969,12 @@ def find_release(
     else:
         if environment == "uat":
             runs = bounded_uat_runs(repository, lane_config["workflow"], "completed")
-            runs += bounded_uat_runs(repository, ONE_CHAT_WORKFLOW, "completed")
             runs = list({run["id"]: run for run in runs}.values())
             runs.sort(key=lambda run: int(run["id"]), reverse=True)
         else:
             runs = api(
                 repository,
-                f"workflows/{lane_config['workflow']}/runs?branch=main&status=completed&per_page=50",
+                f"workflows/{lane_config['workflow']}/runs?{'branch=main&' if environment != 'uat' else ''}status=completed&per_page=50",
             )["workflow_runs"]
     for run in runs:
         one_chat = environment == "uat" and trusted_origin(
@@ -1013,6 +1053,8 @@ def find_release(
             prove_frontend_inherited_backend(repository, run, release, directory)
         if cleanup_failed:
             reconciled_publication = verify_post_release_failure(repository, run, release)
+            # Frontend repair retains its independently accepted backend origin.
+            # Ordinary dual-service hygiene failures use one source run.
             if not reconciled_publication:
                 release["_maintenance_source_run"] = run_id
         restoration_continuation = environment == "production" and "restoration_activation" in release
@@ -1386,13 +1428,14 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     """A completed run triggers inspection, never grants deletion authority."""
     workflow = LANES[environment]["workflow"]
     workflows = {workflow}
-    if environment == "uat":
-        workflows.add(ONE_CHAT_WORKFLOW)
+    # The retired One-chat producer has no retained runs (2026-11-04 audit).
+    # Explicit historical run/artifact readers remain; deleted workflow indexes
+    # cannot participate in discovery. Unexpected active API failures still refuse.
     runs = []
     for name in sorted(workflows):
         result = api(
             repository,
-            f"workflows/{name}/runs?branch=main&status=completed&per_page=50",
+            f"workflows/{name}/runs?{'branch=main&' if name != 'deploy-uat.yml' else ''}status=completed&per_page=50",
         )
         batch = result.get("workflow_runs")
         if not isinstance(batch, list) or any(not isinstance(run, dict) for run in batch):
@@ -1401,8 +1444,7 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     runs.sort(key=lambda run: int(run["id"]), reverse=True)
     for run in runs:
         if (
-            run.get("path") in {f".github/workflows/{name}" for name in workflows}
-            and run.get("head_branch") == "main"
+            any(trusted_origin(run, repository, name) for name in workflows)
             and run.get("status") == "completed"
             and run.get("event") == "workflow_dispatch"
             and (run.get("repository") or {}).get("full_name") == repository
@@ -1522,7 +1564,17 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
     return maintenance_due(repository, directory, environment="production")
 
 
-def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
+class DriveWorkerCleanupDeferred(Exception):
+    """The accepted worker is serving while a newer worker candidate failed."""
+
+
+def live_release_matches(
+    release: dict,
+    *,
+    environment: str = "uat",
+    worker_release_run_id: int | None = None,
+    cleanup_worker: bool = False,
+) -> bool:
     if environment == "production" and "_maintenance_backend_identity" in release:
         production_retention_context.backend_identity(sys.modules[__name__], release["_maintenance_backend_identity"])
     if environment == "production" and "_maintenance_pending_retirement" in release:
@@ -1614,17 +1666,22 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
                 )
             ):
                 return False
-    state = retention.service_state("consent-protocol-drive-worker", project, REGION)
-    if not any(
+    state = retention.service_state(retention_admission.UAT_DRIVE_WORKER, project, REGION)
+    traffic = retention.traffic_state(state)
+    serving = [name for name, percent, _ in traffic if percent]
+    if len(serving) != 1:
+        raise retention.UnsafeState("Drive worker serving state is ambiguous")
+    if any(
         c.get("type") == "Ready" and c.get("status") == "True"
         for c in state.get("status", {}).get("conditions", [])
     ):
-        raise retention.UnsafeState("Drive worker is not ready")
-    if (
-        len([name for name, percent, _ in retention.traffic_state(state) if percent])
-        != 1
+        return True
+    if not retention_admission.accepted_worker_with_failed_candidate(
+        retention, state, traffic, serving[0], release, worker_release_run_id
     ):
-        raise retention.UnsafeState("Drive worker serving state is ambiguous")
+        raise retention.UnsafeState("Drive worker is not ready")
+    if cleanup_worker:
+        raise DriveWorkerCleanupDeferred("Drive worker cleanup waits for service readiness")
     return True
 
 
@@ -1728,11 +1785,33 @@ def preflight_release(args: argparse.Namespace, repository: str) -> tuple[int, d
 
 
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
-    if environment == "production":
-        production_phone_lease.assert_reconciled(repository, api=api, governed=governed_dispatch, timestamp=_github_timestamp, deadline=_LOOKUP_DEADLINE.get())
     publication = importlib.import_module("retention_publication")
     try:
-        publication.assert_published(sys.modules[__name__], repository, environment)
+        if environment != "production":
+            publication.assert_published(sys.modules[__name__], repository, environment)
+            return
+        # These independent GitHub-only proofs must both finish before state
+        # restoration or any provider mutation. Share the original deadline,
+        # and join both readers even when either authority refuses clearance.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            lease = executor.submit(
+                copy_context().run,
+                production_phone_lease.assert_reconciled,
+                repository,
+                api=api,
+                governed=governed_dispatch,
+                timestamp=_github_timestamp,
+                deadline=_LOOKUP_DEADLINE.get(),
+            )
+            published = executor.submit(
+                copy_context().run,
+                publication.assert_published,
+                sys.modules[__name__],
+                repository,
+                environment,
+            )
+            lease.result()
+            published.result()
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         raise retention.UnsafeState("Maintenance publication proof is unavailable or invalid") from error
 
@@ -1846,6 +1925,7 @@ def maintenance_pass() -> int:
         return 0
     run_id, release = found
     observation, service_settings, pending = args.preflight
+    worker_run_id = retention_admission.uat_worker_release_run_id(args, run_id)
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
@@ -1885,7 +1965,12 @@ def maintenance_pass() -> int:
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
-            if not live_release_matches(release, environment=args.environment):
+            if not live_release_matches(
+                release,
+                environment=args.environment,
+                worker_release_run_id=worker_run_id,
+                cleanup_worker=service == retention_admission.UAT_DRIVE_WORKER,
+            ):
                 raise retention.UnsafeState("live release changed during maintenance")
             flags = []
             lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(
@@ -1924,6 +2009,9 @@ def maintenance_pass() -> int:
                     lane_config["project"],
                 ],
             )
+        except DriveWorkerCleanupDeferred as exc:
+            print(str(exc))
+            continue
         except (retention.BudgetExpired, retention.MutationUncertain) as exc:
             if not args.apply:
                 raise
@@ -1983,8 +2071,8 @@ def maintenance_pass() -> int:
                 )
     if args.apply:
         pass_diagnostics.CURRENT_STAGE.set("completion_checkpoint")
-        checkpoint(args, run_id, observation, [], "complete")
-        record_uat_cleanup_outcome(args, "applied")
+        checkpoint(args, run_id, observation, pending, "deferred" if pending else "complete")
+        record_uat_cleanup_outcome(args, "deferred" if pending else "applied")
     elif os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write("cleanup_outcome=dry_run\n")

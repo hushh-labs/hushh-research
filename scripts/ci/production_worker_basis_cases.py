@@ -15,6 +15,49 @@ import production_worker_basis as basis
 from production_activation_continuation_cases import _continuation_case
 
 
+def _emergency_worker_pin(source, workflow_sha, ci_run):
+    digest = hashlib.sha256(
+        json.dumps(ci_run, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {
+        "admission": {
+            "schema_version": 1,
+            "kind": "manual-production-predecessor-exception",
+            "scope": "backend",
+            "ordinary_promotion_evidence": False,
+            "authority": {
+                "mode": "manual-emergency",
+                "application_sha": source,
+                "source_ref": "fix/incident-gemini-parity",
+                "reason": "Incident parity rollout without unapproved Main migrations",
+                "workflow_sha": workflow_sha,
+                "run_id": "921",
+                "run_attempt": "1",
+            },
+            "baseline": {
+                "backend": {"source": "1" * 40},
+                "frontend": {"source": "2" * 40},
+            },
+        },
+        "ci": {
+            "schema_version": 1,
+            "repository": basis.REPOSITORY,
+            "sha": source,
+            "source_branch": "fix/incident-gemini-parity",
+            "checks": [
+                {
+                    "check": "Branch Validation Gate",
+                    "run_id": 920,
+                    "run_attempt": 1,
+                    "workflow": ".github/workflows/ci.yml",
+                    "event": "workflow_dispatch",
+                }
+            ],
+            "authority_reads": {"runs/920": digest},
+        },
+    }
+
+
 def _tag(case):
     source = case.release["sha"]
     fields = {
@@ -480,3 +523,276 @@ class WorkerBasisCases:
                             contract()
             finally:
                 ports.owner._API_CACHE.reset(token)
+
+    def test_main_qualified_build_from_source_revalidates_without_checks_permission(
+        self,
+    ):
+        source = "d" * 40
+        approval = "e" * 40
+        built_image = "gcr.io/hushh-pda/consent-protocol@sha256:" + "9" * 64
+        ci_run = {
+            "id": 910,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        smoke_run = {
+            "id": 911,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        mapping = {
+            "schema_version": 1,
+            "kind": "main-application-approval",
+            "application_sha": source,
+            "application_tree": "1" * 40,
+            "equivalence": "exact-git-tree",
+            "main_approval_sha": approval,
+            "predecessor_acceptance_required": "main-qualified-source",
+        }
+
+        def _digest(payload):
+            return hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+
+        pin = {
+            "schema_version": 1,
+            "kind": "main-qualified-source",
+            "status": "qualified",
+            "repository": basis.REPOSITORY,
+            "environment": "production",
+            "sha": source,
+            "main_approval_sha": approval,
+            "resolved_services": ["backend"],
+            "qualification": {
+                "functional": {
+                    "schema_version": 1,
+                    "repository": basis.REPOSITORY,
+                    "sha": source,
+                    "source_branch": "main",
+                    "checks": [
+                        {
+                            "check": "CI Status Gate",
+                            "check_id": 1001,
+                            "run_id": 910,
+                            "run_attempt": 1,
+                            "workflow": ".github/workflows/ci.yml",
+                            "event": "pull_request",
+                        }
+                    ],
+                    "authority_reads": {"runs/910": _digest(ci_run)},
+                },
+                "smoke": {
+                    "schema_version": 1,
+                    "repository": basis.REPOSITORY,
+                    "sha": approval,
+                    "source_branch": "main",
+                    "checks": [
+                        {
+                            "check": "Main Post-Merge Smoke Gate",
+                            "check_id": 1002,
+                            "run_id": 911,
+                            "run_attempt": 1,
+                            "workflow": ".github/workflows/main-post-merge-smoke.yml",
+                            "event": "push",
+                        }
+                    ],
+                    "authority_reads": {"runs/911": _digest(smoke_run)},
+                },
+            },
+            "application_approval": mapping,
+        }
+        with _basis_case(self) as ports:
+            base_api = ports.owner.api
+            seen_endpoints = []
+
+            def actions_only_api(repository, endpoint):
+                seen_endpoints.append(endpoint)
+                if "check-runs" in endpoint:
+                    raise AssertionError(
+                        "actions-only maintenance cannot read check-runs"
+                    )
+                if endpoint == "runs/910":
+                    return copy.deepcopy(ci_run)
+                if endpoint == "runs/911":
+                    return copy.deepcopy(smoke_run)
+                return base_api(repository, endpoint)
+
+            with (
+                mock.patch.object(ports.owner, "api", actions_only_api),
+                mock.patch.object(
+                    basis.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+                ),
+                mock.patch.object(
+                    basis.promotion_approval,
+                    "verify",
+                    return_value=copy.deepcopy(mapping),
+                ),
+            ):
+                result = basis.load(
+                    source,
+                    candidate_image=built_image,
+                    image_source="build-from-source",
+                    approval_sha=approval,
+                    main_qualification=pin,
+                )
+                self.assertEqual(result["candidate"]["source"], source)
+                self.assertEqual(result["candidate"]["image"], built_image)
+                self.assertEqual(
+                    result["candidate"]["main_qualification"]["main_approval_sha"],
+                    approval,
+                )
+                self.assertNotIn("uat_acceptance", result["candidate"])
+                with mock.patch.object(
+                    ports.owner.retention,
+                    "service_state",
+                    side_effect=AssertionError("source-only must not read runtime"),
+                ):
+                    self.assertEqual(basis.qualify_source(result), result)
+                self.assertEqual(basis.revalidate(result), result)
+                self.assertIn("runs/910", seen_endpoints)
+                self.assertIn("runs/911", seen_endpoints)
+
+                ci_run["conclusion"] = "cancelled"
+
+                def drift_contract():
+                    with self.assertRaises(basis.receipts.retention.UnsafeState):
+                        basis.qualify_source(result)
+
+                drift_contract()
+                with mock.patch.object(
+                    basis,
+                    "_verify_main_qualification",
+                    side_effect=lambda *_a, **_k: pin,
+                ):
+                    with self.assertRaises(AssertionError):
+                        drift_contract()
+
+    def test_healthy_basis_allows_failed_unserved_worker_candidate_only_when_serving_is_ready(
+        self,
+    ):
+        with _basis_case(self) as ports:
+            worker_service, worker_revision = ports.runtimes[basis.WORKER]
+            serving_name = worker_revision["metadata"]["name"]
+            failed_candidate = f"{basis.WORKER}-s-43698595541-1"
+            worker_service["spec"]["template"] = {
+                "metadata": {"name": failed_candidate}
+            }
+            worker_service["spec"]["traffic"] = [
+                {"revisionName": serving_name, "percent": 100},
+                {"revisionName": failed_candidate, "tag": "stage-a88981fa7"},
+            ]
+            worker_service["status"].update(
+                latestCreatedRevisionName=failed_candidate,
+                latestReadyRevisionName=serving_name,
+                conditions=[
+                    {
+                        "type": "Ready",
+                        "status": "False",
+                        "reason": "HealthCheckContainerError",
+                    }
+                ],
+            )
+            result = basis.load("f" * 40)
+            self.assertEqual(result["worker"]["revision"], serving_name)
+
+            # Negative controls: backend service Ready=False or serving worker Ready=False must fail.
+            ports.runtimes["consent-protocol"][0]["status"]["conditions"] = [
+                {
+                    "type": "Ready",
+                    "status": "False",
+                    "reason": "HealthCheckContainerError",
+                }
+            ]
+            with self.assertRaises(basis.receipts.retention.UnsafeState):
+                basis.load("f" * 40)
+            ports.runtimes["consent-protocol"][0]["status"]["conditions"] = [
+                {"type": "Ready", "status": "True"}
+            ]
+            worker_revision["status"]["conditions"] = [
+                {"type": "Ready", "status": "False"}
+            ]
+            with self.assertRaises(basis.receipts.retention.UnsafeState):
+                basis.load("f" * 40)
+
+    def test_emergency_worker_basis_revalidates_without_checks_permission(self):
+        source, workflow_sha = "d" * 40, "e" * 40
+        ci_run = {
+            "id": 920,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        human = {"login": "governed-maintainer", "id": 77, "type": "User"}
+        repo_meta = {"full_name": basis.REPOSITORY}
+        stage_run = {
+            "id": 921,
+            "run_attempt": 1,
+            "status": "in_progress",
+            "conclusion": None,
+            "path": ".github/workflows/deploy-production.yml",
+            "head_sha": workflow_sha,
+            "event": "workflow_dispatch",
+            "head_branch": "main",
+            "repository": repo_meta,
+            "head_repository": repo_meta,
+            "actor": human,
+            "triggering_actor": human,
+        }
+        load_kwargs = {
+            "candidate_image": "gcr.io/hushh-pda/consent-protocol@sha256:" + "8" * 64,
+            "image_source": "build-from-source",
+            "emergency_qualification": _emergency_worker_pin(
+                source, workflow_sha, ci_run
+            ),
+        }
+        with _basis_case(self) as ports:
+            base_api = ports.owner.api
+            routes = {"runs/920": ci_run, "runs/921": stage_run}
+
+            def api(repo, endpoint):
+                if "check-runs" in endpoint:
+                    raise AssertionError(
+                        "actions-only maintenance cannot read check-runs"
+                    )
+                return (
+                    copy.deepcopy(routes[endpoint])
+                    if endpoint in routes
+                    else base_api(repo, endpoint)
+                )
+
+            with (
+                mock.patch.object(ports.owner, "api", api),
+                mock.patch(
+                    "production_worker_emergency.subprocess.run",
+                    return_value=SimpleNamespace(returncode=0),
+                ),
+            ):
+                with self.assertRaises(basis.receipts.retention.UnsafeState):
+                    basis.load(source, **load_kwargs)
+                with mock.patch.dict(
+                    "os.environ", {"GITHUB_RUN_ID": "921", "GITHUB_RUN_ATTEMPT": "1"}
+                ):
+                    result = basis.load(source, **load_kwargs)
+                    stage_run["actor"] = {
+                        "login": "github-actions[bot]",
+                        "id": 1,
+                        "type": "Bot",
+                    }
+                    with self.assertRaises(basis.receipts.retention.UnsafeState):
+                        basis.revalidate(result)
+                    stage_run["actor"] = human
+                stage_run.update(status="completed", conclusion="success")
+                self.assertEqual(basis.qualify_source(result), result)
+                self.assertEqual(basis.revalidate(result), result)
+                ci_run["conclusion"] = "cancelled"
+                with self.assertRaises(basis.receipts.retention.UnsafeState):
+                    basis.qualify_source(result)
+                ci_run["conclusion"] = "success"
+                stage_run["conclusion"] = "failure"
+                with self.assertRaises(basis.receipts.retention.UnsafeState):
+                    basis.revalidate(result)

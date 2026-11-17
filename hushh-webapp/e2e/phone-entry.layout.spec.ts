@@ -16,6 +16,7 @@ test.beforeAll(async () => {
   outDir = fs.mkdtempSync(path.join(os.tmpdir(), "phone-entry-"));
   await build({
     configFile: false,
+    publicDir: false,
     logLevel: "error",
     plugins: [
       {
@@ -34,6 +35,9 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
       ...["next/navigation", "next/image", "@/lib/firebase/auth-context", "@/components/app-ui/native-route-marker", "@/components/vault/vault-lock-guard", "@/lib/services/account-identity-service", "@/lib/services/onboarding-route-cookie", "@/lib/services/post-auth-route-service", "@/lib/services/pre-vault-user-state-service", "@/lib/services/ria-service", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions", "@/lib/services/api-service", "@/lib/observability/client"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") })),
+      { find: "@/components/auth/phone-recovery-review", replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") },
+      { find: "@/lib/services/auth-service", replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") },
+      { find: /^\.\/auth-service$/, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") },
       { find: "@", replacement: root },
     ] },
     define: {
@@ -77,7 +81,9 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  const modules = fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  const { optimize } = await import("@tailwindcss/node");
+  css = stripAppFontFaces(optimize(compiler.build([...candidates]) + modules, { minify: true }).code) + productFontStyle();
 });
 
 test.afterAll(() => {
@@ -91,6 +97,8 @@ for (const viewport of [
 ]) {
   for (const theme of ["light", "dark"]) {
     test("Phone and OTP " + viewport.width + "x" + viewport.height + " " + theme, async ({page}, testInfo) => {
+      const runtimeErrors: string[] = [];
+      page.on("pageerror", error => { runtimeErrors.push(error.message); console.error(error.message); });
       await page.setViewportSize(viewport);
       await page.route("https://phone-entry.test/", route => route.fulfill({body:"<!doctype html><html></html>", contentType:"text/html"}));
       await page.route("https://phone-entry.test/onboarding/**", async route => {
@@ -101,6 +109,7 @@ for (const viewport of [
       await page.setContent('<html class="' + (theme === "dark" ? "dark" : "") + '" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><base href="https://phone-entry.test/"><style>' + css + '</style></head><body><div id="root"></div></body></html>');
       await page.addScriptTag({content:script});
       await awaitProductFont(page);
+      const accentColor = await page.getByTestId("shared-primary-reference").evaluate(element => getComputedStyle(element).backgroundColor);
 
       const phoneHeading = page.getByRole("heading", {name:"Enter your phone number", exact:true});
       await expect(phoneHeading).toBeVisible();
@@ -134,7 +143,7 @@ for (const viewport of [
       await expect(helper).toContainText("We may send SMS notifications.");
       const continueButton = page.getByRole("button", {name:"Continue", exact:true});
       await expect(continueButton).toHaveCSS("height", "52px");
-      await expect(continueButton).toHaveCSS("background-color", "rgb(0, 113, 227)");
+      await expect(continueButton).toHaveCSS("background-color", accentColor);
       const shell = page.getByTestId("phone-mandate-screen");
       const back = (await page.getByRole("button", {name:"Go back", exact:true}).boundingBox())!;
       const account = (await page.getByRole("button", {name:"Account actions", exact:true}).boundingBox())!;
@@ -168,7 +177,7 @@ for (const viewport of [
       await codeInput.fill("123456");
       await expect(codeInput).toHaveValue("123456");
       await expect(confirm).toBeEnabled();
-      await expect(confirm).toHaveCSS("background-color", "rgb(0, 113, 227)");
+      await expect(confirm).toHaveCSS("background-color", accentColor);
       await page.screenshot({path:testInfo.outputPath("code.png")});
 
       if (viewport.width < 800) {
@@ -195,6 +204,35 @@ for (const viewport of [
       await expect(codeHeading).toBeVisible();
       await page.getByRole("button", {name:"Use a Different number", exact:true}).click();
       await expect(phoneHeading).toBeVisible();
+
+      // Real conflict presentation; provider/network boundaries remain inert.
+      await phoneInput.fill("6505550101");
+      await continueButton.click();
+      await codeInput.fill("123456");
+      await confirm.click();
+      const conflictTitle = page.getByRole("heading", {name:"Number already linked", exact:true});
+      await expect(conflictTitle).toBeVisible();
+      await expect(codeHeading).toBeHidden();
+      const changeNumber = page.getByRole("button", {name:"Use a different number", exact:true});
+      const deleteReview = page.getByRole("button", {name:"Delete my previous account", exact:true});
+      await expect(page.locator('[data-phone-conflict]').getByRole("button")).toHaveCount(2);
+      await expect(page.locator('[data-phone-conflict] p')).toHaveCount(0);
+      const titleBox = (await conflictTitle.boundingBox())!;
+      const actionBox = (await changeNumber.boundingBox())!;
+      expect(Math.abs(titleBox.x - actionBox.x)).toBeLessThanOrEqual(1);
+      expect(actionBox.height).toBeGreaterThanOrEqual(44);
+      if (viewport.width < 800) expect(titleBox.height).toBeLessThanOrEqual(await conflictTitle.evaluate(element => parseFloat(getComputedStyle(element).lineHeight)) + 1);
+      await expect(changeNumber).toHaveCSS("box-shadow", "none");
+      await expect(deleteReview).toBeInViewport({ratio:1});
+      expect((await deleteReview.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      for (const label of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Sign in to existing account", "Review previous device access", "Account options"]) {
+        await expect(page.getByRole("button", {name:label, exact:true})).toHaveCount(0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.screenshot({path:testInfo.outputPath("phone-conflict.png")});
+      await changeNumber.click();
+      await expect(phoneHeading).toBeVisible();
+      expect(runtimeErrors).toEqual([]);
     });
   }
 }

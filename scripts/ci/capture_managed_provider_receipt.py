@@ -258,6 +258,16 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
         p: {
             "ready": providers[p]["ready"],
             **(
+                {"failure_classification": providers[p]["failure_classification"]}
+                if providers[p].get("failure_classification")
+                in {
+                    "provider_unavailable",
+                    "candidate_misconfigured",
+                    "application_broken",
+                }
+                else {}
+            ),
+            **(
                 readiness._capability_proof().verified_diagnostics(
                     providers[p], provider=p
                 )

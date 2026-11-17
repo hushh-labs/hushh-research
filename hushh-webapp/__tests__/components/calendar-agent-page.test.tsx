@@ -73,11 +73,24 @@ describe("CalendarAgentPage", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "read",
+        accessLevel: "manage",
         includeMeetingFiles: true,
+        includeMailAccess: true,
       }),
     );
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
+  });
+
+  it("shows one connect action and names every product Google will ask about", async () => {
+    mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
+    render(<CalendarAgentPage />);
+    await waitForConnectButton();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/Optional\. Setup asks/)).toBeNull();
+    const disclosure = screen.getByTestId("calendar-setup-permissions");
+    for (const product of ["Calendar", "Google Meet", "Google Drive", "Gmail"]) {
+      expect(disclosure).toHaveTextContent(new RegExp(`${product}:`));
+    }
   });
 
   it("opens the connected workspace with the existing chat and disconnect handlers", async () => {
@@ -275,7 +288,7 @@ describe("CalendarAgentPage", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "read",
+        accessLevel: "manage",
       }),
     );
   });
@@ -422,6 +435,9 @@ describe("CalendarAgentPage", () => {
     })));
     await screen.findByRole("button", { name: "Finish Calendar setup" });
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    // One Google consent covered Mail too, so there is no second Hussh step.
+    expect(screen.queryByTestId("calendar-mail-step")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow Mail" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try Calendar Agent with One" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
@@ -448,7 +464,7 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Try Calendar Agent with One" })).toBeNull();
     fireEvent.click(connect);
     await waitFor(() => expect(mocks.startConnect).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "calendar-user", accessLevel: "read", includeMeetingFiles: true,
+      idToken: "firebase-token", userId: "calendar-user", accessLevel: "manage", includeMeetingFiles: true, includeMailAccess: true,
     }));
   });
 
@@ -796,7 +812,7 @@ describe("CalendarAgentPage", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull());
     view.rerender(<CalendarAgentPage connectionPending />);
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Calendar", exact: true })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Calendar", exact: true })).toBeTruthy();
     await act(async () => settlement === "resolve"
       ? finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" })
       : fail(new Error("Stale request failed")));

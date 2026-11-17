@@ -39,6 +39,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from db.db_client import get_db
+from hushh_mcp.services import feed_calendar_context as calendar_context
 from hushh_mcp.services.direct_messages_service import (
     DirectMessageCipher,
     DirectMessagesError,
@@ -46,9 +47,6 @@ from hushh_mcp.services.direct_messages_service import (
 from hushh_mcp.services.drive_request_outcome_view import request_outcome_view
 from hushh_mcp.services.feed_counterpart_projection import (
     COUNTERPART_PHOTO_KEY as _COUNTERPART_PHOTO_KEY,
-)
-from hushh_mcp.services.feed_counterpart_projection import (
-    COUNTERPART_PROFILE_KEY as _COUNTERPART_PROFILE_KEY,
 )
 from hushh_mcp.services.feed_counterpart_projection import (
     with_counterpart_identity,
@@ -59,6 +57,7 @@ from hushh_mcp.services.feed_drive_fold import (
     drive_rows_revealed_by_removal,
 )
 from hushh_mcp.services.feed_location_policy import apply_location_feed_policy
+from hushh_mcp.services.feed_metadata_keys import FEED_METADATA_KEYS
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
@@ -241,80 +240,11 @@ _LOCATION_REQUEST_EVENT_TYPES = frozenset(
 # client renderers may cross this boundary; domain rows can contain richer
 # details (coordinates, credentials, account identifiers, or ciphertext)
 # that must remain in their owning stores.
-_SAFE_METADATA_KEYS = frozenset(
-    {
-        "scope_description",
-        "scope",
-        "counterpart_label",
-        _COUNTERPART_PHOTO_KEY,
-        _COUNTERPART_PROFILE_KEY,
-        "display_name",
-        "first_name",
-        "feed_audience",
-        "reason",
-        "duration_mode",
-        "duration_hours",
-        "requested_duration_mode",
-        "requested_duration_hours",
-        "is_extension",
-        "request_id",
-        "grant_id",
-        "referral_id",
-        "direction",
-        "owner_label",
-        "public_location_view",
-        "submission_id",
-        "circle_name",
-        "circle_id",
-        "invite_id",
-        "added_by_label",
-        "ticker",
-        # The Kai run a completion item announces, so the Feed opens that run's
-        # own saved result. An opaque id owned by the same person.
-        "run_id",
-        "draft_id",
-        "pwm_outcome",
-        "user_facing_status",
-        # Read-time status of a historical payment instruction. The source
-        # order and request remain authoritative; this bounded projection
-        # prevents an old Pay row from surviving payment or expiry.
-        "current_request_status",
-        *_DRIVE_DELIVERY_COUNT_FIELDS,
-        "current_payment_status",
-        "current_checkout_expired",
-        "current_request_expired",
-        "current_access_stopped",
-        "current_checkout_expires_at",
-        "current_request_expires_at",
-        "owner_payout_status",
-        "owner_payout_account_ready",
-        "current_owner_payout_account_ready",
-        "owner_earning_cents",
-        "current_refund_amount_cents",
-        "current_payment_amount_cents",
-        # The requester's shared payment view state (drive_request_payment_view):
-        # one closed enum, so a Pay row and its history line cannot disagree.
-        "current_payment_state",
-        "new_status",
-        "actor_is_self",
-        "feed_sms_confirmed",
-        # Which lane a location share belongs to ("sos" vs everything else).
-        # Without it the Feed cannot tell an emergency apart from an ordinary
-        # share and narrates both as "shared location, then stopped" -- the
-        # one row where that distinction matters most. A short, bounded enum
-        # written by our own service, carrying nothing about the person.
-        "share_kind",
-        "person_ref",
-        "bundle_id",
-        # One Feed item per person-to-person request (migration 259): which
-        # request it is, and what was asked for in human words, so the item
-        # reads "<Name> wants your <labels> · <reason>" and can act inline.
-        "requested_labels",
-        "requested_count",
-        # The owner's one "One sent N files to B" card per Drive request
-        # (drive_owner_shared_files): a count only, never a file name.
-        "shared_count",
-    }
+_SAFE_METADATA_KEYS = (
+    FEED_METADATA_KEYS
+    | frozenset(calendar_context.CALENDAR_CONTEXT_KEYS)
+    | frozenset(_DRIVE_DELIVERY_COUNT_FIELDS)
+    | frozenset({"feed_sms_confirmed"})
 )
 
 
@@ -362,7 +292,11 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
             if isinstance(raw, str) and raw in {"ready", "partial", "attention"}:
                 safe[key] = raw
             continue
-        if key == "draft_id":
+        if key == "viewerRole":
+            if isinstance(raw, str) and raw in {"owner", "advisor"}:
+                safe[key] = raw
+            continue
+        if key in {"draft_id", "advisorReviewId"}:
             if isinstance(raw, str) and re.fullmatch(
                 r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", raw, re.I
             ):
@@ -574,6 +508,7 @@ class FeedService:
         rows = self._with_wallet_card_grants(user_id, rows)
         rows = self._with_wallet_card_requests(user_id, rows)
         rows = self._with_drive_payment_status(user_id, rows)
+        rows = calendar_context.with_calendar_request_context(self._get_db, user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
             "items": [self._to_item(row, user_id) for row in rows],

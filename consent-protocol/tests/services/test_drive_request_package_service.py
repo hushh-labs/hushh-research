@@ -497,7 +497,7 @@ def test_semantic_provider_policy_preserves_default_and_invalidates_azure_bindin
     from hushh_mcp.services import drive_request_package_assessment as assessment
     from hushh_mcp.services import drive_request_package_service as service
 
-    monkeypatch.setattr(service, "resolve_fleet_model_name", lambda _: "synthetic-gemini")
+    monkeypatch.setattr(service, "resolve_fleet_model_name", lambda _, **_scope: "synthetic-gemini")
     monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda value: value)
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
     manifest = Path(service.__file__).resolve().parents[1] / "agents/documents/agent.yaml"
@@ -617,7 +617,6 @@ def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(
 ):
     from hushh_mcp.services import drive_request_package_assessment as assessment
     from hushh_mcp.services import private_text_processing_approval_service as approval
-    from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
@@ -625,29 +624,23 @@ def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(
     from hushh_mcp.runtime_providers import managed_text
 
     monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
-    selected = "azure_openai" if provider == "azure_openai" else "gemini"
+    selected = "gemini"  # Drive is independent of the shared UAT provider.
     generation = approval.private_drive_text_policy()["generation"]
     binding = assessment.semantic_request_model_binding(
         provider=selected, approval_generation=generation, authorization_basis="uat_policy"
     )
     assert assessment.validate_semantic_model_binding(binding) == binding
     legacy = {k: v for k, v in binding.items() if k != "authorization_basis"}
-    if provider == "azure_openai":
-        assert assessment.validate_semantic_model_binding(legacy) == legacy
-        assert assessment_policy_version(binding) != assessment_policy_version(legacy)
-    else:
-        with pytest.raises(ValueError):
-            assessment.validate_semantic_model_binding(legacy)
+    with pytest.raises(ValueError):
+        assessment.validate_semantic_model_binding(legacy)
     assert assessment.validate_semantic_model_binding(None)["provider"] == "gemini"
     for invalid in ("administrator", "owner_approval", None, True):
         with pytest.raises(ValueError):
             assessment.validate_semantic_model_binding({**binding, "authorization_basis": invalid})
-    monkeypatch.setattr(managed_text, "managed_text_policy", lambda: None)
-    monkeypatch.setattr(approval, "private_drive_text_policy", lambda: None)
+    monkeypatch.setattr(managed_text, "managed_text_policy", lambda **_scope: None)
+    monkeypatch.setattr(approval, "private_drive_text_policy", lambda **_scope: None)
     with pytest.raises(ValueError, match="policy changed"):
         assessment.validate_semantic_model_binding(binding)
-    if provider == "azure_openai":
-        assert assessment.validate_semantic_model_binding(legacy) == legacy
 
 
 @pytest.mark.parametrize(

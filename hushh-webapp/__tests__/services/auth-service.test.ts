@@ -990,6 +990,19 @@ describe("AuthService.restoreNativeSession", () => {
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
+  it("rejects a successful phone response that identifies another Firebase UID", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const current = { uid: "web-user", phoneNumber: null, getIdToken: vi.fn().mockResolvedValue("email-session"), reload: vi.fn() };
+    mockAuth.currentUser = current as any;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ localId: "other-user", phoneNumber: "+16505550101" })));
+    await expect(AuthService.confirmPhoneLinkVerification({
+      verificationCode: "123456", verificationId: "link-verification-id",
+      expectedUserId: current.uid, phoneNumber: "+16505550101",
+    })).rejects.toMatchObject({ code: "phone_verification_failed" });
+    expect(current.reload).not.toHaveBeenCalled();
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
   it("retains fresh conflict proof without replaying the SMS or replacing the primary session", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     const current = { uid: "web-user", phoneNumber: "+16505550100", getIdToken: vi.fn().mockResolvedValue("email-session") };

@@ -24,12 +24,6 @@ on:
       p95_time_to_capture_ms:
         description: Redacted p95 microphone capture latency from the attached iPhone.
         value: ${{ jobs.hardware-capture.outputs.p95_time_to_capture_ms }}
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: Exact green main SHA to measure (blank selects main).
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -42,16 +36,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deployment-security:
-    if: inputs.security_attempt == ''
-    uses: ./.github/workflows/deployment-security.yml
-    secrets:
-      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
-    with:
-      application_ref: ${{ inputs.sha || 'main' }}
-      environment_name: native
-      scope: native
-
   hardware-capture:
     permissions:
       contents: read
@@ -59,8 +43,6 @@ jobs:
       checks: read
       id-token: write
     name: iPhone One Voice capture p95
-    needs: deployment-security
-    if: ${{ always() && (needs.deployment-security.result == 'success' || (needs.deployment-security.result == 'skipped' && inputs.security_attempt != '')) }}
     runs-on: [self-hosted, macOS, ios-voice-device]
     environment: uat
     timeout-minutes: 60
@@ -79,7 +61,7 @@ jobs:
       - name: Require current-attempt deployment security
         shell: bash
         env:
-          SECURITY_ATTEMPT: ${{ inputs.security_attempt || needs.deployment-security.outputs.attempt }}
+          SECURITY_ATTEMPT: ${{ inputs.security_attempt }}
         run: |
           set -euo pipefail
           if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
@@ -106,8 +88,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_AUTHORIZATION: ${{ inputs.security_authorization || needs.deployment-security.outputs.authorization }}
-          RELEASE_APPLICATION_SHA: ${{ inputs.security_application_sha || needs.deployment-security.outputs.application_sha }}
+          RELEASE_AUTHORIZATION: ${{ inputs.security_authorization }}
+          RELEASE_APPLICATION_SHA: ${{ inputs.security_application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
@@ -123,7 +105,7 @@ jobs:
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
         run: |
           set -euo pipefail
-          REQUESTED="${{ inputs.release_sha || github.event.inputs.sha || needs.deployment-security.outputs.application_sha }}"
+          REQUESTED="${{ inputs.release_sha }}"
           git fetch --no-tags origin main
           if [ -z "$REQUESTED" ]; then
             SHA="$(git rev-parse origin/main)"

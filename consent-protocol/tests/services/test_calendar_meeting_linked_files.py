@@ -2,6 +2,8 @@
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_calendar_meeting_artifacts import EVENT, GRANT, run, setup
@@ -118,6 +120,83 @@ def test_meet_and_recording_denials_do_not_hide_an_independently_linked_note(mon
     assert result["artifacts"][1]["can_download"] is False
     assert result["artifacts"][1]["download_reason"] == "app_permission"
     assert result["artifacts"][1]["pdf_export_url"] is None
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        # Drive's answer for an existing file the account cannot read.
+        (DriveReadError("source_unavailable", status_code=404), "resource_denied"),
+        (DriveReadError("source_unavailable", status_code=403), "resource_denied"),
+        # Gone, trashed or malformed stays "no file", and a retry is still a retry.
+        (DriveReadError("source_unavailable", status_code=410), "unavailable"),
+        (DriveReadError("source_unavailable"), "unavailable"),
+        (DriveReadError("provider_unavailable", retryable=True), "temporarily_unavailable"),
+        (DriveReadError("reconnect_required", status_code=401), "temporarily_unavailable"),
+    ],
+)
+def test_drive_answer_for_a_linked_file_keeps_denied_apart_from_missing(error, expected):
+    assert artifacts_module._drive_error_state(error) == expected
+
+
+def test_attendee_linked_recording_drive_hides_is_denied_and_the_note_stays_available(monkeypatch):
+    """The Oct 30 shape: Google linked both files to the exact event and shared only the notes."""
+    insights, svc, drive = setup("calendar-2")
+    monkeypatch.setattr(
+        artifacts_module,
+        "inspect_token",
+        AsyncMock(
+            return_value={
+                "https://www.googleapis.com/auth/meetings.space.readonly",
+                "https://www.googleapis.com/auth/drive.meet.readonly",
+            }
+        ),
+    )
+    event = {
+        **EVENT,
+        "organizer": {"email": "organizer@example.test"},
+        "attachments": [
+            {"fileId": "recording-file", "title": "Review recording", "mimeType": "video/mp4"},
+            {
+                "fileId": "notes-file",
+                "title": "Notes by Gemini",
+                "mimeType": "application/vnd.google-apps.document",
+            },
+        ],
+    }
+    insights.raw_event = AsyncMock(return_value=(GRANT, event))
+    svc._meet_pages = AsyncMock(return_value=[])
+
+    async def facts(*, file_id, **_kwargs):
+        if file_id == "recording-file":
+            raise DriveReadError("source_unavailable", status_code=404)
+        return {
+            "title": "Notes by Gemini",
+            "mimeType": "application/vnd.google-apps.document",
+            "viewUrl": "https://docs.google.com/document/d/notes-file/edit",
+            "capabilities": {"canDownload": True},
+        }
+
+    drive.get_file_facts.side_effect = facts
+    result = run(
+        svc.detail(user_id="owner", calendar_id="primary", event_id="event", content=False)
+    )
+    assert [(item["kind"], item["state"]) for item in result["artifacts"]] == [
+        ("recording", "resource_denied"),
+        ("notes", "available"),
+    ]
+    # Meet discovery is a separate finding from the file's denial.
+    assert result["discovery"] == "attendee_discovery_limited"
+    assert result["availability"]["recording"] == "resource_denied"
+    assert result["availability"]["notes"] == "available"
+    assert result["artifacts"][0].get("url") is None
+    # With nothing else verified the library row asks for the organizer's access.
+    from hushh_mcp.services.calendar_meeting_library import _row_file_state
+
+    assert (
+        _row_file_state({"artifact_kinds": [], "availability": {"recording": "resource_denied"}})
+        == "access_required"
+    )
 
 
 def test_calendar_shortcut_uses_exact_target_resource_key_for_full_provider_links(monkeypatch):

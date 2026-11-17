@@ -663,6 +663,17 @@ class GoogleCalendarService:
                     "response_status": item.get("responseStatus"),
                     "display_name": item.get("displayName"),
                     "self": item.get("self") is True,
+                    # A decline note is shown only to the person who wrote it and to
+                    # the organiser it was written for; no other guest sees it.
+                    "comment": (
+                        str(item.get("comment") or "")[:500]
+                        if item.get("responseStatus") == "declined"
+                        and (
+                            item.get("self") is True
+                            or _mapping(event.get("organizer")).get("self") is True
+                        )
+                        else None
+                    ),
                 }
                 for item in event.get("attendees", [])
                 if isinstance(item, dict)

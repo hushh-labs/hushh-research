@@ -170,6 +170,63 @@ describe("FeedRow", () => {
     expect(onRemove).not.toHaveBeenCalled();
   });
 
+  it("settles trackpad swipes once while preserving vertical scroll and zoom", async () => {
+    const onRemove = vi.fn();
+    const onKeep = vi.fn();
+    render(<FeedRow item={feedItem()} onOpen={() => {}} onRemove={onRemove} onKeep={onKeep} />);
+    const row = screen.getByTestId("feed-row");
+    const vertical = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 10, deltaY: 80 });
+    fireEvent(row, vertical);
+    expect(vertical.defaultPrevented).toBe(false);
+    const zoom = new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaX: 110 });
+    fireEvent(row, zoom);
+    expect(zoom.defaultPrevented).toBe(false);
+
+    const remove = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 100 });
+    fireEvent(row, remove);
+    expect(remove.defaultPrevented).toBe(true);
+    expect(onRemove).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(140); });
+    expect(onRemove).toHaveBeenCalledOnce();
+
+    fireEvent.wheel(row, { deltaX: 120 });
+    await act(async () => { vi.advanceTimersByTime(140); });
+    expect(onRemove).toHaveBeenCalledOnce();
+    await act(async () => { vi.advanceTimersByTime(451); });
+    fireEvent.wheel(row, { deltaX: -100 });
+    await act(async () => { vi.advanceTimersByTime(140); });
+    expect(onKeep).toHaveBeenCalledOnce();
+  });
+
+  it("cancels a short or reversed trackpad gesture without an action", () => {
+    vi.setSystemTime(new Date("2026-08-12T15:51:00.000Z"));
+    const onRemove = vi.fn();
+    const onKeep = vi.fn();
+    render(<FeedRow item={feedItem()} onOpen={() => {}} onRemove={onRemove} onKeep={onKeep} />);
+    const row = screen.getByTestId("feed-row");
+    fireEvent.wheel(row, { deltaX: 55 });
+    fireEvent.wheel(row, { deltaX: -40 });
+    act(() => vi.advanceTimersByTime(140));
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(onKeep).not.toHaveBeenCalled();
+  });
+
+  it("commits only one row when a trackpad gesture crosses two rows", async () => {
+    vi.setSystemTime(new Date("2026-08-12T15:52:00.000Z"));
+    const onRemove = vi.fn();
+    render(<>
+      <FeedRow item={feedItem({ id: "first" })} onOpen={() => {}} onRemove={onRemove} />
+      <FeedRow item={feedItem({ id: "second" })} onOpen={() => {}} onRemove={onRemove} />
+    </>);
+    const [first, second] = screen.getAllByTestId("feed-row");
+    fireEvent.wheel(first, { deltaX: 100 });
+    act(() => vi.advanceTimersByTime(50));
+    fireEvent.wheel(second, { deltaX: 100 });
+    await act(async () => { vi.advanceTimersByTime(140); });
+    expect(onRemove).toHaveBeenCalledOnce();
+    expect(onRemove).toHaveBeenCalledWith(expect.objectContaining({ id: "first" }));
+  });
+
   it("uses a confirmation for hold and keyboard Delete", () => {
     const onRemove = vi.fn();
     render(<FeedRow item={feedItem()} onOpen={() => {}} onRemove={onRemove} />);

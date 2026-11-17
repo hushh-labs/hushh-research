@@ -64,6 +64,67 @@ def test_matching_branch_receipt_binds_caller_and_main_implementation(environmen
         client.accept(pins[environment], environment, SHA, "frontend")
 
 
+@pytest.mark.parametrize("branch", ["uat", "uat-isolated"])
+def test_testflight_requires_matching_exact_uat_backend_receipt(monkeypatch, branch):
+    module, client, receipts, responses, _ = _acceptance_fixture()
+    run = responses["runs/20/attempts/2"]
+    responses["runs/20"] = dict(run)
+    artifact = responses["artifacts/21"]
+    responses["runs/20/artifacts?per_page=100"] = {"total_count": 1, "artifacts": [artifact]}
+    receipt = receipts["uat"]
+    receipt["predecessor"] = {
+        "kind": "uat-exact-ci",
+        "authority_sha": run["head_sha"],
+        "base_sha": "b" * 40,
+    }
+    if branch == "uat-isolated":
+        receipt["predecessor"]["source_branch"] = branch
+    digest = "sha256:" + "a" * 64
+    reference = f"gcr.io/hushh-pda-uat/consent-protocol@{digest}"
+    receipt["provenance"]["backend"]["checked_revisions"][0].update(
+        image_verified=True,
+        image_reference=reference,
+        image_digest=digest,
+    )
+
+    def repack():
+        archive = BytesIO()
+        with ZipFile(archive, "w") as bundle:
+            bundle.writestr("acceptance.json", json.dumps(receipt))
+        raw = archive.getvalue()
+        responses["artifacts/21/zip"] = raw
+        artifact.update(digest="sha256:" + hashlib.sha256(raw).hexdigest(), size_in_bytes=len(raw))
+
+    # Existing tests exercise the typed predecessor's GitHub and Git checks.
+    predecessor = mock.Mock()
+    monkeypatch.setattr(module, "_verify_direct_uat", predecessor)
+    repack()
+    options = dict(
+        sha=SHA,
+        run_id=20,
+        revision="consent-protocol-00042-abc",
+        image_digest=digest,
+        source_branch=branch,
+    )
+    accepted = client.accept_testflight_backend(**options)
+    assert accepted["image_reference"] == reference
+    assert accepted["base_sha"] == receipt["predecessor"]["base_sha"]
+    assert accepted["authority_sha"] == receipt["predecessor"]["authority_sha"]
+    predecessor.assert_called_once_with(receipt["predecessor"], SHA, {"backend"}, current=False)
+    for field, value in (
+        ("revision", "consent-protocol-00043-abc"),
+        ("image_digest", "sha256:" + "b" * 64),
+    ):
+        with pytest.raises(ValueError, match="does not match"):
+            client.accept_testflight_backend(**{**options, field: value})
+    other_branch = "uat" if branch == "uat-isolated" else "uat-isolated"
+    with pytest.raises(ValueError, match="requested protected UAT source"):
+        client.accept_testflight_backend(**{**options, "source_branch": other_branch})
+    responses["runs/20"]["run_attempt"] = 3
+    with pytest.raises(ValueError, match="artifact is missing"):
+        client.accept_testflight_backend(**options)
+
+
 def test_distinct_main_approval_requires_identical_uat_content_and_incorporation(
     tmp_path, monkeypatch
 ):

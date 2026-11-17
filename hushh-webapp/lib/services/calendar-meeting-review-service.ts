@@ -10,9 +10,14 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+type FileKind = "recording" | "notes";
+const isKind = (kind: unknown): kind is FileKind => kind === "recording" || kind === "notes";
+
 export type CalendarRequestPreview = {
   requestId: string; revision: number; status: string; recipientEmail: string;
   ownerDriveReady: boolean;
+  /** Requested types the organizer has already said they don't have. */
+  notAvailableTypes?: FileKind[];
   meeting: { title: string; date: string; start_at: string; organizer_email: string;
     account_id: string; occurrence_id: string; requested_types: ("recording" | "notes")[];
     exact_refs?: { file_id: string; kind: "recording" | "notes" }[] };
@@ -48,7 +53,9 @@ export class CalendarMeetingReviewService {
       typeof meeting.start_at !== "string" || typeof meeting.organizer_email !== "string" ||
       typeof meeting.account_id !== "string" || typeof meeting.occurrence_id !== "string" ||
       !Array.isArray(meeting.requested_types) || !meeting.requested_types.length ||
-      meeting.requested_types.some(kind => kind !== "recording" && kind !== "notes") ||
+      !meeting.requested_types.every(isKind) ||
+      (value.notAvailableTypes !== undefined && (!Array.isArray(value.notAvailableTypes) ||
+        !value.notAvailableTypes.every(isKind))) ||
       (meeting.exact_refs !== undefined && (!Array.isArray(meeting.exact_refs) ||
         meeting.exact_refs.length > 8 || meeting.exact_refs.some(raw => {
           const ref = object(raw);
@@ -98,5 +105,23 @@ export class CalendarMeetingReviewService {
     });
     if (value.requestId !== requestId || value.requestType !== "calendar_meeting")
       throw new DriveSharingError("invalid_response");
+  }
+
+  /**
+   * Say which requested files the organizer does not have. The server saves it
+   * for the requester without opening Drive, and answers with where the request
+   * stands now: still pending for the other types, or closed.
+   */
+  static async markUnavailable(requestId: string, token: string, revision: number, types: FileKind[]):
+    Promise<{ status: string; revision: number; notAvailableTypes: FileKind[] }> {
+    if (!Number.isSafeInteger(revision) || revision < 0 || !types.length || types.length > 2 ||
+      new Set(types).size !== types.length || !types.every(isKind))
+      throw new DriveSharingError("invalid_selection");
+    const value = await this.call(requestId, token, "/unavailable", { revision, types });
+    if (value.requestId !== requestId || typeof value.status !== "string" ||
+      typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) ||
+      !Array.isArray(value.notAvailableTypes) || !value.notAvailableTypes.every(isKind))
+      throw new DriveSharingError("invalid_response");
+    return { status: value.status, revision: value.revision, notAvailableTypes: value.notAvailableTypes };
   }
 }

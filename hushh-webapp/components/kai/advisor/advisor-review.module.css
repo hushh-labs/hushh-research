@@ -1,0 +1,206 @@
+.stack {
+  font-size: var(--type-row-label-size, 14px);
+  line-height: var(--type-row-label-line, 21px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+  min-width: 0;
+}
+/* Foundation headings are important rules in the base layer. Keep Finance's
+   section roles in that same layer so the approved schema wins in portals. */
+@layer base {
+  .stack :global(.ui-text-section-label),
+  .stack :global(.ui-text-group-label),
+  .card :global(.ui-text-section-label) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-section-label-size, 14px) !important;
+    line-height: var(--type-section-label-line, 22px) !important;
+    font-weight: var(--type-section-label-weight, 600) !important;
+  }
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.row input {
+  flex: 1;
+  min-width: 8rem;
+}
+.card {
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: var(--card);
+  min-width: 0;
+}
+.card p {
+  margin-top: 0.65rem;
+}
+.card summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+.person {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+}
+.person .row {
+  justify-content: flex-start;
+}
+.person p {
+  margin-top: 0.35rem;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.facts dt {
+  color: var(--muted-foreground);
+  font-size: var(--type-row-description-size, 12px);
+  line-height: var(--type-row-description-line, 18px);
+}
+.facts dd {
+  margin-top: 0.25rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.scroll {
+  max-height: 20rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.holding {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.holding div {
+  min-width: 0;
+}
+.holding strong {
+  overflow-wrap: anywhere;
+}
+.holding span {
+  display: block;
+  color: var(--muted-foreground);
+}
+.notice {
+  padding: 1rem;
+  border-radius: 1rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+.primary {
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  border-color: transparent !important;
+}
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.stack select {
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--app-input-radius);
+  padding: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+.progress {
+  height: 0.4rem;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: var(--muted);
+}
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s ease;
+}
+@media (max-width: 700px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .person {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .person button {
+    justify-self: end;
+  }
+  .card {
+    padding: 1rem;
+  }
+  .row input {
+    min-width: 0;
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress span {
+    transition: none;
+  }
+}
+
+.reviewSummary {
+  display: grid;
+  gap: 1rem;
+  margin-block: 1rem;
+  align-items: start;
+}
+.reviewScore {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 8rem;
+  padding: 0.875rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--app-accent) 9%, var(--card));
+  font-variant-numeric: tabular-nums;
+}
+.reviewScore strong {
+  font-size: 1.75rem;
+  line-height: 1.15;
+}
+.reviewScore small {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.reviewScore meter {
+  width: 100%;
+  accent-color: var(--app-accent);
+}
+@media (min-width: 640px) {
+  .reviewSummary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

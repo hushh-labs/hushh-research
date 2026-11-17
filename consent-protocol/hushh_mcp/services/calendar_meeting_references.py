@@ -9,7 +9,13 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from hushh_mcp.services.calendar_meeting_common import ArtifactUnavailable
+from hushh_mcp.services.calendar_meeting_organizer_copy import conference_code, with_organizer_copy
 from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY
+
+# The Meet API lists conference records only for the meeting organizer, so an attendee's own
+# check can come back empty or denied for a meeting that has files. These two outcomes are
+# the only ones that leave an attendee relying on the event's Calendar links.
+_ATTENDEE_LIMITED = frozenset({"attendee_discovery_limited", "meet_discovery_denied"})
 
 
 def _attachment_refs(event):
@@ -89,16 +95,6 @@ def library_attachment_refs(event):
     # Keep one sentinel so a provider response beyond the bounded file budget
     # cannot be reported as a complete empty or complete partial result.
     return refs[:26]
-
-
-def _conference_code(event):
-    conference = event.get("conferenceData") or {}
-    code = conference.get("conferenceId", "")
-    if (conference.get("conferenceSolution") or {}).get("key", {}).get(
-        "type"
-    ) != "hangoutsMeet" or not re.fullmatch(r"[a-z]{3}-[a-z]{4}-[a-z]{3}", code):
-        return None
-    return code
 
 
 def _has_meet_link(event):
@@ -332,7 +328,7 @@ async def meeting_references(
     if attachment_truncated:
         refs = refs[:25]
     states = {}
-    code = _conference_code(event)
+    code = conference_code(event)
     if not code:
         return (
             refs,
@@ -356,14 +352,22 @@ async def meeting_references(
             inspect_token,
             meet_scopes,
         )
-        return (
-            list({(ref["file_id"], ref["kind"]): ref for ref in refs}.values()),
-            "files_incomplete"
-            if attachment_truncated and discovery in {"checked", "unavailable"}
-            else discovery,
-            states,
-        )
+        refs = list({(ref["file_id"], ref["kind"]): ref for ref in refs}.values())
+        if attachment_truncated and discovery in {"checked", "unavailable"}:
+            discovery = "files_incomplete"
     except ArtifactUnavailable as error:
-        return refs, error.state, states
+        discovery = error.state
     except (httpx.HTTPError, ValueError, TypeError, AttributeError):
-        return refs, "temporarily_unavailable", states
+        discovery = "temporarily_unavailable"
+    if not for_chat and discovery in _ATTENDEE_LIMITED:
+        refs = await with_organizer_copy(
+            service,
+            user_id,
+            grant,
+            event,
+            calendar_id,
+            code,
+            refs,
+            link_refs=library_attachment_refs,
+        )
+    return refs, discovery, states

@@ -150,7 +150,6 @@ describe("receipt calls on a device with no saved receipts", () => {
     expect(fetch).toHaveBeenCalledOnce();
     expect(fetch.mock.calls[0]?.[0]).toContain("/capabilities");
   });
-
   it("filters newer frontend gateway action tools not yet present on an older owner pod", async () => {
     const encode = (id: string) =>
       `hussh_action_${btoa(id).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "")}`;

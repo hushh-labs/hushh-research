@@ -35,4 +35,24 @@ describe("Calendar OAuth setup continuation", () => {
     expect(consumeCalendarMeetingOAuthReturn("owner")).toEqual(context);
     expect(consumeCalendarMeetingOAuthReturn("owner")).toBeNull();
   });
+
+  it("restores the open meeting and the chosen files with the day, and rejects malformed ones", () => {
+    const context = { accountId: "calendar-2", day: "2026-10-27", timeZone: "Asia/Kolkata", filter: "all" as const,
+      query: "", occurrenceId: "a".repeat(64), requestedTypes: ["recording" as const, "notes" as const] };
+    markCalendarMeetingOAuthReturn("owner", context);
+    expect(consumeCalendarMeetingOAuthReturn("owner")).toEqual(context);
+
+    const base = { accountId: "calendar-2", day: "2026-10-27", timeZone: "UTC", filter: "all" as const, query: "" };
+    for (const bad of [
+      { ...base, occurrenceId: "../etc" }, { ...base, occurrenceId: 7 },
+      { ...base, requestedTypes: ["video"] }, { ...base, requestedTypes: ["notes", "notes", "notes"] },
+      { ...base, requestedTypes: "notes" },
+    ]) {
+      markCalendarMeetingOAuthReturn("owner", bad as never);
+      expect(consumeCalendarMeetingOAuthReturn("owner")).toBeNull();
+    }
+    // A context from before these fields existed still restores the day.
+    markCalendarMeetingOAuthReturn("owner", base);
+    expect(consumeCalendarMeetingOAuthReturn("owner")).toEqual(base);
+  });
 });

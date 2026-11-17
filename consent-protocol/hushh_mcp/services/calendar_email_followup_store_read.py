@@ -68,6 +68,8 @@ _LIVE = f"""WITH live AS (
   SELECT r.id AS request_id,r.conversation_id,{_BUCKET} AS bucket,{_DAY} AS day,
     CASE r.responsibility WHEN 'owner' THEN 0 ELSE 1 END AS owner_rank,
     CASE r.urgency WHEN 'asap' THEN 0 WHEN 'time_bound' THEN 1 ELSE 2 END AS urgency_rank,
+    CASE WHEN r.category IN ('document_or_information','deliverable_deadline') THEN 0
+         WHEN r.category IN ('meeting_request','schedule_change') THEN 1 ELSE 2 END AS category_rank,
     jsonb_array_length(r.ambiguities) AS ambiguity_count,
     r.source_internal_date_ms,r.reminder_at
   FROM calendar_email_followup_requests r
@@ -84,7 +86,7 @@ _LIVE = f"""WITH live AS (
 # Static per view. Fewer ambiguities is the available confidence signal.
 _ORDER: dict[str, str] = {
     "upcoming": """tier,owner_rank,day ASC NULLS LAST,urgency_rank,ambiguity_count,
-      source_internal_date_ms DESC,request_id""",
+      category_rank,source_internal_date_ms DESC,request_id""",
     "overdue": """day DESC NULLS LAST,owner_rank,source_internal_date_ms DESC,request_id""",
     "snoozed": """reminder_at ASC NULLS LAST,request_id""",
     "history": """source_internal_date_ms DESC,request_id""",
