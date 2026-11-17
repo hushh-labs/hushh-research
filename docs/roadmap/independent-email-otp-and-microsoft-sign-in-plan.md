@@ -133,11 +133,17 @@ Provenance alone does not require SSO: an active created account with a verified
 primary email can sign in directly after OTP proof.
 Created accounts with a deprovision marker remain blocked; no claim is cleared.
 
-Use Firebase `microsoft.com` with `tenant=common` and account selection. Callback:
-`https://hushh-pda.firebaseapp.com/__/auth/handler`. Preserve Firebase's UID mapping
-and existing legal, welcome, routing and session settlement. Test cancellation,
-missing email, tenant restrictions and collisions. Customer/Microsoft tenant
-restrictions remain external constraints.
+Use Firebase `microsoft.com` with `tenant=common` and account selection, backed
+by the `HushOne Inc.` Entra OAuth registration (`Hussh One Sign-In`). Register
+callbacks for both each lane's custom `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+(`https://id.hussh.ai/__/auth/handler`, `https://uat.id.hussh.ai/__/auth/handler`,
+`https://dev.id.hussh.ai/__/auth/handler`) and default Firebase hosting domains
+(`https://hushh-pda.firebaseapp.com/__/auth/handler`,
+`https://hushh-pda-uat.firebaseapp.com/__/auth/handler`,
+`https://hushh-pda-dev.firebaseapp.com/__/auth/handler`). Preserve Firebase's UID
+mapping and existing legal, welcome, routing and session settlement. Test
+cancellation, missing email, tenant restrictions and collisions. Customer/Microsoft
+tenant restrictions remain external constraints.
 
 Neither method unlocks a vault, grants consent, changes roles or issues protected
 information access. New methods are web-only until native and voice return paths
