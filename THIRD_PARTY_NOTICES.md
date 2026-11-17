@@ -1468,9 +1468,9 @@ Package count: 219
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
 - `pycparser` `3.0` — BSD-3-Clause
-- `pydantic` `2.14.3` — MIT
-- `pydantic-settings` `2.16.3` — MIT
-- `pydantic_core` `2.50.4` — MIT
+- `pydantic` `2.13.1` — MIT
+- `pydantic-settings` `2.14.2` — MIT
+- `pydantic_core` `2.46.1` — MIT
 - `Pygments` `2.20.0` — BSD-2-Clause
 - `PyJWT` `2.15.1` — MIT
 - `pyluach` `2.3.0` — MIT License
@@ -1483,7 +1483,7 @@ Package count: 219
 - `pytest-xdist` `3.8.0` — MIT
 - `python-a2a` `0.5.10` — MIT License
 - `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
-- `python-dotenv` `1.2.4` — BSD-3-Clause
+- `python-dotenv` `1.2.2` — BSD-3-Clause
 - `python-multipart` `0.0.34` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
 - `PyYAML` `6.0.3` — MIT License
@@ -1507,7 +1507,7 @@ Package count: 219
 - `sniffio` `1.3.1` — Apache Software License; MIT License
 - `soupsieve` `4.1` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
-- `sse-starlette` `3.7.0` — BSD-3-Clause
+- `sse-starlette` `3.3.4` — BSD-3-Clause
 - `starlette` `1.3.1` — BSD-3-Clause
 - `stevedore` `5.7.0` — Apache Software License
 - `stripe` `16.0.0` — MIT License
