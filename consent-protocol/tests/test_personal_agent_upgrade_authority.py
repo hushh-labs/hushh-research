@@ -256,7 +256,7 @@ async def test_files_recovery_requires_completed_resources_and_persists_discover
         assert not registry.writes and not backend.observed
 
 
-async def _no_cloud():
+async def _no_cloud(*_args, **_kwargs):
     return None
 
 
@@ -324,6 +324,43 @@ class _ExecutingBackend(_ObservingBackend):
 
     async def upgrade(self, spec):
         return self.handle
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rebound_live", [True, False])
+async def test_upgrade_executes_only_the_backend_rebound_to_its_claim(monkeypatch, rebound_live):
+    from hushh_mcp.services import personal_agent_provisioning_service as pas
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setattr(pas, "resolve_user_cloud", _no_cloud)
+    row = _row()
+    row["backend_metadata"]["upgradeApproval"] = _approval(row)
+    registry = _ExecutionRegistry(row)
+    calls = []
+
+    class Backend(_ExecutingBackend):
+        async def upgrade(self, spec):
+            calls.append(self)
+            assert self is rebound, "The preclaim backend has no acquired lease"
+            assert registry.row["backend_metadata"]["upgradeLease"] == "new-lease"
+            assert spec.upgrade_attempt_id == hashlib.sha256(b"new-lease").hexdigest()
+            raise RuntimeError("rebound execution reached")
+
+    first = Backend(None)
+    rebound = Backend(None)
+    rebound.live = rebound_live
+    service = PersonalAgentProvisioningService(registry=registry, backend=first)
+    monkeypatch.setattr(
+        service, "_backend_for", lambda spec: rebound if spec.upgrade_attempt_id else first
+    )
+    if rebound_live:
+        with pytest.raises(RuntimeError, match="rebound execution reached"):
+            await service.upgrade_pod(user_id=OWNER, current_image=NEW_IMAGE)
+        assert calls == [rebound]
+    else:
+        with pytest.raises(pas.PersonalAgentUpgradeUnsupportedError, match="plan mode"):
+            await service.upgrade_pod(user_id=OWNER, current_image=NEW_IMAGE)
+        assert calls == []
 
 
 class _RawDb:

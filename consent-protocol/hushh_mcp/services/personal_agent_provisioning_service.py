@@ -1562,7 +1562,10 @@ class PersonalAgentProvisioningService:
         )
         hushh_id = admission.hushh_id
         files_capability = admission.files_capability
-        from hushh_mcp.services.personal_agent_upgrade_claim import claim_upgrade
+        from hushh_mcp.services.personal_agent_upgrade_claim import (
+            _require_live_upgrader,
+            claim_upgrade,
+        )
 
         outcome = await claim_upgrade(self, admission)
         if outcome.result is not None:
@@ -1610,6 +1613,7 @@ class PersonalAgentProvisioningService:
 
             spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=lease)
             backend = self._backend_for(spec)
+            upgrade = _require_live_upgrader(replace(admission, backend=backend))
             claimed_metadata = dict(row.get("backend_metadata") or {})
             claimed_row = row
             approval_metadata = claimed_metadata.get("upgradeApproval")
