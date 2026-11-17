@@ -289,7 +289,7 @@ async def test_new_upgrade_requires_compatibility_before_cloud_access(monkeypatc
     assert "upgradeLease" not in registry.row["backend_metadata"]
 
 
-def test_installed_release_admits_retained_managed_files_and_legacy_azure_vm(monkeypatch):
+def test_installed_release_admits_retained_managed_updates_and_legacy_azure_vm(monkeypatch):
     from tests.hosted_files_upgrade_cases import installed_release_admission_case
 
     installed_release_admission_case(monkeypatch)

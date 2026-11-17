@@ -100,6 +100,24 @@ def installed_release_admission_case(monkeypatch):
     managed_row, _approval = _managed_release_case(monkeypatch)
     _require_installed_release(managed_row, managed_row["backend_metadata"], NEW_IMAGE, True, None)
     _assert_managed_release_facts(managed_row, NEW_IMAGE)
+    # Ordinary owner-approved image updates do not provision a Files capability.
+    image_only = copy.deepcopy(managed_row)
+    approval = image_only["backend_metadata"]["upgradeApproval"]
+    approval.pop("capabilityPlan")
+    approval.pop("capabilityPlanDigest")
+    _require_installed_release(image_only, image_only["backend_metadata"], NEW_IMAGE, True, None)
+    _assert_managed_release_facts(image_only, NEW_IMAGE)
+    import pytest
+
+    from hushh_mcp.services.personal_agent_provisioning_service import (
+        PersonalAgentUpgradeNotApprovedError,
+    )
+
+    for field in ("service", "serviceUid", "project", "region"):
+        changed = copy.deepcopy(image_only)
+        changed["backend_metadata"][field] = "foreign-placement"
+        with pytest.raises(PersonalAgentUpgradeNotApprovedError, match="compatibility"):
+            _require_installed_release(changed, changed["backend_metadata"], NEW_IMAGE, True, None)
     _assert_legacy_azure_vm_release(NEW_IMAGE)
 
 
