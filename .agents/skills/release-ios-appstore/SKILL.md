@@ -77,5 +77,5 @@ Non-owned surfaces:
 ```bash
 gh run list --workflow release-ios-appstore.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url
 gh workflow view release-ios-appstore.yml
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```

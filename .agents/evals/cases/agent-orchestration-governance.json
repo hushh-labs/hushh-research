@@ -18,7 +18,7 @@
     "negative": [
       {
         "prompt": "create a brand new repo-local skill and manifest",
-        "owner": "codex-skill-authoring"
+        "owner": "skill-authoring"
       },
       {
         "prompt": "audit the security of the vault trust boundary",

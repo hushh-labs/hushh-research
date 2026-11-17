@@ -53,7 +53,7 @@ When sources disagree about implementation, current executable code plus checked
 
 ## Founder Wiki North-Star Probe
 
-The founder wiki MCP is a north-star evidence lane, not a current-state implementation source. Use `.agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when a task touches product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or material PR governance.
+The founder wiki MCP is a north-star evidence lane, not a current-state implementation source. Use `.agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md` when a task touches product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or material PR governance.
 
 Default boundary:
 

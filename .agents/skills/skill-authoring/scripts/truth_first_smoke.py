@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-KERNEL = REPO_ROOT / ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md"
+KERNEL = REPO_ROOT / ".agents/skills/skill-authoring/references/truth-first-operating-kernel.md"
 AGENTS_MD = REPO_ROOT / ".agents/instructions.md"
-SKILL_CONTRACT = REPO_ROOT / ".agents/skills/codex-skill-authoring/references/skill-contract.md"
+SKILL_CONTRACT = REPO_ROOT / ".agents/skills/skill-authoring/references/skill-contract.md"
 DELEGATION_CONTRACT = (
     REPO_ROOT / ".agents/skills/agent-orchestration-governance/references/delegation-contract.md"
 )
@@ -108,7 +108,7 @@ def _check_kernel(errors: list[str]) -> None:
 
 
 def _check_contract_links(errors: list[str]) -> None:
-    reference = ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md"
+    reference = ".agents/skills/skill-authoring/references/truth-first-operating-kernel.md"
     for path in [AGENTS_MD, SKILL_CONTRACT, DELEGATION_CONTRACT]:
         _require_text(path, [reference, *CLAIM_LABELS], errors)
 

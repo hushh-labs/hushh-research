@@ -25,7 +25,7 @@
     "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [
-    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
     "./bin/hushh docs verify",
     "./bin/hushh agents audit"
   ],
@@ -33,12 +33,12 @@
     {
       "id": "future-roadmap-plan",
       "commands": [
-        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
         "./bin/hushh docs verify",
         "./bin/hushh agents audit"
       ],
       "tests": [
-        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
         "./bin/hushh agents audit"
       ]
     }
