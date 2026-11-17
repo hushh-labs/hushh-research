@@ -2376,15 +2376,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       composerRef.current?.focus();
                                     }}
                                   >
-                                    {!message.deletedForEveryoneAt ? <>
-                                      <MessageReactionMenu onSelect={(emoji) => saveReaction(message, emoji)} />
-                                      <DropdownMenuItem className="min-h-11" onSelect={() => {
+                                    {!message.deletedForEveryoneAt ? (
+                                      <MessageReactionMenu onSelect={(emoji) => saveReaction(message, emoji)} onMore={() => {
                                         reactionPickerTarget.current = message.id;
                                         setOpenReactionPicker(message.id);
-                                      }}>
-                                        More reactions…
-                                      </DropdownMenuItem>
-                                    </> : null}
+                                      }} />
+                                    ) : null}
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
                                         <ArrowBendUpLeft weight="fill" className="h-3.5 w-3.5" aria-hidden="true" />

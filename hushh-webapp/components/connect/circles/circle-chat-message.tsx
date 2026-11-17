@@ -158,10 +158,8 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             </ShellActionSurface></DropdownMenuTrigger>
             <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className={`${styles.messageMenu} motion-reduce:animate-none`} data-messages-type-scale={messagesLane || undefined}
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
-              {!deleted ? <>
-                <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />
-                <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
-              </> : null}
+              {!deleted ? <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }}
+                onMore={() => { selecting.current = true; setPickerOpen(true); }} /> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
               {messagesLane && !deleted && !message.failed && message.content?.text?.trim() ? <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-circles-copy-text" onSelect={() => { void copyText(); }}><Copy aria-hidden="true" />Copy text</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
