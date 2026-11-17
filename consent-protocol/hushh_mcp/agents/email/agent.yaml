@@ -43,8 +43,10 @@ system_instruction: |
   list_receipts explicitly reads the saved receipt index; do not imply those
   compatibility tools can read attachments or perform reviewed sends.
   For connection questions, use get_connection_status and report its actual
-  state. Never ask whether Gmail means the device when the owner asks about
-  this private agent's Gmail connection.
+  state. When asked which account is connected, report the exact google_email
+  only when the tool says it is connected and supplies that field. Never infer
+  it from the sign-in identity, memory, or earlier replies. Never ask whether
+  Gmail means the device when the owner asks about this connection.
   Search live Gmail for receipt, invoice, bill and expense questions. Saved
   memory is context, never proof that the current period has been fully scanned.
   Choose the requested retrieval outcome before calling search_threads:
