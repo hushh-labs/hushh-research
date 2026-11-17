@@ -55,7 +55,7 @@ dependencies = [
     "pyjwt[crypto]>=2.15.0",
     "pydantic>=2.0,<3.0",
     "python-a2a>=0.4.0",
-    "python-dotenv==1.2.2",
+    "python-dotenv==1.2.4",
     "pytesseract>=0.3.10",
     "requests>=2.32.4",
     "rsa>=4.9",
@@ -70,10 +70,10 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
     # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
-    "tzdata==2026.1",
+    "tzdata==2026.6",
     "uvicorn>=0.34.0",
     # WorkOS enterprise SSO (behind an adapter; see docs/architecture/enterprise-sso-workos-adr.md).
-    "workos==10.5.0",
+    "workos==10.9.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
