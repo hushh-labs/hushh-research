@@ -7,6 +7,7 @@ quality.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from datetime import UTC, datetime
 
@@ -320,7 +321,13 @@ async def test_initial_scan_reads_every_page_long_body_and_recovers_a_provider_f
     # so it leaves Upcoming but stays reachable as Overdue; nothing is closed.
     upcoming = await store.list_conversations(monitor, limit=10, now=now)
     assert upcoming["total_conversations"] == 0
-    assert upcoming["view_counts"] == {"upcoming": 0, "overdue": 1, "snoozed": 0, "history": 0}
+    assert upcoming["view_counts"] == {
+        "all": 1,
+        "upcoming": 0,
+        "overdue": 1,
+        "snoozed": 0,
+        "history": 0,
+    }
     listing = await store.list_conversations(monitor, limit=10, now=now, view="overdue")
     titles = {
         item["title"]
@@ -454,3 +461,51 @@ async def test_existing_calendar_meeting_is_linked_not_recreated_and_new_one_nee
     # with its day-before reminder scheduled (27 Oct call, scanned 11 Oct).
     assert request["kind"] == "meeting" and request["meeting_state"] == "proposed"
     assert request["state"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_committed_message_is_listed_while_next_message_is_still_scanning(
+    followup_pg, monkeypatch
+):
+    service, store, engine = followup_pg
+    selected = await _add_calendar(service, "synthetic-progress", "progress@example.test")
+    await _connect_mail(service, selected, "synthetic-progress")
+    await _enable(selected)
+    provider = {"corrected": True, "deleted": False, "read_ids": []}
+    gmail = _Gmail(lambda request: _response(request, provider, _mock_messages()))
+    entered, release = asyncio.Event(), asyncio.Event()
+    assessed = []
+
+    async def model(**kwargs):
+        mid = kwargs["message"].message_id
+        assessed.append(mid)
+        if mid == "msg-correction":
+            entered.set()
+            await release.wait()
+        return await _assess_with_synthetic_model(**kwargs)
+
+    monkeypatch.setattr(scan, "assess_section", model)
+    monkeypatch.setattr(scan, "reconcile_candidates", _reconcile_with_empty_calendar)
+    task = asyncio.create_task(
+        _drain(store, engine, selected, gmail.transport, now=datetime(2026, 10, 21, tzinfo=UTC))
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=10)
+        result = await routes.list_followups(
+            routes.ListSelection(user_id=OWNER, account_id=selected, view="all"),
+            response=Response(),
+            firebase_uid=OWNER,
+        )
+        assert result["scan_state"] != "complete"
+        assert result["conversations"]
+        first_id = result["conversations"][0]["id"]
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+    result = await routes.list_followups(
+        routes.ListSelection(user_id=OWNER, account_id=selected, view="all"),
+        response=Response(),
+        firebase_uid=OWNER,
+    )
+    assert result["conversations"][0]["id"] == first_id
+    assert assessed.count("msg-jhumma") == 1

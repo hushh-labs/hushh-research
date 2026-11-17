@@ -196,7 +196,13 @@ async def test_expired_opportunity_leaves_upcoming_and_overdue_work_stays_reacha
 
     upcoming = await _listing(store, account_id)
     assert _titles(upcoming) == ["Attend the exam", "Send the project documents"]
-    assert upcoming["view_counts"] == {"upcoming": 2, "overdue": 2, "snoozed": 0, "history": 1}
+    assert upcoming["view_counts"] == {
+        "all": 4,
+        "upcoming": 2,
+        "overdue": 2,
+        "snoozed": 0,
+        "history": 1,
+    }
     assert _titles(await _listing(store, account_id, "overdue")) == [
         "Send the signed agreement",
         "Pay the invoice",
@@ -1014,6 +1020,7 @@ async def test_read_projections_are_owner_and_account_scoped(followup_pg):
         first_page["view_counts"]
         == other_page["view_counts"]
         == {
+            "all": 1,
             "upcoming": 1,
             "overdue": 0,
             "snoozed": 0,
@@ -1096,3 +1103,60 @@ async def test_calendar_projection_hides_legacy_history_and_raw_evidence(followu
     assert request["due_date"] == "2026-11-20"
     assert request["source_excerpt"] == ""
     assert request["original_due_wording"] is None
+
+
+@pytest.mark.asyncio
+async def test_all_unions_active_buckets_before_distinct_conversation_pagination(followup_pg):
+    service, store, _ = followup_pg
+    account_id = await _monitored_account(service)
+    message = _message("mixed", "Send overdue report. Send upcoming document. Send snoozed file.")
+    await _reassess(
+        store,
+        account_id,
+        message,
+        (
+            _ask(message, "Send overdue report.", "Overdue report", "2026-11-01"),
+            _ask(message, "Send upcoming document.", "Upcoming document", "2026-11-20"),
+            _ask(message, "Send snoozed file.", "Snoozed file", "2026-11-30"),
+        ),
+    )
+    monitor, request = await _request_for(store, account_id, "Snoozed file")
+    await store.mutate_request(
+        monitor,
+        request_id=request["id"],
+        expected_revision=request["revision"],
+        idempotency_key=str(uuid.uuid4()),
+        action="snooze",
+        reminder_at=datetime.now(UTC) + timedelta(days=2),
+    )
+    for i in range(16):
+        item = _message(f"page-{i}", f"Send document {i}.")
+        await _put(store, account_id, item, _ask(item, item.body, f"Document {i}", "2026-11-20"))
+    expired = _message("expired", "Register by August.")
+    await _put(
+        store,
+        account_id,
+        expired,
+        _ask(expired, expired.body, "Expired registration", "2026-08-01", after_date="lapses"),
+    )
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    first = await store.list_conversations(
+        monitor, view="all", limit=15, now=TODAY, calendar_only=True
+    )
+    second = await store.list_conversations(
+        monitor, view="all", limit=15, offset=first["next_offset"], now=TODAY, calendar_only=True
+    )
+    assert first["total_conversations"] == first["view_counts"]["all"] == 17
+    assert sum(first["view_counts"][bucket] for bucket in ("upcoming", "overdue", "snoozed")) == 19
+    rows = first["conversations"] + second["conversations"]
+    assert len(rows) == len({row["id"] for row in rows}) == 17
+    assert second["next_offset"] is None
+    mixed = next(row for row in rows if row["active_count"] == 3)
+    assert {request["bucket"] for request in mixed["preview_requests"]} == {
+        "upcoming",
+        "overdue",
+        "snoozed",
+    }
+    assert all(
+        request["bucket"] != "history" for row in rows for request in row["preview_requests"]
+    )

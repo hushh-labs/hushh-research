@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
@@ -90,7 +90,7 @@ describe("Follow-ups wording", () => {
   });
 
   it("links the exact Gmail message and states reminders honestly", () => {
-    expect(gmailMessageUrl("owner@example.test", "18c0ffee")).toBe("https://mail.google.com/mail/u/owner%40example.test/#all/18c0ffee");
+    expect(gmailMessageUrl("owner+test@example.test", "18c0ffee")).toBe("https://mail.google.com/mail/?authuser=owner%2Btest%40example.test#all/18c0ffee");
     const request = { ...document, state: "pending", reminder_at: null, reminder_status: "none", source_excerpt: "", time_zone: null, responsibility: "owner", source_internal_date_ms: 0, revision: 1, booking_state: null };
     expect(reminderText(request as never, "Asia/Kolkata")).toBe("No reminder set");
     expect(reminderText({ ...request, due_date: null } as never, "Asia/Kolkata")).toBe("No reminder · no date in the email");
@@ -100,10 +100,10 @@ describe("Follow-ups wording", () => {
   it("is quiet while recoverable and speaks only when the owner must act", () => {
     const base = { waiting_source_count: 0, exhausted_source_count: 0, unreadable_count: 0 };
     expect(coverageNotice({ coverage: "complete", attention: null, ...base })).toBeNull();
-    expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Catching up on your email…", action: null });
+    expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Updating follow-ups…", action: null });
     expect(coverageNotice({ coverage: "needs_attention", attention: "reconnect_mail", ...base })?.action).toBe("reconnect");
-    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.text).toMatch(/Retrying automatically/);
-    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })?.text).toMatch(/temporarily unavailable/);
+    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.text).toBe("Checking remaining email in the background.");
+    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })?.text).toBe("Email sync paused. Retrying automatically.");
     expect(coverageNotice({ coverage: "catching_up", attention: null, ...base }, false)?.text).toMatch(/Unlock One/);
   });
 });
@@ -214,10 +214,42 @@ describe("Calendar Insights Follow-ups card", () => {
     service.list.mockResolvedValue({ ...bList, account_id: "account_quiet", scan_state: "partial", incomplete_source_count: 2 });
     render(<CalendarFollowups {...props("account_quiet")} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
-    expect(screen.getByText("Catching up on your email…")).toBeInTheDocument();
+    expect(screen.getByText("Updating follow-ups…")).toBeInTheDocument();
     expect(screen.queryByText(/could not be checked completely/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+  });
+
+  it("allows slow progressive reads and page selections to finish between polling ticks", async () => {
+    const intervals = vi.spyOn(window, "setInterval");
+    service.scan.mockImplementation(() => new Promise(() => {}));
+    service.status.mockResolvedValue(status("account_slow_progress", {
+      scan_state: "partial", coverage: { coverage: "catching_up", attention: null,
+        waiting_source_count: 1, exhausted_source_count: 0, unreadable_count: 0 },
+    }));
+    let finishRead: (value: unknown) => void = () => {};
+    service.list.mockImplementation(() => new Promise(resolve => { finishRead = resolve; }));
+    const view = render(<CalendarFollowups {...props("account_slow_progress")} expanded />);
+    try {
+      await waitFor(() => expect(service.list).toHaveBeenCalledTimes(1));
+      const poll = intervals.mock.calls.find(call => call[1] === 5_000)?.[0] as () => void;
+      expect(poll).toBeTypeOf("function");
+      await act(async () => { poll(); poll(); poll(); });
+      expect(service.list).toHaveBeenCalledTimes(1);
+      await act(async () => finishRead({ ...bList, total_conversations: 16, next_offset: 15 }));
+      expect(screen.getByText("Send the research document")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+      await waitFor(() => expect(service.list).toHaveBeenCalledTimes(2));
+      await act(async () => { poll(); poll(); });
+      expect(service.list).toHaveBeenCalledTimes(2);
+      await act(async () => finishRead({ ...bList, total_conversations: 16, conversations: [{
+        ...bList.conversations[0], id: "last-slow", preview_requests: [{
+          ...bList.conversations[0].preview_requests[0], title: "Newly checked follow-up",
+        }],
+      }] }));
+      expect(screen.getByText("Newly checked follow-up")).toBeInTheDocument();
+      expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    } finally { view.unmount(); intervals.mockRestore(); }
   });
 
   it("says the email is synced once when the check finishes, not on every load", async () => {
@@ -227,7 +259,7 @@ describe("Calendar Insights Follow-ups card", () => {
     }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_synced" });
     const view = render(<CalendarFollowups {...props("account_synced")} />);
-    expect(await screen.findByText("Catching up on your email…")).toBeInTheDocument();
+    expect(await screen.findByText("Updating follow-ups…")).toBeInTheDocument();
     expect(screen.queryByText("Your email is synced.")).not.toBeInTheDocument();
     view.unmount();
     service.status.mockResolvedValue(status("account_synced"));
@@ -362,7 +394,7 @@ describe("Calendar Insights Follow-ups card", () => {
     render(<CalendarFollowups {...props("account_B")} />);
     fireEvent.click(await screen.findByRole("button", { name: /^Review / }));
     const link = await screen.findByRole("link", { name: /Open original email/ });
-    expect(link).toHaveAttribute("href", "https://mail.google.com/mail/u/account_B%40example.test/#all/18c0ffee");
+    expect(link).toHaveAttribute("href", "https://mail.google.com/mail/?authuser=account_B%40example.test#all/18c0ffee");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.queryByText(/Please send the signed document/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Research document and call|View email text/)).not.toBeInTheDocument();
@@ -413,11 +445,11 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByText("Send document 16")).toBeNull();
   });
 
-  it("opens Overdue at offset zero and restores Upcoming on collapse", async () => {
+  it("opens Overdue at offset zero and restores All on collapse", async () => {
     const account = "account_followup_views";
     service.status.mockResolvedValue(status(account));
-    const view_counts = { upcoming: 1, overdue: 1, snoozed: 0, history: 0 };
-    const upcoming = { ...bList, account_id: account, view: "upcoming", view_counts };
+    const view_counts = { all: 1, upcoming: 1, overdue: 1, snoozed: 0, history: 0 };
+    const upcoming = { ...bList, account_id: account, view: "all", view_counts };
     const [entry] = bList.conversations;
     const overdue = { ...upcoming, view: "overdue", conversations: [{
       ...entry, preview_requests: [{ ...entry.preview_requests[0], title: "Overdue document", bucket: "overdue" }],
@@ -428,6 +460,7 @@ describe("Calendar Insights Follow-ups card", () => {
     const screenView = render(<CalendarFollowups {...base} />);
     expect(await screen.findByRole("button", { name: "View all" })).toBeInTheDocument();
     screenView.rerender(<CalendarFollowups {...base} expanded />);
+    expect(screen.getByRole("button", { name: "All (1)" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "Overdue (1)" }));
     expect(await screen.findByText("Overdue document")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Overdue (1)" })).toHaveAttribute("aria-pressed", "true");
@@ -577,7 +610,7 @@ describe("Calendar Insights Follow-ups card", () => {
     service.list.mockResolvedValue({ ...bList, account_id: "account_renewal" });
     render(<CalendarFollowups {...props("account_renewal")} />);
     await screen.findByText("Send the research document");
-    expect(service.list).toHaveBeenCalledWith("owner", "account_renewal", "synthetic-id-token", expect.any(AbortSignal), 0, "upcoming");
+    expect(service.list).toHaveBeenCalledWith("owner", "account_renewal", "synthetic-id-token", expect.any(AbortSignal), 0, "all");
     expect(screen.queryByText(/Unlock One/)).toBeNull();
   });
 

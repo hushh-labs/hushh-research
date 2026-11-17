@@ -34,7 +34,8 @@ export type FollowupStatus = {
   time_zone: string | null;
 };
 
-export type FollowupView = "upcoming" | "overdue" | "snoozed" | "history";
+export type FollowupBucket = "upcoming" | "overdue" | "snoozed" | "history";
+export type FollowupView = "all" | FollowupBucket;
 
 export type FollowupCategory =
   | "meeting_request" | "schedule_change" | "document_or_information"
@@ -51,7 +52,7 @@ export type FollowupPreviewRequest = {
   /** `proposed` means the email suggests a meeting that is not on the Calendar. */
   meeting_state?: "proposed" | "confirmed" | "none";
   responsibility?: string;
-  bucket?: FollowupView;
+  bucket?: FollowupBucket;
   after_date?: "owed" | "lapses" | "unspecified";
 };
 export type FollowupConversation = {
@@ -65,7 +66,7 @@ export type FollowupList = {
   coverage?: FollowupCoverage | null;
   next_offset: number | null;
   view?: FollowupView;
-  view_counts?: Record<FollowupView, number>;
+  view_counts?: Record<FollowupBucket, number> & { all?: number };
   conversations: FollowupConversation[];
 };
 export type FollowupReminderStatus = "none" | "scheduled" | "sent" | "closed";

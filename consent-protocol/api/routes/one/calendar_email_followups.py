@@ -83,7 +83,7 @@ class ListSelection(_Selection):
     offset: int = Field(default=0, ge=0, le=100000)
     # Which list to page: what is coming up (the default), unresolved overdue
     # work, snoozed until later, or history (expired, finished, dismissed).
-    view: Literal["upcoming", "overdue", "snoozed", "history"] = "upcoming"
+    view: Literal["all", "upcoming", "overdue", "snoozed", "history"] = "upcoming"
 
 
 class RequestChange(RequestSelection):

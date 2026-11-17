@@ -33,8 +33,8 @@ from hushh_mcp.services.calendar_email_followup_store_types import FollowupState
 # Opens one sealed field: (ciphertext, monitor, row id, purpose) -> value.
 Opener = Callable[[str, Monitor, str, str], Any]
 
-View = Literal["upcoming", "overdue", "snoozed", "history"]
-VIEWS: tuple[View, ...] = ("upcoming", "overdue", "snoozed", "history")
+View = Literal["all", "upcoming", "overdue", "snoozed", "history"]
+VIEWS: tuple[View, ...] = ("all", "upcoming", "overdue", "snoozed", "history")
 
 # The calendar day a request is about, in the owner's time zone.
 _DAY = "COALESCE(r.due_date,r.proposed_date,(r.proposed_at AT TIME ZONE :tz)::date)"
@@ -87,6 +87,9 @@ _LIVE = f"""WITH live AS (
 
 # Static per view. Fewer ambiguities is the available confidence signal.
 _ORDER: dict[str, str] = {
+    "all": """CASE bucket WHEN 'overdue' THEN 0 WHEN 'upcoming' THEN 1 ELSE 2 END,
+      tier,owner_rank,day ASC NULLS LAST,urgency_rank,category_rank,ambiguity_count,
+      source_internal_date_ms DESC,request_id""",
     "upcoming": """tier,owner_rank,day ASC NULLS LAST,urgency_rank,category_rank,ambiguity_count,
       source_internal_date_ms DESC,request_id""",
     "overdue": """day DESC NULLS LAST,owner_rank,source_internal_date_ms DESC,request_id""",
@@ -98,26 +101,27 @@ _ORDER: dict[str, str] = {
 def _page_sql(view: str) -> str:
     order = _ORDER[view]
     return f"""{_LIVE}, best AS (
-  SELECT DISTINCT ON (conversation_id) ranked.* FROM ranked WHERE bucket=:view
+  SELECT DISTINCT ON (conversation_id) ranked.* FROM ranked WHERE (bucket=:view OR (:view='all' AND bucket<>'history'))
   ORDER BY conversation_id,{order}
 )
 SELECT c.id,c.subject_ciphertext,c.sender_ciphertext,c.thread_ref_ciphertext,
   c.latest_internal_date_ms,
   (SELECT count(*) FROM live l WHERE l.conversation_id=c.id) AS request_count,
-  (SELECT count(*) FROM live l WHERE l.conversation_id=c.id AND l.bucket=:view) AS active_count
+  (SELECT count(*) FROM live l WHERE l.conversation_id=c.id AND (l.bucket=:view OR (:view='all' AND l.bucket<>'history'))) AS active_count
 FROM best JOIN calendar_email_followup_conversations c ON c.id=best.conversation_id
 ORDER BY {order},c.latest_internal_date_ms DESC,c.id DESC LIMIT :limit OFFSET :offset"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated; order is from a fixed dict keyed by a validated view
 
 
 _COUNTS = f"""{_LIVE}
-SELECT bucket,count(DISTINCT conversation_id) FROM live GROUP BY bucket"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
+SELECT bucket,count(DISTINCT conversation_id) FROM live GROUP BY bucket
+UNION ALL SELECT 'all',count(DISTINCT conversation_id) FROM live WHERE bucket<>'history'"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
 
 
 def _previews_sql(view: str) -> str:
     return f"""{_LIVE}
 SELECT r.*,ranked.bucket FROM ranked
 JOIN calendar_email_followup_requests r ON r.id=ranked.request_id
-WHERE ranked.conversation_id=ANY(CAST(:conversation_ids AS UUID[])) AND ranked.bucket=:view
+WHERE ranked.conversation_id=ANY(CAST(:conversation_ids AS UUID[])) AND (ranked.bucket=:view OR (:view='all' AND ranked.bucket<>'history'))
 ORDER BY ranked.conversation_id,{_ORDER[view]}"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated; order is from a fixed dict keyed by a validated view
 
 
