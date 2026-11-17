@@ -132,6 +132,10 @@ export function ensureActiveSharedWiki(input: {
   return wiki;
 }
 
+export function clearActiveSharedWiki(): void {
+  scopedEntry?.dispose();
+}
+
 export function peekActiveSharedWiki(): SharedWikiLibrary | null {
   if (explicitBoundWiki) {
     try {

@@ -21,6 +21,8 @@ import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
 import { FilesMoveDialog, FilesDetailsDialog } from "./files-workspace-dialogs";
+import { PersonalWikiPanel } from "./personal-wiki-panel";
+import { FolderLock } from "@/components/icons";
 import {
   FilesEntryRow,
   FilesFolderDraft,
@@ -31,6 +33,8 @@ import {
   type FileEntry,
   type FilesSettings,
 } from "@/lib/files/service";
+
+const PERSONAL_WIKI_FOLDER_ID = "__personal_wiki__";
 
 
 export function FilesWorkspace() {
@@ -59,6 +63,11 @@ export function FilesWorkspace() {
   const work = useRef(new AbortController());
   const actionPending = useRef(false);
   const parent = folders[folders.length - 1]?.id ?? "root";
+  const inWikiFolder = parent === PERSONAL_WIKI_FOLDER_ID && !trash;
+  const showRootWikiFolder =
+    parent === "root" &&
+    !trash &&
+    (!query || "personal wiki".includes(query.toLocaleLowerCase()));
   const available = Boolean(
     userId && vaultKey && vaultOwnerToken && hosting,
   );
@@ -69,6 +78,12 @@ export function FilesWorkspace() {
   const load = useCallback(
     async (next = "") => {
       if (!available) return;
+      if (parent === PERSONAL_WIKI_FOLDER_ID) {
+        setEntries([]);
+        setCursor("");
+        setMessage("");
+        return;
+      }
       const signal = work.current.signal;
       // Existing owner pods may admit one request at a time. Finish the
       // library read before asking that same pod for settings.
@@ -295,7 +310,7 @@ export function FilesWorkspace() {
                 trash={trash}
                 query={query}
                 loading={loading}
-                locked={busy || Boolean(edit)}
+                locked={busy || Boolean(edit) || inWikiFolder}
                 blocked={Boolean(message)}
                 onUp={goUp}
                 onFolder={(index) => {
@@ -387,6 +402,22 @@ export function FilesWorkspace() {
                   Opening Files…
                 </p>
               ) : null}
+              {inWikiFolder ? (
+                <div
+                  className="rounded-2xl border p-4 sm:p-5"
+                  aria-label="Personal wiki folder"
+                  data-testid="files-personal-wiki-view"
+                >
+                  <PersonalWikiPanel
+                    key={`wiki-inline:${userId}`}
+                    ownerId={userId ?? undefined}
+                    signal={work.current.signal}
+                    busy={busy || Boolean(edit)}
+                    unavailable={!available || Boolean(message)}
+                    act={act}
+                  />
+                </div>
+              ) : (
               <div
                 className="divide-y rounded-2xl border"
                 aria-label={trash ? "Trash" : "Files and folders"}
@@ -399,6 +430,36 @@ export function FilesWorkspace() {
                     onSave={saveEdit}
                     onCancel={() => setEdit(null)}
                   />
+                ) : null}
+                {showRootWikiFolder && !message && !loading ? (
+                  <div
+                    data-testid="files-personal-wiki-folder"
+                    className="flex min-w-0 items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4"
+                  >
+                    <FolderLock
+                      className="size-5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-[1_1_6rem]">
+                      <button
+                        type="button"
+                        className="block max-w-full truncate text-left font-medium"
+                        disabled={busy || Boolean(edit)}
+                        onClick={() => {
+                          setTrash(false);
+                          setFolders([
+                            { id: "root", name: "Files" },
+                            { id: PERSONAL_WIKI_FOLDER_ID, name: "Personal wiki" },
+                          ]);
+                        }}
+                      >
+                        Personal wiki
+                      </button>
+                      <p className="truncate text-xs text-muted-foreground">
+                        Markdown memory pages, citations, and imports
+                      </p>
+                    </div>
+                  </div>
                 ) : null}
                 {visibleEntries.map((entry) => (
                   <FilesEntryRow
@@ -450,7 +511,7 @@ export function FilesWorkspace() {
                     }}
                   />
                 ))}
-                {!visibleEntries.length && !message && !loading ? (
+                {!visibleEntries.length && !showRootWikiFolder && !message && !loading ? (
                   <p className="p-6 text-sm text-muted-foreground">
                     {query
                       ? "No matches on this page. Load more files to search another page."
@@ -460,6 +521,7 @@ export function FilesWorkspace() {
                   </p>
                 ) : null}
               </div>
+              )}
               {cursor ? (
                 <Button
                   variant="outline"

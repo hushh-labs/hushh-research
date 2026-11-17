@@ -135,12 +135,8 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         <SettingsRow title="Status" description={stateLabel} />
         {mode === "shared" || isPod ? (
           <SettingsRow
-            title={
-              isPod && !status?.installedReleaseVerified
-                ? "Reported version"
-                : "Current version"
-            }
-            description={versionLabel ?? "Not verified"}
+            title="Current version"
+            description={versionLabel ?? "Unavailable"}
           />
         ) : null}
         {release && update.available ? (

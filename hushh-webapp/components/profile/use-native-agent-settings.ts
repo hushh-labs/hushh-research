@@ -58,7 +58,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
   } else {
     const summary = agentSettingsSummary(model);
     const current = [read("updates-status", "Status", summary.stateLabel)];
-    if (mode === "shared" || isPod) current.push(read("updates-version", isPod && !status?.installedReleaseVerified ? "Reported version" : "Current version", summary.versionLabel ?? "Not verified"));
+    if (mode === "shared" || isPod) current.push(read("updates-version", "Current version", summary.versionLabel ?? "Unavailable"));
     if (summary.release && update.available) current.push(read("updates-new-version", "New version", releaseLabel(summary.release.version, summary.release.releasedAt)));
     const stage = updateProgressStage(update);
     if (isPod && stage !== null) current.push({ ...read("updates-progress", "Update progress", summary.stateLabel), progress: { value: stage, total: 4 } });

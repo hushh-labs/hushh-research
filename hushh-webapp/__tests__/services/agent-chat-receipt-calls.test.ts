@@ -171,8 +171,10 @@ describe("receipt calls on a device with no saved receipts", () => {
       {
         method: "POST",
         body: JSON.stringify({
+          forwardedProps: { wikiClientReady: true, wikiHotDigest: "# Hot" },
           tools: [
             ...receiptDeclarations,
+            { name: "search_wiki", description: "Client wiki tool", parameters: {} },
             { name: encode("route.profile"), description: "Profile", parameters: {} },
             { name: encode("phone_mandate.review_previous_deletion"), description: "Newer action", parameters: {} },
           ],
@@ -180,8 +182,12 @@ describe("receipt calls on a device with no saved receipts", () => {
       },
       fetch,
     );
-    const sentNames = JSON.parse(posts[0]!).tools.map((t: { name: string }) => t.name);
+    const parsed = JSON.parse(posts[0]!);
+    const sentNames = parsed.tools.map((t: { name: string }) => t.name);
     expect(sentNames).toContain(encode("route.profile"));
+    expect(sentNames).not.toContain("search_wiki");
     expect(sentNames).not.toContain(encode("phone_mandate.review_previous_deletion"));
+    expect(parsed.forwardedProps.wikiClientReady).toBeUndefined();
+    expect(parsed.forwardedProps.wikiHotDigest).toBeUndefined();
   });
 });

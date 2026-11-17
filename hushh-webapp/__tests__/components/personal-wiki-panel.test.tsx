@@ -185,4 +185,23 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
     await screen.findByText("Unlock your vault to open Files.");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("exposes Personal wiki as a top-level folder inside Files and unwinds Back to root", async () => {
+    render(<FilesWorkspace />);
+    const wikiFolderButton = await screen.findByRole("button", {
+      name: "Personal wiki",
+    });
+    fireEvent.click(wikiFolderButton);
+
+    await screen.findByText("Travel Preferences");
+    expect(screen.getByTestId("files-personal-wiki-view")).toBeInTheDocument();
+
+    expect(unwindBackLayer("/one/files")).toBe(true);
+    await waitFor(() =>
+      expect(screen.queryByTestId("files-personal-wiki-view")).toBeNull(),
+    );
+    expect(
+      screen.getByTestId("files-personal-wiki-folder"),
+    ).toBeInTheDocument();
+  });
 });
