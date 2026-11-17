@@ -677,6 +677,19 @@ async def test_a_request_that_ran_out_before_a_decision_is_expired_with_no_ended
     )
 
 
+@pytest.mark.asyncio
+async def test_item_cancellation_without_whole_bundle_retirement_stays_cancelled() -> None:
+    service = _Service()
+    created = await service.create(**_CREATE)
+    request_id = created["items"][0]["requestId"]
+    await service.consent.insert_event(user_id="subject", request_id=request_id, action="CANCELLED")
+    result = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
+    assert result["cancelled"] is False
+    assert result["items"][0]["status"] == "cancelled"
+    assert result["progress"]["fields"][0]["status"] == "cancelled"
+    assert result["progress"]["outcome"] == "cancelled"
+
+
 def test_bundle_outcome_names_partial_answers() -> None:
     outcome = information_request_module.bundle_outcome_from_statuses
     assert outcome(["granted", "denied"]) == "partially_granted"
@@ -685,6 +698,11 @@ def test_bundle_outcome_names_partial_answers() -> None:
     assert outcome(["denied", "expired"]) == "denied"
     assert outcome(["revoked", "expired"]) == "revoked"
     assert outcome(["granted"], cancelled=True) == "cancelled"
+    assert outcome(["cancelled", "cancelled"]) == "cancelled"
+    assert outcome(["cancelled", "pending"]) == "pending"
+    assert outcome(["cancelled", "granted"]) == "partially_granted"
+    assert outcome(["cancelled", "denied"]) == "denied"
+    assert outcome(["cancelled", "expired"]) == "expired"
 
 
 @pytest.mark.asyncio

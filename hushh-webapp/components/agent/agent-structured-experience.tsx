@@ -888,10 +888,11 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     const progressLabels = progress.fields.length ? progress.fields.map((field) => field.label) : displayFields.map((field) => field.label);
     const ended = isAccessEnded(progress);
     const progressLabel = ended ? "Access ended"
-      : progress.outcome === "pending" ? "Request sent"
-        : progress.outcome === "denied" ? "Declined"
-          : progress.outcome === "expired" ? "Request expired"
-            : progress.outcome === "partially_granted" ? "Partly shared" : "Shared with you";
+      : progress.outcome === "cancelled" ? "Request withdrawn"
+        : progress.outcome === "pending" ? "Request sent"
+          : progress.outcome === "denied" ? "Declined"
+            : progress.outcome === "expired" ? "Request expired"
+              : progress.outcome === "partially_granted" ? "Partly shared" : "Shared with you";
     return (
       <div className="consent-presentation-surface space-y-3">
         <ExperienceShell
