@@ -483,3 +483,181 @@ def test_a_rating_needs_an_existing_conversation_and_closed_enums(monkeypatch):
     )
     assert invalid.status_code == 422
     assert log.records == []
+
+
+@pytest.mark.parametrize("feed_fails", [False, True])
+async def test_submission_renews_idle_writer_and_releases_work(monkeypatch, tmp_path, feed_fails):
+    from google.adk.events import Event
+    from google.genai import types
+
+    from api.routes.one.pod_consent_chat import record_request
+    from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+    from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionProjection,
+        PodAdkSessionRepository,
+    )
+    from hushh_mcp.services import (
+        pod_owner_feed_client,
+        pod_runtime_work,
+        pod_runtime_writer,
+        pod_upgrade_admission,
+    )
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore
+    from hushh_mcp.services.pod_consent_read import project_consent_feed
+    from hushh_mcp.services.pod_role_log import RoleAwareCommitLog
+    from hushh_mcp.services.pod_runtime_writer import LEASE_MS, RuntimeWriter
+    from tests.helpers.chat_keys import static_chat_cipher
+
+    def forbid_db():
+        raise AssertionError("Private conversation must not use the hub database")
+
+    monkeypatch.setattr("hushh_mcp.one_adk.encrypted_session_service.get_db", forbid_db)
+    clock = [1000]
+    log = RoleAwareCommitLog(
+        LocalObjectStore(str(tmp_path / "log")), b"r" * 32, owner_id="ha1_receipt"
+    )
+    writer = RuntimeWriter("ha1_receipt", "runtime", "revision", "initial", clock=lambda: clock[0])
+    monkeypatch.setattr(pod_runtime_writer, "runtime_writer", lambda: writer)
+    monkeypatch.setattr(pod_runtime_work, "runtime_writer", lambda: writer)
+    monkeypatch.setattr(pod_upgrade_admission, "pod_incarnation", lambda: "revision")
+    admission = pod_upgrade_admission.PodUpgradeAdmission(
+        log_resolver=lambda: log, runtime_epoch="runtime"
+    )
+    monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
+    await writer.ensure(log)
+    access = AsyncMock()
+
+    def sessions():
+        return EncryptedAdkSessionService(
+            static_chat_cipher(),
+            repository=PodAdkSessionRepository(
+                projection=PodAdkSessionProjection(
+                    owner_id="owner", hushh_id="ha1_receipt", log=log
+                ),
+                require_access=access,
+            ),
+        )
+
+    service = sessions()
+    identity = dict(app_name="hussh_one", user_id="owner", session_id="receipt-chat")
+    session = await service.create_session(**identity, state={})
+    person = "12345678-1234-1234-1234-123456789abc"
+    bundle = "11111111-1111-4111-8111-111111111111"
+    await service.append_event(
+        session,
+        Event(
+            id="proposal",
+            author="one",
+            invocation_id="proposal-run",
+            content=types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="proposal-call",
+                            name="propose_information_request",
+                            response={
+                                "status": "proposal_ready",
+                                "proposalId": "fixture-proposal",
+                                "person": {
+                                    "displayName": "Alex",
+                                    "personRef": person,
+                                    "profilePath": "/people/" + person,
+                                },
+                                "fields": ["Food preferences"],
+                                "purpose": "Coffee for our meetup",
+                                "durationHours": 24,
+                                "proposed": [
+                                    {
+                                        "scope": "opaque-scope",
+                                        "label": "Food preferences",
+                                        "why": "Owner request",
+                                    }
+                                ],
+                            },
+                        )
+                    )
+                ],
+            ),
+        ),
+    )
+    active_reads = []
+
+    class Feed:
+        def read(self, kind, owner, *, params, fresh):
+            assert kind == "consent" and owner == "owner" and fresh
+            assert (
+                params["bundle_id"] == bundle and params["submission_key"] == "receipt-review-key"
+            )
+            active_reads.append(writer.active)
+            if feed_fails:
+                raise TimeoutError("Synthetic unavailable feed")
+            return project_consent_feed(
+                {
+                    "readNonce": params["read_nonce"],
+                    "bundle": {
+                        "bundleId": bundle,
+                        "personRef": person,
+                        "purpose": "Coffee for our meetup",
+                        "durationSeconds": 86400,
+                        "cancelled": False,
+                        "items": [
+                            {
+                                "requestId": "one_person_fixture",
+                                "scopeRef": "opaque-scope",
+                                "label": "Food preferences",
+                                "sensitivity": "standard",
+                                "status": "pending",
+                            }
+                        ],
+                        "progress": {"outcome": "pending", "ended_at": None},
+                    },
+                }
+            )
+
+    monkeypatch.setattr(pod_owner_feed_client, "owner_feed_client", lambda: Feed())
+    owner = SimpleNamespace(owner="owner", sessions=service, require_access=access)
+    payload = RecordInformationRequestSubmission(
+        source_activity_id="proposal-call", bundle_id=bundle, idempotency_key="receipt-review-key"
+    )
+    clock[0] += LEASE_MS
+    if feed_fails:
+        with pytest.raises(HTTPException) as failure:
+            await record_request("receipt-chat", payload, owner, "hussh_one")
+        assert failure.value.status_code == 503
+    else:
+        first = await record_request("receipt-chat", payload, owner, "hussh_one")
+        assert first["descriptor"]["content"]["phase"] == "submitted"
+        assert await record_request("receipt-chat", payload, owner, "hussh_one") == first
+        cold = await sessions().get_session(**identity)
+        assert (
+            sum(
+                (event.custom_metadata or {}).get("kind") == "information_request_submission_v1"
+                for event in cold.events
+            )
+            == 1
+        )
+    assert active_reads and all(count == 1 for count in active_reads)
+    assert writer.lease["generation"] == 2
+    assert writer.active == 0 and writer.task is None
+
+
+async def test_submission_admission_refusal_remains_closed_503(monkeypatch):
+    from api.routes.one import pod_consent_chat
+    from hushh_mcp.services import pod_upgrade_admission
+
+    admission = SimpleNamespace(
+        acquire_turn=AsyncMock(
+            side_effect=pod_upgrade_admission.PodUpgradeInProgress("Synthetic draining pod")
+        )
+    )
+    monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
+    submit = AsyncMock()
+    monkeypatch.setattr(pod_consent_chat, "record_submission", submit)
+    owner = SimpleNamespace(require_access=AsyncMock())
+    with pytest.raises(HTTPException) as refused:
+        await pod_consent_chat.record_request("conversation", None, owner, "hussh_one")
+    assert refused.value.status_code == 503
+    assert refused.value.detail == {"code": "POD_CONSENT_AUTHORITY_UNAVAILABLE"}
+    submit.assert_not_awaited()
