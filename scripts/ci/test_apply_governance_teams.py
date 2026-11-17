@@ -1465,12 +1465,13 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     grouped = [[item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]
                 for item in desired_rules[offset:offset + half]] for offset in (0, half)]
     assert grouped[0] == grouped[1]
-    assert [len(chunk) for chunk in grouped[0][:4]] == [15, 15, 8, 8]
+    assert [len(chunk) for chunk in grouped[0][:6]] == [15, 15, 8, 8, 7, 1]
     assert all(0 < len(chunk) <= 15 for chunk in grouped[0])
     patterns = [pattern for chunk in grouped[0] for pattern in chunk]
     expected = {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"]}
     assert len(patterns) == len(set(patterns)) and set(patterns) == expected
     assert set(grouped[0][2]) == {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][30:38]}
+    assert set(grouped[0][5]) == {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][53:54]}
     assert desired_rules[half]["conditions"]["ref_name"]["include"] == ["refs/heads/integration/pr-train", "refs/heads/uat-isolated"]
     assert desired["conditions"]["ref_name"]["include"] == ["refs/heads/main", "refs/heads/dev", "refs/heads/uat"]
     assert desired["bypass_actors"] == [
@@ -1481,7 +1482,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     assert rule["required_approving_review_count"] == 0 and rule["require_code_owner_review"] is False
     reviewer = rule["required_reviewers"][0]
     assert reviewer["minimum_approvals"] == 1 and reviewer["reviewer"] == {"id": 42, "type": "Team"}
-    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md", ".agents/config.toml", ".agents/config.json"]
+    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md", ".agents/config.toml", ".agents/config.json", ".agents/skills/any-new-skill/SKILL.md"]
     negative = [".GITHUB/workflows/check.yml", "scripts/CI/guard.py", "unrelated/scripts/ci/guard.py", "agents.md", "hushh-webapp/app/page.tsx"]
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     with tempfile.TemporaryDirectory(prefix="native-review-patterns-") as scratch:
@@ -1687,9 +1688,9 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
             source_key = policy["branch_flow"]["prepared_branches"][branch]["policy_key"]
             cohort = policy[source_key]["review_bypass_users"]
             for i, desired in enumerate(module.protected_pipeline_review_rulesets(policy, read=base_read)):
-                state["rules"][10 + i] = {**desired, "id": 10 + i}
+                state["rules"][100 + i] = {**desired, "id": 100 + i}
             if fault == "missing_native":
-                del state["rules"][13]
+                del state["rules"][103]
             template_name = policy[source_key]["merge_queue_ruleset_name"]
             state["rules"][2] = {"id": 2, "name": template_name, "target": "branch", "enforcement": "active",
                 "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
@@ -1822,7 +1823,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
             responses[f"repos/{module.REPO}/collaborators/{owner}/permission"] = {"permission": "admin", "user": {"login": owner}}
         def read(args):
             return responses[args[1]]
-        rules = [{**rule, "id": 10 + i} for i, rule in enumerate(module.protected_pipeline_review_rulesets(policy, read=read))]
+        rules = [{**rule, "id": 100 + i} for i, rule in enumerate(module.protected_pipeline_review_rulesets(policy, read=read))]
         rules.append({**module.main_owner_admin_ruleset(policy, branch=branch, read=read), "id": 30})
         rules.append({"id": 40, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
@@ -1855,7 +1856,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
             for fault in faults:
                 sample = copy.deepcopy(responses)
                 if fault == "missing_native":
-                    sample[f"repos/{module.REPO}/rulesets?per_page=100"] = [rule for rule in sample[f"repos/{module.REPO}/rulesets?per_page=100"] if rule["id"] != 13]
+                    sample[f"repos/{module.REPO}/rulesets?per_page=100"] = [rule for rule in sample[f"repos/{module.REPO}/rulesets?per_page=100"] if rule["id"] != 103]
                 elif fault == "guard_disabled":
                     sample[f"repos/{module.REPO}/rulesets/30"]["enforcement"] = "disabled"
                 elif fault == "unknown_actor":

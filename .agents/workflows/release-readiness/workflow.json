@@ -55,7 +55,7 @@
     "treating advisory findings as invisible",
     "shipping without docs parity",
     "skipping native checks when mobile surfaces changed",
-    "dispatching or fixing from a temporary branch without restoring the preserved developer branch",
-    "letting main hotfixes drift away from the active development branch"
+    "orphaning an uncleaned temporary worktree or leaving the root checkout off the active base after release",
+    "letting main hotfixes drift away from uat and dev"
   ]
 }

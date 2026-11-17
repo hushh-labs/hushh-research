@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `agent-orchestration-governance`.
 
 ## Goal
 
-Define or tighten repo-scoped Codex custom agents, bounded subagent limits, and delegation authority without creating a second skill system or introducing uncontrolled fan-out.
+Define or tighten repo-scoped engineering subagent definitions, bounded subagent limits, and delegation authority without creating a second skill system or introducing uncontrolled fan-out.
 
 ## Steps
 

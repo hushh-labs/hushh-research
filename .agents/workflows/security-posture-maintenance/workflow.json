@@ -1,7 +1,7 @@
 {
   "id": "security-posture-maintenance",
   "title": "Security Posture Maintenance",
-  "goal": "Review live GitHub security drift and Codex-system integrity when security posture work needs a focused repo-level audit.",
+  "goal": "Review live GitHub security drift and agent-system integrity when security posture work needs a focused repo-level audit.",
   "owner_skill": "security-audit",
   "default_spoke": null,
   "task_type": "security-posture-maintenance",
@@ -38,7 +38,7 @@
   },
   "deliverables": [
     "security severity snapshot",
-    "Codex audit scorecard",
+    "agent audit scorecard",
     "repo security posture review",
     "verification summary"
   ],
