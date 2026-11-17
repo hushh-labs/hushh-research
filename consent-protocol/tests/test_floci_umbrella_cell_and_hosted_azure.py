@@ -1131,3 +1131,321 @@ async def test_hosted_azure_migration_fresh_pod_log_opt_in_and_fail_closed_guard
     )
     assert res_err["status"] == "failed"
     assert reg_err.row["deployment_target"] == "user_azure"
+
+
+@pytest.mark.asyncio
+async def test_cold_source_pod_never_falls_back_to_service_uid_and_fails_cleanly_before_job_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    cold_row = {
+        "user_id": "uid-acc-cold",
+        "hushh_id": "ha1_7o6wt3s4cold",
+        "phone_e164_hash": "ph-acc-cold",
+        "deployment_target": "user_azure",
+        "backend": "user_azure",
+        "external_agent_id": (
+            "/subscriptions/sub-personal/resourceGroups/rg-hussh-one/"
+            "providers/Microsoft.App/containerApps/ca-hussh-one-pod"
+        ),
+        "a2a_route": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+        "status": "provisioned",
+        "placement_epoch": 2,
+        "model_credential_mode": "byok_per_turn",
+        "pod_pubkey": "old-pubkey",
+        "backend_metadata": {
+            "url": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+            "service": "ca-hussh-one-pod",
+            "revision": None,
+            "serviceUid": "e4c7962c10f843b59420607a53f3bbc6",
+        },
+    }
+    reg = _InMemoryRegistryRepo(cold_row)
+    jobs = _InMemoryMigrationJobRepo()
+    prewarm_calls: list[str] = []
+
+    class _ColdTimeoutHandoff:
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        def _request(self, method: str, path: str) -> dict[str, Any]:
+            assert method == "GET" and path == "/api/one/pod/upgrade/status"
+            self.attempts += 1
+            raise RuntimeError("pod lifecycle request unavailable: ReadTimeout")
+
+    fake_handoff = _ColdTimeoutHandoff()
+    with pytest.raises(ValueError, match="incarnation"):
+        await execute_owner_migration_to_hosted_azure(
+            "uid-acc-cold",
+            db=object(),
+            registry_repo=reg,
+            job_repo=jobs,  # type: ignore[arg-type]
+            handoff_factory=lambda _u, _h: fake_handoff,
+            prewarm_fn=prewarm_calls.append,
+        )
+
+    assert prewarm_calls == ["https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io"]
+    assert fake_handoff.attempts == 2
+    assert reg.row["status"] == "provisioned"
+    assert jobs.job is None
+
+
+@pytest.mark.asyncio
+async def test_self_heals_stuck_freeze_outcome_unknown_when_source_pod_proves_unfenced_accepting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    PodSkeletonPoolService.reset_process_claims()
+    stuck_row = {
+        "user_id": "uid-account-2",
+        "hushh_id": "ha1_7o6wt3s4heal",
+        "phone_e164_hash": "ph-acc-2",
+        "deployment_target": "user_azure",
+        "backend": "user_azure",
+        "external_agent_id": (
+            "/subscriptions/sub-personal/resourceGroups/rg-hussh-one/"
+            "providers/Microsoft.App/containerApps/ca-hussh-one-pod"
+        ),
+        "a2a_route": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+        "status": "migrating",
+        "placement_epoch": 2,
+        "model_credential_mode": "byok_per_turn",
+        "pod_pubkey": "old-pubkey",
+        "user_cloud_tenant_id": "personal-tenant",
+        "user_cloud_subscription_id": "sub-personal",
+        "user_cloud_resource_group": "rg-hussh-one",
+        "backend_metadata": {
+            "url": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+            "service": "ca-hussh-one-pod",
+            "revision": None,
+            "serviceUid": "e4c7962c10f843b59420607a53f3bbc6",
+        },
+    }
+    reg = _InMemoryRegistryRepo(stuck_row)
+    jobs = _InMemoryMigrationJobRepo()
+    jobs.job = {
+        "user_id": "uid-account-2",
+        "job_id": "mig_stuck1",
+        "status": "failed",
+        "stage": "freezing",
+        "error_code": "FREEZE_OUTCOME_UNKNOWN",
+        "updated_at": "2026-11-17T00:00:00+00:00",
+    }
+    prewarm_calls: list[str] = []
+
+    class _AcceptingHandoff:
+        def _request(self, method: str, path: str) -> dict[str, Any]:
+            assert method == "GET" and path == "/api/one/pod/upgrade/status"
+            return {
+                "state": "accepting",
+                "operationId": None,
+                "incarnation": "ca-hussh-one-pod--rev1",
+            }
+
+        def prepare_and_wait(
+            self, *, operation_id: str, incarnation: str, timeout_seconds: float
+        ) -> dict[str, Any]:
+            assert incarnation == "ca-hussh-one-pod--rev1" and timeout_seconds > 0
+            return {
+                "operationId": operation_id,
+                "incarnation": incarnation,
+                "activeWork": 0,
+                "committedState": "sha256:" + ("c" * 64),
+                "runtimeEpoch": "ep-src-2",
+            }
+
+        def release(self, *, operation_id: str, incarnation: str) -> dict[str, Any]:
+            return {"state": "accepting", "incarnation": incarnation, "operationId": None}
+
+    class _FakeArm:
+        def put(
+            self, app_id: str, *, api_version: str, body: dict[str, Any], op: str
+        ) -> dict[str, Any]:
+            assert app_id and api_version and op == "hosted_azure_bind_slot"
+            return {
+                "properties": {
+                    "latestReadyRevisionName": "ca-pod-slot01--0000001",
+                    "configuration": {
+                        "ingress": {
+                            "fqdn": "ca-pod-slot01.blackdesert.eastus2.azurecontainerapps.io"
+                        }
+                    },
+                    "template": body["properties"]["template"],
+                }
+            }
+
+    async def _fake_keys(_row: dict[str, Any], *, require_identity: bool = True) -> dict[str, str]:
+        assert require_identity is True
+        return {
+            "podPublicKey": "new-slot01-x25519",
+            "podKeyId": "kid-slot01",
+            "podKeyWrappingAlg": WRAPPING_ALG,
+            "podSigningKey": "new-slot01-ed25519",
+            "podSigningKeyId": "skid-slot01",
+        }
+
+    class _OkTransport:
+        @staticmethod
+        def export_from(**_kwargs: Any) -> dict[str, Any]:
+            return {
+                "headSha": "deadbeef" * 8,
+                "recordCount": 3,
+                "bundle": {"sealedBlobB64": "ok"},
+            }
+
+        @staticmethod
+        def import_into(**_kwargs: Any) -> dict[str, Any]:
+            return {"headSha": "deadbeef" * 8, "recordCount": 3}
+
+    async def _admit_direct(row: dict[str, Any], *, db: Any = None) -> bool:
+        del db
+        row["backend_metadata"]["ingress"] = "direct"
+        row["backend_metadata"]["directReadiness"] = {"verified": True}
+        return True
+
+    pool = PodSkeletonPoolService(
+        registry=UmbrellaCellRegistry(_cell_config_with_n_slots(2, soft=40, hard=50, min_warm=1)),
+        backend_factory=lambda slot: HostedAzureBackend(
+            slot=slot, arm_client=_FakeArm(), live=True
+        ),  # type: ignore[arg-type]
+        key_fetcher=_fake_keys,
+    )
+    res = await execute_owner_migration_to_hosted_azure(
+        "uid-account-2",
+        db=object(),
+        registry_repo=reg,
+        job_repo=jobs,  # type: ignore[arg-type]
+        pool=pool,
+        handoff_factory=lambda _u, _h: _AcceptingHandoff(),
+        prewarm_fn=prewarm_calls.append,
+        transport=_OkTransport(),
+        token_minter=lambda **_kwargs: "tok",
+        admit_direct_fn=_admit_direct,
+    )
+    assert prewarm_calls == ["https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io"]
+    assert reg.migrations_ended >= 1
+    assert res["status"] == "succeeded"
+    assert reg.row["deployment_target"] == "azure"
+    assert reg.row["status"] == "provisioned"
+
+
+@pytest.mark.asyncio
+async def test_refuses_self_heal_when_source_pod_is_actually_draining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    draining_row = {
+        "user_id": "uid-account-2",
+        "hushh_id": "ha1_7o6wt3s4drain",
+        "phone_e164_hash": "ph-acc-2",
+        "deployment_target": "user_azure",
+        "backend": "user_azure",
+        "external_agent_id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/containerApps/ca",
+        "a2a_route": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io",
+        "status": "migrating",
+        "backend_metadata": {
+            "url": "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io"
+        },
+    }
+    reg = _InMemoryRegistryRepo(draining_row)
+    jobs = _InMemoryMigrationJobRepo()
+    jobs.job = {
+        "user_id": "uid-account-2",
+        "job_id": "mig_stuck2",
+        "status": "failed",
+        "stage": "freezing",
+        "error_code": "FREEZE_OUTCOME_UNKNOWN",
+        "updated_at": "2026-11-17T00:00:00+00:00",
+    }
+
+    class _DrainingHandoff:
+        def _request(self, method: str, path: str) -> dict[str, Any]:
+            assert method == "GET" and path == "/api/one/pod/upgrade/status"
+            return {"state": "draining", "operationId": "op_1", "incarnation": "rev1"}
+
+    with pytest.raises(ValueError, match="status='migrating'"):
+        await execute_owner_migration_to_hosted_azure(
+            "uid-account-2",
+            db=object(),
+            registry_repo=reg,
+            job_repo=jobs,  # type: ignore[arg-type]
+            handoff_factory=lambda _u, _h: _DrainingHandoff(),
+            prewarm_fn=lambda _url: None,
+        )
+    assert reg.migrations_ended == 0
+    assert reg.row["status"] == "migrating"
+
+
+@pytest.mark.asyncio
+async def test_pod_migration_job_repo_and_registry_retry_transient_vm_placement_busy() -> None:
+    from hushh_mcp.services.hosted_azure_migration_provisioner import _BusyRetryRegistryAdapter
+    from hushh_mcp.services.pod_migration_service import PodMigrationJobRepo
+
+    class _BusyDb:
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.mode = "busy_twice"
+            self._rows = [{"user_id": "u-1", "job_id": "j-1", "stages": []}]
+
+        def table(self, name: str) -> "_BusyDb":
+            assert name == "pod_migration_jobs"
+            return self
+
+        def select(self, *_cols: str) -> "_BusyDb":
+            self._op = "select"
+            return self
+
+        def update(self, data: dict[str, Any]) -> "_BusyDb":
+            self._op = "update"
+            self._data = data
+            return self
+
+        def eq(self, *_args: Any) -> "_BusyDb":
+            return self
+
+        def limit(self, *_args: Any) -> "_BusyDb":
+            return self
+
+        def execute(self) -> Any:
+            if self._op == "select":
+                return type("R", (), {"data": self._rows})()
+            self.attempts += 1
+            if self.mode == "busy_twice" and self.attempts <= 2:
+                raise RuntimeError("DB operation failed: VM placement is busy")
+            if self.mode == "non_busy":
+                raise RuntimeError("DB operation failed: syntax error")
+            return type("R", (), {"data": [{"user_id": "u-1", "job_id": "j-1", **self._data}]})()
+
+    busy_db = _BusyDb()
+    repo = PodMigrationJobRepo(client=busy_db)
+    await repo.record_source_receipt(user_id="u-1", job_id="j-1", head_sha="0" * 64, record_count=0)
+    assert busy_db.attempts == 3
+
+    non_busy_db = _BusyDb()
+    non_busy_db.mode = "non_busy"
+    repo_fail = PodMigrationJobRepo(client=non_busy_db)
+    with pytest.raises(RuntimeError, match="syntax error"):
+        await repo_fail.record_source_receipt(
+            user_id="u-1", job_id="j-1", head_sha="0" * 64, record_count=0
+        )
+    assert non_busy_db.attempts == 1
+
+    class _FlakyRegistry:
+        def __init__(self) -> None:
+            self.begin_calls = 0
+
+        async def begin_migration(self, user_id: str) -> bool:
+            assert user_id == "u-1"
+            self.begin_calls += 1
+            if self.begin_calls <= 2:
+                raise RuntimeError("DB operation failed: VM placement is busy")
+            return True
+
+        async def end_migration(self, user_id: str, *, status: str = "provisioned") -> bool:
+            assert user_id == "u-1" and status == "provisioned"
+            return True
+
+    adapter = _BusyRetryRegistryAdapter(_FlakyRegistry())
+    assert await adapter.begin_migration("u-1") is True
+    assert await adapter.end_migration("u-1") is True
+    assert adapter._inner.begin_calls == 3

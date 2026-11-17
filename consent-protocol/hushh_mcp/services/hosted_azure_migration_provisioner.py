@@ -195,6 +195,15 @@ def _switch_over_sql(
         with db.engine.begin() as conn:
             conn.execute(text("SET LOCAL statement_timeout = '5s'"))
             conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            # Acquire owner advisory locks in canonical 171 -> 198 order so non-blocking
+            # guard_azure_vm_power_registry() triggers never trip on short worker overlaps.
+            conn.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(:user_id, 171)), "
+                    "pg_advisory_xact_lock(hashtextextended(:user_id, 198))"
+                ),
+                {"user_id": user_id},
+            )
             owner = (
                 conn.execute(
                     text(
@@ -361,14 +370,88 @@ class HostedAzureDestinationProvisioner:
             self._pool.release_slot_claim(self.claimed.slot.slot_id)
 
 
+_BUSY_RETRY_DELAYS: tuple[float, ...] = (0.15, 0.35, 0.75)
+
+
+class _BusyRetryRegistryAdapter:
+    """Retry transient owner advisory-lock contention on registry transitions."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    async def begin_migration(self, user_id: str) -> bool:
+        for delay in (*_BUSY_RETRY_DELAYS, None):
+            try:
+                return bool(await self._inner.begin_migration(user_id))
+            except Exception as exc:
+                if "VM placement is busy" not in str(exc) or delay is None:
+                    raise
+                await asyncio.sleep(delay)
+        return False  # pragma: no cover
+
+    async def end_migration(self, user_id: str, *, status: str = "provisioned") -> bool:
+        for delay in (*_BUSY_RETRY_DELAYS, None):
+            try:
+                return bool(await self._inner.end_migration(user_id, status=status))
+            except Exception as exc:
+                if "VM placement is busy" not in str(exc) or delay is None:
+                    raise
+                await asyncio.sleep(delay)
+        return False  # pragma: no cover
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def _default_prewarm_source_health(source_url: str) -> None:
+    """Wake scale-to-zero source Container Apps / Cloud Run services before handoff."""
+    import time
+
+    import requests  # type: ignore[import-untyped]
+
+    health_url = f"{source_url.rstrip('/')}/health"
+    for attempt in range(2):
+        try:
+            resp = requests.get(health_url, timeout=(10.0, 45.0), allow_redirects=False)
+            if int(getattr(resp, "status_code", 0) or 0) == 200:
+                return
+        except Exception as exc:  # noqa: BLE001 - best-effort wakeup before auth probe
+            logger.info(
+                "hosted_azure_migration.prewarm_attempt attempt=%d err=%s",
+                attempt + 1,
+                type(exc).__name__,
+            )
+        if attempt == 0:
+            time.sleep(2.0)
+
+
+def _probe_source_upgrade_status(handoff: Any) -> dict[str, Any] | None:
+    """Query /api/one/pod/upgrade/status with one scale-to-zero wakeup retry."""
+    import time
+
+    for attempt in range(2):
+        try:
+            status = handoff._request("GET", "/api/one/pod/upgrade/status")
+            if isinstance(status, dict):
+                return status
+        except Exception as exc:  # noqa: BLE001 - fall back cleanly or retry wakeup
+            logger.info(
+                "hosted_azure_migration.status_probe_attempt attempt=%d err=%s",
+                attempt + 1,
+                type(exc).__name__,
+            )
+        if attempt == 0:
+            time.sleep(2.0)
+    return None
+
+
 def _discover_source_incarnation(handoff: Any, metadata: dict[str, Any]) -> str:
-    try:
-        status = handoff._request("GET", "/api/one/pod/upgrade/status")
-        if isinstance(status, dict) and str(status.get("incarnation") or "").strip():
-            return str(status["incarnation"]).strip()
-    except Exception as exc:  # noqa: BLE001 - fall back to recorded revision when present
-        logger.info("hosted_azure_migration.status_probe_fallback err=%s", type(exc).__name__)
-    return str(metadata.get("revision") or metadata.get("serviceUid") or "").strip()
+    status = _probe_source_upgrade_status(handoff)
+    if isinstance(status, dict) and str(status.get("incarnation") or "").strip():
+        return str(status["incarnation"]).strip()
+    # Never fall back to metadata["serviceUid"] (Hub UUID, not container revision);
+    # only an explicit serving revision is a valid pod incarnation guard.
+    return str(metadata.get("revision") or "").strip()
 
 
 class HostedAzureFreshFallbackSteps(LiveMigrationSteps):
@@ -425,6 +508,7 @@ async def execute_owner_migration_to_hosted_azure(
     cell_id: str | None = None,
     allow_fresh_pod_log: bool = False,
     handoff_factory: Callable[[str, str], Any] | None = None,
+    prewarm_fn: Callable[[str], None] | None = None,
     transport: Any = pod_migration_transport,
     token_minter: Any = None,
     admit_direct_fn: Any = admit_external_ingress_if_due,
@@ -441,14 +525,13 @@ async def execute_owner_migration_to_hosted_azure(
         from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
         registry_repo = PersonalAgentRegistryRepo(client=db)
+    wrapped_registry = _BusyRetryRegistryAdapter(registry_repo)
     jobs = job_repo or PodMigrationJobRepo(client=db)
     skeleton_pool = pool or PodSkeletonPoolService()
 
-    row = await registry_repo.get(user_id)
+    row = await wrapped_registry.get(user_id)
     if not isinstance(row, dict):
         raise ValueError("Personal agent registry row not found")
-    if row.get("status") != "provisioned":
-        raise ValueError(f"Agent must be provisioned before moving (status={row.get('status')!r})")
 
     source_target = str(row.get("deployment_target") or "").strip()
     if source_target not in {"user_azure", "user_gcp", "gcp"}:
@@ -466,9 +549,60 @@ async def execute_owner_migration_to_hosted_azure(
         if handoff_factory is not None
         else PodUpgradeHandoffClient(url=source_url, hushh_id=hushh_id)
     )
+
+    prewarmed = False
+
+    async def _ensure_source_prewarmed() -> None:
+        nonlocal prewarmed
+        if prewarmed:
+            return
+        prewarmed = True
+        if prewarm_fn is not None:
+            await asyncio.to_thread(prewarm_fn, source_url)
+        elif handoff_factory is None and source_url.startswith("https://"):
+            await asyncio.to_thread(_default_prewarm_source_health, source_url)
+
+    if row.get("status") == "migrating":
+        prior_job = await jobs.get(user_id)
+        prior_job_id = str((prior_job or {}).get("job_id") or "").strip()
+        if (
+            isinstance(prior_job, dict)
+            and prior_job_id
+            and prior_job.get("status") == "failed"
+            and prior_job.get("error_code") == "FREEZE_OUTCOME_UNKNOWN"
+            and prior_job.get("stage") in {"freezing", "starting"}
+        ):
+            await _ensure_source_prewarmed()
+            live_status = await asyncio.to_thread(_probe_source_upgrade_status, handoff)
+            if (
+                isinstance(live_status, dict)
+                and live_status.get("state") == "accepting"
+                and not live_status.get("operationId")
+            ):
+                await wrapped_registry.end_migration(user_id, status="provisioned")
+                await jobs.finish(
+                    user_id=user_id,
+                    job_id=prior_job_id,
+                    status="failed",
+                    error_code="FREEZE_RECONCILED",
+                    error_message=(
+                        "Source pod confirmed unfenced (accepting); reconciled pre-freeze state."
+                    ),
+                )
+                reloaded = await wrapped_registry.get(user_id)
+                if isinstance(reloaded, dict):
+                    row = reloaded
+
+    if row.get("status") != "provisioned":
+        raise ValueError(f"Agent must be provisioned before moving (status={row.get('status')!r})")
+
+    await _ensure_source_prewarmed()
     source_incarnation = await asyncio.to_thread(_discover_source_incarnation, handoff, metadata)
     if not source_incarnation:
-        raise ValueError("Could not determine live source pod incarnation before drain")
+        raise ValueError(
+            "Could not determine live source pod incarnation "
+            "(pod may still be waking from scale-to-zero); please retry"
+        )
 
     op_id = f"op_{secrets.token_hex(16)}"
     cell = skeleton_pool._registry.azure_cell(cell_id)
@@ -566,7 +700,7 @@ async def execute_owner_migration_to_hosted_azure(
     steps_cls = HostedAzureFreshFallbackSteps if allow_fresh_pod_log else LiveMigrationSteps
     steps = steps_cls(
         ctx,
-        registry=registry_repo,
+        registry=wrapped_registry,
         provisioner=provisioner,
         transport=transport,
         reap=_non_destructive_source_grace,
@@ -586,7 +720,7 @@ async def execute_owner_migration_to_hosted_azure(
     if terminal == "succeeded" and switched_row is not None and admit_direct_fn is not None:
         direct_promoted = bool(await admit_direct_fn(switched_row, db=db))
         if direct_promoted:
-            refreshed = await registry_repo.get(user_id)
+            refreshed = await wrapped_registry.get(user_id)
             if isinstance(refreshed, dict):
                 switched_row = refreshed
 
