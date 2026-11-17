@@ -44,10 +44,10 @@ PRODUCT_CANON = [
 ]
 
 REPO_ALIGNMENT_FILES = [
-    ".agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md",
-    ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
-    ".agents/skills/codex-skill-authoring/references/skill-contract.md",
-    ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+    ".agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md",
+    ".agents/skills/skill-authoring/references/truth-first-operating-kernel.md",
+    ".agents/skills/skill-authoring/references/skill-contract.md",
+    ".agents/skills/skill-authoring/scripts/skill_lint.py",
     ".agents/skills/pr-governance-review/SKILL.md",
     ".agents/skills/pr-governance-review/references/review-axes.md",
     ".agents/skills/pr-governance-review/scripts/pr_review_checklist.py",
@@ -218,7 +218,7 @@ def read_canon_page(client: McpClient, path: str) -> dict[str, Any]:
 def classify_workspace_alignment(canon_pages: list[dict[str, Any]]) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     founder_probe = read_repo_text(
-        ".agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md"
+        ".agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md"
     )
     pr_script = read_repo_text(".agents/skills/pr-governance-review/scripts/pr_review_checklist.py")
     mcp_doc = read_repo_text("docs/operations/coding-agent-mcp.md")

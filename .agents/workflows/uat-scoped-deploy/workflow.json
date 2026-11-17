@@ -20,17 +20,17 @@
   "required_commands": [
     "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
     "python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text",
-    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
   ],
   "verification_bundle": {
     "id": "uat-scoped-deploy",
     "commands": [
       "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
       "python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text",
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
     ],
     "tests": [
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
     ]
   },
   "deliverables": [

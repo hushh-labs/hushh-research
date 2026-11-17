@@ -2,7 +2,7 @@
 
 This is the canonical contract for the Codex operating system under `.agents/skills/` and `.agents/workflows/`.
 
-The shared truth-first reasoning contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
+The shared truth-first reasoning contract lives at `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
 
 Documentation-home and stale-knowledge classification lives in `docs/development/references.md` and `docs/development/documentation.md`. Skill and workflow changes must point to that model instead of duplicating a second taxonomy.
 
@@ -141,7 +141,7 @@ Workflow-routing rules:
 15. Do not patch skills by appending every newly discovered miss to the main workflow. First decide whether the fix belongs in a script, a focused reference, a workflow playbook, or a shorter operating rule.
 16. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
 17. A scan for skill quality should report line count, role, owner family, reads, checks, references, scripts, budget status, likely duplication, and agent/subagent activation mechanisms.
-18. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
+18. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
 19. Every skill and workflow inherits the Bacterial Software Architecture Gate in `AGENTS.md`: keep procedural kernels small, move reusable logic into bounded scripts or references, preserve canonical authority, and require characterization plus compatibility facades before splitting working surfaces.
 20. Every skill and workflow that reaches merge, Admin bypass, deployment,
     rollback, or environment-promotion authority inherits

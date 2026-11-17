@@ -148,7 +148,7 @@ PATH_PREFIXES = (
     "consent-protocol/",
     "packages/",
 )
-TRUTH_FIRST_REFERENCE = ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md"
+TRUTH_FIRST_REFERENCE = ".agents/skills/skill-authoring/references/truth-first-operating-kernel.md"
 TRUTH_FIRST_LABELS = [
     "already_exists",
     "partially_exists",
@@ -181,8 +181,8 @@ TRUTH_FIRST_DOMAIN_PROBES = [
     "Frontend",
     "Data Model",
 ]
-FOUNDER_WIKI_REFERENCE = ".agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md"
-FOUNDER_WIKI_AUDIT_SCRIPT = ".agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py"
+FOUNDER_WIKI_REFERENCE = ".agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md"
+FOUNDER_WIKI_AUDIT_SCRIPT = ".agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py"
 ADMIN_RELEASE_REFERENCE = ".agents/skills/repo-operations/references/admin-release-sop.md"
 ADMIN_RELEASE_SKILL_IDS = {
     "repo-operations",
@@ -1026,7 +1026,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
 def validate_admin_release_contract(errors: list[str]) -> None:
     reference_path = REPO_ROOT / ADMIN_RELEASE_REFERENCE
     skill_contract_path = (
-        SKILLS_ROOT / "codex-skill-authoring" / "references" / "skill-contract.md"
+        SKILLS_ROOT / "skill-authoring" / "references" / "skill-contract.md"
     )
     if not reference_path.exists():
         errors.append(f"missing canonical Admin release contract: {ADMIN_RELEASE_REFERENCE}")
@@ -1261,7 +1261,7 @@ def validate_truth_first_contract(errors: list[str]) -> None:
     except ValueError as error:
         errors.append(str(error))
         return
-    skill_contract = SKILLS_ROOT / "codex-skill-authoring" / "references" / "skill-contract.md"
+    skill_contract = SKILLS_ROOT / "skill-authoring" / "references" / "skill-contract.md"
     delegation_contract = (
         SKILLS_ROOT / "agent-orchestration-governance" / "references" / "delegation-contract.md"
     )
@@ -1396,7 +1396,7 @@ def collect_anti_rationalization_advisories(skill_manifests) -> list[str]:
     """Advisory-only: high-risk lanes should carry references/anti-rationalization.md.
 
     Non-blocking by design (metadata-level drift stays advisory per the
-    codex-skill-authoring contract). High-risk = any risk tag in
+    skill-authoring contract). High-risk = any risk tag in
     HIGH_RISK_TAGS on the skill manifest.
     """
     high_risk_tags = {
@@ -1414,7 +1414,7 @@ def collect_anti_rationalization_advisories(skill_manifests) -> list[str]:
         if not table.exists():
             advisories.append(
                 f"{skill_id}: high-risk tags {sorted(tags & high_risk_tags)} but no "
-                f"references/anti-rationalization.md (see codex-skill-authoring "
+                f"references/anti-rationalization.md (see skill-authoring "
                 f"references/anti-rationalization-guide.md)"
             )
     return advisories
