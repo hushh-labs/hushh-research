@@ -286,5 +286,30 @@ describe("SharedWikiKnowledgeWriter & Recall Tools (Phase 2 #9370)", () => {
     expect(noDeviceRes.status).toBe("unavailable");
     expect(noDeviceRes.code).toBe("owner_device_required");
   });
+
+  it("honors explicitOwnerSave from Chat even when passive capture_opt_in remains false", async () => {
+    const { wiki } = createHarness("fixture-explicit-save-owner");
+    const writer = new SharedWikiKnowledgeWriter(wiki);
+
+    const outcome = await writer.captureEvents(
+      [
+        {
+          conversationId: "conv-explicit-1",
+          eventId: "msg-explicit-1",
+          role: "user",
+          content: "Prefers morning direct flights to Tokyo.",
+        },
+      ],
+      { explicitOwnerSave: true },
+    );
+
+    expect(outcome.status).toBe("saved");
+    expect(outcome.saved_page_ids.length).toBeGreaterThan(0);
+    expect(outcome.saved_claim_ids.length).toBeGreaterThan(0);
+
+    // Passive ambient capture stays opted-out while the explicit save succeeded.
+    const checkpoint = await wiki.readCaptureCheckpoint();
+    expect(checkpoint.capture_opt_in).toBe(false);
+  });
 });
 

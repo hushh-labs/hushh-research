@@ -442,6 +442,7 @@ export class SharedWikiKnowledgeWriter {
       targetPageTitle?: string;
       targetFolder?: string;
       synthesizer?: WikiSynthesizerFn;
+      explicitOwnerSave?: boolean;
       signal?: AbortSignal;
     },
   ): Promise<{
@@ -470,7 +471,7 @@ export class SharedWikiKnowledgeWriter {
 
     try {
       const cp = await this.library.readCaptureCheckpoint(controller.signal);
-      if (!cp.capture_opt_in) {
+      if (!cp.capture_opt_in && !options?.explicitOwnerSave) {
         return {
           status: "disabled",
           saved_page_ids: [],
@@ -645,7 +646,7 @@ export class SharedWikiKnowledgeWriter {
       );
       if (
         latestCp.edit_generation !== cp.edit_generation ||
-        !latestCp.capture_opt_in
+        (!latestCp.capture_opt_in && !options?.explicitOwnerSave)
       ) {
         return {
           status: "withdrawn",

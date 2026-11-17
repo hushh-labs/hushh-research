@@ -121,7 +121,15 @@ export class SharedFilesAdapter {
         const receipts = await this.wiki.listProjectionReceipts(undefined, signal);
         const candidates = [];
         const staleReceipts = [];
+        const projectedClaimKeys = [];
         for (const rec of receipts) {
+          if (
+            rec.state === "materialized" ||
+            rec.state === "private_candidate" ||
+            rec.state === "conflicted"
+          ) {
+            projectedClaimKeys.push(`${rec.page_id}:${rec.claim_id}`);
+          }
           if (rec.state === "stale") {
             staleReceipts.push({
               receiptId: rec.receipt_id,
@@ -178,6 +186,7 @@ export class SharedFilesAdapter {
           })),
           candidateReceipts: candidates,
           staleReceipts,
+          projectedClaimKeys,
         };
         break;
       }

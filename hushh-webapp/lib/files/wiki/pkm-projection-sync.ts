@@ -319,10 +319,19 @@ export async function classifyWikiClaimsForPkm(
       continue;
     }
 
+    const normalizeMatchText = (raw: string): string =>
+      raw
+        .trim()
+        .replace(/^[-*•]\s+/, "")
+        .replace(/[.!?]+$/, "")
+        .toLowerCase();
+
     const matchedStatement =
       boundedStatements.find((stmt) => {
-        const quote = String(card.source_quote || card.source_text || "").trim().toLowerCase();
-        const lower = stmt.toLowerCase();
+        const quote = normalizeMatchText(
+          String(card.source_quote || card.source_text || ""),
+        );
+        const lower = normalizeMatchText(stmt);
         return Boolean(quote) && (lower.includes(quote) || quote.includes(lower));
       }) ??
       String(card.source_text || "").trim();
@@ -471,6 +480,8 @@ export async function materializeWikiReceiptToPkm(
   },
   options: {
     ownerConfirmed: boolean;
+    explicitChatSave?: boolean;
+    surface?: "chat" | "web";
     autoSaveEnabledAtIso?: string;
     sharingImpactOverride?: PkmMutationSharingImpact;
   },
@@ -526,13 +537,29 @@ export async function materializeWikiReceiptToPkm(
         sharingImpactAcknowledged: sharingImpact.activeRecipientCount > 0,
         sharingImpact,
       }
-    : {
-        authorizationMode: "owner_auto_save_policy" as const,
-        surface: "chat" as const,
-        source: "one_wiki_opt_in_auto_save",
-        autoSavePolicyVersion: 1 as const,
-        autoSavePolicyEnabledAt: options.autoSaveEnabledAtIso || nowIso,
-      };
+    : options.explicitChatSave && sharingImpact.activeRecipientCount === 0
+      ? options.surface === "web"
+        ? {
+            confirmedByUser: true as const,
+            surface: "web" as const,
+            source: "one_wiki_candidate_confirm",
+            sharingImpactAcknowledged: false,
+            sharingImpact,
+          }
+        : {
+            confirmedByUser: true as const,
+            surface: "chat" as const,
+            source: "agent_chat_owner_request",
+            sharingImpactAcknowledged: false,
+            sharingImpact,
+          }
+      : {
+          authorizationMode: "owner_auto_save_policy" as const,
+          surface: "chat" as const,
+          source: "one_wiki_opt_in_auto_save",
+          autoSavePolicyVersion: 1 as const,
+          autoSavePolicyEnabledAt: options.autoSaveEnabledAtIso || nowIso,
+        };
 
   const writeResult = await PkmWriteCoordinator.saveMergedDomain({
     userId: access.owner,
@@ -816,4 +843,240 @@ export async function retractStaleWikiProjectionsFromPkm(
   }
 
   return { allSucceeded, retractedPaths };
+}
+
+export type WikiProjectionSyncTransport = {
+  overview: (signal?: AbortSignal) => Promise<{
+    captureOptIn: boolean;
+    pages: ReadonlyArray<{ pageId: string; revision: number }>;
+    projectedClaimKeys?: readonly string[];
+  }>;
+  readPage: (
+    pageId: string,
+    signal?: AbortSignal,
+  ) => Promise<{
+    pageId: string;
+    revision: number;
+    claims: ReadonlyArray<{ claimId: string; statement: string; status: string }>;
+  }>;
+  deriveProjection: (
+    input: {
+      pageId: string;
+      claimId: string;
+      targetDomain: string;
+      jsonPath: string;
+      activeRecipientCount: number;
+      ownerConfirmed: boolean;
+      requireOwnerConfirmation: boolean;
+      conflictAuthority?: string;
+      conflictReason?: string;
+      conflictPath?: string;
+      requestId: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{
+    receiptId: string;
+    state: string;
+    domain: string;
+    jsonPath: string;
+    pageId: string;
+    pageRevision: number;
+    claimId: string;
+    sourceRevision: number;
+  }>;
+};
+
+export async function syncWikiPagesToPkmProjections(
+  access: SharedFilesAccess,
+  transport: WikiProjectionSyncTransport,
+  options?: {
+    explicitChatSave?: boolean;
+    surface?: "chat" | "web";
+    autoSaveEnabledAtIso?: string;
+    onlyClaimKeys?: ReadonlySet<string>;
+    signal?: AbortSignal;
+  },
+): Promise<{
+  materializedCount: number;
+  candidateCount: number;
+  conflictedCount: number;
+}> {
+  access.check();
+  const overview = await transport.overview(options?.signal);
+  const alreadyProjected = new Set(overview.projectedClaimKeys ?? []);
+  const pendingClaims: Array<{
+    pageId: string;
+    claimId: string;
+    statement: string;
+    fingerprint: string;
+  }> = [];
+
+  for (const summary of overview.pages) {
+    if (options?.signal?.aborted) break;
+    const page = await transport.readPage(summary.pageId, options?.signal).catch(() => null);
+    if (!page) continue;
+    for (const claim of page.claims) {
+      if (claim.status !== "active") continue;
+      const claimKey = `${page.pageId}:${claim.claimId}`;
+      if (alreadyProjected.has(claimKey)) continue;
+      if (options?.onlyClaimKeys && !options.onlyClaimKeys.has(claimKey)) continue;
+      const statement = claim.statement.trim();
+      if (!statement) continue;
+      pendingClaims.push({
+        pageId: page.pageId,
+        claimId: claim.claimId,
+        statement,
+        fingerprint: await normalizeStatementFingerprint(statement),
+      });
+      if (pendingClaims.length >= 24) break;
+    }
+    if (pendingClaims.length >= 24) break;
+  }
+
+  if (pendingClaims.length === 0) {
+    return { materializedCount: 0, candidateCount: 0, conflictedCount: 0 };
+  }
+
+  access.check();
+  const classified = await classifyWikiClaimsForPkm(
+    access,
+    pendingClaims.map((item) => item.statement),
+    options?.signal,
+  );
+  if (classified.length === 0) {
+    return { materializedCount: 0, candidateCount: 0, conflictedCount: 0 };
+  }
+
+  let materializedCount = 0;
+  let candidateCount = 0;
+  let conflictedCount = 0;
+
+  for (const item of pendingClaims) {
+    access.check();
+    const mapping =
+      classified.find((candidate) => candidate.fingerprint === item.fingerprint) ??
+      classified.find(
+        (candidate) =>
+          candidate.statement.toLowerCase() === item.statement.toLowerCase(),
+      );
+    if (!mapping) continue;
+
+    const [{ conflict }, impact] = await Promise.all([
+      inspectPkmConflictsForProjection(access, {
+        domain: mapping.targetDomain,
+        jsonPath: mapping.jsonPath,
+        statement: item.statement,
+        proposedValue: mapping.proposedValue,
+      }),
+      mapping.sharingImpact
+        ? Promise.resolve(mapping.sharingImpact)
+        : fetchProjectionSharingImpact(
+            access,
+            mapping.targetDomain,
+            mapping.jsonPath,
+          ).catch(() => ({
+            activeRecipientCount: 0,
+            recipientLabels: [],
+            entersNextExportRevision: false,
+            summary: "",
+            affectedGrantIds: [],
+            affectedExportIds: [],
+          })),
+    ]);
+
+    const derived = await transport.deriveProjection(
+      {
+        pageId: item.pageId,
+        claimId: item.claimId,
+        targetDomain: mapping.targetDomain,
+        jsonPath: mapping.jsonPath,
+        activeRecipientCount: impact.activeRecipientCount,
+        ownerConfirmed: false,
+        requireOwnerConfirmation: mapping.requiresConfirmation,
+        ...(conflict
+          ? {
+              conflictAuthority: conflict.authority,
+              conflictReason: conflict.reason,
+              conflictPath: conflict.path,
+            }
+          : {}),
+        requestId: crypto.randomUUID(),
+      },
+      options?.signal,
+    );
+
+    if (conflict || derived.state === "conflicted") {
+      conflictedCount += 1;
+      continue;
+    }
+    if (derived.state !== "materialized") {
+      candidateCount += 1;
+      continue;
+    }
+
+    const outcome = await materializeWikiReceiptToPkm(
+      access,
+      {
+        receiptId: derived.receiptId,
+        domain: derived.domain,
+        jsonPath: derived.jsonPath,
+        pageId: derived.pageId,
+        pageRevision: derived.pageRevision,
+        claimId: derived.claimId,
+        sourceRevision: derived.sourceRevision,
+        statement: item.statement,
+        proposedValue: mapping.proposedValue,
+      },
+      {
+        ownerConfirmed: false,
+        explicitChatSave: options?.explicitChatSave,
+        surface: options?.surface,
+        autoSaveEnabledAtIso: options?.autoSaveEnabledAtIso,
+        sharingImpactOverride: impact,
+      },
+    ).catch(() => ({ outcome: "requires_upgrade" as const }));
+
+    if (outcome.outcome === "materialized") {
+      materializedCount += 1;
+    } else if (outcome.outcome === "conflicted") {
+      await transport
+        .deriveProjection(
+          {
+            pageId: item.pageId,
+            claimId: item.claimId,
+            targetDomain: mapping.targetDomain,
+            jsonPath: mapping.jsonPath,
+            activeRecipientCount: impact.activeRecipientCount,
+            ownerConfirmed: false,
+            requireOwnerConfirmation: mapping.requiresConfirmation,
+            conflictAuthority: outcome.conflict.authority,
+            conflictReason: outcome.conflict.reason,
+            conflictPath: outcome.conflict.path,
+            requestId: crypto.randomUUID(),
+          },
+          options?.signal,
+        )
+        .catch(() => undefined);
+      conflictedCount += 1;
+    } else {
+      await transport
+        .deriveProjection(
+          {
+            pageId: item.pageId,
+            claimId: item.claimId,
+            targetDomain: mapping.targetDomain,
+            jsonPath: mapping.jsonPath,
+            activeRecipientCount: Math.max(1, impact.activeRecipientCount),
+            ownerConfirmed: false,
+            requireOwnerConfirmation: true,
+            requestId: crypto.randomUUID(),
+          },
+          options?.signal,
+        )
+        .catch(() => undefined);
+      candidateCount += 1;
+    }
+  }
+
+  return { materializedCount, candidateCount, conflictedCount };
 }

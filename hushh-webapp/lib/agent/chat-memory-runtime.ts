@@ -54,8 +54,17 @@ export function createChatMemoryRuntime(deps: {
   getSession: () => ChatMemorySession | null;
   rewrite: (input: ChatMemoryRewriteInput) => Promise<{ markdown: string }>;
   /** When an owner has graduated to wiki_primary, consolidates directly to Personal Wiki and retires classic rewrite. */
-  consolidateDirect?: (input: { messages: readonly ChatMemoryMessage[]; signal?: AbortSignal }) => Promise<boolean>;
-  onConsolidated?: (input: { messages: readonly ChatMemoryMessage[]; markdown: string }) => Promise<void>;
+  consolidateDirect?: (input: {
+    messages: readonly ChatMemoryMessage[];
+    reason: ChatMemoryTrigger;
+    signal?: AbortSignal;
+  }) => Promise<boolean>;
+  onConsolidated?: (input: {
+    messages: readonly ChatMemoryMessage[];
+    markdown: string;
+    previousMarkdown: string;
+    reason: ChatMemoryTrigger;
+  }) => Promise<void>;
   onWithdrawn?: (input: { conversationId: string }) => Promise<void>;
   tokenThreshold?: number; idleMs?: number; maxTokens?: number;
 }) {
@@ -68,10 +77,14 @@ export function createChatMemoryRuntime(deps: {
   let running: Promise<boolean> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let rerun = false;
+  let pendingReason: ChatMemoryTrigger = "idle";
   let disposed = false;
   let rewriteAbort: AbortController | null = null;
   let inFlightConversations = new Set<string>();
   const withdrawnConversations = new Set<string>();
+
+  const mergeReason = (currentReason: ChatMemoryTrigger, incoming: ChatMemoryTrigger): ChatMemoryTrigger =>
+    currentReason === "remember" || incoming === "remember" ? "remember" : incoming;
 
   const activeSession = (): ChatMemorySession | null => {
     if (disposed || !bound || bound.generation !== generation) return null;
@@ -266,7 +279,7 @@ export function createChatMemoryRuntime(deps: {
     if (tokenCount() >= (deps.tokenThreshold ?? 12_000)) void trigger("tokens").catch(() => undefined);
   }
 
-  async function consolidate(): Promise<boolean> {
+  async function consolidate(reason: ChatMemoryTrigger): Promise<boolean> {
     // Each retry runs the model against the latest exact document. No stale append.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const snapshot = await enqueue(async () => {
@@ -292,6 +305,7 @@ export function createChatMemoryRuntime(deps: {
         try {
           handledDirect = await deps.consolidateDirect({
             messages: snapshot.messages,
+            reason,
             signal: currentAbort.signal,
           });
         } finally {
@@ -352,7 +366,12 @@ export function createChatMemoryRuntime(deps: {
       if (!result.success) return false;
       if (deps.onConsolidated) {
         try {
-          await deps.onConsolidated({ messages: snapshot.messages, markdown: proposed.markdown });
+          await deps.onConsolidated({
+            messages: snapshot.messages,
+            markdown: proposed.markdown,
+            previousMarkdown: snapshot.memory.markdown,
+            reason,
+          });
         } catch {
           // Optional Personal Wiki mirror must never fail classic chat memory consolidation.
         }
@@ -369,13 +388,27 @@ export function createChatMemoryRuntime(deps: {
     return false;
   }
 
-  function trigger(_reason: ChatMemoryTrigger): Promise<boolean> {
+  function trigger(reason: ChatMemoryTrigger): Promise<boolean> {
     if (timer) clearTimeout(timer);
     timer = undefined;
+    pendingReason = running ? mergeReason(pendingReason, reason) : reason;
     if (running) { rerun = true; return running; }
     running = (async () => {
       let wrote = false;
-      do { rerun = false; wrote = await consolidate() || wrote; } while (rerun && current());
+      do {
+        rerun = false;
+        const activeReason = pendingReason;
+        pendingReason = "idle";
+        try {
+          const cycleWrote = await consolidate(activeReason);
+          wrote = cycleWrote || wrote;
+        } catch (error) {
+          if (activeReason === "remember") {
+            pendingReason = mergeReason(pendingReason, "remember");
+          }
+          throw error;
+        }
+      } while (rerun && current());
       return wrote;
     })().catch((error: unknown) => {
       if (current()) console.warn("[ChatMemory] rewrite_not_committed");
@@ -395,7 +428,7 @@ export function createChatMemoryRuntime(deps: {
     withdrawnConversations.clear();
     generation += 1;
     if (timer) clearTimeout(timer);
-    timer = undefined; bound = null; loaded = false; pending = emptyPending(); rerun = false;
+    timer = undefined; bound = null; loaded = false; pending = emptyPending(); rerun = false; pendingReason = "idle";
   }
   return { registerSnapshot, withdrawConversation, peekPendingMessages, recordUsage, trigger, activity: scheduleIdle, clear };
 }

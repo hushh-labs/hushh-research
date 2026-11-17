@@ -95,7 +95,7 @@ export function useChatMemory(input: {
         lastUser &&
         !lastUser.consentDerived &&
         !requested.current.has(`${conversationId}:${lastUser.id}`) &&
-        /\b(remember|memorize|forget|save (?:this|that|my|these)|keep (?:this|that) in mind)\b/i.test(lastUser.content)
+        /\b(remember|memorize|forget|save (?:this|that|my|these|it|into|to)|add (?:this|that|these|it) to (?:my )?(?:wiki|memory|notes|profile)|(?:create|make|build|organize)(?: [\w-]+){0,4} (?:wiki|scope|scopes|memory)|in a wiki format|keep (?:this|that) in mind)\b/i.test(lastUser.content)
       ) {
         requested.current.add(`${conversationId}:${lastUser.id}`);
         return instance.trigger("remember");
