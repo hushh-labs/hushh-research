@@ -197,6 +197,21 @@ describe("Shared wiki stays on its selected runtime", () => {
         message: "Hello", vaultOwnerToken: "owner-token" });
       expect(ensure).not.toHaveBeenCalled();
       expect(peek).not.toHaveBeenCalled();
+
+      // Turn 2+ on Shared hosting must evict an uninitialized cached wiki rather than attaching client wiki tools
+      const clearSpy = vi.spyOn(wiki, "clearActiveSharedWiki");
+      peek.mockReturnValueOnce({
+        store: { readyIfInitialized: vi.fn().mockResolvedValue(false) },
+      } as never);
+      hosting.mockResolvedValue({ hostingMode: "shared" } as never);
+      await streamAgentChat({
+        vaultKey: TEST_VAULT_KEY,
+        userId: "user-1",
+        message: "Turn 2 shared uninitialized",
+        vaultOwnerToken: "owner-token",
+      });
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+      clearSpy.mockRestore();
     } finally {
       hosting.mockResolvedValue({ hostingMode: "byoc" } as never);
       peek.mockRestore();

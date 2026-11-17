@@ -123,9 +123,9 @@ export async function sendChatTurn(
   if (receipts) {
     if (version === undefined) throw new Error("POD_CHAT_CAPABILITIES_INVALID");
     request = projectPodReceiptTools(request, version);
-    request = projectPodActionTools(request, admittedActions);
     if (version === 1) request = legacyReceiptResults(request);
   }
+  request = projectPodActionTools(request, admittedActions);
   try {
     const response = await fetch(`${url}/api/one/pod/agent-chat`, request);
     // A gateway can time out after the pod accepted the turn. Only the earlier
