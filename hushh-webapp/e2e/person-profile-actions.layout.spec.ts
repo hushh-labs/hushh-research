@@ -64,7 +64,7 @@ for (const width of [320, 393, 768, 1024, 1440]) {
         return { title: style(title), section: style(section), hero: style(hero), cover: rect(cover), avatar: rect(avatar),
           footerBorder: getComputedStyle(footer).borderTopWidth,
           empty: rect(empty), shell: rect(root.parentElement!), heroBox: rect(hero), titleBox: rect(title),
-          historyTitle: rect(root.querySelector('[class*="historyTitle"]')!),
+          historyTitle: rect(root.querySelector('[data-consent-role="row-title"]')!),
           pagination: style(root.querySelector('[class*="pagination"] > span')!),
           search: style(root.querySelector('input[placeholder="Search categories"]')!) };
       });

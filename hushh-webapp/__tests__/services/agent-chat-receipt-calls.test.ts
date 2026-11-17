@@ -138,6 +138,18 @@ describe("receipt calls on a device with no saved receipts", () => {
     expect(receiptCallRequest("receipt_spending", undefined, {}, "UTC", false)).toEqual({ kind: "refused" });
   });
 
+  it("refuses malformed action capabilities before posting a turn", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => Response.json({
+      identity: { type: "google-adk" }, transport: { streaming: true },
+      tools: { clientProvided: true }, receiptToolVersion: 1,
+      admittedActionIds: [null],
+    }));
+    await expect(sendChatTurn("https://pod-invalid-actions.example", {
+      method: "POST", body: JSON.stringify({ tools: (await import("@/lib/mail/receipt-analysis")).RECEIPT_TOOL_DECLARATIONS }),
+    }, fetch)).rejects.toThrow("POD_CHAT_CAPABILITIES_INVALID");
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toContain("/capabilities");
+  });
   it("filters newer frontend gateway action tools not yet present on an older owner pod", async () => {
     const encode = (id: string) =>
       `hussh_action_${btoa(id).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "")}`;

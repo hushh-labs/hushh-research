@@ -2,14 +2,13 @@ import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/nativ
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { ROUTES } from "@/lib/navigation/routes";
-import { LIVE_MEMORY_BOUNDARY_COPY, LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
+import { LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
 import { liveMirrorClaimText, liveMirrorFactStateLabel, liveMirrorFixRoutes, liveMirrorPreviewRows, liveMirrorStatus } from "@/lib/pkm/live-mirror-presentation";
 import type { LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 import { pkmMemoryRowLabels } from "@/lib/pkm/pkm-memory-cards";
 import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { buildPkmShareBundles } from "@/lib/profile/pkm-memory-tree";
 import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
-import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import type { MemoryCommerceSummaryModel } from "./memory-commerce-summary";
 import { nativeMemoryMarkdown, type NativeMemoryMarkdownBlock } from "./native-memory-markdown";
 import type { PkmNaturalModel } from "./use-pkm-natural-model";
@@ -28,7 +27,7 @@ export type NativeMemorySavedModel = Pick<PkmNaturalModel,
 
 /** A missing field is not a license to hide a control: null means retain the
  * complete authored React owner until native can represent this state. */
-export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, openPayments, openSharing, markdownProjection }: {
+export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, openPayments, openSharing: _openSharing, markdownProjection }: {
   model: NativeMemorySavedModel;
   mirror: LiveMirrorViewState;
   commerce: MemoryCommerceSummaryModel;
@@ -74,7 +73,6 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
     const conflicts = (view?.conflicts ?? []).filter(conflict => !(LIVE_MIRROR_HIDDEN_PREDICATES as readonly string[]).includes(conflict.predicate));
     const disputed = new Set(conflicts.map(conflict => conflict.predicate));
     const liveRows: NativeDrawerRow[] = [];
-    if (!locked) liveRows.push(row("live-boundary", LIVE_MEMORY_BOUNDARY_COPY));
     liveRows.push(row("live-status", status.headline, status.sub));
     conflicts.forEach((conflict, index) => {
       const lines = conflict.claims.map(claim => {
@@ -99,30 +97,28 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
       try { blocks = markdownProjection?.source === markdown ? markdownProjection.blocks : nativeMemoryMarkdown(markdown); } catch { return null; }
       if (blocks?.some(block => !block.runs)) blocks = nativeMemoryMarkdown(markdown);
       if (!blocks) return null;
-      const soulRows = [row("soul-description", "The memory One uses in every conversation."),
-        row("soul-edit", "Edit memory.md", undefined, hand("soul-editor", () => model.soul.beginEdit()), { enabled: !model.soul.loading, chevron: true })];
-      if (model.soul.sync === "saving") soulRows.push(row("soul-syncing", "Syncing your latest memories…"));
+      const headingCount = blocks.filter(block => block.kind === "heading").length;
+      const indexDetail = headingCount > 0
+        ? `${headingCount} ${headingCount === 1 ? "section" : "sections"} · Orientation index & notes`
+        : "Orientation index & notes";
+      const wikiRows: NativeDrawerRow[] = [
+        row("wiki-open", "Personal wiki", "Topic pages, archive imports, and cited recall",
+          hand("navigation", () => model.navigate(ROUTES.ONE_FILES)), { chevron: true }),
+        row("soul-edit", "memory.md", indexDetail,
+          hand("soul-editor", () => model.soul.beginEdit()), { enabled: !model.soul.loading, chevron: true }),
+      ];
+      if (model.soul.sync === "saving") wikiRows.push(row("soul-syncing", "Syncing your latest memories…"));
       if (model.soul.sync === "retryable") {
-        soulRows.push(row("soul-sync-error", "Your latest memories are available here but haven’t synced yet."));
-        soulRows.push(row("soul-retry-sync", "Retry sync", undefined, () => model.soul.retrySync()));
+        wikiRows.push(row("soul-sync-error", "Your latest memories are available here but haven’t synced yet."));
+        wikiRows.push(row("soul-retry-sync", "Retry sync", undefined, () => model.soul.retrySync()));
       }
-      group("soul", soulRows, "memory.md");
-      const documentRows = blocks.map((block, index) => {
-        const item = row(`soul-document:${index}`, block.text);
-        let previousHref: string | undefined, previousAction: string | undefined;
-        const runs = block.runs!.map((run, runIndex) => {
-          const { href, ...textRun } = run;
-          if (!href) { previousHref = undefined; previousAction = undefined; return textRun; }
-          const actionId = previousHref === href && previousAction ? previousAction : opaque(`soul-link:${index}:${runIndex}`);
-          actions.set(actionId, () => openExternalUrl(href));
-          previousHref = href; previousAction = actionId;
-          return { ...textRun, actionId };
-        });
-        item.formattedText = { ...(block.kind === "heading" ? { level: block.level ?? 1 } : {}), runs };
-        if (runs.some(run => "actionId" in run)) item.readOnly = false;
-        return item;
-      });
-      group("soul-document", documentRows);
+      group("wiki", wikiRows, "Personal wiki");
+      group("core-docs", [
+        row("identity-doc", "identity.md", "Stated legal name and core identity",
+          hand("soul-editor", () => model.soul.beginEdit()), { enabled: !model.soul.loading, chevron: true }),
+        row("soul-doc", "soul.md", "Standing voice, tone, and writing rules",
+          hand("navigation", () => model.navigate(buildProfileRoute({ panel: "preferences" }))), { chevron: true }),
+      ], "Core documents");
     }
   }
 
@@ -145,9 +141,15 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
       undefined, hand("payments", openPayments), { chevron: true }));
     group("earnings", rows, hasEarnings ? "Memory earnings" : undefined);
   }
-  const category = (domain: NativeMemorySavedModel["categories"][number], index: number) => row(`category:${index}`, domain.title,
-    `${domain.count} ${domain.count === 1 ? "memory" : "memories"}`,
-    hand(domain.key === "location" ? "navigation" : "detail", () => domain.key === "location" ? model.navigate(ROUTES.PKM_LOCATION) : model.setSelectedDomainKey(domain.key)), { chevron: true });
+  const category = (domain: NativeMemorySavedModel["categories"][number], index: number) => {
+    const countLabel = `${domain.count} ${domain.count === 1 ? "memory" : "memories"}`;
+    const manifest = domain.key !== "location" && !model.sharingManifestsLoading ? model.sharingManifests[domain.key] : null;
+    const bundles = manifest ? buildPkmShareBundles(manifest) : [];
+    const enabledCount = bundles.filter(bundle => bundle.enabled).length;
+    const sharingSummary = bundles.length === 0 ? "" : enabledCount === 0 ? " · Private" : enabledCount === bundles.length ? " · Ask first" : ` · ${enabledCount} of ${bundles.length} ask first`;
+    return row(`category:${index}`, domain.title, `${countLabel}${sharingSummary}`,
+      hand(domain.key === "location" ? "navigation" : "detail", () => domain.key === "location" ? model.navigate(ROUTES.PKM_LOCATION) : model.setSelectedDomainKey(domain.key)), { chevron: true });
+  };
   if ((model.bootstrapLoading || (!model.metadata && !model.bootstrapError) || model.memoryCardsLoading) && model.memoryCards.length === 0) {
     group("loading", [row("loading", "Opening Memory…")]);
   } else if (model.memoryCardsLoadError && model.memoryCards.length === 0) {
@@ -180,14 +182,10 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
   if (model.exportStatus) sharingRows.push(row("export-status", model.exportStatus));
   if (model.exportError) sharingRows.push(row("export-error", model.exportError));
   if (model.sharingManifestsLoading) sharingRows.push(row("sharing-loading", "Checking sharing settings…"));
-  sharingRows.push(row("sharing-open", "Sharing settings", undefined, hand("sharing", openSharing), { chevron: true }));
   const unavailable = model.visibleMetadataDomains.some(domain => !model.sharingManifests[domain.key]);
   if (!model.sharingManifestsLoading && unavailable) {
     sharingRows.push(row("sharing-error", "Some sharing settings could not be checked. Try again before changing access."));
     sharingRows.push(row("sharing-retry", "Retry sharing settings", undefined, () => model.setRefreshNonce(value => value + 1)));
-  } else if (!model.sharingManifestsLoading && model.visibleMetadataDomains.length > 0 &&
-    Object.values(model.sharingManifests).every(manifest => buildPkmShareBundles(manifest).length === 0)) {
-    sharingRows.push(row("sharing-empty", "Nothing to share yet."));
   }
   group("sharing", sharingRows);
   if (!valid || total > 200 || sections.length > 32 || model.homeSearchQuery.length > 256) return null;

@@ -16,7 +16,7 @@ import { SECRET_OFFER_ROUTES } from "@/lib/pkm/secret-offer-handoff";
 import { sharedDatesLine, sharedValueRows } from "@/components/agent/consent/shared-with-you-card-view";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
-import { LIVE_MEMORY_BOUNDARY_COPY, LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
+import { LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
 import { formatLiveMirrorDateTime, liveMirrorStatus, liveMirrorRecordRows, liveMirrorSourceRoute, liveMirrorSourceDescription, liveMirrorSourceStateLabel,
   liveMirrorClaimText, liveMirrorConflictKey, liveMirrorFixRoutes, liveMirrorHistoryAction, liveMirrorHistoryDetail, liveMirrorGapText, LIVE_MIRROR_HISTORY_FOOTER } from "@/lib/pkm/live-mirror-presentation";
 
@@ -342,7 +342,7 @@ export function useNativeMemory(model: NativeMemoryModel) {
     if (mirror.status !== "ready") content.push(...read("live-status", mirror.status === "locked" ? "Unlock your vault to view live memory." : "Loading live memory…"));
     else {
       const view = mirror.view, status = liveMirrorStatus(view.overall, view);
-      content.push(...read("live-status", [status.headline, status.sub, LIVE_MEMORY_BOUNDARY_COPY].filter(Boolean).join("\n")));
+      content.push(...read("live-status", [status.headline, status.sub].filter(Boolean).join("\n")));
       content.push({ id: visit.handle("live-tab"), label: "Show", enabled: true,
         options: (["facts", "history", "preview"] as const).map(tab => ({ id: bind(`live-tab-${tab}`, () => change(value => ({ ...value, liveTab: tab }))),
           label: ({ facts: "Facts", history: "History", preview: "Preview" })[tab], selected: local.liveTab === tab })) });
