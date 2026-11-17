@@ -72,12 +72,7 @@ Non-owned surfaces:
 
 ## Required Checks
 
-Use focused or release validation for the changed contract and adjacent callers.
-Diagnostic runs the historical full set. Missing change metadata stays
-conservative. Explicit browser diagnostics own browser proof, and native changes require native
-verification. Keep live security, consent, schema and core deployment gates blocking.
-Secondary feature diagnostics report their actual outcome separately; no diagnostic
-run is not a pass. Follow the [CI readiness policy](../../../docs/operations/releases/ci.md#managed-provider-readiness-policy).
+Use focused or release checks for changed contracts (`diagnostic` runs the historical full suite); keep security, consent, schema, and core deploy gates blocking and report secondary diagnostics separately per the [CI readiness policy](../../../docs/operations/releases/ci.md#managed-provider-readiness-policy).
 
 ```bash
 cd hushh-webapp && npm run test:ci

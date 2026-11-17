@@ -65,3 +65,4 @@
 /consent-protocol/db/private_agent_adoption_successors.py @hushh-labs/pipeline-editors
 /consent-protocol/db/firebase_erasure_adoption.py @hushh-labs/pipeline-editors
 /consent-protocol/db/legacy_cloud_removal_adoption.py @hushh-labs/pipeline-editors
+/.agents/skills/ @hushh-labs/pipeline-editors

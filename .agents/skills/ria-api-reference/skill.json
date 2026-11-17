@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "backend",
   "primary_scope": "ria-api-reference",
-  "description": "Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so Codex reads the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.",
+  "description": "Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so agents read the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.",
   "owned_paths": [
     "docs/architecture/crd-scraping-api.md",
     "consent-protocol/api/routes/crd_scraper.py",
