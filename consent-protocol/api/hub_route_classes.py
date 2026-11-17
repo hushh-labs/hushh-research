@@ -439,7 +439,10 @@ POST /api/one/runtime/byoc/azure/authorize/complete
 GET /api/one/runtime/byoc/azure/hosting
 POST /api/one/runtime/byoc/azure/rebuild/begin
 POST /api/one/runtime/byoc/azure/upgrade/begin
+GET /api/one/runtime/byoc/hosted/azure/migrate/status
+POST /api/one/runtime/byoc/hosted/azure/migrate
 POST /api/one/runtime/byoc/hosted/select
+GET /api/one/runtime/byoc/hosted/cells/status
 POST /api/one/runtime/byoc/project/check
 POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save

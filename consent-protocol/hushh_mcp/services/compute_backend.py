@@ -55,12 +55,13 @@ CUSTODY_MODES = (
 # Canonical backend ids (the ``PERSONAL_AGENT_BACKEND`` values).
 BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
+BACKEND_AZURE = "azure"  # Hussh-hosted Azure Container Apps Umbrella Cell tier.
 BACKEND_ACE = "ace"  # Hussh-hosted Google Agent Compute Engine sandbox tier.
 BACKEND_USER_GCP = "user_gcp"  # BYOC: the pod runs in the USER's own GCP project.
 BACKEND_USER_AZURE = "user_azure"  # BYOC: the pod runs in the USER's own Azure subscription.
 BACKEND_USER_AWS = "user_aws"  # BYOC: the pod runs in the USER's own AWS account.
 
-HOSTED_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_GCP, BACKEND_ACE)
+HOSTED_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_GCP, BACKEND_AZURE, BACKEND_ACE)
 
 # Targets whose pod runs in the PERSON's own cloud account (BYOC), on any provider.
 # Callers outside this module ask "is this the owner's own cloud?" through

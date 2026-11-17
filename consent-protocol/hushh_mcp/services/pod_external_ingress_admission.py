@@ -110,8 +110,15 @@ async def _ingress_holds(client: Any, url: str, origin: str) -> Optional[str]:
 
 
 async def _cloud_holds(row: dict, due: dict[str, str], cloud_check: Any) -> Optional[str]:
-    """For a Google pod, the live IAM and ingress read back; None when they hold."""
+    """For a Google or hosted Azure pod, the live IAM/host read back; None when it holds."""
+    from hushh_mcp.services.hosted_azure_placement import retained_hosted_azure_placement
     from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+
+    if retained_hosted_azure_placement(row) is not None:
+        if cloud_check is None:
+            return None
+        service = _clean((row.get("backend_metadata") or {}).get("service"))
+        return await cloud_check(row, service=service, service_uid=due["service_uid"])
 
     if (
         _clean(row.get("deployment_target")) != BACKEND_USER_GCP

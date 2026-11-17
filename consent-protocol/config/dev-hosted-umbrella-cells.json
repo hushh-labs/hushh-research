@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "environment": "dev",
+  "relayFirstCutover": {
+    "enabled": true,
+    "relayServeDuringIngress": ["external", "direct"],
+    "directPromotionTarget": "direct"
+  },
+  "cells": [
+    {
+      "cellId": "cell-gcp-uscentral1-dev-01",
+      "provider": "gcp",
+      "organization": "Hussh Inc.",
+      "region": "us-central1",
+      "packingModel": "multi_cloud_run_service_per_cell_project",
+      "softWatermark": 64,
+      "hardWatermark": 80,
+      "minWarmSkeletons": 0,
+      "slots": []
+    },
+    {
+      "cellId": "cell-az-eastus2-dev-01",
+      "provider": "azure",
+      "organization": "HushOne Inc.",
+      "tenantId": "e1e09f9b-313b-4c57-a925-f2a573a919e9",
+      "subscriptionId": "3f5a1e87-97d6-4f05-b4ce-0e2cc675e118",
+      "resourceGroup": "rg-hussh-cell-dev-eastus2-01",
+      "location": "eastus2",
+      "environmentName": "cae-hussh-cell-dev-eus2-01",
+      "environmentId": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.App/managedEnvironments/cae-hussh-cell-dev-eus2-01",
+      "registryServer": "crhusshcelldeveus201.azurecr.io",
+      "storageAccount": "sthusshcelldeveus201",
+      "keyVaultName": "kv-h1-celldeveus201",
+      "openaiEndpoint": "https://oai-hussh-cell-dev-eus2-01.openai.azure.com/",
+      "openaiDeployment": "one-chat",
+      "controllerClientId": "815df3ec-c8c4-4df3-a01a-f611dd6eb3c4",
+      "imageDigest": "sha256:9f771f108e06ad3fe51a433b6cd3753a0b4f8d5b24a00c82c511a421d01a9b64",
+      "softWatermark": 40,
+      "hardWatermark": 50,
+      "minWarmSkeletons": 1,
+      "slots": [
+        {
+          "slotId": "slot01",
+          "appName": "ca-pod-slot01",
+          "appId": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.App/containerApps/ca-pod-slot01",
+          "fqdn": "ca-pod-slot01.icystone-aa4aea96.eastus2.azurecontainerapps.io",
+          "identityId": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourcegroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-pod-slot01",
+          "identityClientId": "8ffb641f-ac7a-4d61-a503-745f95d0ee7f",
+          "identityPrincipalId": "5d64f7e3-37d5-4e0e-b2e4-07d0fa8c1e64",
+          "blobUrl": "https://sthusshcelldeveus201.blob.core.windows.net/pod-slot01",
+          "keyVaultKey": "https://kv-h1-celldeveus201.vault.azure.net/keys/pod-log-key-slot01/4780323b78e04ba5b85790a88cb9ea09",
+          "signingSecretUrl": "https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot01"
+        },
+        {
+          "slotId": "slot02",
+          "appName": "ca-pod-slot02",
+          "appId": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.App/containerApps/ca-pod-slot02",
+          "fqdn": "ca-pod-slot02.icystone-aa4aea96.eastus2.azurecontainerapps.io",
+          "identityId": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourcegroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-pod-slot02",
+          "identityClientId": "4abc766b-fb7c-480b-a174-593eca23bff3",
+          "identityPrincipalId": "35bdfa33-234a-45a4-aca9-4a9a8f6f5b44",
+          "blobUrl": "https://sthusshcelldeveus201.blob.core.windows.net/pod-slot02",
+          "keyVaultKey": "https://kv-h1-celldeveus201.vault.azure.net/keys/pod-log-key-slot02/c67943fe5bff4eabacd614b5a712b39b",
+          "signingSecretUrl": "https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot02"
+        }
+      ]
+    }
+  ]
+}

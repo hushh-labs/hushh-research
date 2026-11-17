@@ -16,9 +16,15 @@ describe("the owner-cloud question", () => {
 
   it("separates managed direct bindings from owner-cloud classification", () => {
     expect(isPrivatePodBinding({ deployment_target: "gcp", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
+    expect(isPrivatePodBinding({ deployment_target: "azure", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
+    expect(isPrivatePodBinding({ deployment_target: "ace", environment: "dev" })).toBe(true);
     for (const binding of [
       { deployment_target: "gcp", environment: "dev" },
+      { deployment_target: "azure", environment: "dev" },
+      { deployment_target: "ace", environment: "uat" },
+      { deployment_target: "ace", environment: "dev", hosting_mode: "hussh_hosted" },
       { deployment_target: "gcp", environment: "uat", hosting_mode: "hussh_hosted" },
+      { deployment_target: "azure", environment: "uat", hosting_mode: "hussh_hosted" },
       { deployment_target: "user_gcp", environment: "dev", hosting_mode: "hussh_hosted" },
       { deployment_target: "user_gcp", environment: "dev", hosting_mode: null },
     ]) expect(isPrivatePodBinding(binding)).toBe(false);

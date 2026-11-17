@@ -391,7 +391,8 @@
     "454_calendar_email_followup_temporal.sql",
     "458_location_feed_confirmed_incidents.sql",
     "459_control_plane_kyc_redaction_and_call_indexes.sql",
-    "460_information_request_upfront_reservation.sql"
+    "460_information_request_upfront_reservation.sql",
+    "461_hosted_azure_deployment_target.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -827,7 +828,8 @@
     "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql",
     "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql",
     "459_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/459_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
-    "460_information_request_upfront_reservation.sql": "rollback/460_information_request_upfront_reservation.rollback.sql"
+    "460_information_request_upfront_reservation.sql": "rollback/460_information_request_upfront_reservation.rollback.sql",
+    "461_hosted_azure_deployment_target.sql": "rollback/461_hosted_azure_deployment_target.rollback.sql"
   },
   "rollback_map": {}
 }

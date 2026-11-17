@@ -26,6 +26,7 @@ _SYNC_SCRIPT = (
 )
 _AZURE_KEYS = {
     "hussh_azure_app_client_id": "HUSSH_AZURE_APP_CLIENT_ID",
+    "hussh_hosted_azure_client_id": "HUSSH_HOSTED_AZURE_CLIENT_ID",
     "hussh_azure_broker_sa": "HUSSH_AZURE_BROKER_SA",
     "hussh_azure_oauth_redirect_uri": "HUSSH_AZURE_OAUTH_REDIRECT_URI",
     "hussh_pod_image_reader_sa": "HUSSH_POD_IMAGE_READER_SA",
@@ -66,7 +67,8 @@ def test_the_dev_lane_carries_every_azure_setting():
     config = _config("hushh-pda-dev", "https://dev.one.hushh.ai")
 
     assert {key: config[key] for key in _AZURE_KEYS} == {
-        "hussh_azure_app_client_id": "4c6a5fc7-d4da-4061-ad27-b95fb125237b",
+        "hussh_azure_app_client_id": "4a6188ee-2a5b-4ed8-b650-35e4d560f72d",
+        "hussh_hosted_azure_client_id": "815df3ec-c8c4-4df3-a01a-f611dd6eb3c4",
         "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
         "hussh_azure_oauth_redirect_uri": "https://dev.one.hushh.ai/one/setup/cloud/azure/return",
         "hussh_pod_image_reader_sa": "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com",
@@ -106,7 +108,7 @@ def test_hydration_gives_the_azure_services_their_settings(monkeypatch):
 
     runtime_settings.hydrate_runtime_environment()
 
-    assert azure_federation.app_client_id() == "4c6a5fc7-d4da-4061-ad27-b95fb125237b"
+    assert azure_federation.app_client_id() == "4a6188ee-2a5b-4ed8-b650-35e4d560f72d"
     assert azure_federation.broker_service_account().startswith("hussh-azure-broker@")
     assert azure_entra_authorizer.redirect_uri().startswith("https://dev.one.hushh.ai/")
     assert azure_image_source.reader_service_account().startswith("hussh-pod-image-reader@")

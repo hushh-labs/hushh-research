@@ -1380,3 +1380,89 @@ async def byoc_authorization_instructions(
         # Proven, never asserted -- the same rule the save route follows.
         authorized=bool(cloud and cloud.authorized),
     )
+
+
+class HostedAzureMigrationRequest(BaseModel):
+    cellId: str | None = Field(default=None, max_length=80)
+
+
+def _require_dev_hosted_azure_lane() -> None:
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane
+
+    if deploy_lane() != "dev":
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "HOSTED_AZURE_UNAVAILABLE",
+                "message": "Hosted Azure cells are dev-only",
+            },
+        )
+
+
+@router.post("/byoc/hosted/azure/migrate")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def migrate_owner_pod_to_hosted_azure(
+    request: Request,
+    body: HostedAzureMigrationRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Migrate an owner's provisioned BYOC/GCP pod onto a pre-warmed HushOne Inc. Azure cell slot."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        execute_owner_migration_to_hosted_azure,
+    )
+    from hushh_mcp.services.pod_umbrella_cell_pool import (
+        CellCapacityExceededError,
+        NoWarmSkeletonAvailableError,
+    )
+
+    try:
+        return dict(
+            await execute_owner_migration_to_hosted_azure(
+                firebase_uid,
+                cell_id=(body.cellId if body else None),
+            )
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail={"code": "HOSTED_AZURE_UNAVAILABLE"}) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "HOSTED_AZURE_PRECONDITION_FAILED", "message": str(exc)},
+        ) from exc
+    except (CellCapacityExceededError, NoWarmSkeletonAvailableError) as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "UMBRELLA_CELL_EXHAUSTED", "message": str(exc)}
+        ) from exc
+
+
+@router.get("/byoc/hosted/azure/migrate/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_azure_migration_status_route(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Return Hosted Azure migration job status, Relay-First cutover state, and direct readiness."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        get_owner_hosted_azure_migration_status,
+    )
+
+    return dict(await get_owner_hosted_azure_migration_status(firebase_uid))
+
+
+@router.get("/byoc/hosted/cells/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_umbrella_cells_status(
+    request: Request,
+    cell_id: str | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Inspect Umbrella Compute Cell capacity watermarks and warm skeleton availability."""
+    _require_dev_hosted_azure_lane()
+    del firebase_uid  # Authenticated caller only; returns non-PII cell pool inventory.
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        get_hosted_umbrella_cells_snapshot,
+    )
+
+    return dict(await get_hosted_umbrella_cells_snapshot(cell_id=cell_id))
