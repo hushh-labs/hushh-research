@@ -133,6 +133,29 @@ describe("useChatMemory chat-switching and vault-lock boundaries", () => {
     expect(runtimeMocks.trigger).toHaveBeenCalledTimes(1);
   });
 
+  it("triggers remember immediately for natural wiki and scope save instructions in chat", async () => {
+    renderHook(() =>
+      useChatMemory({
+        userId: "owner-1",
+        vaultKey: "vault-key",
+        vaultEpoch: 1,
+        vaultOwnerToken: "vault-token",
+        getToken: () => "vault-token",
+        conversationId: "chat-wiki-trigger",
+        messages: [
+          {
+            id: "w1",
+            role: "user",
+            text: "Can you save this about me in a wiki format and create scopes for travel?",
+          },
+        ],
+      }),
+    );
+
+    await vi.waitFor(() => expect(runtimeMocks.registerSnapshot).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(runtimeMocks.trigger).toHaveBeenCalledWith("remember"));
+  });
+
   it("purges non-financial decrypted PKM domain caches when invalidating all domains for a locked user", () => {
     const cache = CacheService.getInstance();
     cache.set(CACHE_KEYS.DOMAIN_DATA("owner-1", "one_memory"), { markdown: "secret" }, CACHE_TTL.SESSION);

@@ -201,7 +201,7 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
       expect(screen.queryByTestId("files-personal-wiki-view")).toBeNull(),
     );
     expect(
-      screen.getByTestId("files-personal-wiki-folder"),
+      await screen.findByTestId("files-personal-wiki-folder"),
     ).toBeInTheDocument();
   });
 });
