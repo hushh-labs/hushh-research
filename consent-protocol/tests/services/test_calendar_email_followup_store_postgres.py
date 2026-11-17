@@ -603,3 +603,39 @@ async def test_automatic_start_is_idempotent_and_preserves_explicit_opt_out(foll
         payload.model_copy(update={"initialize_only": False}), Response(), OWNER
     )
     assert result["monitoring_enabled"]
+
+
+@pytest.mark.asyncio
+async def test_source_retry_does_not_delay_new_mail_history_cadence(followup_pg):
+    service, store, _ = followup_pg
+    account_id = await _monitored_account(service)
+    monitor = await store.acquire_scan(user_id=OWNER, account_id=account_id)
+    checkpoint = {
+        "version": 1,
+        "mode": "history",
+        "history_id": "42",
+        "incomplete_sources": {
+            "thread-later": {
+                "retry_at_ms": 4070908800000,
+                "attempts": 3,
+                "thread": True,
+                "messages": {},
+            }
+        },
+    }
+    await store.save_checkpoint(monitor, checkpoint, state="partial", retry_in=1920)
+    await store.release_scan(monitor)
+    with store.db.engine.begin() as connection:
+        delay = connection.execute(
+            text(
+                "SELECT EXTRACT(EPOCH FROM (next_scan_at-NOW())) FROM calendar_email_followup_monitors WHERE user_id=:owner"
+            ),
+            {"owner": OWNER},
+        ).scalar_one()
+    assert 290 < delay <= 300
+    saved = await store.monitor(user_id=OWNER, account_id=account_id)
+    assert saved.checkpoint["incomplete_sources"] == checkpoint["incomplete_sources"]
+
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import _next_retry_batch
+
+    assert _next_retry_batch(saved.checkpoint, datetime.now(UTC)) == []

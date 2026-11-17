@@ -2,7 +2,7 @@ import { CacheService } from "@/lib/services/cache-service";
 import { snapshotValidatedAuthSessionOwner, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import type { FollowupList, FollowupStatus } from "@/lib/services/calendar-followups-service";
 
-const PREFIX = "calendar_followups_";
+const PREFIX = "calendar_followups_all_";
 let subscribed = false;
 type Snapshot = { status: FollowupStatus; list: FollowupList };
 

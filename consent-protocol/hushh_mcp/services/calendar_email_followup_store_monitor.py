@@ -215,7 +215,8 @@ class _MonitorState:
                               * power(2, LEAST(consecutive_failures, 6)))))
                       WHEN CAST(:terminal AS BOOLEAN) THEN NOW() + make_interval(
                         secs => GREATEST(CAST(:floor AS DOUBLE PRECISION),
-                          COALESCE(CAST(:retry_in AS DOUBLE PRECISION),
+                          LEAST(COALESCE(CAST(:retry_in AS DOUBLE PRECISION),
+                                   CAST(:cadence AS DOUBLE PRECISION)),
                                    CAST(:cadence AS DOUBLE PRECISION))))
                       ELSE NOW() END,
                     lease_until=NOW()+interval '5 minutes', updated_at=NOW()

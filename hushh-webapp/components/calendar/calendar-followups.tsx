@@ -50,6 +50,7 @@ const CATCH_UP_MAX_CALLS = 20;
 const FOLLOWUP_PAGE_SIZE = 15;
 type ActiveView = Exclude<FollowupView, "history">;
 const FOLLOWUP_VIEWS: Record<ActiveView, string> = {
+  all: "All",
   upcoming: "Upcoming",
   overdue: "Overdue",
   snoozed: "Snoozed",
@@ -75,7 +76,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [loading, setLoading] = useState(!cached);
   const [loadingPage, setLoadingPage] = useState(false);
   const [pageOffset, setPageOffset] = useState(0);
-  const [view, setView] = useState<ActiveView>("upcoming");
+  const [view, setView] = useState<ActiveView>("all");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -86,9 +87,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
+  const activeReads = useRef(0);
   const hasVerifiedRows = useRef(Boolean(cached?.list.conversations.length));
   const pageOffsetRef = useRef(0);
-  const viewRef = useRef<ActiveView>("upcoming");
+  const viewRef = useRef<ActiveView>("all");
   const firstPageRef = useRef<FollowupList | null>(cached?.list ?? null);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
@@ -124,6 +126,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
     if (snapshotValidatedAuthSessionOwner()?.userId !== userId) return;
     const seq = ++requestSeq.current;
+    activeReads.current += 1;
     // A refresh supersedes a pending page request, including its loading state.
     setLoadingPage(false);
     const alive = () => !signal?.aborted && requestSeq.current === seq && getAuthSessionGeneration() === authGeneration;
@@ -160,7 +163,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         nextList = await CalendarFollowupsService.list(userId, accountId, idToken, signal, offset, selectedView);
       }
       if (alive()) {
-        if (offset === 0 && selectedView === "upcoming") {
+        if (offset === 0 && selectedView === "all") {
           firstPageRef.current = nextList;
           saveFollowupSnapshot(resourceKey, { status: nextStatus, list: nextList });
         }
@@ -172,17 +175,17 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       // Neither a background refresh nor a failed reload replaces items the owner
       // is already looking at with an error: the last verified list stays.
       if (alive() && !quiet) { if (!hasVerifiedRows.current) setError(followupErrorText(failure)); setLoading(false); }
-    }
+    } finally { activeReads.current -= 1; }
   }, [userId, accountId, zone, resourceKey, authGeneration, clearRejectedAuthority, clearPresentation]);
 
   useEffect(() => {
     if (expanded) return;
     // Collapse also cancels a first Next request that has not applied its offset.
     if (loadingPage) { requestSeq.current += 1; setLoadingPage(false); }
-    if (pageOffsetRef.current === 0 && viewRef.current === "upcoming") return;
+    if (pageOffsetRef.current === 0 && viewRef.current === "all") return;
     pageOffsetRef.current = 0;
-    viewRef.current = "upcoming";
-    setView("upcoming");
+    viewRef.current = "all";
+    setView("all");
     setPageOffset(0);
     setList(firstPageRef.current);
     void refresh(lifetime.current?.signal, true);
@@ -267,7 +270,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         void refresh(lifetime.current?.signal, true);
       }
     };
-    const timer = window.setInterval(wake, catchingUp ? 15_000 : 60_000);
+    // Passive polling never supersedes an unfinished read or page selection.
+    const timer = window.setInterval(() => {
+      if (activeReads.current === 0) wake();
+    }, catchingUp ? 5_000 : 60_000);
     window.addEventListener("focus", wake);
     window.addEventListener("online", wake);
     document.addEventListener("visibilitychange", wake);
@@ -412,20 +418,21 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const changePage = async (offset: number, targetView = view) => {
     if (!expanded || loadingPage || offset < 0 || (offset === pageOffset && targetView === view)) return;
     const seq = ++requestSeq.current;
+    activeReads.current += 1;
     setLoadingPage(true); setError("");
     try {
       const page = await CalendarFollowupsService.list(
         userId, accountId, await currentIdToken(), lifetime.current?.signal, offset, targetView,
       );
       if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
-      if (offset === 0 && targetView === "upcoming") firstPageRef.current = page;
+      if (offset === 0 && targetView === "all") firstPageRef.current = page;
       viewRef.current = targetView;
       setView(targetView);
       pageOffsetRef.current = offset;
       setPageOffset(offset);
       setList(page);
     } catch (failure) { clearRejectedAuthority(failure); if (requestSeq.current === seq) setError(followupErrorText(failure)); }
-    finally { if (requestSeq.current === seq) setLoadingPage(false); }
+    finally { activeReads.current -= 1; if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
   const askRemove = (entry: FollowupConversation, from: HTMLButtonElement) => {
@@ -494,7 +501,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
-  const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "upcoming" ? (list?.conversations || []).slice(0, 2) : [];
+  const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "all" ? (list?.conversations || []).slice(0, 2) : [];
   const viewCounts = list?.view_counts;
   const hasMoreViews = Boolean(viewCounts && (viewCounts.overdue || viewCounts.snoozed));
   const notice = status?.monitoring_enabled && !loading && !error ? coverageNotice(status.coverage ?? list?.coverage, true) : null;
@@ -527,7 +534,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           key={option} size="compact" variant={view === option ? "default" : "ghost"}
           aria-pressed={view === option} disabled={loadingPage}
           onClick={() => void changePage(0, option)}
-        >{FOLLOWUP_VIEWS[option]} ({viewCounts[option]})</Button>)}
+        >{FOLLOWUP_VIEWS[option]} ({viewCounts[option] ?? (option === "all" ? list?.total_conversations ?? 0 : 0)})</Button>)}
       </div> : null}
       {status?.monitoring_enabled && rows.length > 0 ? <div>
         {rows.map(entry => {
@@ -538,7 +545,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
             onKeep={() => toast.success("Kept in Follow-ups", { className: presentationStyles.toast })} onRemove={from => askRemove(entry, from)} />;
         })}
       </div> : null}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups."}</p> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{view === "all" ? "No follow-ups right now." : viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups."}</p> : null}
       {notice ? <div className={notice.tone === "action" ? `${styles.muted} flex flex-wrap items-center justify-between gap-2` : styles.muted} role="status">
         <span>{notice.text}</span>
         {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
