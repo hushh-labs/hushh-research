@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from runpy import run_path
 import subprocess
+import threading
 import time
 
 import production_phone_receipt as phone
@@ -36,7 +39,7 @@ def _require(condition, reason):
 
 
 def _budget(deadline):
-    remaining = retention.remaining_seconds(90)
+    remaining = retention.remaining_seconds(180)
     if deadline is not None:
         remaining = min(remaining, deadline - time.monotonic())
     _require(remaining > 0, "authority lookup deadline exhausted")
@@ -384,6 +387,63 @@ def _verify_retired(
         lease_documents.bind_final(final, original)
 
 
+def _reconcile_run(
+    repository,
+    run,
+    protocol,
+    text,
+    trusted,
+    *,
+    api,
+    governed,
+    timestamp,
+    deadline,
+    source_command,
+    run_command,
+):
+    for number in range(run["run_attempt"], 0, -1):
+        attempt, result, job = _attempt(repository, run, number, api, text)
+        if (
+            job is None
+            or _steps(
+                job,
+                _current(repository, attempt, job, trusted),
+                protocol == "intent",
+                _restoration_nonproducer(
+                    repository, attempt, job, trusted, text, source_command
+                ),
+            )
+            is None
+        ):
+            continue
+        _require(
+            trusted
+            and governed(
+                {**attempt, "status": "completed"}, repository, "production"
+            ),
+            "lease producer is not governed",
+        )
+        _verify_retired(
+            repository,
+            attempt,
+            result,
+            job,
+            protocol,
+            api=api,
+            timestamp=timestamp,
+            deadline=deadline,
+            run_command=run_command,
+        )
+    refreshed = api(repository, f"runs/{run['id']}?exclude_pull_requests=true")
+    _require(
+        all(
+            refreshed.get(key) == run.get(key)
+            for key in ("id", "head_sha", "run_attempt", "status", "conclusion")
+        ),
+        "producer attempt changed during lookup",
+    )
+
+
 def assert_reconciled(
     repository,
     *,
@@ -397,62 +457,61 @@ def assert_reconciled(
     """Walk every attempt to a proven pre-policy boundary; admit no mutation."""
     if source_command is None:
         command = run_path(str(phone.ROOT / "deploy/phone/qualify_image.py"))["run"]
+        source_cache = {}
+        source_lock = threading.Lock()
 
         def source_command(args):
-            return command(args, timeout=_budget(deadline))
+            key = tuple(args)
+            with source_lock:
+                if key in source_cache:
+                    return source_cache[key]
+            output = command(args, timeout=_budget(deadline))
+            with source_lock:
+                source_cache.setdefault(key, output)
+                return source_cache[key]
 
     newer = None
-    for listed in _history(repository, api, timestamp):
-        run = _run(repository, listed, api)
-        protocol, text = _protocol(run["head_sha"], newer, source_command)
-        newer = run["head_sha"]
-        governed_view = {**run, "status": "completed"}
-        trusted = governed(governed_view, repository, "production")
-        if not protocol:
-            if trusted and run.get("status") == "completed":
-                return
-            continue
-        for number in range(run["run_attempt"], 0, -1):
-            attempt, result, job = _attempt(repository, run, number, api, text)
-            if (
-                job is None
-                or _steps(
-                    job,
-                    _current(repository, attempt, job, trusted),
-                    protocol == "intent",
-                    _restoration_nonproducer(
-                        repository, attempt, job, trusted, text, source_command
-                    ),
-                )
-                is None
-            ):
+    pending = []
+    readers = ThreadPoolExecutor(max_workers=3)
+    try:
+        for listed in _history(repository, api, timestamp):
+            run = _run(repository, listed, api)
+            protocol, text = _protocol(run["head_sha"], newer, source_command)
+            newer = run["head_sha"]
+            governed_view = {**run, "status": "completed"}
+            trusted = governed(governed_view, repository, "production")
+            if not protocol:
+                if trusted and run.get("status") == "completed":
+                    while pending:
+                        pending.pop(0).result()
+                    return
                 continue
-            _require(
-                trusted
-                and governed(
-                    {**attempt, "status": "completed"}, repository, "production"
-                ),
-                "lease producer is not governed",
+            context = copy_context()
+            pending.append(
+                readers.submit(
+                    context.run,
+                    _reconcile_run,
+                    repository,
+                    run,
+                    protocol,
+                    text,
+                    trusted,
+                    api=api,
+                    governed=governed,
+                    timestamp=timestamp,
+                    deadline=deadline,
+                    source_command=source_command,
+                    run_command=run_command,
+                )
             )
-            _verify_retired(
-                repository,
-                attempt,
-                result,
-                job,
-                protocol,
-                api=api,
-                timestamp=timestamp,
-                deadline=deadline,
-                run_command=run_command,
-            )
-        refreshed = api(repository, f"runs/{run['id']}?exclude_pull_requests=true")
-        _require(
-            all(
-                refreshed.get(key) == run.get(key)
-                for key in ("id", "head_sha", "run_attempt", "status", "conclusion")
-            ),
-            "producer attempt changed during lookup",
+            if len(pending) == 3:
+                pending.pop(0).result()
+        while pending:
+            pending.pop(0).result()
+        raise retention.UnsafeState(
+            "Cold health lease reconciliation required: no verified pre-protocol boundary"
         )
-    raise retention.UnsafeState(
-        "Cold health lease reconciliation required: no verified pre-protocol boundary"
-    )
+    finally:
+        for future in pending:
+            future.cancel()
+        readers.shutdown(wait=True, cancel_futures=True)

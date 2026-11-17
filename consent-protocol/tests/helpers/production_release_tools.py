@@ -45,6 +45,7 @@ CI_PRODUCTION_TOOLS = (
     "production_activation_continuation.py",
     "production_staged_worker.py",
     "production_worker_basis.py",
+    "production_worker_emergency.py",
     "production_backend_inheritance.py",
     "production_retention_context.py",
     "production_restoration_receipt.py",

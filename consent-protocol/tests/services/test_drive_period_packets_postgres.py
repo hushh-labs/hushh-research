@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -46,10 +47,6 @@ async def frozen_provider_period(reusable, monkeypatch):
     from hushh_mcp.services.drive_request_discovery import discovery_evidence
     from tests.services.test_drive_period_packets import semantic
 
-    monkeypatch.setattr(
-        "hushh_mcp.services.drive_request_package_assessment.validate_semantic_model_binding",
-        lambda value: value,
-    )
     period = DrivePeriodPacketStore(db=reusable.collection.db, cipher=reusable.collection.cipher)
     await period.ensure_owner(user_id="owner", now=datetime(2020, 3, 1, tzinfo=UTC))
     with period.db.engine.begin() as connection:
@@ -182,13 +179,52 @@ async def test_period_provider_call_fence_rejects_lost_head_lease(reusable, monk
         await period.require_build_current(**arguments)
 
 
-async def prepared_provider_purchase(reusable, sharing, request_bulk, monkeypatch):
+async def prepared_provider_purchase(
+    reusable, sharing, request_bulk, monkeypatch, *, historical_binding=False
+):
     from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
     from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
     from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
     from hushh_mcp.services.drive_request_package_store import DriveRequestPackageStore
 
     period, head, _, manifest, file = await frozen_provider_period(reusable, monkeypatch)
+    if historical_binding:
+        from hushh_mcp.services.drive_document_facts_store import seal_evidence
+        from hushh_mcp.services.drive_packet_contract import evidence_digest
+
+        monkeypatch.setenv("ENVIRONMENT", "uat")
+        # Seed a pre-rollout, immutable sale version in this disposable database.
+        legacy = deepcopy(manifest)
+        legacy["search"]["query_source"] = None
+        legacy["search"]["model_binding"] = {
+            "provider": "azure_openai",
+            "deployment": "synthetic-retired-azure",
+            "config_fingerprint": "a" * 64,
+            "approval_generation": "36b384b5-cd25-4802-b08f-f1c63e3a859f",
+            "authorization_basis": "uat_policy",
+        }
+        with period.db.engine.begin() as connection:
+            row = period._row(
+                connection,
+                "SELECT * FROM drive_packet_versions WHERE packet_id=:id AND user_id='owner' AND version=1 FOR UPDATE",
+                {"id": head["packet_id"]},
+            )
+            connection.execute(
+                text(
+                    "UPDATE drive_packet_versions SET manifest_envelope=CAST(:envelope AS jsonb),digest=:digest WHERE packet_id=:id AND user_id='owner' AND version=1"
+                ),
+                {
+                    "id": head["packet_id"],
+                    "digest": evidence_digest(legacy),
+                    "envelope": seal_evidence(
+                        period.cipher, period._packet_identity(row, "manifest", 1), legacy
+                    ),
+                },
+            )
+        manifest = await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=str(head["packet_id"]), version=1
+        )
+        assert manifest["search"]["model_binding"] == legacy["search"]["model_binding"]
     monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
     clear_runtime_settings_caches()
     monkeypatch.setattr(
@@ -255,15 +291,21 @@ async def prepared_provider_purchase(reusable, sharing, request_bulk, monkeypatc
     )
     packages = DriveRequestPackageStore(db=sharing.db, sharing=sharing)
     work = await packages.claim_evaluation(user_id="owner", job_id=found["jobId"])
+    if historical_binding:
+        assert work["checkpoint"]["semantic_model_binding"] == manifest["search"]["model_binding"]
+        assert work["checkpoint"]["semantic_assessment_policy"].startswith(
+            "frozen-provider-packet-v1:"
+        )
     package = await packages.finalize_provider_packet(work)
     return catalog, request_id, packages, package
 
 
+@pytest.mark.parametrize("historical_binding", [False, True])
 async def test_provider_packet_real_catalog_search_finalizer_and_owner_allow(
-    reusable, sharing, request_bulk, monkeypatch
+    reusable, sharing, request_bulk, monkeypatch, historical_binding
 ):
     catalog, request_id, packages, package = await prepared_provider_purchase(
-        reusable, sharing, request_bulk, monkeypatch
+        reusable, sharing, request_bulk, monkeypatch, historical_binding=historical_binding
     )
     assert package["confidenceBasis"] == "provider_search" and package["canAllow"]
     with sharing.db.engine.connect() as connection:

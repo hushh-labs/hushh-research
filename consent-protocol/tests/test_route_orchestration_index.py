@@ -10,8 +10,8 @@ def test_resolves_static_finance_setup_route() -> None:
     assert entry is not None
     assert entry["route_pattern"] == "/one/setup/finance"
     assert entry["instruction_id"] == "route.one.setup.finance"
-    assert entry["voice_playbook"]["primary_action_id"] == "kai.setup.answer_horizon"
-    assert "kai.setup.answer_horizon" in entry["action_ids"]
+    assert entry["voice_playbook"]["primary_action_id"] == "setup.finish_finance"
+    assert "setup.finish_finance" in entry["action_ids"]
 
 
 def test_route_matching_is_segment_bounded() -> None:

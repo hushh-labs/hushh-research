@@ -91,12 +91,10 @@ def qualified_selection(providers, document, expected, *, trust_failed=False):
     carrier = qualification_provider(
         document, expected["environment"], expected.get("qualification_mode", "full")
     )
-    # Dev retains its strict configured-provider policy; no alternate fallback.
-    return (
-        configured
-        if not trust_failed and providers.get(carrier, {}).get("ready") is True
-        else None
-    )
+    qualified = qualified_provider(providers, carrier, trust_failed=trust_failed)
+    if carrier != configured:
+        return configured if qualified == carrier else None
+    return qualified
 
 
 @cache
@@ -179,6 +177,72 @@ def payload(entry):
     return value if isinstance(value, dict) else {}
 
 
+def _valid_scoped_core(core, provider, expected, document, policies):
+    """Verify the completed model and policy for each scope in the fleet job."""
+    if (
+        not isinstance(core, dict)
+        or core.get("schema") != "managed_text_probe.v2"
+        or core.get("provider") != provider
+        or core.get("ready") is not True
+        or core.get("config_fingerprint") != expected["config_fingerprint"]
+        or not isinstance(core.get("scopes"), dict)
+        or set(core["scopes"]) != SCOPES
+        or not all(policies.values())
+    ):
+        return False
+    contract = _runtime_contract()
+    profile = document["environments"]["uat"]
+    for scope, policy in policies.items():
+        row = core["scopes"][scope]
+        binding_hash = fingerprint(
+            {
+                "policy": policy,
+                "project": profile["project"],
+                "locations": profile["text_locations"],
+            }
+        )
+        if row != {
+            "ready": True,
+            "provider": policy["provider"],
+            "model": policy["model"],
+            "location": profile["text_locations"][0],
+            "policy_generation": contract.text_policy_generation(
+                document["private_drive_text_uat"], policy["provider"], policy
+            ),
+            "binding_fingerprint": binding_hash,
+        }:
+            return False
+    planner = core.get("activity_planner")
+    if (
+        expected.get("qualification_mode") == "core"
+        and "activity_planner" in core
+        and planner is None
+    ):
+        return True
+    if not isinstance(planner, dict):
+        return False
+    manifest = json.loads(
+        (ROOT / "consent-protocol/config/readiness-exam-manifest.v1.json").read_text()
+    )
+    cases = [
+        case["input"]["probe_case"]
+        for case in manifest["cases"]
+        if case["stage"] == "managed_text.activity_planner"
+    ]
+    rows = planner.get("cases")
+    return (
+        planner.get("schema") == "drive.activity_planner.probe.v1"
+        and planner.get("passed") is True
+        and planner.get("provider") == policies["drive_document_requests"]["provider"]
+        and planner.get("drive_calls") == 0
+        and planner.get("per_item_model_calls") == 0
+        and bool(cases)
+        and isinstance(rows, list)
+        and all(isinstance(row, dict) and row.get("passed") is True for row in rows)
+        and [row.get("case") for row in rows] == cases
+    )
+
+
 def valid_core(core, provider, expected, document):
     environment = expected["environment"]
     if environment != "uat":
@@ -203,6 +267,15 @@ def valid_core(core, provider, expected, document):
             and core.get("models") == [profile["text_model"]]
             and core.get("locations") == profile["text_locations"]
         )
+    if any(key in document for key in ("drive_text_uat", "one_chat_text_uat")):
+        contract = _runtime_contract()
+        policies = {
+            scope: contract.load_scoped_text_policy(
+                scope, environment="uat", document=document
+            )
+            for scope in SCOPES
+        }
+        return _valid_scoped_core(core, provider, expected, document, policies)
     if isinstance(core, dict) and core.get("schema") == "azure_managed_text_legacy.v1":
         return (
             expected.get("legacy_exception") is True
@@ -550,6 +623,19 @@ def _execution_failure(provider, values):
     return {"failure_classification": classification}
 
 
+def _execution_bound(value, provider, expected):
+    prefix = "azure-pwm-" if provider == "azure_openai" else "genai-ready-"
+    return (
+        value.get("verified") is True
+        and value.get("execution_image") == expected["image"]
+        and value.get("runtime_account") == expected["runtime_account"]
+        and value.get("job") == prefix + expected["build_id"]
+        and str(value.get("execution", "")).startswith(
+            prefix + expected["build_id"] + "-"
+        )
+    )
+
+
 def evaluate(envelopes, expected, *, document=None):
     document = (
         document
@@ -570,7 +656,6 @@ def evaluate(envelopes, expected, *, document=None):
             and value.get("provider") == provider
             and value.get("context") == expected
         )
-        prefix = "azure-pwm-" if provider == "azure_openai" else "genai-ready-"
         if (
             valid
             and value.get("verified") is True
@@ -586,16 +671,7 @@ def evaluate(envelopes, expected, *, document=None):
                 if not name.startswith("one_chat:")
                 and classification in {"candidate_misconfigured", "application_broken"}
             )
-        bound = bool(
-            valid
-            and value.get("verified") is True
-            and value.get("execution_image") == expected["image"]
-            and value.get("runtime_account") == expected["runtime_account"]
-            and value.get("job") == prefix + expected["build_id"]
-            and str(value.get("execution", "")).startswith(
-                prefix + expected["build_id"] + "-"
-            )
-        )
+        bound = valid and _execution_bound(value, provider, expected)
         accepted[provider] = bool(
             bound
             and value.get("core_ready") is True
@@ -634,6 +710,9 @@ def evaluate(envelopes, expected, *, document=None):
         "alternate_failures": sorted(alternate_diagnostics),
         "selected_provider": selected,
         **({"core_provider": carrier} if carrier != configured else {}),
+        "status": "blocked"
+        if selected is None
+        else ("healthy" if selected == configured else "degraded_fallback"),
         "pwm_trust": (
             "failed"
             if trust_failed
@@ -655,6 +734,26 @@ def evaluate(envelopes, expected, *, document=None):
         "context": expected,
         "providers": diagnostics,
     }
+
+
+def qualified_provider(providers, configured, *, trust_failed=False):
+    """A complete alternate qualifies only a bound primary-provider outage.
+
+    Missing evidence, quality failures and configuration faults never become an
+    outage. Both providers retain the same capability inventory and graders.
+    """
+    if trust_failed:
+        return None
+    primary = providers.get(configured, {})
+    if primary.get("ready") is True:
+        return configured
+    if (
+        configured == "azure_openai"
+        and primary.get("failure_classification") == "provider_unavailable"
+        and providers.get("vertex", {}).get("ready") is True
+    ):
+        return "vertex"
+    return None
 
 
 def worker_provider(sha, image, run_id, account):

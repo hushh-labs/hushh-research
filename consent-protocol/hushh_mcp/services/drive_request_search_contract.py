@@ -33,13 +33,33 @@ def validated_request_semantics(
             raise DriveReadError("invalid_argument")
         from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 
-        if semantic_model_binding is not None:
+        if provider_packet:
+            # Exact immutable packet membership is checked against its manifest
+            # before I/O and commit; its historical author is not invoked again.
+            from hushh_mcp.managed_ai_config import profile_hash
+            from hushh_mcp.services.drive_request_package_assessment import (
+                validate_semantic_model_provenance,
+            )
+
+            if not discovery_delivery_enabled:
+                raise DriveReadError("invalid_argument")
+            if semantic_model_binding is not None:
+                semantic_model_binding = validate_semantic_model_provenance(semantic_model_binding)
+            semantic_policy = "frozen-provider-packet-v1:" + profile_hash(
+                {
+                    "plan": semantic_plan,
+                    "model_binding": semantic_model_binding,
+                }
+            )
+        elif semantic_model_binding is not None:
             from hushh_mcp.services.drive_request_package_assessment import (
                 validate_semantic_model_binding,
             )
 
             semantic_model_binding = validate_semantic_model_binding(semantic_model_binding)
-        semantic_policy = assessment_policy_version(semantic_model_binding)
+            semantic_policy = assessment_policy_version(semantic_model_binding)
+        else:
+            semantic_policy = assessment_policy_version(semantic_model_binding)
     return (
         semantic_plan,
         semantic_model_binding,

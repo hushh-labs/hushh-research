@@ -17,12 +17,23 @@ import retention_production_evidence as production
 import retention_publication_source as publication_source
 
 APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
+# This reviewed contract reaches publication admission before provider mutation.
+# Compare its actual blobs, not a mutable Main ref or an invented historical profile.
+STATIC_GUARD_SOURCE = "b31636cee1f7281688d58b54e0445ddf717e825e"
+# The reviewed activation/worker readers changed the owner tuple, while
+# publication admission still precedes every provider mutation.
+STATIC_GUARD_SOURCES = (
+    STATIC_GUARD_SOURCE,
+    "619e37615f35d11b79909420f23cf0d5a75b679b",
+    "ab0ef1a7170693366d62dab640d479a66b799b07",
+)
+STATIC_GUARD_PATHS = (*production.SOURCE_PATHS, records.PASS_DIAGNOSTICS)
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
 PROFILE_NAME = "publication-aec6-blobless-v2"
 PROFILE_TEMPLATE_RUN_ID = 41489711406
 MAX_CLOCK_RUNS = 100
 _CLOCK_READERS = 3
-MAX_COMPARE_COMMITS = 250
+COMPARE_PAGE_SIZE = 1
 MAX_LOOKBACK = timedelta(hours=3)
 CHECK_NAME = "Check for due maintenance without cloud credentials"
 WAKE_NAME = "Wake Capacity Maintenance for due work"
@@ -77,10 +88,12 @@ def _valid_sha(value):
 
 @lru_cache(maxsize=256)
 def _is_ancestor(owner, repository, ancestor, descendant):
-    """Prove ancestry through one bounded GitHub compare response."""
+    """Prove ancestry from exact merge-base metadata, not a truncated commit list."""
     _require(
         owner,
-        repository == base.REPOSITORY and _valid_sha(ancestor) and _valid_sha(descendant),
+        repository == base.REPOSITORY
+        and _valid_sha(ancestor)
+        and _valid_sha(descendant),
         "production source ancestry identity is invalid",
     )
     if ancestor == descendant:
@@ -88,9 +101,9 @@ def _is_ancestor(owner, repository, ancestor, descendant):
     response = owner.command(
         "gh",
         "api",
-        f"repos/{repository}/compare/{ancestor}...{descendant}?per_page={MAX_COMPARE_COMMITS}",
+        f"repos/{repository}/compare/{ancestor}...{descendant}?per_page={COMPARE_PAGE_SIZE}",
         "--jq",
-        "{status,ahead_by,behind_by,total_commits,commit_count:(.commits|length)}",
+        "{status,ahead_by,behind_by,total_commits,base_sha:.base_commit.sha,merge_base_sha:.merge_base_commit.sha}",
     )
     try:
         result = json.loads(response)
@@ -102,18 +115,17 @@ def _is_ancestor(owner, repository, ancestor, descendant):
     ahead = result.get("ahead_by") if isinstance(result, dict) else None
     behind = result.get("behind_by") if isinstance(result, dict) else None
     total = result.get("total_commits") if isinstance(result, dict) else None
-    count = result.get("commit_count") if isinstance(result, dict) else None
     _require(
         owner,
         status == "ahead"
         and type(ahead) is int
-        and 0 < ahead <= MAX_COMPARE_COMMITS
+        and 0 < ahead < 2**63
         and type(behind) is int
         and behind == 0
         and type(total) is int
         and total == ahead
-        and type(count) is int
-        and count == total,
+        and result.get("base_sha") == ancestor
+        and result.get("merge_base_sha") == ancestor,
         "production source ancestry is not bounded and exact",
     )
     return True
@@ -322,13 +334,14 @@ def _source_profile_paths(owner):
         bool(profiles) and set(profiles) == set(families),
         "registered production source profiles have incomplete clock-family bindings",
     )
-    path_sets = {frozenset(profile) for profile in profiles.values()}
+    core = frozenset(production.SOURCE_PATHS)
+    permitted = core | {records.PASS_DIAGNOSTICS}
     _require(
         owner,
-        len(path_sets) == 1,
+        all(core <= set(profile) <= permitted for profile in profiles.values()),
         "registered production source profiles have inconsistent source paths",
     )
-    return tuple(sorted(next(iter(path_sets))))
+    return tuple(sorted(core))
 
 
 def _clock_source_profile(owner, title, source_metadata):
@@ -341,7 +354,10 @@ def _clock_source_profile(owner, title, source_metadata):
         expected_clock_blob is not None
         and isinstance(source_metadata, dict)
         and source_metadata.get(clock_evidence.CLOCK_WORKFLOW)
-        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]},
+        in [
+            {"sha": sha, "size": size}
+            for sha, size in clock_evidence._clock_workflow_blobs_for_title(title)
+        ],
         "capacity clock title or workflow source is unapproved",
     )
     if expected_clock_blob == clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB:
@@ -354,15 +370,14 @@ def _clock_source_profile(owner, title, source_metadata):
 
     profiles = records.CLOCK_BOUND_SOURCE_PROFILES
     families = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES
-    source_paths = _source_profile_paths(owner)
-    actual_sources = {path: source_metadata.get(path) for path in source_paths}
+    _source_profile_paths(owner)
     matches = []
     for name, profile in profiles.items():
         if families[name] != expected_family:
             continue
+        actual_sources = {path: source_metadata.get(path) for path in profile}
         expected_sources = {
-            path: {"sha": sha, "size": size}
-            for path, (sha, size) in profile.items()
+            path: {"sha": sha, "size": size} for path, (sha, size) in profile.items()
         }
         if actual_sources == expected_sources:
             matches.append(name)
@@ -454,6 +469,21 @@ def _clock_proof(owner, repository, worker_run, candidate):
     source_metadata = publication_source.read_source(
         owner, repository, clock_head, source_paths
     )
+    core_paths = _source_profile_paths(owner)
+    dependencies = set()
+    for profile in records.CLOCK_BOUND_SOURCE_PROFILES.values():
+        if all(
+            source_metadata.get(path)
+            == {"sha": profile[path][0], "size": profile[path][1]}
+            for path in core_paths
+        ):
+            dependencies.update(set(profile) - set(core_paths))
+    if dependencies:
+        source_metadata.update(
+            publication_source.read_source(
+                owner, repository, clock_head, tuple(sorted(dependencies))
+            )
+        )
     source_profile = _clock_source_profile(owner, clock_title, source_metadata)
     record = replace(record, source_profile=source_profile)
     expected_sources = records.CLOCK_BOUND_SOURCE_PROFILES[source_profile]
@@ -473,7 +503,10 @@ def _clock_proof(owner, repository, worker_run, candidate):
             for path, (sha, size) in expected_sources.items()
         }
         and workflow_blob
-        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]}
+        in [
+            {"sha": sha, "size": size}
+            for sha, size in clock_evidence._clock_workflow_blobs_for_title(clock_title)
+        ]
         and clock_evidence._clock_proof_matches(record, worker_run, proof),
         "capacity clock proof is incomplete or unapproved",
     )
@@ -486,21 +519,127 @@ def _static_cleanup_view(job, *, manual=False):
 
     steps = job.get("steps")
     modes = ("Maintenance mode: inspection", "Maintenance mode: cleanup")
-    expected = production.STEP_NAMES if manual else CLOCK_BOUND_STEP_NAMES
-    names = (expected[0], *modes, *expected[1:])
-    if not isinstance(steps, list) or len(steps) != len(names):
+    candidates = (
+        ((production.STEP_NAMES, False), (CLOCK_BOUND_STEP_NAMES, True))
+        if manual
+        else ((CLOCK_BOUND_STEP_NAMES, True),)
+    )
+    if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
         return None
-    if any(not isinstance(step, dict) for step in steps):
-        return None
-    numbers = [step.get("number") for step in steps]
-    if (tuple(step.get("name") for step in steps) != names
+    for expected, clock_bound in candidates:
+        names = (expected[0], *modes, *expected[1:])
+        if len(steps) != len(names):
+            continue
+        numbers = [step.get("number") for step in steps]
+        if (
+            tuple(step.get("name") for step in steps) != names
             or any(type(number) is not int or number < 1 for number in numbers)
             or numbers != sorted(set(numbers))
             or any(steps[i].get("status") != "completed" for i in (1, 2))
-            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]):
+            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]
+        ):
+            continue
+        view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
+        if production._steps_match(view, clock_bound=clock_bound):
+            return view
+    return None
+
+
+def qualify_source_refusal(
+    owner, repository, run, job, *, log_reader, source_reader, workflow_path
+):
+    """Prove only absence of mutation; clock timing is not execution authority.
+
+    A reviewed worker that stopped in publication admission, skipped every
+    mutation preparation step and never saved a checkpoint cannot have mutated
+    providers. Do not infer a successful dispatch, usable checkpoint or cleanup.
+    """
+    original_job = job
+    static = isinstance(job, dict) and job.get("name") == "Production revision maintenance"
+    if static:
+        job = _static_cleanup_view(job)
+        if job is None:
+            return None
+    if not _worker_is_exact(owner, repository, run, job):
         return None
-    view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
-    return view if production._steps_match(view, clock_bound=not manual) else None
+    current_profiles = {
+        name: records.CLOCK_BOUND_SOURCE_PROFILES[name]
+        for name in (
+            "publication-pass-diagnostics-v3",
+            "publication-pass-diagnostics-v4",
+        )
+    }
+    if static:
+        current_profiles = {}
+        for reference in STATIC_GUARD_SOURCES:
+            approved = source_reader(owner, repository, reference, STATIC_GUARD_PATHS)
+            _require(owner, isinstance(approved, dict) and set(approved) == set(STATIC_GUARD_PATHS),
+                     "reviewed static guard source is incomplete")
+            current_profiles[reference] = {
+                path: (blob["sha"], blob["size"]) for path, blob in approved.items()
+            }
+    checkout = run["head_sha"]
+    core = source_reader(owner, repository, checkout, production.SOURCE_PATHS)
+    _require(
+        owner, isinstance(core, dict), "production refusal source evidence is invalid"
+    )
+    candidates = {
+        name: profile
+        for name, profile in current_profiles.items()
+        if all(
+            core.get(path) == {"sha": profile[path][0], "size": profile[path][1]}
+            for path in production.SOURCE_PATHS
+        )
+    }
+    if not candidates:
+        return None
+    paths = tuple(next(iter(candidates.values())))
+    blobs = source_reader(owner, repository, checkout, paths)
+    matches = [
+        name
+        for name, profile in candidates.items()
+        if blobs
+        == {path: {"sha": sha, "size": size} for path, (sha, size) in profile.items()}
+    ]
+    _require(owner, len(matches) == 1, "production refusal source tuple is unapproved")
+    workflow_blob = json.loads(
+        owner.command(
+            "gh",
+            "api",
+            f"repos/{repository}/contents/{workflow_path}?ref={checkout}",
+            "--jq",
+            "{sha,size}",
+        )
+    )
+    log = log_reader(owner, original_job)
+    rows = production._raw_rows(log, job)
+    if (
+        workflow_blob != blobs[base.WORKFLOW]
+        or production.actual_checkout(log, job, clock_bound=True) != checkout
+        or rows is None
+        or not production._guard_failure(
+            rows,
+            job,
+            clock_bound=True,
+            allow_clock_records=True,
+            expected_diagnostic_sha256="92a62086059b8a9de7bcc8ef9a6bace61a84731476492166f64be4189e855313",
+        )
+    ):
+        return None
+    created, started, completed = (
+        base._stamp(run["created_at"]),
+        base._stamp(job["started_at"]),
+        base._stamp(job["completed_at"]),
+    )
+    if not created <= started <= completed:
+        return None
+    return {
+        "run_id": run["id"],
+        "attempt": run["run_attempt"],
+        "job_id": job["id"],
+        "checkout_sha": checkout,
+        "qualification": "no_provider_mutation",
+    }
 
 
 def discover_record(owner, repository, worker_run, worker_job):

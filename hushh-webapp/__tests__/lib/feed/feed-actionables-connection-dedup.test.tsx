@@ -217,14 +217,6 @@ vi.mock("@/lib/consent/consent-sheet-route", () => ({
   },
 }));
 
-vi.mock("@/lib/consent/consent-display", () => ({
-  resolveConsentRequesterLabel: ({
-    counterpartLabel,
-  }: {
-    counterpartLabel?: string | null;
-  }) => counterpartLabel || "Someone",
-}));
-
 vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/navigation/routes")>()),
   buildKaiMarketRoute: () => "/one/kai",
@@ -1247,7 +1239,7 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     );
     for (const id of [DOC_ID, otherId]) {
       const row = documentRow(result, id)!;
-      expect(row.todo).toMatchObject({ key: `consent:${row.id.slice(8)}:setup:payouts`, source: "drive", title: "Link payouts", href: "/one/profile/payouts?from=%2Fone%2Ftodos" });
+      expect(row.todo).toMatchObject({ key: `consent:${row.id.slice(8)}:setup:payouts`, source: "drive", title: "Link payouts — Request from Kushal Trivedi", href: "/one/profile/payouts?from=%2Fone%2Ftodos" });
       expect(row.description).toBe("Requested a document");
       expect(row.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
       expect(
@@ -1285,6 +1277,10 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       expect(row.actions.map(({ label }) => label)).toEqual([
         "Connect Google Drive",
       ]);
+      expect(row.todo).toMatchObject({
+        title: "Connect Google Drive — Request from Kushal Trivedi",
+        key: `consent:document_share_request:${DOC_ID}:setup:drive`,
+      });
       expect(
         result.current.actionables.filter((item) => item.id === row.id),
       ).toHaveLength(1);

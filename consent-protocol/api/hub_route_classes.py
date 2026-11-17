@@ -61,6 +61,8 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/finance/advisor-reviews/portfolio-analysis
+POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
 POST /api/one/todos/suggestions
 POST /api/one/calendar/board/day
@@ -158,6 +160,7 @@ POST /api/one/calendar/followups/list
 POST /api/one/calendar/followups/detail
 POST /api/one/calendar/followups/resolve
 POST /api/one/calendar/followups/source
+POST /api/one/calendar/followups/source/link
 POST /api/one/calendar/followups/request
 POST /api/one/calendar/followups/booking/confirm
 POST /api/one/calendar/followups/scan
@@ -168,6 +171,7 @@ POST /api/one/calendar/guest-photo-token
 POST /api/one/calendar/insights
 POST /api/one/calendar/meetings
 POST /api/one/calendar/meetings/requests
+POST /api/one/calendar/meetings/request-readiness
 POST /api/one/calendar/meetings/request-statuses
 POST /api/one/calendar/meetings/approved-detail
 POST /api/one/calendar/meetings/approved-open
@@ -216,6 +220,7 @@ POST /api/pkm/memory/rewrite
 [AUTHORITY]
 GET /api/one/answer-requests/runtime
 POST /api/one/answer-requests/{request_id}/pod-composition-receipt
+GET /api/one/finance/shares/active-recipients
 GET,PUT /api/one/plg/preferences
 GET,PUT /api/one/plg/attempt-email/preferences
 GET,POST /api/one/plg/attempt-email/unsubscribe
@@ -271,11 +276,20 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+POST /api/one/finance/advisor-reviews/candidates
+POST /api/one/finance/advisor-reviews/{request_id}/decision
+POST /api/one/finance/advisor-reviews/{request_id}/meeting
+POST /api/one/finance/advisor-reviews/{request_id}/meeting/decision
+POST /api/one/finance/advisor-reviews/{request_id}/plan
+POST /api/one/finance/advisor-reviews/{request_id}/checkout
+DELETE,GET /api/one/finance/advisor-reviews/{request_id}/billing
 GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+GET,POST /api/one/finance/advisor-reviews
+GET /api/one/finance/advisor-reviews/{request_id}
 GET,POST /api/one/finance/shares
 DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export

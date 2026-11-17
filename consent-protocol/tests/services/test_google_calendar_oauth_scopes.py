@@ -415,3 +415,57 @@ def test_calendar_web_oauth_does_not_assume_optional_scope_was_granted(
         )
     assert exc_info.value.status_code == 403
     assert exc_info.value.reason_code == "google_permission_required"
+
+
+def _web_attempt_scopes(monkeypatch: pytest.MonkeyPatch, **options) -> tuple[str, ...]:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "_signed_state", lambda _: "test-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "test", "iv": "test", "tag": "aad-gcm-v1"},
+    )
+    attempt = asyncio.run(
+        service._create_oauth_attempt(
+            user_id="user-1",
+            service="calendar",
+            access_level="manage",
+            redirect_uri="https://example.com/callback",
+            transport="web",
+            **options,
+        )
+    )
+    return attempt["scopes"]
+
+
+def test_one_consent_requests_calendar_meet_drive_and_mail_without_broader_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scopes = set(
+        _web_attempt_scopes(monkeypatch, include_meeting_files=True, include_mail_access=True)
+    )
+    assert scopes >= {
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.freebusy",
+        CALENDAR_LIST_READ_SCOPE,
+        CALENDAR_MEET_READ_SCOPE,
+        CALENDAR_MEET_DRIVE_READ_SCOPE,
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+    }
+    # Never full Drive, mailbox modification or drafts for convenience.
+    assert not scopes & {
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.compose",
+    }
+
+
+def test_mail_scopes_are_requested_only_when_the_start_asks_for_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scopes = _web_attempt_scopes(monkeypatch, include_meeting_files=True)
+    assert not [scope for scope in scopes if "gmail" in scope]
+    assert not [scope for scope in _web_attempt_scopes(monkeypatch) if "gmail" in scope]

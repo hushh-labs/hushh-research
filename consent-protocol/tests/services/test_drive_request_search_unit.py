@@ -1,5 +1,6 @@
 """Provider metadata search for a request includes date-named shortcut targets."""
 
+import asyncio
 import json
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
@@ -56,6 +57,7 @@ async def test_sealed_semantic_request_uses_model_without_lexical_fallback(model
         "revision": 3,
         "semanticSearch": True,
         "autoshare": True,
+        "_checkout_after_plan": True,
     }
     planned = {
         "mode": "find",
@@ -84,17 +86,25 @@ async def test_sealed_semantic_request_uses_model_without_lexical_fallback(model
         owner_index=SimpleNamespace(owner_vocabulary=AsyncMock(return_value=None)),
     )
     service._brain_plan = AsyncMock(side_effect=AssertionError("lexical fallback"))
+    wake_checkout = AsyncMock()
     if model_available:
         assert await service.start_search(
-            user_id="owner", request_id="request", authority_mode="trusted_auto"
+            user_id="owner",
+            request_id="request",
+            authority_mode="trusted_auto",
+            on_search_committed=wake_checkout,
         ) == {"jobId": "semantic-job"}
         arguments = search.create_for_request.await_args.kwargs
         assert arguments["semantic_search"] is True and arguments["plan_source"] == "model"
         assert arguments["plan"]["semantic_query"] == checkpoint["semantic_plan"]
+        assert arguments["on_search_committed"] is wake_checkout
     else:
         with pytest.raises(DriveReadError, match="provider_unavailable"):
             await service.start_search(
-                user_id="owner", request_id="request", authority_mode="trusted_auto"
+                user_id="owner",
+                request_id="request",
+                authority_mode="trusted_auto",
+                on_search_committed=wake_checkout,
             )
         search.create_for_request.assert_not_awaited()
     service._brain_plan.assert_not_awaited()
@@ -511,6 +521,59 @@ async def test_planner_fallback_is_frozen_into_the_search_checkpoint(monkeypatch
         await service.create_for_request(
             **request, planner_fallback={"reason": "the query text", "plan": "meeting_notes"}
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("created", [False, True])
+async def test_new_request_search_wakes_checkout_after_commit_before_the_provider_page(
+    monkeypatch, created
+):
+    events = []
+    checkout_started = asyncio.Event()
+    page_started = asyncio.Event()
+
+    async def create(**_):
+        events.append("commit")
+        return {"jobId": "synthetic-job"}, created
+
+    async def wake_checkout():
+        events.append("checkout")
+        checkout_started.set()
+        await asyncio.wait_for(page_started.wait(), 1)
+
+    async def run_page(**_):
+        await asyncio.wait_for(checkout_started.wait(), 1)
+        events.append("page")
+        page_started.set()
+
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=create,
+        align_request_expiry=AsyncMock(),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    monkeypatch.setattr(service, "run_one", run_page)
+    monkeypatch.setattr(service, "status", AsyncMock(return_value={"status": "queued"}))
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_owner_search_service.wake_drive_work", AsyncMock()
+    )
+
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=1,
+        purpose={
+            "purpose": "meeting notes",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        plan={"mode": "find", "terms": ["meeting", "notes"], "file_kind": "document"},
+        require_current=AsyncMock(),
+        authority_mode="trusted_auto",
+        on_search_committed=wake_checkout,
+    )
+
+    assert events == (["commit", "checkout", "page"] if created else ["commit"])
 
 
 @pytest.mark.asyncio

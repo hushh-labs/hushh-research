@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1298
+Package count: 1296
 
 ### License summary
 
@@ -18,7 +18,7 @@ Package count: 1298
 - `Apache-2.0`: 196
 - `Apache-2.0 AND LGPL-3.0-or-later`: 3
 - `Apache-2.0 AND LGPL-3.0-or-later AND MIT`: 1
-- `BlueOak-1.0.0`: 11
+- `BlueOak-1.0.0`: 12
 - `BSD-2-Clause`: 12
 - `BSD-3-Clause`: 26
 - `CC-BY-4.0`: 1
@@ -26,24 +26,23 @@ Package count: 1298
 - `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 932
+- `MIT`: 927
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
 - `MPL-2.0`: 13
 - `Python-2.0`: 1
 - `Standard 'no charge' license: https://gsap.com/standard-license.`: 1
+- `UNKNOWN`: 2
 - `Unlicense`: 2
 
 ### Package inventory
 
 - `@adobe/css-tools` `4.5.0` — MIT
-- `@ag-ui/client` `0.0.59` — MIT
-- `@ag-ui/client/zod` `3.25.76` — MIT
-- `@ag-ui/core` `0.0.59` — MIT
-- `@ag-ui/core/zod` `3.25.76` — MIT
-- `@ag-ui/encoder` `0.0.59` — MIT
-- `@ag-ui/proto` `0.0.59` — MIT
+- `@ag-ui/client` `1.0.4` — MIT
+- `@ag-ui/core` `1.0.4` — MIT
+- `@ag-ui/encoder` `1.0.4` — MIT
+- `@ag-ui/proto` `1.0.4` — MIT
 - `@alloc/quick-lru` `5.2.0` — MIT
 - `@antfu/install-pkg` `1.1.0` — MIT
 - `@asamuzakjp/css-color` `3.2.0` — MIT
@@ -70,7 +69,7 @@ Package count: 1298
 - `@base-ui/react` `1.4.1` — MIT
 - `@base-ui/utils` `0.2.8` — MIT
 - `@braintree/sanitize-url` `7.1.2` — MIT
-- `@bufbuild/protobuf` `2.14.0` — (Apache-2.0 AND BSD-3-Clause)
+- `@bufbuild/protobuf` `2.17.0` — (Apache-2.0 AND BSD-3-Clause)
 - `@capacitor-firebase/analytics` `8.2.0` — Apache-2.0
 - `@capacitor-firebase/authentication` `8.2.0` — Apache-2.0
 - `@capacitor-firebase/messaging` `8.2.0` — Apache-2.0
@@ -268,6 +267,7 @@ Package count: 1298
 - `@ionic/utils-subprocess` `3.0.1` — MIT
 - `@ionic/utils-terminal` `2.3.5` — MIT
 - `@isaacs/fs-minipass` `4.0.1` — ISC
+- `@isaacs/nonrecursive-glob-match` `1.1.0` — BlueOak-1.0.0
 - `@jridgewell/gen-mapping` `0.3.13` — MIT
 - `@jridgewell/remapping` `2.3.5` — MIT
 - `@jridgewell/resolve-uri` `3.1.2` — MIT
@@ -301,7 +301,7 @@ Package count: 1298
 - `@next/swc-linux-x64-musl` `16.4.2` — MIT
 - `@next/swc-win32-arm64-msvc` `16.4.2` — MIT
 - `@next/swc-win32-x64-msvc` `16.4.2` — MIT
-- `@nodable/entities` `3.0.0` — MIT
+- `@nodable/entities` `3.1.0` — MIT
 - `@nodelib/fs.scandir` `2.1.5` — MIT
 - `@nodelib/fs.stat` `2.0.5` — MIT
 - `@nodelib/fs.walk` `1.2.8` — MIT
@@ -528,8 +528,7 @@ Package count: 1298
 - `@typescript-eslint/type-utils` `8.57.0` — MIT
 - `@typescript-eslint/types` `8.57.0` — MIT
 - `@typescript-eslint/typescript-estree` `8.57.0` — MIT
-- `@typescript-eslint/typescript-estree/brace-expansion` `5.0.12` — MIT
-- `@typescript-eslint/typescript-estree/minimatch` `10.2.4` — BlueOak-1.0.0
+- `@typescript-eslint/typescript-estree/minimatch` `11.0.7` — BlueOak-1.0.0
 - `@typescript-eslint/utils` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys/eslint-visitor-keys` `5.0.1` — Apache-2.0
@@ -602,6 +601,7 @@ Package count: 1298
 - `bignumber.js` `9.3.1` — MIT
 - `bmp-js` `0.1.0` — MIT
 - `bplist-parser` `0.3.2` — MIT
+- `brace-expansion` `5.0.12` — MIT
 - `braces` `3.0.3` — MIT
 - `browserslist` `4.28.7` — MIT
 - `buffer-crc32` `0.2.13` — MIT
@@ -783,8 +783,8 @@ Package count: 1298
 - `fast-json-stable-stringify` `2.1.0` — MIT
 - `fast-levenshtein` `2.0.6` — MIT
 - `fast-png` `6.4.0` — MIT
-- `fast-xml-builder` `1.3.0` — MIT
-- `fast-xml-parser` `5.10.1` — MIT
+- `fast-xml-builder` `1.3.1` — MIT
+- `fast-xml-parser` `5.12.0` — MIT
 - `fastq` `1.20.3` — ISC
 - `faye-websocket` `0.11.4` — Apache-2.0
 - `fetch-blob` `3.2.0` — MIT
@@ -827,7 +827,9 @@ Package count: 1298
 - `get-proto` `1.0.1` — MIT
 - `get-symbol-description` `1.1.0` — MIT
 - `get-tsconfig` `4.13.0` — MIT
+- `glob` `14.0.4` — BlueOak-1.0.0
 - `glob-parent` `6.0.2` — ISC
+- `glob/minimatch` `11.0.7` — BlueOak-1.0.0
 - `globals` `16.4.0` — MIT
 - `globalthis` `1.0.4` — MIT
 - `google-auth-library` `10.9.1` — Apache-2.0
@@ -907,7 +909,7 @@ Package count: 1298
 - `is-string` `1.1.1` — MIT
 - `is-symbol` `1.1.1` — MIT
 - `is-typed-array` `1.1.15` — MIT
-- `is-unsafe` `2.0.0` — MIT
+- `is-unsafe` `2.0.3` — MIT
 - `is-url` `1.2.4` — MIT
 - `is-weakmap` `2.0.2` — MIT
 - `is-weakref` `1.1.1` — MIT
@@ -942,7 +944,7 @@ Package count: 1298
 - `katex/commander` `15.0.0` — MIT
 - `kdbush` `4.1.0` — ISC
 - `keyv` `4.5.4` — MIT
-- `khroma` `2.1.0` — MIT
+- `khroma` `2.1.0` — UNKNOWN
 - `kleur` `4.1.5` — MIT
 - `language-subtag-registry` `0.3.23` — CC0-1.0
 - `language-tags` `1.0.9` — MIT
@@ -961,7 +963,7 @@ Package count: 1298
 - `lightningcss-linux-x64-musl` `1.32.0` — MPL-2.0
 - `lightningcss-win32-arm64-msvc` `1.32.0` — MPL-2.0
 - `lightningcss-win32-x64-msvc` `1.32.0` — MPL-2.0
-- `limiter` `1.1.5` — MIT
+- `limiter` `1.1.5` — UNKNOWN
 - `lit` `3.3.2` — BSD-3-Clause
 - `lit-element` `4.2.2` — BSD-3-Clause
 - `lit-html` `3.3.2` — BSD-3-Clause
@@ -1088,8 +1090,8 @@ Package count: 1298
 - `path-expression-matcher` `1.6.2` — MIT
 - `path-key` `3.1.1` — MIT
 - `path-parse` `1.0.7` — MIT
-- `path-scurry` `2.0.2` — BlueOak-1.0.0
-- `path-scurry/lru-cache` `11.2.4` — BlueOak-1.0.0
+- `path-scurry` `3.0.0` — BlueOak-1.0.0
+- `path-scurry/lru-cache` `11.5.3` — BlueOak-1.0.0
 - `pathe` `2.0.3` — MIT
 - `pdf-lib` `1.17.1` — MIT
 - `pdf-lib/pako` `1.0.11` — (MIT AND Zlib)
@@ -1157,10 +1159,7 @@ Package count: 1298
 - `retry-request` `8.0.2` — MIT
 - `reusify` `1.1.0` — MIT
 - `rgbcolor` `1.0.1` — MIT OR SEE LICENSE IN FEEL-FREE.md
-- `rimraf` `6.1.2` — BlueOak-1.0.0
-- `rimraf/brace-expansion` `5.0.12` — MIT
-- `rimraf/glob` `13.0.6` — BlueOak-1.0.0
-- `rimraf/minimatch` `10.2.4` — BlueOak-1.0.0
+- `rimraf` `6.1.4` — BlueOak-1.0.0
 - `robust-predicates` `3.0.3` — Unlicense
 - `rolldown` `1.1.5` — MIT
 - `rolldown/@rolldown/pluginutils` `1.0.1` — MIT
@@ -1217,7 +1216,7 @@ Package count: 1298
 - `strip-bom` `3.0.0` — MIT
 - `strip-indent` `3.0.0` — MIT
 - `strip-json-comments` `3.1.1` — MIT
-- `strnum` `2.4.1` — MIT
+- `strnum` `2.5.1` — MIT
 - `stubs` `3.0.0` — MIT
 - `style-to-js` `1.1.21` — MIT
 - `style-to-object` `1.0.14` — MIT
@@ -1338,7 +1337,7 @@ Package count: 1298
 
 ## Backend Python packages
 
-Package count: 222
+Package count: 219
 
 ### License summary
 
@@ -1355,7 +1354,7 @@ Package count: 222
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 19
+- `BSD License`: 18
 - `BSD-2-Clause`: 2
 - `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
@@ -1366,14 +1365,13 @@ Package count: 222
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
 - `MIT`: 56
-- `MIT AND PSF-2.0`: 1
 - `MIT License`: 32
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
-- `Python Software Foundation License`: 3
+- `Python Software Foundation License`: 2
 
 ### Package inventory
 
@@ -1410,7 +1408,6 @@ Package count: 222
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
 - `cloudpickle` `3.1.2` — BSD License
-- `colorama` `0.4.6` — BSD License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
@@ -1429,7 +1426,7 @@ Package count: 222
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
-- `google-adk` `2.9.0` — Apache Software License
+- `google-adk` `2.14.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
 - `google-auth` `2.58.0` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
@@ -1438,11 +1435,10 @@ Package count: 222
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
 - `google-crc32c` `1.8.0` — Apache-2.0
-- `google-genai` `2.23.0` — Apache-2.0
+- `google-genai` `2.34.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
-- `greenlet` `3.4.0` — MIT AND PSF-2.0
 - `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
@@ -1465,7 +1461,7 @@ Package count: 222
 - `jiter` `0.14.0` — MIT
 - `jmespath` `1.1.0` — MIT License
 - `joblib` `1.6.0` — BSD-3-Clause
-- `joserfc` `1.7.3` — BSD License
+- `joserfc` `1.7.6` — BSD License
 - `jsonpatch` `1.33` — BSD License
 - `jsonpointer` `3.1.1` — BSD License
 - `jsonschema` `4.26.0` — MIT
@@ -1498,16 +1494,16 @@ Package count: 222
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
 - `openai` `2.32.0` — Apache Software License
 - `openpyxl` `3.1.5` — MIT License
-- `opentelemetry-api` `1.42.1` — Apache-2.0
+- `opentelemetry-api` `1.45.2` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
-- `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-asgi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-fastapi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-httpx` `0.63b1` — Apache-2.0
+- `opentelemetry-instrumentation` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-asgi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-fastapi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-httpx` `0.66b2` — Apache-2.0
 - `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
-- `opentelemetry-sdk` `1.42.1` — Apache-2.0
-- `opentelemetry-semantic-conventions` `0.63b1` — Apache-2.0
-- `opentelemetry-util-http` `0.63b1` — Apache-2.0
+- `opentelemetry-sdk` `1.45.2` — Apache-2.0
+- `opentelemetry-semantic-conventions` `0.66b2` — Apache-2.0
+- `opentelemetry-util-http` `0.66b2` — Apache-2.0
 - `orjson` `3.11.8` — MPL-2.0 AND (Apache-2.0 OR MIT)
 - `ormsgpack` `1.12.2` — Apache-2.0 OR MIT
 - `packaging` `26.1` — Apache-2.0 OR BSD-2-Clause
@@ -1524,7 +1520,7 @@ Package count: 222
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
 - `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
-- `pyasn1` `0.6.4` — BSD-2-Clause
+- `pyasn1` `0.6.5` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
 - `pycparser` `3.0` — BSD-3-Clause
@@ -1546,7 +1542,6 @@ Package count: 222
 - `python-dotenv` `1.2.2` — BSD-3-Clause
 - `python-multipart` `0.0.32` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
-- `pywin32` `311` — Python Software Foundation License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
@@ -1577,7 +1572,7 @@ Package count: 222
 - `threadpoolctl` `3.6.0` — BSD License
 - `tokenizers` `0.22.2` — Apache Software License
 - `toolz` `1.2.0` — BSD-3-Clause
-- `torch` `2.14.0+cpu` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+- `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT

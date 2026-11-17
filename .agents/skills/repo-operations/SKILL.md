@@ -60,14 +60,9 @@ Follow [Main-owned release control](../../../docs/operations/releases/ci.md#main
 
 For CI timing work, follow the runbook's [deployment-overhead policy](../../../docs/operations/releases/ci.md#deployment-overhead-and-retention-limits). Preserve normal worker rollout until complete accepted input/state proof and measured benefit qualify reuse; image equality alone is insufficient. Selected UAT SQL preservation does not repeat already-qualified source suites or install browser dependencies. Browser analytics remains explicit secondary diagnostics; failed restoration of any partially changed deployment template still blocks promotion. Keep measurements separate from the 10–15-minute routine design target.
 
-Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup. The runbook also owns managed-operator erasure, frozen inspection and exact approved writer-operation readback. A late Files provider receipt is not evidence that its executor has exited; leave hosted Files unavailable until both are qualified. Its failed-bucket reconciliation procedure preserves the original journal and requires native absence before a same-name retry. Use [independent Dev publication](../../../docs/operations/hosting/dev-pod-first-light-runbook.md#independent-dev-pod-publication) for separate artifact preparation and coordinated, qualified catalog activation; offline receipt checks never replace live provider proof.
-
-For existing private-pod image updates and explicitly authorized legacy bootstrap,
-follow `docs/operations/hosting/dev-pod-first-light-runbook.md`, section
-"Maintaining an existing owner's software release". Resolve owner-cloud placement
-from the environment's registry, verify machine-route authentication before
-diagnosing a missing endpoint, and retain immutable release provenance. A one-time
-bootstrap does not authorize bypassing approval on subsequent updates.
+For private pod hosting, owner updates and legacy bootstrap, follow the
+[Dev pod runbook](../../../docs/operations/hosting/dev-pod-first-light-runbook.md).
+It owns durable admission, spend, owner custody, release provenance and cleanup.
 
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.

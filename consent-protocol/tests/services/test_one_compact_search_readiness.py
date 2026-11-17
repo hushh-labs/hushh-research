@@ -23,6 +23,7 @@ async def test_compact_readiness_qualifies_exact_selected_model_and_public_facts
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
     monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    monkeypatch.setattr(managed, "load_scoped_text_policy", lambda _: None)
     raw = search_response()
     raw["output"][2]["content"][0]["text"] = json.dumps(
         {

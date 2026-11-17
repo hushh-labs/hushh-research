@@ -80,6 +80,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_sharing_unavailable_route.py
 tests/test_drive_sharing_diagnostics.py
 tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
@@ -265,6 +266,11 @@ tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
 tests/test_finance_sharing_contract.py
+tests/test_finance_recipient_hub_authority.py
+tests/test_advisor_review_contract.py
+tests/test_advisor_review_authority.py
+tests/test_advisor_review_postgres.py
+tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
 tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
@@ -1373,6 +1379,7 @@ tests/test_pod_gmail_local.py
 tests/test_pod_gmail_push_config.py
 tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
+tests/test_pod_todo_sources.py
 
 tests/test_personal_agent_notification_checkpoint.py
 tests/test_personal_agent_notification_account_limit.py
@@ -1573,8 +1580,13 @@ tests/services/test_calendar_meeting_artifacts.py
 tests/services/test_calendar_meeting_grant_access.py
 tests/services/test_calendar_meeting_library_paging.py
 tests/services/test_calendar_meeting_organizer_resolution.py
+tests/services/test_calendar_meeting_request_readiness.py
 tests/services/test_google_provider_errors.py
 tests/services/test_calendar_meeting_request_flow_postgres.py
+tests/services/test_calendar_meeting_unavailable_postgres.py
+tests/services/test_feed_calendar_request_context.py
+tests/services/test_google_calendar_verified_alias.py
+tests/services/test_calendar_meeting_attendee_discovery.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1627,6 +1639,7 @@ tests/test_phone_transfer_postgres.py
 tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
+tests/test_phone_binding_policy.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
@@ -1718,4 +1731,12 @@ tests/test_floci_aws_wire_conformance.py
 tests/test_floci_gcp_azure_wire_conformance.py
 tests/test_pod_capability_broker.py
 
+# Calendar email follow-ups: relevance gate, incremental sync, retry/backoff,
+# Calendar reconciliation, account isolation and durable reminders. The model,
+# Gmail and Calendar are synthetic doubles; no live mailbox or model is called.
+tests/services/test_calendar_email_followup_account.py
+tests/services/test_calendar_email_followup_notifications.py
+tests/services/test_calendar_email_followup_reader.py
+tests/test_calendar_followup_scheduler_contract.py
+tests/test_calendar_followup_deploy_gate.py
 tests/scripts/test_db_data_health.py

@@ -4,18 +4,27 @@ These use a scripted pool and identity service, so they prove the decision logic
 without a database. The Postgres flow suite proves the real SQL separately.
 """
 
-import asyncio
 import logging
+import sys
+from types import SimpleNamespace
 
 import pytest
 
 from api.routes import drive_sharing_owner
 from hushh_mcp.services import calendar_organizer_resolution as service
-from hushh_mcp.services.actor_identity_service import ActorIdentitySyncUnavailableError
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPeerUnavailableError,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.calendar_invitations import attendee_status, own_attendee
 from hushh_mcp.services.drive_sharing_contract import CALENDAR_REFUSAL_REASONS, DriveSharingError
+from tests.helpers.calendar_organizer_fakes import (
+    ORGANIZER,
+    FakeIdentity,
+    FakePool,
+    Script,
+)
 
-ORGANIZER = "organizer@example.test"
 REQUESTER = "requester@example.test"
 LOGGER = "hushh_mcp.services.calendar_organizer_resolution"
 
@@ -73,72 +82,6 @@ def test_snake_case_omission_flag_is_honoured_only_for_summaries():
     summary = event(attendees_omitted=True)
     assert attendee_status(summary, REQUESTER, raw=False)[1] == "attendees_omitted"
     assert attendee_status(summary, REQUESTER, raw=True)[1] is None
-
-
-# ---- scripted pool / identity service --------------------------------------------
-
-
-class Script:
-    def __init__(self, *, organizer=(), refresh=(), alias_verified=False, fail_fetch=None):
-        self.organizer = list(organizer)  # one result per organizer query, in order
-        self.refresh = refresh
-        self.alias_verified = alias_verified
-        self.fail_fetch = fail_fetch
-        self.organizer_queries = 0
-        self.refresh_args = None
-
-
-class FakeConnection:
-    def __init__(self, script):
-        self.script = script
-
-    async def fetch(self, sql, *args, timeout=None):
-        if self.script.fail_fetch:
-            raise self.script.fail_fetch
-        if "make_interval" in sql:
-            self.script.refresh_args = args
-            return [{"peer": peer} for peer in self.script.refresh]
-        self.script.organizer_queries += 1
-        index = min(self.script.organizer_queries, len(self.script.organizer)) - 1
-        return [{"peer": peer} for peer in self.script.organizer[index]]
-
-    async def fetchval(self, sql, *args, timeout=None):
-        return self.script.alias_verified
-
-
-class FakePool:
-    def __init__(self, script):
-        self.script = script
-
-    def acquire(self):
-        script = self.script
-
-        class Context:
-            async def __aenter__(self):
-                return FakeConnection(script)
-
-            async def __aexit__(self, *exc):
-                return False
-
-        return Context()
-
-
-class FakeIdentity:
-    """Scripted Firebase refresh keyed by peer; an Exception value is raised."""
-
-    results: dict = {}
-    calls: list = []
-    hang = False
-
-    async def sync_from_firebase(self, peer, *, force=False, require_success=False):
-        assert force is True and require_success is True
-        type(self).calls.append(peer)
-        if type(self).hang and peer.startswith("stale"):
-            await asyncio.sleep(10)
-        value = type(self).results.get(peer, {"email": ORGANIZER, "email_verified": True})
-        if isinstance(value, Exception):
-            raise value
-        return value
 
 
 @pytest.fixture
@@ -209,6 +152,48 @@ async def test_stale_cache_for_a_connected_organizer_is_refreshed_not_refused(ha
     assert limit == service._PEER_REFRESH_LIMIT and window == 24 * 3600
 
 
+async def test_dead_peers_cannot_starve_the_peers_behind_them(harness):
+    """Unreachable peers keep an old timestamp, so a fixed window re-read them forever
+    and never reached the organizer behind them; each round now skips what was tried."""
+    dead = [f"stale-dead-{n}" for n in range(service._PEER_REFRESH_LIMIT)]
+    # Queries: initial, after the full dead round, then the final read once the
+    # short second round (below the limit) ends the pass.
+    script = harness(
+        Script(organizer=[[], [], ["organizer-user"]], refresh=[*dead, "stale-organizer"])
+    )
+    for peer in dead:
+        FakeIdentity.results[peer] = ActorIdentityPeerUnavailableError()
+
+    assert await resolve() == "organizer-user"
+
+    assert script.refresh_rounds == 2
+    assert FakeIdentity.calls.count("stale-organizer") == 1
+    assert len(set(FakeIdentity.calls)) == len(FakeIdentity.calls)  # no peer is read twice
+
+
+async def test_a_pass_stops_as_soon_as_the_organizer_is_proven(harness):
+    peers = [f"stale-{n}" for n in range(service._PEER_REFRESH_LIMIT * 2)]
+    script = harness(Script(organizer=[[], ["organizer-user"]], refresh=peers))
+    assert await resolve() == "organizer-user"
+    assert script.refresh_rounds == 1
+    assert len(FakeIdentity.calls) == service._PEER_REFRESH_LIMIT + 1
+
+
+async def test_unread_peers_after_the_round_cap_is_retryable_never_not_connected(harness):
+    """More unproven peers than one pass may read means the answer is unknown."""
+    many = [f"stale-{n}" for n in range(service._PEER_REFRESH_LIMIT * service._PEER_REFRESH_ROUNDS)]
+    script = harness(Script(organizer=[[]], refresh=many, pending=[False]))
+    for readiness_call in (resolve, readiness):
+        with pytest.raises(DriveSharingError) as caught:
+            await readiness_call()
+        assert (str(caught.value), caught.value.retryable) == (
+            "recipient_verification_unavailable",
+            True,
+        )
+        assert caught.value.diagnostic_reason == "organizer_lookup_incomplete"
+    assert script.refresh_rounds == 2 * service._PEER_REFRESH_ROUNDS
+
+
 async def test_no_stale_peers_means_a_terminal_unresolved_refusal(harness):
     script = harness(Script(organizer=[[]], refresh=[]))
     error = await refusal()
@@ -220,17 +205,45 @@ async def test_no_stale_peers_means_a_terminal_unresolved_refusal(harness):
     assert script.organizer_queries == 1
 
 
-async def test_a_dead_peer_does_not_trap_the_requester_in_retry(harness):
-    """Deleted or disabled peers raise the same error as an outage; never retryable."""
+async def test_a_deleted_or_disabled_peer_does_not_trap_the_requester_in_retry(harness):
+    """The provider says the account is gone: final, so it is never a reason to retry."""
     harness(Script(organizer=[[]], refresh=["stale-dead"]))
-    FakeIdentity.results["stale-dead"] = ActorIdentitySyncUnavailableError()
+    FakeIdentity.results["stale-dead"] = ActorIdentityPeerUnavailableError()
     error = await refusal()
     assert (str(error), error.retryable) == ("calendar_organizer_unavailable", False)
 
 
+def test_only_a_deleted_or_disabled_account_is_final(monkeypatch):
+    from hushh_mcp.services.actor_identity_service import _sync_unavailable
+
+    NoSuchUser = type("NoSuchUser", (Exception,), {})
+    auth = SimpleNamespace(UserNotFoundError=NoSuchUser)
+    monkeypatch.setitem(sys.modules, "firebase_admin", SimpleNamespace(auth=auth))
+    for final in (NoSuchUser(), None):  # the provider's "no such user", and a disabled account
+        assert isinstance(_sync_unavailable(final), ActorIdentityPeerUnavailableError)
+    assert not isinstance(_sync_unavailable(RuntimeError("x")), ActorIdentityPeerUnavailableError)
+
+
+async def test_a_provider_outage_is_retryable_never_a_confirmed_not_connected(harness):
+    """An unreadable peer might be the organizer, so an outage leaves the answer unknown."""
+    harness(Script(organizer=[[]], refresh=["stale-a", "stale-b"], pending=[False]))
+    FakeIdentity.results["stale-a"] = ActorIdentityPeerUnavailableError()
+    FakeIdentity.results["stale-b"] = ActorIdentitySyncUnavailableError()  # outage, not final
+    for call in (resolve, readiness):
+        with pytest.raises(DriveSharingError) as caught:
+            await call()
+        assert (str(caught.value), caught.value.retryable) == (
+            "recipient_verification_unavailable",
+            True,
+        )
+        assert caught.value.diagnostic_reason == "organizer_lookup_incomplete"
+
+
 async def test_partial_refresh_failure_still_uses_the_peers_that_did_refresh(harness):
     harness(Script(organizer=[[], ["organizer-user"]], refresh=["stale-dead", "stale-live"]))
-    FakeIdentity.results["stale-dead"] = ActorIdentitySyncUnavailableError()
+    FakeIdentity.results["stale-dead"] = (
+        ActorIdentitySyncUnavailableError()
+    )  # even an outage never hides a match
     assert await resolve() == "organizer-user"
 
 
@@ -311,6 +324,23 @@ async def test_operator_log_survives_the_production_redactor_and_names_no_one(
         assert private not in text
 
 
+async def test_operator_log_counts_peer_evidence_without_naming_anyone(
+    harness, caplog, production_log_redaction
+):
+    """Tells operators why a connected organizer did not match, with counts only."""
+    caplog.set_level(logging.INFO, logger=LOGGER)
+    script = harness(Script(organizer=[[]], refresh=[]))
+    script.evidence = {"active_peers": 27, "unproven_peers": 4, "same_mailbox_other_domain": 1}
+    await refusal()
+    text = "\n".join(caplog.messages)  # the message only, not the logger or file name
+    assert "[REDACTED]" not in text
+    assert "active_peers=27" in text and "unproven_peers=4" in text
+    assert "same_mailbox_other_domain=1" in text
+    named = text.replace("calendar.organizer.unavailable", "").replace("organizer.unresolved", "")
+    for private in (ORGANIZER, REQUESTER, "requester-user", "example.test", "organizer"):
+        assert private not in named
+
+
 @pytest.mark.parametrize(
     "script,failure_code",
     [
@@ -380,3 +410,91 @@ def test_every_reason_the_service_can_raise_is_client_safe():
     }
     for code, reason in emitted:
         assert reason in CALENDAR_REFUSAL_REASONS[code]
+
+
+# ---- readiness before Send --------------------------------------------------------
+
+
+async def readiness():
+    return await service.organizer_readiness("requester-user", ORGANIZER)
+
+
+async def test_an_active_verified_organizer_is_ready(harness):
+    script = harness(Script(organizer=[["organizer-user"]]))
+    assert await readiness() == "ready"
+    assert script.pending_queries == 0  # connected people never read pending requests
+
+
+async def test_no_connection_and_no_pending_request_is_not_connected(harness):
+    script = harness(Script(organizer=[[]], refresh=[], pending=[False]))
+    assert await readiness() == "not_connected"
+    assert script.pending_queries == 1
+
+
+async def test_a_pending_connection_request_is_reported_as_pending(harness):
+    harness(Script(organizer=[[]], refresh=[], pending=[True]))
+    assert await readiness() == "pending"
+
+
+async def test_pending_counterpart_with_a_stale_cache_is_refreshed_before_deciding(harness):
+    script = harness(Script(organizer=[[]], refresh=[], pending=[False, True]))
+    script.pending_refresh = ["stale-pending-peer"]
+    assert await readiness() == "pending"
+    assert FakeIdentity.calls == ["stale-pending-peer"]
+    assert script.pending_queries == 2
+
+
+async def test_unrefreshable_pending_counterpart_is_not_connected_not_retry(harness):
+    script = harness(Script(organizer=[[]], refresh=[], pending=[False]))
+    script.pending_refresh = ["stale-dead"]
+    FakeIdentity.results["stale-dead"] = ActorIdentitySyncUnavailableError()
+    assert await readiness() == "not_connected"
+
+
+@pytest.mark.parametrize(
+    "script,expected",
+    [
+        (Script(organizer=[["peer-a", "peer-b"]]), "unavailable"),  # ambiguous
+        (Script(organizer=[["organizer-user"]]), "unavailable"),  # identity changed
+    ],
+)
+async def test_ambiguous_or_changed_identity_is_unavailable_never_connected(
+    harness, script, expected
+):
+    harness(script)
+    if script.organizer == [["organizer-user"]]:
+        FakeIdentity.results["organizer-user"] = {
+            "email": "renamed@example.test",
+            "email_verified": True,
+        }
+    assert await readiness() == expected
+
+
+@pytest.mark.parametrize("failure", [OSError("connection reset"), TimeoutError()])
+async def test_readiness_infrastructure_failure_is_retryable_never_not_connected(harness, failure):
+    harness(Script(fail_fetch=failure))
+    with pytest.raises(DriveSharingError) as caught:
+        await readiness()
+    assert (str(caught.value), caught.value.retryable) == (
+        "recipient_verification_unavailable",
+        True,
+    )
+
+
+async def test_readiness_never_replaces_the_authoritative_refusal(harness):
+    """A pending request is advisory only: creating still requires an active connection."""
+    harness(Script(organizer=[[]], refresh=[], pending=[True]))
+    assert await readiness() == "pending"
+    assert (await refusal()).diagnostic_reason == "organizer_unresolved"
+
+
+async def test_readiness_log_is_count_only_and_survives_the_redactor(
+    harness, caplog, production_log_redaction
+):
+    caplog.set_level(logging.INFO, logger=LOGGER)
+    harness(Script(organizer=[[]], refresh=["stale-user-id-123"], pending=[False]))
+    assert await readiness() == "not_connected"
+    text = caplog.text
+    assert "[REDACTED]" not in text and "state=not.connected" in text
+    for private in (ORGANIZER, REQUESTER, "stale-user-id-123", "requester-user", "example.test"):
+        assert private not in text

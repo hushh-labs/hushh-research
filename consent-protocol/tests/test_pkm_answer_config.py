@@ -224,6 +224,15 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
     for environment, suffix in (("uat", "UAT"), ("dev", "DEV"), ("production", "PROD")):
         owner = environment if environment == "production" else f"{environment}-implementation"
         mapped = (root / f".github/workflows/deploy-{owner}.yml").read_text()
+        if environment == "dev":
+            assert (
+                "ANSWER_KEY_SECRET=\"${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || 'STRIPE_SECRET_KEY' }}\""
+                in mapped
+            )
+            assert (
+                "ANSWER_WEBHOOK_SECRET=\"${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || 'STRIPE_WEBHOOK_SECRET' }}\""
+                in mapped
+            )
         for mode in ("TEST", "LIVE"):
             for name, retained_test_default in (
                 (f"PKM_ANSWER_STRIPE_{mode}_SECRET_KEY", "STRIPE_SECRET_KEY"),

@@ -14,6 +14,10 @@ export type CalendarMeetingReturnContext = {
   timeZone: string;
   filter: "all" | "recording" | "notes";
   query: string;
+  /** The meeting that was open, so a return lands on it instead of the day's list. */
+  occurrenceId?: string;
+  /** Files the person had chosen to request, restored with the meeting. */
+  requestedTypes?: ("recording" | "notes")[];
 };
 
 export function validCalendarMeetingReturn(value: unknown): value is CalendarMeetingReturnContext {
@@ -23,7 +27,10 @@ export function validCalendarMeetingReturn(value: unknown): value is CalendarMee
     typeof item.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.day) &&
     typeof item.timeZone === "string" && /^[A-Za-z0-9_+\/-]{1,100}$/.test(item.timeZone) &&
     (item.filter === "all" || item.filter === "recording" || item.filter === "notes") &&
-    typeof item.query === "string" && item.query.length <= 120;
+    typeof item.query === "string" && item.query.length <= 120 &&
+    (item.occurrenceId === undefined || (typeof item.occurrenceId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.occurrenceId))) &&
+    (item.requestedTypes === undefined || (Array.isArray(item.requestedTypes) && item.requestedTypes.length <= 2 &&
+      item.requestedTypes.every(kind => kind === "recording" || kind === "notes")));
 }
 
 /** One-shot UI coordinates only. OAuth state, provider IDs and file content stay out of storage. */

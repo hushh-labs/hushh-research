@@ -19,6 +19,11 @@ import asyncio
 import pytest
 from httpx import ConnectError, ReadTimeout
 
+from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+    AzureAuthenticationError,
+    AzureRateLimitedError,
+    AzureTokenServiceUnavailableError,
+)
 from hushh_mcp.runtime_providers.dependency_health import (
     APPLICATION_BROKEN,
     CANDIDATE_MISCONFIGURED,
@@ -96,6 +101,12 @@ def test_only_structured_resource_exhaustion_can_use_the_narrow_release_signal()
     wrapped = RuntimeError("ADK wrapped provider error")
     wrapped.__cause__ = _ProviderError("capacity", 429)
     assert is_resource_exhausted(wrapped)
+    quota = AzureRateLimitedError()
+    assert is_resource_exhausted(quota)
+    denied = AzureAuthenticationError("synthetic identity denial")
+    denied.__cause__ = quota
+    assert not is_resource_exhausted(denied)
+    assert not is_transient_transport(denied)
     assert is_resource_exhausted(_ProviderError("capacity", None, "RESOURCE_EXHAUSTED"))
     for error in (
         asyncio.TimeoutError(),
@@ -148,6 +159,8 @@ def _wrapped(outer: BaseException, cause: BaseException) -> BaseException:
         (asyncio.TimeoutError(), True),
         (TimeoutError(), True),
         (ReadTimeout("transport deadline"), True),
+        (AzureRateLimitedError(), True),
+        (_wrapped(AzureTokenServiceUnavailableError("synthetic"), ReadTimeout("deadline")), True),
         (_ProviderError("rate limited", 429), True),
         (_ProviderError("upstream", 503), True),
         (_ProviderError("request timeout", 408), True),
@@ -156,6 +169,7 @@ def _wrapped(outer: BaseException, cause: BaseException) -> BaseException:
         (_wrapped(TimeoutError("sanitized"), asyncio.CancelledError()), True),
         # The owner approved timeouts, 429 and 5xx only (2026-10-30).
         (ConnectError("refused"), False),
+        (_wrapped(AzureTokenServiceUnavailableError("synthetic"), ConnectError("refused")), False),
         (_ProviderError("x", None, "ABORTED"), False),
         (_ProviderError(DUNNING_403, 403), False),
         (_ProviderError("Caller does not have permission 'x'", 403), False),

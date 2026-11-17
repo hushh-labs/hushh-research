@@ -1,6 +1,8 @@
 """Explicit production incident authority and paired-baseline refusal boundaries."""
 
 import importlib
+import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -109,6 +111,43 @@ def test_emergency_receipt_binds_both_baselines_and_never_supplies_uat_acceptanc
         module.recheck(receipt, {**authority, "run_attempt": "2"}, baselines)
 
 
+def test_auth_emergency_recheck_revalidates_the_pinned_operational_reference(monkeypatch):
+    module, *_ = _emergency_fixture(monkeypatch)
+    control = importlib.import_module("production_backend_successor_control")
+    authority = {
+        "mode": "manual-emergency",
+        "frontend_auth_domain_refresh": True,
+        "application_sha": "c" * 40,
+        "run_id": "100",
+        "run_attempt": "1",
+        "workflow_sha": "b" * 40,
+    }
+    observed = {
+        "backend": {"source": "d" * 40, "revision": "consent-protocol-00309-nir"},
+        "frontend": {"source": "d" * 40, "revision": "hushh-webapp-restored"},
+    }
+    operational = {"ref": "refs/tags/deployed/production-latest", "tag_oid": "e" * 40}
+    receipt = {
+        "schema_version": 1,
+        "kind": "manual-production-predecessor-exception",
+        "authority": authority,
+        "baseline": observed,
+        "ordinary_promotion_evidence": False,
+        "backend_acceptance_origin": {"operational_reference": operational},
+    }
+    verified = []
+    monkeypatch.setattr(
+        control,
+        "revalidate_auth_domain_reference",
+        lambda expected, current: verified.append((expected, current)),
+    )
+    module.recheck(receipt, authority, observed)
+    assert verified == [(operational, observed)]
+    receipt["backend_acceptance_origin"].pop("operational_reference")
+    with pytest.raises(ValueError, match="operational reference is missing"):
+        module.recheck(receipt, authority, observed)
+
+
 def test_emergency_baseline_refuses_split_traffic_and_unqualified_identity(monkeypatch):
     module, *_ = _emergency_fixture(monkeypatch)
     service = {
@@ -168,7 +207,11 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_main_qualificati
     assert steps.index(incident) < steps.index(source)
     assert source["env"]["REQUIRED_BRANCH"] == "${{ steps.dispatch-authority.outputs.branch }}"
     predecessor = next(step for step in steps if step.get("id") == "predecessor-acceptance")
+    for name in ("Preserve current release tooling", "Checkout deployment SHA"):
+        owner = next(step for step in steps if step.get("name") == name)
+        assert "retention_uat_guard_evidence.py" in owner["run"]
     assert 'if [ "$RELEASE_MODE" = manual-emergency ]; then' in predecessor["run"]
+    assert "python3 scripts/ci/production_emergency.py admit" in predecessor["run"]
     assert (
         'else\n  python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" main-source'
         in predecessor["run"]
@@ -181,7 +224,10 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_main_qualificati
         guard = steps[position - 1]
         assert "Recheck manual incident" in guard["name"]
         assert '"${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh"' in guard["run"]
-        assert '"${RUNNER_TEMP}/release-tools/production_emergency.py" recheck' in guard["run"]
+        assert (
+            "uv run --frozen --project consent-protocol python scripts/ci/production_emergency.py recheck"
+            in guard["run"]
+        )
     for name, job in workflow["jobs"].items():
         if name == "deployment-security":
             assert job["uses"] == "./.github/workflows/deployment-security.yml"
@@ -193,9 +239,46 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_main_qualificati
         assert "production_emergency.py dispatch" in boundary["run"]
 
 
-def test_historical_release_overlay_retains_team_admission(tmp_path):
-    workspace_scripts = tmp_path / "scripts" / "ci"
-    workspace_scripts.mkdir(parents=True)
+def test_workspace_release_tool_overlay_preserves_repository_relative_phone_paths(
+    monkeypatch, tmp_path
+):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    runner_work = tmp_path / "runner" / "work"
+    workspace = runner_work / "hushh-research" / "hushh-research"
+    release_tools = runner_work / "_temp" / "release-tools"
+    workspace_scripts = workspace / "scripts" / "ci"
+    workspace_phone = workspace / "deploy" / "phone"
+    flat_phone = release_tools / "phone"
+    for directory in (workspace_scripts, workspace_phone, release_tools, flat_phone):
+        directory.mkdir(parents=True, exist_ok=True)
+
+    receipt_source = ROOT / "scripts/ci/production_phone_receipt.py"
+    phone_source = ROOT / "deploy/phone/reader_probe.py"
+    shutil.copy2(receipt_source, workspace_scripts / receipt_source.name)
+    shutil.copy2(receipt_source, release_tools / receipt_source.name)
+    shutil.copy2(phone_source, workspace_phone / phone_source.name)
+    shutil.copy2(phone_source, flat_phone / phone_source.name)
+
+    def load(name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    workspace_receipt = load(
+        "workspace_production_phone_receipt",
+        workspace_scripts / receipt_source.name,
+    )
+    flat_receipt = load(
+        "flat_production_phone_receipt",
+        release_tools / receipt_source.name,
+    )
+
+    assert workspace_receipt._constant("reader_probe.py", "SOURCE_MODULES")
+    with pytest.raises(FileNotFoundError):
+        flat_receipt._constant("reader_probe.py", "SOURCE_MODULES")
+
     # An older application has no team-admission modules. Exercise the trusted
     # overlay in a fresh interpreter so repository imports cannot mask the gap.
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
@@ -236,3 +319,390 @@ def test_historical_release_overlay_retains_team_admission(tmp_path):
     )
     assert missing.returncode != 0
     assert "ModuleNotFoundError" in missing.stderr
+
+
+def test_auth_domain_refresh_requires_explicit_frontend_incident(monkeypatch):
+    module, environment, inputs, policy = _emergency_fixture(monkeypatch)
+    inputs.update(frontend_auth_domain_refresh=True, scope="frontend")
+    authority = module.dispatch({"inputs": inputs}, environment, policy)
+    assert authority["frontend_auth_domain_refresh"] is True
+    for key, value in [
+        ("scope", "all"),
+        ("emergency_source_ref", ""),
+        ("nearby_check_in_cohort", ""),
+        ("run_predeploy_backup_job", "true"),
+    ]:
+        with pytest.raises(ValueError):
+            module.dispatch({"inputs": {**inputs, key: value}}, environment, policy)
+
+
+def test_auth_domain_refresh_preserves_the_entire_application(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    receipt = {
+        "kind": "manual-production-predecessor-exception",
+        "scope": "frontend",
+        "authority": {"application_sha": module.CANDIDATE, "frontend_auth_domain_refresh": True},
+        "baseline": {
+            kind: {"source": module.SOURCE, "image": image} for kind, image in module.IMAGES.items()
+        },
+    }
+    module.validate_source(receipt, run=lambda *args: ".github/workflows/ci.yml\n")
+    for changes in [
+        "",
+        "hushh-webapp/app/page.tsx\n",
+        ".github/workflows/ci.yml\ndeploy/frontend.cloudbuild.yaml\n",
+    ]:
+        with pytest.raises(ValueError):
+            module.validate_source(receipt, run=lambda *args, changes=changes: changes)
+    receipt["baseline"]["backend"]["image"] = "changed"
+    with pytest.raises(ValueError):
+        module.validate_source(receipt, run=lambda *args: ".github/workflows/ci.yml\n")
+
+
+def test_auth_domain_refresh_pins_all_original_build_inputs(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    text = "\n".join(
+        f"projects/$PROJECT_ID/secrets/{name}/versions/latest"
+        for name in module.VERSIONS
+        if name != "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID"
+    )
+    text += "\ngcloud secrets versions access latest \\\n  --secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID\n"
+    pinned = module.pin_config(text)
+    for name, version in module.VERSIONS.items():
+        if name != "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID":
+            assert f"/secrets/{name}/versions/{version}" in pinned
+    assert "/versions/latest" not in pinned
+    assert "gcloud secrets versions access 1" in pinned
+    for changed in [
+        text.replace("BACKEND_URL", "FOREIGN_SECRET"),
+        text.replace("--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID", "--secret=OTHER"),
+    ]:
+        with pytest.raises(ValueError):
+            module.pin_config(changed)
+
+
+def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch, tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    source = (ROOT / ".github/workflows/deploy-production.yml").read_text()
+    assert 'production_auth_domain_refresh.py" verify --receipt' in source
+    assert (
+        "if: steps.document-mode.outputs.configured == 'true' && !inputs.frontend_auth_domain_refresh"
+        in source
+    )
+    assert "Require current-attempt deployment security" in source
+    assert "REQUIRED_CHECK_NAME:" in source
+    assert "Pin the reviewed auth-domain-only frontend inputs" in source
+    steps = workflow["jobs"]["deploy"]["steps"]
+    tag_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Tag this release as last known good"
+    )
+    upload_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Upload production deploy artifacts"
+    )
+    final_gate = next(
+        step
+        for step in steps
+        if step.get("name") == "Fail workflow when production release did not end healthy"
+    )
+    worker = next(
+        step
+        for step in steps
+        if step.get("name") == "Load qualified staged production Drive worker"
+    )
+    cleanup = next(
+        step
+        for step in steps
+        if step.get("name") == "Retire unused production tags after a healthy release"
+    )
+    assert tag_index < upload_index
+    assert steps[tag_index]["continue-on-error"] is True
+    assert (
+        steps[tag_index]["env"]["AUTH_DOMAIN_REPAIR"]
+        == "${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}"
+    )
+    assert final_gate["env"]["AUTH_DOMAIN_REPAIR"] == steps[tag_index]["env"]["AUTH_DOMAIN_REPAIR"]
+    assert (
+        "always()" in final_gate["if"] and "inputs.frontend_auth_domain_refresh" in final_gate["if"]
+    )
+    assert "auth-publish-verify" in final_gate["run"]
+    assert 'if [ "$AUTH_DOMAIN_REPAIR" = true ]; then' in final_gate["run"]
+    assert worker["env"]["AUTH_DOMAIN_REPAIR"] == final_gate["env"]["AUTH_DOMAIN_REPAIR"]
+    assert worker["env"]["RELEASE_MODE"] == "${{ steps.dispatch-authority.outputs.mode }}"
+    assert 'if os.environ["AUTH_DOMAIN_REPAIR"] == "true":' in worker["run"]
+    assert 'os.environ["RELEASE_MODE"] != "manual-emergency"' in worker["run"]
+    assert 'or os.environ["PHONE_DEPLOY_PHASE"] != "standard" or run_id' in worker["run"]
+    assert 'output.write("loaded=false\\n")' in worker["run"]
+    assert (
+        'if anchor is not None and os.environ["PHONE_DEPLOY_PHASE"] != "cold" and not run_id:'
+        in worker["run"]
+    )
+    assert "!inputs.frontend_auth_domain_refresh" in cleanup["if"]
+    tagger = (ROOT / "scripts/ci/tag-last-known-good.sh").read_text()
+    assert "production_backend_successor_control.py auth-publish" in tagger
+    assert 'git push origin "refs/tags/${TAG}"' in tagger
+
+    capacity = next(
+        step
+        for step in steps
+        if step.get("name") == "Enforce production database connection budget before deployment"
+    )
+    assert capacity["env"]["AUTH_DOMAIN_REPAIR"] == final_gate["env"]["AUTH_DOMAIN_REPAIR"]
+    assert capacity["env"]["REQUESTED_SCOPE"] == "${{ inputs.scope }}"
+    assert "python3 scripts/ci/production_emergency.py admit" in next(
+        step["run"] for step in steps if step.get("id") == "predecessor-acceptance"
+    )
+    setup = next(
+        i for i, step in enumerate(steps) if step.get("name") == "Set up Python + uv runtime"
+    )
+    proxy = next(
+        i for i, step in enumerate(steps) if step.get("name") == "Install Cloud SQL Auth Proxy"
+    )
+    recheck = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Recheck manual incident source and serving baseline before mutation"
+    )
+    assert setup < proxy < recheck
+    assert (
+        steps[proxy]["if"]
+        == "steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'"
+    )
+    # Execute the actual gate with command-only stand-ins: scope refusal must
+    # precede invocation, and ordinary/cold operations retain their reservations.
+    for name, body in (
+        ("timeout", '#!/bin/sh\nshift 3\nexec "$@"\n'),
+        ("python3", '#!/bin/sh\nprintf "%s\\n" "$*" > "$CAPTURE"\n'),
+    ):
+        path = tmp_path / name
+        path.write_text(body)
+        path.chmod(0o700)
+    cases = (
+        ({}, 0, "--no-candidates"),
+        ({"AUTH_DOMAIN_REPAIR": "false"}, 0, "--no-candidates"),
+        ({"AUTH_DOMAIN_REPAIR": "false", "STAGED_WORKER_LOADED": ""}, 0, "--no-candidates"),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "REQUESTED_SCOPE": "backend"},
+            0,
+            "--environment production",
+        ),
+        ({"AUTH_DOMAIN_REPAIR": "false", "REQUESTED_SCOPE": "all"}, 0, "--environment production"),
+        ({"AUTH_DOMAIN_REPAIR": "false", "REQUESTED_SCOPE": "auto"}, 0, "--environment production"),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "STAGED_WORKER_LOADED": "true"},
+            0,
+            "--candidate-service consent-protocol",
+        ),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "RESTORATION_RUN": "42"},
+            0,
+            "--candidate-service consent-protocol",
+        ),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "PHONE_DEPLOY_PHASE": "cold"},
+            0,
+            "--candidate-service consent-protocol",
+        ),
+        ({"REQUESTED_SCOPE": "all"}, 1, None),
+        ({"STAGED_WORKER_LOADED": "true"}, 1, None),
+        ({"STAGED_WORKER_LOADED": ""}, 1, None),
+    )
+    for index, (overrides, expected_code, suffix) in enumerate(cases):
+        capture = tmp_path / f"capacity-{index}"
+        environment = {
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "CAPTURE": str(capture),
+            "AUTH_DOMAIN_REPAIR": "true",
+            "REQUESTED_SCOPE": "frontend",
+            "PHONE_DEPLOY_PHASE": "standard",
+            "STAGED_WORKER_LOADED": "false",
+            "RESTORATION_RUN": "",
+            "PHONE_ROLLBACK_SHA": "",
+            **overrides,
+        }
+        result = subprocess.run(  # noqa: S603 - execute the checked-in workflow against local stubs
+            ["bash", "-c", capacity["run"]],
+            env=environment,
+            capture_output=True,
+            timeout=5,
+        )
+        assert result.returncode == expected_code
+        if suffix is None:
+            assert not capture.exists()
+        else:
+            assert capture.read_text().strip().endswith(suffix)
+            if suffix != "--no-candidates":
+                assert "--no-candidates" not in capture.read_text().split()
+
+
+def test_auth_domain_refresh_refuses_runtime_configuration_drift(monkeypatch):
+    import copy
+
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    baseline = {
+        "metadata": {"annotations": {"autoscaling.knative.dev/maxScale": "3"}},
+        "spec": {
+            "serviceAccountName": "frontend",
+            "containers": [
+                {
+                    "image": "old",
+                    "resources": {"limits": {"memory": "1Gi"}},
+                    "env": [
+                        {
+                            "name": "BACKEND_URL",
+                            "valueFrom": {"secretKeyRef": {"name": "BACKEND_URL", "key": "latest"}},
+                        },
+                        {"name": "HUSHH_DEPLOY_SHA", "value": "old"},
+                    ],
+                }
+            ],
+        },
+    }
+    candidate = copy.deepcopy(baseline)
+    container = candidate["spec"]["containers"][0]
+    container["image"] = "new"
+    container["env"][0]["valueFrom"]["secretKeyRef"]["key"] = "3"
+    container["env"][1]["value"] = "new"
+    assert module.runtime_config(baseline, original=True) == module.runtime_config(
+        candidate, original=False
+    )
+    container["resources"]["limits"]["memory"] = "2Gi"
+    assert module.runtime_config(baseline, original=True) != module.runtime_config(
+        candidate, original=False
+    )
+    container["env"][0]["valueFrom"]["secretKeyRef"]["key"] = "latest"
+    with pytest.raises(ValueError):
+        module.runtime_config(candidate, original=False)
+
+
+def test_auth_domain_refresh_refuses_foreign_frontend_traffic(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    baseline = {"service_uid": "original", "revision": "old", "generation": "10"}
+    module.require_frontend_baseline({**baseline, "generation": "11"}, baseline)
+    for key, value in [("service_uid", "replacement"), ("revision", "other")]:
+        with pytest.raises(ValueError):
+            module.require_frontend_baseline({**baseline, key: value}, baseline)
+
+
+def test_auth_domain_refresh_uses_observed_intake_not_future_stored_policy(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    mode = {"configured": True, "enabled": True}
+    flag = {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": "false"}
+    backend = {"spec": {"containers": [{"env": [flag]}]}}
+    assert module.effective_document_mode(mode, backend) == {
+        "configured": True,
+        "stored_enabled": True,
+        "enabled": False,
+    }
+    for entries in [[], [dict(flag, value="true")], [dict(flag, valueFrom={})], [flag, flag]]:
+        with pytest.raises(ValueError):
+            module.effective_document_mode(mode, {"spec": {"containers": [{"env": entries}]}})
+
+
+def test_manual_emergency_admits_scoped_backend_worker_and_staged_run_only(monkeypatch):
+    module, environment, inputs, policy = _emergency_fixture(monkeypatch)
+    worker_inputs = {**inputs, "phone_phase": "worker", "scope": "backend"}
+    assert (
+        module.dispatch({"inputs": worker_inputs}, environment, policy)["mode"]
+        == "manual-emergency"
+    )
+    staged_inputs = {
+        **inputs,
+        "phone_phase": "standard",
+        "scope": "backend",
+        "phone_worker_stage_run_id": "42",
+    }
+    assert (
+        module.dispatch({"inputs": staged_inputs}, environment, policy)["mode"]
+        == "manual-emergency"
+    )
+    for invalid in (
+        {**worker_inputs, "scope": "all"},
+        {**worker_inputs, "phone_worker_stage_run_id": "42"},
+        {
+            **inputs,
+            "frontend_auth_domain_refresh": True,
+            "scope": "frontend",
+            "phone_phase": "worker",
+        },
+        {**staged_inputs, "scope": "frontend"},
+        {**staged_inputs, "phone_worker_stage_run_id": "abc"},
+        {
+            **inputs,
+            "frontend_auth_domain_refresh": True,
+            "scope": "frontend",
+            "phone_worker_stage_run_id": "42",
+        },
+    ):
+        with pytest.raises(ValueError):
+            module.dispatch({"inputs": invalid}, environment, policy)
+
+
+def test_emergency_admission_and_published_tag_shas_preserve_closed_boundaries(
+    monkeypatch, tmp_path
+):
+    import json
+    import zlib
+
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    admission = importlib.import_module("emergency_admission")
+    common = tmp_path / "common-git"
+    worktree = tmp_path / "wt"
+    worktree_git = common / "worktrees" / "wt"
+    (common / "refs/tags/deployed/production").mkdir(parents=True)
+    worktree.mkdir()
+    worktree_git.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {worktree_git}\n", encoding="utf-8")
+    (worktree_git / "commondir").write_text("../..\n", encoding="utf-8")
+    packed_sha, loose_sha, tag_oid = "1" * 40, "2" * 40, "3" * 40
+    (common / "packed-refs").write_text(
+        f"# pack-refs with: peeled fully-peeled sorted\n{tag_oid} refs/tags/deployed/production/11111111-20261115T000000Z\n^{packed_sha}\n",
+        encoding="utf-8",
+    )
+    tag_body = f"object {loose_sha}\ntype commit\ntag deployed/production-latest\n\nmsg\n".encode()
+    tag_raw = f"tag {len(tag_body)}\x00".encode() + tag_body
+    obj_file = common / "objects" / tag_oid[:2] / tag_oid[2:]
+    obj_file.parent.mkdir(parents=True)
+    obj_file.write_bytes(zlib.compress(tag_raw))
+    (common / "refs/tags/deployed/production-latest").write_text(tag_oid + "\n", encoding="utf-8")
+    assert admission.published_production_tag_shas(worktree) == frozenset({packed_sha, loose_sha})
+
+    receipt_path = tmp_path / "receipt.json"
+    receipt = {
+        "schema_version": 1,
+        "kind": "manual-production-predecessor-exception",
+        "scope": "backend",
+        "ordinary_promotion_evidence": False,
+        "authority": {
+            "mode": "manual-emergency",
+            "application_sha": SHA,
+            "source_ref": "fix/incident-123",
+            "run_id": "100",
+            "run_attempt": "1",
+        },
+        "baseline": {"backend": {"source": packed_sha}, "frontend": {"source": loose_sha}},
+    }
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_RUN_ID", "100")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(
+        admission.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0})()
+    )
+    assert admission.validate_emergency_receipt(receipt_path, root=worktree) == SHA
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    with pytest.raises(ValueError, match="emergency_receipt_authority_mismatch"):
+        admission.validate_emergency_receipt(receipt_path, root=worktree)
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(
+        admission.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 1})()
+    )
+    with pytest.raises(ValueError, match="emergency_receipt_baseline_not_preserved"):
+        admission.validate_emergency_receipt(receipt_path, root=worktree)

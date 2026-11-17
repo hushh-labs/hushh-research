@@ -4173,10 +4173,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!owner?.uid || !applicationOwnerId) return;
     const ownerId = applicationOwnerId;
     const originConversation = conversationIdRef.current;
-    const payload = (pendingSpecialistDirective?.directive.payload ?? {}) as Record<
-      string,
-      unknown
-    >;
     const isCurrent = () => workspaceOwnerIdRef.current === ownerId &&
       (kind !== "calendar" || conversationIdRef.current === originConversation);
     const started = directiveConnect.start(
@@ -4184,9 +4180,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       (controls) =>
         kind === "calendar"
           ? connectCalendarInPlace({
-              owner, accountId,
-              accessLevel: payload.accessLevel === "manage" ? "manage" : "read",
-              includeCalendarList: payload.includeCalendarList === true,
+              owner,
+              accountId,
+              accessLevel: "manage",
+              includeCalendarList: true,
+              includeMeetingFiles: true,
               ...controls,
               vaultOwnerCapability: vaultOwnerToken ?? undefined,
               confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),

@@ -1382,6 +1382,13 @@ async function streamAgentChatAttempt(input: {
       return { wiki: null, wikiHotDigest: "" };
     }
     try {
+      const access = await import("./pod-app-access");
+      if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+        return { wiki: null, wikiHotDigest: "" };
+      }
+      if (!mcpSessionCurrent()) {
+        return { wiki: null, wikiHotDigest: "" };
+      }
       const bound = peekActiveSharedWiki();
       if (bound) {
         const digest = await buildSharedWikiHotDigestContext(

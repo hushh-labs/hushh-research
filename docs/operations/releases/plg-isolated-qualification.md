@@ -1,6 +1,6 @@
 # Retired isolated PLG qualification lane
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Map
 

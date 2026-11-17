@@ -50,7 +50,8 @@ export function CalendarInvitationChat({ owner, ownerId: applicationOwnerId, pay
     }).catch(() => { if (current()) setAccountObservation({ ownerId: applicationOwnerId, accountId, connected: false, email: null }); });
     return () => { active = false; };
   }, [owner, applicationOwnerId, accountId, selectedAccountId, revision]);
-  const connect = (kind: "calendar" | "mail", access: "read" | "manage" = "manage", includeCalendarList = false) => {
+  // Setup asks for full Calendar access once, so the requested level no longer narrows it.
+  const connect = (kind: "calendar" | "mail", _access?: "read" | "manage", _includeCalendarList?: boolean) => {
     const controller = lifetime.current;
     const principal = snapshotValidatedAuthSessionPrincipal();
     if (busy || !controller || !principal || principal.firebaseUid !== owner.uid || principal.ownerId !== applicationOwnerId) return;
@@ -58,7 +59,7 @@ export function CalendarInvitationChat({ owner, ownerId: applicationOwnerId, pay
     const controls = { owner, signal: controller.signal, vaultOwnerCapability: capability, confirmLegacyTransition,
       isCurrent: () => isValidatedAuthSessionOwnerCurrent(principal) && lifetime.current === controller && !controller.signal.aborted &&
         binding.current.ownerId === ownerId && binding.current.accountId === accountId && binding.current.capability === capability && isVaultSessionEpochCurrent(epoch) };
-    const attempt = kind === "calendar" ? connectCalendarInPlace({ ...controls, accountId, accessLevel: access, includeCalendarList }) : connectGmailInPlace({ ...controls, purpose: "send" });
+    const attempt = kind === "calendar" ? connectCalendarInPlace({ ...controls, accountId, accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true }) : connectGmailInPlace({ ...controls, purpose: "send" });
     setConnectAttempt({ ownerId, accountId, capability });
     void attempt.result.then(result => { if (controls.isCurrent()) { if (result === "connected") setRevision(value => value + 1); else if (result !== "stale") morphyToast.error("Access was not updated. You can try again."); } }).finally(() => { if (controls.isCurrent()) setConnectAttempt(null); });
   };

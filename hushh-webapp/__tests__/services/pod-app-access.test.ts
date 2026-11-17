@@ -115,6 +115,29 @@ it("requires owner app authority for scheduled work and permits only exact read/
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("admits typed Calendar/Mail reads only with app pkm.read authority and exact methods", async () => {
+  const fetch = vi.fn(async () => Response.json({ items: [] }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic", role: "device", scopes: ["pkm.read", "pod.status"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  for (const [path, method] of [["calendar/events", "POST"], ["gmail/todos", "GET"]]) {
+    await expect(ownerPodRequest(path!, { method }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  }
+  connection.session.role = "app";
+  connection.session.scopes = ["pod.status"];
+  await expect(ownerPodRequest("gmail/todos", { method: "GET" }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+  connection.session.scopes = ["pkm.read"];
+  await ownerPodRequest("calendar/events", { method: "POST", body: "{}" }, ports);
+  await ownerPodRequest("gmail/todos", { method: "GET" }, ports);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockClear();
+  await expect(ownerPodRequest("gmail/todos", { method: "POST" }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  await expect(ownerPodRequest("calendar/events", { method: "GET" }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("refuses a retired Stop before hosting dispatch and after deferred pod admission", async () => {
   let current = true;
   const fetch = vi.fn(async () => Response.json({ stopped: true }));

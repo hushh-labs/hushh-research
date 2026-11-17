@@ -191,7 +191,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
-  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput, isCurrent: () => boolean) => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput, isCurrent?: () => boolean) => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean; transport?: "sms" },
@@ -2035,20 +2035,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   const confirmPhoneTransfer = useCallback(async (): Promise<User> => {
-    const proof = phoneTransferProofRef.current;
-    const currentUser = userRef.current;
-    if (!proof || !currentUser) throw new Error("Request a fresh real SMS code before transferring this number.");
-    requirePhoneVerificationOwner(proof.userId, proof.epoch);
-    await AccountIdentityService.transferCurrentUserPhone(currentUser, proof, () =>
-      phoneTransferProofRef.current === proof && userRef.current?.uid === currentUser.uid && phoneVerificationEpochRef.current === proof.epoch);
-    requirePhoneVerificationOwner(proof.userId, proof.epoch);
-    phoneRecovery.cancelNativeStart();
-    phoneTransferProofRef.current = null;
-    setPhoneVerificationAttempt(null);
-    phoneVerificationOwnerRef.current = null;
-    return currentUser;
-  }, [phoneRecovery, requirePhoneVerificationOwner]);
-  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean) => {
+    throw new Error("This number is already linked to an account. Use a different number or contact support.");
+  }, []);
+  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean = () => true) => {
     const principal = principalRef.current;
     const owner = snapshotValidatedAuthSessionOwner();
     const uid = userRef.current?.uid;

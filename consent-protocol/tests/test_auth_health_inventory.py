@@ -251,6 +251,9 @@ def test_observer_history_and_active_executions_cannot_hide_a_writer(history, mo
 REPLACEMENT_IMAGES = (
     ("ril_zeg_poh", "0654bc47a5e6d80efd61aef2962abe7fcfe3ee574c3700a071b8f2facbd87a35"),
     ("dak_viz_val", "590c55fa1d4322fca37fecd62a41bf6cf3bcd3ba8690d4e7ca17f1acc1237e03"),
+    ("quc_zok_fay", "a1c207cec35c87b2e5c5c291d1a13f50cce3bca06159356461abfc8c725c71d9"),
+    ("yob_xun_muw", "5abd95d1ffd2f818892bea80c648eba01fd782cbb141c0c8a7f08bbb280c71ba"),
+    ("cov_yos_zep", "55ea80c71583498525b0cf14d4cd6b7bc3afaafaa1979eaf498b28e1dbc616d4"),
 )
 
 
@@ -266,14 +269,19 @@ def _replacement_job(owner, position):
 
 def test_reviewed_replacements_are_the_only_other_zero_connection_incarnations():
     owner = run_path(str(ROOT / "deploy/observability/auth_health_inventory.py"))
-    jobs = [_observer_job(owner), _replacement_job(owner, 0), _replacement_job(owner, 1)]
+    jobs = [
+        _observer_job(owner),
+        *(_replacement_job(owner, i) for i in range(len(REPLACEMENT_IMAGES))),
+    ]
     # Each pinned replacement differs from generation 1 only by image and nonce.
     for job, row in zip(jobs[1:], owner["REPLACEMENTS"], strict=True):
         assert owner["fingerprint"](job["spec"]) == row["spec"]
         qualified = owner["qualify_job"](job)
         assert qualified["source"] == row["source"] and qualified["connections"] == 0
     for job in jobs:
-        for generation in {1, 2, 3, 4} - {job["metadata"]["generation"]}:
+        for generation in set(range(1, len(REPLACEMENT_IMAGES) + 3)) - {
+            job["metadata"]["generation"]
+        }:
             mixed = copy.deepcopy(job)
             mixed["metadata"]["generation"] = generation
             with pytest.raises(ValueError):
@@ -292,6 +300,24 @@ REPLACEMENT_STAMPS = (
         "2026-10-29T23:55:16.82Z",
         "2026-10-29T23:57:38Z",
         "2026-10-30T00:00:08Z",
+    ),
+    (
+        "2026-10-30T02:18:02.827059Z",
+        "2026-10-30T02:18:03.403903Z",
+        "2026-10-30T02:20:00Z",
+        "2026-10-30T02:21:00Z",
+    ),
+    (
+        "2026-10-30T16:40:21.066055Z",
+        "2026-10-30T16:40:21.713684Z",
+        "2026-10-30T16:45:00Z",
+        "2026-10-30T16:46:00Z",
+    ),
+    (
+        "2026-10-30T18:24:19.616718Z",
+        "2026-10-30T18:24:20.191591Z",
+        "2026-10-30T18:30:00Z",
+        "2026-10-30T18:31:00Z",
     ),
 )
 
@@ -349,8 +375,11 @@ def test_history_admits_only_the_exact_reviewed_replacements(history, monkeypatc
     pairs, runs = _replacement_events(owner, execution)
     origin = events
     events, job = (
-        [*origin, *pairs[0], runs[0][1], *pairs[1], runs[1][1]],
-        _replacement_job(owner, 1),
+        [
+            *origin,
+            *(event for pair, run in zip(pairs, runs, strict=True) for event in (*pair, run[1])),
+        ],
+        _replacement_job(owner, len(REPLACEMENT_IMAGES) - 1),
     )
     if changed == "generation-two":
         events, job = [*origin, *pairs[0], runs[0][1]], _replacement_job(owner, 0)
@@ -375,7 +404,7 @@ def test_history_admits_only_the_exact_reviewed_replacements(history, monkeypatc
             events,
             {},
             {},
-            "2026-10-30T01:00:00Z",
+            "2026-10-30T19:00:00Z",
             submissions=lambda: proof,
             project_number=owner["NUMBER"],
             observers={owner["NAME"]: job},
@@ -386,7 +415,7 @@ def test_history_admits_only_the_exact_reviewed_replacements(history, monkeypatc
             review()
         return
     observed = review()["observers"]
-    applied = 1 if changed else 2
+    applied = 1 if changed else len(REPLACEMENT_IMAGES)
     assert observed["source"] == owner["REPLACEMENTS"][applied - 1]["source"]
     assert len(observed["replacements"]) == applied
     assert [row["uid"] for row in observed["executions"]] == [

@@ -144,14 +144,14 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "document_delivery_contracts",
-        "document_delivery_public_keys",
-        "document_delivery_file_receipts",
-        "document_delivery_key_challenges",
         "document_delivery_activity",
-        "document_delivery_idempotency",
+        "document_delivery_background_activity",
         "document_delivery_background_requests",
-        "document_delivery_background_activity"
+        "document_delivery_contracts",
+        "document_delivery_file_receipts",
+        "document_delivery_idempotency",
+        "document_delivery_key_challenges",
+        "document_delivery_public_keys"
       ],
       "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; explicit request-bound copy approval, per-file fulfillment, activity and scoped revocation. Device-encrypted v1 retains canonical connector-key binding. Additive server-readable v2 attaches to the original Drive request, approval, payment and confirmed recipient grant without a second financial authority. Historical Drive requests retain their original path.",
       "retention_policy": "Device-encrypted v1 contracts have a finite access deadline; abandoned preparation has a 30-minute lease bounded by that deadline and possession challenges expire after five minutes. Server-readable v2 follows the original approved grant's explicit access deadline, or remains until revoked or erased when no deadline was selected; pending-request and receipt-retention TTLs do not expire a granted copy. Participant activity is retained at most 90 days. Retired cleanup purges selection, cached results, challenges and package envelopes after fencing. Account erasure removes public-key pins after fencing dependent requests. Financial provenance and unresolved storage inventory are retained separately.",
@@ -166,10 +166,10 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "document_delivery_packages",
         "document_delivery_artifacts",
+        "document_delivery_background_chunks",
         "document_delivery_background_files",
-        "document_delivery_background_chunks"
+        "document_delivery_packages"
       ],
       "primary_access_path": "In device-encrypted v1, A prepares PDF originals and watermark derivatives locally, SQL binds immutable content generations and wraps, and B decrypts locally. In server-readable v2, the existing sharing drain fetches the exact confirmed Drive original, verifies frozen provider content identity and complete checksums, then uploads independently authenticated 1 MiB ciphertext chunks through the same qualified private GCS port. Authenticated recipient streaming checks current paid entitlement and fences for every chunk.",
       "retention_policy": "Retain approved ciphertext and encrypted keys only while the applicable grant remains active: finite v1 deadline, or v2's original explicit Drive deadline or until revoke/erasure when none was selected. Keep uncertain writes and deletion fences until provider outcome is reconciled. Superseded staging follows its bounded lease; retained provider versions/soft deletion remain explicit pending destruction.",
@@ -184,8 +184,8 @@
       "data_class": "audit_regulated",
       "lifecycle_status": "current",
       "exact_tables": [
-        "document_delivery_financial_bindings",
-        "document_delivery_cleanup"
+        "document_delivery_cleanup",
+        "document_delivery_financial_bindings"
       ],
       "primary_access_path": "Existing signed payment/refund/payout reconciliation consumes one mode-aware delivery summary; independent ciphertext cleanup reconciles reserved, uncertain and exact-generation object outcomes after participant request erasure.",
       "retention_policy": "Retain minimal opaque financial mode/count/original paid-package binding under the existing payment obligation policy. Retain storage inventory only until all writer and provider-retention outcomes are reconciled. No unbounded recipient activity or personal document metadata is copied here.",
@@ -200,8 +200,8 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "vault_keys",
-        "vault_key_wrappers"
+        "vault_key_wrappers",
+        "vault_keys"
       ],
       "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, owner-bound One review completion, and explicit initial-signup Contacts lifecycle services",
       "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
@@ -216,12 +216,12 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "actor_profiles",
         "actor_identity_cache",
+        "actor_profiles",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens",
-        "user_push_installations"
+        "user_push_installations",
+        "user_push_tokens"
       ],
       "primary_access_path": "account, persona, notification, verified email alias, and identity-cache services",
       "retention_policy": "Retain while account exists; refresh from authoritative identity sources where possible.",
@@ -252,10 +252,10 @@
       "data_class": "workflow_state",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "exact_tables": [
-        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events",
-        "personal_agent_deletion_tombstones"
+        "personal_agent_deletion_tombstones",
+        "personal_agent_registry",
+        "pod_lifecycle_events"
       ],
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
       "retention_policy": "Retain placement, setup and bounded recovery metadata while provider operations remain unresolved. Lifecycle events use the existing operational TTL. Required deletion tombstones and exact resource-absence/retention receipts survive removal until the governing erasure contract permits scrubbing; elapsed time never proves cleanup.",
@@ -272,8 +272,8 @@
       "exact_tables": [
         "consent_audit",
         "consent_audit_receipts",
-        "internal_access_events",
-        "consent_scope_templates"
+        "consent_scope_templates",
+        "internal_access_events"
       ],
       "primary_access_path": "consent issuance, revocation, notification, and internal access review",
       "retention_policy": "Long-retention metadata audit; redact payload detail rather than deleting audit authority rows. The parked tamper-evident consent_audit_receipts chain needs explicit privacy/compliance approval for its raw subject_id retention or a chain-safe subject-redaction design before production activation.",
@@ -303,8 +303,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "consent_exports",
-        "consent_export_refresh_jobs"
+        "consent_export_refresh_jobs",
+        "consent_exports"
       ],
       "primary_access_path": "scoped export generation, connector key wrapping, and refresh jobs",
       "retention_policy": "Short-lived by export expiry; stale refresh jobs compacted after terminal status.",
@@ -320,8 +320,8 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "pkm_blobs",
-        "pkm_domain_revisions",
-        "pkm_domain_revision_segments"
+        "pkm_domain_revision_segments",
+        "pkm_domain_revisions"
       ],
       "primary_access_path": "PKM coherent snapshot, atomic store, owner rollback, delete-domain routes, and client-side vault unlock flows",
       "retention_policy": "Retain the first encrypted pre-v7 origin revision for the account lifetime; retain ordinary rollback revisions for 90 days; delete on account or explicit domain deletion.",
@@ -371,8 +371,8 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "messages",
-        "direct_message_attachments"
+        "direct_message_attachments",
+        "messages"
       ],
       "primary_access_path": "Participant-scoped conversation history and attachment reads, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service.",
       "retention_policy": "Retain encrypted message history and attachments while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs. Attachments are limited to 5 MB each.",
@@ -433,11 +433,11 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
+        "pkm_events",
         "pkm_index",
-        "pkm_manifests",
         "pkm_manifest_paths",
-        "pkm_scope_registry",
-        "pkm_events"
+        "pkm_manifests",
+        "pkm_scope_registry"
       ],
       "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services",
       "retention_policy": "Retain while account exists; compact high-volume event metadata after replay window if safe.",
@@ -467,11 +467,11 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pkm_migration_state",
-        "pkm_upgrade_runs",
-        "pkm_upgrade_steps",
         "pkm_domain_commits",
-        "pkm_upgrade_claims"
+        "pkm_migration_state",
+        "pkm_upgrade_claims",
+        "pkm_upgrade_runs",
+        "pkm_upgrade_steps"
       ],
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration",
       "retention_policy": "Retain active and recent terminal runs; compact terminal rows after 30 days unless needed for incident review.",
@@ -486,16 +486,16 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "legacy_migration",
       "exact_tables": [
-        "pkm_data",
-        "pkm_embeddings",
-        "world_model_data",
-        "world_model_index",
-        "world_model_index_v2",
-        "world_model_attributes",
-        "world_model_embeddings",
         "chat_conversations",
         "chat_messages",
-        "vault_portfolios"
+        "pkm_data",
+        "pkm_embeddings",
+        "vault_portfolios",
+        "world_model_attributes",
+        "world_model_data",
+        "world_model_embeddings",
+        "world_model_index",
+        "world_model_index_v2"
       ],
       "primary_access_path": "bounded legacy-to-PKM compatibility and account deletion cleanup only",
       "retention_policy": "No new canonical writes; delete after PKM cutover evidence proves no active dependency.",
@@ -562,9 +562,9 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_public_profile_entities",
+        "one_public_profile_findings",
         "one_public_profile_identity_anchors",
-        "one_public_profile_sources",
-        "one_public_profile_findings"
+        "one_public_profile_sources"
       ],
       "primary_access_path": "PublicProfileDiscoveryService exact canonical profile-URL reuse and the leased HusshOne acquisition worker; PostgreSQL GIN and semantic candidate retrieval are not connected to the current service.",
       "retention_policy": "Consent-gated, source-linked public findings may be retained for future exact-profile reuse. This release has no scheduled pool refresh or removal, and no existing-record import is allowed until source provenance and reuse permission are inventoried. The 100,000-profile target is not a measured capacity claim.",
@@ -579,9 +579,9 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "one_profile_discovery_jobs",
         "one_profile_discovery_events",
-        "one_profile_discovery_feed_outbox"
+        "one_profile_discovery_feed_outbox",
+        "one_profile_discovery_jobs"
       ],
       "primary_access_path": "Firebase owner-scoped discovery status/start and vault-owner encrypted-draft/terminal-claim routes; PostgreSQL leased background worker and transactional Feed outbox.",
       "retention_policy": "One job per owner remains after claim to enforce the terminal one-time handoff until account deletion. Search hints are cleared after a ready profile, cancellation, or an unreviewable result; encrypted private drafts remain ciphertext only while the owner job exists. Transition and outbox rows are bounded by meaningful lifecycle changes.",
@@ -629,11 +629,11 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "calendar_email_followup_monitors",
         "calendar_email_followup_conversations",
+        "calendar_email_followup_monitors",
+        "calendar_email_followup_mutations",
         "calendar_email_followup_requests",
-        "calendar_email_followup_scanned_messages",
-        "calendar_email_followup_mutations"
+        "calendar_email_followup_scanned_messages"
       ],
       "primary_access_path": "Selected-account Calendar Follow-ups APIs and bounded scan/reminder workers require a current per-account Gmail read grant, explicit monitor opt-in, and owner-scoped service access. Feed and push hold source-linked metadata projections, not email bodies.",
       "retention_policy": "The monitor retains a sealed scan checkpoint while opted in. Conversations retain sealed subject and sender; requests retain sealed short title, exact source quote, due wording and provider references, with HMACs and timestamps. Full message bodies are never stored. Scanned-message digests and mutation keys persist while the monitor exists. Current code has no scheduled terminal-row compaction; done or cancelled rows remain until opt-out, disconnect, identity replacement or account deletion removes the monitor.",
@@ -648,9 +648,9 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
+        "gmail_mailbox_action_proposals",
         "gmail_owner_send_actions",
-        "google_email_send_actions",
-        "gmail_mailbox_action_proposals"
+        "google_email_send_actions"
       ],
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services; reviewed Gmail mailbox changes (archive, labels, read state, trash) proposed in One's chat and executed on the owner's confirmation",
       "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration. Mailbox-change proposals are unusable after ten minutes, deleted after execution, and purged (with failed ones) on the owner's next mailbox change. Scheduled sends (migration 275) wait until send_at, at most 30 days out, and stay sendable until send_at + 24 hours; the scheduled-mail drain sends a due row once, records a row past that window as failed (schedule_window_passed) and a row whose recipient disconnected as failed (recipient_disconnected), so the Feed keeps a lasting record of every unsent email, and clears payload_sealed and subject on every terminal state (plus recipient_display on cancel, expiry, or once notified_at is claimed), with a bounded sweep of terminal scheduled rows at the start of each run. A voice cancel clears payload_sealed, subject, and recipient_display at once. Account reset deletes the owner's rows.",
@@ -682,12 +682,12 @@
       "data_class": "provider_cache",
       "lifecycle_status": "current",
       "exact_tables": [
-        "google_provider_connections",
-        "google_calendar_additional_accounts",
-        "google_service_grants",
-        "google_oauth_attempts",
+        "calendar_attendance_reviews",
         "google_calendar_action_proposals",
-        "calendar_attendance_reviews"
+        "google_calendar_additional_accounts",
+        "google_oauth_attempts",
+        "google_provider_connections",
+        "google_service_grants"
       ],
       "primary_access_path": "Google OAuth connection service, owner/account-scoped additional Calendar credentials, confirmation-bound Calendar live-read/action service, and connected Schedule attendance review ledger",
       "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected. Attendance review rows contain only submission metadata and redacted outcomes, expire after ten minutes, and are purged on the next review.",
@@ -718,10 +718,9 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
+        "kai_location_referrals",
         "one_location_access_requests",
         "one_location_auto_approve_preferences",
-        "one_location_visibility_preferences",
-        "one_location_visibility_exclusions",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -730,18 +729,19 @@
         "one_location_nearby_check_in_preferences",
         "one_location_nearby_presences",
         "one_location_network_connections",
+        "one_location_onboarding_drafts",
+        "one_location_onboarding_interactions",
+        "one_location_onboarding_receipts",
+        "one_location_pkm_finalize_authorizations",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
-        "kai_location_referrals",
-        "one_location_onboarding_interactions",
-        "one_location_onboarding_receipts",
-        "one_location_onboarding_drafts",
-        "one_location_pkm_finalize_authorizations",
-        "one_location_sms_contacts",
         "one_location_share_grants",
-        "one_location_sos_voice_preferences"
+        "one_location_sms_contacts",
+        "one_location_sos_voice_preferences",
+        "one_location_visibility_exclusions",
+        "one_location_visibility_preferences"
       ],
       "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, the server-owned Location onboarding permission/GPS/place/Circle workflow, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction. Location onboarding leases, opaque receipts, pre-vault draft metadata, and PKM-finalize authorities expire with their task. Drafts and unused authorities are removed on sign-out, cancellation, finalization, or expiry; expired parent-run compaction cascades the remaining run-scoped workflow records, and none can authorize a later run.",
@@ -771,8 +771,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "one_location_place_ratings",
-        "one_location_place_rating_aggregates"
+        "one_location_place_rating_aggregates",
+        "one_location_place_ratings"
       ],
       "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets.",
       "retention_policy": "A rating is retained while the account exists and is updated in place on a revisit. The aggregate is derived state, recomputed from the surviving rows on every insert, update and delete.",
@@ -825,9 +825,9 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "one_location_circles",
         "one_location_circle_member_invites",
-        "one_location_circle_memberships"
+        "one_location_circle_memberships",
+        "one_location_circles"
       ],
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection.",
       "retention_policy": "Active memberships persist while the Circle exists. Pending targeted invitations are marked expired opportunistically after their bounded invitation window. Accepted, declined, cancelled, and expired targeted invitations are compacted by the scheduled One Location terminal-work retention endpoint after its bounded retention window, and are deleted immediately with the Circle or either account. Left, removed, and deleted membership state otherwise remains for bounded reconciliation before compaction.",
@@ -917,8 +917,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pkm_credit_subscriptions",
-        "pkm_credit_ledger"
+        "pkm_credit_ledger",
+        "pkm_credit_subscriptions"
       ],
       "primary_access_path": "hussh.ai credits plans: a buyer subscribes monthly through Stripe Checkout; the signed webhook grants the plan's credits once per paid invoice (pkm_grant_credits, expiring the unused balance) and records plan status; buying a packet with credits spends from the ledger (pkm_spend_credits under a per-user advisory lock); refunds of credit-paid orders return credits.",
       "retention_policy": "Subscription row retained while the plan exists; ledger rows are append-only and retained for the life of the account for balance and audit.",
@@ -964,8 +964,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "marketplace_recipient_keys",
-        "marketplace_delivery_envelopes"
+        "marketplace_delivery_envelopes",
+        "marketplace_recipient_keys"
       ],
       "primary_access_path": "One Information Marketplace end-to-end slice delivery: a buyer publishes an ECDH recipient public key (private half stays on the buyer device); on owner approval the seller device seals the requested safe-summary slice against that key and posts a ciphertext envelope, which the buyer fetches and decrypts locally from the Received-data surface.",
       "retention_policy": "Recipient public keys persist per buyer while active; delivery envelopes are retained for the scoped access duration and are best-effort deleted on revoke, with terminal rows retained only for bounded operational review before compaction.",
@@ -995,11 +995,11 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "connection_requests",
-        "connections",
         "connection_origins",
-        "contact_sync_lookup_budgets",
-        "connection_voice_preferences"
+        "connection_requests",
+        "connection_voice_preferences",
+        "connections",
+        "contact_sync_lookup_budgets"
       ],
       "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync uses the visible verified-phone Connect-directory default under contact_directory_auto_connect_v2, honors explicit contact opt-out and marketplace hide, revalidates each submitted digest against the current unique verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. Policy writers and graph activation share a per-user database lock. Viewer-relative provenance records the directory policy and actual preference state without fabricating historical consent evidence. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active.",
       "retention_policy": "Active origins keep their canonical connection active. Revoked canonical connection rows persist for the lifetime of either account because they are the durable disconnect-suppression tombstone that prevents contact sync from resurrecting a relationship; an explicit request/accept may reactivate them. Revoked origins and terminal requests may be compacted under their bounded operational policy without deleting that canonical tombstone. Lookup-budget buckets contain counts only and are pruned after two days on the next sync by that user.",
@@ -1108,8 +1108,9 @@
       "data_class": "workflow_state",
       "lifecycle_status": "legacy_migration",
       "exact_tables": [
-        "one_email_mailbox_state",
         "one_email_kyc_preferences",
+        "one_email_mailbox_state",
+        "one_kyc_client_connectors",
         "one_kyc_workflows"
       ],
       "primary_access_path": "Retired legacy one@hushh.ai mailbox KYC workflow tables retained solely for migration replay compatibility and AccountService erasure; runtime readers and writers were removed and legacy-write scanning blocks any new INSERT or UPDATE.",
@@ -1140,10 +1141,10 @@
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
       "exact_tables": [
+        "connected_system_intent_approval_challenges",
         "connected_system_intents",
         "connected_system_record_bindings",
-        "connected_system_zk_contexts",
-        "connected_system_intent_approval_challenges"
+        "connected_system_zk_contexts"
       ],
       "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including encrypted-fields request envelopes and local-owner approval",
       "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. CRM-ZK contexts and approval challenges expire or are consumed and are compacted promptly. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
@@ -1219,9 +1220,9 @@
       "data_class": "reference",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "enterprise_crm_registry",
+        "crm_encrypted_fields_recipient_keys",
         "crm_operation_endpoints",
-        "crm_encrypted_fields_recipient_keys"
+        "enterprise_crm_registry"
       ],
       "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and pinned CRM encrypted-fields recipient public-key registry for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
       "retention_policy": "Retain active enterprise CRM integration config, per-operation tool catalog, and recipient public-key records while the integration is provisioned; retire or revoke keys and deactivate the registry rather than delete active history.",
@@ -1236,8 +1237,8 @@
       "data_class": "provider_cache",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "crm_schema_mapping_cache",
-        "crm_schema_catalog_cache"
+        "crm_schema_catalog_cache",
+        "crm_schema_mapping_cache"
       ],
       "primary_access_path": "Connected Systems provider-schema catalogue and mapper caches for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
       "retention_policy": "Retain catalogue rows only through their bounded fresh/stale windows and ready mappings through their 24-hour TTL; invalidate immediately when the registry revision or CRM schema changes, or when schema validation fails. These caches rebuild from the active provider and are never durable user memory.",
@@ -1268,10 +1269,10 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "drive_share_requests",
-        "drive_share_reviews",
+        "drive_share_live_sources",
         "drive_share_permission_operations",
-        "drive_share_live_sources"
+        "drive_share_requests",
+        "drive_share_reviews"
       ],
       "primary_access_path": "Default-off owner-protected request/review/approval/delivery/removal routes and finite durable worker entrypoints. One OIDC-protected, default-off bounded UAT sweep sequences indexing, suggestions, permission delivery/reconciliation and notification work; it remains unverified until the scheduler and authenticated acceptance are configured.",
       "retention_policy": "Requests have a 30-day authority lifetime and reviews five minutes; those bounds do not themselves delete records. Encrypted management receipts survive ordinary disconnect/index removal. Hard scheduled retention remains a release prerequisite.",
@@ -1286,10 +1287,10 @@
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "drive_request_payment_orders",
         "drive_request_payment_obligations",
-        "drive_request_payment_webhook_events",
-        "drive_request_payment_refunds"
+        "drive_request_payment_orders",
+        "drive_request_payment_refunds",
+        "drive_request_payment_webhook_events"
       ],
       "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective quote from 50 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
       "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence, including an opaque existing_access_waived_at marker bound to a retired unpaid checkout, survive request erasure until payment and refund duties are settled under merchant retention policy. The marker permits full late-money reconciliation without treating free preexisting receipts as purchased delivery.",
@@ -1334,10 +1335,10 @@
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events",
         "stripe_connect_balance_snapshots",
         "stripe_connect_balance_transactions",
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_bank_payouts",
         "stripe_connect_payout_reconciliations"
       ],
       "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies current provider state and updates aggregate bank-deposit status. Bank creation, update and deletion events also refresh readiness. Authenticated owners read recent deposits through the current owner-plus-mode connected-account mapping.",
@@ -1413,12 +1414,12 @@
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "drive_share_file_claims",
-        "drive_share_events",
         "drive_query_events",
-        "drive_share_management_contexts",
+        "drive_rest_call_leases",
         "drive_rest_owner_admission",
-        "drive_rest_call_leases"
+        "drive_share_events",
+        "drive_share_file_claims",
+        "drive_share_management_contexts"
       ],
       "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs (drive_query_events carries the question-lane types for drive_live_query_requests); web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded. Owner/generation-bound REST admission shares an application budget across replicas: ten starts per second, eight concurrent calls, or lower configured bounds. File claims also serialize bulk grants and removals.",
       "retention_policy": "A file claim remains through uncertain outcomes until GET-only reconciliation; never expire a potentially dispatched mutation into an automatic retry. An erased-owner uncertain effect retains only an ownerless keyed-file fence without age-based release, requiring Google management. Stable file-lock HMAC keys/fences must survive rotation. Each notification event has at most three dispatch attempts with crash-safe lease recovery; a settled timestamp means dispatch work ended, never device/user receipt. The default-off OIDC scheduler route has a fixed small batch/deadline; configuring it, token registration and live acceptance remain release prerequisites. Call leases expire after 120 seconds and are purged in bounded batches; owner cooldown rows persist per connection generation until connector/account deletion. Quota recovery has six refusal attempts through an application-defined 24-hour boundary; ordinary failures retain five attempts.",
@@ -1599,8 +1600,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "feed_events",
-        "feed_event_counterparts"
+        "feed_event_counterparts",
+        "feed_events"
       ],
       "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269). Migration313 emits a committed owner-only feed_changed hint after every changed Feed row, including read state and deletion; the shared backend listener fans out to authenticated owner streams. Hints contain no row contents and have no replay authority: connect, listener recovery and overflow reset require a snapshot. A future broker may replace NOTIFY behind this same invalidation contract.",
       "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
@@ -1735,8 +1736,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "exact_tables": [
-        "personal_agent_registry",
-        "personal_agent_deletion_tombstones"
+        "personal_agent_deletion_tombstones",
+        "personal_agent_registry"
       ],
       "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain. Dev-only migration950 adds placement_epoch (0 for every existing row, bumped by one on every standby promotion); the hub verifier refuses a signed pod request whose X-Hushh-Pod-Epoch is missing or stale once the person has a standby or an epoch above 0",
       "retention_policy": "Retain exact provisioning, update, removal and erasure attempts until resource reconciliation settles. The existing executor consumes deletion intents; unresolved absence or provider retention remains explicit, never inferred from elapsed time.",
@@ -1889,11 +1890,11 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "drive_bulk_shares",
-        "drive_bulk_share_files",
-        "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
+        "drive_bulk_share_files",
         "drive_bulk_share_notifications",
+        "drive_bulk_share_recipients",
+        "drive_bulk_shares",
         "drive_request_bulk_removals"
       ],
       "primary_access_path": "Vault-owner preview and approval of a frozen Drive search; bounded workers create and reconcile Google permissions for exact files, then remove app-created direct permissions after the owner confirms Stop access. Recipients see only confirmed grants through their authenticated Shared with you collection.",
@@ -1910,8 +1911,8 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "circle_chat_messages",
-        "circle_chat_recipients",
-        "circle_chat_preferences"
+        "circle_chat_preferences",
+        "circle_chat_recipients"
       ],
       "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases. Sender-only encrypted edits and global tombstones retain original envelopes; bounded metadata reconciliation and independently authorized reply resolution repair loaded history.",
       "retention_policy": "Messages retained for the lifetime of the ordinary Circle; client images bounded to 5 MB, text to 4000 characters, pages to 50 and rendered windows to 300. No automatic expiry of conversation history. Pushes stop after five attempts.",
@@ -1941,8 +1942,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "circle_chat_reactions",
-        "circle_chat_membership_events"
+        "circle_chat_membership_events",
+        "circle_chat_reactions"
       ],
       "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members. A nullable event batch UUID groups only one reviewed multi-person add; it grants no access.",
       "retention_policy": "Reaction choices remain while their message and reacting member exist. Membership events remain while their Circle exists and are shown only from the viewer's current membership generation.",
@@ -1974,8 +1975,8 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "release_schema_qualification",
       "exact_tables": [
-        "finance_share_requests",
-        "finance_access_grants"
+        "finance_access_grants",
+        "finance_share_requests"
       ],
       "primary_access_path": "Owner-confirmed recipient-encrypted curated Finance objects, delivered by reference through transactional Messages. Snapshot is immutable; ongoing revisions use owner-unlocked saved information and compare-and-swap. History never grants read authority.",
       "retention_policy": "Expiry and stop deny reads immediately. Ciphertext is cleared on the participants' next access/history reconciliation. Dormant expired ciphertext and minimal idempotency/policy metadata remain until reconciliation or account erasure; no scheduled purge is claimed. Indefinite ongoing access is explicit and stops only on revocation, disconnection, key loss or account erasure.",
@@ -1990,12 +1991,12 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
+        "wallet_card_access_audit",
+        "wallet_card_access_grants",
         "wallet_card_registrations",
         "wallet_card_share_requests",
-        "wallet_card_access_grants",
-        "wallet_card_access_audit",
-        "wallet_profile_share_requests",
-        "wallet_profile_access_grants"
+        "wallet_profile_access_grants",
+        "wallet_profile_share_requests"
       ],
       "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility.",
       "retention_policy": "Reservations have a 24-hour original Add window; a later confirmed owner Wallet write can register them as saved cards. Removed registrations remain terminal. Grants authorize reads for exactly 5, 10 or 15 minutes. Expiry ends access, not storage. Registration, idempotency and audit history remain until account erasure; no scheduled history purge is claimed.",
@@ -2010,8 +2011,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "pkm_answer_requests",
-        "pkm_answer_request_scopes"
+        "pkm_answer_request_scopes",
+        "pkm_answer_requests"
       ],
       "primary_access_path": "Paid answers on a connected person's profile: any active connection submits a question through Request scope; the required semantic resolver stage proposes scopes, deterministic fail-closed validation drops anything the owner does not hold or that another person may never request, and the owner approves the exact question, the exact scopes and a whole-dollar price. The approved terms are fixed by a terms_digest covering question, scopes, both participants and the quote.",
       "retention_policy": "Retained while the request is open and for bounded consent-audit review after it is answered, declined, cancelled or expired; default expiry 30 days from creation.",
@@ -2026,8 +2027,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "pkm_answer_payment_orders",
         "pkm_answer_payment_obligations",
+        "pkm_answer_payment_orders",
         "pkm_answer_payment_webhook_events"
       ],
       "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after a completed nonempty staged envelope and owner approval of a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer.",
@@ -2058,8 +2059,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "pkm_answer_payment_refunds",
-        "pkm_answer_owner_payouts"
+        "pkm_answer_owner_payouts",
+        "pkm_answer_payment_refunds"
       ],
       "primary_access_path": "Durable settlement for the paid-answer lane, on its separately authenticated answer work drain, using each obligation's stored Stripe mode. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded.",
       "retention_policy": "Retained while a refund or transfer is unsettled and for bounded financial review afterwards; terminal rows stay as settlement evidence.",
@@ -2074,9 +2075,9 @@
       "data_class": "audit_regulated",
       "lifecycle_status": "current",
       "exact_tables": [
-        "hashcoin_wallets",
         "hashcoin_ledger_entries",
-        "hashcoin_redemptions"
+        "hashcoin_redemptions",
+        "hashcoin_wallets"
       ],
       "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending.",
       "retention_policy": "Financial entries and redemption obligations retained for reconciliation and audit. One wallet per owner and Stripe mode; append-only entries keyed uniquely to source obligations. Live redemption is unavailable until separately enabled by a reviewed production release.",
@@ -2093,14 +2094,14 @@
       "exact_tables": [
         "drive_collection_sync",
         "drive_document_extractions",
-        "drive_document_pages",
-        "drive_document_facts",
         "drive_document_fact_pages",
+        "drive_document_facts",
+        "drive_document_pages",
         "drive_packet_heads",
+        "drive_packet_listings",
         "drive_packet_members",
-        "drive_packet_versions",
         "drive_packet_version_sources",
-        "drive_packet_listings"
+        "drive_packet_versions"
       ],
       "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only scalar financial summaries allowed by the default-ON owner visibility preference; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing. Migration 429 adds only the head sale_finalization_revision scalar: the existing owner/generation-fenced packet worker may attempt an empty-sale finalization once per saved discovery revision, preserving prior immutable versions and request pins.",
       "retention_policy": "Current collection cursors and workflow state are replaced as progress commits. Versioned extraction, facts and packet evidence are retained while their parent records exist; background pause stops processing without deleting evidence. Historical packet manifests preserve exact approval and purchase evidence. A time-based purge of superseded evidence is not implemented.",
@@ -2130,8 +2131,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "live_memory_connector_streams",
-        "live_memory_connector_events"
+        "live_memory_connector_events",
+        "live_memory_connector_streams"
       ],
       "primary_access_path": "Transactional trigger on operator-owned OAuth connection row changes and owner-token GET /api/one/source-journal/connectors. Events are change hints; the owner client rereads the curated connector overview before encrypted projection.",
       "retention_policy": "At most 2048 committed events per owner, pruned in the append transaction. The retained floor and head survive pruning so older cursors receive resetRequired and require an authoritative snapshot. There is no time-based purge while the owner remains active.",
@@ -2146,8 +2147,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "live_memory_source_streams",
-        "live_memory_source_events"
+        "live_memory_source_events",
+        "live_memory_source_streams"
       ],
       "primary_access_path": "Transactional triggers on selected profile, consent, connection, document-payment and owner-earning source tables; owner-token GET /api/one/source-journal/events returns metadata hints and requires verified authoritative snapshots.",
       "retention_policy": "At most 2048 committed events per owner. The retained floor and head remain after pruning to signal resetRequired. No time-based purge while the owner remains active.",
@@ -2207,8 +2208,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pwm_research_preferences",
-        "pwm_completion_events"
+        "pwm_completion_events",
+        "pwm_research_preferences"
       ],
       "primary_access_path": "Owner consent and generation fences; checkpoint CAS creates metadata outbox and transactional Feed projection. Dedicated notification worker claims email leases.",
       "retention_policy": "One preference per owner and completion metadata per draft, retained until reset/deletion. Research content stays in separately encrypted checkpoints with 24-hour expiry.",
@@ -2238,11 +2239,11 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "email_auth_policy_state",
-        "email_auth_domain_decisions",
         "email_auth_budgets",
+        "email_auth_challenges",
+        "email_auth_domain_decisions",
         "email_auth_enrollments",
-        "email_auth_challenges"
+        "email_auth_policy_state"
       ],
       "primary_access_path": "Public browser-bound OTP request/verify and authenticated hushh-mail-api delivery worker. Firebase remains identity authority.",
       "retention_policy": "Encrypted outbox payload removed on API acceptance or expiry; destination ciphertext and enrollment tickets removed after five-minute expiry; challenge metadata removed after one day. Expired budgets removed on worker cleanup. Enrollments retained until account deletion; domain policy is public technical metadata.",
@@ -2257,8 +2258,8 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "system_push_outbox",
-        "system_push_device_deliveries"
+        "system_push_device_deliveries",
+        "system_push_outbox"
       ],
       "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts.",
       "retention_policy": "Intent expires within one day or the earlier share deadline, with at most twelve attempts. Expired intents and cascading device receipts are pruned after three days. No historical backfill.",
@@ -2306,8 +2307,8 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "one_marketing_preferences",
-        "one_marketing_changes"
+        "one_marketing_changes",
+        "one_marketing_preferences"
       ],
       "primary_access_path": "Firebase-owner-bound optional setup/account email preference. A separately signed production-only integration reads at most 25 coalesced pending revisions and acknowledges exact revisions. Generation-fenced revocation cannot subscribe; fresh permission/address checks precede sending. One settings write and its pending projection commit atomically.",
       "retention_policy": "One current preference and one coalesced change row per account. Preferences persist until full account deletion, independently of product reset. Acknowledged active rows may be reconciled hourly; hash-only erasure rows retain suppression without raw identity. No append-only recipient or content history is introduced.",
@@ -2322,8 +2323,8 @@
       "data_class": "provider_cache",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "drive_group_index_state",
-        "drive_group_index"
+        "drive_group_index",
+        "drive_group_index_state"
       ],
       "primary_access_path": "Default-off, cohort-admitted Vault Owner routes expose state, fiscal folders and bounded category file pages, accept explicit preparation opt-in, and erase entries. The retained Google Drive connector presents Data packets below Trusted documents. The independent groups DriveWorkDrain stage uses current live grants, owner placement and generation/revision-fenced renewable leases; a run is bounded to 180 seconds, one owner by default, at most 200 entries and 20 uploaded-content reads. Its fixed UAT scheduler requires explicit feature activation. No direct client database access.",
       "retention_policy": "Retain the derived sealed index while the connection generation exists, until owner erase or connection revocation/change. Pausing retains entries. No age-based TTL or scheduled retention is implemented. A complete uncapped inventory prunes absent files; partial or capped inventories never prune. Organizer placements are refreshable from Drive, but owner overrides are not reconstructible from the provider and are preserved by behavioral rollback. This server projection is not canonical PKM memory.",
@@ -2413,9 +2414,9 @@
       "data_class": "workflow_state",
       "lifecycle_status": "release_schema_qualification",
       "exact_tables": [
-        "account_phone_transfers",
+        "account_device_actions",
         "account_phone_recovery_continuations",
-        "account_device_actions"
+        "account_phone_transfers"
       ],
       "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer; opaque recovery continuations and single-use own-device action admission with independent owner authentication.",
       "retention_policy": "Transfer prepared intents expire after five minutes and settled receipts prune after seven days. Recovery navigation expires after fifteen minutes. Device drafts expire after five minutes; completed hub receipts prune after seven days. Unknown dispatches retain consumed proof digests for reconciliation and never replay primary effects.",
@@ -2537,6 +2538,23 @@
       "trust_boundary": "Media and plaintext SDP never enter these tables. HPKE ciphertext is bound to purpose, conversation, call, exact device keys and sequence; commands use canonical registered-device ECDSA proof with expiry and replay fencing. Peer identity comparison precedes accepting remote SDP. Keys here are public encryption/signing bindings, never private device keys, TURN shared secrets or vault keys. Server-readable PushKit tokens are delivery credentials, distinct from message/call contents; access is service-only. APNs delivery rechecks exact target-device status, relationship/block authority and token generation; HTTP telemetry is suppressed and token paths redacted.",
       "plaintext_posture": "ciphertext_and_bounded_call_metadata",
       "expected_row_growth": "bounded_per_call_and_device; terminal metadata requires governed compaction"
+    },
+    {
+      "id": "finance_advisor_handshake",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "advisor_review_requests",
+        "advisor_review_subscriptions",
+        "advisor_billing_cleanup"
+      ],
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans.",
+      "retention_policy": "Pending request and snapshot access expire after seven days. Expired ciphertext is cleared on participant reconciliation; terminal requests retain minimal consent metadata until account reset or erasure. Billing cleanup retains provider references without owner identity until confirmed cancellation.",
+      "deletion_behavior": "Ordered account cleanup removes either participant request; actor-profile foreign keys cascade. Subscription deletion queues checkout expiry and subscription cancellation in a provider-only cleanup outbox, drained by the existing packet-order worker. Signed late payment events for erased requests also queue cancellation.",
+      "trust_boundary": "Recipient Finance ciphertext is withheld until verified RIA acceptance atomically activates the canonical connection. Every read rechecks participant, status, expiry, advisor role, current key and connection. Blocking/disconnection is terminal. Explicit two-party time agreement precedes the existing Calendar review/execute boundary. Test-mode Stripe price, plan revision, destination and provider payment state are authoritative; payment never broadens consent or permits trading.",
+      "plaintext_posture": "introduction_relationship_meeting_and_billing_metadata_only_finance_contents_recipient_encrypted",
+      "expected_row_growth": "one_open_review_per_owner_advisor_pair_one_subscription_per_review_and_bounded_provider_cleanup_refs"
     }
   ]
 }

@@ -363,7 +363,7 @@ def test_activity_enrollment_rejects_missing_or_different_processor_but_preserve
 
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
     monkeypatch.setenv("DRIVE_REQUEST_ACTIVITY_UNION_ENABLED", "true")
-    monkeypatch.setattr(managed_text, "managed_text_policy", lambda: {} if binding else None)
+    monkeypatch.setattr(managed_text, "managed_text_policy", lambda **_: {} if binding else None)
     monkeypatch.setattr(managed_text, "managed_text_binding", lambda: binding)
     connection = Mock()
     with pytest.raises(DriveSharingError, match="provider_unavailable"):

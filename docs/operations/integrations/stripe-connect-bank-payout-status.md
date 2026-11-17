@@ -1,6 +1,6 @@
 # Connected-account bank payout status
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 This surface is for the **owner's aggregate bank deposits**, not for one
 document request. A confirmed document delivery may produce one Stripe

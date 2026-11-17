@@ -381,6 +381,8 @@
     "443_calendar_email_followups.sql",
     "444_calendar_email_followup_delivery.sql",
     "445_calendar_email_followup_relevance.sql",
+    "446_finance_advisor_share_options.sql",
+    "447_finance_advisor_handshake.sql",
     "448_connection_network_visibility.sql",
     "449_gcp_notification_account_id_limit.sql",
     "450_one_attempt_email_outbox.sql",
@@ -826,5 +828,6 @@
     "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql",
     "459_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/459_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
     "460_information_request_upfront_reservation.sql": "rollback/460_information_request_upfront_reservation.rollback.sql"
-  }
+  },
+  "rollback_map": {}
 }

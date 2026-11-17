@@ -1,6 +1,6 @@
 # Dev BYOC pod updates and controlled direct access
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Map
 
@@ -803,10 +803,12 @@ hosting, then invokes the existing owner-authorized provision route. Keep the
 existing automation flag; do not use it to bypass fixed-cohort admission.
 
 The October 26 pilot keeps two synthetic hosted owners in separate Hussh-funded
-projects. Shared and BYOC remain separate choices. Use the existing image build,
+projects (`Cohort-1`, preserved untouched). On 16 November, the governed Dev-only extension (`consent-protocol/config/dev-hosted-pilot-extension.json`, [#9609](https://github.com/hushh-labs/hushh-research/pull/9609), [#9627](https://github.com/hushh-labs/hushh-research/pull/9627)) admitted **Slot #3** under explicit owner-hash binding, the same US$200 work / US$50 cleanup ceiling, and monotonic checkpoint serialization, proving isolated GCP project bootstrap and `Dev 39` direct-ingress streaming chat while keeping general hosted provisioning closed outside `Dev`. Shared and BYOC remain separate choices. Use the existing image build,
 release catalog and upgrade approval contracts. Copy the same immutable digest
 into each project; do not rebuild per owner or claim an older digest contains new
 runtime changes.
+
+Post-`execve` worker non-dumpability (`PR_SET_DUMPABLE=0`) across Cloud Run Gen1 (gVisor) and Linux microVM/VM hosts must be verified via `prctl(PR_GET_DUMPABLE) == 0` (`browser_runtime/gunicorn_lifecycle.py`, [#9618](https://github.com/hushh-labs/hushh-research/pull/9618)), never by parsing `Dumpable:` from `/proc/self/status` (which gVisor omits). Local storage, KMS AAD, and capability-prefix changes should run Tier-1.5 [Floci multi-cloud wire verification](../../development/quality/floci-multicloud-wire-verification.md) before preparing a new pod digest.
 
 `PrivateGcpDeployment` is the common rendering/readback contract. The hosted
 adapter preserves pure planning for unbound specifications. An internal spec with

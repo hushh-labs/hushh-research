@@ -410,6 +410,7 @@ def test_recovery_reserves_only_its_real_candidate(
         env={
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "AUTH_DOMAIN_REPAIR": "false",
             "RESTORATION_RUN": restoration,
             "REQUESTED_SCOPE": scope,
             "PHONE_DEPLOY_PHASE": phase,

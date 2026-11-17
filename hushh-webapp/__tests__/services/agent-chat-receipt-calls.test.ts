@@ -137,4 +137,39 @@ describe("receipt calls on a device with no saved receipts", () => {
     expect(receiptCallRequest("list_recent_receipts", "!", list, "UTC", true)).toEqual({ kind: "invalid" });
     expect(receiptCallRequest("receipt_spending", undefined, {}, "UTC", false)).toEqual({ kind: "refused" });
   });
+
+  it("filters newer frontend gateway action tools not yet present on an older owner pod", async () => {
+    const encode = (id: string) =>
+      `hussh_action_${btoa(id).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "")}`;
+    const posts: string[] = [];
+    const fetch = vi.fn(async (url: string, init: RequestInit) =>
+      url.endsWith("/capabilities")
+        ? Response.json({
+            identity: { type: "google-adk" },
+            transport: { streaming: true },
+            tools: { clientProvided: true },
+            receiptToolVersion: 1,
+            admittedActionIds: ["route.profile"],
+          })
+        : (posts.push(String(init.body)), Response.json({})),
+    );
+    const receiptDeclarations = (await import("@/lib/mail/receipt-analysis")).RECEIPT_TOOL_DECLARATIONS;
+    await sendChatTurn(
+      "https://pod-skew.example",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          tools: [
+            ...receiptDeclarations,
+            { name: encode("route.profile"), description: "Profile", parameters: {} },
+            { name: encode("phone_mandate.review_previous_deletion"), description: "Newer action", parameters: {} },
+          ],
+        }),
+      },
+      fetch,
+    );
+    const sentNames = JSON.parse(posts[0]!).tools.map((t: { name: string }) => t.name);
+    expect(sentNames).toContain(encode("route.profile"));
+    expect(sentNames).not.toContain(encode("phone_mandate.review_previous_deletion"));
+  });
 });

@@ -4,7 +4,7 @@
 
 [Operations](../README.md) · [Capabilities](../../product/capabilities.md)
 
-**Evidence review: 12 November 2026.** This page separates source functionality,
+**Evidence review: 16 November 2026.** This page separates source functionality,
 application release acceptance and installed-owner verification. It does not
 certify the currently serving image or replace the original operation receipts.
 
@@ -25,12 +25,10 @@ merged but not yet deployed. The Memory sharing-impact correction
 [#9634](https://github.com/hushh-labs/hushh-research/pull/9634) has exact-source CI
 and awaits Dev queue acceptance and deployment.
 
-Normal signed-in Chrome identified two Chat blockers: Azure's installed predecessor
-still requires the old discovery confirmation, while GCP wake incorrectly marked
+Normal signed-in Chrome earlier identified two Chat blockers: Azure's installed predecessor
+required the old discovery confirmation, while GCP wake marked
 a still-present managed host for reinitialization after reading the fleet project.
-Same-host recovery and prevention are under verification. Preserve the original
-placement and keys; a replacement pod is not recovery. The synthetic two-owner
-managed cohort remains **0/2 and paused**.
+Same-host recovery and guarded UI controls landed on `dev` ([#9638](https://github.com/hushh-labs/hushh-research/pull/9638), [#9641](https://github.com/hushh-labs/hushh-research/pull/9641)), preserving the original placement and keys (a replacement pod is not recovery). On 16 November in silent background Chrome on `dev`: (1) **Sovereign Azure BYOC (`user_azure`, `Dev 38`)** confirmed `installedVerified: true` and completed live streaming chat against configured Azure OpenAI; and (2) **Hussh-Hosted GCP Slot #3 (`hussh_pods` / `gcp`, `Dev 39`)** — admitted under the governed Dev-only extension (`consent-protocol/config/dev-hosted-pilot-extension.json`, US$200 work / US$50 cleanup ceiling via [#9609](https://github.com/hushh-labs/hushh-research/pull/9609), [#9611](https://github.com/hushh-labs/hushh-research/pull/9611), [#9627](https://github.com/hushh-labs/hushh-research/pull/9627)) with Cloud Run gVisor `prctl(PR_GET_DUMPABLE) == 0` hardening ([#9618](https://github.com/hushh-labs/hushh-research/pull/9618)) — completed isolated GCP project bootstrap (`18/18` steps + `5/5` hosted model preparation), direct-ingress readiness (`has_direct_readiness: true`), live browser-to-pod streaming chat, and compounding memory rewrite (`HTTP 200`). The original synthetic two-owner managed Cohort-1 remains **0/2 and paused**, and Tier-1.5 [Floci multi-cloud wire verification](../../development/quality/floci-multicloud-wire-verification.md) ([#9629](https://github.com/hushh-labs/hushh-research/pull/9629)) stays strictly separated from live cloud qualification.
 
 Current acceptance and next actions stay in the existing tasks:
 [#7587 Consumer-controlled paid scope access and Stripe sandbox acceptance](https://github.com/hushh-labs/hushh-research/issues/7587)

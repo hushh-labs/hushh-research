@@ -48,7 +48,7 @@ class IsolatedDevCapacityCollectionTest(unittest.TestCase):
             candidate_services=frozenset({"consent-protocol-plg-qual"}),
         )
         self.assertEqual(report["projected_connections"], 15)
-        self.assertEqual(len(report["services"]), 8)
+        self.assertEqual(len(report["services"]), 9)
         self.assertEqual(len(report["jobs"]), 5)
         for row in report["services"] + report["jobs"]:
             if row["name"].endswith(":new-candidate"):
@@ -68,13 +68,23 @@ class IsolatedDevCapacityCollectionTest(unittest.TestCase):
                 inventory.isolated_dev_scope(config, "us-central1", environment)
 
     def test_fixed_dev_refuses_retained_active_unknown_and_opaque_routes(self):
-        for defect in ("retained", "active", "unknown-job", "secret", "volume"):
+        for defect in (
+            "retained",
+            "dashboard-retained",
+            "active",
+            "unknown-job",
+            "secret",
+            "volume",
+        ):
             with self.subTest(defect=defect):
                 profile, _config, rows, read = self.isolated_fixture()
-                if defect == "retained":
-                    row = rows[("run", "revisions", "list", "--service=guard-writer")][
-                        1
-                    ]
+                if defect in {"retained", "dashboard-retained"}:
+                    name = (
+                        "hushh-matrix-dashboard"
+                        if defect == "dashboard-retained"
+                        else "guard-writer"
+                    )
+                    row = rows[("run", "revisions", "list", f"--service={name}")][1]
                     row["metadata"]["annotations"][
                         "run.googleapis.com/cloudsql-instances"
                     ] = inventory.ISOLATED_DEV_CONNECTION

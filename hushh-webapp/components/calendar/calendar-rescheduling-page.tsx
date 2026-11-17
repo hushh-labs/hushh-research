@@ -40,7 +40,7 @@ export function CalendarReschedulingPage() {
   useEffect(() => { if (ready) void load(); }, [ready]);
   const label = (slot: CalendarOpening) => new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short", timeZone: options?.time_zone }).format(new Date(slot.start_at));
   const replyBody = (slot: CalendarOpening) => `I suggest ${label(slot)} (${calendarTimeZoneOffset(options?.time_zone, slot.start_at)}), for ${Math.round((Date.parse(slot.end_at) - Date.parse(slot.start_at)) / 60000)} minutes. Please confirm whether this works; I can then update the invitation.${safeMeetingUrl(options?.event_link) ? `\n\nMeeting: ${safeMeetingUrl(options?.event_link)}` : ""}`;
-  return <AppPageShell width="reading" fitContent className="py-8">
+  return <AppPageShell width="reading" fitContent className="py-8" data-profile-type-scale="page">
     <div className="space-y-[var(--page-header-section-gap)]" data-calendar-presentation>
       <PageHeader title="Find another time" description="Choose an offered time and reply to the sender. The organizer updates the invitation." />
       <SurfaceCard className="space-y-4 p-5 shadow-none">

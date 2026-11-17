@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: vi.fn(), review: vi.fn(), approve: vi.fn(), decide: vi.fn(),
   preview: vi.fn(), search: vi.fn(), linkedFiles: vi.fn(), prepare: vi.fn(), onChanged: vi.fn(),
+  markUnavailable: vi.fn(),
   getVaultOwnerToken: vi.fn(() => "vault-owner-token"),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "organizer" }) }));
@@ -20,7 +21,7 @@ vi.mock("@/lib/services/drive-sharing-service", () => ({
 vi.mock("@/lib/services/calendar-meeting-review-service", () => ({
   CalendarMeetingReviewService: { preview: mocks.preview, search: mocks.search,
     linkedFiles: mocks.linkedFiles,
-    prepare: mocks.prepare },
+    prepare: mocks.prepare, markUnavailable: mocks.markUnavailable },
 }));
 vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: () => <div data-testid="ordinary-drive-review" />,
@@ -67,6 +68,10 @@ describe("Calendar organizer exact-file review", () => {
     expect(screen.queryByTestId("ordinary-drive-review")).toBeNull();
     expect(mocks.search).not.toHaveBeenCalled();
     expect(mocks.approve).not.toHaveBeenCalled();
+    // Two answers are offered; nothing is searched or shared until the organizer chooses.
+    expect(screen.getByRole("button", { name: "Don't have" })).toBeEnabled();
+    expect(screen.queryByPlaceholderText("Enter a file name")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Give access" }));
 
     fireEvent.change(screen.getByPlaceholderText("Enter a file name"), { target: { value: "Approved note" } });
     fireEvent.click(screen.getByRole("button", { name: "Search files" }));
@@ -93,10 +98,71 @@ describe("Calendar organizer exact-file review", () => {
     mocks.preview.mockResolvedValue({ ...preview, meeting: { ...preview.meeting,
       exact_refs: [{ file_id: "approvednote123", kind: "notes" }] } });
     render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Check files linked to this meeting" }));
+    expect(mocks.linkedFiles).not.toHaveBeenCalled();
+    // Choosing Give access checks the files Google links to this exact meeting; the organizer still selects and confirms.
+    fireEvent.click(await screen.findByRole("button", { name: "Give access" }));
     expect(await screen.findByRole("checkbox", { name: /Approved note/ })).toBeInTheDocument();
     expect(mocks.linkedFiles).toHaveBeenCalledWith(requestId, "vault-owner-token");
+    expect(screen.getByRole("checkbox", { name: /Approved note/ })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Check files linked to this meeting" })).toBeEnabled();
     expect(mocks.search).not.toHaveBeenCalled();
     expect(mocks.approve).not.toHaveBeenCalled();
+  });
+
+  describe("Don't have", () => {
+    const both = { ...preview, meeting: { ...preview.meeting, requested_types: ["recording", "notes"] } };
+    const open = async () => {
+      render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Don't have" }));
+    };
+    const neverOpensDrive = () => {
+      for (const call of [mocks.search, mocks.linkedFiles, mocks.prepare, mocks.review, mocks.approve])
+        expect(call).not.toHaveBeenCalled();
+    };
+
+    it("saves the one requested type after a confirm, without opening Drive, and says what the requester will see", async () => {
+      mocks.markUnavailable.mockResolvedValue({ status: "declined", revision: 1, notAvailableTypes: ["notes"] });
+      await open();
+      expect(screen.getByRole("checkbox", { name: "The notes" })).toBeChecked();
+      expect(mocks.markUnavailable).not.toHaveBeenCalled(); // choosing is not saving
+      fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(mocks.markUnavailable).toHaveBeenCalledWith(requestId, "vault-owner-token", 0, ["notes"]));
+      expect(await screen.findByTestId("calendar-review-outcome")).toHaveTextContent("Saved");
+      expect(screen.getByTestId("calendar-review-outcome")).toHaveTextContent("Nothing was shared");
+      expect(screen.getByRole("link", { name: "Back to Feed" })).toHaveAttribute("href", "/one/feed");
+      expect(mocks.onChanged).toHaveBeenCalledOnce();
+      neverOpensDrive();
+    });
+
+    it("needs the organizer to say which of two types, and keeps the other open", async () => {
+      mocks.preview.mockResolvedValue(both);
+      mocks.markUnavailable.mockResolvedValue({ status: "pending", revision: 1, notAvailableTypes: ["recording"] });
+      await open();
+      expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
+      expect(screen.getByRole("checkbox", { name: "The recording" })).not.toBeChecked();
+      fireEvent.click(screen.getByRole("checkbox", { name: "The recording" }));
+      expect(screen.getByText(/They'll see: "The organizer says they don't have the recording\."/)).toBeInTheDocument();
+      mocks.preview.mockResolvedValue({ ...both, revision: 1, notAvailableTypes: ["recording"] });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(mocks.markUnavailable).toHaveBeenCalledWith(requestId, "vault-owner-token", 0, ["recording"]));
+      expect(await screen.findByText("You said you don't have the recording.")).toBeInTheDocument();
+      // Still pending for the notes: both answers stay available, and the recording is no longer offered.
+      expect(screen.getByRole("button", { name: "Give access" })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Don't have" }));
+      expect(screen.queryByRole("checkbox", { name: "The recording" })).toBeNull();
+      expect(screen.getByRole("checkbox", { name: "The notes" })).toBeChecked();
+      expect(screen.getByRole("link", { name: "Back to Feed" })).toBeInTheDocument();
+      neverOpensDrive();
+    });
+
+    it("saves nothing when the answer is refused, and says so", async () => {
+      const { DriveSharingError } = await import("@/lib/services/drive-sharing-wire");
+      mocks.markUnavailable.mockRejectedValue(new DriveSharingError("request_unavailable", 404));
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("This meeting request is no longer available.");
+      expect(screen.queryByTestId("calendar-review-outcome")).toBeNull();
+      expect(mocks.onChanged).not.toHaveBeenCalled();
+    });
   });
 });

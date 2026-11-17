@@ -92,8 +92,11 @@ Before a cloud is offered Browser:
    approval. Verify active-work drain, restored state and the installed digest.
 
 [Independent Dev publication](../../operations/hosting/dev-pod-first-light-runbook.md#independent-dev-pod-publication)
-owns image preparation and coordinated catalog activation. A source patch or
-synthetic component test does not establish an installed owner journey.
+owns image preparation and coordinated catalog activation across the declarative
+5-target capability registry (`PROVIDER_CAPABILITY_REGISTRY`, [#9582](https://github.com/hushh-labs/hushh-research/pull/9582)),
+while local SDK/CAS/KMS AAD wire behavior is verified via
+[Floci multi-cloud wire verification](../../development/quality/floci-multicloud-wire-verification.md) ([#9629](https://github.com/hushh-labs/hushh-research/pull/9629)).
+Neither a source patch, a Floci wire check, nor a synthetic component test establishes an installed owner journey.
 
 Selected PKM disclosure, Browser-to-Files downloads, broader website acceptance
 and new capacity studies retain separate gates. Existing owners keep capacity

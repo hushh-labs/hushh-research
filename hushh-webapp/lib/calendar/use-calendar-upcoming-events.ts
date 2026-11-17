@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CacheService } from "@/lib/services/cache-service";
+import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 
 import {
   GoogleCalendarService,
@@ -38,6 +40,7 @@ export type UseCalendarUpcomingEventsResult = {
   error: string | null;
   recovery: CalendarReadRecovery | null;
   loaded: boolean;
+  incomplete?: boolean;
   refresh: () => void;
 };
 
@@ -98,6 +101,7 @@ export function useCalendarUpcomingEvents({
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const requestRef = useRef(0);
+  const abort = useRef<AbortController | null>(null);
   const [snapshot, setSnapshot] = useState<{
     identity: symbol;
     events: RedactedCalendarEvent[];
@@ -105,14 +109,15 @@ export function useCalendarUpcomingEvents({
     error: string | null;
     recovery: CalendarReadRecovery | null;
     loaded: boolean;
-  }>({ identity, events: [], loading: false, error: null, recovery: null, loaded: false });
+    incomplete: boolean;
+  }>({ identity, events: [], loading: false, error: null, recovery: null, loaded: false, incomplete: false });
   const canLoad = Boolean(isConnected && userId && vaultOwnerToken);
   const current = canLoad && snapshot.identity === identity;
 
   useEffect(() => {
     identityRef.current = identity;
     requestRef.current += 1;
-    return () => { requestRef.current += 1; };
+    return () => { requestRef.current += 1; abort.current?.abort(); };
   }, [identity]);
 
   const load = useCallback(async () => {
@@ -122,9 +127,12 @@ export function useCalendarUpcomingEvents({
       !vaultOwnerToken ||
       identityRef.current !== identity
     ) return;
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
     const request = ++requestRef.current;
     setSnapshot({
-      identity, events: [], loading: true, error: null, recovery: null, loaded: false,
+      identity, events: [], loading: true, error: null, recovery: null, loaded: false, incomplete: false,
     });
     try {
       const now = new Date();
@@ -133,6 +141,7 @@ export function useCalendarUpcomingEvents({
         vaultOwnerToken,
         startAt: now.toISOString(),
         endAt: rangeEnd.toISOString(),
+        signal: controller.signal,
       });
       if (request !== requestRef.current || identityRef.current !== identity) {
         return;
@@ -144,6 +153,7 @@ export function useCalendarUpcomingEvents({
         error: null,
         recovery: null,
         loaded: true,
+        incomplete: response.truncated === true,
       });
     } catch (error) {
       if (request !== requestRef.current || identityRef.current !== identity) {
@@ -157,6 +167,7 @@ export function useCalendarUpcomingEvents({
           ? error.message : "Calendar details couldn’t load. Refresh to try again.",
         recovery: error instanceof GoogleCalendarError ? error.recovery : "retry",
         loaded: true,
+        incomplete: false,
       });
     }
   }, [identity, isConnected, userId, vaultOwnerToken, windowHours]);
@@ -165,12 +176,28 @@ export function useCalendarUpcomingEvents({
     if (canLoad && (!current || (!snapshot.loaded && !snapshot.loading))) void load();
   }, [canLoad, current, snapshot.loaded, snapshot.loading, load]);
 
+  useEffect(() => {
+    if (!canLoad || !userId) return;
+    const refresh = () => { if (document.visibilityState === "visible") void load(); };
+    const unsubscribe = CacheService.getInstance().subscribe(event => {
+      if (event.type === "set" && event.key === calendarRefreshKey(userId)) refresh();
+    });
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [canLoad, userId, load]);
+
   return {
     events: current ? snapshot.events : [],
     loading: current && snapshot.loading,
     error: current ? snapshot.error : null,
     recovery: current ? snapshot.recovery : null,
     loaded: current && snapshot.loaded,
+    incomplete: current && snapshot.incomplete,
     refresh: () => void load(),
   };
 }

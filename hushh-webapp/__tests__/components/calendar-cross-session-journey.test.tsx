@@ -37,10 +37,13 @@ import { DocumentRequestReviewRouter } from "@/components/consent/calendar-meeti
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService } from "@/lib/services/cache-service";
 import { CalendarInsightsRequestError, CalendarInsightsService } from "@/lib/services/calendar-insights-service";
+import { CalendarMeetingReviewService } from "@/lib/services/calendar-meeting-review-service";
 
-const SHARING = "Sharing · checking access with your selected Google account.";
-const SENT = "Request sent · waiting for organizer review.";
-const UNVERIFIED = "Drive finished sharing, but file access is not currently verified for this account.";
+const SHARING = "Checking access…";
+const SENT = "Request sent · Waiting for organizer";
+const UNVERIFIED = "Sharing finished, but this account's access isn't verified yet.";
+const HINT = "Requests work once you're connected on One.";
+const NO_RECORDING = "The organizer says they don't have the recording.";
 let world: CalendarMeetingWorld;
 
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
@@ -63,10 +66,13 @@ async function requesterSends(ui: ReturnType<typeof within>, kinds: ("Recording"
   if (!ui.queryByRole("button", { name: /Hussh Growth Sync/ })) await openLibrary(ui);
   fireEvent.click(ui.getByRole("button", { name: /Hussh Growth Sync/ }));
   await advance(50);
-  fireEvent.click(ui.getByRole("button", { name: "Request recording or notes" }));
-  for (const kind of kinds) fireEvent.click(ui.getByRole("checkbox", { name: kind }));
-  fireEvent.click(ui.getByRole("button", { name: "Review request" }));
-  fireEvent.click(ui.getByRole("button", { name: "Send request" }));
+  await chooseAndAsk(ui, kinds);
+}
+/** What would you like to request? Recording, Notes or Both, then the one action: Ask organizer. */
+async function chooseAndAsk(ui: ReturnType<typeof within>, kinds: ("Recording" | "Notes")[]) {
+  const only = ui.queryByRole("tab", { name: "Both" }) === null;
+  if (!only) fireEvent.click(ui.getByRole("tab", { name: kinds.length === 2 ? "Both" : kinds[0] }));
+  fireEvent.click(ui.getByRole("button", { name: "Ask organizer" }));
   await advance(50);
 }
 
@@ -79,7 +85,8 @@ function mountOrganizer(person: { userId: string; vaultToken: string } = world.o
 }
 async function organizerPrepares(ui: ReturnType<typeof within>) {
   await advance(50);
-  fireEvent.click(ui.getByRole("button", { name: "Check files linked to this meeting" }));
+  // Give access starts the exact-file step; the files Google links to this meeting are checked for them.
+  fireEvent.click(ui.getByRole("button", { name: "Give access" }));
   await advance(50);
   for (const checkbox of ui.getAllByRole("checkbox", { name: /Hussh Growth Sync (recording|notes)/ })) fireEvent.click(checkbox);
   fireEvent.click(ui.getByRole("checkbox", { name: /I confirm these exact files belong/ }));
@@ -132,8 +139,10 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     // Durable, and addressed to the verified organizer's Feed only.
     expect(world.feedFor(world.organizer)).toEqual([requestId]);
     expect(world.feedFor(world.requester)).toEqual([]);
-    expect(requester.ui.getByText(new RegExp(`shared with ${world.requester.googleEmail}`))).toBeInTheDocument();
     expect(requester.ui.getAllByText(SENT).length).toBeGreaterThan(0);
+    // The organizer is asked in their own Feed; the requester's Feed says the request was sent.
+    expect(world.eventsFor(world.organizer).map(event => event.type)).toEqual(["document_share_request"]);
+    expect(world.eventsFor(world.requester).map(event => event.type)).toEqual(["document_share_request_sent"]);
 
     // The organizer opens the exact request in their own session.
     const organizer = mountOrganizer();
@@ -212,20 +221,76 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
       expect(failure).toMatchObject({ status: 409, code: "calendar_occurrence_changed" });
     }
     expect(world.requests.size).toBe(1);
-    // A different set of types is a different request.
-    expect((await send({}, ["recording", "notes"])).requestId).not.toBe(first);
+    // Asking for both after the recording only creates a request for what is outstanding: the notes.
+    const both = await send({}, ["recording", "notes"]);
+    expect(both.requestId).not.toBe(first);
+    expect(both.requestedTypes).toEqual(["notes"]);
     expect(world.requests.size).toBe(2);
+    // Asking for both again changes nothing; the organizer is not asked a third time.
+    expect([first, both.requestId]).toContain((await send({}, ["recording", "notes"])).requestId);
+    expect(world.requests.size).toBe(2);
+    expect(world.feedFor(world.organizer)).toHaveLength(2);
   });
 
-  it("creates nothing and offers no Send when the organizer cannot be reached", async () => {
+  it("Ask is never gated: an unconnected requester's tap sends nothing to anyone and says so in one plain line", async () => {
     world.organizerConnected = false;
     const requester = mountRequester();
-    await requesterSends(requester.ui, ["Recording"]);
-    expect(requester.ui.getByTestId("calendar-request-recovery")).toBeInTheDocument();
-    expect(requester.ui.queryByRole("button", { name: /^(Send request|Try again)$/ })).toBeNull();
+    await openLibrary(requester.ui);
+    fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
+    await advance(50);
+    fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
+    // No pre-check and nothing about connecting yet: the same controls a connected person sees.
+    expect(requester.ui.getByRole("button", { name: "Ask organizer" })).toBeEnabled();
+    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
+    expect(world.sentBodies).toEqual([]);
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
+    await advance(50);
+    expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect");
+    expect(requester.ui.queryByRole("button", { name: /^(Connect|Send request|Try again|Copy request|Invite to One)$/ })).toBeNull();
+    expect(requester.ui.queryByRole("textbox", { name: "Request to send to the organizer" })).toBeNull();
+    expect(requester.ui.queryByTestId("calendar-request-recovery")).toBeNull();
     expect(world.requests.size).toBe(0);
     expect(world.feedFor(world.organizer)).toEqual([]);
+    expect(world.events).toEqual([]);
+  });
+
+  it("the same Ask reaches the organizer's Feed once they are connected, with no reload", async () => {
+    world.organizerConnected = false;
+    const requester = mountRequester();
+    await openLibrary(requester.ui);
+    fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
+    await advance(50);
+    fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
+    await advance(50);
+    expect(requester.ui.getByRole("link", { name: HINT })).toBeInTheDocument();
+    expect(world.requests.size).toBe(0);
+
+    world.organizerConnected = true; // the connection is accepted while the page stays open
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
+    await advance(50);
+    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
+    expect(world.requests.size).toBe(1);
+    expect(world.feedFor(world.organizer)).toEqual([world.request().requestId]);
+    expect(world.request()).toMatchObject({ requester: world.requester.userId, organizer: world.organizer.userId,
+      recipientEmail: world.requester.googleEmail, occurrenceId: world.target.occurrenceId, types: ["recording"] });
+    expect(requester.ui.getAllByText(SENT).length).toBeGreaterThan(0);
+  });
+
+  it("a connection revoked after the page opened is still refused by the server at Send", async () => {
+    const requester = mountRequester();
+    await openLibrary(requester.ui);
+    fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
+    await advance(50);
+    fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
+    world.organizerConnected = false;
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
+    await advance(50);
     expect(world.sentBodies).toHaveLength(1);
+    expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect"); // nothing was created
+    expect(requester.ui.queryByTestId("calendar-request-recovery")).toBeNull();
+    expect(world.requests.size).toBe(0);
+    expect(world.feedFor(world.organizer)).toEqual([]);
   });
 
   it("shows request details only to the addressed organizer", async () => {
@@ -325,7 +390,8 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     expect(requester.ui.getByRole("button", { name: /^Open/ })).toBeInTheDocument();
     expect(requester.ui.queryByText("Recordings")).toBeNull();
     expect(requester.ui.getAllByText("Some files are available; others could not be shared or verified.").length).toBeGreaterThan(0);
-    expect(requester.ui.getByRole("button", { name: "Request recording or notes" })).toBeInTheDocument();
+    expect(requester.ui.queryByRole("button", { name: "Ask organizer" })).toBeNull();
+    expect(world.requests.size).toBe(1);
   });
 
   it("reports a failed share honestly to both people", async () => {
@@ -343,5 +409,86 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     expect(organizer.ui.getByRole("link", { name: "Back to Feed" })).toBeInTheDocument();
     expect(requester.ui.getAllByText("Sharing did not complete. Ask the organizer to review again.").length).toBeGreaterThan(0);
     expect(requester.ui.queryByRole("button", { name: /^Open/ })).toBeNull();
+  });
+
+  it("lets the organizer say they don't have the recording, without opening Drive, and tells the requester", async () => {
+    const requester = mountRequester();
+    await requesterSends(requester.ui, ["Recording"]);
+    const organizer = mountOrganizer();
+    await advance(50);
+    expect(organizer.ui.getByText("Requested: recording")).toBeInTheDocument();
+    expect(organizer.ui.getByText(world.requester.googleEmail)).toBeInTheDocument();
+    expect(organizer.ui.getByRole("button", { name: "Give access" })).toBeEnabled();
+    fireEvent.click(organizer.ui.getByRole("button", { name: "Don't have" }));
+    expect(organizer.ui.getByRole("checkbox", { name: "The recording" })).toBeChecked();
+    expect(organizer.ui.getByText(`Nothing in your Drive is opened. They'll see: "${NO_RECORDING}"`)).toBeInTheDocument();
+    fireEvent.click(organizer.ui.getByRole("button", { name: "Confirm" }));
+    await advance(50);
+    expect(world.request()).toMatchObject({ status: "declined", notAvailable: ["recording"] });
+    expect(world.driveReads).toEqual([]);
+    expect(world.shareCount()).toBe(0);
+    expect(organizer.ui.getByTestId("calendar-review-outcome")).toHaveTextContent("Saved");
+    expect(organizer.ui.getByRole("link", { name: "Back to Feed" })).toHaveAttribute("href", "/one/feed");
+    expect(organizer.onChanged).toHaveBeenCalled();
+    expect(world.eventsFor(world.requester, "document_share_decided")).toHaveLength(1);
+    expect(world.eventsFor(world.organizer, "document_share_decided")).toEqual([]);
+    await elapse(62_000);
+    expect(requester.ui.getAllByText(NO_RECORDING).length).toBeGreaterThan(0);
+    expect(requester.ui.queryByText(/does not exist|doesn't exist|no recording exists/i)).toBeNull();
+    expect(requester.ui.queryByText(SENT)).toBeNull();
+    expect(requester.ui.queryByRole("tab", { name: "Recording" })).toBeNull();
+    await chooseAndAsk(requester.ui, ["Notes"]);
+    expect(world.sentBodies.at(-1)?.requested_types).toEqual(["notes"]);
+    expect(world.requests.size).toBe(2);
+  });
+
+  it("answers each type on its own: Don't have for the recording leaves the notes to share", async () => {
+    const requester = mountRequester();
+    await requesterSends(requester.ui, ["Recording", "Notes"]);
+    const organizer = mountOrganizer();
+    await advance(50);
+    fireEvent.click(organizer.ui.getByRole("button", { name: "Don't have" }));
+    expect(organizer.ui.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    fireEvent.click(organizer.ui.getByRole("checkbox", { name: "The recording" }));
+    expect(organizer.ui.getByRole("checkbox", { name: "The notes" })).not.toBeChecked();
+    fireEvent.click(organizer.ui.getByRole("button", { name: "Confirm" }));
+    await advance(50);
+    expect(world.request()).toMatchObject({ status: "pending", notAvailable: ["recording"], revision: 1 });
+    expect(world.driveReads).toEqual([]);
+    expect(organizer.ui.getByText("You said you don't have the recording.")).toBeInTheDocument();
+    expect(organizer.ui.getByRole("link", { name: "Back to Feed" })).toBeInTheDocument();
+    await elapse(62_000);
+    expect(requester.ui.getByText(/The organizer says they don't have the recording\. Request sent for the notes\. Waiting for organizer\./)).toBeInTheDocument();
+    await organizerPrepares(organizer.ui);
+    expect(organizer.ui.queryByText(/Hussh Growth Sync recording/)).toBeNull();
+    organizerConfirms(organizer.ui);
+    giveAccess(organizer.ui);
+    await advance(50);
+    world.finishSharing();
+    await elapse(70_000);
+    expect(organizer.ui.getByText("Access given")).toBeInTheDocument();
+    expect(world.shares).toEqual([{ requestId: world.request().requestId, fileId: world.target.files.notes, to: world.requester.googleEmail }]);
+    // Available only because the requester's own account can open it; the recording stays an honest "don't have".
+    expect(requester.ui.getByRole("button", { name: /^Open/ })).toBeInTheDocument();
+    expect(requester.ui.getAllByText(NO_RECORDING).length).toBeGreaterThan(0);
+  });
+
+  it("refuses Don't have from anyone but the addressed organizer, and for a stale or unrequested type", async () => {
+    const requester = mountRequester();
+    await requesterSends(requester.ui, ["Recording"]);
+    const { requestId } = world.request();
+    const say = (person: { vaultToken: string }, revision: number, types: ("recording" | "notes")[]) =>
+      CalendarMeetingReviewService.markUnavailable(requestId, person.vaultToken, revision, types);
+    await expect(say(world.stranger, 0, ["recording"])).rejects.toMatchObject({ code: "request_unavailable" });
+    // The requester can follow their request but cannot answer for the organizer.
+    await expect(say(world.requester, 0, ["recording"])).rejects.toMatchObject({ code: "request_unavailable" });
+    await expect(say(world.organizer, 0, ["notes"])).rejects.toMatchObject({ code: "invalid_selection" });
+    await expect(say(world.organizer, 9, ["recording"])).rejects.toMatchObject({ code: "review_changed" });
+    expect(world.request()).toMatchObject({ status: "pending", notAvailable: [], revision: 0 });
+    expect(world.eventsFor(world.requester, "document_share_decided")).toEqual([]);
+    // Saying it again is a harmless repeat: same state, and the requester is not notified twice.
+    const first = await say(world.organizer, 0, ["recording"]);
+    expect(await say(world.organizer, 1, ["recording"])).toEqual(first);
+    expect(world.eventsFor(world.requester, "document_share_decided")).toHaveLength(1);
   });
 });

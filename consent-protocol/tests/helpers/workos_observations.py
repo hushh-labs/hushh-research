@@ -300,11 +300,102 @@ def discovery_state(state, defect):
     )
 
 
+def _zip_archive(members: dict[str, dict]) -> bytes:
+    buffer = io.BytesIO()
+    with ZipFile(buffer, "w") as bundle:
+        for name, payload in members.items():
+            bundle.writestr(name, json.dumps(payload))
+    return buffer.getvalue()
+
+
+def _frontend_discovery_ports(case, defect):
+    phone = importlib.import_module("production_phone_receipt")
+    frontend_sha = "f" * 40
+    tag = {"commit": frontend_sha, "message": "healthy", "tag_oid": "d" * 40}
+    backend_release = {
+        **copy.deepcopy(case.release),
+        "final": {"backend_revision": "current-backend", "frontend_revision": "prior-frontend"},
+    }
+    pointer = {
+        "run_id": "100",
+        "source": backend_release["sha"],
+        "revision": "current-backend",
+        "uid": "backend-uid",
+        "service_uid": "service-uid",
+    }
+    frontend_release = {
+        "status": "healthy",
+        "scope": "frontend",
+        "sha": frontend_sha,
+        "backend_origin": pointer,
+        "final": {"backend_revision": "current-backend", "frontend_revision": "current-frontend"},
+    }
+    phone_anchor = {
+        "release_run_id": 100,
+        "run_attempt": 2 if defect == "discovery_attempt" else 1,
+        "artifact_id": 100,
+        "artifact_digest": case.artifact["digest"],
+    }
+    found_release = copy.deepcopy(frontend_release)
+    if defect != "uninherited":
+        found_release["_maintenance_backend_inheritance"] = {
+            "backend": {**pointer, "run_id": 100, "sha": backend_release["sha"]},
+            "phone_anchor": copy.deepcopy(phone_anchor),
+            "backend_release": copy.deepcopy(backend_release),
+        }
+    frontend_calls = iter(
+        [
+            {"id": 101, "run_attempt": 1, "head_sha": frontend_sha},
+            {
+                "id": 101,
+                "run_attempt": 2 if defect == "frontend_refresh" else 1,
+                "head_sha": frontend_sha,
+            },
+        ]
+    )
+    frontend_artifact = {**case.artifact, "id": 101, "digest": "sha256:" + "b" * 64}
+    archives = {
+        101: _zip_archive({"tmp/prod-release-status.json": frontend_release}),
+        100: _zip_archive(
+            {
+                "tmp/prod-release-status.json": backend_release,
+                "tmp/phone-rollback/workos-after.json": {
+                    "qualification": "passed",
+                    "operational_observation": {"origin": case.anchor["origin"]},
+                },
+            }
+        ),
+    }
+    return SimpleNamespace(
+        tag=tag,
+        run_url="https://github.com/hushh-labs/hushh-research/actions/runs/101",
+        final=frontend_release["final"],
+        api=lambda repo, endpoint: (
+            next(frontend_calls) if endpoint == "runs/101" else case.api(repo, endpoint)
+        ),
+        find_release=lambda *_a, **kw: (
+            kw["on_phone_rollback"](copy.deepcopy(phone_anchor))
+            if kw.get("on_phone_rollback") is not None
+            else None,
+            (101, found_release),
+        )[1],
+        artifact_for=lambda _repo, run, *_a, **_kw: (
+            (frontend_artifact if run["id"] == 101 else case.artifact),
+            case.job,
+        ),
+        archive_for=lambda _repo, art, **_kw: archives[art["id"]],
+        document=phone._document,
+    )
+
+
 def discovery_ports(state, kind, defect, monkeypatch):
     case = discovery_state(state, defect)
     module, anchor, original_proof = case.module, case.anchor, case.original_proof
     tag, api, find_release = case.tag, case.api, case.find_release
     release, artifact, job = case.release, case.artifact, case.job
+    frontend = _frontend_discovery_ports(case, defect) if kind == "frontend" else None
+    if frontend is not None:
+        tag, api, find_release = frontend.tag, frontend.api, frontend.find_release
     owner = SimpleNamespace(
         uncached_api=api,
         governed_dispatch=lambda *_: True,
@@ -316,8 +407,12 @@ def discovery_ports(state, kind, defect, monkeypatch):
     reference = SimpleNamespace(
         split=lambda *_: ("healthy", None),
         healthy_fields=lambda *_: {
-            "run": "https://github.com/hushh-labs/hushh-research/actions/runs/100",
-            **release["final"],
+            "run": (
+                frontend.run_url
+                if frontend is not None
+                else "https://github.com/hushh-labs/hushh-research/actions/runs/100"
+            ),
+            **(frontend.final if frontend is not None else release["final"]),
         },
     )
     proof = SimpleNamespace(
@@ -346,10 +441,20 @@ def discovery_ports(state, kind, defect, monkeypatch):
     continuation = SimpleNamespace(
         ORIGIN="prod-activation-origin.json",
         manual=MagicMock(),
-        phone=SimpleNamespace(_document=lambda content, name: documents[name]),
+        phone=SimpleNamespace(
+            _document=(
+                frontend.document if frontend is not None else lambda content, name: documents[name]
+            )
+        ),
         receipts=SimpleNamespace(
-            current_attempt_artifact=MagicMock(return_value=(artifact, job)),
-            immutable_archive=MagicMock(return_value=b"authenticated-archive-port"),
+            current_attempt_artifact=MagicMock(
+                side_effect=frontend.artifact_for if frontend is not None else None,
+                return_value=None if frontend is not None else (artifact, job),
+            ),
+            immutable_archive=MagicMock(
+                side_effect=frontend.archive_for if frontend is not None else None,
+                return_value=None if frontend is not None else b"authenticated-archive-port",
+            ),
         ),
         archive_context=MagicMock(
             return_value={"status": "activated"} if kind == "activation" else None

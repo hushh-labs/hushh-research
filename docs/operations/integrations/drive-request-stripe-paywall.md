@@ -1,6 +1,6 @@
 # Drive request payment gate
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Context
 

@@ -1,6 +1,6 @@
 # Dev Fast Lane — the safe rule for agentic shipping
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 > **Dev intake:** Main owns workflow authority and release approval. Protected
 > `dev` is the default application source after its baseline qualification.
@@ -45,7 +45,7 @@ being checked.
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). Companion contracts:
+Canonical visual owner: [Operations Index](../README.md). Companion contracts:
 [branch-governance.md](./branch-governance.md) (lanes),
 [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md)
 (environment).

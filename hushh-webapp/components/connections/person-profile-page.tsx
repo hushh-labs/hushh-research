@@ -25,14 +25,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { usePersonProfilePackets } from "./person-profile-packets";
@@ -913,6 +906,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       }}
     >
       <div className={styles.page} data-native-route="native-route-person-profile">
+        <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
         <PersonProfileHero
           profile={profile}
           network={<PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />}

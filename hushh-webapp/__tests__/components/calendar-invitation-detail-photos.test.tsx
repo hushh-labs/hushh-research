@@ -67,4 +67,19 @@ describe("invitation photo presentation boundaries", () => {
     expect(guest.querySelector("img")).toBeNull();
     expect(guest.querySelector("[data-slot=avatar-fallback]")?.textContent).toBe("M");
   });
+
+  it("shows each declined person's shared reason and a quiet fallback in both detail layouts", () => {
+    const declined: CalendarInvitation = { ...event, attendees: [
+      { email: "manish@example.test", display_name: "Manish", response_status: "declined", comment: "  Client deadline moved.  " },
+      { email: "anoushka@example.test", display_name: "Anoushka", response_status: "declined", comment: "  " },
+      { email: "waiting@example.test", display_name: "Waiting", response_status: "needsAction" },
+    ] };
+    for (const workspaceLayout of [false, true]) {
+      const view = render(<CalendarInvitationDetail event={declined} zone="UTC" people={people} workspaceLayout={workspaceLayout} />);
+      expect(view.getByText("Client deadline moved.")).toBeInTheDocument();
+      expect(view.getAllByText("No reason shared.")).toHaveLength(1);
+      expect(view.getByText("Waiting").closest("li")).not.toHaveTextContent("No reason shared.");
+      view.unmount();
+    }
+  });
 });

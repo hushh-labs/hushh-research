@@ -1,6 +1,6 @@
 # Validate the isolated PLG source
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Map
 

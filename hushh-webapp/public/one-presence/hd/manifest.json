@@ -1,7 +1,7 @@
 {
   "connected.riv": {
-    "bytes": 610739,
-    "sha256": "9308d7e03dbea9fb5e53068174294ef6d630b38f3a62ee4629b4caa336224535",
+    "bytes": 611297,
+    "sha256": "da2888d60bb68114329cafe18e007aab752c9d6f338b587c6671d342ffd2e61b",
     "source": "profile-hd.png",
     "source_sha256": "b85f5387e45888f43a214e3e4192d26eaf37d86e55d36102f736bd7fea8502b1",
     "texture_width": 1254,
@@ -15,7 +15,8 @@
       "image": "profile-hd.png",
       "lift": 0.8,
       "turns": 1,
-      "tilt": 0
+      "tilt": 0,
+      "breath": 0.038
     }
   },
   "thinking.riv": {

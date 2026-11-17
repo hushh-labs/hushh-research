@@ -6,7 +6,7 @@ should never have to guess which one failed.
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). Companion contracts:
+Canonical visual owner: [Operations Index](../README.md). Companion contracts:
 [dev-fast-lane.md](../releases/dev-fast-lane.md) (how the branch under test got deployed),
 [../architecture/deployment-standard.md](../../architecture/deployment-standard.md)
 (which layer each stage belongs to).

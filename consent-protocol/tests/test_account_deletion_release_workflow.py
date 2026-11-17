@@ -39,6 +39,38 @@ def _activation_module():
     return module
 
 
+@pytest.mark.parametrize(
+    ("stderr", "reason"),
+    [
+        (
+            'password authentication failed for user "private-user"',
+            "postgres_authentication_refused",
+        ),
+        ("refresh failed: invalid_grant private-token", "unclassified"),
+        ("permission denied for database private-database", "postgres_authority_refused"),
+        ("connection to server failed: Connection refused", "connection_refused"),
+        ("connection timed out: private-host", "connection_timeout"),
+        ("server closed the connection unexpectedly", "connection_closed"),
+        ("private-token unrecognized upstream failure", "unclassified"),
+    ],
+)
+def test_activation_connection_failure_preserves_code_without_provider_text(
+    monkeypatch, stderr, reason
+):
+    module = _activation_module()
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=2, stdout="private-output", stderr=stderr
+        ),
+    )
+    with pytest.raises(RuntimeError, match="^psql_failed_2$") as caught:
+        module.run(["psql", "--command", "SELECT 1"])
+    assert caught.value.sql_connection_reason == reason
+    assert "private" not in repr(caught.value.__dict__)
+
+
 def _activation_adapter(module, args, failure, monkeypatch, *, phone_floor=False):
     service, revisions = lifecycle_retirement_revisions(
         args.expected_sha, invalid_candidate=failure == "candidate"
@@ -207,13 +239,17 @@ def test_activation_pins_environment_database_and_retains_failure_receipt(
     def fail_after_removal_requested(args, evidence):
         calls.append(args.db_name)
         evidence["fence_removal"] = "requested_outcome_unconfirmed"
-        raise RuntimeError("psql_failed_1")
+        error = RuntimeError("psql_failed_1")
+        error.sql_connection_reason = "connection_closed"
+        raise error
 
     monkeypatch.setattr(module, "activate", fail_after_removal_requested)
     assert module.main() == 1
     receipt = json.loads((tmp_path / "release-activation.json").read_text())
     assert calls == [database]
     assert receipt["status"] == "blocked"
+    assert receipt["failure_code"] == "psql_failed_1"
+    assert receipt["sql_connection_reason"] == "connection_closed"
     assert receipt["fence_removal"] == "requested_outcome_unconfirmed"
     argv[argv.index("--db-name") + 1] = "wrong_database"
     with pytest.raises(SystemExit):

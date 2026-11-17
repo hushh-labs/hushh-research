@@ -35,3 +35,18 @@ def upsert_additional_calendar_account(connection: Any, params: dict[str, Any]) 
                     connected_at = clock_timestamp(), revoked_at = NULL, updated_at = clock_timestamp()"""),
         params,
     )
+
+
+def enable_additional_mail_read(connection: Any, user_id: str, account_id: str) -> None:
+    """Record Mail read for one account after its Calendar consent returned the scope.
+
+    A separate statement from the upsert: the fence trigger resets this grant
+    whenever a connection's status changes, so the explicit grant is written after it.
+    """
+    connection.execute(
+        text("""UPDATE google_calendar_additional_accounts
+                SET gmail_read_enabled = TRUE, gmail_read_granted_at = clock_timestamp(),
+                    gmail_read_generation = gen_random_uuid(), updated_at = clock_timestamp()
+                WHERE user_id = :user_id AND account_id = :account_id AND status = 'connected'"""),
+        {"user_id": user_id, "account_id": account_id},
+    )

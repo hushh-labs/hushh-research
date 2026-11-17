@@ -190,6 +190,9 @@ async def test_reassessment_keeps_a_decision_when_the_model_rewords_the_title(fo
     assert _message_rows(engine, store, account_id, message) == [
         (closed, False, ASSESSMENT_VERSION)
     ]
+    assert (await store.detail(monitor, conversation["id"]))["requests"][0][
+        "title"
+    ] == "Send the signed document"
     # Reassessing again finds the adopted row by its new key and adds nothing.
     await _reassess(store, account_id, message, [reworded])
     assert _message_rows(engine, store, account_id, message) == [

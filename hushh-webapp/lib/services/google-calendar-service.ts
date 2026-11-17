@@ -2,6 +2,7 @@ import { reviewBoardBooking, type CalendarBoardBookingInput, type CalendarBoardB
 export type { CalendarBoardBookingInput, CalendarBoardBookingReview, CalendarExecution } from "@/lib/calendar/calendar-board-booking";
 import { ownerContentIsPrivate } from './private-agent-specialist-chat';
 import { privateGoogleStatus, disconnectPrivateGoogle, confirmPrivateGoogleAction, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
+import { privateCalendarEvents } from "./private-google-task-sources";
 import { ApiService } from "@/lib/services/api-service";
 import type { GoogleConnectionStatus } from "@/lib/services/google-connection-service";
 import { GoogleCalendarError, calendarError, scheduleRead, scheduleRequest, type CalendarSource } from "@/lib/services/google-calendar-transport";
@@ -44,52 +45,8 @@ type NativeOAuthStart = {
   include_meeting_files?: boolean;
 };
 
-export type CalendarEventTime = { dateTime?: string; date?: string; timeZone?: string } | null;
-
-/**
- * The RAW backend event shape (matches _event_summary() in
- * hushh_mcp/services/google_calendar_service.py exactly, including
- * description/location/attendees). listEvents() below returns this
- * unredacted for the authenticated owner workspace. Chat redaction remains
- * lib/calendar/use-calendar-upcoming-events.ts's responsibility.
- */
-export type CalendarEventSummary = {
-  account_id?: string;
-  account_email?: string;
-  id?: string | null;
-  etag?: string | null;
-  calendar_id?: string;
-  source_calendar_id?: string;
-  source_time_zone?: string | null;
-  calendar_name?: string;
-  calendar_color?: string | null;
-  event_color?: string | null;
-  color_id?: string | null;
-  conference_name?: string | null;
-  conference_icon?: string | null;
-  organizer?: { email?: string; displayName?: string; self?: boolean };
-  can_decline?: boolean;
-  title: string;
-  description?: string | null;
-  location?: string | null;
-  start: CalendarEventTime;
-  end: CalendarEventTime;
-  status?: string | null;
-  event_type?: string | null;
-  attendees?: { email?: string | null; response_status?: string | null; display_name?: string | null; self?: boolean }[];
-  html_link?: string | null;
-  conference_url?: string | null;
-  conference_status?: string | null;
-  updated?: string | null;
-  transparency?: string | null;
-  ical_uid?: string | null;
-  original_start_time?: CalendarEventTime;
-};
-
-export type CalendarEventsResponse = {
-  events: CalendarEventSummary[];
-  time_zone?: string | null;
-};
+import type { CalendarEventTime, CalendarEventSummary, CalendarEventsResponse } from "@/lib/calendar/calendar-event-types";
+export type { CalendarEventTime, CalendarEventSummary, CalendarEventsResponse } from "@/lib/calendar/calendar-event-types";
 
 export type CalendarOpening = { start_at: string; end_at: string; available_until?: string };
 export type CalendarDailyResponse = CalendarEventsResponse & { date: string; time_zone: string; calendars: CalendarSource[]; unreadable_calendars: CalendarSource[]; calendar_options?: CalendarSource[] };
@@ -141,7 +98,7 @@ export type CalendarInvitationsResponse = { account_email?: string; events: Cale
 export type CalendarAttendanceReview = { exact_time?: boolean; response_status?: "accepted" | "declined" | "tentative"; calendar_id?: string; conflicts?: CalendarEventSummary[]; unchecked_calendars?: string[]; openings?: CalendarOpening[]; review_id: string; review_token: string; title: string; start?: CalendarEventTime; end?: CalendarEventTime; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
 export type CalendarAttendanceResult = { calendar: "accepted" | "declined" | "tentative" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
 export type CalendarWindowParams = { vaultOwnerToken: string; date: string; timeZone: string; startTime: string; endTime: string; durationMinutes: 15 | 30 | 60 };
-type AttendanceReviewInput = Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; accountId?: string; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; sendMessage?: boolean; mailOnlyRetry?: boolean; exactTime?: boolean; message: string };
+type AttendanceReviewInput = Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; accountId?: string; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; sendMessage?: boolean; mailOnlyRetry?: boolean; exactTime?: boolean; message: string; declineReason?: string };
 
 /** Typed transport for the Calendar API. Components never call fetch directly. */
 export class GoogleCalendarService {
@@ -172,6 +129,8 @@ export class GoogleCalendarService {
     accountId?: string;
     loginHint?: string;
     includeMeetingFiles?: boolean;
+    /** Ask for Gmail in the same Google consent. Follow-up monitoring stays off until the owner turns it on for the account. */
+    includeMailAccess?: boolean;
   }): Promise<OAuthStart> {
     await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
@@ -189,6 +148,7 @@ export class GoogleCalendarService {
           ...(params.accountId ? { account_id: params.accountId } : {}),
           ...(params.loginHint ? { login_hint: params.loginHint } : {}),
           ...(params.includeMeetingFiles ? { include_meeting_files: true } : {}),
+          ...(params.includeMailAccess ? { include_mail_access: true } : {}),
           redirect_uri: typeof window === "undefined" ? undefined
             : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
@@ -371,10 +331,12 @@ export class GoogleCalendarService {
     vaultOwnerToken: string;
     startAt: string;
     endAt: string;
+    signal?: AbortSignal;
   }): Promise<CalendarEventsResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('This Calendar event list');
+    if (await ownerContentIsPrivate()) return privateCalendarEvents(params);
     const response = await ApiService.apiFetch("/api/one/calendar/events", {
       method: "POST",
+      signal: params.signal,
       headers: {
         Authorization: `Bearer ${params.vaultOwnerToken}`,
         "Content-Type": "application/json",
@@ -421,13 +383,14 @@ export class GoogleCalendarService {
   }
 
   static async invitations(params: { firebaseIdToken: string; timeZone: string; accountId?: string; selectedCalendarId?: string; selectedEventId?: string; startAt?: string; endAt?: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<CalendarInvitationsResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError("Calendar invitation review");
     const result = await scheduleRead<CalendarInvitationsResponse>("invitations", { time_zone: params.timeZone, ...(params.accountId && params.accountId !== "default" ? { account_id: params.accountId } : {}), ...(params.selectedCalendarId ? { selected_calendar_id: params.selectedCalendarId } : {}), ...(params.selectedEventId ? { selected_event_id: params.selectedEventId } : {}), ...(params.startAt ? { start_at: params.startAt } : {}), ...(params.endAt ? { end_at: params.endAt } : {}) }, params);
     if (!result || !Array.isArray(result.events) || !Number.isInteger(result.pending_count) || !Array.isArray(result.unreadable_calendars) || result.events.some(event => !event.id || !event.calendar_id || !["needsAction", "accepted", "declined", "tentative"].includes(event.response_status))) throw new GoogleCalendarError("Invitations could not be checked.", "calendar_invalid_response", 502);
     return result;
   }
 
   private static attendanceReviewBody(params: Omit<AttendanceReviewInput, "vaultOwnerToken">) {
-    return { ...this.windowBody(params), ...(params.accountId && params.accountId !== "default" ? { account_id: params.accountId } : {}), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, send_message: params.sendMessage ?? false, mail_only_retry: params.mailOnlyRetry ?? false, exact_time: params.exactTime ?? false, message: params.message, ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) };
+    return { ...this.windowBody(params), ...(params.accountId && params.accountId !== "default" ? { account_id: params.accountId } : {}), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, send_message: params.sendMessage ?? false, mail_only_retry: params.mailOnlyRetry ?? false, exact_time: params.exactTime ?? false, message: params.message, ...(params.declineReason?.trim() ? { decline_reason: params.declineReason.trim() } : {}), ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) };
   }
 
   static reviewAttendance(params: AttendanceReviewInput): Promise<CalendarAttendanceReview> {
@@ -484,7 +447,7 @@ export class GoogleCalendarService {
     return result;
   }
 
-  static async reviewConflict(params: { firebaseIdToken: string; vaultOwnerToken: string; date: string; timeZone: string; keep: CalendarEventRef; decline: (CalendarEventRef & { message: string })[]; isEffectCurrent?: () => boolean }): Promise<CalendarConflictReview> {
+  static async reviewConflict(params: { firebaseIdToken: string; vaultOwnerToken: string; date: string; timeZone: string; keep: CalendarEventRef; decline: (CalendarEventRef & { message: string; reason?: string })[]; isEffectCurrent?: () => boolean }): Promise<CalendarConflictReview> {
     const result = await scheduleRequest<CalendarConflictReview>("conflicts/review", params.vaultOwnerToken, {
       date: params.date, time_zone: params.timeZone, keep: params.keep, decline: params.decline,
     }, params);

@@ -1,5 +1,7 @@
 # Paid-answer UAT provider review, 13 October 2026
 
+[Architecture](README.md)
+
 Authenticated, read-only GCP and GitHub reads were performed using the authorised local account. The sanitized local machine record (`paid-answer-provider-review-2026-10-13.json`, excluded from Git) contains exact responses and observations; no token, secret value, private prompt or customer log is recorded. The live Stripe key was used process-only for authenticated read-only provider calls. During the provider review, no runtime, shared webhook, Drive, Gemini project/model, cache setting or contract was changed. The later separately authorised test-mode UAT restoration is recorded below.
 
 ## Visual Map

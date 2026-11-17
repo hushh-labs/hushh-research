@@ -65,6 +65,10 @@ describe("One profile To-do live-source parity", () => {
     expect(screen.queryByText("All clear.")).not.toBeInTheDocument();
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.sourceAction).not.toHaveBeenCalled();
+    for (const text of ["Task sources", "Suggest tasks", "Refresh sources"]) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("checkbox", { name: "Let One suggest tasks from summaries." })).not.toBeInTheDocument();
   });
 
   it("reconciles saved completion and deletion before showing live sources", async () => {

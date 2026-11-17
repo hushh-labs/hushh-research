@@ -89,6 +89,7 @@ class CalendarAttendanceReview(CalendarDay):
     mail_only_retry: StrictBool = False
     exact_time: StrictBool = False
     message: str = Field(default="", max_length=8000)
+    decline_reason: str = Field(default="", max_length=8000)
 
 
 class CalendarInvitationsWindow(BaseModel):
@@ -153,6 +154,7 @@ class CalendarEventRef(BaseModel):
 
 class CalendarDeclineChoice(CalendarEventRef):
     message: str = Field(min_length=1, max_length=8000)
+    reason: str = Field(default="", max_length=8000)
 
 
 class CalendarConflictReviewRequest(CalendarDay):

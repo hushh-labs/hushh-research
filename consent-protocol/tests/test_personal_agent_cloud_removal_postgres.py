@@ -678,3 +678,51 @@ def test_cleanup_callback_binds_current_erasure_before_redeeming_and_never_appro
             ]
         )
     assert spawned == [], "cleanup cannot fall through into setup or upgrade"
+
+
+async def test_gcp_legacy_incompatibility_refuses_before_reservation_or_fence(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from hushh_mcp.services import (
+        personal_agent_hosting_inspection,
+        pod_migration_transport,
+    )
+    from hushh_mcp.services.personal_agent_cloud_removal import inspect_gcp
+
+    row = {
+        "user_id": "legacy-owner",
+        "hushh_id": "ha1_legacy",
+        "status": "provisioned",
+        "backend_metadata": {
+            "serviceUid": "uid",
+            "service": "legacy-service",
+            "url": "https://legacy.run.app",
+        },
+    }
+    backend = SimpleNamespace(
+        observe_erasure_target=AsyncMock(
+            return_value={
+                "serviceUid": "uid",
+                "service": "legacy-service",
+                "podUrl": "https://legacy.run.app",
+                "revision": "legacy-service-00021",
+            }
+        )
+    )
+    store = SimpleNamespace(
+        registry=object(), candidate_digest=AsyncMock(return_value="a" * 64), reserve=AsyncMock()
+    )
+    monkeypatch.setattr(
+        personal_agent_hosting_inspection,
+        "recorded_owner_backend",
+        lambda *a, **kw: (backend, object()),
+    )
+    preflight = Mock()
+    monkeypatch.setattr(pod_migration_transport, "verify_erasure_compatibility", preflight)
+    with pytest.raises(
+        pod_migration_transport.PodMigrationTransportError, match="compatibility repair"
+    ):
+        await inspect_gcp(store, "legacy-owner", row)
+    store.reserve.assert_not_awaited()
+    preflight.assert_not_called()

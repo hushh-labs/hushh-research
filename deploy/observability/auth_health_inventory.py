@@ -9,7 +9,7 @@ All five image inputs were checked against reviewed repository source. The fixed
 entrypoint reads protected lists/readiness and writes only its lease and health
 log. This is an immutable source/spec exception, never a job-name exemption.
 An image, configuration, UID or historical mutation requires renewed review; the
-reviewed image replacements (generations 2 and 3) are recorded below.
+reviewed image replacements (generations 2 through 6) are recorded below.
 """
 
 from __future__ import annotations
@@ -64,6 +64,48 @@ REPLACEMENTS = (
         ),
         "requested": "2026-10-29T23:55:16.363536Z",
         "replaced": "2026-10-29T23:55:16.820202Z",
+    },
+    # Cloud Build 5017e752-b237-4b65-b514-f77ba08ef7f9; immutable source archive SHA256
+    # 2f8129493c5b360efa3f147813b38a421ae974c78479fe51398e7a8a46bbc8d2. All inputs match reviewed Main.
+    {
+        "generation": 4,
+        "source": "9276f3edc62e0e3a6f55de04ef2d8b6db0649205",
+        "spec": "b4e52c1654794680b6e45d8d5b7c9407d6ba89ca8e21ddc7ef9eb60b3eb3f814",
+        "task": "fb27cc66f67893ad97d72a959e31b64fe4cc593b6f88692dc57840827ecdda68",
+        "events": (
+            "ef152ff798071bc1f49c1c7f15bad090e6240969316b9c11689aa366a91524d4",
+            "86f28527bb1c51226de4ac0183d92f96501ea0301f47b1abfaf8e3bfa88ea539",
+        ),
+        "requested": "2026-10-30T02:18:02.827059Z",
+        "replaced": "2026-10-30T02:18:03.403903Z",
+    },
+    # Cloud Build c49b9d09-ce92-47bf-9f35-9ecfb5beac31; immutable source archive SHA256
+    # fffc32beb2e651312800eae39ca027058d68c8ae63cb89774685932f4a3ab2ee. All inputs match reviewed Main.
+    {
+        "generation": 5,
+        "source": "8717d9f6a661f4c55e22497c239d06d5662e6a9c",
+        "spec": "c91f54faa62deb742f85e20dbcd5ec3b80ad2123e9bcc2e9d63860d6f8b57465",
+        "task": "df5f7baa4fb5ee29e3caf3cd0cd60c7b8ba95d03a2a194fd7cd014104d590528",
+        "events": (
+            "ec804b9789ea690194d4714f5a0e4ac013022664b7382cafdf86845547ff3206",
+            "6b8789d7a1c1cfbfccf1805b2cd2bb71ba912fa5e1d2fd266afa2b3ac66b1291",
+        ),
+        "requested": "2026-10-30T16:40:21.066055Z",
+        "replaced": "2026-10-30T16:40:21.713684Z",
+    },
+    # Cloud Build 4a57447d-0786-49b9-8925-19c1076a950e; immutable source archive SHA256
+    # d5f4b8a61dbe3ec60f587bd6c537d564f227c7774eb67053ec4fb11d24943267. All inputs match reviewed Main.
+    {
+        "generation": 6,
+        "source": "177fceb038f4700d7d4c28e583491f9ffbac15c1",
+        "spec": "f76df188752d5ebd4298273ff6f023f2f2ea11343ac3d931b63a2476744b85c4",
+        "task": "26b3d54e749797b58d2987870872fabe6d47a4f0d6bf0534cd7d4d7a665c7396",
+        "events": (
+            "05d420fbdde5b9785fe79ac11229982f4470504564c6a9055653890ef6a9b898",
+            "446e8401fbb5c59b09af95034cffe07afbeb66f0da01067086ca6b94f3028037",
+        ),
+        "requested": "2026-10-30T18:24:19.616718Z",
+        "replaced": "2026-10-30T18:24:20.191591Z",
     },
 )
 

@@ -24,6 +24,9 @@ NON_REASON_DETAILS = frozenset(
 
 
 _CONFIGURATION_REASONS = frozenset({"SERVICEDISABLED", "APIDISABLED", "ACCESSNOTCONFIGURED"})
+# The bearer lacks an OAuth scope for this call. Not a file or organization denial, which keep
+# their own reasons: `insufficientFilePermissions` and `forbidden` name the file, not the token.
+_SCOPE_REASONS = frozenset({"ACCESSTOKENSCOPEINSUFFICIENT", "INSUFFICIENTPERMISSIONS"})
 _SERVICE_NAME = re.compile(r"[a-z][a-z0-9-]{0,62}(?:\.[a-z0-9-]{1,63}){0,3}\.googleapis\.com")
 _CONSUMER_PROJECT = re.compile(r"projects/[0-9]{1,20}")
 _LEGACY_PROJECT_NUMBER = re.compile(r"\bprojects?[ /]+([0-9]{6,20})\b")
@@ -89,6 +92,10 @@ async def classify_google_forbidden_response(
 ) -> str:
     """Return a closed reason from a bounded 403 body; never expose its message.
 
+    Reasons: rate_limited, provider_configuration, provider_policy, scope_insufficient (the
+    token lacks an OAuth scope) and resource_denied (everything else, including a file the
+    account may not read).
+
     A provider-configuration refusal also records the blocked API and consumer
     project for operators (see ``_configuration_facts``). ``operation`` and
     ``service_hint`` come from the caller's fixed vocabulary, never from input.
@@ -153,6 +160,8 @@ async def classify_google_forbidden_response(
         return "provider_configuration"
     if reasons & {"ORGRESTRICTION", "DOMAINPOLICY", "ADMINPOLICYENFORCED"}:
         return "provider_policy"
+    if reasons & _SCOPE_REASONS:
+        return "scope_insufficient"
     return "resource_denied"
 
 
