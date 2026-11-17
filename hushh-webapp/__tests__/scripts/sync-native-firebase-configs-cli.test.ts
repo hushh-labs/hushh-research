@@ -17,7 +17,7 @@ import { syncNativeFirebaseConfigs } from "../../scripts/native/sync-native-fire
 import { validateNativeFirebaseIdentity } from "../../scripts/native/native-firebase-identity.mjs";
 import { verifyPrebuiltNativeEnvironment } from "../../scripts/native/native-build-environment.mjs";
 
-it("stages isolated UAT Analytics with shared Auth and FCM, then clears the extra resource for production", () => {
+it("stages UAT Auth and Analytics without a production identity, then preserves production", () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "hushh-ios-firebase-split-")));
   const appRoot = path.join(root, "hushh-webapp");
   const plist = (project: string, sender: string, appId: string) =>
@@ -38,14 +38,17 @@ it("stages isolated UAT Analytics with shared Auth and FCM, then clears the extr
   try {
     vi.stubEnv("APP_RUNTIME_PROFILE", "uat");
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
-    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "hushh-pda");
-    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "1006304528804");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "hushh-pda-uat");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "745506018753");
     mkdirSync(path.dirname(localAnalytics), { recursive: true });
-    writeFileSync(path.join(root, "GoogleService-Info.plist"), shared);
+    writeFileSync(path.join(root, "GoogleService-Info.plist"), analytics);
     writeFileSync(localAnalytics, shared);
     expect(sync).toThrow(/invalid Firebase plist for hushh-pda-uat/);
     expect(existsSync(bundled)).toBe(false);
     writeFileSync(localAnalytics, analytics);
+    writeFileSync(path.join(root, "GoogleService-Info.plist"), shared);
+    expect(sync).toThrow(/Native\/web Firebase project mismatch/);
+    writeFileSync(path.join(root, "GoogleService-Info.plist"), analytics);
     for (const file of [auth, messaging,
       "authentication/ios/Plugin/Handlers/PhoneAuthProviderHandler.swift",
       "authentication/ios/Plugin/Handlers/OAuthProviderHandler.swift",
@@ -67,16 +70,19 @@ it("stages isolated UAT Analytics with shared Auth and FCM, then clears the extr
     expect(sync().iosCopied).toBe(true);
     expect(sync().iosCopied).toBe(false);
     expect(readFileSync(bundled, "utf8")).toBe(analytics);
-    expect(readFileSync(bundledIdentity, "utf8")).toBe(shared);
+    expect(readFileSync(bundledIdentity, "utf8")).toBe(analytics);
     expect(readFileSync(fixtureAuth, "utf8")).toContain("Auth.auth(app: $0)");
     expect(readFileSync(fixtureMessaging, "utf8")).toContain("retrieveFCMToken(forSenderID: shared.options.gcmSenderID");
     const backend = "https://api.uat.hushh.ai";
     writeFileSync(path.join(appPath, "capacitor.config.json"), JSON.stringify({ plugins: { One: { backendUrl: backend } } }));
-    const env = { APP_RUNTIME_PROFILE: "uat", NEXT_PUBLIC_BACKEND_URL: backend, NEXT_PUBLIC_FIREBASE_PROJECT_ID: "hushh-pda" };
+    const env = { APP_RUNTIME_PROFILE: "uat", NEXT_PUBLIC_BACKEND_URL: backend, NEXT_PUBLIC_FIREBASE_PROJECT_ID: "hushh-pda-uat" };
     expect(() => verifyPrebuiltNativeEnvironment({ appPath, env })).not.toThrow();
 
     vi.stubEnv("APP_RUNTIME_PROFILE", "prod");
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "hushh-pda");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "1006304528804");
+    writeFileSync(path.join(root, "GoogleService-Info.plist"), shared);
     sync();
     expect(readFileSync(bundled, "utf8")).toBe(shared);
     expect(existsSync(bundledIdentity)).toBe(false);

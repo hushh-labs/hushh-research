@@ -2,6 +2,16 @@
 
 [Operations](../README.md)
 
+## UAT native identity
+
+The UAT iOS build keeps its existing default Analytics registration and named
+identity routing, but both must belong to UAT. Source, runtime and bundled-plist
+checks reject a production identity. Production packaging retains its production
+Firebase configuration. Existing Google OAuth identifiers may be explicitly
+allowed by UAT without sharing its Firebase user store. Installed clients require
+an update and fresh sign-in; source validation does not qualify physical-device
+Google sign-in, SMS or push delivery.
+
 ## Visual Map
 
 ```mermaid
