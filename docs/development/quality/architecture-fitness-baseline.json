@@ -65157,27 +65157,27 @@
         ".agents/skills/autonomous-rca-governance/scripts/rca_runner.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py",
+        ".codex/skills/skill-authoring/scripts/compact_kernel_smoke.py",
         ".agents/skills/skill-authoring/scripts/compact_kernel_smoke.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py",
+        ".codex/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py",
         ".agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/init_skill.py",
+        ".codex/skills/skill-authoring/scripts/init_skill.py",
         ".agents/skills/skill-authoring/scripts/init_skill.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py",
+        ".codex/skills/skill-authoring/scripts/skill_fleet_audit.py",
         ".agents/skills/skill-authoring/scripts/skill_fleet_audit.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        ".codex/skills/skill-authoring/scripts/skill_lint.py",
         ".agents/skills/skill-authoring/scripts/skill_lint.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/trigger_evals.py",
+        ".codex/skills/skill-authoring/scripts/trigger_evals.py",
         ".agents/skills/skill-authoring/scripts/trigger_evals.py"
       ],
       [
@@ -66108,7 +66108,7 @@
         "before": 134,
         "after": 139,
         "source_sha256": "3ec51cbe44f51f97d65e86e202531d2c597cf9981be5abd3905dbec6f01aa7f7",
-        "parent_path": ".codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "parent_path": ".codex/skills/skill-authoring/scripts/skill_lint.py",
         "provenance": "reviewed_composition",
         "review": "Reviewed canonical-source relocation and validation changes: preserve authority, explicit manifest/practice classification, fail-closed root loading, generated-adapter reproducibility and negative controls. Identity move alone grants no larger ceiling."
       },
@@ -67198,7 +67198,7 @@
         "before": 1458,
         "after": 1468,
         "source_sha256": "3ec51cbe44f51f97d65e86e202531d2c597cf9981be5abd3905dbec6f01aa7f7",
-        "parent_path": ".codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "parent_path": ".codex/skills/skill-authoring/scripts/skill_lint.py",
         "provenance": "reviewed_composition",
         "review": "Reviewed canonical-source relocation and validation changes: preserve authority, explicit manifest/practice classification, fail-closed root loading, generated-adapter reproducibility and negative controls. Identity move alone grants no larger ceiling."
       },
