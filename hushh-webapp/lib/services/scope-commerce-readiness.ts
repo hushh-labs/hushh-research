@@ -1,4 +1,4 @@
-const PLATFORM_REASONS = ["commerce_disabled", "provider_disabled", "provider_configuration_required", "provider_credentials_required", "provider_webhooks_required", "provider_connect_webhook_configuration_required", "provider_sandbox_policy_required", "commerce_schema_required", "platform_account_unverified", "platform_account_mismatch", "commerce_retention_resolution_required"] as const;
+const PLATFORM_REASONS = ["commerce_disabled", "provider_disabled", "provider_configuration_required", "provider_credentials_required", "provider_webhooks_required", "provider_connect_webhook_configuration_required", "provider_sandbox_policy_required", "provider_residual_resolution_unqualified", "commerce_schema_required", "platform_account_unverified", "platform_account_mismatch", "commerce_retention_resolution_required"] as const;
 const SELLER_REASONS = ["seller_onboarding_required", "seller_not_eligible", "seller_country_unavailable", "seller_account_mismatch"] as const;
 type PlatformReason = typeof PLATFORM_REASONS[number];
 type SellerReason = typeof SELLER_REASONS[number];
@@ -32,12 +32,15 @@ export function parseCommerceReadiness(value: unknown): CommerceReadiness {
   if (capabilities.set_free_tariff && !free.tariff_controls_available) throw new Error("Sharing availability could not be verified.");
   if ((capabilities.set_paid_tariff || capabilities.approve_paid_request || capabilities.reserve_paid_purchase || capabilities.start_funding || capabilities.start_onboarding) &&
       (!data.enabled || platform.status !== "ready")) throw new Error("Sharing availability could not be verified.");
+  if (platform.reason_code === "provider_residual_resolution_unqualified" &&
+      (capabilities.set_paid_tariff || capabilities.reserve_paid_purchase || capabilities.start_funding)) throw new Error("Sharing availability could not be verified.");
   if (capabilities.set_paid_tariff && seller.status !== "eligible") throw new Error("Sharing availability could not be verified.");
   return data as unknown as CommerceReadiness;
 }
 
 export function commerceReadinessCopy(readiness?: CommerceReadiness): string {
   if (!readiness) return "Paid sharing availability could not be checked. Refresh before continuing.";
+  if (readiness.platform.reason_code === "provider_residual_resolution_unqualified") return "New paid requests and coin purchases are paused. Existing requests and earnings remain available.";
   switch (readiness.platform.status) {
     case "disabled": return "New paid purchases and funding are paused. Free sharing still requires your approval.";
     case "unconfigured": return "Payments are not set up for this app yet. Free sharing does not require Stripe.";

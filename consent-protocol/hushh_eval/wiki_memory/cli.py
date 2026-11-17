@@ -13,6 +13,7 @@ from hushh_eval.wiki_memory.conformance import (
     evaluate_four_placement_conformance,
     evaluate_live_agent_turn_e2e,
     evaluate_live_wiki_pipeline,
+    evaluate_phase6_cutover_and_retirement,
 )
 
 
@@ -53,6 +54,7 @@ async def _run_all_suites() -> dict[str, object]:
         "live_pipeline_comparison": await evaluate_live_wiki_pipeline(),
         "live_agent_turn_e2e": await evaluate_live_agent_turn_e2e(),
         "external_ai_archive_import": await evaluate_external_ai_archive_import(),
+        "phase6_cutover_and_retirement": await evaluate_phase6_cutover_and_retirement(),
     }
 
 

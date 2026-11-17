@@ -326,5 +326,82 @@ describe("Personal Wiki <-> PKM write-through, existing-domain safety & recall c
       normalizeWikiRecallRequest("search_wiki", { query: "", extra: true }),
     ).toThrow();
   });
+
+  it("retires classic memory.md rewrites via consolidateDirect under wiki_primary while preserving pending-turn withdrawal", async () => {
+    const sessionOwnerMod = await import("@/lib/auth/session-owner");
+    const { SecureDurableResourceService } = await import(
+      "@/lib/services/secure-durable-resource-service"
+    );
+    const markdownMemory = await import("@/lib/pkm/markdown-memory");
+    const { createChatMemoryRuntime } = await import(
+      "@/lib/agent/chat-memory-runtime"
+    );
+
+    vi.spyOn(
+      sessionOwnerMod,
+      "snapshotValidatedAuthSessionOwner",
+    ).mockReturnValue({
+      userId: access.owner,
+      email: "wave4@example.com",
+    } as any);
+    vi.spyOn(SecureDurableResourceService, "read").mockResolvedValue(null);
+    vi.spyOn(SecureDurableResourceService, "version").mockResolvedValue({
+      generation: 1,
+      revision: 0,
+    });
+    vi.spyOn(SecureDurableResourceService, "write").mockResolvedValue({
+      generation: 1,
+      revision: 1,
+    });
+    vi.spyOn(markdownMemory, "loadMarkdownMemory").mockResolvedValue({
+      markdown: "# memory.md\n\n## Preferences\n- Classic note\n",
+      updatedAt: null,
+      revision: 1,
+      hasStoredDocument: true,
+    } as any);
+    const replaceSpy = vi.spyOn(markdownMemory, "replaceChatMarkdownMemory");
+    const rewriteSpy = vi.fn(async () => ({ markdown: "# memory.md\n" }));
+    const consolidateDirectSpy = vi.fn(async () => true);
+
+    const runtime = createChatMemoryRuntime({
+      getSession: () => ({
+        userId: access.owner,
+        vaultKey: access.vaultKey,
+        vaultOwnerToken: access.ownerToken,
+      }),
+      rewrite: rewriteSpy,
+      consolidateDirect: consolidateDirectSpy,
+      tokenThreshold: 100_000,
+    });
+    await runtime.registerSnapshot({
+      conversationId: "conv_wiki_primary_1",
+      messages: [
+        {
+          id: "msg_1",
+          conversationId: "conv_wiki_primary_1",
+          role: "user",
+          content: "Remember that my home airport is SFO.",
+        },
+        {
+          id: "msg_2",
+          conversationId: "conv_wiki_primary_1",
+          role: "assistant",
+          content: "Noted — home airport is SFO.",
+        },
+      ],
+    });
+
+    const ok = await runtime.trigger("remember");
+    runtime.clear();
+    expect(ok).toBe(true);
+    expect(consolidateDirectSpy).toHaveBeenCalledTimes(1);
+    expect(
+      consolidateDirectSpy.mock.calls[0]?.[0]?.messages.map((m: any) => m.id),
+    ).toEqual(["msg_1", "msg_2"]);
+    // Classic rewrite and classic one_memory.markdown save are completely bypassed!
+    expect(rewriteSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
 });
+
 

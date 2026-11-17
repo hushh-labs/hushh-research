@@ -1710,7 +1710,22 @@ Country configuration includes USD currency, minimum, retention, attributable
 fixed/basis-point cost and residual-resolution evidence. Live mode additionally
 requires acceptance/account/country/retention/tax approval references and fee
 configuration evidence. References are rollout gates, not proof that an operator
-has completed the referenced review.
+has completed the referenced review. This source has no qualified live residual
+settlement port: new funding and paid reservations fail with
+`provider_residual_resolution_unqualified`, even when approval references exist.
+Exact funding/reservation replay, held owner approval, encrypted fulfillment,
+refunds, withdrawals and reconciliation retain their existing admission rules.
+Readiness preserves configured/persisted identity and historical capabilities,
+but disables new funding, paid reservations and paid-price controls.
+
+For explicitly approved Dev Sandbox reviewers, the trusted
+`waive_reviewer_seller_residual` operator port can waive an exact reviewed
+subminimum available balance. It verifies native test mode, the ledger/account
+pin, current owner generation and lifecycle, pending earnings and absence of
+provider ambiguity. It records immutable approval evidence and a balanced
+`sandbox_seller_waiver` journal entry; purchased coins, pending earnings and
+original receipts are unchanged. Retention selection and recording serialize
+with that entry. This is not a payout, public endpoint or live-money policy.
 
 Operating liquidity has a separate, provider-attested journal path. An operator
 can tag a platform [Stripe top-up](https://docs.stripe.com/api/topups/object)

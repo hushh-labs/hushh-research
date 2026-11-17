@@ -54,6 +54,7 @@ const OWNER_POD_ROUTES = new Set([
   "files/wiki/confirm",
   "files/wiki/projection/derive",
   "files/wiki/forget",
+  "files/wiki/migrate",
   "files/wiki/rollback",
   "files/wiki/import",
   "files/workspaces/status",

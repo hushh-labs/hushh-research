@@ -85,6 +85,161 @@ export function ownerChatMemory(input: {
     return initialized ? ensured : null;
   };
 
+  const captureMessagesIntoSharedWiki = async (
+    wiki: NonNullable<Awaited<ReturnType<typeof resolveSharedWiki>>>,
+    messages: readonly {
+      id: string;
+      conversationId: string;
+      role: "user" | "assistant";
+      content: string;
+      consentDerived?: boolean;
+    }[],
+  ) => {
+    const {
+      SharedWikiKnowledgeWriter,
+      SharedWikiProjectionEngine,
+    } = await import("@/lib/files/wiki");
+    const {
+      classifyWikiClaimsForPkm,
+      fetchProjectionSharingImpact,
+      inspectPkmConflictsForProjection,
+      materializeWikiReceiptToPkm,
+    } = await import("@/lib/files/wiki/pkm-projection-sync");
+
+    const writer = new SharedWikiKnowledgeWriter(wiki);
+    const captured = await writer.captureEvents(
+      messages.map((m) => ({
+        conversationId: m.conversationId,
+        eventId: m.id,
+        role: m.role,
+        content: m.content,
+        consentDerived: m.consentDerived,
+      })),
+    );
+    if (captured.status !== "saved" || captured.saved_page_ids.length === 0) {
+      return;
+    }
+
+    const projections = new SharedWikiProjectionEngine(wiki);
+    for (const pageId of captured.saved_page_ids) {
+      await projections.syncPageLifecycle(pageId);
+    }
+
+    if (!current() || captured.saved_claim_ids.length === 0) return;
+    const checkpoint = await wiki.readCaptureCheckpoint();
+    const autoSaveIso = new Date(
+      checkpoint.opt_in_updated_at || Date.now(),
+    ).toISOString();
+
+    const savedClaims: Array<{ pageId: string; claimId: string; statement: string }> = [];
+    for (const pageId of captured.saved_page_ids) {
+      const page = await wiki.readPage(pageId, { requireSettled: true }).catch(() => null);
+      if (!page) continue;
+      for (const claim of page.claims) {
+        if (
+          claim.status === "active" &&
+          captured.saved_claim_ids.includes(claim.claim_id)
+        ) {
+          savedClaims.push({
+            pageId,
+            claimId: claim.claim_id,
+            statement: claim.statement,
+          });
+        }
+      }
+    }
+    if (savedClaims.length === 0 || !current()) return;
+
+    const classified = await classifyWikiClaimsForPkm(
+      wiki.access,
+      savedClaims.map((c) => c.statement),
+    );
+    for (const item of savedClaims) {
+      if (!current()) return;
+      const mapping = classified.find(
+        (m) => m.statement.toLowerCase() === item.statement.toLowerCase(),
+      );
+      if (!mapping) continue;
+
+      const [{ conflict, specialistSnapshot, existingDomainData }, impact] =
+        await Promise.all([
+          inspectPkmConflictsForProjection(wiki.access, {
+            domain: mapping.targetDomain,
+            jsonPath: mapping.jsonPath,
+            statement: item.statement,
+            proposedValue: mapping.proposedValue,
+          }),
+          mapping.sharingImpact
+            ? Promise.resolve(mapping.sharingImpact)
+            : fetchProjectionSharingImpact(
+                wiki.access,
+                mapping.targetDomain,
+                mapping.jsonPath,
+              ).catch(() => ({
+                activeRecipientCount: 0,
+                recipientLabels: [],
+                entersNextExportRevision: false,
+                summary: "",
+                affectedGrantIds: [],
+                affectedExportIds: [],
+              })),
+        ]);
+
+      const receipt = await projections.deriveProjection({
+        pageId: item.pageId,
+        claimId: item.claimId,
+        targetDomain: mapping.targetDomain,
+        jsonPath: mapping.jsonPath,
+        idempotencyKey: `chatproj:${item.pageId}:${item.claimId}`.slice(0, 128),
+        activeRecipientCount: impact.activeRecipientCount,
+        ownerConfirmed: false,
+        requireOwnerConfirmation: mapping.requiresConfirmation,
+        proposedValue: mapping.proposedValue,
+        specialistSnapshot,
+        existingDomainData,
+      });
+
+      if (receipt.state === "materialized" && !conflict) {
+        const outcome = await materializeWikiReceiptToPkm(
+          wiki.access,
+          {
+            receiptId: receipt.receipt_id,
+            domain: receipt.domain,
+            jsonPath: receipt.json_path,
+            pageId: receipt.page_id,
+            pageRevision: receipt.page_revision,
+            claimId: receipt.claim_id,
+            sourceRevision: receipt.source_revision,
+            statement: item.statement,
+            proposedValue: mapping.proposedValue,
+          },
+          {
+            ownerConfirmed: false,
+            autoSaveEnabledAtIso: autoSaveIso,
+            sharingImpactOverride: impact,
+          },
+        ).catch(() => ({ outcome: "requires_upgrade" as const }));
+
+        if (outcome.outcome === "requires_upgrade" || outcome.outcome === "requires_confirmation") {
+          await projections.deriveProjection({
+            pageId: item.pageId,
+            claimId: item.claimId,
+            targetDomain: mapping.targetDomain,
+            jsonPath: mapping.jsonPath,
+            idempotencyKey: `chatproj_cand:${item.pageId}:${item.claimId}`.slice(0, 128),
+            activeRecipientCount: Math.max(1, impact.activeRecipientCount),
+            ownerConfirmed: false,
+            requireOwnerConfirmation: true,
+            proposedValue: mapping.proposedValue,
+            specialistSnapshot,
+            existingDomainData,
+            sourceRevision: receipt.source_revision + 1,
+          });
+        }
+      }
+    }
+  };
+
   const runtime = createChatMemoryRuntime({
     getSession,
     rewrite: async (request) => {
@@ -92,153 +247,26 @@ export function ownerChatMemory(input: {
       if (!session) throw new Error("MEMORY_LOCKED");
       return rewriteChatMemory(session, request);
     },
+    consolidateDirect: async ({ messages, signal }) => {
+      if (!current() || !messages.length) return false;
+      const wiki = await resolveSharedWiki();
+      if (!wiki || !current()) return false;
+      const { SharedWikiOwnerMigrator } = await import("@/lib/files/wiki");
+      const [cp, mig] = await Promise.all([
+        wiki.readCaptureCheckpoint(signal).catch(() => null),
+        new SharedWikiOwnerMigrator(wiki).getMigrationStatus(signal).catch(() => null),
+      ]);
+      if (!cp?.capture_opt_in || mig?.state !== "wiki_primary") {
+        return false;
+      }
+      await captureMessagesIntoSharedWiki(wiki, messages);
+      return true;
+    },
     onConsolidated: async ({ messages }) => {
       if (!current() || !messages.length) return;
       const wiki = await resolveSharedWiki();
       if (!wiki || !current()) return;
-      const {
-        SharedWikiKnowledgeWriter,
-        SharedWikiProjectionEngine,
-      } = await import("@/lib/files/wiki");
-      const {
-        classifyWikiClaimsForPkm,
-        fetchProjectionSharingImpact,
-        inspectPkmConflictsForProjection,
-        materializeWikiReceiptToPkm,
-      } = await import("@/lib/files/wiki/pkm-projection-sync");
-
-      const writer = new SharedWikiKnowledgeWriter(wiki);
-      const captured = await writer.captureEvents(
-        messages.map((m) => ({
-          conversationId: m.conversationId,
-          eventId: m.id,
-          role: m.role,
-          content: m.content,
-          consentDerived: m.consentDerived,
-        })),
-      );
-      if (captured.status !== "saved" || captured.saved_page_ids.length === 0) {
-        return;
-      }
-
-      const projections = new SharedWikiProjectionEngine(wiki);
-      for (const pageId of captured.saved_page_ids) {
-        await projections.syncPageLifecycle(pageId);
-      }
-
-      if (!current() || captured.saved_claim_ids.length === 0) return;
-      const checkpoint = await wiki.readCaptureCheckpoint();
-      const autoSaveIso = new Date(
-        checkpoint.opt_in_updated_at || Date.now(),
-      ).toISOString();
-
-      const savedClaims: Array<{ pageId: string; claimId: string; statement: string }> = [];
-      for (const pageId of captured.saved_page_ids) {
-        const page = await wiki.readPage(pageId, { requireSettled: true }).catch(() => null);
-        if (!page) continue;
-        for (const claim of page.claims) {
-          if (
-            claim.status === "active" &&
-            captured.saved_claim_ids.includes(claim.claim_id)
-          ) {
-            savedClaims.push({
-              pageId,
-              claimId: claim.claim_id,
-              statement: claim.statement,
-            });
-          }
-        }
-      }
-      if (savedClaims.length === 0 || !current()) return;
-
-      const classified = await classifyWikiClaimsForPkm(
-        wiki.access,
-        savedClaims.map((c) => c.statement),
-      );
-      for (const item of savedClaims) {
-        if (!current()) return;
-        const mapping = classified.find(
-          (m) => m.statement.toLowerCase() === item.statement.toLowerCase(),
-        );
-        if (!mapping) continue;
-
-        const [{ conflict, specialistSnapshot, existingDomainData }, impact] =
-          await Promise.all([
-            inspectPkmConflictsForProjection(wiki.access, {
-              domain: mapping.targetDomain,
-              jsonPath: mapping.jsonPath,
-              statement: item.statement,
-              proposedValue: mapping.proposedValue,
-            }),
-            mapping.sharingImpact
-              ? Promise.resolve(mapping.sharingImpact)
-              : fetchProjectionSharingImpact(
-                  wiki.access,
-                  mapping.targetDomain,
-                  mapping.jsonPath,
-                ).catch(() => ({
-                  activeRecipientCount: 0,
-                  recipientLabels: [],
-                  entersNextExportRevision: false,
-                  summary: "",
-                  affectedGrantIds: [],
-                  affectedExportIds: [],
-                })),
-          ]);
-
-        const receipt = await projections.deriveProjection({
-          pageId: item.pageId,
-          claimId: item.claimId,
-          targetDomain: mapping.targetDomain,
-          jsonPath: mapping.jsonPath,
-          idempotencyKey: `chatproj:${item.pageId}:${item.claimId}`.slice(0, 128),
-          activeRecipientCount: impact.activeRecipientCount,
-          ownerConfirmed: false,
-          requireOwnerConfirmation: mapping.requiresConfirmation,
-          proposedValue: mapping.proposedValue,
-          specialistSnapshot,
-          existingDomainData,
-        });
-
-        if (receipt.state === "materialized" && !conflict) {
-          const outcome = await materializeWikiReceiptToPkm(
-            wiki.access,
-            {
-              receiptId: receipt.receipt_id,
-              domain: receipt.domain,
-              jsonPath: receipt.json_path,
-              pageId: receipt.page_id,
-              pageRevision: receipt.page_revision,
-              claimId: receipt.claim_id,
-              sourceRevision: receipt.source_revision,
-              statement: item.statement,
-              proposedValue: mapping.proposedValue,
-            },
-            {
-              ownerConfirmed: false,
-              autoSaveEnabledAtIso: autoSaveIso,
-              sharingImpactOverride: impact,
-            },
-          ).catch(() => ({ outcome: "requires_upgrade" as const }));
-
-          if (outcome.outcome === "requires_upgrade" || outcome.outcome === "requires_confirmation") {
-            await projections.deriveProjection({
-              pageId: item.pageId,
-              claimId: item.claimId,
-              targetDomain: mapping.targetDomain,
-              jsonPath: mapping.jsonPath,
-              idempotencyKey: `chatproj_cand:${item.pageId}:${item.claimId}`.slice(0, 128),
-              activeRecipientCount: Math.max(1, impact.activeRecipientCount),
-              ownerConfirmed: false,
-              requireOwnerConfirmation: true,
-              proposedValue: mapping.proposedValue,
-              specialistSnapshot,
-              existingDomainData,
-              sourceRevision: receipt.source_revision + 1,
-            });
-          }
-        }
-      }
+      await captureMessagesIntoSharedWiki(wiki, messages);
     },
     onWithdrawn: async ({ conversationId }) => {
       if (!current() || !conversationId) return;

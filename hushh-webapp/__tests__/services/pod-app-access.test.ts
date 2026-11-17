@@ -324,6 +324,7 @@ it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths
     "files/wiki/confirm",
     "files/wiki/projection/derive",
     "files/wiki/forget",
+    "files/wiki/migrate",
     "files/wiki/rollback",
     "files/wiki/import",
     "files/workspaces/status",
@@ -334,7 +335,7 @@ it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths
     const response = await ownerPodRequest(route, { method: route.startsWith("files/wiki/overview") || route.startsWith("files/workspaces/status") || route.includes("?") ? "GET" : "POST" }, ports);
     expect(response.ok).toBe(true);
   }
-  expect(fetch).toHaveBeenCalledTimes(12);
+  expect(fetch).toHaveBeenCalledTimes(13);
   await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
 });
 

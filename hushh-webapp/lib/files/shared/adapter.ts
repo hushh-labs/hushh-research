@@ -162,6 +162,12 @@ export class SharedFilesAdapter {
           captureOptIn: cp.capture_opt_in,
           migrationState: mig.state,
           migrationRevision: mig.migration_revision,
+          dualReadQualified: Boolean(mig.dual_read_qualified),
+          coldRecoveryQualified: Boolean(mig.cold_recovery_qualified),
+          compiledClaimCount: Number(
+            (mig as { compiled_claim_count?: number }).compiled_claim_count ?? 0,
+          ),
+          classicWriterRetired: mig.state === "wiki_primary",
           pages: pages.map((p) => ({
             pageId: p.page_id,
             title: p.title,
@@ -358,13 +364,114 @@ export class SharedFilesAdapter {
         };
         break;
       }
+      case "/wiki/migrate": {
+        const { SharedWikiMaintenanceRunner } = await import(
+          "../wiki/migration-and-maintenance"
+        );
+        const migrator = new SharedWikiOwnerMigrator(this.wiki);
+        const action = String(body.action ?? "");
+        const requestId = String(body.request_id ?? crypto.randomUUID());
+        const expectedMigrationRevision =
+          typeof body.expected_migration_revision === "number"
+            ? body.expected_migration_revision
+            : undefined;
+
+        if (action === "maintenance_tick") {
+          const tick = await new SharedWikiMaintenanceRunner(this.wiki).runTick({
+            idempotencyKey: requestId,
+            signal,
+          });
+          const mig = await migrator.getMigrationStatus(signal);
+          result = {
+            action,
+            migrationState: mig.state,
+            migrationRevision: mig.migration_revision,
+            dualReadQualified: Boolean(mig.dual_read_qualified),
+            coldRecoveryQualified: Boolean(mig.cold_recovery_qualified),
+            classicWriterRetired: mig.state === "wiki_primary",
+            maintenance: tick,
+          };
+          break;
+        }
+
+        if (action === "compile_and_verify") {
+          const v1Markdown = String(body.v1_markdown ?? "");
+          const compiled = await migrator.compileLegacySources({
+            v1Markdown,
+            idempotencyKey: requestId,
+            expectedMigrationRevision,
+            signal,
+          });
+          await new SharedWikiMaintenanceRunner(this.wiki).runTick({
+            idempotencyKey: `${requestId}:maint`.slice(0, 120),
+            signal,
+          });
+          const parity = await migrator.verifyDualReadParity({
+            v1Markdown,
+            signal,
+          });
+          const chatKeyVerified = Boolean(body.chat_key_verified);
+          const cold = await migrator.verifyColdReconstruction({
+            chatSessionVerifier: async () => chatKeyVerified,
+            signal,
+          });
+          const mig = await migrator.getMigrationStatus(signal);
+          result = {
+            action,
+            migrationState: mig.state,
+            migrationRevision: mig.migration_revision,
+            dualReadQualified: Boolean(parity.qualified),
+            coldRecoveryQualified: Boolean(cold.qualified),
+            compiledClaimCount: compiled.compiled_claim_count,
+            skippedTombstoned: compiled.skipped_tombstoned_count,
+            classicWriterRetired: mig.state === "wiki_primary",
+            parity,
+            coldRecovery: cold,
+          };
+          break;
+        }
+
+        const currentMig = await migrator.getMigrationStatus(signal);
+        const targetState =
+          action === "cutover_rollback_safe"
+            ? ("wiki_primary_with_v1_rollback" as const)
+            : ("wiki_primary" as const);
+        const advanced = await migrator.advanceMigrationState({
+          targetState,
+          expectedMigrationRevision:
+            expectedMigrationRevision ?? currentMig.migration_revision,
+          signal,
+        });
+        const migAfter = await migrator.getMigrationStatus(signal);
+        result = {
+          action,
+          migrationState: advanced.state,
+          migrationRevision: advanced.migration_revision,
+          dualReadQualified: Boolean(migAfter.dual_read_qualified),
+          coldRecoveryQualified: Boolean(migAfter.cold_recovery_qualified),
+          classicWriterRetired: advanced.state === "wiki_primary",
+        };
+        break;
+      }
       case "/wiki/rollback": {
         const res = await new SharedWikiOwnerMigrator(
           this.wiki,
-        ).rollbackToV1Markdown({ signal });
+        ).rollbackToV1Markdown({
+          priorV1Markdown:
+            typeof body.prior_v1_markdown === "string"
+              ? body.prior_v1_markdown
+              : "",
+          expectedMigrationRevision:
+            typeof body.expected_migration_revision === "number"
+              ? body.expected_migration_revision
+              : undefined,
+          allowPostGraduation: Boolean(body.allow_post_graduation),
+          signal,
+        });
         result = {
           migrationState: res.state,
           migrationRevision: res.migration_revision,
+          v1Markdown: res.v1_markdown,
         };
         break;
       }

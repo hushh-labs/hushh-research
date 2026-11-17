@@ -498,12 +498,17 @@ async def run_pod_turn(
     # from older holdings on exactly the turns a person is watching.
     if grounding is None:
         try:
+            from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
+                is_wiki_serving_primary,
+                read_pod_wiki_migration_state,
+            )
             from hushh_mcp.services.pod_pkm_resolver import local_grounding  # noqa: PLC0415
 
-            # Keyed on the owner the HUB verified in the consent token, never on
-            # anything the request body carries, so a caller cannot steer this
-            # pod into rebuilding somebody else's index by naming them.
-            grounding = await local_grounding(user_id)
+            if not is_wiki_serving_primary(await read_pod_wiki_migration_state()):
+                # Keyed on the owner the HUB verified in the consent token, never on
+                # anything the request body carries, so a caller cannot steer this
+                # pod into rebuilding somebody else's index by naming them.
+                grounding = await local_grounding(user_id)
         except PodLogFenced:
             raise HTTPException(
                 status_code=409, detail="pod storage is closed for erasure"

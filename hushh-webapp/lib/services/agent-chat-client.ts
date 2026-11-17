@@ -74,7 +74,10 @@ import {
   ensureActiveSharedWiki,
   peekActiveSharedWiki,
 } from "@/lib/files/wiki/active-shared-wiki";
+import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
 import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
+import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity-agent-context";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
@@ -1377,26 +1380,34 @@ async function streamAgentChatAttempt(input: {
   const resolveTurnSharedWiki = async (): Promise<{
     wiki: SharedWikiLibrary | null;
     wikiHotDigest: string;
+    migrationState: string;
   }> => {
     if (!wikiEligible || !mcpSessionCurrent()) {
-      return { wiki: null, wikiHotDigest: "" };
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
     }
     try {
       const access = await import("./pod-app-access");
       if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
-        return { wiki: null, wikiHotDigest: "" };
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
       }
       if (!mcpSessionCurrent()) {
-        return { wiki: null, wikiHotDigest: "" };
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
       }
       const bound = peekActiveSharedWiki();
       if (bound) {
-        const digest = await buildSharedWikiHotDigestContext(
-          bound,
-          undefined,
-          input.signal,
-        ).catch(() => "");
-        return { wiki: bound, wikiHotDigest: digest };
+        const [digest, mig] = await Promise.all([
+          buildSharedWikiHotDigestContext(bound, undefined, input.signal).catch(
+            () => "",
+          ),
+          new SharedWikiOwnerMigrator(bound)
+            .getMigrationStatus(input.signal)
+            .catch(() => null),
+        ]);
+        return {
+          wiki: bound,
+          wikiHotDigest: digest,
+          migrationState: mig?.state ?? "v1_markdown_only",
+        };
       }
       const ensured = ensureActiveSharedWiki({
         userId: input.userId,
@@ -1405,19 +1416,28 @@ async function streamAgentChatAttempt(input: {
         vaultEpoch: mcpVaultEpoch,
         readToken: () => (mcpSessionCurrent() ? input.vaultOwnerToken : null),
       });
-      if (!ensured) return { wiki: null, wikiHotDigest: "" };
+      if (!ensured) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
       const initialized = await ensured.store.readyIfInitialized(input.signal);
       if (!initialized || !mcpSessionCurrent()) {
-        return { wiki: null, wikiHotDigest: "" };
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
       }
-      const digest = await buildSharedWikiHotDigestContext(
-        ensured,
-        undefined,
-        input.signal,
-      ).catch(() => "");
-      return { wiki: ensured, wikiHotDigest: digest };
+      const [digest, mig] = await Promise.all([
+        buildSharedWikiHotDigestContext(ensured, undefined, input.signal).catch(
+          () => "",
+        ),
+        new SharedWikiOwnerMigrator(ensured)
+          .getMigrationStatus(input.signal)
+          .catch(() => null),
+      ]);
+      return {
+        wiki: ensured,
+        wikiHotDigest: digest,
+        migrationState: mig?.state ?? "v1_markdown_only",
+      };
     } catch {
-      return { wiki: null, wikiHotDigest: "" };
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
     }
   };
   // Chat history is sealed with a key derived from the vault key; the server
@@ -1425,9 +1445,14 @@ async function streamAgentChatAttempt(input: {
   // The coarse position is resolved beside the key so it adds no serial wait.
   let chatKeyHeaders: Record<string, string>;
   let turnLocation: Awaited<ReturnType<typeof resolveTurnLocation>>;
-  let turnWiki: { wiki: SharedWikiLibrary | null; wikiHotDigest: string } = {
+  let turnWiki: {
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  } = {
     wiki: null,
     wikiHotDigest: "",
+    migrationState: "v1_markdown_only",
   };
   try {
     [chatKeyHeaders, turnLocation, , turnWiki] = await Promise.all([
@@ -1448,6 +1473,36 @@ async function streamAgentChatAttempt(input: {
   if (sharedWikiSession) {
     tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
   }
+  const effectivePkmContext = (() => {
+    const raw = input.pkmContext;
+    const wikiPrimaryServing =
+      Boolean(turnWiki.wikiHotDigest) &&
+      (turnWiki.migrationState === "wiki_primary_with_v1_rollback" ||
+        turnWiki.migrationState === "wiki_primary");
+    if (!raw || !wikiPrimaryServing) return raw;
+    const soulMatch = /(?:^|\n\n)#\s*(?:memory\.md|one\.memory\.md\.v1)\b/i.exec(raw);
+    if (!soulMatch) return raw;
+    const soulStart =
+      soulMatch[0].startsWith("\n\n") ? soulMatch.index + 2 : soulMatch.index;
+    const prefix = raw.slice(0, soulStart).trim();
+    const afterSoulStart = raw.slice(soulStart);
+    const markers = [
+      `\n\n${PENDING_CHAT_TURNS_HEADER}`,
+      "\n\nRecent activity in One today (seen on this device, not saved memory):",
+      `\n\n${LIVE_MIRROR_PACKET_HEADER}`,
+    ];
+    let tailIndex = -1;
+    for (const marker of markers) {
+      const idx = afterSoulStart.indexOf(marker);
+      if (idx !== -1 && (tailIndex === -1 || idx < tailIndex)) {
+        tailIndex = idx;
+      }
+    }
+    const suffix =
+      tailIndex !== -1 ? afterSoulStart.slice(tailIndex + 2).trim() : "";
+    const kept = [prefix, suffix].filter(Boolean).join("\n\n");
+    return kept || undefined;
+  })();
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const onLostTransport = () => {
     if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
@@ -2353,7 +2408,7 @@ async function streamAgentChatAttempt(input: {
         ...(nwsReport ? { nwsReport } : {}),
         timezone,
         turnLocation,
-        pkmContext: input.pkmContext,
+        pkmContext: effectivePkmContext,
         ...(sharedWikiSession ? { wikiClientReady: true } : {}),
         ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
         communicationPreferences,

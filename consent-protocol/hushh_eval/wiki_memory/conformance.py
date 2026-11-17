@@ -123,12 +123,9 @@ class _FakeProviderMemoryService:
         return 1
 
     async def status(self) -> dict[str, Any]:
-        semantics = (
-            "suppressed_stale"
-            if (self.has_provider_bank and self.provider_consented and self.suppressed)
-            else "unrebuilt"
-        )
-        return {"provider": {"rebuildSemantics": semantics}}
+        is_stale = bool(self.has_provider_bank and self.provider_consented and self.suppressed)
+        semantics = "suppressed_stale" if is_stale else "unrebuilt"
+        return {"provider": {"stale": is_stale, "rebuildSemantics": semantics}}
 
     async def forget_text(self, _statement: str) -> dict[str, Any]:
         if not self.has_provider_bank or not self.provider_consented:
@@ -593,11 +590,20 @@ async def evaluate_live_wiki_pipeline(
 
     known_sources = {s.source_id for s in active_corpus.sources}
 
+    eval_key = hashlib.sha256(b"phase5_live_eval_key").digest()
     for q in active_corpus.queries:
         query_words = q.topic_hint.replace("_", " ")
+        # Instantiate a fresh cold WikiLibrary over encrypted store blobs so cold_ms
+        # measures true cold root/manifest/lexical-index decryption, not a warm instance.
+        cold_lib = WikiLibrary(
+            owner=active_corpus.owner_id,
+            key=eval_key,
+            store=store,
+            check=_noop_check,
+        )
         t0 = time.perf_counter()
         search_env = await execute_pod_wiki_tool(
-            lib, "search_wiki", {"query": query_words, "limit": 5}
+            cold_lib, "search_wiki", {"query": query_words, "limit": 5}
         )
         cold_ms = (time.perf_counter() - t0) * 1000.0
         cold_timings.append(cold_ms)
@@ -649,7 +655,81 @@ async def evaluate_live_wiki_pipeline(
             citation_valid_count += 1
         prompt_Verify_chars.append(len(joined) + min(len(hot_context), 512))
 
+    # Verify active specialist/domain conflict surfacing (`status="conflicted"`)
+    conflict_src = await lib.register_source(
+        WikiSourceRef(
+            source_id="wsr_0123456789abcde0",
+            kind="chat_turn",
+            locator="eval:conflict_turn_1",
+            content_sha256=hashlib.sha256(b"conflict_turn_1").hexdigest(),
+            observed_at="2026-11-16T00:00:00Z",
+            consent_derived=False,
+        ),
+        idempotency_key="eval_conflict_src",
+    )
+    conflict_page_id = "wpg_0123456789abcde0"
+    await lib.create_page(
+        page_id=conflict_page_id,
+        title="Financial discrepancy check",
+        folder="topics",
+        tldr="Owner mentioned brokerage cash balance discrepancy.",
+        status_as_of="2026-11-16",
+        body="- Brokerage cash balance appears to be 50000 USD.\n",
+        claims=[
+            {
+                "claim_id": "wcl_0123456789abcde0",
+                "statement": "Brokerage cash balance appears to be 50000 USD.",
+                "status": "active",
+                "confidence": 0.9,
+                "source_ids": [conflict_src["source_id"]],
+                "observed_at": "2026-11-16",
+            }
+        ],
+        links=[],
+        source_ids=[conflict_src["source_id"]],
+        idempotency_key="eval_conflict_page",
+    )
+    proj_engine = WikiProjectionEngine(lib)
+    conflict_receipt = await proj_engine.derive_projection(
+        page_id=conflict_page_id,
+        claim_id="wcl_0123456789abcde0",
+        target_domain="lifestyle",
+        json_path="budget.checking_balance",
+        idempotency_key="eval_conflict_proj",
+        active_recipient_count=0,
+        owner_confirmed=True,
+        proposed_value="$50,000",
+        specialist_snapshot={"financial": {"checking_balance": "$12,450"}},
+    )
+    conflict_page_env = await execute_pod_wiki_tool(
+        lib, "read_wiki_page", {"page_id": conflict_page_id}
+    )
+    conflict_surfaced_cleanly = (
+        conflict_receipt["state"] == "conflicted"
+        and conflict_receipt["exposure_eligibility"] is False
+        and conflict_page_env["status"] == "ok"
+    )
+    if not conflict_surfaced_cleanly:
+        raise RuntimeError("Active specialist conflict was not isolated as state='conflicted'")
+
     total_q = len(active_corpus.queries)
+    p50_wiki_chars = int(median(prompt_Verify_chars))
+    v1_base_dict = phase0.get("v1_whole_markdown_baseline")
+    v1_prompt_chars = int(
+        (v1_base_dict.get("prompt_chars_p50") if isinstance(v1_base_dict, dict) else None) or 96_000
+    )
+    v1_input_tokens_per_turn = max(1, v1_prompt_chars // 4)
+    wiki_hot_only_tokens = max(1, len(hot_context) // 4)
+    wiki_tool_turn_tokens = max(1, (len(hot_context) + p50_wiki_chars) // 4)
+    # Standard Gemini Flash reference pricing ($0.15 / 1M input tokens, $0.60 / 1M output tokens)
+    # used strictly as a fixed comparative unit across identical 100-turn workloads.
+    v1_100_turn_usd = round((100 * v1_input_tokens_per_turn * 0.15) / 1_000_000, 5)
+    wiki_100_turn_usd = round(
+        ((60 * wiki_hot_only_tokens + 40 * 2 * wiki_tool_turn_tokens) * 0.15) / 1_000_000,
+        5,
+    )
+    total_cipher_bytes = sum(len(v[0]) for v in store.objects.values())
+
     return {
         "schema": "hushh.wiki_memory.live_pipeline_comparison.v1",
         "v1_baseline": phase0["v1_whole_markdown_baseline"],
@@ -659,13 +739,35 @@ async def evaluate_live_wiki_pipeline(
             "accuracy": round(correct_count / max(1, total_q), 4),
             "citation_validity_rate": round(citation_valid_count / max(1, total_q), 4),
             "forbidden_leak_count": forbidden_leaks,
+            "active_conflict_isolated": conflict_surfaced_cleanly,
             "hot_digest_chars": len(hot_context),
             "hot_digest_within_budget": len(hot_context) <= WIKI_HOT_MAX_CHARS,
-            "prompt_chars_p50": int(median(prompt_Verify_chars)),
+            "prompt_chars_p50": p50_wiki_chars,
             "prompt_chars_max": max(prompt_Verify_chars),
             "cold_store_median_ms": round(float(median(cold_timings)), 4),
             "warm_store_median_ms": round(float(median(warm_timings)), 4),
             "selection_median_ms": round(float(median(select_timings)), 4),
+            "latency_separation": {
+                "local_crypto_storage_cold_median_ms": round(float(median(cold_timings)), 4),
+                "local_crypto_storage_warm_median_ms": round(float(median(warm_timings)), 4),
+                "provider_inference_ms": None,
+                "provider_note": "Offline deterministic harness executes zero live LLM network calls; provider inference latency is measured separately in live environment probes.",
+            },
+            "workload_economics_comparison": {
+                "v1_model_calls_per_turn": 1,
+                "wiki_model_calls_hot_hit_turn": 1,
+                "wiki_model_calls_deep_recall_turn": 2,
+                "v1_estimated_input_tokens_per_turn": v1_input_tokens_per_turn,
+                "wiki_estimated_input_tokens_hot_turn": wiki_hot_only_tokens,
+                "wiki_estimated_input_tokens_deep_turn": wiki_tool_turn_tokens,
+                "v1_consolidation_write_bytes_per_8_turns": 96_000,
+                "wiki_incremental_page_write_bytes_avg": max(
+                    1, total_cipher_bytes // max(1, len(active_corpus.pages) + 1)
+                ),
+                "total_encrypted_wiki_store_bytes": total_cipher_bytes,
+                "reference_100_turn_input_cost_usd_v1": v1_100_turn_usd,
+                "reference_100_turn_input_cost_usd_wiki_mixed": wiki_100_turn_usd,
+            },
         },
     }
 
@@ -1145,5 +1247,198 @@ async def evaluate_external_ai_archive_import() -> dict[str, Any]:
             "idempotent_reimport_deduplication": deduplicated_cleanly,
             "five_surface_forget_and_reimport_non_resurrection": non_resurrected,
             "zip_slip_traversal_refused_fail_closed": zip_slip_refused,
+        },
+    }
+
+
+async def evaluate_phase6_cutover_and_retirement() -> dict[str, Any]:
+    """Phase 6 per-owner cohort cutover, classic-writer retirement, rollback & caller ledger."""
+    from types import SimpleNamespace
+
+    from hushh_mcp.one_adk.agent_tree import STATE_MEMORY_AVAILABLE, STATE_MEMORY_DIGEST
+    from hushh_mcp.one_adk.memory_review import MemoryReviewSink, _sync_sink_to_optional_pod_wiki
+    from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
+    from hushh_mcp.one_adk.wiki_recall_tools import (
+        STATE_WIKI_HOT_DIGEST,
+        is_classic_writer_retired,
+        is_wiki_serving_primary,
+        read_pod_wiki_migration_state,
+    )
+
+    store = _InMemoryCasStore(expected_custody_ref="", supports_physical_delete=True)
+
+    async def _noop_check() -> None:
+        return None
+
+    wiki = WikiLibrary(
+        owner="owner_phase6_cohort",
+        key=hashlib.sha256(b"phase6_cohort_key").digest(),
+        store=store,
+        check=_noop_check,
+    )
+    pms = _FakeProviderMemoryService(has_provider_bank=True, provider_consented=True)
+    writer = WikiKnowledgeWriter(wiki, pod_memory_service=pms)
+    migrator = WikiOwnerMigrator(wiki, writer=writer)
+    await writer.set_capture_opt_in(True)
+
+    v1_seed = (
+        "# memory.md\n\n"
+        "## Preferences\n"
+        "- Prefers morning flight departures from SFO.\n"
+        "- Avoids peanuts due to allergy.\n"
+    )
+    compiled = await migrator.compile_legacy_sources(
+        v1_markdown=v1_seed,
+        pod_schema2_facts=[{"seq": 1, "text": "Works on privacy-preserving systems."}],
+        idempotency_key="p6_compile",
+    )
+    await WikiMaintenanceRunner(wiki, writer=writer).run_tick(idempotency_key="p6_maint_1")
+    parity = await migrator.verify_dual_read_parity(
+        v1_markdown=v1_seed,
+        pod_schema2_facts=[{"seq": 1, "text": "Works on privacy-preserving systems."}],
+    )
+
+    async def _true_check() -> bool:
+        return True
+
+    cold = await migrator.verify_cold_reconstruction(
+        commit_log_verifier=_true_check,
+        chat_session_verifier=_true_check,
+    )
+    cutover = await migrator.advance_migration_state(
+        "wiki_primary_with_v1_rollback",
+        expected_migration_revision=int(cold["migration_revision"]),
+    )
+
+    # Forget one claim while in wiki_primary_with_v1_rollback, then verify rollback omits it
+    pages = await wiki.list_pages()
+    pref_page = next(p for p in pages if "preference" in p["title"].lower())
+    pref_doc = await wiki.read_page(pref_page["page_id"])
+    flight_claim = next(c for c in pref_doc["claims"] if "SFO" in c["statement"])
+    forget_res = await migrator.propagate_forget_and_correction(
+        page_id=pref_page["page_id"],
+        claim_id=flight_claim["claim_id"],
+        idempotency_key="p6_forget_sfo",
+        destroy_page_key=True,
+        delete_retired_blobs=True,
+    )
+
+    rolled = await migrator.rollback_to_v1_markdown(prior_v1_markdown=v1_seed)
+    rollback_safe = (
+        rolled["state"] == "v1_markdown_only"
+        and "SFO" not in rolled["v1_markdown"]
+        and "peanuts" in rolled["v1_markdown"]
+        and "privacy-preserving systems" in rolled["v1_markdown"]
+    )
+
+    # Re-compile, re-verify, and graduate all the way to wiki_primary
+    await migrator.compile_legacy_sources(
+        v1_markdown=rolled["v1_markdown"],
+        idempotency_key="p6_recompile",
+    )
+    await WikiMaintenanceRunner(wiki, writer=writer).run_tick(idempotency_key="p6_maint_2")
+    await migrator.verify_dual_read_parity(v1_markdown=rolled["v1_markdown"])
+    cold2 = await migrator.verify_cold_reconstruction(
+        commit_log_verifier=_true_check,
+        chat_session_verifier=_true_check,
+    )
+    cutover2 = await migrator.advance_migration_state(
+        "wiki_primary_with_v1_rollback",
+        expected_migration_revision=int(cold2["migration_revision"]),
+    )
+    graduated = await migrator.advance_migration_state(
+        "wiki_primary",
+        expected_migration_revision=int(cutover2["migration_revision"]),
+    )
+
+    unforced_rollback_refused = False
+    try:
+        await migrator.rollback_to_v1_markdown(prior_v1_markdown=rolled["v1_markdown"])
+    except WikiRefused as exc:
+        unforced_rollback_refused = exc.code == "WIKI_ROLLBACK_POST_GRADUATION_FORBIDDEN"
+
+    # Verify PodChatMemory.prepare suppresses classic STATE_MEMORY_DIGEST once Wiki is primary
+    class _StubSessions:
+        async def get_session(self, **_kwargs: Any) -> None:
+            return None
+
+    class _StubContext:
+        owner = "owner_phase6_cohort"
+        hushh_id = "ha1_phase6_cohort"
+        claims: dict[str, Any] = {}
+        sessions = _StubSessions()
+
+        async def require_access(self) -> None:
+            return None
+
+    class _StubClassicService:
+        def unreviewed_count(self) -> int:
+            return 0
+
+        async def digest(self, _max_chars: int) -> str:
+            return "- Stale classic digest line that must be suppressed"
+
+    turn_input = SimpleNamespace(thread_id="thread_p6", state={})
+    pcm = PodChatMemory(_StubContext(), _StubClassicService(), wiki_library=wiki)
+    await pcm.prepare(turn_input, model=None, provider="vertex", model_id="gemini")
+    classic_prompt_suppressed = (
+        turn_input.state.get(STATE_MEMORY_AVAILABLE) is False
+        and turn_input.state.get(STATE_MEMORY_DIGEST) == ""
+        and bool(turn_input.state.get(STATE_WIKI_HOT_DIGEST))
+    )
+
+    # Verify post-graduation durable fact capture writes directly to Wiki
+    sink = MemoryReviewSink(known_ids=frozenset())
+    sink.remembers.append("Adopted Personal Wiki as sole canonical memory store.")
+    sync_res = await _sync_sink_to_optional_pod_wiki(
+        sink,
+        facts=[],
+        through_seq=42,
+        memory_service=pms,
+        wiki_library=wiki,
+    )
+    resolved_state = await read_pod_wiki_migration_state(wiki)
+
+    all_passed = all(
+        (
+            compiled["compiled_claim_count"] == 3,
+            bool(parity["qualified"]),
+            bool(cold["qualified"]),
+            cutover["state"] == "wiki_primary_with_v1_rollback",
+            bool(forget_res["provider_local_suppressed"]),
+            rollback_safe,
+            graduated["state"] == "wiki_primary",
+            is_wiki_serving_primary(resolved_state),
+            is_classic_writer_retired(resolved_state),
+            unforced_rollback_refused,
+            classic_prompt_suppressed,
+            sync_res is not None and sync_res.get("status") == "saved",
+        )
+    )
+    if not all_passed:
+        raise RuntimeError("Phase 6 cohort cutover and classic-writer retirement check failed")
+
+    return {
+        "schema": "hussh.eval.wiki_phase6_cutover.v1",
+        "all_passed": all_passed,
+        "checks": {
+            "legacy_v1_and_pod_schema2_compiled": compiled["compiled_claim_count"] == 3,
+            "dual_read_parity_and_four_plane_cold_recovery": bool(
+                parity["qualified"] and cold["qualified"]
+            ),
+            "tombstone_preserving_rollback_to_classic": rollback_safe,
+            "graduated_to_wiki_primary": graduated["state"] == "wiki_primary",
+            "unforced_post_graduation_rollback_refused": unforced_rollback_refused,
+            "classic_digest_suppressed_when_wiki_primary": classic_prompt_suppressed,
+            "sole_wiki_writer_active_post_graduation": bool(
+                sync_res and sync_res.get("status") == "saved"
+            ),
+        },
+        "legacy_caller_inventory_disposition": {
+            "pod_pkm_store": "retained_read_only_replay_zero_production_writers",
+            "pod_pkm_resolver_local_grounding": "gated_off_per_owner_when_wiki_primary",
+            "pod_turn_route": "retained_required_puppy_and_relay_authority_with_wiki_fencing",
+            "pod_memory_bank_provider": "optional_consent_gated_tier_rebuilt_empty_on_tick",
+            "pkm_agent_lab_soul_markdown_v1": "aligned_to_96000_char_ceiling_for_v1_owners",
         },
     }
