@@ -1384,6 +1384,7 @@ async def byoc_authorization_instructions(
 
 class HostedAzureMigrationRequest(BaseModel):
     cellId: str | None = Field(default=None, max_length=80)
+    allowFreshPodLog: bool = Field(default=False)
 
 
 def _require_dev_hosted_azure_lane() -> None:
@@ -1421,6 +1422,7 @@ async def migrate_owner_pod_to_hosted_azure(
             await execute_owner_migration_to_hosted_azure(
                 firebase_uid,
                 cell_id=(body.cellId if body else None),
+                allow_fresh_pod_log=bool(body.allowFreshPodLog if body else False),
             )
         )
     except PermissionError as exc:

@@ -88,6 +88,7 @@ def build_hosted_azure_switch_metadata(
     previous_row: dict[str, Any],
     claimed: ClaimedSkeletonResult,
     service_uid: str,
+    migration_mode: str = "lossless_commit_log",
     now_iso: str | None = None,
 ) -> dict[str, Any]:
     """Build the clean Hussh-Hosted Azure metadata + archived detachedPlacements."""
@@ -147,6 +148,7 @@ def build_hosted_azure_switch_metadata(
         "registryServer": claimed.cell.registry_server,
         "imageDigest": image_digest,
         "claimLatencyMs": claimed.claim_latency_ms,
+        "migrationMode": migration_mode,
         "admittedAt": timestamp,
     }
 
@@ -166,6 +168,7 @@ def build_hosted_azure_switch_metadata(
         "image_digest": image_digest,
         "endpointVersion": int(old_meta.get("endpointVersion") or 0) + 1,
         "claimLatencyMs": claimed.claim_latency_ms,
+        "migrationMode": migration_mode,
         "relayFirst": True,
         "hostedAzureAdmission": admission,
         "detachedPlacements": prior_detached,
@@ -180,6 +183,7 @@ def _switch_over_sql(
     hushh_id: str,
     claimed: ClaimedSkeletonResult,
     service_uid: str,
+    migration_mode: str = "lossless_commit_log",
 ) -> dict[str, Any]:
     """Atomically flip ``personal_agent_registry`` from migrating source -> hosted Azure."""
     from sqlalchemy import text
@@ -210,6 +214,7 @@ def _switch_over_sql(
                 previous_row=previous,
                 claimed=claimed,
                 service_uid=service_uid,
+                migration_mode=migration_mode,
                 now_iso=now_iso,
             )
             current_mode = str(previous.get("model_credential_mode") or "").strip()
@@ -366,6 +371,50 @@ def _discover_source_incarnation(handoff: Any, metadata: dict[str, Any]) -> str:
     return str(metadata.get("revision") or metadata.get("serviceUid") or "").strip()
 
 
+class HostedAzureFreshFallbackSteps(LiveMigrationSteps):
+    """Live migration steps with explicit opt-in fallback on HTTP 400 custody refusals.
+
+    Older BYOC pods carrying source-DEK-sealed ``agent_memory`` / ``agent_memory_fact``
+    records intentionally refuse whole-log export (HTTP 400) so ciphertext is never
+    re-sealed into an unreadable state. When ``allow_fresh_pod_log=True`` is explicitly
+    requested, ONLY ``POD_REFUSED_400`` admits a fresh pod commit log while retaining the
+    untouched BYOC resource group under the 14-day grace period; network, auth, and 5xx
+    errors still fail closed before switch-over.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fresh_pod_log_fallback_used: bool = False
+
+    async def export_source(self, public_key: str, key_id: str) -> dict[str, Any]:
+        try:
+            return dict(await super().export_source(public_key, key_id))
+        except pod_migration_transport.PodMigrationTransportError as exc:
+            if exc.code != "POD_REFUSED_400":
+                raise
+            logger.warning(
+                "hosted_azure_migration.fresh_pod_log_fallback user=%s",
+                self._ctx.user_id,
+            )
+            self.fresh_pod_log_fallback_used = True
+            return {
+                "bundle": {"_freshPodLogFallback": True},
+                "headSha": "0" * 64,
+                "recordCount": 0,
+            }
+
+    async def import_destination(self, bundle: dict[str, Any]) -> dict[str, Any]:
+        if bundle.get("_freshPodLogFallback") is True:
+            zero_sha = "0" * 64
+            return {
+                "headSha": zero_sha,
+                "recordCount": 0,
+                "sourceHeadSha": zero_sha,
+                "matchesSource": True,
+            }
+        return dict(await super().import_destination(bundle))
+
+
 async def execute_owner_migration_to_hosted_azure(
     user_id: str,
     *,
@@ -374,6 +423,7 @@ async def execute_owner_migration_to_hosted_azure(
     job_repo: PodMigrationJobRepo | None = None,
     pool: PodSkeletonPoolService | None = None,
     cell_id: str | None = None,
+    allow_fresh_pod_log: bool = False,
     handoff_factory: Callable[[str, str], Any] | None = None,
     transport: Any = pod_migration_transport,
     token_minter: Any = None,
@@ -454,11 +504,20 @@ async def execute_owner_migration_to_hosted_azure(
     )
 
     switched_row: dict[str, Any] | None = None
+    steps: LiveMigrationSteps
+
+    def _resolved_migration_mode() -> str:
+        return (
+            "fresh_pod_log_with_source_grace"
+            if getattr(steps, "fresh_pod_log_fallback_used", False)
+            else "lossless_commit_log"
+        )
 
     async def _do_switch_over(_destination_url: str) -> None:
         nonlocal switched_row
         if provisioner.claimed is None:
             raise RuntimeError("No claimed skeleton available at switch-over")
+        mode = _resolved_migration_mode()
         if hasattr(db, "engine"):
             switched_row = await asyncio.to_thread(
                 _switch_over_sql,
@@ -467,6 +526,7 @@ async def execute_owner_migration_to_hosted_azure(
                 hushh_id=hushh_id,
                 claimed=provisioner.claimed,
                 service_uid=provisioner._service_uid,
+                migration_mode=mode,
             )
         else:
             # Test seam when running against an in-memory fake DB without SQLAlchemy engine.
@@ -479,6 +539,13 @@ async def execute_owner_migration_to_hosted_azure(
                 claimed=provisioner.claimed,
                 service_uid=provisioner._service_uid,
             )
+            if isinstance(switched_row, dict) and isinstance(
+                switched_row.get("backend_metadata"), dict
+            ):
+                switched_row["backend_metadata"]["migrationMode"] = mode
+                admission = switched_row["backend_metadata"].get("hostedAzureAdmission")
+                if isinstance(admission, dict):
+                    admission["migrationMode"] = mode
 
     def _non_destructive_source_grace() -> None:
         # Preserve owner's personal BYOC Resource Group for the 14-day grace period;
@@ -496,7 +563,8 @@ async def execute_owner_migration_to_hosted_azure(
         operation_id=op_id,
         source_incarnation=source_incarnation,
     )
-    steps = LiveMigrationSteps(
+    steps_cls = HostedAzureFreshFallbackSteps if allow_fresh_pod_log else LiveMigrationSteps
+    steps = steps_cls(
         ctx,
         registry=registry_repo,
         provisioner=provisioner,
@@ -530,6 +598,7 @@ async def execute_owner_migration_to_hosted_azure(
         "cellId": cell.cell_id,
         "slotId": claimed.slot.slot_id if claimed else None,
         "claimLatencyMs": claimed.claim_latency_ms if claimed else None,
+        "migrationMode": _resolved_migration_mode(),
         "directPromoted": direct_promoted,
         "cutover": relay_first_cutover_status(switched_row),
         "job": job,

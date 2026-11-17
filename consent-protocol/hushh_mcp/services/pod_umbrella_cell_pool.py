@@ -18,6 +18,7 @@ Solves the two primary scaling & UX walls of 1-project / 1-environment per user:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -313,8 +314,10 @@ class PodSkeletonPoolService:
         cell: UmbrellaCellConfig,
         occupied_app_ids: set[str] | None = None,
         arm_tags_by_slot: Mapping[str, Mapping[str, Any]] | None = None,
+        requesting_owner_hashes: set[str] | None = None,
     ) -> tuple[list[SkeletonSlotConfig], list[SkeletonSlotConfig]]:
         warm: list[SkeletonSlotConfig] = []
+        reusable_for_requester: list[SkeletonSlotConfig] = []
         active: list[SkeletonSlotConfig] = []
         occupied = occupied_app_ids or set()
         for slot in cell.slots:
@@ -325,19 +328,22 @@ class PodSkeletonPoolService:
                 or process_key in self._process_claims
                 or slot.slot_id in self._process_claims
             )
+            reusable = False
             if not claimed and arm_tags_by_slot and slot.slot_id in arm_tags_by_slot:
                 tags = arm_tags_by_slot[slot.slot_id]
                 state = str(tags.get("hussh-pool-state") or "").strip()
                 owner_hash = str(tags.get("hussh-owner-hash") or "").strip()
-                if state and state != "warm_standby":
-                    claimed = True
-                elif owner_hash:
+                if requesting_owner_hashes and owner_hash and owner_hash in requesting_owner_hashes:
+                    reusable = True
+                elif (state and state != "warm_standby") or owner_hash:
                     claimed = True
             if claimed:
                 active.append(slot)
+            elif reusable:
+                reusable_for_requester.append(slot)
             else:
                 warm.append(slot)
-        return warm, active
+        return reusable_for_requester + warm, active
 
     def reserve_slot(
         self,
@@ -346,6 +352,7 @@ class PodSkeletonPoolService:
         cell_id: str | None = None,
         occupied_app_ids: set[str] | None = None,
         arm_tags_by_slot: Mapping[str, Mapping[str, Any]] | None = None,
+        requesting_owner_hashes: set[str] | None = None,
     ) -> tuple[UmbrellaCellConfig, SkeletonSlotConfig, UmbrellaCellCapacity]:
         """Atomically claim one unclaimed warm_standby skeleton slot inside this process."""
         cell = self._registry.azure_cell(cell_id)
@@ -354,6 +361,7 @@ class PodSkeletonPoolService:
                 cell,
                 occupied_app_ids=occupied_app_ids,
                 arm_tags_by_slot=arm_tags_by_slot,
+                requesting_owner_hashes=requesting_owner_hashes,
             )
             capacity = self._registry.evaluate_capacity(
                 cell, active_slots=len(active), warm_standby_slots=len(warm)
@@ -403,28 +411,39 @@ class PodSkeletonPoolService:
         started = self._clock()
         cell = self._registry.azure_cell(cell_id)
 
-        # Observe live ARM tags lazily when running against live slots so a container app
-        # previously claimed in another process/run is never double-booked.
+        # Always observe live ARM tags when the backend runs live or when no SQL
+        # occupied-slot snapshot was supplied so incomplete/orphaned slot tags
+        # isolate distinct owners while letting the same owner resume safely.
         arm_tags: dict[str, Mapping[str, Any]] = {}
-        if occupied_app_ids is None:
-            for slot in cell.slots:
-                backend = self._backend_factory(_slot_spec(cell, slot))
-                try:
-                    app = await asyncio.to_thread(backend.observe_slot_sync, slot.app_id)
-                    if isinstance(app, Mapping):
-                        arm_tags[slot.slot_id] = dict(app.get("tags") or {})
-                except Exception as exc:  # noqa: BLE001 - best-effort pre-reservation check
-                    logger.info(
-                        "umbrella_pool.slot_precheck_failed slot=%s err=%s",
-                        slot.slot_id,
-                        type(exc).__name__,
-                    )
+        owner_hashes = {
+            f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+            for value in (spec.hushh_id, owner_id)
+            if value
+        }
+        for slot in cell.slots:
+            backend = self._backend_factory(_slot_spec(cell, slot))
+            should_probe = bool(getattr(backend, "_live", False)) or (
+                not hasattr(backend, "_live") and occupied_app_ids is None
+            )
+            if not should_probe or not hasattr(backend, "observe_slot_sync"):
+                continue
+            try:
+                app = await asyncio.to_thread(backend.observe_slot_sync, slot.app_id)
+                if isinstance(app, Mapping):
+                    arm_tags[slot.slot_id] = dict(app.get("tags") or {})
+            except Exception as exc:  # noqa: BLE001 - best-effort pre-reservation check
+                logger.info(
+                    "umbrella_pool.slot_precheck_failed slot=%s err=%s",
+                    slot.slot_id,
+                    type(exc).__name__,
+                )
 
         cell, chosen, capacity = self.reserve_slot(
             owner_id=owner_id,
             cell_id=cell.cell_id,
             occupied_app_ids=occupied_app_ids,
             arm_tags_by_slot=arm_tags or None,
+            requesting_owner_hashes=owner_hashes or None,
         )
 
         slot_spec = _slot_spec(cell, chosen)
@@ -475,7 +494,7 @@ class PodSkeletonPoolService:
                 replenishment_recommended=replenish,
             )
         except Exception:
-            self.release_slot_claim(chosen.slot_id)
+            self.release_slot_claim(chosen.slot_id, cell_id=cell.cell_id)
             raise
 
     def snapshot_status(
