@@ -23,6 +23,224 @@
   ],
   "protected_behaviors": [
     {
+      "name": "profile-row-feedback-keeps-rounded-clip",
+      "summary": "Pressing a Profile row never paints a sharp rectangular highlight.",
+      "fixed_by": "hushh-webapp/components/app-ui/settings-ui.tsx",
+      "why_it_needs_a_lock": [
+        "Interior grouped rows had square corners, and the actionable and feedback overlay did not inherit the row's clip. The ripple could therefore reveal a square pressed area.",
+        "Keep a bounded radius on each Profile row and propagate the same geometry to its actionable, overlay and ripple without adding an idle card."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 35,
+          "required_titles": [
+            "Profile tap feedback stays rounded at"
+          ]
+        }
+      ],
+      "e1": {
+        "version": 1,
+        "owner": "frontend-design-system",
+        "source": {
+          "kind": "bug",
+          "reference": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts"
+        },
+        "prevention_rule": "Measure the actual row, actionable, feedback and ripple radii while pressed, including an interior row.",
+        "verification": {
+          "argv": [
+            "{python}",
+            "scripts/ci/verify-protected-behavior-tests.py"
+          ],
+          "cwd": ".",
+          "timeout_seconds": 30
+        },
+        "runtime_verification": {
+          "lane": "web-targeted",
+          "command": "cd hushh-webapp && npm run test:layout-contracts"
+        }
+      }
+    },
+    {
+      "name": "profile-chat-panes-preserve-route-canvas",
+      "summary": "Opening Profile or Chats preserves the theme canvas inside the pane and does not retint the underlying page.",
+      "fixed_by": "hushh-webapp/app/globals.css",
+      "why_it_needs_a_lock": [
+        "Translucent reading panes blended the modal scrim into the canvas. Checking only parity let both panes pass with the same dull grey.",
+        "Keep Profile and Chats opaque on the independent theme swatch and verify that opening and closing them preserves the route canvas."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 350,
+          "required_titles": [
+            "Chats keeps Profile material through row actions at",
+            "Chats and Profile keep a solid material in Android blur-free mode"
+          ]
+        },
+        {
+          "path": "hushh-webapp/e2e/profile-legal-connectors.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 45,
+          "required_titles": [
+            "Profile keeps the opaque theme canvas at"
+          ]
+        }
+      ],
+      "e1": {
+        "version": 1,
+        "owner": "frontend-design-system",
+        "source": {
+          "kind": "bug",
+          "reference": "hushh-webapp/e2e/connections-drawer.layout.spec.ts"
+        },
+        "prevention_rule": "Compare computed pane backgrounds with the live route canvas and check the body color before and after opening Profile in both themes.",
+        "verification": {
+          "argv": [
+            "{python}",
+            "scripts/ci/verify-protected-behavior-tests.py"
+          ],
+          "cwd": ".",
+          "timeout_seconds": 30
+        },
+        "runtime_verification": {
+          "lane": "web-targeted",
+          "command": "cd hushh-webapp && npm run test:connections-layout"
+        }
+      }
+    },
+    {
+      "name": "new-chat-stays-a-plain-action",
+      "summary": "New chat is a plain action row with no resting card fill, border or elevation and retains a 44px target.",
+      "fixed_by": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
+      "why_it_needs_a_lock": [
+        "The sidebar used an outlined, tinted button with its own border and shadow, making New chat read as a separate card.",
+        "Use one transparent action recipe for mobile and expanded desktop history, preserving its callback, keyboard focus and touch target."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 350,
+          "required_titles": [
+            "New chat stays a plain action at"
+          ]
+        }
+      ],
+      "e1": {
+        "version": 1,
+        "owner": "frontend-design-system",
+        "source": {
+          "kind": "bug",
+          "reference": "hushh-webapp/e2e/connections-drawer.layout.spec.ts"
+        },
+        "prevention_rule": "Measure resting fill, border, shadow and target height, then click the production New chat control to prove it remains actionable.",
+        "verification": {
+          "argv": [
+            "{python}",
+            "scripts/ci/verify-protected-behavior-tests.py"
+          ],
+          "cwd": ".",
+          "timeout_seconds": 30
+        },
+        "runtime_verification": {
+          "lane": "web-targeted",
+          "command": "cd hushh-webapp && npm run test:connections-layout"
+        }
+      }
+    },
+    {
+      "name": "chat-activity-stays-a-plain-disclosure",
+      "summary": "Chat Activity has no grey card behind it and retains its count, 44px target and expand/collapse behavior.",
+      "fixed_by": "hushh-webapp/components/app-ui/stream-progress-panel.tsx",
+      "why_it_needs_a_lock": [
+        "Chat inherited the shared progress-section resting fill, so Activity appeared as a grey card.",
+        "Opt Chat into a plain disclosure while retaining the shared default for other progress sections, event state, focus and target size.",
+        "A ripple source check assumed a literal className and rejected the conditional plain/surface recipe even though positioning was preserved. Render both appearances and prove ripple ownership; browser coverage also measures the clipping host against the actual control."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/agent-markdown.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 52,
+          "required_titles": [
+            "Activity stays plain through live and completed turns at"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/press-ripple.contract.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 48,
+          "required_titles": [
+            "wires the ripple into the chat's message actions and Activity trigger"
+          ]
+        }
+      ],
+      "e1": {
+        "version": 1,
+        "owner": "frontend-design-system",
+        "source": {
+          "kind": "bug",
+          "reference": "hushh-webapp/e2e/agent-markdown.layout.spec.ts"
+        },
+        "prevention_rule": "Measure both Activity and its outer panel as transparent and exercise the disclosure's accessible expanded state. Render both progress appearances to verify the positioned trigger owns its ripple, and measure the browser ripple host clipping geometry rather than matching className source syntax.",
+        "verification": {
+          "argv": [
+            "{python}",
+            "scripts/ci/verify-protected-behavior-tests.py"
+          ],
+          "cwd": ".",
+          "timeout_seconds": 30
+        },
+        "runtime_verification": {
+          "lane": "web-targeted",
+          "command": "cd hushh-webapp && npm run test:layout-contracts"
+        }
+      }
+    },
+    {
+      "name": "chat-copy-shares-foundation-type-and-spacing",
+      "summary": "Puppy One uses the opening chat font scale, paragraph rhythm, message insets, reading measure and composer typography.",
+      "fixed_by": "hushh-webapp/components/agent/hermes-chat-panel.tsx",
+      "why_it_needs_a_lock": [
+        "The font family already matched, but independent text-xs/text-sm copy, message padding, a stale 896px measure and desktop composer scaling made Puppy look different from One. Source-string layout checks could not prove rendered parity.",
+        "Reuse the opening-copy recipe, OneChatBubble and compact composer field. Measure actual Puppy connected and unlinked states against One at phone and desktop widths in both themes and browser engines."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/agent-markdown.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 80,
+          "required_titles": [
+            "Puppy matches opening chat typography and spacing at"
+          ]
+        }
+      ],
+      "e1": {
+        "version": 1,
+        "owner": "frontend-design-system",
+        "source": {
+          "kind": "bug",
+          "reference": "hushh-webapp/e2e/agent-markdown.layout.spec.ts"
+        },
+        "prevention_rule": "Compare computed family, size, line height, weight, tracking, bubble insets and Markdown paragraph/list spacing; keep the 768px reading cap, 20px turn gap, 12px connection paragraph gap and 16px composer. Preserve separate conversations and device authority.",
+        "verification": {
+          "argv": [
+            "{python}",
+            "scripts/ci/verify-protected-behavior-tests.py"
+          ],
+          "cwd": ".",
+          "timeout_seconds": 30
+        },
+        "runtime_verification": {
+          "lane": "web-targeted",
+          "command": "cd hushh-webapp && npm run test:layout-contracts"
+        }
+      }
+    },
+    {
       "name": "location-people-search-finds-a-person-from-one-letter",
       "summary": "Every people picker on the Location surface matches a query that BEGINS a word ahead of one that merely appears inside it, so one typed letter narrows the list. One character keeps only word-beginning matches (falling back to loose ones when nothing begins with it, so it can never empty a list that has a match); two or more characters drop nothing. Combining marks are part of a word, so an Indic name is never split at its matras.",
       "fixed_by": "aa7be6ea2",
