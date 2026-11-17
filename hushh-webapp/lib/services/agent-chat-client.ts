@@ -71,6 +71,7 @@ import {
   type WikiToolName,
 } from "@/lib/files/wiki/recall-client-tools";
 import {
+  clearActiveSharedWiki,
   ensureActiveSharedWiki,
   peekActiveSharedWiki,
 } from "@/lib/files/wiki/active-shared-wiki";
@@ -1387,7 +1388,12 @@ async function streamAgentChatAttempt(input: {
     }
     try {
       const access = await import("./pod-app-access");
-      if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+      if (
+        !(await access.introMayReachHub(() =>
+          ApiService.getPersonalAgentStatus(),
+        ))
+      ) {
+        clearActiveSharedWiki();
         return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
       }
       if (!mcpSessionCurrent()) {
@@ -1395,6 +1401,11 @@ async function streamAgentChatAttempt(input: {
       }
       const bound = peekActiveSharedWiki();
       if (bound) {
+        const initialized = await bound.store.readyIfInitialized(input.signal);
+        if (!initialized || !mcpSessionCurrent()) {
+          if (!initialized) clearActiveSharedWiki();
+          return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+        }
         const [digest, mig] = await Promise.all([
           buildSharedWikiHotDigestContext(bound, undefined, input.signal).catch(
             () => "",
@@ -1421,6 +1432,7 @@ async function streamAgentChatAttempt(input: {
       }
       const initialized = await ensured.store.readyIfInitialized(input.signal);
       if (!initialized || !mcpSessionCurrent()) {
+        if (!initialized) clearActiveSharedWiki();
         return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
       }
       const [digest, mig] = await Promise.all([
