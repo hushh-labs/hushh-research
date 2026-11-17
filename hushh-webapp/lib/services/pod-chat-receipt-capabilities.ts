@@ -36,6 +36,47 @@ export function receiptToolVersion(value: unknown): 0 | 1 {
   return 1;
 }
 
+export function admittedPodActionIds(value: unknown): ReadonlySet<string> | null {
+  const capabilities = record(value);
+  if (!Object.hasOwn(capabilities, "admittedActionIds")) return null;
+  const raw = capabilities.admittedActionIds;
+  if (!Array.isArray(raw) || raw.some((item) => typeof item !== "string" || !item)) {
+    throw new Error("POD_CHAT_CAPABILITIES_INVALID");
+  }
+  return new Set(raw);
+}
+
+function decodeActionToolId(name: string): string | null {
+  if (!name.startsWith("hussh_action_")) return null;
+  const encoded = name.slice("hussh_action_".length);
+  if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) return null;
+  try {
+    const padded = encoded.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+    return decodeURIComponent(escape(atob(padded)));
+  } catch {
+    return null;
+  }
+}
+
+export function projectPodActionTools(
+  request: RequestInit,
+  admittedActionIds: ReadonlySet<string> | null | undefined,
+): RequestInit {
+  if (!admittedActionIds || typeof request.body !== "string") return request;
+  const turn = record(JSON.parse(request.body));
+  if (!Array.isArray(turn.tools)) return request;
+  const filtered = turn.tools.filter((value: unknown) => {
+    const tool = record(value);
+    const name = String(tool.name ?? "");
+    if (!name.startsWith("hussh_action_")) return true;
+    const actionId = decodeActionToolId(name);
+    return actionId !== null && admittedActionIds.has(actionId);
+  });
+  if (filtered.length === turn.tools.length) return request;
+  turn.tools = filtered;
+  return { ...request, body: JSON.stringify(turn) };
+}
+
 export function projectPodReceiptTools(request: RequestInit, version: 0 | 1): RequestInit {
   if (version === 1) return request;
   const turn = record(JSON.parse(String(request.body)));

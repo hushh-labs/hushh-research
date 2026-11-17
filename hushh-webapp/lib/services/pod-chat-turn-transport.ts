@@ -1,6 +1,12 @@
 import { PodNotReachedError, PodSendUnconfirmedError, isAgentStillWaking, notReachedBeforeSend } from "@/lib/agent/owner-pod-wake";
 import { legacyReceiptResult } from "@/lib/mail/receipt-availability";
-import { hasPodReceiptTools, projectPodReceiptTools, receiptToolVersion } from "./pod-chat-receipt-capabilities";
+import {
+  admittedPodActionIds,
+  hasPodReceiptTools,
+  projectPodActionTools,
+  projectPodReceiptTools,
+  receiptToolVersion,
+} from "./pod-chat-receipt-capabilities";
 
 /**
  * When each agent address last gave a real answer. An agent that answered this
@@ -51,7 +57,10 @@ function legacyReceiptResults(request: RequestInit): RequestInit {
  * that gets no answer, or only a gateway page, the turn provably was never sent
  * and can wait for the wake. A failure of the POST itself stays ambiguous.
  */
-const receiptCapabilities = new WeakMap<object, { version: 0 | 1; checkedAt: number }>();
+const receiptCapabilities = new WeakMap<
+  object,
+  { version: 0 | 1; admittedActions: ReadonlySet<string> | null; checkedAt: number }
+>();
 
 export async function sendChatTurn(
   url: string,
@@ -64,7 +73,9 @@ export async function sendChatTurn(
   const now = Date.now();
   const receipts = hasPodReceiptTools(request);
   const cached = session ? receiptCapabilities.get(session) : undefined;
-  let version = cached && now - cached.checkedAt <= AGENT_AWAKE_MS ? cached.version : undefined;
+  const freshCache = cached && now - cached.checkedAt <= AGENT_AWAKE_MS ? cached : undefined;
+  let version = freshCache?.version;
+  let admittedActions = freshCache?.admittedActions ?? null;
   const recentlyAdmitted =
     typeof directVerifiedAt === "number" &&
     Number.isFinite(directVerifiedAt) &&
@@ -97,8 +108,12 @@ export async function sendChatTurn(
         void probe.body?.cancel().catch(() => undefined);
         throw new Error("POD_CHAT_CAPABILITIES_UNAVAILABLE");
       }
-      version = receiptToolVersion(await probe.json().catch(() => null));
-      if (session) receiptCapabilities.set(session, { version, checkedAt: Date.now() });
+      const payload = await probe.json().catch(() => null);
+      version = receiptToolVersion(payload);
+      admittedActions = admittedPodActionIds(payload);
+      if (session) {
+        receiptCapabilities.set(session, { version, admittedActions, checkedAt: Date.now() });
+      }
     } else {
       void probe.body?.cancel().catch(() => undefined);
     }
@@ -108,6 +123,7 @@ export async function sendChatTurn(
   if (receipts) {
     if (version === undefined) throw new Error("POD_CHAT_CAPABILITIES_INVALID");
     request = projectPodReceiptTools(request, version);
+    request = projectPodActionTools(request, admittedActions);
     if (version === 1) request = legacyReceiptResults(request);
   }
   try {

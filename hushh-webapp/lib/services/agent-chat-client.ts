@@ -1386,6 +1386,13 @@ async function streamAgentChatAttempt(input: {
       return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
     }
     try {
+      const access = await import("./pod-app-access");
+      if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      if (!mcpSessionCurrent()) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
       const bound = peekActiveSharedWiki();
       if (bound) {
         const [digest, mig] = await Promise.all([
