@@ -1,7 +1,7 @@
 "use client";
 import type { InformationRequestPrice } from "@/lib/services/person-profile-service";
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
-import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
+import { InformationRequestReceipt, InformationRequestReviewLinks } from "@/components/agent/information-request-receipt";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -903,6 +903,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
         >
           <RequesterProgressBody progress={progress} phase={phase} personName={experience.personName}
             purpose={experience.purpose} />
+          <InformationRequestReviewLinks fields={displayFields} />
         </ExperienceShell>
         {ended ? null : sharedCard}
       </div>
