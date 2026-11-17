@@ -237,15 +237,16 @@ def protected_pipeline_review_rulesets(policy: dict, *, read=gh_json) -> list[di
     actors = [{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}]
     # Keep the installed original pair and both eight-path supplements unchanged.
     # New entrypoints get new partitions; never reshuffle installed coverage.
-    if len(paths) < 46 or len(paths) != len(set(paths)):
+    if len(paths) < 53 or len(paths) != len(set(paths)):
         raise SystemExit("Protected review requires the original 30 distinct paths")
     def pattern(path):
         return "/" + path + ("**" if path.endswith("/") else "")
     original = sorted(pattern(path) for path in paths[:30])
     installed_supplement = sorted(pattern(path) for path in paths[30:38])
     installed_controllers = sorted(pattern(path) for path in paths[38:46])
-    supplemental = sorted(pattern(path) for path in paths[46:])
-    chunks = [original[:15], original[15:], installed_supplement, installed_controllers] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
+    installed_adoption = sorted(pattern(path) for path in paths[46:53])
+    supplemental = sorted(pattern(path) for path in paths[53:])
+    chunks = [original[:15], original[15:], installed_supplement, installed_controllers, installed_adoption] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
     return [{
         "name": f"{name}{suffix} {index + 1}", "target": "branch", "enforcement": "active",
         "conditions": {"ref_name": {"include": refs, "exclude": []}},

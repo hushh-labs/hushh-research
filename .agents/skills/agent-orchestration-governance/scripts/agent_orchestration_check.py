@@ -35,7 +35,7 @@ CODE_PERSONA_RELATIVE_PATH = Path(
     "docs/development/engineering-principles.md"
 )
 SKILL_CONTRACT_RELATIVE_PATH = Path(
-    ".agents/skills/codex-skill-authoring/references/skill-contract.md"
+    ".agents/skills/skill-authoring/references/skill-contract.md"
 )
 
 EXPECTED_AGENTS = {

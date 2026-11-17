@@ -40,9 +40,13 @@ file registers MCP servers or subagents automatically.
 Run independent work in bounded parallel lanes under the canonical
 [delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).
 After handoff, verify owned-process and temporary-resource cleanup and close child
-sessions when supported. Permanently remove task-created temporary worktrees,
-including worktrees branched from a base branch, after successful verification and
-handoff under the [local resource and process lifecycle gate](.agents/instructions.md#project-wide-local-resource-and-process-lifecycle-gate);
+sessions when supported. Every task-created worktree must bind to an explicit
+canonical base branch (`dev`, `uat`, or `main`), merge all unique changes into
+`origin/<base>` through the governed PR flow, and fast-forward local base refs before
+teardown so parallel checkouts stay synchronized without losing work across
+simultaneous peer worktrees. Permanently remove task-created temporary worktrees
+after base-branch merge verification, peer-worktree process/dirty-tree/symlink audit,
+and handoff under the [local resource and process lifecycle gate](.agents/instructions.md#project-wide-local-resource-and-process-lifecycle-gate);
 completion alone is not proof of cleanup.
 
 Start with [the development-system map](.agents/README.md), then the existing
