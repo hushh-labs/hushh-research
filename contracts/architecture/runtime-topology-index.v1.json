@@ -1707,7 +1707,6 @@
       "exact_tables": [
         "one_email_kyc_preferences",
         "one_email_mailbox_state",
-        "one_kyc_client_connectors",
         "one_kyc_workflows"
       ],
       "id": "one_email_kyc_workflow",
@@ -7357,7 +7356,7 @@
     "action_gateway": "2422f9ed07d814003ab314cefb6ccd5c45701d1eda5a66ec902feaa6f8370f47",
     "agent_registry": "95bf915f96421c6ae0c0103afbcf9116f18d87671714180a8c44c3dedde3bc69",
     "cache_manifest": "2d6ab89252cbc8fd6453d473de1dc23cef2d5c587734f495f5797baa74f7e46c",
-    "data_plane": "92c5a4867aaf6ca212ce6f4ec076c0804fa5a0c259dd5c55b43d21456b697822",
+    "data_plane": "c8fbcc295480ad1d07e9571e563f93e7e711b1b7154e965fcff4b67d89f907b1",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ac9a2086b9d4edeae009c027253a4ef4306492275220ae2d511ad1e20fb99498",
     "route_index": "29c8e44cdfb2c570bebfeed1b47bc4e2296a17ded469171ddaecbceec7adce71",
