@@ -295,7 +295,11 @@ Owners: [private briefing](../../lib/feed/use-feed-briefing.ts),
 | Answer payment return | `answerPaymentRequestId`, or compatible paid/cancelled answer return. Server decides status; **Refresh question** restarts checks, with the same bounded pending polling. |
 | Compact Bank payout | Only with owner token and latest deposit. Reports actual deposit state/error; test deposits explicitly say no real money moves. No action/Retry; absence does not mean no earnings. |
 
-Feed does not render notification recovery or an in-page sound control. Owners:
+Feed opens on actionable work or recent activity. An explicit checkout
+return can show its receipt status. The compact bank payout summary follows
+activity. Notification recovery lives in Profile → Appearance & preferences →
+Notifications. The Feed-only chime and its device preference are retired.
+Payment owners:
 [Drive return](../../components/feed/feed-payment-return-notice.tsx),
 [answer return](../../components/feed/answer-payment-return-notice.tsx),
 [bank deposits](../../components/consent/payouts/bank-deposits.tsx).

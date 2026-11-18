@@ -42,6 +42,7 @@ import {
   feedClearedThroughStorageKey,
   feedLegacyClearedAtStorageKey,
   readFeedClearedThroughId,
+  removeRetiredFeedSoundPreference,
 } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
@@ -315,6 +316,9 @@ function FeedPageSession({
   authLoading: boolean;
 }) {
   useDocumentFeedStream(user);
+  useEffect(() => {
+    if (userId) removeRetiredFeedSoundPreference(userId);
+  }, [userId]);
   const sessionGeneration = getAuthSessionGeneration();
   const isSessionCurrent = useCallback(() => getAuthSessionGeneration() === sessionGeneration, [sessionGeneration]);
   const getSessionToken = useCallback(async () => {
@@ -1081,7 +1085,6 @@ function FeedPageSession({
         <SettingsPresentationProvider density="compact">
           <AppPageContentRegion>
             <FeedPaymentReturnNotice />
-            <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
             {hasLiveActionables ? (
               <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>
@@ -1279,6 +1282,7 @@ function FeedPageSession({
                 </Button> : null}
               </div>
             ) : null}
+            <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
             {/* Clearing is housekeeping, not a task: it sits quietly after the
                 history, never under a "Needs you" row where it read as a
                 reply to that request. It turns destructive only once armed. */}
