@@ -11,4 +11,10 @@ export function verifyCommerceSandbox(value: unknown, expectedOrigin: string): t
   return true;
 }
 
+export function extractSandboxRemainingCents(value: unknown): number | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = (value as Record<string, unknown>).reviewer_funding_remaining_cents;
+  return Number.isSafeInteger(raw) && Number(raw) >= 0 ? Number(raw) : null;
+}
+
 export const COMMERCE_SANDBOX_COPY = "Sandbox test — funds are simulated.";

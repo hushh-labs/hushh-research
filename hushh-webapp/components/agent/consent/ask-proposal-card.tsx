@@ -368,27 +368,30 @@ export function AskProposalCard({ personName, personRef, proposal, ready, sendin
         {chosen} {chosen === 1 ? "item" : "items"} · {proposalDurationLabel(durationHours)}
       </p>
 
+      <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+        <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+          For how long
+          <select value={durationHours} disabled={sending} data-testid="ask-proposal-duration" data-consent-input="true"
+            onChange={(event) => setDurationHours(Number(event.target.value))}
+            className="block h-11 w-full cursor-pointer rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 text-sm font-normal text-foreground">
+            {REQUEST_DURATION_OPTIONS.map((option) => (
+              <option key={option.hours} value={option.hours}>{proposalDurationLabel(option.hours)}</option>
+            ))}
+          </select>
+        </label>
+        {changing || reason.trim().length < MIN_REASON ? (
+          <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+            What it is for
+            <Input value={reason} disabled={sending} maxLength={500} data-testid="ask-proposal-reason" data-consent-input="true"
+              onChange={(event) => setReason(event.target.value)} placeholder="To plan dinner together" />
+          </label>
+        ) : null}
+      </div>
+
       {changing ? (
         <div className="space-y-3 rounded-[var(--app-card-radius-compact)] bg-background/72 p-3 backdrop-blur-xl">
           <CatalogPicker personName={personName} selected={universe.filter((scope) => selected.has(scope.scopeRef))}
             onToggle={toggle} searchCatalog={searchCatalog} />
-          <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
-            <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              For how long
-              <select value={durationHours} disabled={sending} data-testid="ask-proposal-duration" data-consent-input="true"
-                onChange={(event) => setDurationHours(Number(event.target.value))}
-                className="block h-11 w-full cursor-pointer rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 text-sm font-normal text-foreground">
-                {REQUEST_DURATION_OPTIONS.map((option) => (
-                  <option key={option.hours} value={option.hours}>{proposalDurationLabel(option.hours)}</option>
-                ))}
-              </select>
-            </label>
-            <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              What it is for
-              <Input value={reason} disabled={sending} maxLength={500} data-testid="ask-proposal-reason" data-consent-input="true"
-                onChange={(event) => setReason(event.target.value)} placeholder="To plan dinner together" />
-            </label>
-          </div>
         </div>
       ) : null}
 

@@ -16,21 +16,36 @@ export function CommerceBalanceSummary({ account }: { account: CommerceAccount }
   </>;
 }
 
-export function CommerceFundingControls({ enabled, busy, amount, changeAmount, checkout }: {
+export function CommerceFundingControls({ enabled, busy, amount, changeAmount, checkout, maxCents }: {
   enabled: boolean; busy: boolean; amount: string; changeAmount: (value: string) => void; checkout: () => void;
+  maxCents?: number | null;
 }) {
   let coins: number | null = null;
   let invalid: string | null = null;
   try { coins = parseCommerceDollarInput(amount, 50); }
   catch (error) { invalid = error instanceof Error ? error.message : "Enter an amount from $0.50 to $1,000."; }
+  const remainingExhausted = typeof maxCents === "number" && maxCents < 50;
+  const exceedsRemaining = typeof maxCents === "number" && coins !== null && coins > maxCents;
   if (!enabled) return <p data-consent-role="helper" className="text-xs text-muted-foreground">Funding is unavailable. Check Payouts and History for existing activity, or Refund unused balance when funds are refundable.</p>;
   return <div className="space-y-[var(--app-form-related-gap)]">
     <label data-consent-role="form-label" className="block space-y-[var(--app-form-field-gap)] text-sm">Amount (USD)
-      <Input data-consent-input="true" inputMode="decimal" value={amount} aria-invalid={Boolean(invalid && amount.trim())} onChange={event => changeAmount(event.target.value)} disabled={busy} />
+      <Input data-consent-input="true" inputMode="decimal" value={amount} aria-invalid={Boolean((invalid && amount.trim()) || exceedsRemaining || remainingExhausted)} onChange={event => changeAmount(event.target.value)} disabled={busy || remainingExhausted} />
     </label>
-    {coins !== null ? <p data-consent-role="body" className="text-sm tabular-nums">You'll add {money(coins)}.</p> : amount.trim() ? <p data-consent-role="status" role="status" className="text-sm">{invalid}</p> : null}
-    <p data-consent-role="helper" className="text-xs text-muted-foreground">$0.50–$1,000 per payment. Adding coins doesn't buy access.</p>
-    <Button type="button" data-consent-role="compact-action" disabled={busy || coins === null} onClick={checkout}>Continue to secure checkout</Button>
+    {remainingExhausted ? (
+      <p data-consent-role="status" role="status" className="text-sm text-destructive">Sandbox test funding cap ($20.00 total) reached on this account.</p>
+    ) : exceedsRemaining && typeof maxCents === "number" ? (
+      <p data-consent-role="status" role="status" className="text-sm text-destructive">Up to ${(maxCents / 100).toFixed(2)} remaining in sandbox test allowance.</p>
+    ) : coins !== null ? (
+      <p data-consent-role="body" className="text-sm tabular-nums">You'll add {money(coins)}.</p>
+    ) : amount.trim() ? (
+      <p data-consent-role="status" role="status" className="text-sm">{invalid}</p>
+    ) : null}
+    <p data-consent-role="helper" className="text-xs text-muted-foreground">
+      {typeof maxCents === "number" && maxCents >= 50
+        ? `$0.50–$${(maxCents / 100).toFixed(2)} sandbox remaining · Adding coins doesn't buy access.`
+        : "$0.50–$1,000 per payment. Adding coins doesn't buy access."}
+    </p>
+    <Button type="button" data-consent-role="compact-action" disabled={busy || coins === null || remainingExhausted || exceedsRemaining} onClick={checkout}>Continue to secure checkout</Button>
   </div>;
 }
 

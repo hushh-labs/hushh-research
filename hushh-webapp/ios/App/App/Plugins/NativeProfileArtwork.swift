@@ -9,7 +9,7 @@ enum NativeProfileArtwork {
         let colorHex: String?
         let accentColorHex: String?
     }
-    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "roster-finance", "roster-wallet", "roster-location", "roster-ria", "roster-gmail", "roster-calendar", "roster-email", "roster-pkm", "roster-files", "roster-consent", "roster-marketplace", "roster-connected-systems", "roster-default", "action-add", "action-join", "action-close", "action-locate", "action-people", "action-find-contacts", "action-invite", "action-manage-connections", "ai-connection", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
+    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "roster-finance", "roster-wallet", "roster-location", "roster-ria", "roster-gmail", "roster-calendar", "roster-email", "roster-pkm", "roster-files", "roster-consent", "roster-marketplace", "roster-connected-systems", "roster-default", "action-add", "action-join", "action-close", "action-locate", "action-people", "action-find-contacts", "action-invite", "action-manage-connections", "ai-connection", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "my-data", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-contacts", "connector-stripe", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin", "connector-github", "connector-slack", "connector-linear"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let accentColorHex: String?
@@ -21,7 +21,6 @@ enum NativeProfileArtwork {
         case "account": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "payouts": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "request-pricing": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
-        case "my-data": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "world-model": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "preferences": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "security": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
@@ -66,6 +65,7 @@ enum NativeProfileArtwork {
         case "account-wallet": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-reset": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-delete": colorHex = "#ff3b30"; accentColorHex = nil; hasAccent = false; original = false
+        case "my-data": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "appearance": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "accent": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "voice": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
@@ -88,12 +88,17 @@ enum NativeProfileArtwork {
         case "connector-gmail": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-google-drive": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-calendar": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
+        case "connector-contacts": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
+        case "connector-stripe": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-plaid": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         case "connector-attio": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         case "connector-hubspot": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-notion": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         case "connector-instagram": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-linkedin": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
+        case "connector-github": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
+        case "connector-slack": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
+        case "connector-linear": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         default: return nil
         }
         guard let base = UIImage(named: "HushhProfile-\(id)-base") else { return nil }

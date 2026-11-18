@@ -97,7 +97,8 @@ describe("current-authority inline Chat catalog", () => {
     render(<AgentStructuredExperienceView experience={{...experience,proposal:{proposed:[{scopeRef:"scope-1",label:"Synthetic field 1",why:null,domain:"professional",wildcard:false,pathSegments:[]}],durationHours:24,reasonSuggestion:"Synthetic sharing review"}}} />);
     await screen.findByText(/Add 24 Hussh/);
     expect(screen.getByRole("button",{name:"Send",exact:true})).toBeDisabled();
-    expect(screen.getByRole("button",{name:"Add coins"})).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"Close"})).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"Check balance"})).toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
     vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce({...price,availableCoins:50,shortfallCoins:0});
     fireEvent.click(screen.getByRole("button",{name:"Check price"}));

@@ -115,21 +115,25 @@ describe("memory.md editor", () => {
       facts: [{ key: "name", predicate: "profile.name", kind: "profile", sourceId: "owner-a", ref: "Profile", field: "name",
         label: "Name", value: "SYNTHETIC_OWNER", state: "verified", revision: 1, sourceUpdatedAt: at, capturedAt: at, verifiedAt: at }],
     } };
-    const view = render(<SoulMemoryPanel {...props} />);
+    const view = render(<SoulMemoryPanel {...props} hideLiveMirror={false} />);
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
     const preview = screen.getByRole("region", { name: "Live memory preview" });
     const soul = screen.getByRole("region", { name: "memory.md" });
     expect(preview.compareDocumentPosition(soul) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(preview).getByText("SYNTHETIC_OWNER")).toBeInTheDocument();
-    expect(within(preview).getByRole("link", { name: "See all" })).toHaveAttribute("href", "/one/profile/my-data");
+    expect(within(preview).getByRole("link", { name: "See all" })).toHaveAttribute("href", "/one/pkm");
     expect(within(preview).queryByRole("link", { name: "Open Memory" })).toBeNull();
     // Nothing disagrees, so there is nothing to fix.
     expect(within(preview).queryByTestId("live-mirror-fix-at-source")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit memory.md" }));
     expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
     view.unmount();
+    // Default consolidated view keeps Live memory preview hidden.
+    const defaultView = render(<SoulMemoryPanel {...props} />);
+    expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
+    defaultView.unmount();
     // Negative control: an unverified session shows neither memory.md nor the mirror.
-    render(<SoulMemoryPanel {...props} verified={false} />);
+    render(<SoulMemoryPanel {...props} hideLiveMirror={false} verified={false} />);
     expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
     expect(screen.queryByText("SYNTHETIC_OWNER")).toBeNull();
   });
@@ -150,7 +154,7 @@ describe("memory.md editor", () => {
       nameClaims: { soul: ["SYNTHETIC_SOUL"], profile: "SYNTHETIC_OWNER" },
     });
     mocks.mirror = { status: "ready", view: applyLiveMirrorReadTime(projection, at, "current") };
-    render(<SoulMemoryPanel {...props} />);
+    render(<SoulMemoryPanel {...props} hideLiveMirror={false} />);
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
     const preview = within(screen.getByRole("region", { name: "Live memory preview" }));
     expect(preview.getByRole("status")).toHaveTextContent("Needs your review");
@@ -166,7 +170,7 @@ describe("memory.md editor", () => {
     // This is Memory already, so memory.md gets no row of its own.
     expect(preview.getAllByTestId("live-mirror-fix-at-source")).toHaveLength(1);
     expect(preview.getByRole("link", { name: "Edit profile" })).toHaveAttribute("href", "/one/profile/account");
-    expect(preview.getAllByRole("link").map(link => link.getAttribute("href"))).toEqual(["/one/profile/my-data", "/one/profile/account"]);
+    expect(preview.getAllByRole("link").map(link => link.getAttribute("href"))).toEqual(["/one/pkm", "/one/profile/account"]);
   });
 
   it("cancels editor mode through the shared Back layer before leaving Memory", async () => {

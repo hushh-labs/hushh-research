@@ -38,6 +38,7 @@ import {
 } from "@/lib/consent/consent-scope-items";
 import {
   consentScopeItemsUnder,
+  formatContextualScopeLeafLabel,
   resolveConsentScopeLevel,
 } from "@/lib/consent/consent-scope-level";
 import { cn } from "@/lib/utils";
@@ -137,10 +138,13 @@ export function ConsentScopeNestedList({
     ids.filter((id) => isSelected(id)).length;
   const currentBranchIds = consentScopeItemsUnder(items, pathStack).map((item) => item.id);
 
-  const renderLeafRow = (item: ConsentScopeItem, key: string) => {
+  const renderLeafRow = (item: ConsentScopeItem, key: string, contextual = false) => {
     const isGranted = Boolean(selection?.grantedIds?.has(item.id));
     const selected = isGranted || Boolean(selection?.selectedIds.has(item.id));
     const disabled = item.disabled || isGranted;
+    const displayLabel = contextual
+      ? formatContextualScopeLeafLabel(item, level.title, pathStack.length)
+      : item.label;
     // Selecting an authored wildcard marks its visible descendants. A later
     // child removal can then retire the broad selection safely.
     const toggleIds = item.wildcard
@@ -149,7 +153,7 @@ export function ConsentScopeNestedList({
     return (
       <SettingsRow
         key={key}
-        title={item.label}
+        title={displayLabel}
         leading={renderDomainLeading?.(item.domainKey)}
         density="compact"
         description={item.description || undefined}
@@ -296,7 +300,7 @@ export function ConsentScopeNestedList({
       ) : level.entries.length ? (
         <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-level`}>
           {level.entries.map((entry) => {
-            if (entry.kind === "leaf") return renderLeafRow(entry.item, entry.key);
+            if (entry.kind === "leaf") return renderLeafRow(entry.item, entry.key, !atRoot);
 
             const ids = branchIds(entry.segment);
             const everything = allSelected(ids);

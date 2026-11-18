@@ -12,14 +12,14 @@ export function ScopeCommerceBuyerReview({ requestId, refreshRequest, quote, bal
   quote: ScopeQuote | null; balance: number | undefined; expired: boolean; busy: boolean; enabled: boolean;
   reviewPrice: () => Promise<void>; purchase: () => Promise<void>;
 }) {
-  const funding = useScopeCommerceAccount({ active: enabled });
+  const shortfall = quote && balance !== undefined ? Math.max(0, quote.amount_cents - balance) : null;
+  const funding = useScopeCommerceAccount({ active: enabled, suggestedCents: shortfall });
   const { capture } = useCommerceSession(`request-funding:${requestId}`, enabled);
   const busy = requestBusy || funding.busy || funding.hostedPending;
   const checkout = () => {
     const current = capture();
     void funding.checkout()?.then(async () => { if (current()) await refreshRequest(); });
   };
-  const shortfall = quote && balance !== undefined ? Math.max(0, quote.amount_cents - balance) : null;
   return <div className="space-y-3">
     {balance !== undefined ? <p data-consent-role="body" className="text-sm tabular-nums">Your balance: {money(balance)}</p> : <p data-consent-role="status" role="status" className="text-sm">Check your balance before confirming.</p>}
     {!quote ? <Button data-consent-role="compact-action" disabled={busy || !enabled} variant="outline" data-consent-quiet-action="true" onClick={() => void reviewPrice()}>Review price</Button> : null}
@@ -39,7 +39,7 @@ export function ScopeCommerceBuyerReview({ requestId, refreshRequest, quote, bal
         <Button data-consent-role="compact-action" variant="ghost" onClick={funding.cancelHosted}>Close Stripe window</Button>
       </> : funding.loading ? <p data-consent-role="status" role="status" className="text-sm">Checking payments…</p> : <CommerceFundingControls
         enabled={!expired && funding.account?.readiness?.capabilities.start_funding === true}
-        busy={busy} amount={funding.amount} changeAmount={funding.changeAmount} checkout={checkout} />}
+        busy={busy} amount={funding.amount} changeAmount={funding.changeAmount} maxCents={funding.account?.sandboxRemainingCents ?? null} checkout={checkout} />}
     </section> : null}
   </div>;
 }

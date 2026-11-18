@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Capacitor } from "@capacitor/core";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
+import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
@@ -346,7 +347,10 @@ export function CustomConnectorsSettings(props: CustomConnectorSettingsProps & {
       </div>)}
     </div> : null}
     <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
-      <p className="text-sm font-normal">{item.displayName}</p>
+      <div className="flex items-center gap-2.5">
+        <ConnectorVectorGlyph id={item.displayName || item.connectorId} variant="profile" />
+        <p className="text-sm font-normal">{item.displayName}</p>
+      </div>
       <p className="text-xs text-muted-foreground">{!item.enabled ? "Blocked for new turns"
         : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
           ? "Saved credential rejected · remove and add again"

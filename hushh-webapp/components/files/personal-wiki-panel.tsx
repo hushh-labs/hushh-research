@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
+  FilesMarkdownDocumentSheet,
+  type FilesMarkdownDocumentTarget,
+} from "@/components/files/files-markdown-document-sheet";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -13,17 +17,25 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { FileText } from "@/components/icons";
+import { peekFilesWikiOverviewCache } from "@/lib/files/files-cache";
 import {
   FilesService,
   type FileEntry,
   type WikiOverview,
-  type WikiPageDetail,
 } from "@/lib/files/service";
-import { useBackLayer } from "@/lib/navigation/back-layers";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  CORE_AGENT_MARKDOWN_IDS,
+  CORE_AGENT_MARKDOWN_META,
+  isCoreAgentMarkdownId,
+  loadCoreAgentMarkdownFile,
+  peekCoreAgentMarkdownFile,
+  saveCoreAgentMarkdownFile,
+  type CoreAgentMarkdownId,
+} from "@/lib/pkm/agent-core-markdown-files";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { useVault } from "@/lib/vault/vault-context";
 import type { FilesAction } from "./files-settings-panel";
 
 export function PersonalWikiPanel({
@@ -32,29 +44,31 @@ export function PersonalWikiPanel({
   busy,
   unavailable,
   act,
+  initialDocId,
+  initialPageId,
+  onInitialSelectionConsumed,
 }: {
   ownerId: string | undefined;
   signal: AbortSignal;
   busy: boolean;
   unavailable: boolean;
   act: FilesAction;
+  initialDocId?: string | null;
+  initialPageId?: string | null;
+  onInitialSelectionConsumed?: () => void;
 }) {
-  const [overview, setOverview] = useState<WikiOverview | null>(null);
+  const { vaultKey, vaultOwnerToken } = useVault();
+  const [overview, setOverview] = useState<WikiOverview | null>(() =>
+    ownerId ? peekFilesWikiOverviewCache(ownerId) : null,
+  );
   const [savedArchives, setSavedArchives] = useState<FileEntry[]>([]);
-  const [selectedPage, setSelectedPage] = useState<WikiPageDetail | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftSummary, setDraftSummary] = useState("");
-  const [draftBody, setDraftBody] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [docTarget, setDocTarget] = useState<FilesMarkdownDocumentTarget | null>(null);
+  const [loading, setLoading] = useState(() => !(ownerId && peekFilesWikiOverviewCache(ownerId)));
   const [loadError, setLoadError] = useState("");
-  const [forgetTarget, setForgetTarget] = useState<{
-    pageId: string;
-    claimId: string;
-    statement: string;
-  } | null>(null);
   const [confirmRollback, setConfirmRollback] = useState(false);
   const localAbort = useRef<AbortController | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const initialHandledRef = useRef<string | null>(null);
 
   const loadOverview = useCallback(
     async (activeSignal: AbortSignal) => {
@@ -91,8 +105,7 @@ export function PersonalWikiPanel({
     const onParentAbort = () => controller.abort();
     signal.addEventListener("abort", onParentAbort, { once: true });
 
-    setSelectedPage(null);
-    setForgetTarget(null);
+    setDocTarget(null);
     setConfirmRollback(false);
     if (!ownerId || unavailable) {
       setOverview(null);
@@ -103,11 +116,17 @@ export function PersonalWikiPanel({
       };
     }
 
-    setLoading(true);
+    const warmOverview = peekFilesWikiOverviewCache(ownerId);
+    if (warmOverview) {
+      setOverview(warmOverview);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setLoadError("");
     void loadOverview(controller.signal)
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && !warmOverview) {
           setLoadError("Could not open your personal wiki right now.");
         }
       })
@@ -121,34 +140,94 @@ export function PersonalWikiPanel({
     };
   }, [ownerId, unavailable, signal, loadOverview]);
 
-  useBackLayer(
-    ROUTES.ONE_FILES,
-    selectedPage ? 3 : 0,
-    () => {
-      if (busy) return true;
-      if (!selectedPage) return false;
-      setSelectedPage(null);
-      return true;
-    },
-  );
-
   const disabled = busy || unavailable || loading;
 
-  const openPage = (pageId: string) => {
-    const activeSignal = localAbort.current?.signal ?? signal;
-    void act(
-      async () => {
-        const detail = await FilesService.wikiPage(pageId, activeSignal);
-        activeSignal.throwIfAborted();
-        setSelectedPage(detail);
-        setDraftTitle(detail.title);
-        setDraftSummary(detail.tldr);
-        setDraftBody(detail.body);
-      },
-      "Note opened",
-      false,
-    );
-  };
+  const openCoreDoc = useCallback(
+    async (docId: CoreAgentMarkdownId) => {
+      if (!ownerId || !vaultKey || !vaultOwnerToken) return;
+      const meta = CORE_AGENT_MARKDOWN_META[docId];
+      const warm = peekCoreAgentMarkdownFile(ownerId, docId);
+      if (warm) {
+        setDocTarget({
+          kind: "core",
+          docId,
+          title: meta.title,
+          subtitle: meta.subtitle,
+          markdown: warm.markdown,
+          storedMarkdown: warm.storedMarkdown,
+          persisted: warm.persisted,
+          isDefaultTemplate: warm.isDefaultTemplate,
+          updatedAt: warm.updatedAt,
+        });
+      }
+      const loaded = await loadCoreAgentMarkdownFile({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+        docId,
+      });
+      setDocTarget({
+        kind: "core",
+        docId,
+        title: meta.title,
+        subtitle: meta.subtitle,
+        markdown: loaded.markdown,
+        storedMarkdown: loaded.storedMarkdown,
+        persisted: loaded.persisted,
+        isDefaultTemplate: loaded.isDefaultTemplate,
+        updatedAt: loaded.updatedAt,
+      });
+    },
+    [ownerId, vaultKey, vaultOwnerToken],
+  );
+
+  const openPage = useCallback(
+    (pageId: string) => {
+      const activeSignal = localAbort.current?.signal ?? signal;
+      void act(
+        async () => {
+          const detail = await FilesService.wikiPage(pageId, activeSignal);
+          activeSignal.throwIfAborted();
+          setDocTarget({ kind: "wiki", page: detail });
+        },
+        "Note opened",
+        false,
+      );
+    },
+    [act, signal],
+  );
+
+  useEffect(() => {
+    if (!ownerId || unavailable) return;
+    const key = `${ownerId}:${initialDocId ?? ""}:${initialPageId ?? ""}`;
+    if (!initialDocId && !initialPageId) return;
+    if (initialHandledRef.current === key) return;
+
+    if (isCoreAgentMarkdownId(initialDocId)) {
+      if (!vaultKey || !vaultOwnerToken) return;
+      initialHandledRef.current = key;
+      void openCoreDoc(initialDocId).finally(() => {
+        onInitialSelectionConsumed?.();
+      });
+      return;
+    }
+
+    if (initialPageId) {
+      initialHandledRef.current = key;
+      openPage(initialPageId);
+      onInitialSelectionConsumed?.();
+    }
+  }, [
+    ownerId,
+    unavailable,
+    vaultKey,
+    vaultOwnerToken,
+    initialDocId,
+    initialPageId,
+    openCoreDoc,
+    openPage,
+    onInitialSelectionConsumed,
+  ]);
 
   if (loading) {
     return (
@@ -182,200 +261,28 @@ export function PersonalWikiPanel({
     );
   }
 
-  if (selectedPage) {
-    const activeClaims = selectedPage.claims.filter(
-      (claim) => claim.status === "active",
-    );
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="compact"
-            disabled={disabled}
-            onClick={() => setSelectedPage(null)}
-          >
-            All notes
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Updated {selectedPage.statusAsOf}
-          </span>
-        </div>
-
-        <form
-          className="space-y-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (disabled || !draftTitle.trim()) return;
-            const activeSignal = localAbort.current?.signal ?? signal;
-            void act(
-              async () => {
-                await FilesService.wikiSavePage(
-                  {
-                    pageId: selectedPage.pageId,
-                    expectedRevision: selectedPage.revision,
-                    title: draftTitle.trim(),
-                    tldr: draftSummary.trim(),
-                    body: draftBody,
-                  },
-                  activeSignal,
-                );
-                const refreshed = await FilesService.wikiPage(
-                  selectedPage.pageId,
-                  activeSignal,
-                );
-                await loadOverview(activeSignal);
-                activeSignal.throwIfAborted();
-                setSelectedPage(refreshed);
-                setDraftTitle(refreshed.title);
-                setDraftSummary(refreshed.tldr);
-                setDraftBody(refreshed.body);
-              },
-              "Note saved",
-              false,
-            );
-          }}
-        >
-          <div className="space-y-1">
-            <label htmlFor="wiki-note-title" className="text-xs font-medium">
-              Title
-            </label>
-            <Input
-              id="wiki-note-title"
-              aria-label="Note title"
-              value={draftTitle}
-              disabled={disabled}
-              onChange={(event) => setDraftTitle(event.target.value)}
-            />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="wiki-note-summary" className="text-xs font-medium">
-              Summary
-            </label>
-            <Input
-              id="wiki-note-summary"
-              aria-label="Summary"
-              value={draftSummary}
-              disabled={disabled}
-              onChange={(event) => setDraftSummary(event.target.value)}
-            />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="wiki-note-body" className="text-xs font-medium">
-              Details
-            </label>
-            <Textarea
-              id="wiki-note-body"
-              aria-label="Details"
-              rows={5}
-              value={draftBody}
-              disabled={disabled}
-              onChange={(event) => setDraftBody(event.target.value)}
-            />
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={disabled || !draftTitle.trim()}>
-              Save changes
-            </Button>
-          </div>
-        </form>
-
-        <SettingsGroup title="Saved facts" embedded>
-          {activeClaims.length === 0 ? (
-            <p className="py-2 text-sm text-muted-foreground">
-              No active facts on this note.
-            </p>
-          ) : (
-            activeClaims.map((claim) => (
-              <SettingsRow
-                key={claim.claimId}
-                title={claim.statement}
-                description={
-                  claim.origins.length > 0
-                    ? `From ${claim.origins.join(", ")}`
-                    : `Recorded ${claim.observedAt}`
-                }
-                trailing={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    aria-label={`Forget ${claim.statement}`}
-                    disabled={disabled}
-                    onClick={() =>
-                      setForgetTarget({
-                        pageId: selectedPage.pageId,
-                        claimId: claim.claimId,
-                        statement: claim.statement,
-                      })
-                    }
-                  >
-                    Forget
-                  </Button>
-                }
-              />
-            ))
-          )}
-        </SettingsGroup>
-
-        <AlertDialog
-          open={forgetTarget !== null}
-          onOpenChange={(open) => {
-            if (!open && !busy) setForgetTarget(null);
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Forget this fact?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Removes &ldquo;{forgetTarget?.statement}&rdquo; from active recall
-                and stops future sharing of this detail.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={busy}>Keep fact</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={busy}
-                onClick={() => {
-                  if (!forgetTarget) return;
-                  const target = forgetTarget;
-                  const activeSignal = localAbort.current?.signal ?? signal;
-                  setForgetTarget(null);
-                  void act(
-                    async () => {
-                      await FilesService.wikiForgetClaim(
-                        { pageId: target.pageId, claimId: target.claimId },
-                        activeSignal,
-                      );
-                      const refreshed = await FilesService.wikiPage(
-                        target.pageId,
-                        activeSignal,
-                      );
-                      await loadOverview(activeSignal);
-                      activeSignal.throwIfAborted();
-                      setSelectedPage(refreshed);
-                      setDraftTitle(refreshed.title);
-                      setDraftSummary(refreshed.tldr);
-                      setDraftBody(refreshed.body);
-                    },
-                    "Fact forgotten",
-                    false,
-                  );
-                }}
-              >
-                Forget fact
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      <SettingsGroup title="Preferences" embedded headingClassName="mt-0">
+      <SettingsGroup title="Core agent files" embedded headingClassName="mt-0">
+        {CORE_AGENT_MARKDOWN_IDS.map((docId) => {
+          const meta = CORE_AGENT_MARKDOWN_META[docId];
+          const warm = ownerId ? peekCoreAgentMarkdownFile(ownerId, docId) : null;
+          return (
+            <SettingsRow
+              key={docId}
+              title={meta.title}
+              description={warm?.updatedAt ? `${meta.subtitle} · Saved` : meta.subtitle}
+              leading={<FileText className="size-4 text-muted-foreground" aria-hidden="true" />}
+              chevron
+              disabled={disabled || !vaultKey || !vaultOwnerToken}
+              testId={`wiki-core-doc-${docId}`}
+              onClick={() => void openCoreDoc(docId)}
+            />
+          );
+        })}
+      </SettingsGroup>
+
+      <SettingsGroup title="Preferences" embedded>
         <SettingsRow
           title="Remember from conversations"
           description="Saves durable notes to your private wiki. Never shares with anyone or connects external accounts."
@@ -734,6 +641,95 @@ export function PersonalWikiPanel({
           </div>
         </details>
       ) : null}
+
+      <FilesMarkdownDocumentSheet
+        open={docTarget !== null}
+        target={docTarget}
+        busy={disabled}
+        initialMode="preview"
+        onClose={() => setDocTarget(null)}
+        onSaveCore={async ({
+          docId,
+          markdown,
+          expectedStoredMarkdown,
+          expectedPersisted,
+        }) => {
+          if (!ownerId || !vaultKey || !vaultOwnerToken) return false;
+          const epoch = snapshotVaultSessionEpoch();
+          let savedOk = false;
+          await act(
+            async () => {
+              const saved = await saveCoreAgentMarkdownFile({
+                userId: ownerId,
+                vaultKey,
+                vaultOwnerToken,
+                docId,
+                markdown,
+                expectedStoredMarkdown,
+                expectedPersisted,
+                beforeEffect: async () => {
+                  if (!isVaultSessionEpochCurrent(epoch)) {
+                    throw new DOMException("Vault locked before save", "AbortError");
+                  }
+                },
+              });
+              if (!saved.success || !saved.document) {
+                throw new Error(saved.message ?? `Could not save ${docId}.`);
+              }
+              const meta = CORE_AGENT_MARKDOWN_META[docId];
+              setDocTarget({
+                kind: "core",
+                docId,
+                title: meta.title,
+                subtitle: meta.subtitle,
+                markdown: saved.document.markdown,
+                storedMarkdown: saved.document.storedMarkdown,
+                persisted: saved.document.persisted,
+                isDefaultTemplate: saved.document.isDefaultTemplate,
+                updatedAt: saved.document.updatedAt,
+              });
+              savedOk = true;
+            },
+            `${docId} saved`,
+            false,
+          );
+          return savedOk;
+        }}
+        onSaveWiki={async ({ pageId, expectedRevision, title, tldr, body }) => {
+          const activeSignal = localAbort.current?.signal ?? signal;
+          let savedOk = false;
+          await act(
+            async () => {
+              await FilesService.wikiSavePage(
+                { pageId, expectedRevision, title, tldr, body },
+                activeSignal,
+              );
+              const refreshed = await FilesService.wikiPage(pageId, activeSignal);
+              await loadOverview(activeSignal);
+              activeSignal.throwIfAborted();
+              setDocTarget({ kind: "wiki", page: refreshed });
+              savedOk = true;
+            },
+            "Note saved",
+            false,
+          );
+          return savedOk;
+        }}
+        onForgetWikiClaim={async ({ pageId, claimId }) => {
+          const activeSignal = localAbort.current?.signal ?? signal;
+          await act(
+            async () => {
+              await FilesService.wikiForgetClaim({ pageId, claimId }, activeSignal);
+              const refreshed = await FilesService.wikiPage(pageId, activeSignal);
+              await loadOverview(activeSignal);
+              activeSignal.throwIfAborted();
+              setDocTarget({ kind: "wiki", page: refreshed });
+            },
+            "Fact forgotten",
+            false,
+          );
+        }}
+      />
 
       <AlertDialog
         open={confirmRollback}

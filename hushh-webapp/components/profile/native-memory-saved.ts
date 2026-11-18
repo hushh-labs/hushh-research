@@ -1,25 +1,25 @@
 import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { ROUTES } from "@/lib/navigation/routes";
-import { LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
-import { liveMirrorClaimText, liveMirrorFactStateLabel, liveMirrorFixRoutes, liveMirrorPreviewRows, liveMirrorStatus } from "@/lib/pkm/live-mirror-presentation";
 import type { LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
-import { pkmMemoryRowLabels } from "@/lib/pkm/pkm-memory-cards";
-import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
+import {
+  CORE_AGENT_MARKDOWN_IDS,
+  CORE_AGENT_MARKDOWN_META,
+  peekCoreAgentMarkdownFile,
+} from "@/lib/pkm/agent-core-markdown-files";
 import { buildPkmShareBundles } from "@/lib/profile/pkm-memory-tree";
 import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
 import type { MemoryCommerceSummaryModel } from "./memory-commerce-summary";
-import { nativeMemoryMarkdown, type NativeMemoryMarkdownBlock } from "./native-memory-markdown";
+import type { NativeMemoryMarkdownBlock } from "./native-memory-markdown";
 import type { PkmNaturalModel } from "./use-pkm-natural-model";
 
 type Action = (choice: NativeWorkspaceChoice) => void | Promise<unknown>;
 export type NativeMemorySavedHandoff = (target: "soul-editor" | "sharing" | "detail" | "payments" | "navigation", action: () => void) => Promise<boolean>;
 export type NativeMemorySavedModel = Pick<PkmNaturalModel,
-  | "soul" | "authLoading" | "canOpen" | "selectedCard" | "selectedMetadataDomain"
-  | "homeSearchQuery" | "setHomeSearchQuery" | "bootstrapLoading" | "bootstrapError" | "metadata"
-  | "memoryCardsLoading" | "memoryCardsLoadError" | "memoryCards" | "trimmedQuery" | "searchResults"
-  | "matchedCategories" | "recentMemories" | "categories" | "setWorkspaceTab" | "openMemory"
+  | "ownerId" | "soul" | "authLoading" | "canOpen" | "selectedCard" | "selectedMetadataDomain"
+  | "bootstrapLoading" | "bootstrapError" | "metadata"
+  | "memoryCardsLoading" | "memoryCardsLoadError" | "memoryCards"
+  | "categories" | "openMemory"
   | "setSelectedDomainKey" | "navigate" | "setRefreshNonce" | "setMemoryCardsNonce"
   | "visibleMetadataDomains" | "sharingManifests" | "sharingManifestsLoading" | "exportBusy"
   | "exportStatus" | "exportError" | "isVaultUnlocked" | "handleExportMemory"
@@ -27,19 +27,18 @@ export type NativeMemorySavedModel = Pick<PkmNaturalModel,
 
 /** A missing field is not a license to hide a control: null means retain the
  * complete authored React owner until native can represent this state. */
-export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, openPayments, openSharing: _openSharing, markdownProjection }: {
+export function nativeMemorySaved({ model, commerce, handle, handoff, openPayments }: {
   model: NativeMemorySavedModel;
-  mirror: LiveMirrorViewState;
+  mirror?: LiveMirrorViewState;
   commerce: MemoryCommerceSummaryModel;
   handle: (key: string) => string;
   /** Must retire native ownership before invoking the supplied authored action. */
   handoff: NativeMemorySavedHandoff;
   openPayments: () => void;
   openSharing: () => void;
-  /** Optional owner-scoped memo; stale text is never used for the new note. */
   markdownProjection?: { source: string; blocks: readonly NativeMemoryMarkdownBlock[] | null };
-}): { sections: readonly NativeDrawerSection[]; actions: ReadonlyMap<string, Action>; search: { id: string; label: string; query: string; afterSection: number }; requiresLiveSearch: true } | null {
-  if (!model.canOpen || model.authLoading || model.selectedCard || model.selectedMetadataDomain || model.soul.editing) return null;
+}): { sections: readonly NativeDrawerSection[]; actions: ReadonlyMap<string, Action> } | null {
+  if (!model.canOpen || model.authLoading || model.selectedCard || model.selectedMetadataDomain) return null;
   const actions = new Map<string, Action>();
   const sections: NativeDrawerSection[] = [];
   const ids = new Set<string>();
@@ -64,68 +63,31 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
   };
   const hand = (target: Parameters<NativeMemorySavedHandoff>[0], action: () => void): Action => async () => { await handoff(target, action); };
 
-  if (!model.soul.verified) {
-    group("soul-unverified", [row("soul-unverified", "Reconnect your account to open memory.md.")]);
-  } else {
-    const locked = mirror.status === "locked";
-    const view = mirror.status === "ready" ? mirror.view : null;
-    const status = view ? liveMirrorStatus(view.overall, view) : liveMirrorStatus(locked ? "locked" : "loading");
-    const conflicts = (view?.conflicts ?? []).filter(conflict => !(LIVE_MIRROR_HIDDEN_PREDICATES as readonly string[]).includes(conflict.predicate));
-    const disputed = new Set(conflicts.map(conflict => conflict.predicate));
-    const liveRows: NativeDrawerRow[] = [];
-    liveRows.push(row("live-status", status.headline, status.sub));
-    conflicts.forEach((conflict, index) => {
-      const lines = conflict.claims.map(claim => {
-        const { label, value, detail } = liveMirrorClaimText(claim, conflict.predicate, view!.evaluatedAt);
-        return `${label}: ${value}${detail ? ` · ${detail}` : ""}`;
-      }).join("\n");
-      liveRows.push(row(`live-conflict:${index}`, conflict.label, lines));
-    });
-    if (view) liveMirrorPreviewRows(view.facts.filter(fact => fact.kind !== "profile" || !disputed.has(fact.predicate)))
-      .forEach((item, index) => liveRows.push(row(`live-fact:${index}`, item.title, item.description, undefined,
-        { trailing: liveMirrorFactStateLabel(item.state) ?? undefined })));
-    liveMirrorFixRoutes(conflicts, { includeMemory: false }).forEach((route, index) =>
-      liveRows.push(row(`live-fix:${index}`, route.label, undefined, hand("navigation", () => model.navigate(route.href)), { chevron: true })));
-    if (!locked) liveRows.push(row("live-all", "See all", undefined,
-      hand("navigation", () => model.navigate(buildProfileRoute({ panel: "my-data" }))), { chevron: true }));
-    group("live", liveRows, "Live memory");
-    if (model.soul.failed) group("soul-failed", [row("soul-failed", "memory.md couldn’t be opened."), row("soul-retry", "Try again", undefined, () => model.soul.retryLoad())]);
-    else if (!model.soul.current) group("soul-loading", [row("soul-loading", "Opening memory.md…")]);
-    else {
-      const markdown = model.soul.current.document.markdown;
-      let blocks;
-      try { blocks = markdownProjection?.source === markdown ? markdownProjection.blocks : nativeMemoryMarkdown(markdown); } catch { return null; }
-      if (blocks?.some(block => !block.runs)) blocks = nativeMemoryMarkdown(markdown);
-      if (!blocks) return null;
-      const headingCount = blocks.filter(block => block.kind === "heading").length;
-      const indexDetail = headingCount > 0
-        ? `${headingCount} ${headingCount === 1 ? "section" : "sections"} · Orientation index & notes`
-        : "Orientation index & notes";
-      const wikiRows: NativeDrawerRow[] = [
-        row("wiki-open", "Personal wiki", "Topic pages, archive imports, and cited recall",
-          hand("navigation", () => model.navigate(ROUTES.ONE_FILES)), { chevron: true }),
-        row("soul-edit", "memory.md", indexDetail,
-          hand("soul-editor", () => model.soul.beginEdit()), { enabled: !model.soul.loading, chevron: true }),
-      ];
-      if (model.soul.sync === "saving") wikiRows.push(row("soul-syncing", "Syncing your latest memories…"));
-      if (model.soul.sync === "retryable") {
-        wikiRows.push(row("soul-sync-error", "Your latest memories are available here but haven’t synced yet."));
-        wikiRows.push(row("soul-retry-sync", "Retry sync", undefined, () => model.soul.retrySync()));
-      }
-      group("wiki", wikiRows, "Personal wiki");
-      group("core-docs", [
-        row("identity-doc", "identity.md", "Stated legal name and core identity",
-          hand("soul-editor", () => model.soul.beginEdit()), { enabled: !model.soul.loading, chevron: true }),
-        row("soul-doc", "soul.md", "Standing voice, tone, and writing rules",
-          hand("navigation", () => model.navigate(buildProfileRoute({ panel: "preferences" }))), { chevron: true }),
-      ], "Core documents");
-    }
-  }
+  group("wiki", [
+    row(
+      "wiki-open",
+      "Personal wiki",
+      "Open your Personal wiki folder in Files.",
+      hand("navigation", () => model.navigate(`${ROUTES.ONE_FILES}?folder=personal-wiki`)),
+      { chevron: true },
+    ),
+  ], "Wiki");
 
-  // The authored search follows Live memory and memory.md inside the scroll.
-  const searchAfterSection = sections.length;
-  const searchId = opaque("search");
-  actions.set(searchId, choice => { if (choice.text !== undefined) model.setHomeSearchQuery(choice.text); });
+  group("core-docs", CORE_AGENT_MARKDOWN_IDS.map((docId) => {
+    const meta = CORE_AGENT_MARKDOWN_META[docId];
+    const warm = model.ownerId ? peekCoreAgentMarkdownFile(model.ownerId, docId) : null;
+    const key = docId === "memory.md" ? "soul-edit" : docId === "identity.md" ? "identity-doc" : "soul-doc";
+    return row(
+      key,
+      meta.title,
+      warm?.updatedAt ? `${meta.subtitle} · Saved` : meta.subtitle,
+      hand("navigation", () =>
+        model.navigate(`${ROUTES.ONE_FILES}?folder=personal-wiki&doc=${encodeURIComponent(docId)}`),
+      ),
+      { chevron: true },
+    );
+  }), "Core files");
+
   if (commerce.user) {
     const earnings = commerce.data?.earnings;
     const hasEarnings = !!earnings && (earnings.pending_cents !== 0 || earnings.available_cents !== 0 || (earnings.debt_cents ?? 0) > 0 || (earnings.withdrawing_cents ?? 0) > 0);
@@ -155,23 +117,12 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
   } else if (model.memoryCardsLoadError && model.memoryCards.length === 0) {
     group("memory-error", [row("memory-error", "Some saved details couldn’t be opened."),
       row("memory-retry", "Try again", undefined, () => model.setMemoryCardsNonce(value => value + 1))]);
-  } else if (model.trimmedQuery) {
-    if (!model.searchResults.length && !model.matchedCategories.length) group("search-empty", [row("search-empty", `No memories match “${model.trimmedQuery}”.`)]);
-    group("search-results", model.searchResults.map((card, index) => {
-      const { primary, secondary } = pkmMemoryRowLabels(card);
-      return row(`result:${index}`, primary, pkmMemoryCardBreadcrumb(card) || secondary,
-        hand("detail", () => model.openMemory(card)), { chevron: true });
-    }), "Memories");
-    group("matched-categories", model.matchedCategories.map(category), "Categories");
   } else {
-    if (model.recentMemories.length) group("recent", [row("recent", "Recently learned", `${model.recentMemories.length} ${model.recentMemories.length === 1 ? "memory" : "memories"}`,
-      hand("navigation", () => model.navigate(ROUTES.PKM_RECENT)), { chevron: true })]);
     const categories = model.categories.map(category);
     if (!categories.length && model.metadata && !model.bootstrapLoading && !model.bootstrapError && !model.memoryCardsLoading && !model.memoryCardsLoadError) {
-      group("empty", [row("empty", "One hasn’t saved anything yet.")]);
+      group("empty", [row("empty", "No sharable scopes saved yet.")]);
     }
-    categories.push(row("add-memory", "Add Memory", undefined, () => model.setWorkspaceTab("add"), { chevron: true }));
-    group("categories", categories, model.categories.length ? "Categories" : undefined);
+    group("categories", categories, model.categories.length ? "Scopes" : undefined);
     if (model.bootstrapError) group("bootstrap-error", [row("bootstrap-error", "Some saved details couldn’t be loaded."),
       row("bootstrap-retry", "Try again", undefined, () => model.setRefreshNonce(value => value + 1))]);
     if (model.memoryCardsLoadError) group("refresh-error", [row("refresh-error", "Some saved details couldn’t be refreshed. Your available details are still here."),
@@ -188,6 +139,6 @@ export function nativeMemorySaved({ model, mirror, commerce, handle, handoff, op
     sharingRows.push(row("sharing-retry", "Retry sharing settings", undefined, () => model.setRefreshNonce(value => value + 1)));
   }
   group("sharing", sharingRows);
-  if (!valid || total > 200 || sections.length > 32 || model.homeSearchQuery.length > 256) return null;
-  return { sections, actions, search: { id: searchId, label: "Search Memory", query: model.homeSearchQuery, afterSection: searchAfterSection }, requiresLiveSearch: true };
+  if (!valid || total > 200 || sections.length > 32) return null;
+  return { sections, actions };
 }

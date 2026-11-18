@@ -140,7 +140,7 @@ describe("profile workspace duplication contract", () => {
     const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
     expect(panel).toContain("<PersonalWorldModelPage");
     expect(panel).toContain("embedded");
-    expect(panel).toContain('onManageDetails={() => openVaultBackedPanel("my-data")}');
+    expect(panel).toContain("onManageDetails={openCanonicalMemoryRoute}");
     // Negative controls: no pane-only exclusion and no redirect to the route.
     expect(profilePageSource).not.toMatch(/!isPanePresentation &&\s*activePanel === "world-model"/);
     expect(profilePageSource).not.toContain("buildProfileWorldModelRoute");

@@ -5439,9 +5439,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_my_data"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data"
       }
@@ -5477,9 +5475,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_my_data"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data.domain"
       }
@@ -7353,13 +7349,13 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "2422f9ed07d814003ab314cefb6ccd5c45701d1eda5a66ec902feaa6f8370f47",
+    "action_gateway": "223c58e2a2a9ac4b738e038b396f61b9dea9bef23dca17f644426bea27240989",
     "agent_registry": "95bf915f96421c6ae0c0103afbcf9116f18d87671714180a8c44c3dedde3bc69",
     "cache_manifest": "2d6ab89252cbc8fd6453d473de1dc23cef2d5c587734f495f5797baa74f7e46c",
     "data_plane": "c8fbcc295480ad1d07e9571e563f93e7e711b1b7154e965fcff4b67d89f907b1",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ac9a2086b9d4edeae009c027253a4ef4306492275220ae2d511ad1e20fb99498",
-    "route_index": "29c8e44cdfb2c570bebfeed1b47bc4e2296a17ded469171ddaecbceec7adce71",
+    "route_index": "9f6340afea3387dd72fc9ac7e2f9bd2392ab4b11abc7b78efea697911ebdb36c",
     "route_layout": "c11be2109f7cd8615e538aa69872b80429c34c62cf77e2b6fe7ae83396dd7b43",
     "surface_map": "70956277dfe7a3de7d6b23d32a0a5fb6846e95b81de440caf9a49045cc77c328",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",

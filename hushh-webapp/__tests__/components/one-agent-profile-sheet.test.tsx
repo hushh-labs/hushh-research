@@ -5,7 +5,6 @@ import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { reduceChatOnboarding, type ChatOnboardingState } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import type { ChatOnboardingChipId } from "@/lib/agent/chat-onboarding/chat-onboarding-script";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorClaim, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import {
   applyLiveMirrorReadTime,
@@ -502,8 +501,7 @@ describe("One agent profile feed preview", () => {
     expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
     expect(within(factRow("Email")).getByText("a@example.test")).toBeInTheDocument();
     const seeAll = screen.getByRole("link", { name: "See all" });
-    expect(seeAll).toHaveAttribute("href", buildProfileRoute({ panel: "my-data" }));
-    expect(seeAll).toHaveAttribute("href", "/one/profile/my-data");
+    expect(seeAll).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
     expect(screen.queryByLabelText("soul.md preview")).toBeNull();
     expect(screen.queryByText("Soul preview")).toBeNull();

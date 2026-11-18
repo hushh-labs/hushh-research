@@ -43,7 +43,7 @@ function ScopeCommerceAccountView({ state }: { state: ReturnType<typeof useScope
         <Accordion type="single" collapsible value={section} onValueChange={value => setExpanded({ owner: userId, value })}>
           {account.balance ? <>
             <AccordionItem value="funding"><AccordionTrigger>Add funds</AccordionTrigger><AccordionContent>
-              <CommerceFundingControls enabled={account.readiness?.capabilities.start_funding === true} busy={busy} amount={state.amount} changeAmount={state.changeAmount} checkout={() => void state.checkout()} />
+              <CommerceFundingControls enabled={account.readiness?.capabilities.start_funding === true} busy={busy} amount={state.amount} changeAmount={state.changeAmount} maxCents={account.sandboxRemainingCents ?? null} checkout={() => void state.checkout()} />
             </AccordionContent></AccordionItem>
             <AccordionItem value="payouts"><AccordionTrigger>{account.seller.onboarded && account.seller.eligible ? "Withdraw information-access earnings" : "Set up information-access payouts"}</AccordionTrigger><AccordionContent>
               <CommercePayoutControls account={account} busy={busy} country={state.country} changeCountry={state.changeCountry} expiredLink={state.onboardingRefresh}

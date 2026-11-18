@@ -45,7 +45,7 @@ export function PurchaseCoins() {
           <p data-consent-role="status" role="status" className="text-sm">Finish checkout in Stripe. Your balance updates when you return.</p>
           <Button data-consent-role="compact-action" variant="ghost" onClick={state.cancelHosted}>Close Stripe window</Button>
         </> : <>
-          <CommerceFundingControls enabled={canFund} busy={state.busy || state.loading} amount={state.amount} changeAmount={state.changeAmount} checkout={() => void state.checkout()} />
+          <CommerceFundingControls enabled={canFund} busy={state.busy || state.loading} amount={state.amount} changeAmount={state.changeAmount} maxCents={state.account?.sandboxRemainingCents ?? null} checkout={() => void state.checkout()} />
         </>}
       </div> : null}
       {!expanded ? <Button data-consent-role="compact-action" variant="ghost" disabled={state.busy || state.loading} onClick={() => void state.refresh()}>Check balance</Button> : null}

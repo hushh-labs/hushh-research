@@ -4,6 +4,7 @@ import { buildPkmAccessConnections, type PkmAccessConnectionPresentation } from 
 export { buildPkmAccessConnections, type PkmAccessConnectionPresentation };
 
 import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+import { isNonExternalizablePkmDomain } from "@/lib/consent/pkm-scope-policy";
 
 import {
   buildNaturalAccessEntries,
@@ -115,13 +116,6 @@ export type PkmProfileSummaryPresentation = {
   attentionItems: string[];
 };
 
-const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
-  "one_memory",
-  "kyc_connector",
-  "kyc_workflow",
-  "runtime_secrets",
-]);
-
 const INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS = new Set([
   "domain_intent",
   "schema_version",
@@ -210,7 +204,7 @@ function resolveDomainDetailCount(domain: DomainSummary): number {
 
 export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
   const key = normalizeToken(domain.key);
-  if (!key || CONSUMER_HIDDEN_DOMAIN_KEYS.has(key)) return false;
+  if (!key || isNonExternalizablePkmDomain(key)) return false;
   if (domain.summary?.internal_only === true || domain.summary?.consumer_visible === false) {
     return false;
   }

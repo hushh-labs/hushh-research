@@ -4516,7 +4516,7 @@
       "route_pattern": "/one/profile/my-data",
       "page_file": "app/one/profile/my-data/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.my.data",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4546,22 +4546,20 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_my_data"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/my-data/domain",
       "page_file": "app/one/profile/my-data/domain/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.my.data.domain",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4591,9 +4589,7 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_my_data"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",

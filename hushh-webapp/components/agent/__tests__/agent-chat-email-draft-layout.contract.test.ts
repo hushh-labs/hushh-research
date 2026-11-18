@@ -238,7 +238,8 @@ describe("Agent Chat email draft layout contract", () => {
   });
 
   it("reserves the expanded editor's full action rail on phones", () => {
-    expect(source).toContain("pb-14 pr-32 pt-4");
+    expect(source).toContain("pb-14 pt-4");
+    expect(source).toContain('canInterruptAndSend && canSend ? "pr-44 sm:pr-48" : "pr-32 sm:pr-36"');
   });
 });
 

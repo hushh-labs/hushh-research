@@ -4,6 +4,8 @@ import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { create } from "zustand";
 import { useCallback, useLayoutEffect, useState, type SetStateAction } from "react";
+import { clearActiveAgentTurnSession } from "@/lib/agent/active-agent-turn-session";
+import * as inAppChatSelection from "@/lib/agent/in-app-chat-selection";
 import type { PendingTextAttachment } from "@/lib/agent/large-text-attachment";
 import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
 import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
@@ -167,6 +169,10 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
     set({ pendingEntryWelcome: null });
   },
   clearSession: () => {
+    clearActiveAgentTurnSession(undefined, { reason: "conversation_session_cleared" });
+    if (typeof inAppChatSelection.clearInAppChatSelection === "function") {
+      inAppChatSelection.clearInAppChatSelection();
+    }
     set({
       sessionId: createSessionId(),
       events: [],

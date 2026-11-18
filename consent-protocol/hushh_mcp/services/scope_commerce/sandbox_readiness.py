@@ -1,5 +1,6 @@
 """Read-only, reviewer-restricted attestation of the isolated sandbox binding."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -68,6 +69,18 @@ class SandboxReadiness:
                     head = await verified_manifest_head(c, entries)
                 except (MigrationAuthorityError, OSError, ValueError, KeyError):
                     head = None
+            remaining_cents = policy.reviewer_funding_cap_cents
+            if await c.fetchval("SELECT to_regclass('scope_commerce_fundings')"):
+                used_cents = await c.fetchval(
+                    """SELECT COALESCE(sum(f.amount_cents),0)::bigint
+                    FROM scope_commerce_fundings f JOIN scope_commerce_wallets w USING(wallet_id)
+                    LEFT JOIN scope_commerce_provider_operations o ON o.operation_id=f.funding_id AND o.kind='funding'
+                    WHERE (w.payer_user_id=$1 OR o.request_json->'metadata'->>'payer_ref'=$2)
+                    AND f.status<>'cancelled'""",
+                    viewer_user_id,
+                    hashlib.sha256(viewer_user_id.encode()).hexdigest(),
+                )
+                remaining_cents = max(0, policy.reviewer_funding_cap_cents - int(used_cents or 0))
             return {
                 "app_origin": app_origin,
                 "environment": "sandbox",
@@ -75,6 +88,7 @@ class SandboxReadiness:
                 "livemode": False,
                 "new_activity_enabled": bool(commerce_enabled and config.enabled),
                 "reviewer_funding_cap_cents": policy.reviewer_funding_cap_cents,
+                "reviewer_funding_remaining_cents": remaining_cents,
                 "operating_capital_cap_cents": policy.operating_capital_cap_cents,
                 "persisted_pin_matches": True,
                 "schema_head": head,

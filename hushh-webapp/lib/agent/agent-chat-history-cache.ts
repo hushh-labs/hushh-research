@@ -11,6 +11,10 @@ import {
   trackWarmupCompleted,
 } from "@/lib/observability/client";
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
+import {
+  snapshotValidatedAuthSessionOwner,
+  subscribeAuthSessionGeneration,
+} from "@/lib/auth/session-owner";
 
 const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
 const CONVERSATION_LIMIT = 20;
@@ -43,6 +47,22 @@ if (typeof window !== "undefined") {
     const userId = typeof detail?.userId === "string" ? detail.userId : "";
     if (userId) clearAgentChatHistoryCache(userId);
   });
+  subscribeAuthSessionGeneration(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!owner?.userId) {
+      clearAgentChatHistoryCache();
+      return;
+    }
+    const staleOwners = new Set([
+      ...entriesByUser.keys(),
+      ...warmupsByUser.keys(),
+    ]);
+    for (const userId of staleOwners) {
+      if (userId !== owner.userId) {
+        clearAgentChatHistoryCache(userId);
+      }
+    }
+  });
 }
 
 function generationFor(userId: string): string {
@@ -74,6 +94,54 @@ export function peekAgentChatHistoryCache(
 ): AgentChatHistorySnapshot | null {
   const entry = entriesByUser.get(userId);
   return entry ? snapshot(entry, userId) : null;
+}
+
+export function peekAgentChatConversationMessages(
+  userId: string,
+  conversationId: string,
+): AgentChatMessage[] | null {
+  const messages = entriesByUser.get(userId)?.messagesByConversation.get(conversationId);
+  return messages ? [...messages] : null;
+}
+
+export function upsertAgentChatHistoryConversation(input: {
+  userId: string;
+  conversationId: string;
+  messages: AgentChatMessage[];
+  title?: string;
+}): void {
+  const existing = entriesByUser.get(input.userId) ?? {
+    conversations: [],
+    messagesByConversation: new Map<string, AgentChatMessage[]>(),
+    cachedAt: Date.now(),
+  };
+  const nowIso = new Date().toISOString();
+  const prior = existing.conversations.find((item) => item.id === input.conversationId);
+  const firstUserTitle = input.messages
+    .find((msg) => msg.role === "user" && msg.content.trim().length > 0)
+    ?.content.trim()
+    .slice(0, 64);
+  const updated: AgentChatConversation = {
+    id: input.conversationId,
+    title: input.title?.trim() || prior?.title || firstUserTitle || "Conversation",
+    status: prior?.status || "active",
+    model: prior?.model ?? null,
+    message_count: input.messages.length,
+    created_at: prior?.created_at ?? nowIso,
+    updated_at: nowIso,
+    last_message_at: nowIso,
+  };
+  const nextConversations = [
+    updated,
+    ...existing.conversations.filter((item) => item.id !== input.conversationId),
+  ];
+  const nextMessagesByConversation = new Map(existing.messagesByConversation);
+  nextMessagesByConversation.set(input.conversationId, [...input.messages]);
+  entriesByUser.set(input.userId, {
+    conversations: nextConversations,
+    messagesByConversation: nextMessagesByConversation,
+    cachedAt: Date.now(),
+  });
 }
 
 /** Presentation liveness only; cached history never grants request authority. */
@@ -149,17 +217,18 @@ export function warmAgentChatHistoryCache(input: {
         warmPriority: "agent_chat_history",
         durationMs: Date.now() - startedAt,
       });
-      const latestConversationId = conversations[0]?.id;
-      if (latestConversationId && (input.force || !messagesByConversation.has(latestConversationId))) {
-        // The list is usable as soon as it arrives. A slow transcript must not
-        // hold the entire sidebar in its loading state.
-        void loadAgentChatConversationHistory({
-          userId: input.userId,
-          conversationId: latestConversationId,
-          vaultOwnerToken: input.vaultOwnerToken,
-          vaultKey: input.vaultKey,
-          force: input.force,
-        }).catch(() => undefined);
+      for (const conversation of conversations.slice(0, 3)) {
+        if (input.force || !messagesByConversation.has(conversation.id)) {
+          // The list is usable as soon as it arrives. Slow transcripts must not
+          // hold the entire sidebar in its loading state.
+          void loadAgentChatConversationHistory({
+            userId: input.userId,
+            conversationId: conversation.id,
+            vaultOwnerToken: input.vaultOwnerToken,
+            vaultKey: input.vaultKey,
+            force: input.force,
+          }).catch(() => undefined);
+        }
       }
       return snapshot(next, input.userId);
     })

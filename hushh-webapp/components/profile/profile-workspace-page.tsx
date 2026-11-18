@@ -1,6 +1,5 @@
 "use client";
 
-import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { NetworkVisibilitySetting } from "./network-visibility-setting";
@@ -73,15 +72,12 @@ import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   PkmAccessManagerPanel,
   PkmAccessConnectionDetailPanel,
-  PkmDataManagerPanel,
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
-import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
 import { useMemorySharedModel } from "@/components/profile/use-memory-shared-model";
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
-import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
 import {
   ProfileStackNavigator,
@@ -1240,9 +1236,22 @@ function ProfilePageContent({
     ],
   );
 
+  const openCanonicalMemoryRoute = useCallback(() => {
+    onNativeMenuClose?.();
+    router.push(ROUTES.PKM);
+  }, [onNativeMenuClose, router]);
+
+  useEffect(() => {
+    if (legacyProfileRedirectHref || activePanel !== "my-data" || activeDetail) {
+      return;
+    }
+    onNativeMenuClose?.();
+    router.replace(ROUTES.PKM);
+  }, [activeDetail, activePanel, legacyProfileRedirectHref, onNativeMenuClose, router]);
+
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
-    onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+    onMemory: openCanonicalMemoryRoute });
   const changeRetainedConnector = useRetainedProfileConnectorNavigation({ pane: isPanePresentation, pathname, query: searchParams, detail: activeDetail, updateView: updateProfileView });
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
@@ -2305,14 +2314,6 @@ function ProfilePageContent({
         voiceAliases: ["request pricing", "Drive price", "document price"],
       },
       {
-        id: "profile_my_data",
-        label: "Memory",
-        purpose: "opens saved details and sharing.",
-        actionId: "route.profile_my_data",
-        role: "card",
-        voiceAliases: ["my data", "saved details"],
-      },
-      {
         id: "profile_preferences",
         label: PROFILE_LABELS.preferences,
         purpose: "opens appearance and Agent One preferences.",
@@ -2486,7 +2487,6 @@ function ProfilePageContent({
           "Agent updates",
           "Payments and earnings",
           "Request pricing",
-          "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
           "Mail receipts",
@@ -3501,54 +3501,6 @@ function ProfilePageContent({
     }
   };
 
-  const myDataContent = (
-    <div
-      className={cn(
-        "space-y-4 sm:space-y-5",
-        isPanePresentation && "profile-account-content",
-        isPanePresentation && accountStyles.paneAccountContent,
-        isPanePresentation && accountStyles.managedContent,
-      )}
-    >
-      <PkmDataManagerPanel
-        signedIn={Boolean(user)}
-        loading={profileManagerLoading}
-        metadataReady={pkmMetadataReady}
-        metadataError={pkmError}
-        sharingReady={consentCenterReady}
-        sharingError={consentCenterError}
-        needsVaultCreation={vaultAccess.needsVaultCreation}
-        needsUnlock={vaultAccess.needsUnlock}
-        summary={profileSummary}
-        domains={domainPresentations}
-        loadingManifestsByDomain={loadingDomainManifests}
-        manifestErrorsByDomain={domainManifestErrors}
-        onOpenSharing={() =>
-          updateProfileView({ panel: "my-data", detail: "sharing" }, "push")
-        }
-        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-        onRefresh={() => {
-          void refreshPkmMetadata(true);
-          void refreshConsentCenter(true);
-          void refreshVisibleDomainManifests(true);
-        }}
-        onOpenDomain={(domain) =>
-          updateProfileView(
-            {
-              panel: "my-data",
-              detail: `domain:${domain.key}`,
-            },
-            "push",
-          )
-        }
-      />
-      {isVaultUnlocked ? (
-        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} model={memoryShared.shared} received={memoryShared.received} />
-      ) : null}
-      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} model={memorySecrets} /> : null}
-    </div>
-  );
-
   const accessContent = (
     <div
       className={cn(
@@ -4369,7 +4321,7 @@ function ProfilePageContent({
           <PersonalWorldModelPage
             embedded
             model={worldModel}
-            onManageDetails={() => openVaultBackedPanel("my-data")}
+            onManageDetails={openCanonicalMemoryRoute}
             onOpenAccount={openAccountPanel}
           />
         </div>
@@ -4412,10 +4364,9 @@ function ProfilePageContent({
       title: "Memory",
       description: "Saved details and sharing.",
       content: (
-        <div className="space-y-4">
-          <LivingMemoryDocument />
-          {myDataContent}
-        </div>
+        <p role="status" className="py-4 text-sm text-muted-foreground">
+          Opening Memory…
+        </p>
       ),
     });
     if (selectedDomain) {
@@ -4682,7 +4633,6 @@ function ProfilePageContent({
     account: openAccountPanel,
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
-    "my-data": () => openVaultBackedPanel("my-data"),
     "world-model": () => openVaultBackedPanel("world-model"),
     preferences: openPreferencesPanel,
     security: openSecurityPanel,
