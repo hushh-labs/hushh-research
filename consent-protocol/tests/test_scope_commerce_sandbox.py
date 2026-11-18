@@ -631,9 +631,9 @@ def test_sandbox_policy_is_required_and_bound_to_test_account_and_fixed_budget(
     if mutation == "users":
         value["reviewer_user_ids"] = ["owner", "owner"]
     elif mutation == "funding":
-        value["reviewer_funding_cap_cents"] = 2001
+        value["reviewer_funding_cap_cents"] = 1_000_001
     elif mutation == "capital":
-        value["operating_capital_cap_cents"] = 2501
+        value["operating_capital_cap_cents"] = 2_000_001
     if mutation in {"users", "funding", "capital"}:
         with pytest.raises(CommerceProviderError, match="provider_sandbox_policy_invalid"):
             SandboxPolicy.parse(value)
@@ -650,3 +650,34 @@ def test_sandbox_policy_is_required_and_bound_to_test_account_and_fixed_budget(
     )
     with pytest.raises(CommerceProviderError, match="provider_sandbox"):
         config.validate(new_activity=False)
+
+
+def test_sandbox_policy_allows_widened_dev_caps_and_localhost_only_in_non_uat_non_prod(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    policy = SandboxPolicy.parse(
+        {
+            "environment": "sandbox",
+            "platform_account_id": "acct_platform",
+            "reviewer_user_ids": ["owner", "buyer", "tester3"],
+            "reviewer_funding_cap_cents": 500_000,
+            "operating_capital_cap_cents": 1_000_000,
+        }
+    )
+    local_config = ScopeCommerceProviderConfig(
+        enabled=True,
+        platform_account_id="acct_platform",
+        frontend_origin="http://localhost:3000",
+        sandbox_policy=policy,
+        sandbox_policy_required=True,
+        livemode=False,
+    )
+    local_config.validate(new_activity=True)
+
+    for forbidden_env in ("uat", "production"):
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", forbidden_env)
+        with pytest.raises(
+            CommerceProviderError,
+            match="provider_(unavailable|sandbox_environment_mismatch)",
+        ):
+            local_config.validate(new_activity=False)

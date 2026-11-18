@@ -16,7 +16,7 @@ def mint_reviewer_token(
     """Never mint another owner or a disabled subject; preserve reviewer containment."""
     if (
         lane not in {"uat", "dev"}
-        or len(reviewer_ids) != 2
+        or not 2 <= len(reviewer_ids) <= 20
         or requested_uid not in reviewer_ids
     ):
         raise ValueError("operator_reviewer_authority_refused")
