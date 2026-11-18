@@ -239,3 +239,23 @@ async def test_empty_selection_does_not_bypass_owner_revalidation(checks):
             runner=runner,
         )
     runner.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_refs_across_selected_and_unselected_sources_refuse_dispatch():
+    runner = AsyncMock()
+    with pytest.raises(ValueError, match="duplicate task source"):
+        await suggest_tasks(
+            request(
+                selected_capabilities=["calendar"],
+                sources=[
+                    {"ref": "s1", "capability": "calendar", "summary": "A meeting."},
+                    {"ref": "s1", "capability": "wallet", "summary": "A card request."},
+                ],
+            ),
+            user_id="owner",
+            consent_token=TOKEN,
+            require_access=AsyncMock(),
+            runner=runner,
+        )
+    runner.assert_not_called()

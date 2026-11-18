@@ -78,3 +78,23 @@ def test_placement_refusal_and_model_errors_do_not_leak_inputs(client, monkeypat
     assert response.status_code == 503
     assert "private provider detail" not in response.text
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_selected_capabilities_reach_the_existing_suggestion_service(client, monkeypatch):
+    suggest = AsyncMock(return_value=TaskSuggestions(items=[]))
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    selected = ["calendar", "gmail", "messages"]
+    response = client.post(ROOT, json={**BODY, "selected_capabilities": selected})
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert suggest.call_args.args[0].selected_capabilities == selected
+
+
+@pytest.mark.parametrize("selected", [["calendar", "calendar"], ["unknown"], "calendar"])
+def test_invalid_source_selection_is_rejected_before_processing(client, monkeypatch, selected):
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    response = client.post(ROOT, json={**BODY, "selected_capabilities": selected})
+    assert response.status_code == 422
+    suggest.assert_not_called()

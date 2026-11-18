@@ -2606,11 +2606,22 @@ authority and Shared placement, checked before processing and before release.
 The bounded input rotates across represented capabilities so one large queue
 cannot crowd out every other source. It is rate limited to three requests per
 minute and accepts only
-`{allow_model_processing: true, sources}`: 1-100 strict records containing
+`{allow_model_processing: true, sources, selected_capabilities?}`: 1-100 strict records containing
 `ref` (`s` followed by 1-4 digits), one of the nine capability IDs, a 1-240
 character summary, and `already_pending`. The client requires explicit processing
 approval and excludes message bodies, card details and Memory contents. Owner
 IDs, tokens, provider IDs and URLs are not included in the prompt.
+
+`selected_capabilities` optionally limits processing to a unique list of at most
+nine IDs: `messages`, `finance`, `wallet`, `location`, `ria`, `gmail`, `calendar`,
+`pkm`, and `consent`. Omission or `null` preserves existing all-source behavior;
+`[]` selects none. Only summaries from selected capabilities reach the model,
+and returned references must belong to that selected evidence. If no supplied
+summary is selected, the endpoint returns `{items: []}` without a model call,
+while retaining owner revalidation and the rollout check. Source selection is
+request-scoped: it does not grant connector access, fetch sources, or persist
+preferences. Clients remain responsible for omitting unselected summaries from
+requests and keeping durable owner preferences in their existing encrypted store.
 
 One's manifest-owned `one_todo_suggestions` single-turn gene has no tools or
 conversation history. Its strict response is `{items: [{source_ref,title,reason}]}`,
