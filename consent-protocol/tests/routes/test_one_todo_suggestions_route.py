@@ -39,6 +39,55 @@ def test_status_and_disabled_dispatch_are_private(client, monkeypatch):
     assert response.headers["cache-control"] == "private, no-store"
 
 
+@pytest.mark.parametrize("invalid", ["summary", "extra_source", "selection"])
+def test_invalid_task_information_is_not_reflected_or_cacheable(client, monkeypatch, invalid):
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    marker = "synthetic-private-task-information"
+    body = {**BODY, "sources": [dict(BODY["sources"][0])]}
+    if invalid == "summary":
+        body["sources"][0]["summary"] = marker * 20
+    elif invalid == "extra_source":
+        body["sources"][0]["message_body"] = marker
+    else:
+        body["selected_capabilities"] = [marker]
+    response = client.post(ROOT, json=body)
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid task suggestion request."}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert marker not in response.text
+    suggest.assert_not_called()
+
+
+def test_malformed_task_json_is_private_without_service_dispatch(client, monkeypatch):
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    response = client.post(
+        ROOT,
+        content='{"sources": ["synthetic-private-task-information"',
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid task suggestion request."}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "synthetic-private-task-information" not in response.text
+    suggest.assert_not_called()
+
+
+def test_private_validation_wrapper_preserves_owner_admission_errors(client, monkeypatch):
+    def refuse():
+        raise HTTPException(403, "Owner session required")
+
+    client.app.dependency_overrides[hub_content_owner] = refuse
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    response = client.post(ROOT, json=BODY)
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Owner session required"}
+    assert response.headers["cache-control"] == "private, no-store"
+    suggest.assert_not_called()
+
+
 def test_real_route_checks_self_owner_and_placement_before_release(client, monkeypatch):
     validate = AsyncMock(return_value={"user_id": "owner"})
     monkeypatch.setattr(route, "validate_first_party_owner_token", validate)
