@@ -21,12 +21,13 @@ from __future__ import annotations
 import logging
 import os
 import re
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
 from hushh_mcp.services import azure_federation
-from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
+from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
 from hushh_mcp.services.compute_backend import BACKEND_AZURE, BACKEND_GCP
 from hushh_mcp.services.dev_simulation_guard import deploy_lane
 from hushh_mcp.services.pod_umbrella_cell_pool import UmbrellaCellConfig
@@ -35,11 +36,24 @@ logger = logging.getLogger(__name__)
 
 _TRAILING_INDEX_RE = re.compile(r"^(.*?)-(\d+)$")
 _STORAGE_TRAILING_DIGITS_RE = re.compile(r"^(.*?)(\d+)$")
+_AZURE_OVERFLOW_REGIONS: tuple[str, ...] = (
+    "eastus2",
+    "eastus",
+    "centralus",
+    "westus2",
+    "westus3",
+    "northcentralus",
+    "southcentralus",
+)
+_KV_DNS_POLL_DELAYS: tuple[float, ...] = (3.0, 5.0, 8.0, 12.0, 15.0, 20.0)
 _LOCATION_ABBR: dict[str, str] = {
     "eastus2": "eus2",
     "eastus": "eus",
     "centralus": "cus",
     "westus2": "wus2",
+    "westus3": "wus3",
+    "northcentralus": "ncus",
+    "southcentralus": "scus",
     "westeurope": "weu",
 }
 
@@ -77,30 +91,14 @@ def _indexed_name(
     return f"{clean_prefix}{suffix}"
 
 
-def _storage_account_name(template_storage: str, location: str, next_idx: int) -> str:
-    suffix = f"{next_idx:02d}"
-    digits = _STORAGE_TRAILING_DIGITS_RE.match(
-        re.sub(r"[^a-z0-9]", "", str(template_storage).lower())
-    )
-    if digits:
-        head = digits.group(1)[: 24 - len(suffix)]
-        return f"{head}{suffix}"
+def _storage_account_name(_template_storage: str, location: str, next_idx: int) -> str:
     loc_tag = _short_location(location)
-    head = f"sthusshcell{loc_tag}"[: 24 - len(suffix)]
-    return f"{head}{suffix}"
+    return f"sthusshcelldev{loc_tag}{next_idx:02d}"[:24]
 
 
-def _key_vault_name(template_kv: str, location: str, next_idx: int) -> str:
-    suffix = f"{next_idx:02d}"
-    clean = str(template_kv or "").strip().lower()
-    digits = _STORAGE_TRAILING_DIGITS_RE.match(clean)
-    if digits:
-        head = digits.group(1).rstrip("-")
-        if clean.endswith(f"-{digits.group(2)}"):
-            return f"{head[: 24 - len(suffix) - 1]}-{suffix}"
-        return f"{head[: 24 - len(suffix)]}{suffix}"
+def _key_vault_name(_template_kv: str, location: str, next_idx: int) -> str:
     loc_tag = _short_location(location)
-    return f"kv-h1-cell{loc_tag}{suffix}"[:24]
+    return f"kv-h1-celldev{loc_tag}{next_idx:02d}"[:24]
 
 
 def _make_next_cell_config(
@@ -355,13 +353,253 @@ def discover_azure_umbrella_cells_sync(
     return tuple(discovered)
 
 
+def _retarget_planned_cell_location(
+    planned: UmbrellaCellConfig,
+    location: str,
+    *,
+    cell_index: int | None = None,
+) -> UmbrellaCellConfig:
+    loc = str(location or planned.location or "eastus2").strip().lower()
+    idx = cell_index if cell_index is not None else _cell_index(planned.cell_id)
+    suffix = f"{idx:02d}"
+    loc_slug = re.sub(r"[^a-z0-9]", "", loc) or "eastus2"
+    short_loc = _short_location(loc)
+    rg_name = f"rg-hussh-cell-dev-{loc_slug}-{suffix}"[:90]
+    env_name = f"cae-hussh-cell-dev-{short_loc}-{suffix}"[:32]
+    env_id = (
+        f"/subscriptions/{planned.subscription_id}/resourceGroups/{rg_name}/"
+        f"providers/Microsoft.App/managedEnvironments/{env_name}"
+        if planned.subscription_id
+        else ""
+    )
+    return replace(
+        planned,
+        cell_id=f"cell-az-{loc_slug}-dev-{suffix}"[:63],
+        location=loc,
+        resource_group=rg_name,
+        environment_name=env_name,
+        environment_id=env_id,
+        storage_account=_storage_account_name(planned.storage_account, loc, idx),
+        key_vault_name=_key_vault_name(planned.key_vault_name, loc, idx),
+    )
+
+
+def _put_key_vault_with_dns_settle(
+    arm: ArmClient,
+    kv_scope: str,
+    body: dict[str, Any],
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    try:
+        return arm.put(
+            kv_scope,
+            api_version=API_VERSIONS["key_vault"],
+            body=body,
+            op="umbrella_scaleout_key_vault",
+        )
+    except ArmError as exc:
+        if exc.code != "OperationReferenceMissing":
+            raise
+        for delay in _KV_DNS_POLL_DELAYS:
+            sleep(delay)
+            vault = arm.get_or_none(
+                kv_scope,
+                api_version=API_VERSIONS["key_vault"],
+                op="umbrella_scaleout_key_vault_poll",
+            )
+            props = vault.get("properties") if isinstance(vault, Mapping) else {}
+            state = str((props or {}).get("provisioningState") or "").strip().lower()
+            if state == "succeeded":
+                return dict(vault or {})
+        raise
+
+
+def _is_regional_cae_quota_error(exc: ArmError) -> bool:
+    code = (exc.code or "").strip()
+    return (
+        code == "MaxNumberOfRegionalEnvironmentsInSubExceeded"
+        or "MaxNumberOfRegionalEnvironmentsInSubExceeded" in str(exc)
+    )
+
+
+def _is_global_cae_quota_error(exc: ArmError) -> bool:
+    code = (exc.code or "").strip()
+    return (
+        code == "MaxNumberOfGlobalEnvironmentsInSubExceeded"
+        or "MaxNumberOfGlobalEnvironmentsInSubExceeded" in str(exc)
+    )
+
+
+def _provision_single_region_cell_sync(
+    arm: ArmClient,
+    template: UmbrellaCellConfig,
+    candidate: UmbrellaCellConfig,
+    *,
+    sleep: Callable[[float], None],
+    reuse_template_cae: bool = False,
+) -> UmbrellaCellConfig:
+    shared_rg = (
+        candidate.shared_resource_group or template.resource_group or candidate.resource_group
+    ).strip()
+    if reuse_template_cae:
+        if not template.environment_id or candidate.location != template.location:
+            raise ValueError(
+                f"Shared Consumption CAE reuse requires matching location and environment_id on {template.cell_id}"
+            )
+        env_name = template.environment_name
+        env_id = template.environment_id
+    else:
+        env_name = candidate.environment_name
+        env_id = candidate.environment_id
+
+    base_tags: dict[str, str] = {
+        "hussh-tenancy": "hussh-hosted",
+        "hussh-environment": "dev",
+        "hussh-cell-id": candidate.cell_id,
+        "hussh-shared-rg": shared_rg,
+        "hussh-storage-account": candidate.storage_account,
+        "hussh-key-vault": candidate.key_vault_name,
+        "hussh-cae-name": env_name,
+        "hussh-soft-watermark": str(candidate.soft_watermark),
+        "hussh-hard-watermark": str(candidate.hard_watermark),
+        "hussh-min-warm": str(candidate.min_warm_skeletons),
+        "hussh-budget-cents": "20000",
+    }
+
+    group_scope = (
+        f"/subscriptions/{candidate.subscription_id}/resourceGroups/{candidate.resource_group}"
+    )
+    arm.put(
+        group_scope,
+        api_version=API_VERSIONS["resources"],
+        body={"location": candidate.location, "tags": base_tags},
+        op="umbrella_scaleout_rg",
+    )
+
+    if not reuse_template_cae:
+        env_scope = f"{group_scope}/providers/Microsoft.App/managedEnvironments/{candidate.environment_name}"
+        try:
+            env_resp = arm.put(
+                env_scope,
+                api_version=API_VERSIONS["container_apps"],
+                body={
+                    "location": candidate.location,
+                    "tags": base_tags,
+                    "properties": {
+                        "workloadProfiles": [
+                            {"name": "Consumption", "workloadProfileType": "Consumption"}
+                        ],
+                        "appLogsConfiguration": {"destination": None},
+                        "zoneRedundant": False,
+                    },
+                },
+                op="umbrella_scaleout_cae",
+            )
+        except ArmError as exc:
+            if _is_regional_cae_quota_error(exc) or _is_global_cae_quota_error(exc):
+                arm.delete(
+                    group_scope,
+                    api_version=API_VERSIONS["resources"],
+                    op="umbrella_scaleout_cleanup_quota_rg",
+                )
+            raise
+
+        props = env_resp.get("properties") if isinstance(env_resp, Mapping) else {}
+        prov_state = str((props or {}).get("provisioningState") or "").strip().lower()
+        env_id = str((env_resp or {}).get("id") or env_scope).strip()
+        if prov_state and prov_state != "succeeded":
+            raise RuntimeError(
+                f"Umbrella Cell {candidate.cell_id} CAE provisioningState={prov_state!r}"
+            )
+
+    storage_scope = (
+        f"{group_scope}/providers/Microsoft.Storage/storageAccounts/{candidate.storage_account}"
+    )
+    arm.put(
+        storage_scope,
+        api_version=API_VERSIONS["storage"],
+        body={
+            "location": candidate.location,
+            "tags": base_tags,
+            "sku": {"name": "Standard_LRS"},
+            "kind": "StorageV2",
+            "properties": {
+                "allowSharedKeyAccess": False,
+                "allowBlobPublicAccess": False,
+                "allowCrossTenantReplication": False,
+                "defaultToOAuthAuthentication": True,
+                "minimumTlsVersion": "TLS1_2",
+                "supportsHttpsTrafficOnly": True,
+                "publicNetworkAccess": "Enabled",
+            },
+        },
+        op="umbrella_scaleout_storage",
+    )
+    arm.put(
+        f"{storage_scope}/blobServices/default",
+        api_version=API_VERSIONS["storage"],
+        body={
+            "properties": {
+                "deleteRetentionPolicy": {"enabled": False},
+                "containerDeleteRetentionPolicy": {"enabled": False},
+                "isVersioningEnabled": False,
+            }
+        },
+        op="umbrella_scaleout_blob_service",
+    )
+
+    kv_scope = f"{group_scope}/providers/Microsoft.KeyVault/vaults/{candidate.key_vault_name}"
+    _put_key_vault_with_dns_settle(
+        arm,
+        kv_scope,
+        {
+            "location": candidate.location,
+            "tags": base_tags,
+            "properties": {
+                "tenantId": candidate.tenant_id,
+                "sku": {"family": "A", "name": "standard"},
+                "enableRbacAuthorization": True,
+                "enableSoftDelete": True,
+                "softDeleteRetentionInDays": 90,
+                "publicNetworkAccess": "Enabled",
+            },
+        },
+        sleep=sleep,
+    )
+
+    final_tags = {**base_tags, "hussh-cae-id": env_id}
+    arm.put(
+        group_scope,
+        api_version=API_VERSIONS["resources"],
+        body={"location": candidate.location, "tags": final_tags},
+        op="umbrella_scaleout_rg_tags",
+    )
+
+    logger.info(
+        "umbrella_cell_scaler.cell_provisioned cell=%s rg=%s env=%s shared_rg=%s",
+        candidate.cell_id,
+        candidate.resource_group,
+        candidate.environment_name,
+        shared_rg,
+    )
+    return replace(
+        candidate,
+        shared_resource_group=shared_rg,
+        environment_name=env_name,
+        environment_id=env_id,
+        shared_cell_fixed_monthly_usd=0.0,
+    )
+
+
 def provision_azure_umbrella_cell_sync(
     template: UmbrellaCellConfig,
     planned: UmbrellaCellConfig,
     *,
     arm_client: ArmClient | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> UmbrellaCellConfig:
-    """Create a sibling Dev Azure Umbrella Cell RG + StorageV2 + KeyVault + Consumption CAE."""
+    """Create a sibling Dev Azure Umbrella Cell RG + CAE + StorageV2 + KeyVault with regional & global-quota fallback."""
     if deploy_lane() != "dev":
         raise PermissionError("Horizontal Umbrella Cell creation is restricted to the dev lane")
     if planned.provider != BACKEND_AZURE:
@@ -391,132 +629,50 @@ def provision_azure_umbrella_cell_sync(
             )
         )
 
-    shared_rg = (
-        planned.shared_resource_group or template.resource_group or planned.resource_group
-    ).strip()
-    base_tags: dict[str, str] = {
-        "hussh-tenancy": "hussh-hosted",
-        "hussh-environment": "dev",
-        "hussh-cell-id": planned.cell_id,
-        "hussh-shared-rg": shared_rg,
-        "hussh-storage-account": planned.storage_account,
-        "hussh-key-vault": planned.key_vault_name,
-        "hussh-cae-name": planned.environment_name,
-        "hussh-soft-watermark": str(planned.soft_watermark),
-        "hussh-hard-watermark": str(planned.hard_watermark),
-        "hussh-min-warm": str(planned.min_warm_skeletons),
-        "hussh-budget-cents": "20000",
-    }
-
-    group_scope = (
-        f"/subscriptions/{planned.subscription_id}/resourceGroups/{planned.resource_group}"
-    )
-    arm.put(
-        group_scope,
-        api_version=API_VERSIONS["resources"],
-        body={"location": planned.location, "tags": base_tags},
-        op="umbrella_scaleout_rg",
-    )
-
-    storage_scope = (
-        f"{group_scope}/providers/Microsoft.Storage/storageAccounts/{planned.storage_account}"
-    )
-    arm.put(
-        storage_scope,
-        api_version=API_VERSIONS["storage"],
-        body={
-            "location": planned.location,
-            "tags": base_tags,
-            "sku": {"name": "Standard_LRS"},
-            "kind": "StorageV2",
-            "properties": {
-                "allowSharedKeyAccess": False,
-                "allowBlobPublicAccess": False,
-                "allowCrossTenantReplication": False,
-                "defaultToOAuthAuthentication": True,
-                "minimumTlsVersion": "TLS1_2",
-                "supportsHttpsTrafficOnly": True,
-                "publicNetworkAccess": "Enabled",
-            },
-        },
-        op="umbrella_scaleout_storage",
-    )
-    arm.put(
-        f"{storage_scope}/blobServices/default",
-        api_version=API_VERSIONS["storage"],
-        body={
-            "properties": {
-                "deleteRetentionPolicy": {"enabled": False},
-                "containerDeleteRetentionPolicy": {"enabled": False},
-                "isVersioningEnabled": False,
-            }
-        },
-        op="umbrella_scaleout_blob_service",
-    )
-
-    kv_scope = f"{group_scope}/providers/Microsoft.KeyVault/vaults/{planned.key_vault_name}"
-    arm.put(
-        kv_scope,
-        api_version=API_VERSIONS["key_vault"],
-        body={
-            "location": planned.location,
-            "tags": base_tags,
-            "properties": {
-                "tenantId": planned.tenant_id,
-                "sku": {"family": "A", "name": "standard"},
-                "enableRbacAuthorization": True,
-                "enableSoftDelete": True,
-                "softDeleteRetentionInDays": 90,
-                "publicNetworkAccess": "Enabled",
-            },
-        },
-        op="umbrella_scaleout_key_vault",
-    )
-
-    env_scope = (
-        f"{group_scope}/providers/Microsoft.App/managedEnvironments/{planned.environment_name}"
-    )
-    env_resp = arm.put(
-        env_scope,
-        api_version=API_VERSIONS["container_apps"],
-        body={
-            "location": planned.location,
-            "tags": base_tags,
-            "properties": {
-                "workloadProfiles": [{"name": "Consumption", "workloadProfileType": "Consumption"}],
-                "appLogsConfiguration": {"destination": None},
-                "zoneRedundant": False,
-            },
-        },
-        op="umbrella_scaleout_cae",
-    )
-    props = env_resp.get("properties") if isinstance(env_resp, Mapping) else {}
-    prov_state = str((props or {}).get("provisioningState") or "").strip().lower()
-    env_id = str((env_resp or {}).get("id") or env_scope).strip()
-    if prov_state and prov_state != "succeeded":
-        raise RuntimeError(f"Umbrella Cell {planned.cell_id} CAE provisioningState={prov_state!r}")
-
-    final_tags = {**base_tags, "hussh-cae-id": env_id}
-    arm.put(
-        group_scope,
-        api_version=API_VERSIONS["resources"],
-        body={"location": planned.location, "tags": final_tags},
-        op="umbrella_scaleout_rg_tags",
-    )
-
-    logger.info(
-        "umbrella_cell_scaler.cell_provisioned cell=%s rg=%s env=%s shared_rg=%s",
-        planned.cell_id,
-        planned.resource_group,
-        planned.environment_name,
-        shared_rg,
-    )
-    return replace(
-        planned,
-        shared_resource_group=shared_rg,
-        environment_id=env_id,
-        shared_cell_fixed_monthly_usd=0.0,
-    )
+    primary_loc = str(planned.location or "eastus2").strip().lower()
+    candidates = [primary_loc, *(r for r in _AZURE_OVERFLOW_REGIONS if r != primary_loc)]
+    cell_idx = _cell_index(planned.cell_id)
+    last_quota_err: ArmError | None = None
+    for idx, loc in enumerate(candidates):
+        target_cfg = (
+            planned
+            if idx == 0
+            else _retarget_planned_cell_location(planned, loc, cell_index=cell_idx)
+        )
+        try:
+            return _provision_single_region_cell_sync(arm, template, target_cfg, sleep=sleep)
+        except ArmError as exc:
+            if _is_global_cae_quota_error(exc):
+                logger.warning(
+                    "umbrella_cell_scaler.global_cae_quota_reached region=%s cell=%s",
+                    loc,
+                    target_cfg.cell_id,
+                )
+                last_quota_err = exc
+                if template.environment_id:
+                    sibling = (
+                        planned
+                        if planned.location == template.location
+                        else _retarget_planned_cell_location(
+                            planned, template.location or primary_loc, cell_index=cell_idx
+                        )
+                    )
+                    return _provision_single_region_cell_sync(
+                        arm, template, sibling, sleep=sleep, reuse_template_cae=True
+                    )
+                break
+            if _is_regional_cae_quota_error(exc):
+                logger.warning(
+                    "umbrella_cell_scaler.region_cae_quota_full region=%s cell=%s",
+                    loc,
+                    target_cfg.cell_id,
+                )
+                last_quota_err = exc
+                continue
+            raise
+    if last_quota_err is not None:
+        raise last_quota_err
+    raise RuntimeError(f"Unable to provision Umbrella Cell {planned.cell_id}")
 
 
 __all__ = [
