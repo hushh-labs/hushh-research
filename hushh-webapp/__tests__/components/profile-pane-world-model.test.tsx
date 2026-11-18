@@ -8,8 +8,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import type { User } from "firebase/auth";
 
 const nativePresentation = vi.hoisted(() => ({ workspace: vi.fn() }));
+const providerPhone = vi.hoisted(() => ({ number: null as string | null }));
 
 const nav = vi.hoisted(() => ({
   query: "profile_pane=1&profile_panel=world-model",
@@ -39,8 +41,8 @@ const auth = vi.hoisted(() => ({
   },
   loading: false,
   sessionVerificationRequired: false,
-  phoneNumber: null,
-  phoneNumberStatus: "missing",
+  phoneNumber: null as string | null,
+  phoneNumberStatus: "missing" as "loading" | "verified" | "missing" | "unavailable",
   signOut: async () => undefined,
   startPhoneVerification: vi.fn().mockResolvedValue({ autoVerified: false }),
   confirmPhoneVerification: vi.fn(),
@@ -109,9 +111,16 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ReferralService } from "@/lib/services/referral-service";
+import { AuthService } from "@/lib/services/auth-service";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  auth.phoneNumber = null;
+  auth.phoneNumberStatus = "missing";
+  providerPhone.number = null;
+  vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockImplementation(async uid => (
+    { uid, phoneNumber: providerPhone.number } as User
+  ));
   publishValidatedAuthSessionPrincipal({ firebaseUid: auth.user.uid, ownerId: auth.userId, accountGeneration: 0 });
   nav.query = "profile_pane=1&profile_panel=world-model";
   // Profile's own background reads (identity, vault, discoverability) answer
@@ -139,6 +148,33 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
+  it.each([null, "+12025550102"])("displays the saved verified phone when the sign-in link differs (%s)", async provider => {
+    auth.phoneNumber = "+12025550101";
+    auth.phoneNumberStatus = "verified";
+    providerPhone.number = provider;
+    nav.query = "profile_pane=1&profile_panel=account";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "account", detail: null }} /></StepProgressProvider>);
+    const row = await screen.findByRole("button", { name: /Phone number/ });
+    await waitFor(() => expect(within(row).getByText("Manage")).toBeInTheDocument());
+    expect(row).toHaveTextContent("0101");
+    expect(row).not.toHaveTextContent("Finish phone verification");
+    expect(row).not.toHaveTextContent("+12025550101");
+  });
+
+  it("requires a fresh SMS when managing an app-verified phone without a sign-in link", async () => {
+    auth.phoneNumber = "+12025550101";
+    auth.phoneNumberStatus = "verified";
+    nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "account", detail: "phone" }} /></StepProgressProvider>);
+    const input = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(input, { target: { value: "2025550101" } });
+    fireEvent.submit(input.closest("form")!);
+    await screen.findByRole("textbox", { name: "One-time code" });
+    expect(auth.startPhoneVerification).toHaveBeenCalledWith("+12025550101", { resendCode: false, transport: "sms" });
+  });
+
   it("keeps an occupied phone linked to its existing account in native Profile", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";

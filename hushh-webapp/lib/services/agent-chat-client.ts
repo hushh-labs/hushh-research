@@ -1981,6 +1981,11 @@ export async function streamAgentChat(input: {
     onRunFinishedEvent: (params) => {
       if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached || input.signal?.aborted) return;
       runTerminal = true;
+      if (params.outcome === "cancelled") {
+        failure = new DOMException("Agent turn cancelled", "AbortError");
+        finishTerminalRun();
+        return;
+      }
       if (receiptCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
@@ -2268,9 +2273,13 @@ export async function streamAgentIntro(input: {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onRunFinishedEvent: () => {
+    onRunFinishedEvent: (params) => {
       if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
+      if (params.outcome === "cancelled") {
+        failure = new DOMException("Agent turn cancelled", "AbortError");
+        return;
+      }
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {

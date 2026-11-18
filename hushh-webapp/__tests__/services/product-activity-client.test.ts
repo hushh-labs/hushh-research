@@ -25,9 +25,6 @@ describe("private product observation lifecycle", () => {
       });
       f.observeProductAction("calendar.event.create", "started");
       f.observeProductEvent("one_memory_action", "detail_edited", "success");
-      const attempt = f.captureProductAttempt("chat:agent_one", "owner-a");
-      attempt.started();
-      attempt.settled("returned");
       const result = { status: "succeeded" };
       expect(await f.observeDispatch("calendar.event.create", Promise.resolve(result))).toBe(result);
       await new Promise(resolve => setTimeout(resolve, 0));
