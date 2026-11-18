@@ -47,7 +47,8 @@ function SummarySession({ personRef, onReady }: { personRef: string; onReady?: (
     setError(null);
     const current = () => !controller.signal.aborted && generation === getAuthSessionGeneration();
     void user.getIdToken().then(idToken => {
-      if (current()) return ConnectionsService.getNetworkSummary({ idToken, personRef, signal: controller.signal });
+      if (!current()) return undefined;
+      return ConnectionsService.getNetworkSummary({ idToken, personRef, signal: controller.signal });
     }).then(value => {
       if (value && current()) {
         lastReadAt.current = Date.now();

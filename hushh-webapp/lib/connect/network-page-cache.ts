@@ -29,6 +29,7 @@ export class NetworkPageCache {
   peek(read: NetworkPageRead): NetworkPage | undefined {
     const value = this.pages.get(keyFor(read));
     if (this.generation === getAuthSessionGeneration() && value && Date.now() - value.readAt < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return value.data;
+    return undefined;
   }
 
   load(read: NetworkPageRead, getToken: () => Promise<string>, renew = false): Promise<NetworkPage> {
