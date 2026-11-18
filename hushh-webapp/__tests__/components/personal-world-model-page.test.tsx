@@ -385,6 +385,21 @@ describe("Personal World Model page", () => {
     expect(screen.queryByText("Related Google searches")).not.toBeInTheDocument();
   });
 
+  it("keeps Google's original suggestions isolated and opens links outside the frame", async () => {
+    const html = '<a href="https://www.google.com/search?q=public+example">Public example</a>';
+    research({ ...offered([{ statement: "Works at Hushh", kind: "career" }]), search_suggestions: [html] });
+    render(<PersonalWorldModelPage embedded />);
+
+    const frame = await screen.findByTitle("Google Search suggestions 1");
+    expect(screen.getByRole("heading", { name: "Related Google searches" })).toBeInTheDocument();
+    expect(frame).toHaveAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+
+    const source = frame.getAttribute("srcdoc") ?? "";
+    const parsed = new DOMParser().parseFromString(source, "text/html");
+    expect(parsed.querySelector("base")?.target).toBe("_blank");
+    expect(source.endsWith(html)).toBe(true);
+  });
+
   it("keeps approved details and the last checkpoint visible after an unavailable result", async () => {
     const saved = await claim("Works at Hushh");
     mock.load.mockResolvedValue(memoryOf([saved]));

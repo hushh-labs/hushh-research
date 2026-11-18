@@ -1151,8 +1151,17 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               </SettingsGroup>
             ) : null}
             {offered && offered.search_suggestions.length > 0 ? (
-              <SettingsGroup title="Related Google searches" density="compact">
-                <div aria-label="Google Search suggestions">
+              <SettingsGroup
+                title="Related Google searches"
+                description={
+                  <span className="text-foreground/75">
+                    Swipe or scroll sideways to see the full search terms.
+                  </span>
+                }
+                density="compact"
+                className="@container"
+              >
+                <div className="grid min-w-0 gap-1.5 p-1.5 @sm:p-2">
                   {offered.search_suggestions.map((html, index) => (
                     <SearchSuggestions key={index} html={html} index={index} />
                   ))}
