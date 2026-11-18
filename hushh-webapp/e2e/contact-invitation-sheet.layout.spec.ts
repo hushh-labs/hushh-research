@@ -39,7 +39,7 @@ test.beforeAll(async () => {
         name: "contact-invitation-boundaries",
         load(id) {
           if (id === "\0fixture-invitations-service")
-            return `export const ContactInvitationsService = { isNative: () => true, canComposeBatchSms: async () => true, composeBatch: async () => "opened", share: async () => "web-share", copy: async () => "copied" };
+            return `export const ContactInvitationsService = { isNative: () => document.documentElement.dataset.platform !== "web", canComposeBatchSms: async () => true, composeBatch: async () => "opened", share: async () => "web-share", copy: async () => "copied" };
             export function invitationBody(share) { return share.text + "\\n" + share.url; }
             export function assertInvitationShare() {}`;
         },
@@ -118,9 +118,9 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
-async function mount(page: Page, keyboardPx: number) {
+async function mount(page: Page, keyboardPx: number, platform = "native") {
   await page.setContent(
-    `<html style="--kb-height:${keyboardPx}px"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    `<html data-platform="${platform}" style="--kb-height:${keyboardPx}px"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
   );
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -240,6 +240,26 @@ const CASES = [
   { name: "iPhone 15, keyboard up", width: 393, height: 852, keyboard: 336 },
   { name: "desktop", width: 1440, height: 900, keyboard: 0 },
 ] as const;
+
+for (const { width, height } of [CASES[0], CASES[5]]) {
+  test(`web invite actions stay visible with only phone contacts at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mount(page, 0, "web");
+    const dialog = page.getByRole("dialog", { name: "Invite your contacts" });
+    const description = dialog.getByText(/No contacts with an email address/);
+    const share = dialog.getByRole("button", { name: "Share link" });
+    const copy = dialog.getByRole("button", { name: "Copy invitation" });
+    await expect(description).toBeInViewport();
+    await expect(share).toBeInViewport({ ratio: 1 });
+    await expect(copy).toBeInViewport({ ratio: 1 });
+    const text = (await description.boundingBox())!;
+    const action = (await share.boundingBox())!;
+    expect(action.y - text.y - text.height).toBeLessThanOrEqual(16);
+    expect(action.height).toBeGreaterThanOrEqual(44);
+    await copy.click();
+    await expect(dialog.getByRole("status")).toHaveText(/Invitation copied/);
+  });
+}
 
 for (const viewport of CASES) {
   test(`contact list stays readable and scrollable: ${viewport.name}`, async ({
