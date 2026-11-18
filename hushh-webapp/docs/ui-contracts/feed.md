@@ -12,7 +12,7 @@ own owners after a handoff. Shared chrome and fonts are described in
 
 ```mermaid
 flowchart TD
-  feed["Feed"] --> prompts["Push, sound and payment return"]
+  feed["Feed"] --> prompts["Payment return and bank status"]
   feed --> live["Live"]
   feed --> needs["Needs you"]
   feed --> recentSms["Recent SMS alerts"]
@@ -53,9 +53,9 @@ Sources: [route](../../app/one/feed/page.tsx),
 [page](../../components/feed/feed-page.tsx), and
 [shared detail surface](../../components/app-ui/settings-ui.tsx).
 
-Visible order is notification recovery, payment-return notice, compact bank
-payout status, browser sound control, **Live**, **Needs you**, **Coming up**,
-**In progress**, then history and its footer controls. Empty sections are
+Visible order is payment-return notice, compact bank payout status,
+**Live**, **Needs you**, **Coming up**, **In progress**, then history and
+its footer controls. Empty sections are
 omitted; section counts are current account state, not product limits.
 
 | State / CTA | Current behavior |
@@ -287,28 +287,18 @@ Owners: [private briefing](../../lib/feed/use-feed-briefing.ts),
 [progress projection](../../lib/feed/drive-request-progress.ts),
 [progress row](../../components/feed/feed-drive-progress-row.tsx).
 
-## Payment returns, bank status, push, and sound
+## Payment returns and bank status
 
 | Surface / CTA | Current behavior |
 | --- | --- |
 | Drive payment return | Valid UUID `paymentRequestId` plus checkout hint. Server decides paid/processing/reconciliation/refund/expired/closed/incomplete/unavailable state. Successful return polls at three seconds up to 40 checks; no manual Retry/dismiss. |
 | Answer payment return | `answerPaymentRequestId`, or compatible paid/cancelled answer return. Server decides status; **Refresh question** restarts checks, with the same bounded pending polling. |
 | Compact Bank payout | Only with owner token and latest deposit. Reports actual deposit state/error; test deposits explicitly say no real money moves. No action/Retry; absence does not mean no earnings. |
-| Push Turn on | Browser default permission: gesture requests permission and registers device. |
-| Push Retry | Permission granted but device registration incomplete. Busy disables CTA. |
-| Browser denied permission | Site-settings explanation; no dead request-permission CTA. |
-| Native Open settings | Denied/quiet OS notification state; default registration can instead offer retry. Hidden when working or unsupported. |
-| Feed sound off/on | Browser-only, account-local preference with pressed state; enabling previews cue. Saved enabled preference can need **Tap to activate**. |
 
-Feed sound occurs only for visible authenticated newer activity correlated
-with a nonsilent push within 15 seconds, with ten-second burst suppression.
-Hydration, baseline/polling and local mutations do not sound. Native does not
-duplicate this browser control. Owners:
+Feed does not render notification recovery or an in-page sound control. Owners:
 [Drive return](../../components/feed/feed-payment-return-notice.tsx),
 [answer return](../../components/feed/answer-payment-return-notice.tsx),
-[bank deposits](../../components/consent/payouts/bank-deposits.tsx),
-[push](../../components/feed/feed-push-prompt.tsx),
-[sound](../../components/feed/feed-sound-control.tsx).
+[bank deposits](../../components/consent/payouts/bank-deposits.tsx).
 
 ## Historical row destination catalog
 
@@ -637,14 +627,9 @@ is local; the exact remove/Undo requests are in the preceding mutation table.
 | Root device/bank control | Exact English |
 | --- | --- |
 | Deposits | `Bank payout`; `{price} bank payout pending.` / `on its way.` / `paid.` / `canceled.` / `failed. Check your linked bank details.`; optional `Test · `; `Couldn't check bank payouts right now.`; `Simulated deposits. No real money moves.`; `Bank payouts may combine earnings from multiple requests.` |
-| Push default/granted | `Get notifications for direct messages, Circle chats, and requests.` / `Turn on`; `Reconnect notifications to receive message alerts.` / `Retry` |
-| Push denied/quiet | Browser `Notifications are blocked for One in this browser. Allow them in site settings to get alerts.` no CTA; native `Allow notifications in device settings to get message alerts.` / `Open settings`; `Device alerts or sounds are off. Enable them in notification settings to hear alerts.` / `Open settings` |
-| Sound | `Feed sound off`; `Feed sound on`; `Tap to activate`; `Plays while Feed is open. Mac alerts may sound too.` |
 
 Sources: [deposits](../../components/consent/payouts/bank-deposits.tsx),
-[bank copy](../../components/consent/payouts/payout-copy.ts),
-[push](../../components/feed/feed-push-prompt.tsx),
-[sound](../../components/feed/feed-sound-control.tsx).
+[bank copy](../../components/consent/payouts/payout-copy.ts).
 
 ### Historical event → metadata → copy → destination
 
