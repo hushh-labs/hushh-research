@@ -42,15 +42,14 @@ import {
   feedClearedThroughStorageKey,
   feedLegacyClearedAtStorageKey,
   readFeedClearedThroughId,
+  removeRetiredFeedSoundPreference,
 } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
 import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedSharedFilesSheet } from "@/components/feed/feed-shared-files-sheet";
-import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-notice";
-import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
 import { DocumentRequestPriceSheet } from "@/components/consent/document-request-price-sheet";
 import { DocumentBankPayoutStatusCard } from "@/components/consent/document-payout-account";
@@ -66,7 +65,7 @@ import {
   type FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
-import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useFeedLiveRefresh, type FeedRefreshScope } from "@/lib/feed/use-feed-live-refresh";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
 import { feedItemPresentationTime } from "@/lib/feed/feed-pagination";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
@@ -318,6 +317,9 @@ function FeedPageSession({
   authLoading: boolean;
 }) {
   useDocumentFeedStream(user);
+  useEffect(() => {
+    if (userId) removeRetiredFeedSoundPreference(userId);
+  }, [userId]);
   const sessionGeneration = getAuthSessionGeneration();
   const isSessionCurrent = useCallback(() => getAuthSessionGeneration() === sessionGeneration, [sessionGeneration]);
   const getSessionToken = useCallback(async () => {
@@ -612,7 +614,8 @@ function FeedPageSession({
   // from another session after this session removed a row. The service seeds
   // the shared Feed cache, so the page and the profile preview update together.
   useFeedLiveRefresh(
-    useCallback(() => {
+    useCallback((scope?: FeedRefreshScope) => {
+      if (scope === "connections") return;
       if (!userId || dismissedGroupsRef.current.size === 0) {
         void refresh({ force: true });
         return;
@@ -675,6 +678,8 @@ function FeedPageSession({
 
   const markSeen = useCallback(() => {
     const latestId = latestIdRef.current;
+    // A newly published outcome above the viewport remains unread until seen.
+    if ((getAppScrollRoot()?.scrollTop ?? 0) > 100) return;
     if (!userId || !latestId || markedReadUpToRef.current === latestId)
       return;
     markedReadUpToRef.current = latestId;
@@ -702,6 +707,8 @@ function FeedPageSession({
   // newer live row. Keep the hidden/unmount calls as a final settlement path
   // for platforms that suspend network work while the page is active.
   useEffect(() => {
+    const root = getAppScrollRoot();
+    root?.addEventListener("scroll", markSeen, { passive: true });
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         markSeen();
@@ -711,6 +718,7 @@ function FeedPageSession({
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      root?.removeEventListener("scroll", markSeen);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       markSeen();
     };
@@ -1088,10 +1096,7 @@ function FeedPageSession({
         {/* No in-body header: the shared top bar owns the single Feed title. */}
         <SettingsPresentationProvider density="compact">
           <AppPageContentRegion>
-            <FeedPushPrompt />
             <FeedPaymentReturnNotice />
-            <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
-            {userId ? <FeedSoundControl userId={userId} firstPageItems={data?.items ?? null} /> : null}
             {hasLiveActionables ? (
               <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>
@@ -1289,6 +1294,7 @@ function FeedPageSession({
                 </Button> : null}
               </div>
             ) : null}
+            <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
             {/* Clearing is housekeeping, not a task: it sits quietly after the
                 history, never under a "Needs you" row where it read as a
                 reply to that request. It turns destructive only once armed. */}

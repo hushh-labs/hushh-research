@@ -22,6 +22,7 @@ UAT_OVERLAY_NAMES = (
     DRIVE_RETIREMENT_MIGRATION_NAME,
     "438_uat_legacy_generation_settlement.sql",
     "455_uat_account_cleanup_prior_drive_revocation.sql",
+    "459_feed_request_realtime.sql",
 )
 ROLLBACK_NAME = "174_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
