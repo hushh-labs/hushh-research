@@ -19,6 +19,7 @@ import asyncio
 import copy
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -344,7 +345,9 @@ def provision_azure_warm_skeleton_sync(
         if openai_name
         else ""
     )
-    app_name = f"ca-pod-{slot_id}"
+    match = re.search(r"-(\d+)$", cell.cell_id)
+    cell_idx = int(match.group(1)) if match else 1
+    app_name = f"ca-pod-{slot_id}" if cell_idx == 1 else f"ca-pod-c{cell_idx:02d}-{slot_id}"
     app_path = f"{group_scope}/providers/Microsoft.App/containerApps/{app_name}"
 
     uami = arm.put(

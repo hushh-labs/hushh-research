@@ -301,6 +301,7 @@ def test_provision_and_discover_azure_cell_zero_overhead_and_cross_rg_rbac(
         provisioned, "slot01", arm_client=slot_arm, sleep=lambda _s: None
     )  # type: ignore[arg-type]
     assert minted.slot_id == "slot01"
+    assert minted.app_name == "ca-pod-c02-slot01"
     rbac_paths = {
         op: path for path, _ver, _body, op in slot_arm.puts if op.startswith("replenish_rbac_")
     }
@@ -388,6 +389,68 @@ def test_provision_azure_cell_handles_kv_dns_settle_and_regional_overflow(
         "rg-hussh-cell-dev-eastus2-02" in path and op == "umbrella_scaleout_cleanup_quota_rg"
         for path, _ver, op in arm.deletes
     )
+
+
+def test_provision_azure_cell_falls_back_to_shared_cae_sibling_on_global_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    template = _azure_cell("cell-az-eastus2-dev-01")
+    decision = evaluate_horizontal_cell_scaleout(
+        provider=BACKEND_AZURE,
+        cells=[template],
+        active_counts_by_cell={template.cell_id: 40},
+    )
+    assert decision.planned_config is not None
+
+    class _GlobalQuotaArm(_RecordingArm):
+        def put(
+            self, path: str, *, api_version: str, body: dict[str, Any], op: str = ""
+        ) -> dict[str, Any]:
+            if op == "umbrella_scaleout_cae" and "rg-hussh-cell-dev-eastus2-02" in path:
+                raise ArmError(
+                    "conflict",
+                    status=409,
+                    code="MaxNumberOfRegionalEnvironmentsInSubExceeded",
+                    message="regional limit",
+                    op=op,
+                )
+            if op == "umbrella_scaleout_cae" and "rg-hussh-cell-dev-eastus-02" in path:
+                raise ArmError(
+                    "conflict",
+                    status=409,
+                    code="MaxNumberOfGlobalEnvironmentsInSubExceeded",
+                    message="global limit 1",
+                    op=op,
+                )
+            return super().put(path, api_version=api_version, body=body, op=op)
+
+    arm = _GlobalQuotaArm()
+    sibling = provision_azure_umbrella_cell_sync(
+        template,
+        decision.planned_config,
+        arm_client=arm,  # type: ignore[arg-type]
+        sleep=lambda _s: None,
+    )
+    assert sibling.location == "eastus2"
+    assert sibling.cell_id == "cell-az-eastus2-dev-02"
+    assert sibling.resource_group == "rg-hussh-cell-dev-eastus2-02"
+    assert sibling.shared_resource_group == "rg-hussh-cell-dev-eastus2-01"
+    assert sibling.environment_id == template.environment_id
+    assert sibling.environment_name == template.environment_name
+    assert sibling.shared_cell_fixed_monthly_usd == 0.0
+    assert any("rg-hussh-cell-dev-eastus2-02" in d[0] for d in arm.deletes)
+    assert any("rg-hussh-cell-dev-eastus-02" in d[0] for d in arm.deletes)
+
+    slot_arm = _RecordingArm()
+    minted = provision_azure_warm_skeleton_sync(
+        sibling, "slot01", arm_client=slot_arm, sleep=lambda _s: None
+    )  # type: ignore[arg-type]
+    assert minted.slot_id == "slot01"
+    assert minted.app_name == "ca-pod-c02-slot01"
+    app_puts = [body for _p, _v, body, op in slot_arm.puts if op == "replenish_warm_container_app"]
+    assert app_puts[0]["properties"]["environmentId"] == template.environment_id
 
 
 def test_pool_instance_claims_isolated_per_cell() -> None:

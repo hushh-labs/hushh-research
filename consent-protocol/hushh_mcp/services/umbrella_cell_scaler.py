@@ -423,16 +423,36 @@ def _is_regional_cae_quota_error(exc: ArmError) -> bool:
     )
 
 
+def _is_global_cae_quota_error(exc: ArmError) -> bool:
+    code = (exc.code or "").strip()
+    return (
+        code == "MaxNumberOfGlobalEnvironmentsInSubExceeded"
+        or "MaxNumberOfGlobalEnvironmentsInSubExceeded" in str(exc)
+    )
+
+
 def _provision_single_region_cell_sync(
     arm: ArmClient,
     template: UmbrellaCellConfig,
     candidate: UmbrellaCellConfig,
     *,
     sleep: Callable[[float], None],
+    reuse_template_cae: bool = False,
 ) -> UmbrellaCellConfig:
     shared_rg = (
         candidate.shared_resource_group or template.resource_group or candidate.resource_group
     ).strip()
+    if reuse_template_cae:
+        if not template.environment_id or candidate.location != template.location:
+            raise ValueError(
+                f"Shared Consumption CAE reuse requires matching location and environment_id on {template.cell_id}"
+            )
+        env_name = template.environment_name
+        env_id = template.environment_id
+    else:
+        env_name = candidate.environment_name
+        env_id = candidate.environment_id
+
     base_tags: dict[str, str] = {
         "hussh-tenancy": "hussh-hosted",
         "hussh-environment": "dev",
@@ -440,7 +460,7 @@ def _provision_single_region_cell_sync(
         "hussh-shared-rg": shared_rg,
         "hussh-storage-account": candidate.storage_account,
         "hussh-key-vault": candidate.key_vault_name,
-        "hussh-cae-name": candidate.environment_name,
+        "hussh-cae-name": env_name,
         "hussh-soft-watermark": str(candidate.soft_watermark),
         "hussh-hard-watermark": str(candidate.hard_watermark),
         "hussh-min-warm": str(candidate.min_warm_skeletons),
@@ -457,42 +477,41 @@ def _provision_single_region_cell_sync(
         op="umbrella_scaleout_rg",
     )
 
-    env_scope = (
-        f"{group_scope}/providers/Microsoft.App/managedEnvironments/{candidate.environment_name}"
-    )
-    try:
-        env_resp = arm.put(
-            env_scope,
-            api_version=API_VERSIONS["container_apps"],
-            body={
-                "location": candidate.location,
-                "tags": base_tags,
-                "properties": {
-                    "workloadProfiles": [
-                        {"name": "Consumption", "workloadProfileType": "Consumption"}
-                    ],
-                    "appLogsConfiguration": {"destination": None},
-                    "zoneRedundant": False,
+    if not reuse_template_cae:
+        env_scope = f"{group_scope}/providers/Microsoft.App/managedEnvironments/{candidate.environment_name}"
+        try:
+            env_resp = arm.put(
+                env_scope,
+                api_version=API_VERSIONS["container_apps"],
+                body={
+                    "location": candidate.location,
+                    "tags": base_tags,
+                    "properties": {
+                        "workloadProfiles": [
+                            {"name": "Consumption", "workloadProfileType": "Consumption"}
+                        ],
+                        "appLogsConfiguration": {"destination": None},
+                        "zoneRedundant": False,
+                    },
                 },
-            },
-            op="umbrella_scaleout_cae",
-        )
-    except ArmError as exc:
-        if _is_regional_cae_quota_error(exc):
-            arm.delete(
-                group_scope,
-                api_version=API_VERSIONS["resources"],
-                op="umbrella_scaleout_cleanup_quota_rg",
+                op="umbrella_scaleout_cae",
             )
-        raise
+        except ArmError as exc:
+            if _is_regional_cae_quota_error(exc) or _is_global_cae_quota_error(exc):
+                arm.delete(
+                    group_scope,
+                    api_version=API_VERSIONS["resources"],
+                    op="umbrella_scaleout_cleanup_quota_rg",
+                )
+            raise
 
-    props = env_resp.get("properties") if isinstance(env_resp, Mapping) else {}
-    prov_state = str((props or {}).get("provisioningState") or "").strip().lower()
-    env_id = str((env_resp or {}).get("id") or env_scope).strip()
-    if prov_state and prov_state != "succeeded":
-        raise RuntimeError(
-            f"Umbrella Cell {candidate.cell_id} CAE provisioningState={prov_state!r}"
-        )
+        props = env_resp.get("properties") if isinstance(env_resp, Mapping) else {}
+        prov_state = str((props or {}).get("provisioningState") or "").strip().lower()
+        env_id = str((env_resp or {}).get("id") or env_scope).strip()
+        if prov_state and prov_state != "succeeded":
+            raise RuntimeError(
+                f"Umbrella Cell {candidate.cell_id} CAE provisioningState={prov_state!r}"
+            )
 
     storage_scope = (
         f"{group_scope}/providers/Microsoft.Storage/storageAccounts/{candidate.storage_account}"
@@ -567,6 +586,7 @@ def _provision_single_region_cell_sync(
     return replace(
         candidate,
         shared_resource_group=shared_rg,
+        environment_name=env_name,
         environment_id=env_id,
         shared_cell_fixed_monthly_usd=0.0,
     )
@@ -579,7 +599,7 @@ def provision_azure_umbrella_cell_sync(
     arm_client: ArmClient | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> UmbrellaCellConfig:
-    """Create a sibling Dev Azure Umbrella Cell RG + CAE + StorageV2 + KeyVault with regional overflow."""
+    """Create a sibling Dev Azure Umbrella Cell RG + CAE + StorageV2 + KeyVault with regional & global-quota fallback."""
     if deploy_lane() != "dev":
         raise PermissionError("Horizontal Umbrella Cell creation is restricted to the dev lane")
     if planned.provider != BACKEND_AZURE:
@@ -622,6 +642,25 @@ def provision_azure_umbrella_cell_sync(
         try:
             return _provision_single_region_cell_sync(arm, template, target_cfg, sleep=sleep)
         except ArmError as exc:
+            if _is_global_cae_quota_error(exc):
+                logger.warning(
+                    "umbrella_cell_scaler.global_cae_quota_reached region=%s cell=%s",
+                    loc,
+                    target_cfg.cell_id,
+                )
+                last_quota_err = exc
+                if template.environment_id:
+                    sibling = (
+                        planned
+                        if planned.location == template.location
+                        else _retarget_planned_cell_location(
+                            planned, template.location or primary_loc, cell_index=cell_idx
+                        )
+                    )
+                    return _provision_single_region_cell_sync(
+                        arm, template, sibling, sleep=sleep, reuse_template_cae=True
+                    )
+                break
             if _is_regional_cae_quota_error(exc):
                 logger.warning(
                     "umbrella_cell_scaler.region_cae_quota_full region=%s cell=%s",
