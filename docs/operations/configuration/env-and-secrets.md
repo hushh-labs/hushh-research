@@ -500,18 +500,18 @@ Live head keeps an explicit pin.
   complete, the frontend flag was a build-time constant that duplicated the
   backend's authority, and the manifest's `HUSHH_WALLET_AGENT_DISABLED` kill switch
   was never wired to anything. Nothing gates the Wallet now, in any lane.
-- One support and account notices use the delegated `one@hushh.ai` mailbox. Support
-  reports go to One with a fixed internal BCC to the support lead; account notices
-  have no BCC. `SUPPORT_EMAIL_TEST_TO` redirects account notices in test mode. The
-  sender and delegated user must both be One for these routes. Production uses
-  the One defaults; UAT mounts explicit `SUPPORT_EMAIL_DELEGATED_USER` and
-  `SUPPORT_EMAIL_FROM` secrets, which the deploy preflight requires to equal
-  `one@hushh.ai`. Rotate stale UAT versions before a backend release, then
-  verify the new serving revision. The dev project's `SUPPORT_EMAIL_*` secrets
-  point at `one@hushh.ai` in test mode. The
-  mailbox credential is never stored in the repo or Secret Manager; sending rides
-  the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
-  Google Workspace admin setting, not a repo concern.
+- One support, account notices, and shared `hushh-mail-api` alerts use the
+  delegated `one@hushh.ai` mailbox via keyless Google Workspace Domain-Wide
+  Delegation (no personal accounts or App Passwords). Support reports go to One
+  with a fixed internal BCC to the support lead; account notices have no BCC.
+  The sender and delegated user must both be `one@hushh.ai` for these routes.
+  Dev, UAT, and production all mount explicit `SUPPORT_EMAIL_DELEGATED_USER`,
+  `SUPPORT_EMAIL_FROM`, `SUPPORT_EMAIL_TO` (`one@hushh.ai`), and
+  `SUPPORT_EMAIL_MODE` (`live`) secrets, which each deploy preflight requires
+  before backend rollout. The mailbox credential is never stored in the repo or
+  Secret Manager; sending rides the delegated service identity. Forwarding from
+  `one@hushh.ai` to a person is a Google Workspace admin setting, not a repo
+  concern.
 - Automatic account mail is limited to the first-account welcome, confirmed
   passkey-add, passkey-remove, existing-vault passphrase-change and phone-link
   change notices, and the `account_deleted` notice. The deletion notice is sent
@@ -520,15 +520,15 @@ Live head keeps an explicit pin.
   memory and never stores it (the One mailbox keeps its Sent copy, as for every
   account notice), so a lost or uncertain send is logged
   (`account_deletion.notice_failed`, or `account_security_email.failed`) and
-  never replayed or backfilled. Outside production it sends only when test mode
-  redirects it to `SUPPORT_EMAIL_TEST_TO` (UAT), because non-production shares
-  sign-ins with production and must never tell a real person their account is
-  gone. Otherwise it logs `account_deletion.notice_skipped` with
-  `reason=sender_unconfigured` or `reason=live_outside_prod` (shared Dev,
-  which mounts the Firebase admin identity but no test-mode secrets).
+  never replayed or backfilled. When `SUPPORT_EMAIL_MODE=live`, account and
+  security notices deliver to the signed-in owner across Dev, UAT, and
+  production; when `SUPPORT_EMAIL_MODE=test` is explicitly opted in for a sandbox,
+  `SUPPORT_EMAIL_TEST_TO` redirects delivery. Otherwise it logs
+  `account_deletion.notice_skipped` with `reason=sender_unconfigured`.
   Routine welcome-back, sign-out, phone-conflict, and client-inferred connector
   emails are retired. The separate `hushh-mail-api` frontend binding remains
-  only for user-requested Save my Soul email; it must not send account notices.
+  only for user-requested Save my Soul email, sending through delegated
+  `one@hushh.ai` rather than `ankit@hushh.ai`; it must not send account notices.
   Independent OTP adds a separate backend consumer binding and delegated One
   transport to that same API; the frontend SOS binding never receives a One bearer.
   A green branch check or local commit does not publish this policy: verify the

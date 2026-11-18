@@ -19,7 +19,8 @@ SERVICE="hushh-mail-api"
 # This creates a candidate only. Verification and traffic promotion are separate.
 gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" >/dev/null
 gcloud run deploy "$SERVICE" --project="$PROJECT" --region="$REGION" \
-  --source="$SOURCE_DIR" --update-env-vars=MAIL_ONE_DELEGATED_ENABLED=true \
-  --revision-suffix="$MAIL_API_REVISION_SUFFIX" --no-traffic --tag=one-otp-candidate
+  --source="$SOURCE_DIR" \
+  --update-env-vars="MAIL_ONE_DELEGATED_ENABLED=true,ONE_EMAIL_DELEGATED_USER=one@hushh.ai,MAIL_DEFAULT_FROM_NAME=One,WORKLOAD_DWD_SERVICE_ACCOUNT_EMAIL=hushh-mail-api@hushh-tech-prod.iam.gserviceaccount.com" \
+  --revision-suffix="$MAIL_API_REVISION_SUFFIX" --no-traffic --tag=one-delegated-candidate
 
 echo "Candidate created without default traffic. Verify before an authorized promotion."

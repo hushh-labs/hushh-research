@@ -868,6 +868,26 @@ jobs:
         shell: bash
         run: bash scripts/ci/run-release-pkm-gate.sh dev
 
+      - name: Verify One mail sender configuration
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET == 'shared-dev'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM SUPPORT_EMAIL_TO; do
+            sender="$(gcloud secrets versions access latest \
+              --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}")"
+            if [ "${sender}" != "one@hushh.ai" ]; then
+              echo "${secret_name} must name the One mailbox before backend deployment." >&2
+              exit 1
+            fi
+          done
+          mode="$(gcloud secrets versions access latest \
+            --secret=SUPPORT_EMAIL_MODE --project="${{ env.GCP_PROJECT_ID }}")"
+          if [ "${mode}" != "live" ]; then
+            echo "SUPPORT_EMAIL_MODE must equal live before backend deployment." >&2
+            exit 1
+          fi
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -888,6 +908,7 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" ]]; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=https://consent-protocol-621416509462.us-central1.run.app##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=account-deletion-cleanup@hushh-pda-dev.iam.gserviceaccount.com"
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM"
           fi
           # Google connections use the normalized OAuth secret names. Keep the
           # dev lane aligned with backend.cloudbuild.yaml so these optional
