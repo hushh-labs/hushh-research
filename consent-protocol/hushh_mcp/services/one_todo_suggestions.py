@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from hushh_mcp.runtime_settings import one_todo_suggestions_enabled
 
@@ -32,6 +32,14 @@ class TaskSuggestionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     allow_model_processing: StrictBool
     sources: list[TaskSource] = Field(min_length=1, max_length=100)
+    selected_capabilities: list[CapabilityId] | None = Field(default=None, max_length=9)
+
+    @field_validator("selected_capabilities")
+    @classmethod
+    def unique_capabilities(cls, value: list[CapabilityId] | None) -> list[CapabilityId] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("duplicate selected capability")
+        return value
 
 
 class TaskSuggestion(BaseModel):
@@ -81,16 +89,26 @@ async def suggest_tasks(
     refs = {source.ref for source in request.sources}
     if len(refs) != len(request.sources):
         raise ValueError("duplicate task source reference")
+    sources = [
+        source
+        for source in request.sources
+        if request.selected_capabilities is None
+        or source.capability in request.selected_capabilities
+    ]
+    refs = {source.ref for source in sources}
     await require_access()
-    response = TaskSuggestions.model_validate(
-        await runner(
-            prompt=json.dumps(
-                {"owner_supplied_summaries": [s.model_dump() for s in request.sources]}
-            ),
-            user_id=user_id,
-            consent_token=consent_token,
+    if sources:
+        response = TaskSuggestions.model_validate(
+            await runner(
+                prompt=json.dumps(
+                    {"owner_supplied_summaries": [source.model_dump() for source in sources]}
+                ),
+                user_id=user_id,
+                consent_token=consent_token,
+            )
         )
-    )
+    else:
+        response = TaskSuggestions()
     selected = [item.source_ref for item in response.items]
     if len(set(selected)) != len(selected) or any(ref not in refs for ref in selected):
         raise ValueError("unoffered task source reference")
