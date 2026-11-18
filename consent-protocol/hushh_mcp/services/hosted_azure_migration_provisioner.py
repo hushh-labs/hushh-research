@@ -104,6 +104,7 @@ def build_hosted_azure_switch_metadata(
         "graceDays": _DEFAULT_SOURCE_GRACE_DAYS,
         "graceReapAfter": _grace_reap_iso(),
         "reason": "migrated_to_hussh_hosted_azure",
+        "hushh_id": str(previous_row.get("hushh_id") or "").strip(),
         "deploymentTarget": previous_row.get("deployment_target"),
         "deployment_target": previous_row.get("deployment_target"),
         "backend": previous_row.get("backend"),
@@ -296,15 +297,24 @@ def _discover_occupied_app_ids(db: Any) -> set[str] | None:
     if not hasattr(db, "engine"):
         return None
     from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
 
-    with db.engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                "SELECT external_agent_id FROM public.personal_agent_registry "
-                "WHERE deployment_target = 'azure' AND external_agent_id IS NOT NULL"
-            )
-        ).scalars()
-        return {str(val).strip() for val in rows if str(val or "").strip()}
+    try:
+        with db.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT external_agent_id FROM public.personal_agent_registry "
+                    "WHERE deployment_target = 'azure' AND external_agent_id IS NOT NULL"
+                )
+            ).scalars()
+            return {str(val).strip() for val in rows if str(val or "").strip()}
+    except OperationalError as exc:
+        if (
+            getattr(db.engine.dialect, "name", "") == "sqlite"
+            and "no such table" in str(exc).lower()
+        ):
+            return None
+        raise
 
 
 class HostedAzureDestinationProvisioner:
@@ -812,6 +822,10 @@ async def get_owner_hosted_azure_migration_status(
         else {}
     )
     occupied_app_ids = await asyncio.to_thread(_discover_occupied_app_ids, db)
+    from hushh_mcp.services.source_pod_retirement import (
+        get_owner_source_pod_retirement_status_from_row,
+    )
+
     return {
         "job": job,
         "deploymentTarget": (row or {}).get("deployment_target"),
@@ -819,6 +833,7 @@ async def get_owner_hosted_azure_migration_status(
         "directReadiness": metadata.get("directReadiness"),
         "cutover": relay_first_cutover_status(row),
         "cellPool": await skeleton_pool.async_snapshot_status(occupied_app_ids=occupied_app_ids),
+        "sourceRetirements": get_owner_source_pod_retirement_status_from_row(row),
     }
 
 

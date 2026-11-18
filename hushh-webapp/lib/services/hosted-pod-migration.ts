@@ -37,12 +37,39 @@ export type HostedAzureMigrationJobSummary = {
   targetRegion: string | null;
 };
 
+export type HostedSourceRetirementItem = {
+  placementId: string;
+  sourceTarget: string;
+  sourceProvider: string;
+  sourceKind: string;
+  sourceLabel: string;
+  resourceHint: string;
+  detachedAt: string;
+  graceReapAfter: string;
+  daysRemaining: number;
+  graceExpired: boolean;
+  ownerConfirmed: boolean;
+  confirmedAt: string | null;
+  retiredAt: string | null;
+  status: string;
+  ownerCloudCleanupReady: boolean;
+  revokedRoleAssignmentCount: number;
+};
+
+export type HostedSourceRetirementStatus = {
+  environment: string;
+  items: HostedSourceRetirementItem[];
+  hasPendingConfirmation: boolean;
+  confirmedPlacementId?: string | null;
+};
+
 export type HostedAzureMigrationStatus = {
   job: HostedAzureMigrationJobSummary | null;
   deploymentTarget: string | null;
   registryStatus: string | null;
   cutover: HostedAzureCutoverState;
   cellPool: HostedUmbrellaCellsStatus;
+  sourceRetirements?: HostedSourceRetirementItem[];
 };
 
 export type HostedAzureMigrationResult = {
@@ -147,6 +174,49 @@ function parseJobSummary(payload: unknown): HostedAzureMigrationJobSummary | nul
   };
 }
 
+export function parseHostedSourceRetirementItems(raw: unknown): HostedSourceRetirementItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: HostedSourceRetirementItem[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const placementId = asString(entry.placementId).trim();
+    if (!placementId) continue;
+    items.push({
+      placementId,
+      sourceTarget: asString(entry.sourceTarget),
+      sourceProvider: asString(entry.sourceProvider, "unknown"),
+      sourceKind: asString(entry.sourceKind, "byoc"),
+      sourceLabel: asString(entry.sourceLabel, "Prior Cloud"),
+      resourceHint: asString(entry.resourceHint),
+      detachedAt: asString(entry.detachedAt),
+      graceReapAfter: asString(entry.graceReapAfter),
+      daysRemaining: Math.max(0, asNumber(entry.daysRemaining, 14)),
+      graceExpired: entry.graceExpired === true,
+      ownerConfirmed: entry.ownerConfirmed === true,
+      confirmedAt: typeof entry.confirmedAt === "string" ? entry.confirmedAt : null,
+      retiredAt: typeof entry.retiredAt === "string" ? entry.retiredAt : null,
+      status: asString(entry.status, "awaiting_owner_confirmation"),
+      ownerCloudCleanupReady: entry.ownerCloudCleanupReady === true,
+      revokedRoleAssignmentCount: Math.max(0, asNumber(entry.revokedRoleAssignmentCount, 0)),
+    });
+  }
+  return items;
+}
+
+export function parseHostedSourceRetirementStatus(payload: unknown): HostedSourceRetirementStatus {
+  if (!isRecord(payload)) {
+    return { environment: "", items: [], hasPendingConfirmation: false };
+  }
+  const items = parseHostedSourceRetirementItems(payload.items);
+  return {
+    environment: asString(payload.environment),
+    items,
+    hasPendingConfirmation: payload.hasPendingConfirmation === true,
+    confirmedPlacementId:
+      typeof payload.confirmedPlacementId === "string" ? payload.confirmedPlacementId : null,
+  };
+}
+
 export function parseHostedAzureMigrationStatus(payload: unknown): HostedAzureMigrationStatus {
   if (!isRecord(payload)) {
     throw new Error("HOSTED_MIGRATION_STATUS_UNAVAILABLE");
@@ -157,6 +227,7 @@ export function parseHostedAzureMigrationStatus(payload: unknown): HostedAzureMi
     registryStatus: typeof payload.registryStatus === "string" ? payload.registryStatus : null,
     cutover: parseCutoverState(payload.cutover),
     cellPool: parseHostedUmbrellaCellsStatus(payload.cellPool),
+    sourceRetirements: parseHostedSourceRetirementItems(payload.sourceRetirements),
   };
 }
 

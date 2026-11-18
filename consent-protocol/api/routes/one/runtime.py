@@ -1387,6 +1387,10 @@ class HostedAzureMigrationRequest(BaseModel):
     allowFreshPodLog: bool = Field(default=False)
 
 
+class HostedSourceRetirementConfirmRequest(BaseModel):
+    placementId: str | None = Field(default=None, max_length=64)
+
+
 def _require_dev_hosted_azure_lane() -> None:
     from hushh_mcp.services.dev_simulation_guard import deploy_lane
 
@@ -1468,3 +1472,45 @@ async def get_hosted_umbrella_cells_status(
     )
 
     return dict(await get_hosted_umbrella_cells_snapshot(cell_id=cell_id))
+
+
+@router.get("/byoc/hosted/source-retirement/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_source_retirement_status_route(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Read the owner's 14-day source-pod retirement window & confirmation state."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.source_pod_retirement import (
+        get_owner_source_pod_retirement_status,
+    )
+
+    return dict(await get_owner_source_pod_retirement_status(firebase_uid))
+
+
+@router.post("/byoc/hosted/source-retirement/confirm")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def confirm_hosted_source_retirement_route(
+    request: Request,
+    body: HostedSourceRetirementConfirmRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Record explicit owner confirmation to retire the prior pod once the 14-day window expires."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.source_pod_retirement import (
+        confirm_owner_source_pod_retirement,
+    )
+
+    try:
+        return dict(
+            await confirm_owner_source_pod_retirement(
+                firebase_uid,
+                placement_id=(body.placementId if body else None),
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SOURCE_RETIREMENT_PRECONDITION_FAILED", "message": str(exc)},
+        ) from exc

@@ -37,9 +37,11 @@ import {
   extractHostedMigrationErrorMessage,
   parseHostedAzureMigrationResult,
   parseHostedAzureMigrationStatus,
+  parseHostedSourceRetirementStatus,
   parseHostedUmbrellaCellsStatus,
   type HostedAzureMigrationResult,
   type HostedAzureMigrationStatus,
+  type HostedSourceRetirementStatus,
   type HostedUmbrellaCellsStatus,
 } from "@/lib/services/hosted-pod-migration";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
@@ -1956,6 +1958,46 @@ export class ApiService {
       );
     }
     return parseHostedAzureMigrationResult(payload);
+  }
+
+  static async getHostedSourceRetirementStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedSourceRetirementStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/source-retirement/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_SOURCE_RETIREMENT_UNAVAILABLE");
+    return parseHostedSourceRetirementStatus(await response.json());
+  }
+
+  static async confirmHostedSourceRetirement(options?: {
+    placementId?: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<HostedSourceRetirementStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/source-retirement/confirm", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(options?.placementId ? { placementId: options.placementId } : {}),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not confirm your new pod right now. Your safety window is unchanged.",
+        ),
+      );
+    }
+    return parseHostedSourceRetirementStatus(payload);
   }
 
   static async selectSharedHosting(): Promise<{

@@ -55,6 +55,8 @@ vi.mock("@/lib/services/api-service", () => ({
     beginByocAuthorize: vi.fn(),
     getHostedAzureMigrationStatus: vi.fn(),
     migrateToHostedAzure: vi.fn(),
+    getHostedSourceRetirementStatus: vi.fn(),
+    confirmHostedSourceRetirement: vi.fn(),
   },
 }));
 vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
@@ -85,9 +87,15 @@ function given(agent: Record<string, unknown>, job: Record<string, unknown> = NO
 describe("cloud step placement states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     authState.ready = true;
     publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
     vi.mocked(ApiService.suggestByocProject).mockResolvedValue(null as never);
+    vi.mocked(ApiService.getHostedSourceRetirementStatus).mockResolvedValue({
+      environment: "dev",
+      items: [],
+      hasPendingConfirmation: false,
+    });
   });
 
   it("opens Shared Finance after the same Firebase owner's validation settles", async () => {
@@ -303,5 +311,88 @@ describe("cloud step placement states", () => {
     expect(card).toHaveTextContent("Hussh Pods · Google Cloud");
     expect(await screen.findByTestId("hussh-pods-migration-route")).toBeInTheDocument();
     vi.unstubAllEnvs();
+  });
+
+  it("renders the 14-day source-pod retirement card on Dev Azure and records owner confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const futureIso = new Date(Date.now() + 14 * 86400 * 1000).toISOString();
+    vi.mocked(ApiService.getHostedSourceRetirementStatus).mockResolvedValue({
+      environment: "dev",
+      hasPendingConfirmation: true,
+      items: [
+        {
+          placementId: "ret_test_123",
+          sourceTarget: "user_azure",
+          sourceProvider: "azure",
+          sourceKind: "byoc",
+          sourceLabel: "Your Azure",
+          resourceHint: "rg-owner-pod",
+          detachedAt: new Date().toISOString(),
+          graceReapAfter: futureIso,
+          daysRemaining: 14,
+          graceExpired: false,
+          ownerConfirmed: false,
+          confirmedAt: null,
+          retiredAt: null,
+          status: "awaiting_owner_confirmation",
+          ownerCloudCleanupReady: false,
+          revokedRoleAssignmentCount: 0,
+        },
+      ],
+    });
+    vi.mocked(ApiService.confirmHostedSourceRetirement).mockResolvedValue({
+      environment: "dev",
+      hasPendingConfirmation: false,
+      confirmedPlacementId: "ret_test_123",
+      items: [
+        {
+          placementId: "ret_test_123",
+          sourceTarget: "user_azure",
+          sourceProvider: "azure",
+          sourceKind: "byoc",
+          sourceLabel: "Your Azure",
+          resourceHint: "rg-owner-pod",
+          detachedAt: new Date().toISOString(),
+          graceReapAfter: futureIso,
+          daysRemaining: 14,
+          graceExpired: false,
+          ownerConfirmed: true,
+          confirmedAt: new Date().toISOString(),
+          retiredAt: null,
+          status: "owner_confirmed",
+          ownerCloudCleanupReady: false,
+          revokedRoleAssignmentCount: 0,
+        },
+      ],
+    });
+
+    const { HusshPodsActiveCard } = await import("@/components/connections/hussh-pods-cloud-card");
+    render(<HusshPodsActiveCard deploymentTarget="azure" cutover={{ relayReady: true, directReady: true, ingress: "direct", mode: "direct" }} />);
+
+    const card = await screen.findByTestId("hussh-pods-source-retirement");
+    expect(card).toHaveTextContent("Prior cloud · Your Azure");
+    expect(card).toHaveTextContent("14d left in 14-day safety window");
+
+    fireEvent.click(await screen.findByTestId("hussh-pods-confirm-retirement-trigger"));
+    fireEvent.click(await screen.findByTestId("hussh-pods-confirm-retirement-action"));
+
+    await waitFor(() => {
+      expect(ApiService.confirmHostedSourceRetirement).toHaveBeenCalledWith({
+        placementId: "ret_test_123",
+        isEffectCurrent: expect.any(Function),
+      });
+    });
+    expect(await screen.findByTestId("hussh-pods-retirement-confirmed")).toBeInTheDocument();
+  });
+
+  it("keeps source-pod retirement hidden outside the dev build lane", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    const { HusshPodsActiveCard } = await import("@/components/connections/hussh-pods-cloud-card");
+    render(<HusshPodsActiveCard deploymentTarget="azure" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId("hussh-pods-source-retirement")).toBeNull();
+    expect(ApiService.getHostedSourceRetirementStatus).not.toHaveBeenCalled();
   });
 });

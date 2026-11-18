@@ -106,6 +106,7 @@ class UmbrellaCellConfig:
     controller_client_id: str = ""
     image_digest: str = ""
     slots: tuple[SkeletonSlotConfig, ...] = ()
+    shared_resource_group: str = ""
 
 
 @dataclass(frozen=True)
@@ -306,14 +307,24 @@ class UmbrellaCellRegistry:
                 controller_client_id=str(item.get("controllerClientId") or ""),
                 image_digest=str(item.get("imageDigest") or ""),
                 slots=slots,
+                shared_resource_group=str(item.get("sharedResourceGroup") or ""),
             )
             self._cells[cell.cell_id] = cell
 
+    def upsert_cells(self, cells: Sequence[UmbrellaCellConfig]) -> None:
+        """Register dynamically scaled-out cells without clobbering static slot overrides."""
+        for cell in cells:
+            existing = self._cells.get(cell.cell_id)
+            if existing is None:
+                self._cells[cell.cell_id] = cell
+            elif not existing.slots and cell.slots:
+                self._cells[cell.cell_id] = cell
+
     def list_cells(self, *, provider: str | None = None) -> tuple[UmbrellaCellConfig, ...]:
-        cells = tuple(self._cells.values())
+        cells = sorted(self._cells.values(), key=lambda c: _slot_sort_key(c.cell_id))
         if provider:
             return tuple(c for c in cells if c.provider == provider)
-        return cells
+        return tuple(cells)
 
     def azure_cell(self, cell_id: str | None = None) -> UmbrellaCellConfig:
         if cell_id:
@@ -599,8 +610,36 @@ class PodSkeletonPoolService:
         self._instance_claims: dict[str, str] = {}
         self._instance_lock = threading.Lock()
 
+    def list_live_cells_sync(
+        self, *, provider: str | None = None
+    ) -> tuple[UmbrellaCellConfig, ...]:
+        """Discover dynamically scaled Dev Azure cells in O(1) and merge with static config."""
+        static_azure = self._registry.list_cells(provider=BACKEND_AZURE)
+        if deploy_lane() == "dev" and static_azure:
+            probe_backend = self._backend_factory(_cell_probe_slot_spec(static_azure[0]))
+            if bool(getattr(probe_backend, "_live", False)):
+                arm = getattr(probe_backend, "_arm_client", None)
+                try:
+                    from hushh_mcp.services.umbrella_cell_scaler import (  # noqa: PLC0415
+                        discover_azure_umbrella_cells_sync,
+                    )
+
+                    discovered = discover_azure_umbrella_cells_sync(static_azure[0], arm_client=arm)
+                    if discovered:
+                        self._registry.upsert_cells(discovered)
+                except Exception as exc:  # noqa: BLE001 - static cells remain authoritative on probe miss
+                    logger.info(
+                        "umbrella_pool.cell_discovery_skipped err=%s",
+                        type(exc).__name__,
+                    )
+        return self._registry.list_cells(provider=provider)
+
     def slot_spec(self, slot_id: str, *, cell_id: str | None = None) -> HostedAzureCellSlotSpec:
-        cell = self._registry.azure_cell(cell_id)
+        try:
+            cell = self._registry.azure_cell(cell_id)
+        except KeyError:
+            self.list_live_cells_sync(provider=BACKEND_AZURE)
+            cell = self._registry.azure_cell(cell_id)
         for slot in cell.slots:
             if slot.slot_id == slot_id:
                 return _slot_spec(cell, slot)
@@ -764,8 +803,12 @@ class PodSkeletonPoolService:
     ) -> UmbrellaCellConfig:
         """Select the admitting Azure cell using bin-packing below softWatermark + spillover."""
         if cell_id:
-            return self._registry.azure_cell(cell_id)
-        candidates = self._registry.list_cells(provider=BACKEND_AZURE)
+            try:
+                return self._registry.azure_cell(cell_id)
+            except KeyError:
+                self.list_live_cells_sync(provider=BACKEND_AZURE)
+                return self._registry.azure_cell(cell_id)
+        candidates = self.list_live_cells_sync(provider=BACKEND_AZURE)
         if not candidates:
             raise KeyError("No hosted Azure Umbrella Cell configured")
         if len(candidates) == 1:
@@ -1050,8 +1093,11 @@ class PodSkeletonPoolService:
         occupied_app_ids: set[str] | None = None,
         arm_tags_by_slot: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Live ARM-aware snapshot discovering dynamically replenished slots without waking pods."""
-        cells = self._registry.list_cells()
+        """Live ARM-aware snapshot discovering dynamically scaled cells & slots without waking pods."""
+        if deploy_lane() == "dev" and arm_tags_by_slot is None:
+            cells = await asyncio.to_thread(self.list_live_cells_sync)
+        else:
+            cells = self._registry.list_cells()
         reports: list[dict[str, Any]] = []
         for cell in cells:
             if cell_id and cell.cell_id != cell_id:
