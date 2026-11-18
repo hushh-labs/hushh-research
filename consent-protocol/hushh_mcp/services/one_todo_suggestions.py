@@ -92,8 +92,11 @@ async def suggest_tasks(
     sources = [
         source
         for source in request.sources
-        if request.selected_capabilities is None
-        or source.capability in request.selected_capabilities
+        if (
+            request.selected_capabilities is None
+            or source.capability in request.selected_capabilities
+        )
+        and not source.already_pending
     ]
     refs = {source.ref for source in sources}
     await require_access()
