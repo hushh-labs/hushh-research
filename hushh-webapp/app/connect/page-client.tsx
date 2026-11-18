@@ -604,6 +604,10 @@ export default function ConnectPageClient() {
     searchParams.get(CONNECT_SURFACE_PARAM),
   );
   const [surface, setSurface] = useState<ConnectSurface>(routeSurface);
+  const [directoryActivated, setDirectoryActivated] = useState(routeSurface === "all");
+  // The pager retains its panes. Start the directory on first entry, then
+  // keep its current page and any in-flight read when Circles covers it.
+  if (surface === "all" && !directoryActivated) setDirectoryActivated(true);
   const requestedSurfaceRef = useRef<ConnectSurface | null>(null);
   useEffect(() => { setSurface(routeSurface); requestedSurfaceRef.current = null; }, [routeSurface]);
   const mutualPersonRef = surface === "all" ? searchParams.get(CONNECT_MUTUALS_PARAM)?.trim() || null : null;
@@ -1433,7 +1437,7 @@ export default function ConnectPageClient() {
     const generation = ++directoryReadGenerationRef.current;
     const isCurrent = () => !cancelled && generation === directoryReadGenerationRef.current;
     async function run() {
-      if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
+      if (!user || !userId || !directoryActivated || tab === "nearby" || mutualPersonRef) return;
       try {
         directoryRequestPendingRef.current = true;
         if (currentPage <= 1) setHasMore(false);
@@ -1538,7 +1542,7 @@ export default function ConnectPageClient() {
     // refused. Bumping the nonce starts a fresh first-page generation.
     directoryRefreshNonce,
     directoryRetryNonce,
-    surface,
+    directoryActivated,
     tab,
     mutualPersonRef,
   ]);
