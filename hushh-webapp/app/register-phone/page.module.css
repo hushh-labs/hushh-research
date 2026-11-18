@@ -52,7 +52,7 @@
 .accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
 .accountButton { position: static; }
 .backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
-.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:not([type="search"]):focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
 .surface {
   display: flex;
   flex-direction: column;

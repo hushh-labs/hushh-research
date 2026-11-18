@@ -826,16 +826,6 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
-  // Name the first mandatory prerequisite in the shared header.
-  const summary = hubStateLoading
-    ? "One moment…"
-    : setupPrerequisitesComplete
-      ? "Add more any time."
-      : !cloudComplete
-        ? "Choose where your agent lives first."
-        : !runtimeChoiceComplete
-          ? "Finish your agent setup."
-          : "Finish setting up One.";
   const localFirstSequenceActive =
     localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
   // A centered story-screen takeover (the local-first sequence) is a full screen
@@ -873,7 +863,6 @@ export function OneSetupHub() {
             title={
               !hubStateLoading && setupPrerequisitesComplete ? "You're all set" : "Set up One"
             }
-            description={summary}
             accent="neutral"
             className={styles.setupHeader}
           />
@@ -931,11 +920,11 @@ export function OneSetupHub() {
                   description={
                     cloudComplete
                       ? runtimeChoiceComplete
-                        ? "Your hosting and AI choices are saved."
-                        : "Finish choosing AI access in your agent setup."
+                        ? undefined
+                        : "Choose AI access."
                       : cloudSetupRunning
-                        ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
+                        ? "Setup continues in the background."
+                        : "Choose where One runs."
                   }
                   href={buildOneSetupCloudRoute(returnTo)}
                   voiceControlId="one_setup_tile_cloud"
@@ -956,11 +945,9 @@ export function OneSetupHub() {
                   id="phone"
                   title="Verify your phone"
                   description={
-                    phoneVerified
-                      ? "Verified. Your agent's record is minted from this number."
-                      : cloudComplete
-                        ? "Your agent's record is minted from your verified number."
-                        : "After choosing where your agent lives."
+                    !phoneVerified && cloudComplete
+                      ? "Your number is used for your agent’s ID."
+                      : undefined
                   }
                   href={buildPhoneMandateRoute(ROUTES.ONE_SETUP)}
                   voiceControlId="one_setup_tile_phone"
@@ -1054,8 +1041,8 @@ export function OneSetupHub() {
               ) : null}
             </div>
             <div className="mt-6 space-y-4">
-              <PwmResearchDisclosure className="mb-4" />
-              <SettingsGroup title="Email preferences">
+              <PwmResearchDisclosure className="mb-4" compact />
+              <SettingsGroup>
                 <MarketingPreferencePanel model={emailPreference} />
               </SettingsGroup>
             </div>
