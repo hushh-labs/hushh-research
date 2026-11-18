@@ -1,6 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useAgentSettingsController } from "@/components/profile/use-agent-settings-controller";
+import { useNativeAgentSettings } from "@/components/profile/use-native-agent-settings";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -24,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   azureHosting: vi.fn(),
   browserPlan: vi.fn(),
   inspectHosting: vi.fn(),
+  hostedMigrationStatus: vi.fn(),
+  migrateToHostedAzure: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -50,6 +54,8 @@ vi.mock("@/lib/services/api-service", () => ({
     getAzureHosting: mocks.azureHosting,
     getPersonalAgentBrowserPlan: mocks.browserPlan,
     inspectPersonalAgentHosting: mocks.inspectHosting,
+    getHostedAzureMigrationStatus: mocks.hostedMigrationStatus,
+    migrateToHostedAzure: mocks.migrateToHostedAzure,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -598,5 +604,76 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByRole("button", { name: "Review cloud hosting" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Reconnect your pod" }));
     await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ["gcp", "Hussh Pods · Google Cloud", "Google Cloud"],
+    ["azure", "Hussh Pods · Microsoft Azure", "Microsoft Azure"],
+  ] as const)(
+    "identifies %s hosting provider cleanly on Profile Hosting and native settings",
+    async (deploymentTarget, expectedDisplay, expectedBadge) => {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+      mocks.hostedMigrationStatus.mockResolvedValue({
+        job: null,
+        deploymentTarget,
+        registryStatus: "provisioned",
+        cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+        cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+      });
+      status("hussh_pods", { state: "active", deploymentTarget, featureEnabled: true });
+
+      const { unmount } = render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+      expect((await screen.findAllByText(expectedDisplay)).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent(expectedBadge);
+      expect(screen.getByTestId("hussh-pods-connected")).toHaveAttribute("data-provider", deploymentTarget);
+
+      const { result } = renderHook(() =>
+        useNativeAgentSettings(
+          useAgentSettingsController({ kind: "hosting", userId: "owner" }),
+          true,
+          "owner",
+        ),
+      );
+      const statusRows = result.current.pages[0].sections.find((s) => s.id === "hosting-status-section")!.rows;
+      expect(statusRows.find((r) => r.id === "hosting-current")?.detail).toBe(expectedDisplay);
+      expect(Boolean(statusRows.find((r) => r.id === "hosting-move-azure"))).toBe(deploymentTarget === "gcp");
+      unmount();
+      vi.unstubAllEnvs();
+    },
+  );
+
+  it("renders the graphical Azure migration card in Dev and submits only after confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    mocks.hostedMigrationStatus.mockResolvedValue({
+      job: null,
+      deploymentTarget: "gcp",
+      registryStatus: "provisioned",
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+      cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+    });
+    mocks.migrateToHostedAzure.mockResolvedValue({
+      jobId: "mig_1",
+      status: "succeeded",
+      cellId: "cell-az-eastus2-dev-01",
+      slotId: "slot02",
+      claimLatencyMs: 18500,
+      migrationMode: "lossless_commit_log",
+      directPromoted: true,
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+    });
+    status("hussh_pods", { state: "active", deploymentTarget: "gcp", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(await screen.findByTestId("hussh-pods-migration-route")).toBeTruthy();
+    expect(screen.getByTestId("hussh-pods-warm-capacity")).toHaveTextContent("2 warm pods ready");
+
+    fireEvent.click(screen.getByTestId("hussh-pods-migrate-trigger"));
+    expect(mocks.migrateToHostedAzure).not.toHaveBeenCalled();
+
+    const confirm = await screen.findByTestId("hussh-pods-migrate-confirm");
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.migrateToHostedAzure).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    vi.unstubAllEnvs();
   });
 });

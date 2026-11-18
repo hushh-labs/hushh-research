@@ -871,3 +871,115 @@ def test_umbrella_cell_multi_cell_bin_packing_spillover_and_uat_prod_refusal(
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     rep = _asyncio.run(UmbrellaCellReplenisher(registry=registry).replenish_once())
     assert rep.skipped is True and rep.reason == "non_dev_lane"
+
+
+def test_provision_azure_warm_skeleton_retains_controller_client_id_across_uami_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Creating id-pod-slotNN must never shadow the controller client_id inside ArmClient's token lambda."""
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import azure_federation
+    from hushh_mcp.services.pod_umbrella_cell_pool import UmbrellaCellRegistry
+    from hushh_mcp.services.umbrella_cell_replenisher import provision_azure_warm_skeleton_sync
+
+    controller_id = "815df3ec-c8c4-4df3-a01a-f611dd6eb3c4"
+    uami_id = "99999999-8888-4777-a666-555555555555"
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_HOSTED_AZURE_CLIENT_ID", controller_id)
+
+    token_client_ids: list[str | None] = []
+
+    def _spy_app_token(
+        tenant_id: str, *, client_id: str | None = None, **_kwargs: object
+    ) -> object:
+        assert tenant_id
+        token_client_ids.append(client_id)
+        return SimpleNamespace(
+            access_token=f"tok-for-{client_id}", expires_in=3600, object_id="obj"
+        )
+
+    monkeypatch.setattr(azure_federation, "app_token", _spy_app_token)
+
+    class _HttpRes:
+        def __init__(
+            self, status_code: int, body: dict[str, object], headers: dict[str, str] | None = None
+        ) -> None:
+            self.status_code = status_code
+            self._body = body
+            self.headers = headers or {}
+            self.content = b"1"
+
+        def json(self) -> dict[str, object]:
+            return self._body
+
+    class _ArmSession:
+        def request(self, method: str, url: str, **_kwargs: object) -> _HttpRes:
+            if method == "PUT" and "/userAssignedIdentities/" in url:
+                return _HttpRes(
+                    201,
+                    {
+                        "id": url.split("?")[0],
+                        "properties": {
+                            "provisioningState": "Succeeded",
+                            "clientId": uami_id,
+                            "principalId": "11111111-2222-4333-a444-555555555555",
+                        },
+                    },
+                    {
+                        "Location": "/subscriptions/s/resourceGroups/g/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-pod-slot03"
+                    },
+                )
+            if "/keys/" in url:
+                if method == "GET":
+                    return _HttpRes(404, {})
+                return _HttpRes(
+                    200,
+                    {
+                        "properties": {
+                            "keyUriWithVersion": "https://kv-h1-celldeveus201.vault.azure.net/keys/pod-log-key-slot03/ver03"
+                        }
+                    },
+                )
+            if "/secrets/" in url:
+                if method == "GET":
+                    return _HttpRes(404, {})
+                return _HttpRes(
+                    200,
+                    {
+                        "properties": {
+                            "secretUri": "https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot03"
+                        }
+                    },
+                )
+            if method == "PUT" and "/providers/Microsoft.App/containerApps/" in url:
+                return _HttpRes(
+                    200,
+                    {
+                        "properties": {
+                            "provisioningState": "Succeeded",
+                            "latestReadyRevisionName": "ca-pod-slot03--001",
+                            "configuration": {
+                                "ingress": {
+                                    "fqdn": "ca-pod-slot03.icystone.eastus2.azurecontainerapps.io"
+                                }
+                            },
+                        }
+                    },
+                )
+            return _HttpRes(
+                200, {"id": url.split("?")[0], "properties": {"provisioningState": "Succeeded"}}
+            )
+
+    monkeypatch.setattr(requests, "Session", _ArmSession)
+
+    registry = UmbrellaCellRegistry(
+        {"environment": "dev", "cells": [_cell_cfg_json(slots_count=2, min_warm=2)]}
+    )
+    created = provision_azure_warm_skeleton_sync(
+        registry.azure_cell(), "slot03", sleep=lambda _s: None
+    )
+    assert created.identity_client_id == uami_id
+    assert len(token_client_ids) >= 8
+    assert all(cid == controller_id for cid in token_client_ids)
+    assert uami_id not in token_client_ids

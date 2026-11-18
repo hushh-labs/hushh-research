@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 ARM_BASE = "https://management.azure.com"
 _ARM_HOST = "management.azure.com"
+_REGIONAL_ARM_HOST = re.compile(r"^[a-z0-9-]+\.management\.azure\.com$")
 
 #: Every ARM api-version this repo speaks, pinned in one place. A version is a
 #: contract: bumping one is a reviewed change, never a silent default.
@@ -140,12 +142,15 @@ def _retry_after(headers: dict[str, str], default: float) -> float:
 
 
 def require_arm_url(url: str) -> str:
-    """A URL the token may be sent to: https on the ARM host, nothing else."""
+    """A URL the token may be sent to: https on the ARM host (or regional subdomain), nothing else."""
     try:
         parsed = urllib.parse.urlsplit(url)
+        host_ok = parsed.hostname == _ARM_HOST or (
+            parsed.hostname is not None and bool(_REGIONAL_ARM_HOST.fullmatch(parsed.hostname))
+        )
         trusted = (
             parsed.scheme == "https"
-            and parsed.hostname == _ARM_HOST
+            and host_ok
             and parsed.port in (None, 443)
             and parsed.username is None
             and parsed.password is None
@@ -363,17 +368,16 @@ class ArmClient:
                     raise
             response = self._send_once(method, url, headers, body)
             if mutation_id:
+                async_op = response.headers.get("azure-asyncoperation")
+                location_op = (
+                    response.headers.get("location") if self.needs_poll(response) else None
+                )
                 self._mutations.acknowledge(
                     mutation_id,
                     response.status,
-                    response.headers.get("azure-asyncoperation")
-                    or response.headers.get("location"),
+                    async_op or location_op,
                     operation_kind=(
-                        "azure-asyncoperation"
-                        if response.headers.get("azure-asyncoperation")
-                        else "location"
-                        if response.headers.get("location")
-                        else None
+                        "azure-asyncoperation" if async_op else "location" if location_op else None
                     ),
                 )
                 response = replace(response, mutation_id=mutation_id)
@@ -526,7 +530,7 @@ class ArmClient:
         return (
             response.status == 202
             or bool(response.headers.get("azure-asyncoperation"))
-            or bool(response.headers.get("location"))
+            or (bool(response.headers.get("location")) and state != "succeeded")
             or bool(state and state not in _TERMINAL_OK | _TERMINAL_BAD)
         )
 
