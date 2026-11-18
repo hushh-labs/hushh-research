@@ -1,8 +1,16 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createElement } from "react";
 
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { AgentQueuedStack } from "@/components/agent/agent-queued-stack";
 import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
+import {
+  combineQueuedPromptText,
+  takeJoinableRun,
+  type QueuedAgentPrompt,
+} from "@/lib/agent/agent-chat-prompt-queue";
 
 import {
   LiveTurnQueue,
@@ -231,5 +239,71 @@ describe("live turn queue", () => {
       const source = readFileSync(path.join(process.cwd(), file), "utf8");
       expect(source, file).not.toMatch(/localStorage|sessionStorage|indexedDB|trackEvent|console\./);
     }
+  });
+
+  it("stops the live turn and clubs returned updates plus un-offered draft without duplicating joined turns", async () => {
+    const server = fakeServer();
+    const queue = new LiveTurnQueue(server.ports);
+    queue.begin("conversation");
+
+    expect(await queue.offer("client-q0", "Already joined")).toBe("joining");
+    const joined = server.drain();
+    queue.apply({ phase: "joined", joined, returned: [] });
+
+    expect(await queue.offer("client-q1", "First update")).toBe("joining");
+    expect(await queue.offer("client-q2", "Second update")).toBe("joining");
+
+    // Send immediately stops offering to the dying turn, appends the composer
+    // draft without offering it, then stops the running turn.
+    queue.stopAccepting();
+    expect(await queue.offer("client-q3", "Draft third")).toBe("waiting");
+    const stopped = await queue.stop();
+    expect(stopped).toEqual({ stopped: true, waiting: ["client-q1", "client-q2"] });
+    expect(await queue.settle()).toEqual({ joined: [], waiting: [] });
+
+    const remaining: QueuedAgentPrompt[] = [
+      { id: "client-q1", text: "First update", createdAtMs: 2, joinable: true, placement: "waiting" },
+      { id: "client-q2", text: "Second update", createdAtMs: 3, joinable: true, placement: "waiting" },
+      { id: "client-q3", text: "Draft third", createdAtMs: 4, joinable: true, placement: "waiting" },
+    ];
+    const [head, ...tail] = remaining;
+    const { taken, rest } = takeJoinableRun(tail.map((prompt) => ({ prompt })));
+    const together = [head!, ...taken.map((item) => item.prompt!)];
+    expect(rest).toEqual([]);
+    expect(combineQueuedPromptText(together)).toBe("First update\n\nSecond update\n\nDraft third");
+  });
+
+  it("surfaces Send now in the queued stack only while delivery is confirmed", () => {
+    const onSendNow = vi.fn();
+    const prompts: QueuedAgentPrompt[] = [
+      { id: "q1", text: "Refine budget", createdAtMs: 1, joinable: true, placement: "waiting" },
+      { id: "q2", text: "Add chart", createdAtMs: 2, joinable: true, placement: "waiting" },
+    ];
+    const baseProps = {
+      prompts,
+      hasComposerDraft: true,
+      editingId: null,
+      editingText: "",
+      onEditStart: () => undefined,
+      onEditChange: () => undefined,
+      onEditSave: () => undefined,
+      onEditCancel: () => undefined,
+      onRemove: () => undefined,
+      onSendNow,
+    };
+    const { rerender } = render(createElement(AgentQueuedStack, baseProps));
+
+    const sendNowButton = screen.getByTestId("agent-chat-queue-send-now");
+    expect(sendNowButton).toHaveTextContent("Send now");
+    fireEvent.click(sendNowButton);
+    expect(onSendNow).toHaveBeenCalledTimes(1);
+
+    rerender(createElement(AgentQueuedStack, { ...baseProps, sendingImmediately: true }));
+    expect(screen.queryByTestId("agent-chat-queue-send-now")).toBeNull();
+    expect(screen.getByTestId("agent-chat-prompt-queue-header")).toHaveTextContent("Sending together now…");
+
+    // Negative control: unconfirmed settlement blocks Send now until verified.
+    rerender(createElement(AgentQueuedStack, { ...baseProps, deliveryUnconfirmed: true }));
+    expect(screen.queryByTestId("agent-chat-queue-send-now")).toBeNull();
   });
 });
