@@ -194,6 +194,7 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   CardNetworkMark,
@@ -643,12 +644,24 @@ export function settleAssistantMessageError<T extends AgentMessage>(
     ? { conversationId: error.conversationId, startedAtMs: error.startedAtMs }
     : current.lostTurn;
   if (current.status === "error") return lostTurn ? { ...current, lostTurn } : current;
+  const safeReason =
+    error instanceof OwnerPodError ||
+    /^(?:POD_DIRECT_UNAVAILABLE:|SELF_ENROLL_FAILED:|POD_ENROLLMENT_REQUIRES_OWNER_SESSION$|POD_ADMISSION_REFUSED:|BINDING_UNAVAILABLE:|ENDPOINT_UNAVAILABLE:)/.test(
+      reason,
+    )
+      ? "Your private agent could not be reached from this browser session. Check Hosting settings and try again."
+      : reason;
   const partial = current.text.trim().length > 0;
   return {
     ...current,
-    text: partial ? current.text : reason,
+    text: partial ? current.text : safeReason,
     ...(partial
-      ? { errorNotice: reason === AGENT_CHAT_STREAM_LOST_ERROR ? AGENT_PARTIAL_ANSWER_LOST_NOTICE : reason }
+      ? {
+          errorNotice:
+            safeReason === AGENT_CHAT_STREAM_LOST_ERROR
+              ? AGENT_PARTIAL_ANSWER_LOST_NOTICE
+              : safeReason,
+        }
       : {}),
     ...(lostTurn ? { lostTurn } : {}),
     status: "error",

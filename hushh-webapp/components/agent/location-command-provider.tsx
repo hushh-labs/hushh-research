@@ -56,6 +56,26 @@ import { connectReviewRedirectMatches } from "@/lib/navigation/connect-routes";
 import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { useOptionalOneLocationInteractionSurface } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
 import type { LocationOnboardingRunResultV1 } from "@/lib/services/one-location-onboarding-run-client";
+import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
+
+const OWNER_POD_UNVERIFIED_MESSAGE =
+  "Your private agent connection could not be verified on this browser. Check Hosting settings and try again.";
+
+function isPrivateAgentConnectionError(error: unknown): boolean {
+  if (error instanceof OwnerPodError) return true;
+  if (error instanceof Error) {
+    return /^(?:POD_DIRECT_UNAVAILABLE:|SELF_ENROLL_FAILED:|POD_ENROLLMENT_REQUIRES_OWNER_SESSION$|POD_ADMISSION_REFUSED:|BINDING_UNAVAILABLE:|ENDPOINT_UNAVAILABLE:)/.test(
+      error.message,
+    );
+  }
+  return false;
+}
+
+function formatLocationCommandError(error: unknown, fallback: string): string {
+  if (isPrivateAgentConnectionError(error)) return OWNER_POD_UNVERIFIED_MESSAGE;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
 
 const LocationCommandContext = createContext<
   ReturnType<typeof useCommandController>["controller"] | null
@@ -308,10 +328,10 @@ function useCommandController(enabled = true) {
     (error: unknown) =>
       setView({
         phase: "gate",
-        message:
-          error instanceof Error
-            ? error.message
-            : "The command could not continue.",
+        message: formatLocationCommandError(
+          error,
+          "The command could not continue.",
+        ),
         gate: {
           kind: "unavailable",
           message: "Review or cancel this command.",
@@ -429,10 +449,10 @@ function useCommandController(enabled = true) {
       // gesture reachable, including after the first OS permission grant.
       setView({
         phase: "result",
-        message:
-          error instanceof Error
-            ? error.message
-            : "The microphone could not start. Try recording again.",
+        message: formatLocationCommandError(
+          error,
+          "The microphone could not start. Try recording again.",
+        ),
       });
     }
   }, [cancelCapture, capture, command, enabled, run]);
@@ -527,8 +547,18 @@ function useCommandController(enabled = true) {
   useEffect(() => {
     cancelCapture();
     command.pause();
-    if (enabled && userId && isVaultUnlocked && vaultOwnerToken && vaultKey)
-      run(command.recover());
+    if (enabled && userId && isVaultUnlocked && vaultOwnerToken && vaultKey) {
+      const generation = captureGeneration.current;
+      void command.recover().catch((error) => {
+        if (
+          isPrivateAgentConnectionError(error) ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        if (generation === captureGeneration.current) report(error);
+      });
+    }
     return () => {
       cancelCapture();
       command.pause();
@@ -541,7 +571,7 @@ function useCommandController(enabled = true) {
     vaultKey,
     cancelCapture,
     command,
-    run,
+    report,
   ]);
   useEffect(() => {
     const background = () => {

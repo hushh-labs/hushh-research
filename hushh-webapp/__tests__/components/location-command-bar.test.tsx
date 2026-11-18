@@ -163,6 +163,7 @@ import {
   AGENT_CONVERSATION_CANCEL_EVENT,
 } from "@/lib/agent/agent-voice-settings";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
 import { ROUTES } from "@/lib/navigation/routes";
 
 function App({
@@ -603,5 +604,27 @@ describe("mounted command bar", () => {
     expect(harness.start).toHaveBeenCalledOnce();
     expect(harness.finish).not.toHaveBeenCalled();
     expect(harness.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("ignores passive OwnerPodError recovery failures on unlock and sanitizes active command pod errors", async () => {
+    harness.recover.mockRejectedValueOnce(new OwnerPodError("SELF_ENROLL_FAILED:403"));
+    const app = render(<App />);
+    await flush();
+    expect(screen.queryByText(/SELF_ENROLL_FAILED/)).toBeNull();
+    expect(screen.queryByText("Dismiss")).toBeNull();
+
+    harness.submit.mockRejectedValueOnce(new OwnerPodError("SELF_ENROLL_FAILED:403"));
+    app.rerender(<App />);
+    down();
+    up();
+    await flush();
+    fireEvent.click(screen.getByLabelText("Send recording"));
+    await flush();
+    expect(screen.queryByText(/SELF_ENROLL_FAILED/)).toBeNull();
+    expect(
+      screen.getByText(
+        "Your private agent connection could not be verified on this browser. Check Hosting settings and try again.",
+      ),
+    ).toBeInTheDocument();
   });
 });
