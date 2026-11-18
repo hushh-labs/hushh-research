@@ -98,7 +98,7 @@ The developers group is added to both instances as:
 
 This is the current developer DB access path for Cloud SQL Studio and IAM-based login.
 
-On `hushh-pda-dev`, the Firebase Admin SDK service account (`firebase-sdk-dev@hushh-pda-dev.iam.gserviceaccount.com`) intentionally remains least-privileged (Firebase Auth and FCM only, without `roles/cloudsql.client`). When pointing local runtime tooling (`./bin/hushh proxy --mode local` and `./bin/hushh backend --mode local`) at `hushh-pda-dev`, set `CLOUDSQL_PROXY_CREDENTIALS_FILE` in `consent-protocol/.env` to your verified `developers@hushh.ai` Application Default Credentials file (`~/.config/gcloud/application_default_credentials.json`).
+On `hushh-pda-dev`, the Firebase Admin SDK service account (`firebase-sdk-dev@hushh-pda-dev.iam.gserviceaccount.com`) intentionally remains least-privileged (Firebase Auth and FCM only, without `roles/cloudsql.client`). When pointing local runtime tooling (`./bin/hushh env bootstrap` with `--local-project hushh-pda-dev`, `./bin/hushh proxy --mode local`, and `./bin/hushh backend --mode local`) at `hushh-pda-dev`, the proxy resolver automatically uses your verified `developers@hushh.ai` Application Default Credentials (`~/.config/gcloud/application_default_credentials.json`), with `CLOUDSQL_PROXY_CREDENTIALS_FILE` supported as an explicit override.
 
 ## Operating rules
 
