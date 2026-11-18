@@ -29,6 +29,7 @@ from typing import Any, Optional
 
 from hushh_mcp.runtime_settings import (
     pod_mode,
+    umbrella_cell_auto_scaleout_enabled,
     umbrella_cell_replenisher_enabled,
 )
 from hushh_mcp.services import azure_federation
@@ -55,6 +56,11 @@ from hushh_mcp.services.pod_umbrella_cell_pool import (
     UmbrellaCellConfig,
     UmbrellaCellRegistry,
 )
+from hushh_mcp.services.umbrella_cell_scaler import (
+    discover_azure_umbrella_cells_sync,
+    evaluate_horizontal_cell_scaleout,
+    provision_azure_umbrella_cell_sync,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +79,11 @@ _TELEMETRY_LOCK = threading.Lock()
 _TELEMETRY: dict[str, Any] = {
     "runsTotal": 0,
     "slotsCreatedTotal": 0,
+    "cellsCreatedTotal": 0,
     "lastRunAt": None,
     "lastOutcome": "never_run",
     "lastCreatedSlots": [],
+    "lastCreatedCells": [],
     "cellBackoffUntil": {},
 }
 
@@ -312,6 +320,8 @@ def provision_azure_warm_skeleton_sync(
         )
 
     group_scope = f"/subscriptions/{cell.subscription_id}/resourceGroups/{cell.resource_group}"
+    shared_rg = (cell.shared_resource_group or cell.resource_group).strip()
+    shared_group_scope = f"/subscriptions/{cell.subscription_id}/resourceGroups/{shared_rg}"
     identity_name = f"id-pod-{slot_id}"
     identity_path = (
         f"{group_scope}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/{identity_name}"
@@ -327,10 +337,10 @@ def provision_azure_warm_skeleton_sync(
     secret_name = f"pod-signing-key-{slot_id}"
     secret_path = f"{vault_scope}/secrets/{secret_name}"
     acr_name = _extract_host_prefix(cell.registry_server)
-    acr_scope = f"{group_scope}/providers/Microsoft.ContainerRegistry/registries/{acr_name}"
+    acr_scope = f"{shared_group_scope}/providers/Microsoft.ContainerRegistry/registries/{acr_name}"
     openai_name = _extract_host_prefix(cell.openai_endpoint)
     openai_scope = (
-        f"{group_scope}/providers/Microsoft.CognitiveServices/accounts/{openai_name}"
+        f"{shared_group_scope}/providers/Microsoft.CognitiveServices/accounts/{openai_name}"
         if openai_name
         else ""
     )
@@ -476,6 +486,7 @@ class ReplenishPassReport:
     reason: str
     created_slots: tuple[str, ...]
     errors: tuple[str, ...]
+    created_cells: tuple[str, ...] = ()
 
 
 class UmbrellaCellReplenisher:
@@ -488,12 +499,20 @@ class UmbrellaCellReplenisher:
         pool: PodSkeletonPoolService | None = None,
         occupied_loader: Callable[[], set[str] | None] | None = None,
         provisioner: Callable[[UmbrellaCellConfig, str], SkeletonSlotConfig] | None = None,
+        cell_provisioner: Callable[[UmbrellaCellConfig, UmbrellaCellConfig], UmbrellaCellConfig]
+        | None = None,
+        cell_discoverer: Callable[
+            [UmbrellaCellConfig], list[UmbrellaCellConfig] | tuple[UmbrellaCellConfig, ...]
+        ]
+        | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._registry = registry or UmbrellaCellRegistry()
         self._pool = pool or PodSkeletonPoolService(registry=self._registry)
         self._occupied_loader = occupied_loader
         self._provisioner = provisioner or provision_azure_warm_skeleton_sync
+        self._cell_provisioner = cell_provisioner or provision_azure_umbrella_cell_sync
+        self._cell_discoverer = cell_discoverer
         self._clock = clock
         self._backoff_failures: dict[str, int] = {}
         self._backoff_until: dict[str, float] = {}
@@ -511,6 +530,25 @@ class UmbrellaCellReplenisher:
         self._backoff_until[cell_id] = until
         return until
 
+    def _discover_cells_sync(self) -> tuple[UmbrellaCellConfig, ...]:
+        static_azure = self._registry.list_cells(provider=BACKEND_AZURE)
+        if not static_azure:
+            return ()
+        if self._cell_discoverer is not None:
+            discovered = tuple(self._cell_discoverer(static_azure[0]))
+            if discovered:
+                self._registry.upsert_cells(discovered)
+            return self._registry.list_cells(provider=BACKEND_AZURE)
+        if hasattr(self._pool, "list_live_cells_sync"):
+            return self._pool.list_live_cells_sync(provider=BACKEND_AZURE)
+        try:
+            discovered = discover_azure_umbrella_cells_sync(static_azure[0])
+            if discovered:
+                self._registry.upsert_cells(discovered)
+        except Exception:  # noqa: BLE001
+            logger.debug("umbrella_cell_replenisher.cell_discovery_skipped", exc_info=True)
+        return self._registry.list_cells(provider=BACKEND_AZURE)
+
     async def replenish_once(self) -> ReplenishPassReport:
         if pod_mode():
             return ReplenishPassReport(True, "pod_mode", (), ())
@@ -523,11 +561,17 @@ class UmbrellaCellReplenisher:
         occupied_app_ids = await asyncio.to_thread(loader)
 
         created: list[str] = []
+        created_cells: list[str] = []
         errors: list[str] = []
         now = self._clock()
-        azure_cells = self._registry.list_cells(provider=BACKEND_AZURE)
+        azure_cells = await asyncio.to_thread(self._discover_cells_sync)
 
-        for cell in azure_cells:
+        active_counts: dict[str, int] = {}
+        cost_guards: dict[str, bool] = {}
+        total_rbac_used = 0
+
+        async def _process_cell(cell: UmbrellaCellConfig) -> None:
+            nonlocal total_rbac_used
             backoff_until = self._backoff_until.get(cell.cell_id, 0.0)
             if now < backoff_until:
                 logger.info(
@@ -535,38 +579,46 @@ class UmbrellaCellReplenisher:
                     cell.cell_id,
                     int(backoff_until - now),
                 )
-                continue
+                return
+            inv = await asyncio.to_thread(self._pool.observe_azure_cell_inventory_sync, cell)
+            warm, active = self._pool._slot_owner_claims(
+                cell,
+                occupied_app_ids=occupied_app_ids,
+                arm_tags_by_slot=inv["arm_tags"] or None,
+                slots_override=inv["slots"],
+                provisioning_slot_ids=inv["provisioning_slot_ids"],
+            )
+            active_counts[cell.cell_id] = len(active)
+            cost_guards[cell.cell_id] = bool(inv["cost_guard_healthy"])
+            materialized = len(active) + len(warm) + len(inv["provisioning_slot_ids"])
+            total_rbac_used += materialized * 5
+
+            to_mint = allocate_next_slot_ids(
+                cell,
+                active_slot_ids=[s.slot_id for s in active],
+                warm_slot_ids=[s.slot_id for s in warm],
+                provisioning_slot_ids=inv["provisioning_slot_ids"],
+                cost_guard_healthy=bool(inv["cost_guard_healthy"]),
+            )
+            if not inv["cost_guard_healthy"]:
+                logger.warning(
+                    "umbrella_cell_replenisher.cost_guard_tripped cell=%s",
+                    cell.cell_id,
+                )
+            for slot_id in to_mint:
+                minted = await asyncio.to_thread(self._provisioner, cell, slot_id)
+                created.append(f"{cell.cell_id}:{minted.slot_id}")
+                logger.info(
+                    "umbrella_cell_replenisher.slot_provisioned cell=%s slot=%s",
+                    cell.cell_id,
+                    minted.slot_id,
+                )
+            self._backoff_failures.pop(cell.cell_id, None)
+            self._backoff_until.pop(cell.cell_id, None)
+
+        for cell in azure_cells:
             try:
-                inv = await asyncio.to_thread(self._pool.observe_azure_cell_inventory_sync, cell)
-                warm, active = self._pool._slot_owner_claims(
-                    cell,
-                    occupied_app_ids=occupied_app_ids,
-                    arm_tags_by_slot=inv["arm_tags"] or None,
-                    slots_override=inv["slots"],
-                    provisioning_slot_ids=inv["provisioning_slot_ids"],
-                )
-                to_mint = allocate_next_slot_ids(
-                    cell,
-                    active_slot_ids=[s.slot_id for s in active],
-                    warm_slot_ids=[s.slot_id for s in warm],
-                    provisioning_slot_ids=inv["provisioning_slot_ids"],
-                    cost_guard_healthy=bool(inv["cost_guard_healthy"]),
-                )
-                if not inv["cost_guard_healthy"]:
-                    logger.warning(
-                        "umbrella_cell_replenisher.cost_guard_tripped cell=%s",
-                        cell.cell_id,
-                    )
-                for slot_id in to_mint:
-                    minted = await asyncio.to_thread(self._provisioner, cell, slot_id)
-                    created.append(f"{cell.cell_id}:{minted.slot_id}")
-                    logger.info(
-                        "umbrella_cell_replenisher.slot_provisioned cell=%s slot=%s",
-                        cell.cell_id,
-                        minted.slot_id,
-                    )
-                self._backoff_failures.pop(cell.cell_id, None)
-                self._backoff_until.pop(cell.cell_id, None)
+                await _process_cell(cell)
             except Exception as exc:  # noqa: BLE001 - isolate per cell with backoff
                 self._record_backoff(cell.cell_id, now)
                 err_tag = f"{cell.cell_id}:{_sanitize_err(exc)}"
@@ -577,19 +629,60 @@ class UmbrellaCellReplenisher:
                     _sanitize_err(exc),
                 )
 
-        outcome = "error" if errors and not created else ("replenished" if created else "steady")
+        if azure_cells and umbrella_cell_auto_scaleout_enabled():
+            scale_decision = evaluate_horizontal_cell_scaleout(
+                provider=BACKEND_AZURE,
+                cells=azure_cells,
+                active_counts_by_cell=active_counts,
+                cost_guard_by_cell=cost_guards,
+                total_rbac_assignments_used=total_rbac_used,
+            )
+            if scale_decision.should_scale_out and scale_decision.planned_config is not None:
+                planned = scale_decision.planned_config
+                if now >= self._backoff_until.get(planned.cell_id, 0.0):
+                    try:
+                        new_cell = await asyncio.to_thread(
+                            self._cell_provisioner, azure_cells[0], planned
+                        )
+                        self._registry.upsert_cells([new_cell])
+                        created_cells.append(new_cell.cell_id)
+                        logger.info(
+                            "umbrella_cell_replenisher.cell_scaled_out cell=%s rg=%s",
+                            new_cell.cell_id,
+                            new_cell.resource_group,
+                        )
+                        await _process_cell(new_cell)
+                    except Exception as exc:  # noqa: BLE001
+                        self._record_backoff(planned.cell_id, now)
+                        err_tag = f"{planned.cell_id}:{_sanitize_err(exc)}"
+                        errors.append(err_tag)
+                        logger.warning(
+                            "umbrella_cell_replenisher.cell_scaleout_failed cell=%s err=%s",
+                            planned.cell_id,
+                            _sanitize_err(exc),
+                        )
+
+        outcome = (
+            "error"
+            if errors and not created and not created_cells
+            else ("replenished" if (created or created_cells) else "steady")
+        )
         with _TELEMETRY_LOCK:
             _TELEMETRY["runsTotal"] += 1
             _TELEMETRY["slotsCreatedTotal"] += len(created)
+            _TELEMETRY["cellsCreatedTotal"] += len(created_cells)
             _TELEMETRY["lastRunAt"] = _now_iso()
             _TELEMETRY["lastOutcome"] = outcome
             _TELEMETRY["lastCreatedSlots"] = list(created)
+            _TELEMETRY["lastCreatedCells"] = list(created_cells)
             _TELEMETRY["cellBackoffUntil"] = {
                 cid: round(max(0.0, until - now), 1)
                 for cid, until in self._backoff_until.items()
                 if until > now
             }
-        return ReplenishPassReport(False, outcome, tuple(created), tuple(errors))
+        return ReplenishPassReport(
+            False, outcome, tuple(created), tuple(errors), tuple(created_cells)
+        )
 
 
 async def _replenisher_loop(

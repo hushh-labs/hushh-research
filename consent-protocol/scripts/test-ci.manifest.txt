@@ -1734,6 +1734,10 @@ tests/test_floci_aws_wire_conformance.py
 tests/test_floci_gcp_azure_wire_conformance.py
 tests/test_pod_capability_broker.py
 
+# Wave 17 Dev Horizontal Umbrella Cell scale-out and 14-day two-key source-pod retirement policy.
+tests/services/test_umbrella_scaleout_and_source_retirement.py
+tests/test_source_pod_retirement_postgres.py
+
 # Calendar email follow-ups: relevance gate, incremental sync, retry/backoff,
 # Calendar reconciliation, account isolation and durable reminders. The model,
 # Gmail and Calendar are synthetic doubles; no live mailbox or model is called.
