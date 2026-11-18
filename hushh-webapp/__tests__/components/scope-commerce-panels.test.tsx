@@ -715,7 +715,9 @@ describe("answer payout hosted continuity", () => {
   it("enables $30.00 coin checkout when widened sandbox allowance permits it", async () => {
     mocks.account.mockResolvedValue({ ...balanceAccount(), sandboxRemainingCents: 498850 });
     render(<PaymentsAndEarnings />);
-    fireEvent.click(await screen.findByRole("button", { name: "Add coins" }));
+    const addCoins = await screen.findByRole("button", { name: "Add coins" });
+    await waitFor(() => expect(addCoins).toBeEnabled());
+    fireEvent.click(addCoins);
     const input = await screen.findByLabelText("Amount (USD)");
     fireEvent.change(input, { target: { value: "30" } });
     expect(screen.getByText("You'll add 3,000 Hussh coins ($30.00).")).toBeInTheDocument();
