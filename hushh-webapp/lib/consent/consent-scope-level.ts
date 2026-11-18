@@ -93,6 +93,35 @@ function segmentLabel(segment: string, item: ConsentScopeItem | null): string {
 }
 
 /**
+ * Inside a nested category view (e.g. inside "Entertainment"), strip redundant
+ * leading parent-category words ("Entertainment preferences" -> "Preferences",
+ * "Entertainment information" -> "All information") so the hierarchy reads cleanly.
+ */
+export function formatContextualScopeLeafLabel(
+  item: ConsentScopeItem,
+  levelTitle: string,
+  depth: number,
+): string {
+  if (depth <= 0) return item.label;
+  const label = item.label.trim();
+  const candidates = [
+    levelTitle.trim(),
+    item.domainLabel.trim(),
+    item.domainLabel.split("&")[0]?.trim() ?? "",
+  ].filter(Boolean);
+  for (const prefix of candidates) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`^${escaped}\\s+(.+)$`, "i").exec(label);
+    if (!match?.[1]) continue;
+    const remainder = match[1].trim();
+    if (!remainder) continue;
+    if (/^information$/i.test(remainder)) return "All information";
+    return remainder.charAt(0).toUpperCase() + remainder.slice(1);
+  }
+  return label;
+}
+
+/**
  * Resolve exactly one level.
  *
  * `pathStack` is the position: `[]` is the top (one row per domain),

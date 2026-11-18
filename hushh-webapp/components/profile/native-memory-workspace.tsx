@@ -13,22 +13,18 @@ import { ROUTES, normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { useProfilePanePresentation } from "@/lib/navigation/use-profile-pane-presentation";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
-import { useLiveMirrorView, type LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 import { useMemoryCommerceSummary, type MemoryCommerceSummaryModel } from "./memory-commerce-summary";
 import { usePkmSharingExpansion, type PkmSharingExpansion } from "./pkm-saved-sharing";
-import { nativeMemoryCapture, nativeMemoryCaptureEditor } from "./native-memory-capture";
 import { nativeMemorySaved, type NativeMemorySavedHandoff } from "./native-memory-saved";
-import { nativeMemoryMarkdown } from "./native-memory-markdown";
 import type { PkmNaturalModel } from "./use-pkm-natural-model";
 
 export type NativeMemoryRetainedOwners = {
-  mirror: LiveMirrorViewState;
   commerce: MemoryCommerceSummaryModel;
   sharing: PkmSharingExpansion;
 };
 type WebChild = "soul-editor" | "sharing" | "detail" | "payments" | "navigation";
 
-/** Memory keeps one model and one workspace lease across Saved/Add. Explicit
+/** Memory keeps one model and one workspace lease. Explicit
  * rich child actions retire native before the complete authored web child is
  * exposed; owner and privacy are rechecked after that asynchronous handoff. */
 export function NativeMemoryWorkspace({ model, renderFallback }: {
@@ -48,10 +44,8 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
     // must not leave an unobserved handoff suppressing the next session.
     setChild(null);
   }, [model.presentationIdentity]);
-  const browse = model.workspaceTab === "browse";
-  const mirror = useLiveMirrorView(model.soul.active && !model.soul.editing);
-  const commerce = useMemoryCommerceSummary(model.soul.active);
-  const sharing = usePkmSharingExpansion(model.ownerId, model.soul.active, model.presentationIdentity);
+  const commerce = useMemoryCommerceSummary(model.canOpen);
+  const sharing = usePkmSharingExpansion(model.ownerId, model.canOpen, model.presentationIdentity);
   const handles = useMemo(() => createNativeWorkspaceHandles(String(model.ownerId)), [model.ownerId]);
   const routeCurrent = useNativeWorkspaceEvent(() => latest.current.pathname === ROUTES.PKM && latest.current.model.ownerId === model.ownerId &&
     latest.current.model.presentationIdentity === model.presentationIdentity &&
@@ -91,41 +85,21 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
   }, [child, childOpen, pathname, intent, routeCurrent]);
   const nativeRequested = customNativePresentationEnabled();
   const nativePrivateReady = nativeRequested && model.canOpen && nativePrivacyCanInteract(nativePrivacyObservation().state);
-  const markdown = nativePrivateReady ? model.soul.current?.document.markdown : undefined;
-  const markdownProjection = useMemo(() => {
-    if (markdown === undefined) return undefined;
-    try { return { source: markdown, blocks: nativeMemoryMarkdown(markdown) }; }
-    catch { return { source: markdown, blocks: null }; }
-  }, [markdown]);
-  const saved = nativePrivateReady ? nativeMemorySaved({ model, mirror, commerce, handle: handles, handoff,
-    markdownProjection,
+  const saved = nativePrivateReady ? nativeMemorySaved({ model, commerce, handle: handles, handoff,
     openSharing: () => sharing.setSection("sharing"),
     openPayments: () => openProfilePane(window.location.pathname, window.location.search, { panel: "payouts", detail: null }, { returnsToOrigin: true }) }) : null;
-  const capture = nativePrivateReady ? nativeMemoryCapture(model, handles) : null;
-  const supportedTab = model.workspaceTab === "browse" || model.workspaceTab === "add";
-  // Do not reveal native while the document is still loading: its eventual
-  // Markdown may require the complete web presentation instead.
-  const documentSettled = !model.soul.verified || model.soul.failed || !!model.soul.current;
-  const waitingForDocument = nativePrivateReady && pathname === ROUTES.PKM && model.captureSessionCurrent() &&
-    supportedTab && !child && model.soul.active && !documentSettled;
-  const active = nativeRequested && pathname === ROUTES.PKM && model.canOpen && model.captureSessionCurrent() && supportedTab &&
-    documentSettled && !!saved && !!capture && !child;
-  const savedId = nativeRequested ? handles("tab:saved") : "memory-saved", addId = nativeRequested ? handles("tab:add") : "memory-add";
+  const active = nativeRequested && pathname === ROUTES.PKM && model.canOpen && model.captureSessionCurrent() &&
+    !!saved && !child;
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
-  actions.set(savedId, () => model.setWorkspaceTab("browse"));
-  actions.set(addId, () => model.setWorkspaceTab("add"));
-  for (const [id, action] of (browse ? saved?.actions : capture?.actions) ?? []) actions.set(id, action);
+  for (const [id, action] of saved?.actions ?? []) actions.set(id, action);
   const content: NativeWorkspaceContent = { workspace: "memory", page: "overview", title: "Memory", enabled: active, backEnabled: false,
-    sections: browse ? saved?.sections ?? [] : capture?.sections ?? [],
-    tabs: { label: "Memory", options: [{ id: savedId, label: "Saved", selected: browse }, { id: addId, label: "Add", selected: !browse }] },
-    ...(browse && saved ? { search: { ...saved.search, live: true } } : {}) };
-  const editor = !browse && capture ? nativeMemoryCaptureEditor(model, capture, handles("capture-editor"), routeCurrent) : undefined;
+    sections: saved?.sections ?? [] };
   const phase = useNativeWorkspace<NativeWorkspaceMemoryDraft>({ owner: model.ownerId, content, actions, current: routeCurrent,
     back: () => {}, active, presentationOwner: presentation.owner, contentFrame: contentFrame as RefObject<HTMLElement | null>,
-    editorKind: "memory", editor, activationRevision });
-  const diagnostic = !nativeRequested ? "policy" : pathname !== ROUTES.PKM || !nativePrivateReady || !model.captureSessionCurrent() || !supportedTab || model.authLoading ? "session" :
-    child || model.selectedCard || model.selectedMetadataDomain || model.soul.editing ? "owned-child" : !documentSettled ? "document-pending" :
-    !saved && markdownProjection?.blocks === null ? "markdown-unsupported" : !saved ? "saved-projection-bounds" : !capture ? "capture-unrepresentable" : "admission";
+    activationRevision });
+  const diagnostic = !nativeRequested ? "policy" : pathname !== ROUTES.PKM || !nativePrivateReady || !model.captureSessionCurrent() || model.authLoading ? "session" :
+    child || model.selectedCard || model.selectedMetadataDomain || model.soul.editing ? "owned-child" :
+    !saved ? "saved-projection-bounds" : "admission";
   useEffect(() => {
     // Test-launch bridge only: no document, record, owner, or user values.
     const bridge = window.__HUSHH_NATIVE_TEST__ as (NonNullable<Window["__HUSHH_NATIVE_TEST__"]> & {
@@ -137,16 +111,15 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
     return () => { if (bridge.memoryAdmission === snapshot) delete bridge.memoryAdmission; };
   }, [diagnostic, phase, presentation.status.phase, presentation.status.reason]);
   const setAnchor = useCallback((node: HTMLDivElement | null) => { contentFrame.current = node?.closest<HTMLElement>(".app-page-shell") ?? null; }, []);
-  const owners = { mirror, commerce, sharing };
+  const owners = { commerce, sharing };
   return <>
     <div ref={setAnchor} hidden aria-hidden="true" />
     {typeof window !== "undefined" && window.__HUSHH_NATIVE_TEST__?.enabled === true &&
       <div role="progressbar" aria-label="native-memory-admission" aria-valuemin={0} aria-valuemax={1} aria-valuenow={0}
         aria-valuetext={`reason=${diagnostic};phase=${phase};ownerPhase=${presentation.status.phase};ownerReason=${presentation.status.reason}`}
         style={{ position: "fixed", left: 0, top: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: "none" }} />}
-    {phase === "web" && !presentation.status.held && !waitingForDocument ? renderFallback(owners) : <><NativeTestBeacon routeId={ROUTES.PKM}
+    {phase === "web" && !presentation.status.held ? renderFallback(owners) : <NativeTestBeacon routeId={ROUTES.PKM}
       marker="native-route-pkm" authState={model.signedIn ? "authenticated" : model.authLoading ? "pending" : "anonymous"}
-      dataState={model.nativeDataState} errorCode={model.nativeDataState === "error" ? "pkm_memory_unavailable" : null} />
-      {phase === "web" && !presentation.status.held && waitingForDocument && <p role="status">Opening Memory…</p>}</>}
+      dataState={model.nativeDataState} errorCode={model.nativeDataState === "error" ? "pkm_memory_unavailable" : null} />}
   </>;
 }

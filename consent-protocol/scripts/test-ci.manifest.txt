@@ -1722,6 +1722,7 @@ tests/services/test_wiki_pkm_projections.py
 tests/services/test_wiki_phase4_migration_and_forget.py
 tests/services/test_wiki_phase5_floci_conformance.py
 tests/services/test_wiki_pkm_unification_and_shared_recall.py
+tests/services/test_pkm_scope_exposure_preserves_vault_owner.py
 
 # Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
 tests/test_provider_capability_registry_and_aws_parity.py

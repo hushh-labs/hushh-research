@@ -1,6 +1,15 @@
 "use client";
 import { activeFilesAccess, filesRequest, sharedWikiLibrary } from "./connection";
 import {
+  invalidateFilesMutationCache,
+  peekFilesTextCache,
+  setFilesListCache,
+  setFilesSettingsCache,
+  setFilesTextCache,
+  setFilesWikiOverviewCache,
+  setFilesWikiPageCache,
+} from "./files-cache";
+import {
   classifyWikiClaimsForPkm,
   fetchProjectionSharingImpact,
   inspectPkmConflictsForProjection,
@@ -130,6 +139,16 @@ export type WikiArchiveImportResult = {
 
 const latestCandidateHints = new Map<string, WikiCandidateItem>();
 
+function filesCacheOwner(): string {
+  return activeFilesAccess()?.owner ?? "pod";
+}
+
+export function isPreviewableTextFilename(name: string): boolean {
+  return /\.(md|markdown|mdx|txt|json|ya?ml|csv|log|ts|tsx|js|jsx|py|sh|toml|ini|conf)$/i.test(
+    name.trim(),
+  );
+}
+
 async function json<T>(
   path: string,
   body?: unknown,
@@ -233,36 +252,51 @@ export const FilesService = {
       "GET",
       signal,
     ),
-  list: (parent: string, cursor = "", trash = false, signal?: AbortSignal) =>
-    json<FilesPage>(
+  list: async (parent: string, cursor = "", trash = false, signal?: AbortSignal) => {
+    const page = await json<FilesPage>(
       `list?${new URLSearchParams({ parent, cursor, trash: String(trash) })}`,
       undefined,
       "GET",
       signal,
-    ),
-  settings: (signal?: AbortSignal) =>
-    json<FilesSettings>("settings", undefined, "GET", signal),
-  configure: (settings: FilesSettings, signal?: AbortSignal) =>
-    json<FilesSettings>("settings", settings, "PUT", signal),
-  createFolder: (name: string, parent: string, signal?: AbortSignal) =>
-    json<FileEntry>(
+    );
+    setFilesListCache(filesCacheOwner(), parent, cursor, trash, page);
+    return page;
+  },
+  settings: async (signal?: AbortSignal) => {
+    const config = await json<FilesSettings>("settings", undefined, "GET", signal);
+    setFilesSettingsCache(filesCacheOwner(), config);
+    return config;
+  },
+  configure: async (settings: FilesSettings, signal?: AbortSignal) => {
+    const res = await json<FilesSettings>("settings", settings, "PUT", signal);
+    invalidateFilesMutationCache(filesCacheOwner());
+    return res;
+  },
+  createFolder: async (name: string, parent: string, signal?: AbortSignal) => {
+    const res = await json<FileEntry>(
       "create",
       { name, parent, size: 0, folder: true, request_id: crypto.randomUUID() },
       "POST",
       signal,
-    ),
-  mutate: (
+    );
+    invalidateFilesMutationCache(filesCacheOwner());
+    return res;
+  },
+  mutate: async (
     entry: FileEntry,
     operation: string,
     fields: Record<string, unknown> = {},
     signal?: AbortSignal,
-  ) =>
-    json<FileEntry>(
+  ) => {
+    const res = await json<FileEntry>(
       "mutate",
       { file_id: entry.id, revision: entry.revision, operation, ...fields },
       "POST",
       signal,
-    ),
+    );
+    invalidateFilesMutationCache(filesCacheOwner());
+    return res;
+  },
   async upload(
     file: File,
     parent: string,
@@ -338,7 +372,57 @@ export const FilesService = {
       }
       onProgress(Math.min(file.size, offset + chunkBytes));
     }
-    return json<FileEntry>("complete", { file_id: entry.id }, "POST", signal);
+    const completed = await json<FileEntry>("complete", { file_id: entry.id }, "POST", signal);
+    invalidateFilesMutationCache(filesCacheOwner());
+    return completed;
+  },
+  async readText(
+    entry: FileEntry,
+    signal?: AbortSignal,
+    maxBytes = 512 * 1024,
+  ): Promise<string> {
+    const cached = peekFilesTextCache(filesCacheOwner(), entry.id, entry.revision);
+    if (cached !== null) return cached;
+    if (entry.size > maxBytes) {
+      throw new FilesLocalError(
+        "This file is too large to preview inline. Download it to inspect.",
+      );
+    }
+    if (entry.size === 0) {
+      setFilesTextCache(filesCacheOwner(), entry, "");
+      return "";
+    }
+    let chain = new Uint8Array(32);
+    const parts: Uint8Array[] = [];
+    for (let offset = 0; offset < entry.size; ) {
+      signal?.throwIfAborted();
+      const response = await filesRequest(
+        `chunk?${new URLSearchParams({ file_id: entry.id, index: String(offset / CHUNK_BYTES) })}`,
+        { signal },
+      );
+      if (!response.ok) {
+        throw new FilesLocalError("Could not read file contents.");
+      }
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength !== Math.min(CHUNK_BYTES, entry.size - offset)) {
+        throw new FilesLocalError("The file chunk was incomplete.");
+      }
+      chain = await hashChunk(chain, bytes);
+      parts.push(new Uint8Array(bytes));
+      offset += bytes.byteLength;
+    }
+    if (hex(chain) !== entry.receivedHash) {
+      throw new FilesLocalError("The file failed its integrity check.");
+    }
+    const merged = new Uint8Array(entry.size);
+    let cursor = 0;
+    for (const part of parts) {
+      merged.set(part, cursor);
+      cursor += part.byteLength;
+    }
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(merged);
+    setFilesTextCache(filesCacheOwner(), entry, decoded);
+    return decoded;
   },
   async download(
     entry: FileEntry,
@@ -493,22 +577,30 @@ export const FilesService = {
     for (const c of enrichedCandidates) {
       latestCandidateHints.set(c.receiptId, c);
     }
-    return { ...raw, candidateReceipts: enrichedCandidates };
+    const nextOverview = { ...raw, candidateReceipts: enrichedCandidates };
+    setFilesWikiOverviewCache(filesCacheOwner(), nextOverview);
+    return nextOverview;
   },
-  wikiPage: (pageId: string, signal?: AbortSignal) =>
-    json<WikiPageDetail>(
+  wikiPage: async (pageId: string, signal?: AbortSignal) => {
+    const detail = await json<WikiPageDetail>(
       `wiki/page?${new URLSearchParams({ page_id: pageId })}`,
       undefined,
       "GET",
       signal,
-    ),
-  wikiSetOptIn: (enabled: boolean, signal?: AbortSignal) =>
-    json<{ captureOptIn: boolean }>(
+    );
+    setFilesWikiPageCache(filesCacheOwner(), pageId, detail);
+    return detail;
+  },
+  wikiSetOptIn: async (enabled: boolean, signal?: AbortSignal) => {
+    const res = await json<{ captureOptIn: boolean }>(
       "wiki/opt-in",
       { enabled },
       "POST",
       signal,
-    ),
+    );
+    invalidateFilesMutationCache(filesCacheOwner());
+    return res;
+  },
   wikiSavePage: async (
     input: {
       pageId: string;
@@ -549,6 +641,7 @@ export const FilesService = {
         signal,
       }).catch(() => undefined);
     }
+    invalidateFilesMutationCache(filesCacheOwner());
     return res;
   },
   wikiConfirmCandidate: async (
@@ -689,6 +782,7 @@ export const FilesService = {
       );
     }
 
+    invalidateFilesMutationCache(filesCacheOwner());
     return { receiptId: confirmed.receiptId, state: confirmed.state };
   },
   wikiForgetClaim: async (
@@ -729,6 +823,7 @@ export const FilesService = {
           Boolean(res.outcomes.revoked_future_access) && retraction.allSucceeded,
       };
     }
+    invalidateFilesMutationCache(filesCacheOwner());
     return res;
   },
   wikiMigrateCohort: async (
@@ -785,6 +880,7 @@ export const FilesService = {
         signal,
       }).catch(() => undefined);
     }
+    invalidateFilesMutationCache(filesCacheOwner());
     return res;
   },
   wikiRollbackClassic: async (
@@ -844,6 +940,7 @@ export const FilesService = {
         },
       });
     }
+    invalidateFilesMutationCache(filesCacheOwner());
     return rolledBack;
   },
   wikiImportArchive: async (
@@ -909,6 +1006,7 @@ export const FilesService = {
         // Semantic refinement is additive; archive import already succeeded.
       }
     }
+    invalidateFilesMutationCache(filesCacheOwner());
     return imported;
   },
 };

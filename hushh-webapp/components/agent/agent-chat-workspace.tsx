@@ -303,11 +303,21 @@ import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
 import { recoverMcpReviews } from "@/lib/agent/mcp-review-recovery";
 import {
   loadAgentChatConversationHistory,
+  peekAgentChatConversationMessages,
   peekAgentChatHistoryCache,
+  upsertAgentChatHistoryConversation,
   warmAgentChatHistoryCache,
   clearAgentChatHistoryCache,
   isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
+import {
+  applyActiveAgentTurnMessages,
+  clearActiveAgentTurnSession,
+  patchActiveAgentTurnSession,
+  peekActiveAgentTurnSession,
+  setActiveAgentTurnSession,
+  subscribeActiveAgentTurnSession,
+} from "@/lib/agent/active-agent-turn-session";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
@@ -317,6 +327,7 @@ import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-se
 import {
   AGENT_TURN_DETACH_REASON,
   isAgentTurnWatched,
+  settleWatchedAgentTurn,
   subscribeAgentTurnSettled,
   subscribeOpenAgentConversation,
   waitForWatchedAgentTurn,
@@ -2446,6 +2457,49 @@ export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]
     .filter((message): message is AgentMessage => Boolean(message)));
 }
 
+function agentMessagesToStoredMessages(
+  messages: readonly AgentMessage[],
+  conversationId: string,
+): StoredAgentChatMessage[] {
+  const result: StoredAgentChatMessage[] = [];
+  for (const message of messages) {
+    if (message.id === "agent-greeting") continue;
+    const hasMetadata =
+      Boolean(message.attachments?.length) ||
+      message.kind === "selection" ||
+      Boolean(message.consentBundleId) ||
+      Boolean(message.consentAccessEnded) ||
+      Boolean(message.consentAccess) ||
+      message.queuedPlacement === "joined";
+    const metadata: StoredAgentChatMessage["metadata"] = hasMetadata
+      ? {
+          ...(message.kind === "selection" ? { kind: "selection", display: message.text } : {}),
+          ...(message.attachments?.length ? { attachments: message.attachments } : {}),
+          ...(message.consentBundleId ? { consentBundleId: message.consentBundleId } : {}),
+          ...(message.consentAccessEnded ? { consentAccessEnded: true } : {}),
+          ...(message.consentAccess ? { consentAccess: message.consentAccess } : {}),
+          ...(message.queuedPlacement === "joined" ? { queuedInput: "joined" as const } : {}),
+        }
+      : undefined;
+    const timestampIso =
+      typeof message.sentAtMs === "number" && Number.isFinite(message.sentAtMs)
+        ? new Date(message.sentAtMs).toISOString()
+        : null;
+    result.push({
+      id: message.serverMessageId || message.id,
+      conversation_id: conversationId,
+      role: message.role,
+      status: message.status === "error" ? "error" : "complete",
+      content: message.text,
+      created_at: timestampIso,
+      completed_at:
+        message.status === "done" || message.status === "error" ? timestampIso : null,
+      ...(metadata ? { metadata } : {}),
+    });
+  }
+  return result;
+}
+
 export function ChatAgentSubtitle({ text, working, brand, icon }: { text: string; working: boolean; brand?: ConnectorBrand | null; icon?: AgentActivityIcon }) {
   const [display, setDisplay] = useState({ text, working, brand, icon });
   const [visible, setVisible] = useState(true);
@@ -2531,6 +2585,40 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } = useVault();
   const oneDisplayName = useOneDisplayName();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
+  const isWorkspaceMountedRef = useRef(true);
+  useEffect(() => {
+    isWorkspaceMountedRef.current = true;
+    return () => {
+      isWorkspaceMountedRef.current = false;
+    };
+  }, []);
+  const activeTurnGuardRef = useRef({
+    ownerId: renderedWorkspaceOwnerId,
+    vaultEpoch: vaultSessionEpoch,
+  });
+  activeTurnGuardRef.current = {
+    ownerId: renderedWorkspaceOwnerId,
+    vaultEpoch: vaultSessionEpoch,
+  };
+  const initialActiveSession = peekActiveAgentTurnSession<AgentMessage>(
+    isVaultUnlocked ? applicationOwnerId : null,
+    vaultSessionEpoch,
+  );
+  const initialHistorySnapshot =
+    !initialActiveSession && isVaultUnlocked && applicationOwnerId
+      ? peekAgentChatHistoryCache(applicationOwnerId)
+      : null;
+  const initialSelectedId =
+    isVaultUnlocked && applicationOwnerId
+      ? selectedInAppChat(applicationOwnerId)
+      : null;
+  const initialSelectedConversationId = initialActiveSession
+    ? initialActiveSession.conversationId
+    : initialHistorySnapshot &&
+        initialSelectedId &&
+        initialHistorySnapshot.conversations.some((item) => item.id === initialSelectedId)
+      ? initialSelectedId
+      : null;
   const emailScopeRef = useRef({ ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch });
   if (emailScopeRef.current.ownerId !== renderedWorkspaceOwnerId || emailScopeRef.current.epoch !== vaultSessionEpoch) {
     emailScopeRef.current = { ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch };
@@ -2716,7 +2804,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [queuedDeliveryUnconfirmed, setQueuedDeliveryUnconfirmed] = useState(false);
   const [queuedDeliveryChecking, setQueuedDeliveryChecking] = useState(false);
   // A typed turn is running that Stop can end at its next step.
-  const [stoppableTurn, setStoppableTurn] = useState(false);
+  const [stoppableTurn, setStoppableTurn] = useState(() => Boolean(initialActiveSession?.stoppableTurn));
   const [sendingImmediately, setSendingImmediately] = useState(false);
   const sendingImmediatelyRef = useRef(false);
   useEffect(() => {
@@ -2729,7 +2817,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     string | null
   >(null);
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(() => initialSelectedConversationId);
   const activeDriveSearchSelection = pendingDriveSearchSelection &&
     pendingDriveSearchSelection.ownerUid === applicationOwnerId && isVaultUnlocked &&
     isVaultSessionEpochCurrent(pendingDriveSearchSelection.vaultEpoch)
@@ -2752,14 +2840,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     () => new Set(),
   );
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
-    [],
+    () => initialHistorySnapshot?.conversations ?? [],
   );
   const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
   const puppyHistory = usePuppyConversations(applicationOwnerId ?? null, isPuppySurface);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
-  const [messages, setMessages] = useState<AgentMessage[]>(() => [
-    createGreetingMessage(),
-  ]);
+  const [messages, setMessages] = useState<AgentMessage[]>(() => {
+    if (initialActiveSession && initialActiveSession.messages.length > 0) {
+      return initialActiveSession.messages;
+    }
+    if (isVaultUnlocked && applicationOwnerId && initialSelectedConversationId) {
+      const cachedMessages =
+        initialSelectedConversationId === initialHistorySnapshot?.latestConversationId &&
+        initialHistorySnapshot.latestMessages.length > 0
+          ? initialHistorySnapshot.latestMessages
+          : peekAgentChatConversationMessages(applicationOwnerId, initialSelectedConversationId);
+      if (cachedMessages && cachedMessages.length > 0) {
+        return storedMessagesToAgentMessages(cachedMessages).map((message) => ({
+          ...message,
+          restoredFromHistory: true,
+        }));
+      }
+    }
+    return [createGreetingMessage()];
+  });
+  const messagesRef = useRef<AgentMessage[]>(messages);
+  messagesRef.current = messages;
   const pkmCaptureMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
   pkmCaptureMessageIdsRef.current = new Set(messages.map((message) => message.id));
   const clearReceiptAnswers = useCallback(() => setMessages(current => current.map(message => message.receiptPrivate
@@ -2799,7 +2905,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (state) => state.consumeHandoff,
   );
   const consumedHandoffIdRef = useRef<string | null>(null);
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(() => Boolean(initialActiveSession?.isChatLoading));
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyReadyForSlot, setHistoryReadyForSlot] = useState(false);
@@ -2886,9 +2992,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     string | null
   >(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [hasResponseOutput, setHasResponseOutput] = useState(false);
-  const responseOutputRef = useRef(false);
+  const [isStreaming, setIsStreaming] = useState(() => Boolean(initialActiveSession?.isStreaming));
+  const [hasResponseOutput, setHasResponseOutput] = useState(() =>
+    Boolean(
+      initialActiveSession?.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.status === "streaming" &&
+          message.text.length > 0,
+      ),
+    ),
+  );
+  const responseOutputRef = useRef(
+    Boolean(
+      initialActiveSession?.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.status === "streaming" &&
+          message.text.length > 0,
+      ),
+    ),
+  );
   const markResponseOutput = (delta: string) => {
     if (!delta || responseOutputRef.current) return;
     responseOutputRef.current = true;
@@ -3069,7 +3193,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const reattachRestoreRef = useRef<Promise<void> | null>(null);
-  const conversationIdRef = useRef<string | null>(null);
+  const conversationIdRef = useRef<string | null>(initialSelectedConversationId);
   const chatMemory = useChatMemory({
     userId: applicationOwnerId, vaultKey, vaultEpoch: vaultSessionEpoch,
     getToken: getVaultOwnerToken, vaultOwnerToken, conversationId, messages,
@@ -3092,7 +3216,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const queuedOfferChainRef = useRef<Promise<void>>(Promise.resolve());
   const queuedSettlementGateRef = useRef<{ promise: Promise<void>; release: () => void } | null>(null);
   const liveAssistantMessageIdRef = useRef<string | null>(null);
-  const stopActiveTurnRef = useRef<(() => Promise<void>) | null>(null);
+  const stopActiveTurnRef = useRef<(() => Promise<void>) | null>(initialActiveSession?.stop ?? null);
   const calendarActionIdsRef = useRef<Set<string>>(new Set());
   const queuedMeetingRef = useRef<MeetingSelection | undefined>(undefined);
   const handoffPromptSubmitRef = useRef<
@@ -3127,6 +3251,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [applicationOwnerId],
   );
+  useEffect(() => {
+    if (!applicationOwnerId || !isVaultUnlocked) return undefined;
+    const syncFromSession = () => {
+      const active = peekActiveAgentTurnSession<AgentMessage>(
+        applicationOwnerId,
+        vaultSessionEpoch,
+      );
+      if (!active) return;
+      setMessages((current) => (current === active.messages ? current : active.messages));
+      if (active.conversationId !== conversationIdRef.current) {
+        updateConversationId(active.conversationId, false);
+      }
+      setIsChatLoading(active.isChatLoading);
+      setIsStreaming(active.isStreaming);
+      setStoppableTurn(active.stoppableTurn);
+      stopActiveTurnRef.current = active.stop;
+      const streamingHasOutput = active.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.status === "streaming" &&
+          message.text.length > 0,
+      );
+      responseOutputRef.current = streamingHasOutput;
+      setHasResponseOutput(streamingHasOutput);
+    };
+    syncFromSession();
+    return subscribeActiveAgentTurnSession(applicationOwnerId, syncFromSession);
+  }, [applicationOwnerId, isVaultUnlocked, vaultSessionEpoch, updateConversationId]);
   const oneLocationConsentActions = useOneLocationConsentActions({
     userId: applicationOwnerId,
     onActionComplete: () => {
@@ -3778,6 +3930,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   useEffect(() => {
     return () => {
+      const guard = activeTurnGuardRef.current;
+      const active = peekActiveAgentTurnSession(guard.ownerId, guard.vaultEpoch);
+      if (active && (active.isChatLoading || active.isStreaming)) {
+        // Keep in-flight turns (including pod-wake before onStart) alive
+        // across in-app route transitions via active-agent-turn-session.
+        return;
+      }
       // Leaving the chat stops reading; the server keeps the turn and the
       // app-shell turn watch reattaches (or says "One replied") later.
       abortAgentTurnWork(AGENT_TURN_DETACH_REASON);
@@ -3866,26 +4025,65 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setWelcomePromptSetIndex(getWelcomePromptSetIndex(null));
   }, []);
 
+  const lastWorkspaceIdentityRef = useRef<{
+    ownerId: string | null;
+    unlocked: boolean;
+  } | null>(null);
   useEffect(() => {
+    const nextIdentity = {
+      ownerId: applicationOwnerId ?? null,
+      unlocked: isVaultUnlocked,
+    };
+    const previousIdentity = lastWorkspaceIdentityRef.current;
+    if (previousIdentity === null) {
+      lastWorkspaceIdentityRef.current = nextIdentity;
+      return;
+    }
+    if (
+      previousIdentity.ownerId === nextIdentity.ownerId &&
+      previousIdentity.unlocked === nextIdentity.unlocked
+    ) {
+      return;
+    }
+    lastWorkspaceIdentityRef.current = nextIdentity;
+    if (
+      previousIdentity.ownerId &&
+      (previousIdentity.ownerId !== nextIdentity.ownerId ||
+        (previousIdentity.unlocked && !nextIdentity.unlocked))
+    ) {
+      clearActiveAgentTurnSession(previousIdentity.ownerId, {
+        abort: true,
+        reason: "identity_changed",
+      });
+    }
     chatSessionRef.current.start();
     liveTurnQueueRef.current = new LiveTurnQueue(createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()));
     abortAgentTurnWork();
     clearTranscriptProgrammaticScroll();
     transcriptUserScrollRef.current = false;
     oneScrollTopRef.current = 0;
-    setIsChatLoading(false);
+    const restoredSession = nextIdentity.unlocked
+      ? peekActiveAgentTurnSession<AgentMessage>(nextIdentity.ownerId, snapshotVaultSessionEpoch())
+      : null;
+    setIsChatLoading(Boolean(restoredSession?.isChatLoading));
     setIsLoadingHistory(false);
     setIsVoiceConnecting(false);
-    setIsStreaming(false);
+    setIsStreaming(Boolean(restoredSession?.isStreaming));
+    setStoppableTurn(Boolean(restoredSession?.stoppableTurn));
+    stopActiveTurnRef.current = restoredSession?.stop ?? null;
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
     setWalletWidgets([]);
-    updateConversationId(null, false);
+    updateConversationId(restoredSession?.conversationId ?? null, false);
     setConversations([]);
     historyListOwner.current = null;
     setCalendarSlot(null);
     setHistoryActionPendingId(null);
-    setMessages([createGreetingMessage()]);
+    setMessages(
+      restoredSession && restoredSession.messages.length > 0
+        ? restoredSession.messages
+        : [createGreetingMessage()],
+    );
     setPendingAppAction(null);
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
@@ -3928,6 +4126,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     pendingDriveSearchSelectionRef.current = null;
     setPendingDriveSearchSelection(null);
     generatedDriveSearchDraftRef.current = false;
+    clearActiveAgentTurnSession(applicationOwnerId ?? undefined, { abort: true });
     abortAgentTurnWork();
     clearTranscriptProgrammaticScroll();
     transcriptUserScrollRef.current = false;
@@ -3936,6 +4135,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     latestVisibleTurnIdRef.current = null;
     updateConversationId(null);
     setMessages([createGreetingMessage()]);
+    setIsChatLoading(false);
+    setIsStreaming(false);
+    setStoppableTurn(false);
     setInput("");
     setLongPromptAttachment(null);
     setComposerExpanded(false);
@@ -3959,6 +4161,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEditingQueuedPromptText("");
     setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
   }, [
+    applicationOwnerId,
     chatMemory,
     abortAgentTurnWork,
     clearTranscriptProgrammaticScroll,
@@ -4981,6 +5184,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       historyListOwner.current = { auth: historyOwner!, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
       const selectedId = selectedInAppChat(applicationOwnerId);
+      const activeSession =
+        typeof peekActiveAgentTurnSession === "function"
+          ? peekActiveAgentTurnSession<AgentMessage>(
+              applicationOwnerId,
+              historyVaultEpoch,
+            )
+          : null;
+      if (
+        activeSession &&
+        (activeSession.isChatLoading ||
+          activeSession.isStreaming ||
+          (activeSession.conversationId &&
+            activeSession.conversationId === selectedId &&
+            activeSession.messages.length > 0))
+      ) {
+        // Active in-memory session owns this transcript (including pod-wake
+        // turns before the server thread exists); never overwrite it.
+        return;
+      }
       // A first turn the person left may not be in a cached list yet; its
       // history load below is still owner-checked by the server.
       if (
@@ -5092,14 +5314,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     };
 
-    // History is never on the workspace's critical open/render path. Unlock
-    // warming usually makes this an immediate memory hit; cold sessions wait
-    // for an idle beat so the composer and direct Ask One handoff stay usable.
+    // History is never on the workspace's critical render path; schedule
+    // immediately so warm and cold sessions hydrate without artificial delay.
     const timeoutId = window.setTimeout(
       () => {
         void loadRecentConversation();
       },
-      cached ? 0 : 250,
+      0,
     );
     return () => {
       cancelled = true;
@@ -5401,6 +5622,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pendingChatKeyRetryRef.current = null;
       chatSessionRef.current.start();
       liveTurnQueueRef.current = new LiveTurnQueue(createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()));
+      clearActiveAgentTurnSession(applicationOwnerId ?? undefined, { abort: true });
       abortAgentTurnWork();
       setIsLoadingHistory(true);
       try {
@@ -5412,6 +5634,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     },
     [
+      applicationOwnerId,
       chatMemory,
       conversationId,
       abortAgentTurnWork,
@@ -5991,11 +6214,47 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ) => {
     const chatEpoch = chatSessionRef.current.value;
     const turnQueue = liveTurnQueueRef.current;
-    const updateMessage: typeof updateWorkspaceMessage = (...args) => {
-      if (chatSessionRef.current.isCurrent(chatEpoch)) updateWorkspaceMessage(...args);
+    let activeSessionBinding: {
+      userId: string;
+      vaultEpoch: number;
+      turnToken: symbol;
+      conversationId: string;
+    } | null = null;
+    const isTurnSessionActive = () =>
+      chatSessionRef.current.isCurrent(chatEpoch) &&
+      (!activeSessionBinding ||
+        peekActiveAgentTurnSession(
+          activeSessionBinding.userId,
+          activeSessionBinding.vaultEpoch,
+        )?.turnToken === activeSessionBinding.turnToken);
+    const applyTurnMessages = (
+      updater: (current: AgentMessage[]) => AgentMessage[],
+    ) => {
+      if (!isTurnSessionActive()) return;
+      if (activeSessionBinding) {
+        applyActiveAgentTurnMessages<AgentMessage>(
+          activeSessionBinding.userId,
+          activeSessionBinding.turnToken,
+          updater,
+        );
+        return;
+      }
+      if (isWorkspaceMountedRef.current) setMessages(updater);
+    };
+    const updateMessage: typeof updateWorkspaceMessage = (
+      messageId,
+      update,
+    ) => {
+      applyTurnMessages((current) =>
+        current.map((message) =>
+          message.id === messageId && !message.receiptRedacted
+            ? update(message)
+            : message,
+        ),
+      );
     };
     const appendMessage = (message: AgentMessage) => {
-      if (chatSessionRef.current.isCurrent(chatEpoch)) appendWorkspaceMessage(message);
+      applyTurnMessages((current) => [...current, message]);
     };
     for (const name of [
       "send-handler-entry",
@@ -6106,9 +6365,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     let toolStatusMessageId: string | null = null;
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
+    const patchTurnSessionState = (patch: {
+      conversationId?: string | null;
+      isChatLoading?: boolean;
+      isStreaming?: boolean;
+      stoppableTurn?: boolean;
+      stop?: (() => Promise<void>) | null;
+      abort?: ((reason?: string) => void) | null;
+    }) => {
+      if (activeSessionBinding) {
+        patchActiveAgentTurnSession<AgentMessage>(
+          activeSessionBinding.userId,
+          activeSessionBinding.turnToken,
+          patch,
+        );
+      }
+      if (isWorkspaceMountedRef.current && chatSessionRef.current.isCurrent(chatEpoch)) {
+        if (patch.isChatLoading !== undefined) setIsChatLoading(patch.isChatLoading);
+        if (patch.isStreaming !== undefined) setIsStreaming(patch.isStreaming);
+        if (patch.stoppableTurn !== undefined) setStoppableTurn(patch.stoppableTurn);
+        if (patch.stop !== undefined) stopActiveTurnRef.current = patch.stop;
+      }
+    };
     const flushAssistantDelta = () => {
       assistantFlushFrame = null;
-      if (!chatSessionRef.current.isCurrent(chatEpoch)) { pendingAssistantDelta = ""; return; }
+      if (!isTurnSessionActive()) {
+        pendingAssistantDelta = "";
+        return;
+      }
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
@@ -6121,8 +6405,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
 
     const queueAssistantDelta = (delta: string) => {
-      markResponseOutput(delta);
+      if (isWorkspaceMountedRef.current) {
+        markResponseOutput(delta);
+      }
       pendingAssistantDelta += delta;
+      if (!isWorkspaceMountedRef.current) {
+        flushAssistantDelta();
+        return;
+      }
       if (assistantFlushFrame !== null) return;
       assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
     };
@@ -6136,7 +6426,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
 
     const finishCanceledTurn = () => {
-      if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+      if (!isTurnSessionActive()) return;
       flushAssistantDelta();
       updateMessage(assistantMessageId, (message) => ({
         ...message,
@@ -6147,12 +6437,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "blocked",
         ),
       }));
-      setIsChatLoading(false);
-      setIsStreaming(false);
+      patchTurnSessionState({
+        isChatLoading: false,
+        isStreaming: false,
+        stoppableTurn: false,
+        stop: null,
+        abort: null,
+      });
     };
 
     const upsertTurnStreamEvent = (event: AgentVisibleStreamEvent) => {
-      upsertMessageStreamEvent(assistantMessageId, event);
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        streamEvents: upsertVisibleStreamEvent(message.streamEvents, event),
+      }));
     };
 
     const upsertToolStatusMessage = (
@@ -6491,23 +6789,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         : {}),
     };
 
-    setMessages((current) => {
-      if (options.replaceAssistantMessageId) {
-        return replaceAssistantResponse(current, options.replaceAssistantMessageId, assistantMessage);
-      }
-      return [
-        ...current,
-        ...(appendUserMessage ? userMessages : []),
-        assistantMessage,
-      ];
-    });
-    latestVisibleTurnIdRef.current = debugTurnId;
-    liveAssistantMessageIdRef.current = assistantMessageId;
-    setActiveToolCalls([]);
-    setIsChatLoading(true);
-    responseOutputRef.current = false;
-    setHasResponseOutput(false);
-    setIsStreaming(true);
+    const nextInitialMessages = options.replaceAssistantMessageId
+      ? replaceAssistantResponse(
+          messagesRef.current,
+          options.replaceAssistantMessageId,
+          assistantMessage,
+        )
+      : [
+          ...messagesRef.current,
+          ...(appendUserMessage ? userMessages : []),
+          assistantMessage,
+        ];
 
     if (!token) {
       trackEvent("agent_pkm_context_unavailable", {
@@ -6515,26 +6807,111 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         result: "expected_error",
         reason: "vault_locked",
       });
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text: "Vault access expired. Unlock again to continue.",
-        status: "error",
-        streamEvents: [],
-      }));
+      setMessages(
+        nextInitialMessages.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                text: "Vault access expired. Unlock again to continue.",
+                status: "error",
+                streamEvents: [],
+              }
+            : message,
+        ),
+      );
       setIsChatLoading(false);
       setIsStreaming(false);
       return;
     }
 
-    const releaseForegroundChatPriority = beginForegroundChatPriority();
-
     if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+    const turnConversationId = conversationIdRef.current || crypto.randomUUID();
+    if (isWorkspaceMountedRef.current) {
+      updateConversationId(turnConversationId, true);
+    } else {
+      rememberInAppChat(userId, turnConversationId);
+    }
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
     const nameEpoch = snapshotVaultSessionEpoch();
-    let nameConversationId = conversationIdRef.current;
+    const turnToken = Symbol("agent-turn");
+    activeSessionBinding = {
+      userId,
+      vaultEpoch: nameEpoch,
+      turnToken,
+      conversationId: turnConversationId,
+    };
+    setActiveAgentTurnSession<AgentMessage>({
+      ownerId: userId,
+      vaultEpoch: nameEpoch,
+      turnToken,
+      conversationId: turnConversationId,
+      messages: nextInitialMessages,
+      isChatLoading: true,
+      isStreaming: true,
+      stoppableTurn: false,
+      startedAtMs: turnId,
+      abort: (reason) => streamAbortController.abort(reason),
+      stop: null,
+    });
+    if (isWorkspaceMountedRef.current) {
+      setMessages(nextInitialMessages);
+      setActiveToolCalls([]);
+      setIsChatLoading(true);
+      responseOutputRef.current = false;
+      setHasResponseOutput(false);
+      setIsStreaming(true);
+    }
+    latestVisibleTurnIdRef.current = debugTurnId;
+    liveAssistantMessageIdRef.current = assistantMessageId;
+    const releaseForegroundChatPriority = beginForegroundChatPriority();
+
+    let nameConversationId: string | null = turnConversationId;
     let nameTurnCompleted = false;
     let turnStopped = false;
+    let settledTurnCacheAndNotice = false;
+    const updateTurnConversationId = (nextId: string) => {
+      if (activeSessionBinding) {
+        activeSessionBinding.conversationId = nextId;
+      }
+      if (isWorkspaceMountedRef.current && isTurnSessionActive()) {
+        updateConversationId(nextId, true);
+      } else {
+        rememberInAppChat(userId, nextId);
+      }
+      patchTurnSessionState({ conversationId: nextId });
+    };
+    const finalizeSettledTurn = (
+      finalConversationId: string,
+      notifyIfUnmounted: boolean,
+    ) => {
+      if (settledTurnCacheAndNotice) return;
+      settledTurnCacheAndNotice = true;
+      const session = peekActiveAgentTurnSession<AgentMessage>(userId, nameEpoch);
+      if (session && session.turnToken === turnToken && finalConversationId) {
+        upsertAgentChatHistoryConversation({
+          userId,
+          conversationId: finalConversationId,
+          messages: agentMessagesToStoredMessages(
+            session.messages,
+            finalConversationId,
+          ),
+          title: userMessages[0]?.text?.trim().slice(0, 64) || undefined,
+        });
+      }
+      if (
+        notifyIfUnmounted &&
+        !isWorkspaceMountedRef.current &&
+        finalConversationId
+      ) {
+        watchDetachedAgentTurn({
+          ownerId: userId,
+          conversationId: finalConversationId,
+          startedAtMs: turnId,
+        });
+        settleWatchedAgentTurn(userId, finalConversationId, true);
+      }
+    };
     const nameTurn = options.source === "typed" && attachments.length === 0
       ? chatOnboarding.beginNameTurn?.(() =>
           !streamAbortController.signal.aborted && !turnStopped &&
@@ -6606,8 +6983,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       try {
         agentPkmContext = await loadTurnPkmContext();
         performance.mark("hushh:agent-chat:pkm-prepare-end");
-          if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
-      if (streamAbortController.signal.aborted) {
+        if (!isTurnSessionActive()) return;
+        if (streamAbortController.signal.aborted) {
           finishCanceledTurn();
           return;
         }
@@ -6641,7 +7018,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           });
         }
       } catch (error) {
-        if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+        if (!isTurnSessionActive()) return;
         trackEvent("agent_pkm_context_unavailable", {
           route_id: "agent",
           result: "error",
@@ -6662,8 +7039,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             status: "error",
             streamEvents: [],
           }));
-          setIsChatLoading(false);
-          setIsStreaming(false);
+          patchTurnSessionState({
+            isChatLoading: false,
+            isStreaming: false,
+            stoppableTurn: false,
+            stop: null,
+            abort: null,
+          });
           return;
         }
         if (streamAbortController.signal.aborted) {
@@ -6696,8 +7078,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             requireDecrypted: true,
           });
         }
-        if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
-      if (streamAbortController.signal.aborted) {
+        if (!isTurnSessionActive()) return;
+        if (streamAbortController.signal.aborted) {
           finishCanceledTurn();
           return;
         }
@@ -6719,8 +7101,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const stopThisTurn = async () => {
         if (turnStopped || streamAbortController.signal.aborted) return;
         turnStopped = true;
-        if (chatSessionRef.current.isCurrent(chatEpoch)) {
-          slowNotice.finish("stopped");
+        if (isTurnSessionActive()) {
+          if (isWorkspaceMountedRef.current) slowNotice.finish("stopped");
           flushAssistantDelta();
           updateMessage(assistantMessageId, (message) => ({
             ...message,
@@ -6728,26 +7110,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             status: "done", structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
             streamEvents: settleVisibleStreamEvents(message.streamEvents, "blocked"),
           }));
-          setIsChatLoading(false);
-          setIsStreaming(false);
-          setStoppableTurn(false);
+          patchTurnSessionState({
+            isChatLoading: false,
+            isStreaming: false,
+            stoppableTurn: false,
+            stop: null,
+            abort: null,
+          });
         }
         const result = await turnQueue?.stop();
-        if (chatSessionRef.current.isCurrent(chatEpoch) && result?.waiting.length)
+        if (isWorkspaceMountedRef.current && isTurnSessionActive() && result?.waiting.length)
           setQueuedPlacement(result.waiting, "waiting");
         // No server process runs this turn for us to stop: stop reading it.
         if (!result?.stopped) streamAbortController.abort();
       };
 
+      patchTurnSessionState({ stop: stopThisTurn });
       performance.mark("hushh:agent-chat:dispatch-start");
-      slowNotice.begin();
+      if (isWorkspaceMountedRef.current) slowNotice.begin();
       const streamResult = await streamAgentChat({
         userId,
         message: text,
         timeZoneOverride: options.timeZoneOverride,
         attachments,
         messageId: options.queuedPrompts?.[0]?.id,
-        conversationId: conversationIdRef.current,
+        conversationId: turnConversationId,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
         loadConnectorConfigurations,
@@ -6755,7 +7142,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         pkmContext: composeAgentPkmContext({
           receipt: latestPkmSaveReceiptRef.current ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
           memory: agentPkmContext.text || "", events: peekLiveActivity(userId), now: Date.now(),
-          pendingTurns: chatMemory.peekPendingMessages(conversationIdRef.current ?? undefined),
+          pendingTurns: chatMemory.peekPendingMessages(activeSessionBinding.conversationId),
         }),
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
@@ -6827,7 +7214,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ? current : [...current, boundReview]);
           },
           onStart: ({ conversationId: nextConversationId }) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             if (nextConversationId) {
               if (!queuedSettlementGateRef.current) {
                 let release: () => void = () => {};
@@ -6835,19 +7222,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 queuedSettlementGateRef.current = { promise, release };
               }
               if (conversationIdRef.current === nameConversationId) nameConversationId = nextConversationId;
-              updateConversationId(nextConversationId);
+              updateTurnConversationId(nextConversationId);
               // The turn is running: messages sent now can join it.
               turnQueue?.begin(nextConversationId);
-              stopActiveTurnRef.current = stopThisTurn;
-              if (!turnStopped) setStoppableTurn(true);
+              patchTurnSessionState({
+                conversationId: nextConversationId,
+                stop: stopThisTurn,
+                stoppableTurn: !turnStopped,
+              });
               offerQueuedPromptsToLiveTurn();
             }
           },
           onBrowserTaskCreated: () => {
-            if (!streamAbortController.signal.aborted) setBrowserTasksRefresh((revision) => revision + 1);
+            if (!streamAbortController.signal.aborted && isWorkspaceMountedRef.current && isTurnSessionActive()) {
+              setBrowserTasksRefresh((revision) => revision + 1);
+            }
           },
           onQueuedInput: (notice) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             nameTurn?.finish(false);
             void preferredNameTurn?.finish(false);
             const settled = turnQueue?.apply(notice);
@@ -6856,33 +7248,37 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (settled.waiting.length) setQueuedPlacement(settled.waiting, "waiting");
           },
           onToolStart: (toolEvent) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             if (toolEvent.raw?.toolName !== "propose_style_settings")
               appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             if (isSilentMemoryToolEvent(toolEvent)) return;
-            setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
-              { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity,
-                icon: agentActivityIconForTool(toolEvent.raw?.toolName),
-                brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) }]);
+            if (isWorkspaceMountedRef.current) {
+              setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
+                { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity,
+                  icon: agentActivityIconForTool(toolEvent.raw?.toolName),
+                  brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) }]);
+            }
             upsertTurnStreamEvent(
               agentToolEventToVisibleStreamEvent("start", toolEvent),
             );
           },
           onToolWaiting: (toolEvent) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             if (toolEvent.raw?.toolName !== "propose_style_settings")
               appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             const silentMemoryTool = isSilentMemoryToolEvent(toolEvent);
             if (!silentMemoryTool) {
-              if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
-                setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
-              } else {
-                // The call's arguments are complete now, so a connector call can
-                // name its product ("Checking Google Drive access…").
-                setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
-                  ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
-                    icon: agentActivityIconForTool(toolEvent.raw?.toolName),
-                      brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
+              if (isWorkspaceMountedRef.current) {
+                if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
+                  setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+                } else {
+                  // The call's arguments are complete now, so a connector call can
+                  // name its product ("Checking Google Drive access…").
+                  setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
+                    ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
+                      icon: agentActivityIconForTool(toolEvent.raw?.toolName),
+                        brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
+                }
               }
               upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("waiting", toolEvent));
             }
@@ -6991,24 +7387,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             }
           },
           onMessageReaction: ({ reaction, clientMessageId }) => {
-            if (streamAbortController.signal.aborted || latestVisibleTurnIdRef.current !== debugTurnId) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive() || latestVisibleTurnIdRef.current !== debugTurnId) return;
             const targetId = clientMessageId ? `msg-queued-${clientMessageId}`
               : options.reactionUserMessageId ?? userMessages.at(-1)?.id ?? userMessage.id;
-            setMessages(current => attachMessageReaction(current, targetId, reaction));
+            applyTurnMessages(current => attachMessageReaction(current, targetId, reaction));
           },
           onFollowUpSuggestions: (followUps) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, (message) => ({ ...message, followUps }));
           },
           onInterrupt: ({ conversationId: nextConversationId }) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             // AG-UI interrupts are the normal boundary for a visible action
             // card. The card remains actionable, but the assistant turn has
             // finished thinking until the owner confirms or cancels it.
-            slowNotice.finish("answered");
+            if (isWorkspaceMountedRef.current) slowNotice.finish("answered");
             flushAssistantDelta();
+            const finalConversationId =
+              nextConversationId || activeSessionBinding?.conversationId || turnConversationId;
             if (nextConversationId) {
-              updateConversationId(nextConversationId);
+              updateTurnConversationId(nextConversationId);
             }
             updateMessage(assistantMessageId, (message) => ({
               ...message,
@@ -7018,8 +7416,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 "done",
               ),
             }));
-            setIsChatLoading(false);
-            setIsStreaming(false);
+            patchTurnSessionState({
+              conversationId: finalConversationId,
+              isChatLoading: false,
+              isStreaming: false,
+              stoppableTurn: false,
+              stop: null,
+              abort: null,
+            });
+            finalizeSettledTurn(finalConversationId, false);
           },
           onServerMessageId: (serverMessageId) => {
             if (!streamAbortController.signal.aborted) {
@@ -7038,12 +7443,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             }));
           },
           onComplete: ({ conversationId: nextConversationId }) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             nameTurnCompleted = true;
-            slowNotice.finish("answered");
+            if (isWorkspaceMountedRef.current) slowNotice.finish("answered");
             flushAssistantDelta();
+            const finalConversationId =
+              nextConversationId || activeSessionBinding?.conversationId || turnConversationId;
             if (nextConversationId) {
-              updateConversationId(nextConversationId);
+              updateTurnConversationId(nextConversationId);
             }
             updateMessage(assistantMessageId, (message) => ({
               ...message,
@@ -7053,36 +7460,48 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 "done",
               ),
             }));
-            setIsChatLoading(false);
-            setIsStreaming(false);
+            patchTurnSessionState({
+              conversationId: finalConversationId,
+              isChatLoading: false,
+              isStreaming: false,
+              stoppableTurn: false,
+              stop: null,
+              abort: null,
+            });
+            finalizeSettledTurn(finalConversationId, true);
           },
           onError: (message) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             nameTurnCompleted = false;
             // The error in the transcript owns this turn; only server strain
             // keeps the notice up, as the heavy-usage explanation.
-            slowNotice.finish("failed");
+            if (isWorkspaceMountedRef.current) slowNotice.finish("failed");
             flushAssistantDelta();
             updateMessage(assistantMessageId, (current) =>
               settleAssistantMessageError(current, message),
             );
-            setIsChatLoading(false);
-            setIsStreaming(false);
+            patchTurnSessionState({
+              isChatLoading: false,
+              isStreaming: false,
+              stoppableTurn: false,
+              stop: null,
+              abort: null,
+            });
           },
         },
       });
-      if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+      if (!isTurnSessionActive()) return;
       if (streamResult.detached) {
         // The app stopped reading (native background); the server keeps the
         // turn. The bubble stays in progress until the turn watch reports the
         // written answer and the settled-turn effect reloads it.
         flushAssistantDelta();
-        if (streamResult.conversationId) updateConversationId(streamResult.conversationId);
+        if (streamResult.conversationId) updateTurnConversationId(streamResult.conversationId);
         // Left before the server's turn was running: nothing to reattach to.
         if (!isAgentTurnWatched(userId, streamResult.conversationId)) finishCanceledTurn();
         return;
       }
-      if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+      if (!isTurnSessionActive()) return;
       if (streamAbortController.signal.aborted) {
         finishCanceledTurn();
         return;
@@ -7099,8 +7518,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         else if (nameSaved === false) toast.error("Couldn't save your name. Please try again.");
       });
       flushAssistantDelta();
+      const finalConversationId =
+        streamResult.conversationId || activeSessionBinding?.conversationId || turnConversationId;
       if (streamResult.conversationId) {
-        updateConversationId(streamResult.conversationId);
+        updateTurnConversationId(streamResult.conversationId);
       }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
@@ -7112,15 +7533,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         };
       });
       void loadConversationList(true).catch(() => undefined);
-      setIsChatLoading(false);
-      setIsStreaming(false);
+      patchTurnSessionState({
+        conversationId: finalConversationId,
+        isChatLoading: false,
+        isStreaming: false,
+        stoppableTurn: false,
+        stop: null,
+        abort: null,
+      });
+      finalizeSettledTurn(finalConversationId, true);
     } catch (error) {
-      if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+      if (!isTurnSessionActive()) return;
       if (streamAbortController.signal.aborted) {
         finishCanceledTurn();
         return;
       }
-      slowNotice.finish("failed");
+      if (isWorkspaceMountedRef.current) slowNotice.finish("failed");
       flushAssistantDelta();
       const message =
         error instanceof Error && error.message
@@ -7136,14 +7564,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         const unchangedIntent = !!turnOwner && isValidatedAuthSessionOwnerCurrent(turnOwner) &&
           composerEditGeneration.current === turnDraftGeneration &&
           (!currentDraftRef.current.input.trim() || currentDraftRef.current.input.trim() === text);
-        if (unchangedIntent && !currentDraftRef.current.input.trim()) setInput(text);
-        if (unchangedIntent && !options.calendarMeeting && attachments.length && !currentDraftRef.current.attachment) {
+        if (unchangedIntent && !currentDraftRef.current.input.trim() && isWorkspaceMountedRef.current) setInput(text);
+        if (unchangedIntent && !options.calendarMeeting && attachments.length && !currentDraftRef.current.attachment && isWorkspaceMountedRef.current) {
           setLongPromptAttachment(
             createPendingTextAttachment(attachments.map((item) => item.text).join("\n\n")),
           );
         }
         pendingChatKeyRetryRef.current = null;
-        if (error.recovery === "unlock" && turnOwner && isValidatedAuthSessionOwnerCurrent(turnOwner)) {
+        if (error.recovery === "unlock" && turnOwner && isValidatedAuthSessionOwnerCurrent(turnOwner) && isWorkspaceMountedRef.current) {
           pendingChatKeyRetryRef.current = error.retrySafe && unchangedIntent ? {
             text, options, owner: turnOwner,
             conversationId: meetingOrigin ? meetingOrigin.conversationId : conversationIdRef.current,
@@ -7155,21 +7583,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       } else {
         void loadConversationList(true).catch(() => undefined);
       }
-      setIsChatLoading(false);
-      setIsStreaming(false);
+      patchTurnSessionState({
+        isChatLoading: false,
+        isStreaming: false,
+        stoppableTurn: false,
+        stop: null,
+        abort: null,
+      });
     } finally {
       nameTurn?.finish(false);
       void preferredNameTurn?.finish(false);
       releaseForegroundChatPriority();
       // Detached, cancelled or settled above: never leave this turn timing.
-      slowNotice.finish("stopped");
+      if (isWorkspaceMountedRef.current) slowNotice.finish("stopped");
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
       }
       // Before the next queued turn may start, every message this turn held is
       // resolved from the server's record: joined, or back in the queue.
-      await settleLiveTurn(turnQueue, () => chatSessionRef.current.isCurrent(chatEpoch));
+      await settleLiveTurn(turnQueue, () => isTurnSessionActive());
     }
   };
 
@@ -9666,7 +10099,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (["attachment-edit", "attachment-remove", "collapse"].includes(event.action ?? "")) nativeEditor.current.revision++;
       if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text);
       else if (event.action === "mic" && canToggleVoice) void startConversationalVoice();
-      else if (event.action === "cancel" && stoppableTurn) void stopActiveTurnRef.current?.();
+      else if (event.action === "cancel" && stoppableTurn) void (stopActiveTurnRef.current ?? peekActiveAgentTurnSession<AgentMessage>(isVaultUnlocked ? applicationOwnerId : null, vaultSessionEpoch)?.stop)?.();
       else if (event.action === "attachment-edit" && event.attachmentId === "paste" && longPromptAttachment) {
         setTextAttachmentEditorOpen(true);
       } else if (event.action === "attachment-remove" && event.attachmentId === "paste") removeLongPromptAttachment();
@@ -9723,7 +10156,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           aria-label="Stop One"
           title="Stop One"
           onClick={() => {
-            void stopActiveTurnRef.current?.();
+            void (stopActiveTurnRef.current ?? peekActiveAgentTurnSession<AgentMessage>(isVaultUnlocked ? applicationOwnerId : null, vaultSessionEpoch)?.stop)?.();
           }}
         >
           <StopSquare className="h-3.5 w-3.5" />

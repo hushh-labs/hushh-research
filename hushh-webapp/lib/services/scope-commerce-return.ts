@@ -34,7 +34,15 @@ export function parseCommerceHostedSession(value: Record<string, unknown>, attem
   }
   const url = new URL(value.return_url);
   const arrival = parseCommerceReturn(url.pathname + url.search + url.hash);
-  if (url.protocol !== "https:" || url.username || url.password || url.port ||
+  const isLocalDevReturn =
+    typeof window !== "undefined" &&
+    window.location.hostname === "localhost" &&
+    url.protocol === "http:" &&
+    url.hostname === "localhost" &&
+    url.origin === window.location.origin;
+  const protocolAndPortValid =
+    isLocalDevReturn || (url.protocol === "https:" && !url.port);
+  if (!protocolAndPortValid || url.username || url.password ||
       arrival?.attemptId !== attemptId || arrival.action || arrival.source !== expectedSource) {
     throw new Error("The payment return address could not be verified. Refresh before continuing.");
   }

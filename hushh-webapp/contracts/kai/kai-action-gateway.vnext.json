@@ -16818,7 +16818,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/profile/my-data"
+          "/one/pkm"
         ],
         "screens": [
           "profile_account",
@@ -16844,22 +16844,20 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/profile/my-data"
+        "target": "/one/pkm"
       },
-      "control_ids": [
-        "profile_my_data"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
-        "app/one/profile/my-data/page.tsx"
+        "app/one/pkm/page.tsx"
       ],
       "workflow": null,
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile/my-data"
+          "current route becomes /one/pkm"
         ],
         "backend_effects": []
       },
@@ -16884,7 +16882,7 @@
             "label": "Open Memory",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/profile/my-data",
+              "route": "/one/pkm",
               "screen": "profile_account"
             }
           }

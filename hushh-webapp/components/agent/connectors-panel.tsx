@@ -21,7 +21,6 @@ import {
   SearchIcon,
   XIcon,
 } from "@/components/icons";
-import { ProfilePaneConnectorsIcon } from "@/components/profile/profile-pane-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -40,7 +39,7 @@ import {
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import { CONNECTOR_ARTWORK, connectorArtworkId } from "@/lib/profile/connector-artwork";
+import { ConnectorVectorGlyph } from "./connector-brand-mark";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
 import { connectVaultPlaid, disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
@@ -248,45 +247,17 @@ function ConnectorActionLabel({ entry }: { entry: ConnectorListEntry }) {
   );
 }
 
-const CONNECTOR_LOGOS: Record<string, string> = Object.fromEntries(Object.entries(CONNECTOR_ARTWORK)
-  .filter(([, value]) => value.file.endsWith(".svg")).map(([id, value]) => [id, value.file.slice(0, -4)]));
-const MONOCHROME_LOGOS = new Set(Object.entries(CONNECTOR_ARTWORK).filter(([, value]) => value.monochrome).map(([id]) => id));
-
 /**
  * Profile's leading glyph: the connector's own mark, bare, in the same 28px
  * well and 22px optical size as every other Profile row icon. No tile.
  * A connector without a mark takes the registry's connections glyph.
  */
 function ProfileConnectorGlyph({ id }: { id: string }) {
-  const key = connectorArtworkId(id), artwork = key ? CONNECTOR_ARTWORK[key] : null;
-  return (
-    <span className="inline-flex size-6 shrink-0 items-center justify-center" aria-hidden="true">
-      {artwork && "crop" in artwork ? (
-        <svg viewBox={`${artwork.crop.left} ${artwork.crop.top} ${artwork.crop.width} ${artwork.crop.height}`} className="size-[22px]" aria-hidden="true">
-          <image href={`/icons/connectors/${artwork.file}`} width="1920" height="1080" />
-        </svg>
-      ) : artwork ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${artwork.file}`} alt="" className={`size-[22px] object-contain${artwork.monochrome ? " dark:invert" : ""}`} />
-      ) : (
-        <ProfilePaneConnectorsIcon size={22} />
-      )}
-    </span>
-  );
+  return <ConnectorVectorGlyph id={id} variant="profile" />;
 }
 
 function ConnectorGlyph({ id }: { id: string }) {
-  const logo = CONNECTOR_LOGOS[id];
-  return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background text-foreground shadow-sm" aria-hidden="true">
-      {logo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-6 object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
-      ) : (
-        <span className="text-sm font-semibold">{id === "instagram" ? "IG" : id === "linkedin" ? "in" : "•"}</span>
-      )}
-    </span>
-  );
+  return <ConnectorVectorGlyph id={id} variant="tile" />;
 }
 
 /**

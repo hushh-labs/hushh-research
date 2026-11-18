@@ -562,9 +562,26 @@ def test_generated_mirrors_recompute_contracts_without_selecting_controller_regr
     assert not plan.GENERATED_MIRROR_CHECKS.intersection(ordinary.check_ids)
 
 
+def test_local_env_and_runtime_scripts_are_controller_owned() -> None:
+    for path in (
+        "scripts/env/bootstrap_profiles.sh",
+        "scripts/env/runtime_profile_lib.sh",
+        "scripts/env/local_runtime_parity.py",
+        "scripts/runtime/run_proxy_local.sh",
+        "scripts/runtime/run_backend_local.sh",
+    ):
+        selection = build_selection(
+            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
+        )
+        assert selection.error is None, path
+        assert selection.groups == ("controller",), path
+        assert "local-runtime-contracts" in selection.check_ids, path
+
+
 def main() -> int:
     tests = (
         test_generated_mirrors_recompute_contracts_without_selecting_controller_regressions,
+        test_local_env_and_runtime_scripts_are_controller_owned,
         test_hosted_protocol_ownership_removes_only_whole_module_duplicates,
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,

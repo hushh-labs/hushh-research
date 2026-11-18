@@ -1925,7 +1925,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
-            "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
+            "connector-calendar", "connector-contacts", "connector-stripe", "connector-hubspot",
+            "connector-instagram", "connector-linkedin", "connector-slack"]
         let accentedArtwork: Set<String> = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model",
             "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
             "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",

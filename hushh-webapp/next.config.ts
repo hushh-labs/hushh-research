@@ -99,6 +99,10 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: false,
   productionBrowserSourceMaps: false,
+  onDemandEntries: {
+    maxInactiveAge: 15 * 60 * 1000,
+    pagesBufferLength: 12,
+  },
   // Source maps are already disabled for production browser bundles. Keep the
   // prerender phase bounded too; Next enables these by default and they add no
   // value to the separately typechecked/linted release lane.

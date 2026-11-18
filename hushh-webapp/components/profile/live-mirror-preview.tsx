@@ -4,7 +4,6 @@ import Link from "next/link";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   LIVE_MIRROR_HIDDEN_PREDICATES,
@@ -117,7 +116,7 @@ function LiveMirrorPreviewBody({ onNavigate, showOpenMemory = true, mirror }: Li
         titleAction={
           locked ? undefined : (
             <Link
-              href={buildProfileRoute({ panel: "my-data" })}
+              href={ROUTES.PKM}
               data-pkm-utility="true"
               onClick={onNavigate}
               className="ui-text-trailing-action inline-flex min-h-11 items-center rounded-md px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

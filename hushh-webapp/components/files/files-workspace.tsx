@@ -21,6 +21,10 @@ import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
 import { FilesMoveDialog, FilesDetailsDialog } from "./files-workspace-dialogs";
+import {
+  FilesMarkdownDocumentSheet,
+  type FilesMarkdownDocumentTarget,
+} from "./files-markdown-document-sheet";
 import { PersonalWikiPanel } from "./personal-wiki-panel";
 import { FolderLock } from "@/components/icons";
 import {
@@ -33,27 +37,61 @@ import {
   type FileEntry,
   type FilesSettings,
 } from "@/lib/files/service";
+import {
+  isPreviewableTextFilename,
+  peekFilesListCache,
+  peekFilesSettingsCache,
+} from "@/lib/files/files-cache";
 
 const PERSONAL_WIKI_FOLDER_ID = "__personal_wiki__";
 
+const ROOT_FOLDERS = [{ id: "root", name: "Files" }];
+const WIKI_FOLDERS = [
+  { id: "root", name: "Files" },
+  { id: PERSONAL_WIKI_FOLDER_ID, name: "Personal wiki" },
+];
 
-export function FilesWorkspace() {
+export function FilesWorkspace({
+  initialFolder,
+  initialDoc,
+  initialPage,
+  onInitialSelectionConsumed,
+}: {
+  initialFolder?: string | null;
+  initialDoc?: string | null;
+  initialPage?: string | null;
+  onInitialSelectionConsumed?: () => void;
+} = {}) {
+  const routeFolder = initialFolder ?? null;
+  const routeDoc = initialDoc ?? null;
+  const routePage = initialPage ?? null;
+
   const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { hosting, connectionError } = useFilesConnection(userId ?? undefined, vaultKey, vaultOwnerToken);
-  const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [folders, setFolders] = useState([{ id: "root", name: "Files" }]);
+  const [entries, setEntries] = useState<FileEntry[]>(() => {
+    if (!userId || routeFolder === "personal-wiki") return [];
+    return peekFilesListCache(userId, "root", "", false)?.entries ?? [];
+  });
+  const [folders, setFolders] = useState(() =>
+    routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS,
+  );
   const [cursor, setCursor] = useState("");
   const [trash, setTrash] = useState(false);
   const [query, setQuery] = useState("");
-  const [panel, setPanel] = useState<"activity" | "settings" | "wiki" | null>(
-    null,
+  const [panel, setPanel] = useState<"activity" | "settings" | null>(null);
+  const [previewTarget, setPreviewTarget] =
+    useState<FilesMarkdownDocumentTarget | null>(null);
+  const [settings, setSettings] = useState<FilesSettings | null>(() =>
+    userId ? peekFilesSettingsCache(userId) : null,
   );
-  const [settings, setSettings] = useState<FilesSettings | null>(null);
   const [filesActivationAvailable, setFilesActivationAvailable] =
     useState(false);
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (!userId || routeFolder === "personal-wiki") return false;
+    return !peekFilesListCache(userId, "root", "", false);
+  });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [resume, setResume] = useState<FileEntry | undefined>();
@@ -104,10 +142,15 @@ export function FilesWorkspace() {
   useEffect(() => {
     work.current.abort();
     work.current = new AbortController();
-    setLoading(true);
+    const warmList =
+      available && userId && parent !== PERSONAL_WIKI_FOLDER_ID
+        ? peekFilesListCache(userId, parent, "", trash)
+        : null;
+    const warmSettings = available && userId ? peekFilesSettingsCache(userId) : null;
+    setLoading(parent !== PERSONAL_WIKI_FOLDER_ID && !warmList);
     setMessage("");
-    setEntries([]);
-    setSettings(null);
+    setEntries(warmList?.entries ?? []);
+    setSettings(warmSettings);
     setEdit(null);
     setResume(undefined);
     setProgress(null);
@@ -131,7 +174,7 @@ export function FilesWorkspace() {
         }
       })()
         .catch((error: unknown) => {
-          if (!signal.aborted)
+          if (!signal.aborted && !warmList)
             setMessage(
               error instanceof Error && error.message === "FILES_NOT_ENABLED"
                 ? "Files is not enabled on this pod. Review setup below."
@@ -144,13 +187,14 @@ export function FilesWorkspace() {
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, userId, load, hosting]);
+  }, [available, userId, load, hosting, parent, trash]);
 
   useEffect(() => {
-    setFolders([{ id: "root", name: "Files" }]);
+    setFolders(routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS);
     setTrash(false);
     setPanel(null);
-  }, [userId, available]);
+    setPreviewTarget(null);
+  }, [userId, available, routeFolder]);
 
   useEffect(() => {
     if (!userId) return;
@@ -310,8 +354,8 @@ export function FilesWorkspace() {
                 trash={trash}
                 query={query}
                 loading={loading}
-                locked={busy || Boolean(edit) || inWikiFolder}
-                blocked={Boolean(message)}
+                locked={busy || Boolean(edit)}
+                blocked={Boolean(message) || inWikiFolder}
                 onUp={goUp}
                 onFolder={(index) => {
                   setTrash(false);
@@ -320,7 +364,10 @@ export function FilesWorkspace() {
                 onTrash={() => setTrash(!trash)}
                 onSettings={() => setPanel("settings")}
                 onActivity={() => setPanel("activity")}
-                onWiki={() => setPanel("wiki")}
+                onWiki={() => {
+                  setTrash(false);
+                  setFolders(WIKI_FOLDERS);
+                }}
                 onQuery={setQuery}
                 onRefresh={() =>
                   void act(() => load(), "Files refreshed", false)
@@ -415,6 +462,13 @@ export function FilesWorkspace() {
                     busy={busy || Boolean(edit)}
                     unavailable={!available || Boolean(message)}
                     act={act}
+                    initialDocId={routeDoc}
+                    initialPageId={routePage}
+                    onInitialSelectionConsumed={() => {
+                      if (routeDoc || routePage) {
+                        onInitialSelectionConsumed?.();
+                      }
+                    }}
                   />
                 </div>
               ) : (
@@ -499,12 +553,39 @@ export function FilesWorkspace() {
                       if (next.operation === "move") setMovePickerLoading(true);
                       setEdit(next);
                     }}
-                    onOpen={(folder) =>
-                      setFolders([
-                        ...folders,
-                        { id: folder.id, name: folder.name },
-                      ])
-                    }
+                    onOpen={(entryItem) => {
+                      if (entryItem.kind === "folder") {
+                        setFolders([
+                          ...folders,
+                          { id: entryItem.id, name: entryItem.name },
+                        ]);
+                        return;
+                      }
+                      if (
+                        entryItem.kind === "file" &&
+                        entryItem.state === "ready" &&
+                        isPreviewableTextFilename(entryItem.name) &&
+                        FilesService.readText
+                      ) {
+                        const activeSignal = work.current.signal;
+                        void act(
+                          async () => {
+                            const text = await FilesService.readText(
+                              entryItem,
+                              activeSignal,
+                            );
+                            activeSignal.throwIfAborted();
+                            setPreviewTarget({
+                              kind: "file",
+                              entry: entryItem,
+                              text,
+                            });
+                          },
+                          "Document opened",
+                          false,
+                        );
+                      }
+                    }}
                     onResume={(file) => {
                       setResume(file);
                       input.current?.click();
@@ -563,6 +644,13 @@ export function FilesWorkspace() {
           unavailable={!available || Boolean(message)}
           act={act}
           onClose={() => setPanel(null)}
+        />
+        <FilesMarkdownDocumentSheet
+          open={available && previewTarget !== null}
+          target={previewTarget}
+          busy={busy}
+          initialMode="preview"
+          onClose={() => setPreviewTarget(null)}
         />
       </AppPageContentRegion>
     </AppPageShell>
