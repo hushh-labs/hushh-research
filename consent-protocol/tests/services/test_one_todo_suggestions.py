@@ -259,3 +259,105 @@ async def test_duplicate_refs_across_selected_and_unselected_sources_refuse_disp
             runner=runner,
         )
     runner.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_already_pending_work_is_not_sent_to_the_model_again():
+    output = {"items": [{"source_ref": "s2", "title": "Agent title", "reason": "Agent reason"}]}
+    runner = AsyncMock(return_value=output)
+    result = await suggest_tasks(
+        request(
+            sources=[
+                {
+                    "ref": "s1",
+                    "capability": "calendar",
+                    "summary": "Already pending meeting preparation.",
+                    "already_pending": True,
+                },
+                {"ref": "s2", "capability": "gmail", "summary": "A new follow-up."},
+            ]
+        ),
+        user_id="owner",
+        consent_token=TOKEN,
+        require_access=AsyncMock(),
+        runner=runner,
+    )
+    assert result.model_dump() == output
+    summaries = json.loads(runner.call_args.kwargs["prompt"])["owner_supplied_summaries"]
+    assert [source["ref"] for source in summaries] == ["s2"]
+    assert "Already pending meeting preparation" not in runner.call_args.kwargs["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_all_pending_work_returns_no_suggestions_without_model_dispatch():
+    runner, access = AsyncMock(), AsyncMock()
+    result = await suggest_tasks(
+        request(
+            sources=[
+                {
+                    "ref": "s1",
+                    "capability": "calendar",
+                    "summary": "An existing task.",
+                    "already_pending": True,
+                }
+            ]
+        ),
+        user_id="owner",
+        consent_token=TOKEN,
+        require_access=access,
+        runner=runner,
+    )
+    assert result.items == []
+    assert access.await_count == 2
+    runner.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_reintroduce_a_pending_source_reference():
+    runner = AsyncMock(
+        return_value={
+            "items": [{"source_ref": "s1", "title": "Agent title", "reason": "Agent reason"}]
+        }
+    )
+    with pytest.raises(ValueError, match="unoffered"):
+        await suggest_tasks(
+            request(
+                sources=[
+                    {
+                        "ref": "s1",
+                        "capability": "calendar",
+                        "summary": "An existing task.",
+                        "already_pending": True,
+                    },
+                    {"ref": "s2", "capability": "gmail", "summary": "A new follow-up."},
+                ]
+            ),
+            user_id="owner",
+            consent_token=TOKEN,
+            require_access=AsyncMock(),
+            runner=runner,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("checks", [[PermissionError()], [None, PermissionError()]])
+async def test_all_pending_work_does_not_bypass_owner_revalidation(checks):
+    runner = AsyncMock()
+    with pytest.raises(PermissionError):
+        await suggest_tasks(
+            request(
+                sources=[
+                    {
+                        "ref": "s1",
+                        "capability": "calendar",
+                        "summary": "An existing task.",
+                        "already_pending": True,
+                    }
+                ]
+            ),
+            user_id="owner",
+            consent_token=TOKEN,
+            require_access=AsyncMock(side_effect=checks),
+            runner=runner,
+        )
+    runner.assert_not_called()

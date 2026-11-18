@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
 from api.routes.one import todo_suggestions as route
-from hushh_mcp.services.one_todo_suggestions import TaskSuggestions
+from hushh_mcp.services.one_todo_suggestions import TaskSuggestions, suggest_tasks
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 ROOT = "/api/one/todos/suggestions"
@@ -147,3 +147,26 @@ def test_invalid_source_selection_is_rejected_before_processing(client, monkeypa
     response = client.post(ROOT, json={**BODY, "selected_capabilities": selected})
     assert response.status_code == 422
     suggest.assert_not_called()
+
+
+def test_pending_task_lifecycle_reaches_the_existing_service_without_a_model(client, monkeypatch):
+    validate = AsyncMock(return_value={"user_id": "owner"})
+    monkeypatch.setattr(route, "validate_first_party_owner_token", validate)
+
+    async def current(_user_id, _operation, check):
+        await check()
+
+    monkeypatch.setattr(route, "require_hub_content_current", current)
+    runner = AsyncMock()
+
+    async def suggest(body, **kwargs):
+        return await suggest_tasks(body, runner=runner, **kwargs)
+
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    body = {**BODY, "sources": [{**BODY["sources"][0], "already_pending": True}]}
+    response = client.post(ROOT, json=body)
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert validate.await_count == 2
+    runner.assert_not_called()
