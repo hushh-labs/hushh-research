@@ -8,8 +8,7 @@ const VIEWPORTS = [
   { width: 768, height: 1024 }, { width: 1440, height: 900 },
 ];
 
-// Retain the protected height sweep after merging the illustrated intro into
-// Your place. Measure the actual map visual and copy, rather than dead artwork.
+// Keep the map and save controls usable across onboarding viewport heights.
 test("the artwork is not positioned from the viewport", async ({ page }) => {
   let firstPinOffset: number | undefined;
   for (const height of [667, 812, 844, 932]) {
@@ -45,7 +44,8 @@ for (const viewport of VIEWPORTS) {
   test(`fits the place and atomic save at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await openFixture(page, { dark: viewport.width === 430 });
-    await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Save your first place" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText("Share live · Check in · SMS (Save My Soul)", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Set up later" })).toBeInViewport({ ratio: 1 });
@@ -117,7 +117,7 @@ test("uses local Back and keeps optional work in focused sheets", async ({ page 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open One Location" })).toBeInViewport({ ratio: 1 });
   await page.evaluate(() => window.onboardingBack());
-  await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Save your first place" })).toBeVisible();
   await page.evaluate(() => window.onboardingBack());
   await expect(page.getByText("Agents home")).toBeVisible();
 });

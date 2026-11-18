@@ -105,7 +105,7 @@ describe("account identity session admission", () => {
     expect(AccountIdentityService.peekCachedIdentity("owner-a")?.data).toEqual(current);
   });
 
-  it("a committed phone save outranks a read started while that save was pending", async () => {
+  it.each([false, true])("a committed phone save outranks a read started while that save was pending (readOnly: %s)", async readOnly => {
     publishValidatedAuthSessionOwner("owner-a");
     let finishClaim!: (payload: object) => void;
     let finishRead!: (response: Response) => void;
@@ -114,13 +114,30 @@ describe("account identity session admission", () => {
     const save = AccountIdentityService.claimCurrentUserPhone(user, "phone-token");
     await vi.waitFor(() => expect(claimPhone).toHaveBeenCalledTimes(1));
     refreshShadow.mockReturnValueOnce(new Promise<Response>((resolve) => { finishRead = resolve; }));
-    const read = AccountIdentityService.refreshIdentityForSession("owner-a", "read-token");
+    const read = AccountIdentityService.refreshIdentityForSession("owner-a", "read-token", { readOnly });
     const current = { user_id: "owner-a", phone_verified: true, phone_number: "+12025550102" };
     finishClaim({ identity: current });
     await expect(save).resolves.toEqual(current);
     finishRead(Response.json({ identity: { ...current, phone_number: "+12025550101" } }));
     await expect(read).resolves.toBeNull();
     expect(AccountIdentityService.peekCachedIdentity("owner-a")?.data).toEqual(current);
+  });
+
+  it("keeps a read-only identity request separate from a concurrent provider refresh", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "firebase-a", ownerId, accountGeneration: 1 });
+    const identity = { user_id: ownerId, phone_verified: true, phone_number: "+12025550101" };
+    const user = { uid: "firebase-a", getIdToken: vi.fn().mockResolvedValue("token") } as unknown as User;
+    refreshShadow.mockImplementation(async () => Response.json({ identity }));
+    await Promise.all([
+      AccountIdentityService.refreshCurrentUserIdentity(user, { readOnly: true }),
+      AccountIdentityService.refreshCurrentUserIdentity(user, { force: false }),
+    ]);
+    expect(refreshShadow).toHaveBeenCalledTimes(2);
+    expect(refreshShadow).toHaveBeenCalledWith("token", { readOnly: true });
+    expect(refreshShadow).toHaveBeenCalledWith("token", { force: false });
+    expect(user.getIdToken).toHaveBeenCalledWith(false);
+    expect(AccountIdentityService.peekCachedIdentity(ownerId)?.data).toEqual(identity);
   });
 
   it("rejects a late identity response after logout and login as the same owner", async () => {

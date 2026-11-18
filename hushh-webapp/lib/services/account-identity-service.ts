@@ -154,7 +154,7 @@ export class AccountIdentityService {
   static async refreshIdentityForSession(
     userId: string,
     idToken: string,
-    options?: { force?: boolean; requireSuccess?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean; readOnly?: boolean },
   ): Promise<AccountIdentity | null> {
     return this.refreshIdentityWithWork(beginIdentityWork(userId), idToken, options);
   }
@@ -162,7 +162,7 @@ export class AccountIdentityService {
   private static async refreshIdentityWithWork(
     work: IdentityWork,
     idToken: string,
-    options?: { force?: boolean; requireSuccess?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean; readOnly?: boolean },
   ): Promise<AccountIdentity | null> {
     if (!identityWorkIsCurrent(work)) return null;
     const response = await ApiService.refreshAccountIdentityShadow(idToken, options);
@@ -176,16 +176,16 @@ export class AccountIdentityService {
 
   static async refreshCurrentUserIdentity(
     user: User | null | undefined,
-    options?: { force?: boolean; requireSuccess?: boolean }
+    options?: { force?: boolean; requireSuccess?: boolean; readOnly?: boolean }
   ): Promise<AccountIdentity | null> {
     if (!user?.uid) {
       return null;
     }
 
-    const force = options?.force === true;
+    const force = options?.readOnly !== true && options?.force === true;
     const uid = ownerForFirebaseUser(user);
     if (!uid) return null;
-    const requestKey = JSON.stringify([uid, getAuthSessionGeneration()]);
+    const requestKey = JSON.stringify([uid, getAuthSessionGeneration(), options?.readOnly === true]);
 
     // Coalesce concurrent non-forced reads onto a single network round-trip.
     if (!force) {
