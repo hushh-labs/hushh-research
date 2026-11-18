@@ -30,6 +30,8 @@ because `one_location_envelopes` keeps coordinates inside the ciphertext.
 
 from __future__ import annotations
 
+from decimal import Decimal
+from math import isfinite
 from typing import Any, Iterable
 
 #: A grant older than this is not the alert being sent right now.
@@ -60,7 +62,11 @@ def select_emailable_recipients(
         if str(row.get("status") or "") != "active":
             continue
         created_at_epoch = row.get("created_at_epoch")
-        if not isinstance(created_at_epoch, (int, float)):
+        # PostgreSQL EXTRACT(EPOCH) returns numeric, preserved as Decimal by
+        # psycopg2. Keep the freshness fence for both database and JSON rows.
+        if not isinstance(created_at_epoch, (int, float, Decimal)) or not isfinite(
+            created_at_epoch
+        ):
             continue
         if now_epoch_seconds - float(created_at_epoch) > GRANT_FRESHNESS_SECONDS:
             continue

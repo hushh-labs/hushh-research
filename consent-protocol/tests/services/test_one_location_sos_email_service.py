@@ -8,6 +8,8 @@ it: who may be mailed, for how long, and what must never leak into a log.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from hushh_mcp.services.one_location_sos_email_service import (
@@ -34,9 +36,10 @@ def grant_row(**overrides):
 
 
 class TestWhoMayBeMailed:
-    def test_accepts_a_fresh_live_sos_grant_with_an_address(self):
+    @pytest.mark.parametrize("epoch", [NOW - 5, Decimal(str(NOW - 5))])
+    def test_accepts_a_fresh_live_sos_grant_with_an_address(self, epoch):
         selected = select_emailable_recipients(
-            [grant_row()], owner_user_id="owner-1", now_epoch_seconds=NOW
+            [grant_row(created_at_epoch=epoch)], owner_user_id="owner-1", now_epoch_seconds=NOW
         )
         assert [row["recipient_user_id"] for row in selected] == ["friend-1"]
 
@@ -69,12 +72,24 @@ class TestWhoMayBeMailed:
         )
         assert selected == []
 
-    def test_rejects_a_grant_that_is_not_from_this_moment(self):
+    @pytest.mark.parametrize("epoch", [NOW - (16 * 60), Decimal(str(NOW - (16 * 60)))])
+    def test_rejects_a_grant_that_is_not_from_this_moment(self, epoch):
         # An SOS grant lives 8 hours. Freshness is what stops the rest of that
         # window being usable to send more mail.
-        stale = grant_row(created_at_epoch=NOW - (16 * 60))
+        stale = grant_row(created_at_epoch=epoch)
         assert (
             select_emailable_recipients([stale], owner_user_id="owner-1", now_epoch_seconds=NOW)
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        "epoch", [float("nan"), float("inf"), Decimal("NaN"), Decimal("Infinity")]
+    )
+    def test_rejects_a_nonfinite_grant_timestamp(self, epoch):
+        assert (
+            select_emailable_recipients(
+                [grant_row(created_at_epoch=epoch)], owner_user_id="owner-1", now_epoch_seconds=NOW
+            )
             == []
         )
 
