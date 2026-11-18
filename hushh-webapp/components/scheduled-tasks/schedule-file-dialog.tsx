@@ -152,7 +152,9 @@ export function ScheduleFileDialog({
           <DialogTitle>Schedule organization</DialogTitle>
           <DialogDescription className="break-words">
             Run on your private Pod. Organize {file.name} once, using your current analysis permission.
-            Changes to the file or permission require review.
+            {file.revision === undefined
+              ? " Changes after scheduling require review."
+              : " Changes to the file or permission require review."}
           </DialogDescription>
         </DialogHeader>
         <label className="flex flex-col gap-[var(--app-form-field-gap)] text-sm">

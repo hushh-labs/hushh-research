@@ -196,6 +196,35 @@ describe("TodoListPage row actions", () => {
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
   });
 
+  it("refreshes scheduled runs from the current Pod after a hosting change", async () => {
+    vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as unknown as ReturnType<typeof AuthService.getCurrentUser>);
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "byoc" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+    const admission = vi.spyOn(ApiService, "getComputerUseAdmission")
+      .mockResolvedValueOnce({ ownerId: mocks.user.uid, podId: "old-pod", environment: "dev" })
+      .mockResolvedValueOnce({ ownerId: mocks.user.uid, podId: "new-pod", environment: "dev" });
+    const request = vi.spyOn(ApiService, "ownerPodRequest").mockImplementation(async (_path, _init, _largeUpload, _recovery, podId) => {
+      const previous = podId === "old-pod";
+      return Response.json({
+        available: true, code: null, templates: [FILE_ORGANIZATION_TEMPLATE], authorization_limit_at: 10_000,
+        tasks: [{
+          id: `schedule_${(previous ? "a" : "b").repeat(32)}`,
+          title: previous ? "Organize old file" : "Organize new file",
+          capability: FILE_ORGANIZATION_TEMPLATE, revision: 1, state: "scheduled", repeat: "once",
+          timezone: "UTC", next_run_at: 1000, authorization_expires_at: 3000, last_run: null,
+        }],
+      });
+    });
+
+    render(<TodoListPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled runs" }));
+    expect(await screen.findByText("Organize old file")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Organize new file")).toBeVisible();
+    expect(screen.queryByText("Organize old file")).not.toBeInTheDocument();
+    expect(admission).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls.map(call => call[4])).toEqual(["old-pod", "new-pod"]);
+  });
+
   it("binds native task completion and confirmed deletion to the existing service and closes only a successful draft", async () => {
     mocks.native = true;
     mocks.events = [];

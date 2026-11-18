@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,9 +62,11 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
 }
 
 export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.ONE_HOME) {
-  const client = useMemo(() => new PodScheduledTasksClient(ownerId), [ownerId]);
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
+  const [review, setReview] = useState<{
+    client: PodScheduledTasksClient;
+    status: ScheduledTasksStatus;
+  } | null>(null);
   const [message, setMessage] = useState("");
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState("");
@@ -81,9 +83,10 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
     if (!areScheduledTasksAvailable() || !open) return;
     const owner = snapshotValidatedAuthSessionOwner();
     if (owner?.userId !== ownerId) return;
+    const client = new PodScheduledTasksClient(ownerId);
     const request = new AbortController();
     work.current = request;
-    setStatus(null);
+    setReview(null);
     setChecking(true);
     setMessage("");
     setPlacementMessage("");
@@ -93,7 +96,6 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
       .then(async (hosting) => {
         if (!current()) return null;
         if (hosting.hostingMode !== "byoc" && hosting.hostingMode !== "hussh_pods") {
-          setStatus(null);
           setPlacementMessage(hosting.hostingMode === "shared"
             ? "Scheduling requires a private agent."
             : "Finish setting up Agent One to schedule work.");
@@ -102,11 +104,10 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
         return client.status(request.signal);
       })
       .then((value) => {
-        if (current() && value) setStatus(value);
+        if (current() && value) setReview({ client, status: value });
       })
       .catch(() => {
         if (current()) {
-          setStatus(null);
           setMessage(
             "Connect and unlock your cloud agent to view scheduled tasks.",
           );
@@ -119,22 +120,23 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
       request.abort();
       work.current = null;
     };
-  }, [client, open, ownerId, readRevision]);
+  }, [open, ownerId, readRevision]);
 
   const control = async (
     task: ScheduledTask,
     operation: "pause" | "resume" | "cancel",
   ) => {
-    if (active.current) return;
-    active.current = true;
-    setBusy(task.id);
+    const client = review?.client;
     const signal = work.current?.signal;
+    if (!client || !signal || active.current) return;
     const owner = snapshotValidatedAuthSessionOwner();
     const current = () =>
-      Boolean(signal && !signal.aborted) &&
+      !signal.aborted &&
       owner?.userId === ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
       AuthService.getCurrentUser()?.uid === firebaseUidForOwner(ownerId);
-    if (!current()) { active.current = false; setBusy(""); return; }
+    if (!current()) return;
+    active.current = true;
+    setBusy(task.id);
     let settledState: ScheduledTask["state"] | null = null;
     const request = client.control(task, operation, signal).then((updated) => {
       settledState = updated.state;
@@ -163,31 +165,39 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
       if (typeof notification === "string" || typeof notification === "number")
         morphyToast.dismiss(notification);
     };
-    signal?.addEventListener("abort", retire, { once: true });
+    signal.addEventListener("abort", retire, { once: true });
     try {
       const updated = await request;
       if (!current()) return;
-      setStatus(
+      setReview(
         (previous) =>
-          previous && {
+          previous?.client === client ? {
             ...previous,
-            tasks: previous.tasks.map((item) =>
-              item.id === updated.id ? updated : item,
-            ),
-          },
+            status: {
+              ...previous.status,
+              tasks: previous.status.tasks.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            },
+          } : previous,
       );
     } catch {
       // The promise toast owns transient action feedback; retain the last observation.
     } finally {
-      signal?.removeEventListener("abort", retire);
+      signal.removeEventListener("abort", retire);
       active.current = false;
       setBusy("");
     }
   };
 
   const changeOpen = (value: boolean) => { if (!busy && (!value || areScheduledTasksAvailable())) setOpen(value); };
-  const refresh = () => { if (!busy && !checking && open) setReadRevision(value => value + 1); };
-  return { open, changeOpen, close, status, message, checking, busy, placementMessage, control, refresh };
+  const refresh = () => {
+    if (active.current || checking || !open) return;
+    work.current?.abort();
+    setReview(null);
+    setReadRevision(value => value + 1);
+  };
+  return { open, changeOpen, close, status: review?.status ?? null, message, checking, busy, placementMessage, control, refresh };
 }
 
 function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
