@@ -1740,3 +1740,37 @@ async def test_self_heals_pre_commit_switch_outcome_unknown_releases_source_drai
     assert res["status"] == "succeeded"
     assert reg.row["deployment_target"] == "azure"
     assert reg.row["status"] == "provisioned"
+
+
+@pytest.mark.asyncio
+async def test_startup_umbrella_cell_replenisher_fenced_outside_dev_and_active_in_dev(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import server
+    from api import database_listener_lifecycle as listener_lifecycle
+
+    monkeypatch.setattr(server, "pod_mode", lambda: False)
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+    monkeypatch.setenv("HUSSH_UMBRELLA_REPLENISHER_ENABLED", "true")
+    monkeypatch.setattr(listener_lifecycle, "_STARTUP_BACKGROUND_TASKS", set())
+
+    for non_dev in ("uat", "production"):
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", non_dev)
+        await server.startup_umbrella_cell_replenisher_worker()
+        assert not listener_lifecycle._STARTUP_BACKGROUND_TASKS
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    await server.startup_umbrella_cell_replenisher_worker()
+    tasks = list(listener_lifecycle._STARTUP_BACKGROUND_TASKS)
+    assert len(tasks) == 1
+    assert tasks[0].get_name() == "umbrella-cell-replenisher"
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Pod mode must never attach Hub replenishment loops.
+    monkeypatch.setattr(server, "pod_mode", lambda: True)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setattr(listener_lifecycle, "_STARTUP_BACKGROUND_TASKS", set())
+    await server.startup_umbrella_cell_replenisher_worker()
+    assert not listener_lifecycle._STARTUP_BACKGROUND_TASKS

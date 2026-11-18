@@ -780,6 +780,22 @@ def personal_agent_reconcile_enabled() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_RECONCILE_ENABLED"), default=False)
 
 
+def umbrella_cell_replenisher_enabled() -> bool:
+    """Enable autonomous warm-skeleton replenishment in ``dev`` Umbrella Compute Cells.
+
+    Hard-fenced off outside ``deploy_lane() == "dev"`` so ``uat``, ``production``,
+    and local/test harnesses never mutate cloud cell inventory unless explicitly
+    running under Dev lane control alongside ``PERSONAL_AGENT_ENABLED``.
+    """
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
+
+    if deploy_lane() != "dev":
+        return False
+    if not personal_agent_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_UMBRELLA_REPLENISHER_ENABLED"), default=True)
+
+
 def personal_agent_upgrade_sweep_enabled() -> bool:
     """Kill-switch for the pod IMAGE UPGRADE sweep inside the reconcile worker.
 

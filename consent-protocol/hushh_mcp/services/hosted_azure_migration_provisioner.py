@@ -647,7 +647,12 @@ async def execute_owner_migration_to_hosted_azure(
         )
 
     op_id = f"op_{secrets.token_hex(16)}"
-    cell = skeleton_pool._registry.azure_cell(cell_id)
+    occupied_app_ids = await asyncio.to_thread(_discover_occupied_app_ids, db)
+    cell = await asyncio.to_thread(
+        skeleton_pool.select_admitting_azure_cell_sync,
+        cell_id=cell_id,
+        occupied_app_ids=occupied_app_ids,
+    )
     job_id = new_job_id()
     await jobs.start(
         user_id=user_id,
@@ -670,7 +675,6 @@ async def execute_owner_migration_to_hosted_azure(
         deployment_target=BACKEND_AZURE,
         model_credential_mode=row.get("model_credential_mode"),
     )
-    occupied_app_ids = await asyncio.to_thread(_discover_occupied_app_ids, db)
     provisioner = HostedAzureDestinationProvisioner(
         user_id=user_id,
         spec=spec,
@@ -771,7 +775,7 @@ async def execute_owner_migration_to_hosted_azure(
     return {
         "jobId": job_id,
         "status": terminal,
-        "cellId": cell.cell_id,
+        "cellId": claimed.cell.cell_id if claimed else cell.cell_id,
         "slotId": claimed.slot.slot_id if claimed else None,
         "claimLatencyMs": claimed.claim_latency_ms if claimed else None,
         "migrationMode": _resolved_migration_mode(),
@@ -814,7 +818,7 @@ async def get_owner_hosted_azure_migration_status(
         "registryStatus": (row or {}).get("status"),
         "directReadiness": metadata.get("directReadiness"),
         "cutover": relay_first_cutover_status(row),
-        "cellPool": skeleton_pool.snapshot_status(occupied_app_ids=occupied_app_ids),
+        "cellPool": await skeleton_pool.async_snapshot_status(occupied_app_ids=occupied_app_ids),
     }
 
 
@@ -836,7 +840,9 @@ async def get_hosted_umbrella_cells_snapshot(
         if "Database credentials not set" not in str(exc):
             raise
         occupied_app_ids = None
-    return skeleton_pool.snapshot_status(cell_id=cell_id, occupied_app_ids=occupied_app_ids)
+    return await skeleton_pool.async_snapshot_status(
+        cell_id=cell_id, occupied_app_ids=occupied_app_ids
+    )
 
 
 __all__ = [

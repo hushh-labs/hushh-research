@@ -388,3 +388,486 @@ def test_gcp_and_azure_non_loopback_http_emulator_endpoints_are_refused(
     monkeypatch.setenv(AZURE_EMULATOR_URL_ENV, "http://10.0.0.42:10000")
     with pytest.raises(PodBlobStorageError, match="loopback"):
         AzureBlobObjectStore("http://10.0.0.42:10000/acct123/cont-1/pods/u1")
+
+
+def _cell_cfg_json(
+    *,
+    cell_id: str = "cell-az-eastus2-dev-01",
+    slots_count: int = 2,
+    soft: int = 40,
+    hard: int = 50,
+    min_warm: int = 2,
+    max_warm: int = 3,
+    batch: int = 1,
+) -> dict[str, object]:
+    slots = [
+        {
+            "slotId": f"slot{i:02d}",
+            "appName": f"ca-pod-slot{i:02d}",
+            "appId": (
+                "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/"
+                "resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/"
+                f"Microsoft.App/containerApps/ca-pod-slot{i:02d}"
+            ),
+            "fqdn": f"ca-pod-slot{i:02d}.icystone.eastus2.azurecontainerapps.io",
+            "identityId": (
+                "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/"
+                "resourcegroups/rg-hussh-cell-dev-eastus2-01/providers/"
+                f"Microsoft.ManagedIdentity/userAssignedIdentities/id-pod-slot{i:02d}"
+            ),
+            "identityClientId": f"00000000-0000-4000-8000-{i:012x}",
+            "identityPrincipalId": f"11111111-1111-4000-8000-{i:012x}",
+            "blobUrl": f"https://sthusshcelldeveus201.blob.core.windows.net/pod-slot{i:02d}",
+            "keyVaultKey": f"https://kv-h1-celldeveus201.vault.azure.net/keys/pod-log-key-slot{i:02d}/ver{i:02d}",
+            "signingSecretUrl": f"https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot{i:02d}",
+        }
+        for i in range(1, slots_count + 1)
+    ]
+    return {
+        "cellId": cell_id,
+        "provider": "azure",
+        "organization": "HushOne Inc.",
+        "tenantId": "e1e09f9b-313b-4c57-a925-f2a573a919e9",
+        "subscriptionId": "3f5a1e87-97d6-4f05-b4ce-0e2cc675e118",
+        "resourceGroup": "rg-hussh-cell-dev-eastus2-01",
+        "location": "eastus2",
+        "environmentName": "cae-hussh-cell-dev-eus2-01",
+        "environmentId": (
+            "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/"
+            "resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/"
+            "Microsoft.App/managedEnvironments/cae-hussh-cell-dev-eus2-01"
+        ),
+        "registryServer": "crhusshcelldeveus201.azurecr.io",
+        "storageAccount": "sthusshcelldeveus201",
+        "keyVaultName": "kv-h1-celldeveus201",
+        "openaiEndpoint": "https://oai-hussh-cell-dev-eus2-01.openai.azure.com/",
+        "openaiDeployment": "one-chat",
+        "controllerClientId": "815df3ec-c8c4-4df3-a01a-f611dd6eb3c4",
+        "imageDigest": "sha256:" + ("9" * 64),
+        "softWatermark": soft,
+        "hardWatermark": hard,
+        "minWarmSkeletons": min_warm,
+        "maxWarmSkeletons": max_warm,
+        "replenishBatchSize": batch,
+        "sharedCellFixedMonthlyUsd": 5.0,
+        "perWarmSlotStandingMonthlyUsd": 0.0,
+        "slots": slots,
+    }
+
+
+@pytest.mark.asyncio
+async def test_umbrella_cell_replenisher_mints_slot_with_zero_idle_cost_and_o1_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio as _asyncio
+
+    from hushh_mcp.services.azure_arm_client import ArmError
+    from hushh_mcp.services.compute_backend import BACKEND_AZURE, PodSpec
+    from hushh_mcp.services.hosted_azure_backend import HostedAzureBackend
+    from hushh_mcp.services.pod_umbrella_cell_pool import (
+        PodSkeletonPoolService,
+        UmbrellaCellRegistry,
+    )
+    from hushh_mcp.services.umbrella_cell_replenisher import (
+        UmbrellaCellReplenisher,
+        provision_azure_warm_skeleton_sync,
+    )
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+    monkeypatch.setenv("HUSSH_UMBRELLA_REPLENISHER_ENABLED", "true")
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hub")
+    PodSkeletonPoolService.reset_process_claims()
+
+    registry = UmbrellaCellRegistry(
+        {"environment": "dev", "cells": [_cell_cfg_json(slots_count=2, min_warm=2, max_warm=3)]}
+    )
+
+    class _ReplenishingFakeArm:
+        def __init__(self) -> None:
+            self.apps: dict[str, dict[str, object]] = {
+                "ca-pod-slot01": {
+                    "name": "ca-pod-slot01",
+                    "id": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.App/containerapps/ca-pod-slot01",
+                    "tags": {
+                        "hussh-cell-id": "cell-az-eastus2-dev-01",
+                        "hussh-slot-id": "slot01",
+                        "hussh-pool-state": "bound_active",
+                        "hussh-owner-hash": "sha256:" + ("a" * 64),
+                    },
+                    "properties": {
+                        "provisioningState": "Succeeded",
+                        "latestReadyRevisionName": "ca-pod-slot01--001",
+                        "workloadProfileName": "Consumption",
+                        "configuration": {
+                            "ingress": {
+                                "fqdn": "ca-pod-slot01.icystone.eastus2.azurecontainerapps.io"
+                            },
+                            "secrets": [
+                                {
+                                    "name": "app-signing-key",
+                                    "keyVaultUrl": "https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot01",
+                                }
+                            ],
+                        },
+                        "template": {"scale": {"minReplicas": 0, "maxReplicas": 1}},
+                    },
+                },
+                "ca-pod-slot02": {
+                    "name": "ca-pod-slot02",
+                    "id": "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourceGroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.App/containerapps/ca-pod-slot02",
+                    "tags": {
+                        "hussh-cell-id": "cell-az-eastus2-dev-01",
+                        "hussh-slot-id": "slot02",
+                        "hussh-pool-state": "warm_standby",
+                    },
+                    "properties": {
+                        "provisioningState": "Succeeded",
+                        "latestReadyRevisionName": "ca-pod-slot02--001",
+                        "workloadProfileName": "Consumption",
+                        "configuration": {
+                            "ingress": {
+                                "fqdn": "ca-pod-slot02.icystone.eastus2.azurecontainerapps.io"
+                            },
+                            "secrets": [
+                                {
+                                    "name": "app-signing-key",
+                                    "keyVaultUrl": "https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot02",
+                                }
+                            ],
+                        },
+                        "template": {"scale": {"minReplicas": 0, "maxReplicas": 1}},
+                    },
+                },
+            }
+            self.keys: dict[str, dict[str, object]] = {}
+            self.secrets: dict[str, dict[str, object]] = {}
+            self.role_attempts = 0
+            self.role_scopes: list[str] = []
+            self.list_calls = 0
+
+        def get(self, path: str, *, api_version: str, op: str = "") -> dict[str, object]:
+            assert api_version
+            if op == "hosted_azure_list_cell" or path.endswith(
+                "/providers/Microsoft.App/containerApps"
+            ):
+                self.list_calls += 1
+                return {"value": list(self.apps.values())}
+            if path in self.keys:
+                return self.keys[path]
+            raise ArmError("not_found", status=404, code="NotFound", message="missing", op=op)
+
+        def get_or_none(
+            self, path: str, *, api_version: str, op: str = ""
+        ) -> dict[str, object] | None:
+            assert api_version
+            if "/keys/" in path:
+                return self.keys.get(path)
+            if "/secrets/" in path:
+                return self.secrets.get(path)
+            return None
+
+        def put(
+            self, path: str, *, api_version: str, body: dict[str, object], op: str = ""
+        ) -> dict[str, object]:
+            assert api_version
+            if "/providers/Microsoft.Authorization/roleAssignments/" in path:
+                self.role_attempts += 1
+                scope = path.split("/providers/Microsoft.Authorization/roleAssignments/", 1)[0]
+                if self.role_attempts == 1:
+                    raise ArmError(
+                        "bad_request",
+                        status=400,
+                        code="PrincipalNotFound",
+                        message="propagating",
+                        op=op,
+                    )
+                self.role_scopes.append(scope)
+                if self.role_attempts == 2:
+                    raise ArmError(
+                        "conflict", status=409, code="RoleAssignmentExists", message="exists", op=op
+                    )
+                return {"id": path}
+            if "/userAssignedIdentities/" in path:
+                return {
+                    "id": path,
+                    "properties": {
+                        "clientId": "00000000-0000-4000-8000-000000000003",
+                        "principalId": "11111111-1111-4000-8000-000000000003",
+                    },
+                }
+            if "/keys/" in path:
+                self.keys[path] = {
+                    "properties": {
+                        "keyUriWithVersion": "https://kv-h1-celldeveus201.vault.azure.net/keys/pod-log-key-slot03/ver03"
+                    }
+                }
+                return self.keys[path]
+            if "/secrets/" in path:
+                self.secrets[path] = {
+                    "properties": {
+                        "secretUri": "https://kv-h1-celldeveus201.vault.azure.net/secrets/pod-signing-key-slot03"
+                    }
+                }
+                return self.secrets[path]
+            if "/providers/Microsoft.App/containerApps/" in path:
+                app_name = path.rsplit("/", 1)[-1]
+                tpl = body["properties"]["template"]  # type: ignore[index]
+                scale = tpl["scale"]  # type: ignore[index]
+                if op == "replenish_warm_container_app":
+                    env_map = {e["name"]: e.get("value") for e in tpl["containers"][0]["env"]}
+                    assert env_map["POD_STORAGE_BACKEND"] == "null"
+                    assert "HUSHH_ID" not in env_map
+                    assert "POD_STORAGE_AZURE_BLOB_URL" not in env_map
+                    assert scale["minReplicas"] == 0 and scale["cooldownPeriod"] == 60
+                    assert body["tags"]["hussh-pool-state"] == "warm_standby"  # type: ignore[index]
+                    assert "hussh-owner-hash" not in body["tags"]  # type: ignore[operator]
+                record = {
+                    "name": app_name,
+                    "id": path.replace("/containerApps/", "/containerapps/"),
+                    "tags": body["tags"],
+                    "identity": {
+                        "userAssignedIdentities": {
+                            "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourcegroups/rg-hussh-cell-dev-eastus2-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-pod-slot03": {
+                                "clientId": "00000000-0000-4000-8000-000000000003",
+                                "principalId": "11111111-1111-4000-8000-000000000003",
+                            }
+                        }
+                    },
+                    "properties": {
+                        "provisioningState": "Succeeded",
+                        "latestReadyRevisionName": f"{app_name}--rev01",
+                        "workloadProfileName": body["properties"]["workloadProfileName"],  # type: ignore[index]
+                        "configuration": {
+                            "ingress": {
+                                "fqdn": f"{app_name}.icystone.eastus2.azurecontainerapps.io"
+                            },
+                            "secrets": body["properties"]["configuration"]["secrets"],  # type: ignore[index]
+                        },
+                        "template": tpl,
+                    },
+                }
+                self.apps[app_name] = record
+                return record
+            return {"properties": {"provisioningState": "Succeeded"}}
+
+    arm = _ReplenishingFakeArm()
+    pool = PodSkeletonPoolService(
+        registry=registry,
+        backend_factory=lambda slot: HostedAzureBackend(slot=slot, arm_client=arm, live=True),  # type: ignore[arg-type]
+    )
+    replenisher = UmbrellaCellReplenisher(
+        registry=registry,
+        pool=pool,
+        occupied_loader=lambda: {registry.azure_cell().slots[0].app_id},
+        provisioner=lambda cell, sid: provision_azure_warm_skeleton_sync(
+            cell,
+            sid,
+            arm_client=arm,
+            sleep=lambda _s: None,  # type: ignore[arg-type]
+        ),
+    )
+
+    rep1 = await replenisher.replenish_once()
+    assert rep1.skipped is False
+    assert rep1.created_slots == ("cell-az-eastus2-dev-01:slot03",)
+    assert any("/pod-slot03" in s for s in arm.role_scopes)
+    assert any("/keys/pod-log-key-slot03" in s for s in arm.role_scopes)
+    assert any("/secrets/pod-signing-key-slot03" in s for s in arm.role_scopes)
+
+    # Idempotent steady pass must create 0 duplicate slots and execute in O(1) ARM GETs.
+    before_calls = arm.list_calls
+    rep2 = await replenisher.replenish_once()
+    assert rep2.reason == "steady" and rep2.created_slots == ()
+    assert arm.list_calls == before_calls + 1
+
+    # Snapshot dynamically discovers slot03 even though static config only lists slot01 & slot02.
+    snap = await pool.async_snapshot_status()
+    cell_rep = snap["cells"][0]
+    assert cell_rep["activeSlots"] == 1
+    assert cell_rep["warmStandbySlots"] == 2
+    assert cell_rep["slotIdsWarm"] == ["slot02", "slot03"]
+    assert cell_rep["needsReplenishment"] is False
+    assert cell_rep["costEconomics"]["costGuardHealthy"] is True
+    assert cell_rep["costEconomics"]["idleComputeHourlyUsdPerWarmSlot"] == 0.0
+    assert cell_rep["costEconomics"]["controlPlaneInspectionOnly"] is True
+    assert cell_rep["costEconomics"]["zeroScaleVerifiedSlots"] == ["slot02", "slot03"]
+
+    # New owner can claim dynamically minted slot03 cleanly when slot02 is also occupied.
+    async def _keys(row: dict[str, object], *, require_identity: bool = True) -> dict[str, str]:
+        assert require_identity is True and row
+        return {
+            "podPublicKey": "x25519-s3",
+            "podKeyId": "kid-s3",
+            "podKeyWrappingAlg": "X25519-HKDF-SHA256-AES256GCM",
+            "podSigningKey": "ed25519-s3",
+            "podSigningKeyId": "skid-s3",
+        }
+
+    claimer = PodSkeletonPoolService(
+        registry=registry,
+        backend_factory=lambda slot: HostedAzureBackend(slot=slot, arm_client=arm, live=True),  # type: ignore[arg-type]
+        key_fetcher=_keys,
+    )
+    claimed = await claimer.claim_warm_skeleton_for_owner(
+        spec=PodSpec(
+            hushh_id="ha1_owner_slot03",
+            phone_e164_hash="ph3",
+            pod_pubkey="",
+            region="eastus2",
+            deployment_target=BACKEND_AZURE,
+        ),
+        owner_id="uid-owner-slot03",
+        occupied_app_ids={s.app_id for s in registry.azure_cell().slots},
+    )
+    assert claimed.slot.slot_id == "slot03"
+    await _asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_umbrella_cell_replenisher_cost_guard_circuit_breaker_and_no_warm_fqdn_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services.hosted_azure_backend import HostedAzureBackend
+    from hushh_mcp.services.pod_umbrella_cell_pool import (
+        PodSkeletonPoolService,
+        UmbrellaCellRegistry,
+    )
+    from hushh_mcp.services.umbrella_cell_replenisher import UmbrellaCellReplenisher
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+    monkeypatch.setenv("HUSSH_UMBRELLA_REPLENISHER_ENABLED", "true")
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hub")
+
+    registry = UmbrellaCellRegistry(
+        {"environment": "dev", "cells": [_cell_cfg_json(slots_count=1, min_warm=2)]}
+    )
+
+    class _MinReplicaViolationArm:
+        def get(self, path: str, *, api_version: str, op: str = "") -> dict[str, object]:
+            assert path.endswith("/containerApps") and api_version and op
+            return {
+                "value": [
+                    {
+                        "name": "ca-pod-slot01",
+                        "tags": {
+                            "hussh-cell-id": "cell-az-eastus2-dev-01",
+                            "hussh-slot-id": "slot01",
+                            "hussh-pool-state": "warm_standby",
+                        },
+                        "properties": {
+                            "provisioningState": "Succeeded",
+                            "latestReadyRevisionName": "ca-pod-slot01--001",
+                            "workloadProfileName": "Consumption",
+                            "configuration": {
+                                "ingress": {
+                                    "fqdn": "ca-pod-slot01.icystone.eastus2.azurecontainerapps.io"
+                                },
+                            },
+                            "template": {"scale": {"minReplicas": 1, "maxReplicas": 1}},
+                        },
+                    }
+                ]
+            }
+
+    mint_called = False
+
+    def _forbid_mint(_cell: object, _sid: str) -> object:
+        nonlocal mint_called
+        mint_called = True
+        raise AssertionError("Cost guard circuit breaker must block minting")
+
+    # Ensure observation never opens a data-plane HTTP connection to warm slot FQDNs.
+    def _no_http_wake(*_a: object, **_kw: object) -> object:
+        raise AssertionError("Control-plane observation must never probe warm slot HTTP endpoints")
+
+    monkeypatch.setattr(requests, "get", _no_http_wake)
+    monkeypatch.setattr(requests, "post", _no_http_wake)
+
+    pool = PodSkeletonPoolService(
+        registry=registry,
+        backend_factory=lambda slot: HostedAzureBackend(
+            slot=slot,
+            arm_client=_MinReplicaViolationArm(),
+            live=True,  # type: ignore[arg-type]
+        ),
+    )
+    replenisher = UmbrellaCellReplenisher(
+        registry=registry,
+        pool=pool,
+        occupied_loader=lambda: set(),
+        provisioner=_forbid_mint,  # type: ignore[arg-type]
+    )
+    rep = await replenisher.replenish_once()
+    assert rep.created_slots == () and mint_called is False
+    snap = await pool.async_snapshot_status()
+    assert snap["cells"][0]["costEconomics"]["costGuardHealthy"] is False
+    assert snap["cells"][0]["costEconomics"]["idleComputeHourlyUsdPerWarmSlot"] > 0
+
+
+def test_umbrella_cell_multi_cell_bin_packing_spillover_and_uat_prod_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services.hosted_azure_backend import HostedAzureBackend
+    from hushh_mcp.services.pod_umbrella_cell_pool import (
+        PodSkeletonPoolService,
+        UmbrellaCellRegistry,
+        project_fleet_scale_economics,
+    )
+    from hushh_mcp.services.umbrella_cell_replenisher import (
+        UmbrellaCellReplenisher,
+        provision_azure_warm_skeleton_sync,
+    )
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    PodSkeletonPoolService.reset_process_claims()
+
+    cell1 = _cell_cfg_json(
+        cell_id="cell-az-eastus2-dev-01", slots_count=2, soft=1, hard=3, min_warm=1
+    )
+    cell2 = _cell_cfg_json(
+        cell_id="cell-az-eastus2-dev-02", slots_count=2, soft=40, hard=50, min_warm=1
+    )
+    registry = UmbrellaCellRegistry({"environment": "dev", "cells": [cell1, cell2]})
+
+    # Cell 1 has 1 active (at softWatermark=1) and 1 warm; Cell 2 has 0 active and 2 warm -> spill to cell-02.
+    pool = PodSkeletonPoolService(
+        registry=registry,
+        backend_factory=lambda slot: HostedAzureBackend(slot=slot, arm_client=object(), live=False),  # type: ignore[arg-type]
+    )
+    chosen = pool.select_admitting_azure_cell_sync(
+        occupied_app_ids={registry.list_cells()[0].slots[0].app_id}
+    )
+    assert chosen.cell_id == "cell-az-eastus2-dev-02"
+
+    # When both cells are below softWatermark (raise cell1 soft=5), prefer cell1 (bin-packing active cells).
+    cell1_pack = _cell_cfg_json(
+        cell_id="cell-az-eastus2-dev-01", slots_count=2, soft=5, hard=8, min_warm=1
+    )
+    reg_pack = UmbrellaCellRegistry({"environment": "dev", "cells": [cell1_pack, cell2]})
+    pool_pack = PodSkeletonPoolService(
+        registry=reg_pack,
+        backend_factory=lambda slot: HostedAzureBackend(slot=slot, arm_client=object(), live=False),  # type: ignore[arg-type]
+    )
+    packed = pool_pack.select_admitting_azure_cell_sync(
+        occupied_app_ids={reg_pack.list_cells()[0].slots[0].app_id}
+    )
+    assert packed.cell_id == "cell-az-eastus2-dev-01"
+
+    # Validate scale economics across the full 40/50 Azure cell template (0.125 USD/owner/mo).
+    proj = project_fleet_scale_economics([registry.list_cells()[1]])
+    tier_10k = next(r for r in proj["providers"]["azure"] if r["targetActiveOwners"] == 10000)
+    assert tier_10k["warmBufferIdleComputeMonthlyUsd"] == 0.0
+    assert tier_10k["effectiveFixedMonthlyUsdPerOwner"] < 0.25
+
+    for forbidden in ("uat", "production"):
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", forbidden)
+        with pytest.raises(PermissionError):
+            provision_azure_warm_skeleton_sync(registry.azure_cell(), "slot03")
+
+    import asyncio as _asyncio
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    rep = _asyncio.run(UmbrellaCellReplenisher(registry=registry).replenish_once())
+    assert rep.skipped is True and rep.reason == "non_dev_lane"
