@@ -201,7 +201,7 @@ vi.mock("@/components/feed/feed-shared-files-sheet", () => ({
 }));
 
 vi.mock("@/components/feed/feed-push-prompt", () => ({
-  FeedPushPrompt: () => null,
+  FeedPushPrompt: () => <div>Reconnect notifications</div>,
   useFeedPushPrompt: () => null,
 }));
 
@@ -994,6 +994,21 @@ describe("Feed history interactions", () => {
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Couldn't clear your feed."));
     expect(mocks.toastSuccess).not.toHaveBeenCalledWith("Feed cleared");
+  });
+
+  it("opens on activity without device notices and retires the old sound preference", async () => {
+    const legacyKey = "hushh:feed-sound-enabled:feed-user";
+    const otherKey = "hushh:feed-sound-enabled:other-owner";
+    window.localStorage.setItem(legacyKey, "1");
+    window.localStorage.setItem(otherKey, "1");
+
+    const view = await renderAfterAutomaticRead();
+    const contents = within(view.container.querySelector("main")!);
+    expect(contents.getByText("row-5")).toBeVisible();
+    expect(contents.queryByText("Reconnect notifications")).not.toBeInTheDocument();
+    expect(contents.queryByRole("button", { name: /Feed sound/i })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(legacyKey)).toBeNull();
+    expect(window.localStorage.getItem(otherKey)).toBe("1");
   });
 
   it("keeps the clear action compact on phone and desktop layouts", async () => {

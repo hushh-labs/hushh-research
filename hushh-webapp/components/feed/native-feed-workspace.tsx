@@ -28,7 +28,6 @@ import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { ARMED_ACTION_DEFAULT_DISARM_MS } from "@/lib/ui/use-armed-action";
 import { useVault } from "@/lib/vault/vault-context";
-import { useFeedPushPrompt } from "./feed-push-prompt";
 
 export type NativeFeedRecord = { key: string; lane: string } & (
   { kind: "action"; value: FeedActionable } | { kind: "history"; value: FeedItem; unread: boolean } |
@@ -119,7 +118,6 @@ function NativeFeedBody({ model, presentation, runWeb, activationRevision, view,
     return () => clearTimeout(timer);
   }, [armed]);
   const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
-  const push = useFeedPushPrompt();
   const bank = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange: true, ignoreReadyEvent: true });
   const latestBank = bank.token ? bank.data?.payouts[0] : null;
   const back = () => {
@@ -221,12 +219,6 @@ function NativeFeedBody({ model, presentation, runWeb, activationRevision, view,
       ]);
     }
   } else {
-    if (push) section("push", [read("push-copy", push.message),
-      ...((push.permission === "default" || push.permission === "granted" || push.permission === "denied") ? [action("push-enable", push.permission === "denied" ? "Open settings" : push.permission === "granted" ? "Retry notifications" : "Turn on notifications", push.enable, { enabled: !push.isRetryingPushRegistration && !busy })] : [])]);
-    if (latestBank) section("bank", [read("bank", "Bank payout", `${bank.data?.stripeMode === "test" ? "Test · " : ""}${bankPayoutCopy(latestBank)}`),
-      ...(bank.failed ? [read("bank-error", "Couldn't check bank payouts right now.")] : []),
-      ...(bank.data?.stripeMode === "test" ? [read("bank-test", "Simulated deposits. No real money moves.")] : []),
-      read("bank-info", "Bank payouts may combine earnings from multiple requests.")]);
     const lanes = [...new Set(visible.map(record => record.lane))];
     for (const [i, lane] of lanes.entries()) section(`lane-${i}`, visible.filter(record => record.lane === lane).flatMap((record): NativeDrawerRow[] => {
       if (record.kind === "action") return [actionRecord(record)];
@@ -239,6 +231,10 @@ function NativeFeedBody({ model, presentation, runWeb, activationRevision, view,
     }), lane);
     if (model.loading) section("loading", [read("loading", "Loading activity…")]);
     if (model.errors.length) section("errors", [...model.errors.map((error, i) => read(`error-${i}`, error)), action("retry", "Retry activity", model.retry)]);
+    if (latestBank) section("bank", [read("bank", "Bank payout", `${bank.data?.stripeMode === "test" ? "Test · " : ""}${bankPayoutCopy(latestBank)}`),
+      ...(bank.failed ? [read("bank-error", "Couldn't check bank payouts right now.")] : []),
+      ...(bank.data?.stripeMode === "test" ? [read("bank-test", "Simulated deposits. No real money moves.")] : []),
+      read("bank-info", "Bank payouts may combine earnings from multiple requests.")]);
     if (!records.length && !model.loading && !model.errors.length && !latestBank) section("empty", [read("empty", "No activity yet")]);
     section("window", [...(index > 0 ? [action("previous", "Previous activity", () => setPage(index - 1))] : []), ...((index + 1) * 24 < records.length ? [action("next", "More activity", () => setPage(index + 1))] : [])]);
     section("more", [
