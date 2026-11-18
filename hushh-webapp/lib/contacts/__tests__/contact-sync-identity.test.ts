@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,17 +7,6 @@ import {
 } from "@/lib/contacts/contact-sync-identity";
 
 describe("resolveContactSyncAccountPhone", () => {
-  it("forces an authoritative identity refresh when AuthContext has no phone", () => {
-    const authContextSource = readFileSync(
-      join(process.cwd(), "lib", "firebase", "auth-context.tsx"),
-      "utf8",
-    );
-
-    expect(authContextSource).toMatch(
-      /refreshCurrentUserIdentity\(\s*currentUser,\s*\{ force: true \},\s*\)/,
-    );
-  });
-
   it("uses the latest phone while the same account owns the sync", () => {
     expect(
       resolveContactSyncAccountPhone({

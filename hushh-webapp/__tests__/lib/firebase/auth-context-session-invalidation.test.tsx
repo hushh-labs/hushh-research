@@ -818,8 +818,8 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
   });
 
-  it("hydrates the saved phone through a read-only request during reviewer bootstrap and observes later claims", async () => {
-    window.__HUSHH_NATIVE_TEST__ = {
+  it.each([false, true])("hydrates a saved phone through the correct authority and observes later claims (reviewer: %s)", async reviewer => {
+    if (reviewer) window.__HUSHH_NATIVE_TEST__ = {
       enabled: true,
       autoReviewerLogin: true,
     };
@@ -832,8 +832,9 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     await act(async () => Promise.resolve());
 
     await waitFor(() => expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550101"));
-    expect(mocks.identityRefresh).toHaveBeenCalledWith(mocks.firebaseUser, { readOnly: true });
-    expect(mocks.identityRefresh.mock.calls.every(([, options]) => options?.readOnly === true)).toBe(true);
+    expect(mocks.identityRefresh).toHaveBeenCalledWith(mocks.firebaseUser, reviewer ? { readOnly: true } : { force: true });
+    expect(mocks.identityRefresh.mock.calls.every(([, options]) => reviewer
+      ? options?.readOnly === true : options?.force === true && options?.readOnly !== true)).toBe(true);
     const replacement = { ...identity, phone_number: "+12025550102" };
     mocks.identityPeek.mockReturnValue({ data: replacement, isStale: false });
     act(() => CacheService.getInstance().set(CACHE_KEYS.ACCOUNT_IDENTITY("account-owner"), replacement, 60_000));

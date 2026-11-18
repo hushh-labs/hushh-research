@@ -2600,9 +2600,13 @@ export async function streamAgentIntro(input: {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onRunFinishedEvent: () => {
+    onRunFinishedEvent: (params) => {
       if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
+      if (params.outcome === "cancelled") {
+        failure = new DOMException("Agent turn cancelled", "AbortError");
+        return;
+      }
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
