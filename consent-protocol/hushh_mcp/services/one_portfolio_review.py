@@ -36,7 +36,7 @@ class PortfolioReview(ReviewModel):
     score: int | None = Field(ge=0, le=100)
     takeaway: str = Field(min_length=1, max_length=160)
     reason: str = Field(min_length=1, max_length=240)
-    next_step: str = Field(min_length=1, max_length=200)
+    next_step: str | None = Field(min_length=1, max_length=200)
     advisor_reason: str | None = Field(min_length=1, max_length=160)
 
 

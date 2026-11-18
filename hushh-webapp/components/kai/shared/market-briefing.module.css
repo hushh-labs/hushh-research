@@ -14,6 +14,24 @@
 .sectionHeader :global([data-slot="section-header-row"]) { flex-direction: row; align-items: center; flex-wrap: wrap; column-gap: 12px; }
 .sectionHeader :global([data-slot="section-header-actions"]) { width: auto; }
 .sectionHeader :global([data-slot="section-header-row"]) > div:first-child { min-width: max-content; }
+.marketStatus { white-space: nowrap; }
+@media (max-width: 639px) {
+  .overviewHeader :global([data-slot="section-header-row"]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .overviewHeader :global([data-slot="section-header-row"]) > div:first-child { min-width: 0; }
+  .overviewHeader :global([data-slot="section-header-actions"]), .overviewActions { display: contents; }
+  .overviewControls { grid-column: 2; grid-row: 1; }
+  .marketStatus {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: end;
+    white-space: normal;
+  }
+  .marketStatusDot { order: -1; }
+}
 .sections { display: grid; gap: 12px; padding-top: 12px; }
 .activity { display: grid; align-items: start; gap: 12px; }
 @media (max-width: 639px) {

@@ -315,17 +315,19 @@ function OneMarketSectionHeader({
   actionLabel,
   actionHref,
   actions,
+  className,
 }: {
   title: string;
   actionLabel?: string;
   actionHref?: string;
   actions?: ReactNode;
+  className?: string;
 }) {
   return (
     <SectionHeader
       title={title}
       accent="neutral"
-      className={cn(marketBriefingStyles.sectionHeader, "[&_[data-slot=section-header-row]]:flex-row [&_[data-slot=section-header-row]]:items-center [&_[data-slot=section-header-actions]]:w-auto")}
+      className={cn(marketBriefingStyles.sectionHeader, "[&_[data-slot=section-header-row]]:flex-row [&_[data-slot=section-header-row]]:items-center [&_[data-slot=section-header-actions]]:w-auto", className)}
       actions={actions ?? (actionLabel && actionHref ? (
         <button type="button" onClick={() => openOneMarketHref(actionHref)}
           className="relative isolate inline-flex min-h-11 items-center gap-1.5 overflow-hidden rounded-md px-1 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
@@ -1148,21 +1150,22 @@ export function KaiMarketPreviewView() {
         <AppPageContentRegion>
           <SurfaceCard>
           <SurfaceCardContent className={marketBriefingStyles.cardBody}>
-          <OneMarketSectionHeader title={inIndia ? "India markets" : "US markets"} actions={
-            <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-            {marketStatus ? <span data-testid="market-header-status" className="inline-flex min-h-8 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
-              {marketStatus.label}
-              <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", marketStatus.isOpen && !marketStatus.degraded ? "bg-[color:var(--one-up)]" : "bg-muted-foreground")} />
-            </span> : null}
-            <SegmentedTabs value={marketRegion} onValueChange={(value) => chooseMarket(value === "IN" ? "IN" : "US")}
-              ariaLabel="Market" variant="filter" className="w-auto"
-              options={[{ value: "US", label: "US" }, { value: "IN", label: "India" }]} />
-            <ShellActionSurface aria-label="Refresh market home" disabled={displayRefreshing}
-              onClick={reloadMarket}
-              className="h-11 w-11"
-              >
-              {displayRefreshing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-            </ShellActionSurface>
+          <OneMarketSectionHeader title={inIndia ? "India markets" : "US markets"} className={marketBriefingStyles.overviewHeader} actions={
+            <div className={cn("flex flex-wrap items-center justify-end gap-x-2 gap-y-1", marketBriefingStyles.overviewActions)}>
+              {marketStatus ? (
+                <span data-testid="market-header-status" className={cn("inline-flex min-h-8 items-center gap-2 text-xs text-muted-foreground", marketBriefingStyles.marketStatus)}>
+                  <span>{marketStatus.label}</span>
+                  <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", marketBriefingStyles.marketStatusDot, marketStatus.isOpen && !marketStatus.degraded ? "bg-[color:var(--one-up)]" : "bg-muted-foreground")} />
+                </span>
+              ) : null}
+              <div className={cn("flex items-center gap-2", marketBriefingStyles.overviewControls)}>
+                <SegmentedTabs value={marketRegion} onValueChange={(value) => chooseMarket(value === "IN" ? "IN" : "US")}
+                  ariaLabel="Market" variant="filter" className="w-auto"
+                  options={[{ value: "US", label: "US" }, { value: "IN", label: "India" }]} />
+                <ShellActionSurface aria-label="Refresh market home" disabled={displayRefreshing} onClick={reloadMarket} className="h-11 w-11">
+                  {displayRefreshing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+                </ShellActionSurface>
+              </div>
             </div>
           } />
           <OneMarketIndexStrip
