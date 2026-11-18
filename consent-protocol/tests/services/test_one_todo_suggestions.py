@@ -1,3 +1,4 @@
+import json
 import secrets
 from unittest.mock import AsyncMock
 
@@ -148,6 +149,110 @@ async def test_kill_switch_prevents_model_dispatch(monkeypatch):
     with pytest.raises(RuntimeError, match="disabled"):
         await suggest_tasks(
             request(),
+            user_id="owner",
+            consent_token=TOKEN,
+            require_access=AsyncMock(),
+            runner=runner,
+        )
+    runner.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_selection_excludes_unselected_summaries_before_model_processing():
+    runner = AsyncMock(return_value={"items": []})
+    await suggest_tasks(
+        request(
+            selected_capabilities=["calendar", "gmail", "messages"],
+            sources=[
+                {"ref": "s1", "capability": "calendar", "summary": "A confirmed meeting."},
+                {"ref": "s2", "capability": "wallet", "summary": "Unselected wallet summary."},
+                {"ref": "s3", "capability": "gmail", "summary": "An email follow-up."},
+            ],
+        ),
+        user_id="owner",
+        consent_token=TOKEN,
+        require_access=AsyncMock(),
+        runner=runner,
+    )
+    summaries = json.loads(runner.call_args.kwargs["prompt"])["owner_supplied_summaries"]
+    assert [source["ref"] for source in summaries] == ["s1", "s3"]
+    assert "Unselected wallet summary" not in runner.call_args.kwargs["prompt"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capabilities", [[], ["messages"]])
+async def test_no_selected_evidence_returns_no_tasks_without_model_dispatch(capabilities):
+    runner, access = AsyncMock(), AsyncMock()
+    result = await suggest_tasks(
+        request(selected_capabilities=capabilities),
+        user_id="owner",
+        consent_token=TOKEN,
+        require_access=access,
+        runner=runner,
+    )
+    assert result.items == []
+    assert access.await_count == 2
+    runner.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_return_a_reference_to_an_unselected_source():
+    runner = AsyncMock(
+        return_value={
+            "items": [{"source_ref": "s2", "title": "Agent title", "reason": "Agent reason"}]
+        }
+    )
+    with pytest.raises(ValueError, match="unoffered"):
+        await suggest_tasks(
+            request(
+                selected_capabilities=["calendar"],
+                sources=[
+                    {"ref": "s1", "capability": "calendar", "summary": "An upcoming meeting."},
+                    {"ref": "s2", "capability": "wallet", "summary": "A card request."},
+                ],
+            ),
+            user_id="owner",
+            consent_token=TOKEN,
+            require_access=AsyncMock(),
+            runner=runner,
+        )
+
+
+@pytest.mark.parametrize(
+    "capabilities", [["calendar", "calendar"], ["unknown"], "calendar", ["calendar"] * 10]
+)
+def test_source_selection_rejects_duplicates_unknown_ids_and_invalid_shapes(capabilities):
+    with pytest.raises(ValidationError):
+        request(selected_capabilities=capabilities)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("checks", [[PermissionError()], [None, PermissionError()]])
+async def test_empty_selection_does_not_bypass_owner_revalidation(checks):
+    runner = AsyncMock()
+    with pytest.raises(PermissionError):
+        await suggest_tasks(
+            request(selected_capabilities=[]),
+            user_id="owner",
+            consent_token=TOKEN,
+            require_access=AsyncMock(side_effect=checks),
+            runner=runner,
+        )
+    runner.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_refs_across_selected_and_unselected_sources_refuse_dispatch():
+    runner = AsyncMock()
+    with pytest.raises(ValueError, match="duplicate task source"):
+        await suggest_tasks(
+            request(
+                selected_capabilities=["calendar"],
+                sources=[
+                    {"ref": "s1", "capability": "calendar", "summary": "A meeting."},
+                    {"ref": "s1", "capability": "wallet", "summary": "A card request."},
+                ],
+            ),
             user_id="owner",
             consent_token=TOKEN,
             require_access=AsyncMock(),
