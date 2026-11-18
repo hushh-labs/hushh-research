@@ -1,7 +1,6 @@
 "use client";
 
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
-import { useAccountPhoneBinding } from "@/components/profile/use-account-phone-binding";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useWorldModelOwnerState as useWorldModelSessionState } from "./world-model-owner-state";
@@ -832,19 +831,13 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const namesakeNotice = preparing ? identityNotice(shownProgress) : null;
   const namesakesFound =
     status.kind === "nothing" && offered !== null && offered.research.candidates.length > 0;
-  const { linkedPhone: phone, status: phoneStatus } = useAccountPhoneBinding({
-    active: ready && present,
-    ownerId: userId,
-    firebaseUid: user?.uid,
-    appPhone: phoneNumber,
-    appStatus: phoneNumberStatus,
-  });
+  const phone = ready && present && phoneNumberStatus === "verified" ? phoneNumber : null;
   const identity = {
     name: user?.displayName,
     email: user?.email,
     emailVerified: Boolean(user?.emailVerified),
     phone,
-    phoneStatus,
+    phoneStatus: phoneNumberStatus,
   };
   // The landmark carries the group's own title, so both read the same.
   const identityLabel = identityGroupTitle(identity);
