@@ -34,10 +34,10 @@ function progressState(metadata: Record<string, unknown>): ProgressState {
   return LEGACY_STAGE_STATES[String(metadata.automatic_progress_stage)] ?? "queued";
 }
 
-function progressTitle(state: ProgressState): string {
-  if (state === "searching") return "Finding documents";
+function progressTitle(state: ProgressState, direction: "incoming" | "outgoing"): string {
+  if (state === "searching") return direction === "incoming" ? "Finding your documents" : "Finding documents";
   if (state === "checking") return "Checking documents";
-  if (state === "sharing") return "Sharing documents";
+  if (state === "sharing") return direction === "incoming" ? "Sharing your documents" : "Sharing documents with you";
   // Nothing runs yet; never claim work, and never "paused".
   return state === "delayed" ? "Taking longer than usual" : "Waiting to start";
 }
@@ -55,12 +55,12 @@ function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: b
   }
   if (ownerAllowed) {
     return direction === "incoming"
-      ? "Request allowed. One is handling it for you. Sharing is automatic."
-      : "Request allowed. One is handling it. Files appear after access is confirmed.";
+      ? "Request allowed. Sharing is automatic."
+      : "Request allowed. Files appear once access is confirmed.";
   }
   return direction === "incoming"
-    ? "One is handling a Trusted Circle request for you. Sharing is automatic."
-    : "One is handling your Trusted Circle request. Files appear after access is confirmed.";
+    ? "Trusted Circle request. Sharing is automatic."
+    : "Files appear once access is confirmed.";
 }
 
 /** Only the server's active automatic projection (Trusted Circle or owner-allowed) can create a passive row. */
@@ -113,7 +113,7 @@ export function projectFeedDriveProgress(
       ? parseConsentInstant(metadata.automatic_queued_at) : null;
     byRequest.set(entry.id, {
       id: entry.id,
-      title: unavailable ? "Documents unavailable" : automatic ? progressTitle(state) : "Document request sent",
+      title: unavailable ? "Documents unavailable" : automatic ? progressTitle(state, direction) : "Document request sent",
       description: [
         quote,
         unavailable
