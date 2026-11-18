@@ -10,7 +10,7 @@ const mockTransport = vi.hoisted(() => ({
   addMessage: vi.fn(),
   setMessages: vi.fn(),
   nativeMode: false,
-  outcome: "success" as "success" | "interrupt" | "cancelled",
+  outcome: "success" as "success" | "interrupt",
   emitEvents: null as null | ((subscriber: Record<string, (input: any) => void>) => void),
   aborted: false,
   // Mirrors @ag-ui/client 0.0.59 on a non-2xx response (measured): the
@@ -1499,16 +1499,35 @@ describe("AG-UI Agent One client", () => {
     expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
   });
 
-  it.each(["full", "intro"])("does not report a server-cancelled %s run as completed", async tier => {
-    mockTransport.outcome = "cancelled";
+  it.each(["full", "intro"])("does not complete an aborted %s run through the real AG-UI transport", async tier => {
+    mockTransport.nativeMode = true;
+    const controller = new AbortController();
+    const wire = [
+      { type: "RUN_STARTED", threadId: "cancelled-thread", runId: "cancelled-run" },
+      { type: "TEXT_MESSAGE_START", messageId: "cancelled-message", role: "assistant" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "cancelled-message", delta: "Hello" },
+      { type: "TEXT_MESSAGE_END", messageId: "cancelled-message" },
+      { type: "RUN_FINISHED", threadId: "cancelled-thread", runId: "cancelled-run" },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+    const transport = tier === "intro" ? ApiService.apiFetchStream : ApiService.agentChatRequest;
+    vi.mocked(transport).mockResolvedValueOnce(new Response(wire, {
+      headers: { "content-type": "text/event-stream" },
+    }));
     const onComplete = vi.fn();
     const onInterrupt = vi.fn();
-    const turn = tier === "intro"
-      ? streamAgentIntro({ message: "Hello", handlers: { onComplete, onInterrupt } })
-      : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", handlers: { onComplete, onInterrupt } });
-    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
-    expect(onComplete).not.toHaveBeenCalled();
-    expect(onInterrupt).not.toHaveBeenCalled();
+    const handlers = { onComplete, onInterrupt, onToken: () => controller.abort() };
+    try {
+      const turn = tier === "intro"
+        ? streamAgentIntro({ message: "Hello", signal: controller.signal, handlers })
+        : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", signal: controller.signal, handlers });
+      if (tier === "intro") await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+      else await expect(turn).resolves.toMatchObject({ detached: false });
+      expect(controller.signal.aborted).toBe(true);
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(onInterrupt).not.toHaveBeenCalled();
+    } finally {
+      mockTransport.nativeMode = false;
+    }
   });
 
   it.each(["full", "intro"])("drops reasoning before SDK storage in the %s tier", async (tier) => {
