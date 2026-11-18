@@ -17,6 +17,7 @@ from api import database_listener_lifecycle as listener_lifecycle
 from api.hub_route_classes import ROUTE_CLASSES, RouteClass
 from api.middleware import require_firebase_auth
 from api.routes.one import runtime as runtime_routes
+from hushh_mcp.services.azure_arm_client import ArmError
 from hushh_mcp.services.compute_backend import BACKEND_AZURE, BACKEND_GCP
 from hushh_mcp.services.pod_umbrella_cell_pool import (
     PodSkeletonPoolService,
@@ -319,6 +320,107 @@ def test_provision_and_discover_azure_cell_zero_overhead_and_cross_rg_rbac(
         "rg-hussh-cell-dev-eastus2-02/providers/Microsoft.KeyVault"
         in rbac_paths["replenish_rbac_kv_key"]
     )
+
+
+def test_provision_azure_cell_handles_kv_dns_settle_and_regional_overflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    template = _azure_cell("cell-az-eastus2-dev-01")
+    decision = evaluate_horizontal_cell_scaleout(
+        provider=BACKEND_AZURE,
+        cells=[template],
+        active_counts_by_cell={template.cell_id: 40},
+    )
+    assert decision.planned_config is not None
+
+    class _OverflowAndKvPollArm(_RecordingArm):
+        def __init__(self) -> None:
+            super().__init__()
+            self.kv_polls = 0
+
+        def get_or_none(
+            self, path: str, *, api_version: str, op: str = ""
+        ) -> dict[str, Any] | None:
+            if op == "umbrella_scaleout_key_vault_poll":
+                self.kv_polls += 1
+                state = "RegisteringDns" if self.kv_polls == 1 else "Succeeded"
+                return {"id": path, "properties": {"provisioningState": state}}
+            return super().get_or_none(path, api_version=api_version, op=op)
+
+        def put(
+            self, path: str, *, api_version: str, body: dict[str, Any], op: str = ""
+        ) -> dict[str, Any]:
+            if op == "umbrella_scaleout_cae" and "rg-hussh-cell-dev-eastus2-02" in path:
+                raise ArmError(
+                    "conflict",
+                    status=409,
+                    code="MaxNumberOfRegionalEnvironmentsInSubExceeded",
+                    message="cannot have more than 1 Container App Environments in East US 2",
+                    op=op,
+                )
+            if op == "umbrella_scaleout_key_vault":
+                self.puts.append((path, api_version, body, op))
+                raise ArmError(
+                    "timeout",
+                    status=200,
+                    code="OperationReferenceMissing",
+                    message="",
+                    op=op,
+                )
+            return super().put(path, api_version=api_version, body=body, op=op)
+
+    arm = _OverflowAndKvPollArm()
+    overflow_cell = provision_azure_umbrella_cell_sync(
+        template,
+        decision.planned_config,
+        arm_client=arm,  # type: ignore[arg-type]
+        sleep=lambda _s: None,
+    )
+    assert overflow_cell.location == "eastus"
+    assert overflow_cell.cell_id == "cell-az-eastus-dev-02"
+    assert overflow_cell.resource_group == "rg-hussh-cell-dev-eastus-02"
+    assert overflow_cell.shared_resource_group == "rg-hussh-cell-dev-eastus2-01"
+    assert overflow_cell.shared_cell_fixed_monthly_usd == 0.0
+    assert arm.kv_polls == 2
+    assert any(
+        "rg-hussh-cell-dev-eastus2-02" in path and op == "umbrella_scaleout_cleanup_quota_rg"
+        for path, _ver, op in arm.deletes
+    )
+
+
+def test_pool_instance_claims_isolated_per_cell() -> None:
+    PodSkeletonPoolService.reset_process_claims()
+    c1 = _azure_cell("cell-az-eastus2-dev-01")
+    c2 = _azure_cell("cell-az-eastus-dev-02")
+
+    def _slot(cell: UmbrellaCellConfig) -> SkeletonSlotConfig:
+        return SkeletonSlotConfig(
+            slot_id="slot01",
+            app_name="ca-pod-slot01",
+            app_id=f"/subscriptions/{cell.subscription_id}/resourceGroups/{cell.resource_group}/providers/Microsoft.App/containerApps/ca-pod-slot01",
+            fqdn="ca-pod-slot01.example.azurecontainerapps.io",
+            identity_id="/subs/id",
+            identity_client_id="00000000-0000-4000-8000-000000000001",
+            identity_principal_id="11111111-1111-4000-8000-000000000001",
+            blob_url=f"https://{cell.storage_account}.blob.core.windows.net/pod-slot01",
+            key_vault_key=f"https://{cell.key_vault_name}.vault.azure.net/keys/pod-log-key-slot01",
+            signing_secret_url=f"https://{cell.key_vault_name}.vault.azure.net/secrets/pod-signing-key-slot01",  # noqa: S106
+        )
+
+    reg = UmbrellaCellRegistry({"environment": "dev", "cells": []})
+    reg.upsert_cells(
+        [
+            UmbrellaCellConfig(**{**c1.__dict__, "slots": (_slot(c1),)}),
+            UmbrellaCellConfig(**{**c2.__dict__, "slots": (_slot(c2),)}),
+        ]
+    )
+    pool = PodSkeletonPoolService(registry=reg)
+    _, slot_a, _ = pool.reserve_slot(owner_id="owner-a", cell_id=c1.cell_id)
+    _, slot_b, _ = pool.reserve_slot(owner_id="owner-b", cell_id=c2.cell_id)
+    assert slot_a.slot_id == "slot01" and slot_b.slot_id == "slot01"
+    PodSkeletonPoolService.reset_process_claims()
 
 
 @pytest.mark.asyncio

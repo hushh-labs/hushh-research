@@ -678,7 +678,7 @@ class PodSkeletonPoolService:
             process_key = f"{cell.cell_id}:{slot.slot_id}"
             claimed = (
                 slot.app_id.lower() in occupied_lower
-                or slot.slot_id in self._instance_claims
+                or process_key in self._instance_claims
                 or process_key in self._process_claims
                 or slot.slot_id in self._process_claims
             )
@@ -883,8 +883,9 @@ class PodSkeletonPoolService:
                     f"Umbrella Cell {cell.cell_id} has no unclaimed warm_standby skeleton slots"
                 )
             chosen = warm[0]
-            self._instance_claims[chosen.slot_id] = owner_id
-            self._process_claims[f"{cell.cell_id}:{chosen.slot_id}"] = owner_id
+            claim_key = f"{cell.cell_id}:{chosen.slot_id}"
+            self._instance_claims[claim_key] = owner_id
+            self._process_claims[claim_key] = owner_id
             remaining = len(warm) - 1
             after_cap = self._registry.evaluate_capacity(
                 cell, active_slots=len(active) + 1, warm_standby_slots=remaining
@@ -896,11 +897,13 @@ class PodSkeletonPoolService:
             self._instance_claims.pop(slot_id, None)
             self._process_claims.pop(slot_id, None)
             if cell_id:
+                self._instance_claims.pop(f"{cell_id}:{slot_id}", None)
                 self._process_claims.pop(f"{cell_id}:{slot_id}", None)
             else:
                 suffix = f":{slot_id}"
-                for key in [k for k in self._process_claims if k.endswith(suffix)]:
-                    self._process_claims.pop(key, None)
+                for claims in (self._instance_claims, self._process_claims):
+                    for key in [k for k in claims if k.endswith(suffix)]:
+                        claims.pop(key, None)
 
     async def claim_warm_skeleton_for_owner(
         self,
