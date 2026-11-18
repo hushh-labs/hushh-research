@@ -598,6 +598,10 @@ function ConnectPageClientContent() {
   const surface: ConnectSurface = readConnectSurface(
     searchParams.get(CONNECT_SURFACE_PARAM),
   );
+  const [directoryActivated, setDirectoryActivated] = useState(surface === "all");
+  // The pager retains its panes. Start the directory on first entry, then
+  // keep its current page and any in-flight read when Circles covers it.
+  if (surface === "all" && !directoryActivated) setDirectoryActivated(true);
   const mutualPersonRef = surface === "all" ? searchParams.get(CONNECT_MUTUALS_PARAM)?.trim() || null : null;
   // A settled swipe between Connections and Circles commits the same route
   // the tab pill pushes, so swiping and tapping stay one navigation.
@@ -1436,7 +1440,7 @@ function ConnectPageClientContent() {
     const generation = ++directoryReadGenerationRef.current;
     const isCurrent = () => !cancelled && generation === directoryReadGenerationRef.current;
     async function run() {
-      if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
+      if (!user || !userId || !directoryActivated || tab === "nearby" || mutualPersonRef) return;
       try {
         directoryRequestPendingRef.current = true;
         if (currentPage <= 1) setHasMore(false);
@@ -1541,7 +1545,7 @@ function ConnectPageClientContent() {
     // refused. Bumping the nonce starts a fresh first-page generation.
     directoryRefreshNonce,
     directoryRetryNonce,
-    surface,
+    directoryActivated,
     tab,
     mutualPersonRef,
   ]);
