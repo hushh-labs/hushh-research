@@ -159,6 +159,9 @@ function resolveOneUpstreamTimeoutMs(
   if (path === "runtime/byoc/authorize/complete") {
     return 55_000;
   }
+  if (path === "runtime/byoc/hosted/azure/migrate") {
+    return 95_000;
+  }
   if (/^u\/[^/]+\/turn$/.test(path)) {
     return ONE_TURN_TIMEOUT_MS;
   }

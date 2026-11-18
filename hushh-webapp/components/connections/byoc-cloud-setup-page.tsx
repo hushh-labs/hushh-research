@@ -22,6 +22,10 @@ import {
   HusshPodsPausedCard,
   hostingOptionsFor,
 } from "@/components/connections/hosting-placement-cards";
+import {
+  HusshPodsActiveCard,
+  HusshPodsMigrationCard,
+} from "@/components/connections/hussh-pods-cloud-card";
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { Button } from "@/components/ui/button";
@@ -51,7 +55,9 @@ import {
   type HostingMode,
 } from "@/lib/one/hosting-placement";
 import {
+  hostedPodProvider,
   isAzureHomeSelectable,
+  isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
   ownerCloudProvider,
@@ -123,6 +129,7 @@ function OwnerCloudSetupPage({ user, owner }: {
   const [hostingMode, setHostingMode] = useState<HostingMode | null>(null);
   // Lifecycle state and the hub's typed org-policy blocker, for the direct path.
   const [agentState, setAgentState] = useState<string | null>(null);
+  const [agentTarget, setAgentTarget] = useState<string | null>(null);
   const [directBlocker, setDirectBlocker] = useState<DirectIngressBlocker | null>(null);
   const [hostingStatusChecked, setHostingStatusChecked] = useState(false);
   const [ownCloudAvailable, setOwnCloudAvailable] = useState(false);
@@ -178,6 +185,7 @@ function OwnerCloudSetupPage({ user, owner }: {
         setHostingMode(mode);
         setOwnCloudAvailable(status.featureEnabled === true);
         setAgentState(status.state ?? null);
+        setAgentTarget(status.deploymentTarget ?? null);
         setDirectBlocker(directIngressBlocker(status));
         setOwnerProvider(provider);
         setHostingStatusChecked(true);
@@ -601,17 +609,29 @@ function OwnerCloudSetupPage({ user, owner }: {
             } : null} />
         ) : connectedBefore ? (
           // Revisit: the cloud is recorded and proven; first-time setup cannot move an assigned pod.
-          <div
-            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
-            data-testid="byoc-cloud-connected"
-          >
-            <p className="text-sm font-semibold">
-              Connected: {existing.projectId}
-            </p>
-            <p className="text-sm text-[var(--app-text-secondary)]">
-              {existing.rationale || "Agent One remains assigned to this project."}
-            </p>
-            <AzureFreeTrialNote stages={job?.stages} />
+          <div className="space-y-4">
+            <div
+              className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+              data-testid="byoc-cloud-connected"
+            >
+              <p className="text-sm font-semibold">
+                Connected: {existing.projectId}
+              </p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                {existing.rationale || "Agent One remains assigned to this project."}
+              </p>
+              <AzureFreeTrialNote stages={job?.stages} />
+            </div>
+            {isHostedAzureMigrationAvailable() && agentState === "active" ? (
+              <HusshPodsMigrationCard
+                sourceMode="byoc"
+                sourceTarget={agentTarget}
+                sourceProject={existing.projectId}
+                onMigrated={refreshAgent}
+                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                subtleAction
+              />
+            ) : null}
           </div>
         ) : recordedReservedProject ? (
           // The recorded home attaches by itself; a stop is shown with its typed reason.
@@ -671,7 +691,24 @@ function OwnerCloudSetupPage({ user, owner }: {
             </p>
           </div>
         ) : hostingMode === "hussh_pods" ? (
-          <HusshPodsPausedCard />
+          hostedUnderMaintenance ? (
+            <HusshPodsPausedCard deploymentTarget={agentTarget} />
+          ) : (
+            <div className="space-y-4">
+              <HusshPodsActiveCard deploymentTarget={agentTarget} />
+              {isHostedAzureMigrationAvailable() &&
+              agentState === "active" &&
+              hostedPodProvider(agentTarget) === "gcp" ? (
+                <HusshPodsMigrationCard
+                  sourceMode="hussh_pods"
+                  sourceTarget={agentTarget}
+                  onMigrated={refreshAgent}
+                  owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                  subtleAction
+                />
+              ) : null}
+            </div>
+          )
         ) : hostingMode === "unknown" || hostingMode === null ? (
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
