@@ -49,16 +49,16 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
     finally { if (current(generation)) { pending.current = false; setBusy(false); } }
   };
   const trailingClassName = cn(
-    "col-span-full justify-self-end min-[300px]:col-span-1 min-[300px]:col-start-2 min-[300px]:row-start-1",
-    (person.mutualConnectionCount ?? 0) > 0 && "sm:row-span-2",
+    "col-span-full justify-self-end @min-[19rem]:col-span-1 @min-[19rem]:col-start-2 @min-[19rem]:row-start-1",
+    (person.mutualConnectionCount ?? 0) > 0 && "@min-[19rem]:row-span-2",
   );
-  return <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 px-3 py-2 sm:gap-x-4 sm:px-4">
+  return <li className="@container grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 px-3 py-2 sm:gap-x-4 sm:px-4">
     <button
       type="button"
       data-network-person={person.publicPersonRef}
       aria-label={`Open ${name}'s profile`}
       aria-describedby={person.suggestionReason ? suggestionId : undefined}
-      className="group/network-person col-span-full row-start-1 grid min-h-11 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-2.5 rounded-lg py-1 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:opacity-80 min-[300px]:col-span-1 sm:grid-cols-[2.5rem_minmax(0,1fr)] sm:gap-x-3"
+      className="group/network-person col-span-full row-start-1 grid min-h-11 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-2.5 rounded-lg py-1 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:opacity-80 @min-[19rem]:col-span-1 sm:grid-cols-[2.5rem_minmax(0,1fr)] sm:gap-x-3"
       onClick={event => onOpen(event.currentTarget)}
     >
       <ConnectionPersonAvatar label={name} photoUrl={person.photoUrl} size="list" className="!size-9 sm:!size-10" />
@@ -77,7 +77,7 @@ export function NetworkPersonRow({ person, onOpen, onRemember, onConnect, connec
     <DirectoryMutualLine
       person={person}
       networkPersonRef={person.publicPersonRef}
-      className="col-span-full row-start-2 ms-[2.875rem] min-h-11 justify-self-start text-xs leading-snug text-muted-foreground sm:col-span-1 sm:ms-[3.25rem]"
+      className="col-span-full row-start-2 ms-[2.875rem] min-h-11 justify-self-start text-xs leading-snug text-muted-foreground @min-[19rem]:col-span-1 sm:ms-[3.25rem]"
       onOpenMutual={element => void openMutual(element)}
     />
     {status === "none" ? <button type="button" data-network-person={person.publicPersonRef} data-network-focus="connect" aria-label={`Connect with ${name}`} disabled={busy || connecting} className={cn(rowActionClassName, trailingClassName)} onClick={onConnect}>{connecting ? "Sending…" : "Connect"}</button>
