@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, Pencil, Trash2, X } from "@/components/icons";
+import { Check, Pencil, Trash2, X, Zap } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { QueuedAgentPrompt } from "@/lib/agent/agent-chat-prompt-queue";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,8 @@ import { cn } from "@/lib/utils";
 export function AgentQueuedStack({
   prompts,
   deliveryUnconfirmed = false,
+  sendingImmediately = false,
+  hasComposerDraft = false,
   editingId,
   editingText,
   onEditStart,
@@ -24,9 +27,12 @@ export function AgentQueuedStack({
   onEditSave,
   onEditCancel,
   onRemove,
+  onSendNow,
 }: {
   prompts: readonly QueuedAgentPrompt[];
   deliveryUnconfirmed?: boolean;
+  sendingImmediately?: boolean;
+  hasComposerDraft?: boolean;
   editingId: string | null;
   editingText: string;
   onEditStart: (prompt: QueuedAgentPrompt) => void;
@@ -34,6 +40,7 @@ export function AgentQueuedStack({
   onEditSave: (id: string) => void;
   onEditCancel: () => void;
   onRemove: (id: string) => void;
+  onSendNow?: () => void;
 }) {
   if (prompts.length === 0) return null;
   const joining = prompts.some((prompt) => prompt.placement === "joining");
@@ -49,11 +56,36 @@ export function AgentQueuedStack({
         className="flex h-6 items-center justify-between gap-3 px-2 text-[12px] font-medium leading-4 text-muted-foreground"
       >
         <span className="tabular-nums">{prompts.length} queued</span>
-        <span className="min-w-0 truncate">
-          {deliveryUnconfirmed
-            ? "Checking delivery before another message is sent"
-            : joining ? "One reads these at its next step" : "Sends when this reply ends"}
-        </span>
+        {sendingImmediately && !deliveryUnconfirmed ? (
+          <span className="min-w-0 truncate text-[color:var(--app-accent)]">
+            {prompts.length > 1 || hasComposerDraft ? "Sending together now…" : "Sending now…"}
+          </span>
+        ) : onSendNow && !deliveryUnconfirmed ? (
+          <button
+            type="button"
+            data-testid="agent-chat-queue-send-now"
+            aria-label="Send queued messages immediately"
+            title={
+              hasComposerDraft
+                ? "Stop current reply and send queued and draft messages together"
+                : prompts.length > 1
+                  ? `Stop current reply and send ${prompts.length} queued messages together`
+                  : "Stop current reply and send queued message now"
+            }
+            onClick={onSendNow}
+            className="relative inline-flex h-6 shrink-0 items-center gap-1 overflow-hidden rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[12px] font-semibold leading-4 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/40"
+          >
+            <MaterialRipple variant="none" effect="glass" />
+            <Zap className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>Send now</span>
+          </button>
+        ) : (
+          <span className="min-w-0 truncate">
+            {deliveryUnconfirmed
+              ? "Checking delivery before another message is sent"
+              : joining ? "One reads these at its next step" : "Sends when this reply ends"}
+          </span>
+        )}
       </header>
       <ol className="mt-1 flex flex-col gap-1">
         {prompts.map((prompt, index) => {

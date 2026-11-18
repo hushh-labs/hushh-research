@@ -113,6 +113,7 @@ import {
   ThumbsUp,
   User,
   X,
+  Zap,
 } from "@/components/icons";
 
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
@@ -2664,6 +2665,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     gate?.release();
     queuedOfferChainRef.current = Promise.resolve();
     stopActiveTurnRef.current = null;
+    sendingImmediatelyRef.current = false;
+    setSendingImmediately(false);
     setQueuedDeliveryChecking(false);
     setQueuedDeliveryUnconfirmed(false);
   }));
@@ -2714,6 +2717,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [queuedDeliveryChecking, setQueuedDeliveryChecking] = useState(false);
   // A typed turn is running that Stop can end at its next step.
   const [stoppableTurn, setStoppableTurn] = useState(false);
+  const [sendingImmediately, setSendingImmediately] = useState(false);
+  const sendingImmediatelyRef = useRef(false);
+  useEffect(() => {
+    if (queuedPrompts.length === 0 && sendingImmediatelyRef.current) {
+      sendingImmediatelyRef.current = false;
+      setSendingImmediately(false);
+    }
+  }, [queuedPrompts.length]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
     string | null
   >(null);
@@ -7810,7 +7821,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     options: Pick<
       AgentRunTurnOptions,
       "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride"
-    > = {},
+    > & { offerToLiveTurn?: boolean } = {},
   ) => {
     const chatEpoch = chatSessionRef.current.value;
     const text = textInput.trim();
@@ -7886,7 +7897,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       },
     };
     enqueueWorkspaceOperation(operation);
-    offerQueuedPromptsToLiveTurn();
+    if (options.offerToLiveTurn !== false) offerQueuedPromptsToLiveTurn();
   };
 
   /** The turn ended: resolve what it held, exactly once, before anything else is sent. */
@@ -8006,6 +8017,61 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (editingQueuedPromptId === id) {
       setEditingQueuedPromptId(null);
       setEditingQueuedPromptText("");
+    }
+  };
+
+  /**
+   * Stop One at its next step and immediately club any waiting queued updates
+   * plus the current composer draft into one updated turn in chronological order.
+   */
+  const sendImmediately = async () => {
+    if (
+      sendingImmediatelyRef.current ||
+      !stoppableTurn ||
+      (!isStreaming && !isChatLoading) ||
+      queuedDeliveryUnconfirmed ||
+      recoveryInspectionPending ||
+      isVoiceConnecting ||
+      voiceActive
+    ) {
+      return;
+    }
+    const attachment = longPromptAttachment;
+    const draftText = attachment?.isExpanded ? "" : input;
+    const attachmentText = attachment?.isExpanded ? input : attachment?.text ?? "";
+    const hasDraft = Boolean(draftText.trim() || attachmentText.trim());
+    const hasPendingEdit = Boolean(editingQueuedPromptId && editingQueuedPromptText.trim());
+    const hasQueued = operationQueueRef.current.snapshot().some((item) => Boolean(item.prompt));
+    if (!hasDraft && !hasPendingEdit && !hasQueued) return;
+
+    sendingImmediatelyRef.current = true;
+    setSendingImmediately(true);
+    try {
+      if (editingQueuedPromptId && editingQueuedPromptText.trim()) {
+        liveTurnQueueRef.current?.stopAccepting();
+        await editQueuedPrompt(editingQueuedPromptId, editingQueuedPromptText);
+      }
+      if (hasDraft) {
+        let draftAccepted = false;
+        await submitComposerText(undefined, {
+          awaitGuard: true,
+          offerToLiveTurn: false,
+          onSettled: (accepted) => {
+            draftAccepted = accepted;
+          },
+        });
+        if (!draftAccepted) {
+          sendingImmediatelyRef.current = false;
+          setSendingImmediately(false);
+          return;
+        }
+      }
+      liveTurnQueueRef.current?.stopAccepting();
+      await queuedOfferChainRef.current;
+      await stopActiveTurnRef.current?.();
+    } catch {
+      sendingImmediatelyRef.current = false;
+      setSendingImmediately(false);
     }
   };
 
@@ -8528,7 +8594,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       .finally(() => { calendarChatRecoveryBusy.current = false; });
   };
 
-  const submitComposerText = async (nativeText?: string) => {
+  const submitComposerText = async (
+    nativeText?: string,
+    submitOptions?: {
+      awaitGuard?: boolean;
+      offerToLiveTurn?: boolean;
+      onSettled?: (accepted: boolean) => void;
+    },
+  ): Promise<void> => {
     const attachment = longPromptAttachment;
     const draftText = nativeText ?? input;
     // An opened attachment is edited in the composer itself, so the editor
@@ -8536,12 +8609,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const attachmentText = attachment?.isExpanded ? draftText : attachment?.text ?? null;
     const typedText = attachment?.isExpanded ? "" : draftText;
     if ((!typedText.trim() && !attachmentText?.trim()) || isVoiceConnecting || voiceActive) {
+      submitOptions?.onSettled?.(false);
       return;
     }
     // Only after the person chose "Something else" for their name, and only
     // when it is name-shaped; anything else is an ordinary turn to One.
     if (!attachment && chatOnboarding.captureComposerText(typedText)) {
       setInput("");
+      submitOptions?.onSettled?.(true);
       return;
     }
     // Enter (form submit) and the Send button both land here, so both bring
@@ -8570,6 +8645,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         : [],
       fromPaste: attachment !== null,
       driveSearchSelection,
+      offerToLiveTurn: submitOptions?.offerToLiveTurn,
       // Nothing was sent: give the person their draft back, untouched.
       onRefused: () => {
         setInput((current) => current || typedText);
@@ -8578,7 +8654,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }
       },
     });
-    if (nativeText !== undefined) await guard; // Keep the native replica held until refusal/queue settlement.
+    if (nativeText !== undefined || submitOptions?.awaitGuard) {
+      const accepted = Boolean(await guard); // Keep the native replica or immediate-send barrier held until refusal/queue settlement.
+      submitOptions?.onSettled?.(accepted);
+    }
   };
 
   /** Protected identifiers stay in Secrets until the owner files them through
@@ -8626,12 +8705,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     attachments,
     fromPaste,
     driveSearchSelection,
+    offerToLiveTurn,
     onRefused,
   }: {
     typedText: string;
     attachments: AgentTextAttachment[];
     fromPaste: boolean;
     driveSearchSelection?: AgentRunTurnOptions["driveSearchSelection"];
+    offerToLiveTurn?: boolean;
     onRefused?: () => void;
   }) => {
     const chatEpoch = chatSessionRef.current.value;
@@ -8649,6 +8730,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       deferPkmContext: fromPaste,
       driveSearchSelection,
       attachments: submittedAttachments,
+      offerToLiveTurn,
     });
     return true;
   };
@@ -9521,6 +9603,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } : null);
   const compactRootComposer = isCanonicalChatRoute && !composerExpanded;
   const composerHasDraft = input.length > 0 || longPromptAttachment !== null;
+  const canInterruptAndSend = Boolean(
+    stoppableTurn &&
+    (isStreaming || isChatLoading) &&
+    !queuedDeliveryUnconfirmed &&
+    !recoveryInspectionPending &&
+    !isVoiceConnecting &&
+    !voiceActive,
+  );
   const composerShowsStop = Boolean(stoppableTurn && (isStreaming || isChatLoading) && !canSend);
   const composerActionRail = (
     <>
@@ -9544,7 +9634,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ) : null}
       {composerShowsStop ? (
         // While One works, an empty composer offers Stop in Send's place; any
-        // text turns it back into Send, which queues the message.
+        // text offers both Queue (Send) and Send now (interrupt + club together).
         <ShellActionSurface
           type="button"
           rippleEffect="fill"
@@ -9561,26 +9651,51 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <StopSquare className="h-3.5 w-3.5" />
         </ShellActionSurface>
       ) : !compactRootComposer || composerHasDraft || !agentVoiceEnabled ? (
-      <ShellActionSurface
-        type="submit"
-        data-agent-composer-action="send"
-        data-agent-composer-primary={compactRootComposer || undefined}
-        rippleEffect="fill"
-        className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
-        disabled={!canSend}
-        aria-label="Send message"
-        title="Send message"
-        onClick={(event) => {
-          // Keep the form path for keyboard/assistive submission, but do not
-          // rely on the wrapped shell/ripple button's native submit default.
-          // A real pointer click can otherwise release without dispatching
-          // submit while the control is visibly enabled.
-          event.preventDefault();
-          void submitComposerText();
-        }}
-      >
-        <Send className="h-4 w-4" />
-      </ShellActionSurface>
+        <>
+          {canInterruptAndSend && canSend ? (
+            <button
+              type="button"
+              data-testid="agent-chat-send-immediately"
+              data-agent-composer-action="send-immediately"
+              disabled={sendingImmediately}
+              aria-label="Send immediately"
+              title={
+                queuedPrompts.length > 0
+                  ? `Stop current reply and send ${queuedPrompts.length + 1} messages together (⌘Enter)`
+                  : "Stop current reply and send immediately (⌘Enter)"
+              }
+              onClick={() => {
+                void sendImmediately();
+                if (Capacitor.isNativePlatform()) composerTextareaRef.current?.blur();
+              }}
+              className="relative inline-flex h-8 shrink-0 items-center gap-1 overflow-hidden rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[12px] font-semibold leading-4 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/40 disabled:opacity-50"
+            >
+              <MaterialRipple variant="none" effect="glass" disabled={sendingImmediately} />
+              <Zap className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>Send now</span>
+            </button>
+          ) : null}
+          <ShellActionSurface
+            type="submit"
+            data-agent-composer-action="send"
+            data-agent-composer-primary={compactRootComposer || undefined}
+            rippleEffect="fill"
+            className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+            disabled={!canSend}
+            aria-label="Send message"
+            title={canInterruptAndSend ? "Queue message (Enter)" : "Send message"}
+            onClick={(event) => {
+              // Keep the form path for keyboard/assistive submission, but do not
+              // rely on the wrapped shell/ripple button's native submit default.
+              // A real pointer click can otherwise release without dispatching
+              // submit while the control is visibly enabled.
+              event.preventDefault();
+              void submitComposerText();
+            }}
+          >
+            <Send className="h-4 w-4" />
+          </ShellActionSurface>
+        </>
       ) : null}
     </>
   );
@@ -11338,6 +11453,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               <AgentQueuedStack
                 prompts={queuedPrompts}
                 deliveryUnconfirmed={queuedDeliveryUnconfirmed}
+                sendingImmediately={sendingImmediately}
+                hasComposerDraft={composerHasDraft}
                 editingId={editingQueuedPromptId}
                 editingText={editingQueuedPromptText}
                 onEditStart={(prompt) => {
@@ -11355,6 +11472,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 onRemove={(id) => {
                   void removeQueuedPrompt(id);
                 }}
+                onSendNow={canInterruptAndSend ? () => { void sendImmediately(); } : undefined}
               />
               {queuedDeliveryUnconfirmed ? (
                 <div role="status" className="mb-2 flex items-center justify-between gap-3 rounded-[16px] bg-foreground/[0.045] px-3 py-2 text-sm text-muted-foreground">
@@ -11446,6 +11564,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             return;
                           }
                           event.preventDefault();
+                          if ((event.metaKey || event.ctrlKey) && canInterruptAndSend && canSend) {
+                            void sendImmediately();
+                            if (Capacitor.isNativePlatform()) event.currentTarget.blur();
+                            return;
+                          }
                           if (canSend) {
                             const composer = event.currentTarget;
                             composer.form?.requestSubmit();
@@ -11469,8 +11592,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         rows={1}
                         className={
                           composerExpanded
-                            ? "block h-[30dvh] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                                : "agent-chat-composer-field block w-full min-w-0 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                            ? cn(
+                                "block h-[30dvh] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:pb-16 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]",
+                                canInterruptAndSend && canSend ? "pr-44 sm:pr-48" : "pr-32 sm:pr-36",
+                              )
+                            : "agent-chat-composer-field block w-full min-w-0 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         }
                       />
                     </div>
