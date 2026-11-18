@@ -47,7 +47,7 @@ const samplePortfolio: PortfolioData = { account_summary: { beginning_value: 240
 const sampleModel = mapPortfolioToDashboardViewModel(samplePortfolio);
 const savedEntry = { ticker: "TEST", timestamp: "2026-10-20T20:00:00Z", decision: "hold", confidence: .82, consensus_reached: false,
   agent_votes: { fundamental: "buy", sentiment: "hold", valuation: "reduce" }, final_statement: "Consider valuation alongside company strength and your portfolio exposure.",
-  raw_card: { company_strength_score: 7, market_trend_score: 6, fair_value_score: 5, short_recommendation: "Consider valuation alongside company strength and your portfolio exposure." }, version: 3, companyName: "Sample Company With A Deliberately Long Name" };
+  raw_card: { company_strength_score: 7, market_trend_score: 6, fair_value_score: 5, short_recommendation: "Consider valuation alongside company strength and your portfolio exposure." }, companyName: "Sample Company With A Deliberately Long Name" };
 
 const observedFixture = Array.from({ length: 31 }, (_, index) => ({
   date: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
@@ -143,7 +143,7 @@ function Fixture() {
     </section>
     <section data-testid="portfolio-overview-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
-      <PortfolioOverview briefing={<PortfolioBriefing review={{ score: 72, next_step: "Separate the cash you’ll need from the cash you can invest." }} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
+      <PortfolioOverview briefing={<PortfolioBriefing review={{ score: 72, takeaway: "Most of your money is in one company. A bad quarter there could pull down your whole balance.", next_step: null }} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Statement" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
       <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
       <HoldingDetailsDrawer loadHistory={loadSampleHistory} open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
     </section>
@@ -151,7 +151,7 @@ function Fixture() {
       <DataTable columns={holdingTableColumns(24680.42)} data={samplePortfolio.holdings!.map((row, index) => ({ ...row, client_id: `sample-${index}` }))} tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle" />
     </section>
     <section data-testid="finance-history-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
-      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} versionsFor={() => [savedEntry]} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
+      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
     </section>
     <section data-testid="finance-subpages-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full space-y-5`}>
       <PortfolioAllocationBar data={sampleModel.allocation} totalValue={sampleModel.hero.totalValue} />

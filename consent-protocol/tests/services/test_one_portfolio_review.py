@@ -28,7 +28,7 @@ async def test_review_retries_invalid_model_response_once(monkeypatch, error_nam
         "score": None,
         "takeaway": "Details are limited.",
         "reason": "Information is missing.",
-        "next_step": "Review the saved details.",
+        "next_step": None,
         "advisor_reason": "A review may help.",
     }
     error_type = getattr(single_turn, error_name)
@@ -37,11 +37,11 @@ async def test_review_retries_invalid_model_response_once(monkeypatch, error_nam
     check_current = AsyncMock()
     monkeypatch.setattr(single_turn, "run_single_turn", run)
     monkeypatch.setattr(single_turn, "build_single_turn_agent", lambda *args, **kwargs: object())
-    assert (
-        await one_portfolio_review.run_portfolio_review(
-            summary, user_id="synthetic-owner", consent_token=token, check_current=check_current
-        )
-    ).next_step == good["next_step"]
+    review = await one_portfolio_review.run_portfolio_review(
+        summary, user_id="synthetic-owner", consent_token=token, check_current=check_current
+    )
+    assert review.next_step is None
+    assert review.takeaway == good["takeaway"]
     assert run.await_count == 2
 
     run.reset_mock(side_effect=True)

@@ -1,21 +1,8 @@
 /**
  * Kai Analysis History Service
  *
- * Manages analysis history within the encrypted PKM financial domain.
- * Retains the newest three analyses per ticker, newest first.
- *
- * Canonical storage path:
- *   financial.analysis_history
- *
- * Structure inside encrypted blob:
- * {
- *   "financial": {
- *     "analysis_history": {
- *     "AMZN": [entry3, entry2, entry1],  // newest first
- *     "AAPL": [entry2, entry1],
- *     }
- *   }
- * }
+ * Keeps the latest analysis per ticker in encrypted device storage.
+ * Reads and supports explicit deletion of legacy PKM analyses.
  */
 
 import { PersonalKnowledgeModelService } from "./personal-knowledge-model-service";
@@ -23,10 +10,12 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { SecureDurableResourceService } from "./secure-durable-resource-service";
 
+const DEVICE_HISTORY_KEY = "finance-analysis-history-v1";
 const FINANCIAL_DOMAIN = "financial";
 const FINANCIAL_SCHEMA_VERSION = 3;
-const MAX_HISTORY_PER_TICKER = 3;
 const FINANCIAL_CONTRACT_VERSION =
   currentDomainContractVersion(FINANCIAL_DOMAIN);
 const FINANCIAL_INTENT_MAP = [
@@ -58,6 +47,25 @@ export interface AnalysisHistoryEntry {
 }
 
 export type AnalysisHistoryMap = Record<string, AnalysisHistoryEntry[]>;
+
+type HistoryOwner = { userId: string; vaultKey: string; vaultOwnerToken?: string };
+type DeviceHistory = Record<string, AnalysisHistoryEntry>;
+
+async function updateDeviceHistory(
+  { userId, vaultKey }: HistoryOwner,
+  isCurrent: () => boolean,
+  update: (history: DeviceHistory) => boolean,
+): Promise<boolean> {
+  const expected = await SecureDurableResourceService.version(userId, DEVICE_HISTORY_KEY);
+  const stored = await SecureDurableResourceService.read<DeviceHistory>(userId, DEVICE_HISTORY_KEY, vaultKey, isCurrent);
+  const history = stored?.value ?? {};
+  if (!isCurrent()) throw new Error("Analysis history access changed.");
+  if (!update(history)) return false;
+  await SecureDurableResourceService.write({
+    userId, vaultKey, resourceKey: DEVICE_HISTORY_KEY, expected, value: history, isCurrent,
+  });
+  return true;
+}
 
 function compactTranscriptRound(
   round: Record<string, any>,
@@ -281,41 +289,7 @@ function extractRunId(entry: AnalysisHistoryEntry): string | null {
   return extractStreamId(entry);
 }
 
-export function prependAnalysisHistoryEntry(
-  existing: readonly AnalysisHistoryEntry[],
-  entry: AnalysisHistoryEntry,
-): { entries: AnalysisHistoryEntry[]; changed: boolean } {
-  const entries = [...existing];
-  const incomingRunId = extractRunId(entry);
-  if (incomingRunId) {
-    const existingIndex = entries.findIndex(
-      (candidate) => extractRunId(candidate) === incomingRunId,
-    );
-    if (existingIndex >= 0) {
-      const current = entries[existingIndex];
-      if (
-        current &&
-        timestampsMatch(current.timestamp, entry.timestamp) &&
-        String(current.decision || "") === String(entry.decision || "") &&
-        Number(current.confidence || 0) === Number(entry.confidence || 0)
-      ) {
-        return { entries, changed: false };
-      }
-      entries.splice(existingIndex, 1);
-    }
-  }
-  entries.unshift(entry);
-  return {
-    entries: entries.slice(0, MAX_HISTORY_PER_TICKER),
-    changed: true,
-  };
-}
-
-function buildHistorySummary(
-  historyMap: AnalysisHistoryMap,
-  lastTicker?: string,
-  lastTimestamp?: string,
-): Record<string, unknown> {
+function buildHistorySummary(historyMap: AnalysisHistoryMap): Record<string, unknown> {
   const tickers = Object.keys(historyMap);
   const totalAnalyses = Object.values(historyMap).reduce(
     (sum, arr) => sum + arr.length,
@@ -333,13 +307,6 @@ function buildHistorySummary(
     tickers_analyzed: tickers,
     last_updated: new Date().toISOString(),
   };
-
-  if (lastTicker) {
-    summary.last_analysis_ticker = lastTicker;
-  }
-  if (lastTimestamp) {
-    summary.last_analysis_date = lastTimestamp;
-  }
 
   return summary;
 }
@@ -487,89 +454,27 @@ function buildFinancialDomainWithHistory(params: {
 // ============================================================================
 
 export class KaiHistoryService {
-  /**
-   * Save a new analysis result to history.
-   * Prepends the new entry and retains prior analyses until explicit deletion.
-   *
-   * Uses fetch-decrypt-merge-encrypt-save cycle to avoid overwriting other domains.
-   */
-  static async saveAnalysis(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken?: string;
+  static async saveAnalysis(params: HistoryOwner & {
     entry: AnalysisHistoryEntry;
+    isCurrent: () => boolean;
   }): Promise<boolean> {
-    const { userId, vaultKey, vaultOwnerToken } = params;
     const entry = compactAnalysisHistoryEntryForStorage(params.entry);
+    const ticker = sanitizeTicker(entry.ticker);
+    if (!ticker) return false;
 
     try {
-      const result = await PkmWriteCoordinator.saveMergedDomain({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-        domain: FINANCIAL_DOMAIN,
-        confirmation: {
-          confirmedByUser: true,
-          surface: "web",
-          source: "kai_analysis_completion",
-        },
-        build: async ({ currentDomainData, baseFullBlob }) => {
-          const fullBlob =
-            baseFullBlob && Object.keys(baseFullBlob).length > 0
-              ? baseFullBlob
-              : currentDomainData && Object.keys(currentDomainData).length > 0
-                ? { [FINANCIAL_DOMAIN]: currentDomainData }
-                : ({} as Record<string, unknown>);
-
-          const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
-          const merged = prependAnalysisHistoryEntry(
-            historyMap[entry.ticker] || [],
-            entry,
-          );
-          if (!merged.changed) {
-            throw new Error("KAI_HISTORY_IDEMPOTENT_NOOP");
-          }
-
-          historyMap[entry.ticker] = merged.entries;
-          const nowIso = new Date().toISOString();
-          return {
-            domainData: buildFinancialDomainWithHistory({
-              fullBlob,
-              historyMap,
-              nowIso,
-            }),
-            summary: buildHistorySummary(
-              historyMap,
-              entry.ticker,
-              entry.timestamp,
-            ),
-            writeProjections: [...buildDecisionWriteProjections(historyMap)],
-          };
-        },
-      });
-
-      // Invalidate caches after successful save
-      if (result.success) {
-        const savedHistoryMap = extractHistoryMap(result.fullBlob);
-        CacheSyncService.onAnalysisHistoryStored(
-          userId,
-          savedHistoryMap,
-          entry.ticker,
-        );
-        CacheSyncService.onAnalysisHistoryMutated(userId, entry.ticker, {
-          preserveHistoryCache: true,
-        });
-      }
-
-      return result.success;
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "KAI_HISTORY_IDEMPOTENT_NOOP"
-      ) {
+      await updateDeviceHistory(params, params.isCurrent, (history) => {
+        const current = history[ticker];
+        if (current && (
+          getAnalysisHistoryEntryRouteId(current) === getAnalysisHistoryEntryRouteId(entry) ||
+          (toEpochMs(current.timestamp) ?? 0) > (toEpochMs(entry.timestamp) ?? 0)
+        )) return false;
+        history[ticker] = { ...entry, ticker };
         return true;
-      }
-      console.error("[KaiHistory] Failed to save analysis:", error);
+      });
+      return true;
+    } catch {
+      // The run manager owns retries and the user-facing recovery state.
       return false;
     }
   }
@@ -596,39 +501,46 @@ export class KaiHistoryService {
   /**
    * Get all analysis history across all tickers.
    */
-  static async getAllHistory(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken?: string;
-  }): Promise<AnalysisHistoryMap> {
+  static async getAllHistory(params: HistoryOwner): Promise<AnalysisHistoryMap> {
+    const epoch = snapshotVaultSessionEpoch();
+    const isCurrent = () => isVaultSessionEpochCurrent(epoch);
+    const [legacy, stored] = await Promise.all([
+      this.getLegacyHistory(params).catch(() => ({} as AnalysisHistoryMap)),
+      SecureDurableResourceService.read<DeviceHistory>(
+        params.userId, DEVICE_HISTORY_KEY, params.vaultKey, isCurrent,
+      ).catch(() => null),
+    ]);
+    if (!isCurrent()) return {};
+
+    const history = { ...legacy };
+    for (const [ticker, entry] of Object.entries(stored?.value ?? {})) {
+      const routeId = getAnalysisHistoryEntryRouteId(entry);
+      history[ticker] = [
+        entry,
+        ...(history[ticker] ?? []).filter(candidate => getAnalysisHistoryEntryRouteId(candidate) !== routeId),
+      ];
+    }
+    return history;
+  }
+
+  private static async getLegacyHistory(params: HistoryOwner): Promise<AnalysisHistoryMap> {
     const { userId, vaultKey, vaultOwnerToken } = params;
+    const epoch = snapshotVaultSessionEpoch();
     const cached = CacheSyncService.getAnalysisHistorySnapshot(userId);
     if (cached) {
       return sanitizeHistoryMap(cached as unknown as Record<string, unknown>);
     }
 
-    try {
-      const financialDomain =
-        await PersonalKnowledgeModelService.loadDomainData({
-          userId,
-          domain: FINANCIAL_DOMAIN,
-          vaultKey,
-          vaultOwnerToken,
-        });
-      const historyMap =
-        financialDomain &&
-        typeof financialDomain === "object" &&
-        !Array.isArray(financialDomain)
-          ? extractHistoryMapFromFinancialDomain(
-              financialDomain as Record<string, unknown>,
-            )
-          : {};
-      CacheSyncService.onAnalysisHistoryStored(userId, historyMap);
-      return historyMap;
-    } catch (error) {
-      console.error("[KaiHistory] Failed to get history:", error);
-      return {};
-    }
+    const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
+      userId, domain: FINANCIAL_DOMAIN, vaultKey, vaultOwnerToken,
+    });
+    if (!isVaultSessionEpochCurrent(epoch)) return {};
+    const historyMap =
+      financialDomain && typeof financialDomain === "object" && !Array.isArray(financialDomain)
+        ? extractHistoryMapFromFinancialDomain(financialDomain as Record<string, unknown>)
+        : {};
+    CacheSyncService.onAnalysisHistoryStored(userId, historyMap);
+    return historyMap;
   }
 
   /**
@@ -644,6 +556,25 @@ export class KaiHistoryService {
   }): Promise<boolean> {
     const { userId, vaultKey, vaultOwnerToken, ticker, timestamp, streamId } =
       params;
+
+    const epoch = snapshotVaultSessionEpoch();
+    try {
+      const removedFromDevice = await updateDeviceHistory(params, () => isVaultSessionEpochCurrent(epoch), (history) => {
+        const key = sanitizeTicker(ticker);
+        const entry = history[key];
+        if (!entry) return false;
+        const matches = streamId
+          ? extractStreamId(entry) === streamId || extractRunId(entry) === streamId
+          : toEpochMs(entry.timestamp) === toEpochMs(timestamp) && toEpochMs(timestamp) !== null;
+        if (!matches) return false;
+        delete history[key];
+        return true;
+      });
+      if (removedFromDevice) return true;
+    } catch {
+      return false;
+    }
+    if (!isVaultSessionEpochCurrent(epoch)) return false;
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -682,29 +613,11 @@ export class KaiHistoryService {
           }
 
           const originalLen = currentTickerHistory.length;
-          let nextTickerHistory = currentTickerHistory;
-
-          if (wantedTimestamp.length === 0 && wantedStreamId === null) {
-            nextTickerHistory = currentTickerHistory.slice(1);
-          } else {
-            nextTickerHistory = currentTickerHistory.filter((entry) => {
-              const byTimestamp =
-                wantedTimestamp.length > 0 &&
-                timestampsMatch(String(entry.timestamp || ""), wantedTimestamp);
-              const byStreamId =
-                wantedStreamId !== null &&
-                extractStreamId(entry) === wantedStreamId;
-              return !(byTimestamp || byStreamId);
-            });
-
-            if (nextTickerHistory.length === originalLen) {
-              if (wantedStreamId === null) {
-                nextTickerHistory = currentTickerHistory.slice(1);
-              } else if (originalLen === 1) {
-                nextTickerHistory = [];
-              }
-            }
-          }
+          const nextTickerHistory = currentTickerHistory.filter((entry) =>
+            wantedStreamId !== null
+              ? extractStreamId(entry) !== wantedStreamId && extractRunId(entry) !== wantedStreamId
+              : !timestampsMatch(entry.timestamp, wantedTimestamp),
+          );
 
           historyMap[tickerKey] = nextTickerHistory;
           if (historyMap[tickerKey].length === 0) {
@@ -763,6 +676,21 @@ export class KaiHistoryService {
     ticker: string;
   }): Promise<boolean> {
     const { userId, vaultKey, vaultOwnerToken, ticker } = params;
+
+    const epoch = snapshotVaultSessionEpoch();
+    try {
+      const legacyTicker = normalizeTickerKey(await this.getLegacyHistory(params), ticker);
+      const removedFromDevice = await updateDeviceHistory(params, () => isVaultSessionEpochCurrent(epoch), (history) => {
+        const key = sanitizeTicker(ticker);
+        if (!Object.hasOwn(history, key)) return false;
+        delete history[key];
+        return true;
+      });
+      if (!legacyTicker) return removedFromDevice;
+    } catch {
+      return false;
+    }
+    if (!isVaultSessionEpochCurrent(epoch)) return false;
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({

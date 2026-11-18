@@ -54,9 +54,8 @@ Canonical visual owner: [Hussh Webapp Docs](README.md). Use that map for the top
 - Native iOS bridge (`MyViewController`) keeps `webView.scrollView.contentInsetAdjustmentBehavior = .never` so UIKit does not reintroduce automatic top inset math that conflicts with the root shell contract.
 
 ## Analysis History Mobile Actions
-- The 3-dot actions menu is the first table column:
-  - `components/kai/views/columns.tsx`
-- Menu trigger stops row click propagation for reliable touch behavior.
+- History shows the latest dated analysis per ticker. The actions menu in `components/kai/views/analysis-history-list.tsx` provides explicit deletion.
+- New results are encrypted on this device with the vault key. History still reads previously saved PKM analyses.
 
 ## Kai Preferences (PKM)
 - Preferences are persisted to encrypted PKM path `financial.profile` via:

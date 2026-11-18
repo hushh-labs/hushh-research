@@ -49,7 +49,7 @@ export async function readPortfolioReviewInput(
   };
   const digest = await financeDigest(
     JSON.stringify([
-      "portfolio-review-v1",
+      "portfolio-review-v2",
       sourceFence,
       payload,
       total,

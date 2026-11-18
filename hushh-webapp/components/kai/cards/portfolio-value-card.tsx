@@ -17,9 +17,9 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
 }) {
   useMarketCurrency();
   return <SurfaceCard data-testid="portfolio-value-card" className={styles.detail}>
-    <SurfaceCardContent className="flex h-full flex-col justify-between gap-2 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="ui-text-section-label">{source} portfolio value</p>
+    <SurfaceCardContent className={cn("space-y-0", styles.portfolioTopBody)}>
+      <div className={styles.portfolioTopHeader}>
+        <h2 className="ui-text-section-label">{source} portfolio value</h2>
         {action}
       </div>
       <div>
@@ -34,7 +34,7 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
         {typeof invested === "number" ? <div><dt>Invested</dt><dd>{money(invested)}</dd></div> : null}
         {typeof cash === "number" ? <div><dt>Cash</dt><dd>{money(cash)}</dd></div> : null}
       </dl> : null}
-      <p className={styles.description}>{period}</p>
+      <p className={cn(styles.description, styles.portfolioTopCaption)}>{period}</p>
     </SurfaceCardContent>
   </SurfaceCard>;
 }

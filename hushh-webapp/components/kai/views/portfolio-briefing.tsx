@@ -19,7 +19,7 @@ export function PortfolioBriefing({
   needsAction = false,
   missing,
 }: {
-  review?: Pick<PortfolioReviewResponse, "score" | "next_step">;
+  review?: Pick<PortfolioReviewResponse, "score" | "takeaway" | "next_step">;
   onOpen: () => void;
   needsAction?: boolean;
   missing?: string;
@@ -27,11 +27,18 @@ export function PortfolioBriefing({
   const score = review?.score ?? null;
   return (
     <SurfaceCard data-testid="portfolio-briefing">
-      <SurfaceCardContent className={styles.insightCard}>
-        <div className="relative">
+      <SurfaceCardContent className={`space-y-0 ${styles.portfolioTopBody}`}>
+        <div className={styles.portfolioTopHeader}>
           <h2 className="ui-text-section-label">Portfolio review</h2>
-          {needsAction ? <span className="ui-text-helper-text absolute right-0 top-1/2 -translate-y-1/2 whitespace-nowrap text-amber-600 dark:text-amber-400">Needs action</span> : null}
+          {needsAction ? <span className="ui-text-helper-text shrink-0 text-amber-600 dark:text-amber-400">Needs action</span> : null}
         </div>
+        {review?.takeaway ? <p className="ui-text-row-description">{review.takeaway}</p> : null}
+        {review?.next_step ? (
+          <div className="space-y-1">
+            <h3 className="ui-text-row-description font-semibold !text-[var(--app-accent)]">Next step</h3>
+            <p className="ui-text-row-description">{review.next_step}</p>
+          </div>
+        ) : null}
         <dl className="flex items-baseline justify-between gap-3">
           <dt className="ui-text-row-description">Portfolio score</dt>
           <dd className="shrink-0 ui-text-row-description tabular-nums">
@@ -40,12 +47,6 @@ export function PortfolioBriefing({
             )}
           </dd>
         </dl>
-        {review?.next_step ? (
-          <div className="space-y-1">
-            <h3 className="ui-text-row-description font-semibold !text-[var(--app-accent)]">Next step</h3>
-            <p className="ui-text-row-description">{review.next_step}</p>
-          </div>
-        ) : null}
         <div className={styles.cardFooter}>
           <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={onOpen}>
             View analysis
