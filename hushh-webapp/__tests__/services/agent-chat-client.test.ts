@@ -1001,6 +1001,9 @@ describe("AG-UI Agent One client", () => {
   it.each([
     { status: "unavailable", metadataOnly: false, expected: "Drive could not complete that read." },
     { status: "input_required", metadataOnly: false, expected: "Drive needs more detail." },
+    { status: "connect_required", metadataOnly: false, expected: "Drive isn't connected yet." },
+    { status: "reconnect_required", metadataOnly: false, expected: "Drive needs to be reconnected." },
+    { status: "permission_required", metadataOnly: false, expected: "Drive needs permission to continue." },
     { status: "ok", metadataOnly: true, expected: "Drive search finished." },
   ])("reports the Drive outcome instead of treating $status as a completed read", async ({ status, metadataOnly, expected }) => {
     const onToolResult = vi.fn();
@@ -1020,6 +1023,10 @@ describe("AG-UI Agent One client", () => {
     // Negative control: while the brief card rendered, this row read "Mail could not complete that read."
     { status: "ok", cards: ["one.mail_brief.v1"], expected: "Mail read finished.", mail_brief: { schema_version: "mail_brief.v1",
       checked_at: "2026-10-29T06:00:00Z", requested: ["meetings"], failed: [], counts_by_category: { meetings: 0 }, items: [], coverage: {} } },
+    { status: "connect_required", cards: ["one.connector_read.v1"], expected: "Mail isn't connected yet." },
+    { status: "reconnect_required", cards: ["one.connector_read.v1"], expected: "Mail needs to be reconnected." },
+    { status: "permission_denied", cards: ["one.connector_read.v1"], expected: "Mail needs permission to continue." },
+    { status: "unavailable", cards: ["one.connector_read.v1"], expected: "Mail could not complete that read." },
     { status: "receipt_functions_required", cards: [], expected: "Handed to your receipts; no mail was read." },
   ])("reports the Mail read's own $status live and after reload, whichever card renders", async ({ status, cards, expected, ...extra }) => {
     const [onToolResult, onStructuredExperience] = [vi.fn(), vi.fn()];
