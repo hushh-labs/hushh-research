@@ -250,6 +250,18 @@ class PodLocalEmailReadPort(PodEmailReadPort):
         if not self._owner_session:
             raise PermissionError("Email on this agent answers only the owner's own session")
 
+    async def preflight_mail_read_status(self, *, user_id: str) -> str | None:
+        """Check owner-local Gmail readiness before spending a planner LLM turn."""
+        self.require_owner_session()
+        if user_id != self._owner:
+            raise PermissionError("Email owner mismatch")
+        try:
+            return await self._connection.preflight_mail_read_status(user_id=user_id)
+        except GmailMetadataError as exc:
+            return exc.code if exc.code in MAIL_READ_ERROR_CODES else "unavailable"
+        except Exception:  # noqa: BLE001 - storage failure never leaks store details
+            return "unavailable"
+
     def metadata_reader(
         self, *, gmail: Any, user_id: str, require_access: Any, expect_account: str = ""
     ) -> GmailMetadataReader:

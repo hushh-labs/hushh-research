@@ -258,7 +258,30 @@ class EmailChatService:
         for this one turn; ``receipt_cursor`` is where the last receipts list stopped.
         Typed chat is the only caller, so it is the only surface that reads receipts.
         """
-        from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
+        from hushh_mcp.services.email_delegated_read import (
+            _ERRORS,
+            _result,
+            mail_latency,
+            run_delegated_mail_read,
+        )
+
+        preflight = getattr(self._gmail, "preflight_mail_read_status", None)
+        if callable(preflight):
+            await require_access()
+            if not message.strip() or len(message.encode("utf-8")) > 8000:
+                return _result(conversation_id, _ERRORS["invalid_argument"], "input_required")
+            with mail_latency("preflight"):
+                readiness_error = await preflight(user_id=user_id)
+            if readiness_error is not None:
+                await require_access()
+                code = readiness_error if readiness_error in _ERRORS else "unavailable"
+                return _result(
+                    conversation_id,
+                    _ERRORS[code],
+                    code,
+                    failure_stage="planning",
+                    failure_reason=readiness_error,
+                )
 
         dependencies: dict[str, Any] = {}
         if self._adk_model is not None:

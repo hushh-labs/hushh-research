@@ -985,6 +985,11 @@ function specialistReadMessage(toolName: string, status: unknown, metadataOnly =
   const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
   if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
   if (status === "input_required") return `${source} needs more detail.`;
+  if (status === "connect_required") return `${source} isn't connected yet.`;
+  if (status === "reconnect_required") return `${source} needs to be reconnected.`;
+  if (status === "permission_denied" || status === "permission_required") {
+    return `${source} needs permission to continue.`;
+  }
   // The Email specialist read no mail and handed a receipts question back to One.
   if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
   return `${source} could not complete that read.`;
