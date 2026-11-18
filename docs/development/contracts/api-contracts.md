@@ -779,6 +779,15 @@ fixture transport remains application-only. Isolated phone proof remains
 available to recovery flows. A legacy client cannot write a new claim through
 `/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
 the updated native clients and frontend before rolling out that enforcement.
+
+`GET /api/account/identity` reads only the authenticated application owner's saved
+identity through the read-only Firebase dependency. It returns
+`{success, user_id, identity}` with `Cache-Control: private, no-store`. An absent
+record stays `identity: null`. This request performs no Firebase synchronization
+or claim write. Reviewer phone hydration uses this read and retains the existing
+owner, generation and publication-order checks, plus the identity-cache subscription.
+Read-only reviewer activity collection is suppressed at scope capture and dispatch.
+
 After an occupied-number deletion is admitted, the consumed real-SMS proof never
 authorizes a follow-up claim. The interface reports deletion requested and requires
 fresh verification; an uncertain deletion response is reconciled by observation.
