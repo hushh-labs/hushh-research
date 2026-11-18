@@ -30,6 +30,20 @@ from hushh_mcp.services.compute_backend import (
 _GCP_KEY_ENV = "HUSSH_POD_KMS_KEY"
 _AZURE_KEY_ENV = "HUSSH_POD_KEY_VAULT_KEY"
 _AWS_KEY_ENV = "HUSSH_POD_AWS_KMS_KEY_ARN"
+_HOSTED_AZURE_CELL_ENV = "HUSSH_POD_CELL_ID"
+_HOSTED_AZURE_SLOT_ENV = "HUSSH_POD_SLOT_ID"
+
+
+def hosted_azure_runtime() -> bool:
+    """True only inside a Hussh-Hosted Azure Umbrella Cell pod."""
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    if not pod_mode():
+        return False
+    return bool(
+        (os.environ.get(_HOSTED_AZURE_CELL_ENV) or "").strip()
+        or (os.environ.get(_HOSTED_AZURE_SLOT_ENV) or "").strip()
+    )
 
 
 def owner_cloud_provider() -> Optional[str]:
@@ -37,6 +51,8 @@ def owner_cloud_provider() -> Optional[str]:
     from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
 
     if not pod_mode():
+        return None
+    if hosted_azure_runtime():
         return None
     # Hosted private pods reuse KMS envelope custody. A key's presence describes
     # encryption, not who owns the cloud account. Explicit hosted or malformed
@@ -85,7 +101,7 @@ def private_pod_runtime() -> bool:
     """
     from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
 
-    return hosted_runtime_deployment() is not None or owner_cloud_agent()
+    return hosted_runtime_deployment() is not None or hosted_azure_runtime() or owner_cloud_agent()
 
 
 def pod_owner_user_id() -> str:
@@ -110,4 +126,10 @@ def pod_owner_user_id() -> str:
     return owners.pop() if len(owners) == 1 else ""
 
 
-__all__ = ["owner_cloud_agent", "owner_cloud_provider", "pod_owner_user_id", "private_pod_runtime"]
+__all__ = [
+    "hosted_azure_runtime",
+    "owner_cloud_agent",
+    "owner_cloud_provider",
+    "pod_owner_user_id",
+    "private_pod_runtime",
+]

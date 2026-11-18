@@ -498,3 +498,121 @@ def test_initial_marker_remains_bound_to_the_independently_recorded_service_uid(
     replacement["metadata"]["uid"] = "replacement-provider-uid"
     with pytest.raises(ValueError, match="admitted authority"):
         installed.verify_observation(replacement)
+
+
+async def test_hosted_azure_umbrella_cell_classified_as_private_pod_not_owner_cloud(monkeypatch):
+    from hushh_mcp.services.pod_owner_cloud import (
+        hosted_azure_runtime,
+        owner_cloud_agent,
+        owner_cloud_provider,
+        private_pod_runtime,
+    )
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_ID", "ha1_owner_azure")
+    monkeypatch.setenv(
+        "HUSSH_POD_KEY_VAULT_KEY", "https://hushhone-dev-kv.vault.azure.net/keys/slot-01/v1"
+    )
+    monkeypatch.setenv("HUSSH_POD_CELL_ID", "az-eastus2-cell-01")
+    monkeypatch.setenv("HUSSH_POD_SLOT_ID", "slot-01")
+    monkeypatch.delenv("HUSSH_POD_GCP_DEPLOYMENT_JSON", raising=False)
+    monkeypatch.delenv("HUSSH_POD_KMS_KEY", raising=False)
+
+    assert hosted_azure_runtime() is True
+    assert private_pod_runtime() is True
+    assert owner_cloud_agent() is False
+    assert owner_cloud_provider() is None
+
+    # Negative control: clearing hosted cell/slot markers keeps BYOC Azure intact.
+    monkeypatch.delenv("HUSSH_POD_CELL_ID")
+    monkeypatch.delenv("HUSSH_POD_SLOT_ID")
+    assert hosted_azure_runtime() is False
+    assert owner_cloud_provider() == "user_azure"
+    assert owner_cloud_agent() is True
+
+
+async def test_hosted_gcp_pod_short_circuits_google_connectors_without_hub_network_calls(
+    monkeypatch, hosted_runtime
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.one_adk.pod_connector_tools import calendar_turn_refusal
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("GMAIL_CHAT_READS", "true")
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner-1")
+    monkeypatch.delenv("HUSSH_POD_CELL_ID", raising=False)
+    monkeypatch.delenv("HUSSH_POD_SLOT_ID", raising=False)
+
+    never_specialist = AsyncMock(side_effect=AssertionError("hosted pod must not dispatch A2A"))
+    monkeypatch.setattr(agent_tree, "_specialist_turn", never_specialist)
+
+    context = SimpleNamespace(
+        state={
+            agent_tree.STATE_USER_ID: "owner-1",
+            agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+            agent_tree.STATE_DATA_DOOR_GRANTS: {},
+        }
+    )
+    mail = await agent_tree.ask_email_agent("Which emails need a reply?", context)
+    assert mail["status"] == "unavailable"
+    assert mail["reason"] == "hosted_pod_unavailable"
+    assert mail["structured"]["connector"] == "mail"
+
+    docs = await agent_tree.ask_documents_agent("Find my statement", context)
+    assert docs["status"] == "unavailable"
+    assert docs["reason"] == "hosted_pod_unavailable"
+    assert docs["structured"]["connector"] == "drive"
+
+    cal = await calendar_turn_refusal(context)
+    assert cal is not None and cal["reason"] == "hosted_pod_unavailable"
+    never_specialist.assert_not_awaited()
+
+
+async def test_hosted_azure_pod_short_circuits_google_connectors_without_hub_network_calls(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.one_adk.pod_connector_tools import calendar_turn_refusal
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("GMAIL_CHAT_READS", "true")
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner-1")
+    monkeypatch.delenv("HUSSH_POD_GCP_DEPLOYMENT_JSON", raising=False)
+    monkeypatch.setenv(
+        "HUSSH_POD_KEY_VAULT_KEY", "https://hushhone-dev-kv.vault.azure.net/keys/slot-01/v1"
+    )
+    monkeypatch.setenv("HUSSH_POD_CELL_ID", "az-eastus2-cell-01")
+    monkeypatch.setenv("HUSSH_POD_SLOT_ID", "slot-01")
+
+    never_specialist = AsyncMock(side_effect=AssertionError("hosted pod must not dispatch A2A"))
+    monkeypatch.setattr(agent_tree, "_specialist_turn", never_specialist)
+
+    context = SimpleNamespace(
+        state={
+            agent_tree.STATE_USER_ID: "owner-1",
+            agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+            agent_tree.STATE_DATA_DOOR_GRANTS: {},
+        }
+    )
+    mail = await agent_tree.ask_email_agent("Which emails need a reply?", context)
+    assert mail["status"] == "unavailable"
+    assert mail["reason"] == "hosted_pod_unavailable"
+    assert mail["structured"]["connector"] == "mail"
+
+    docs = await agent_tree.ask_documents_agent("Find my statement", context)
+    assert docs["status"] == "unavailable"
+    assert docs["reason"] == "hosted_pod_unavailable"
+    assert docs["structured"]["connector"] == "drive"
+
+    cal = await calendar_turn_refusal(context)
+    assert cal is not None and cal["reason"] == "hosted_pod_unavailable"
+    never_specialist.assert_not_awaited()

@@ -2091,7 +2091,9 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
     security notices and meetings. Spending, receipts, invoices and bills use
     One's receipt functions, never this tool. Never sends mail or syncs receipts.
     """
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
     if tool_context.state.get(
         STATE_EXECUTION_SURFACE
@@ -2099,6 +2101,26 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
         "gmail_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
+    if private_pod_runtime() and not owner_cloud_agent():
+        grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
+        email_grant = (
+            resolve_request_secret(grants.get("email")) if isinstance(grants, dict) else ""
+        )
+        if not email_grant:
+            message = (
+                "Gmail isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
+                "an owner-cloud pod to connect Gmail."
+            )
+            return {
+                "status": "unavailable",
+                "reason": "hosted_pod_unavailable",
+                "structured": SpecialistReadResult(
+                    connector="mail", status="unavailable"
+                ).model_dump(mode="json"),
+                "text": message,
+                "message": message,
+                "is_complete": True,
+            }
     return await _specialist_turn("agent_email", request, tool_context)
 
 
@@ -2109,7 +2131,9 @@ async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[st
 
 async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Answer about the owner's authorized Drive files; never share or mutate them."""
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
     if tool_context.state.get(
         STATE_EXECUTION_SURFACE
@@ -2117,6 +2141,21 @@ async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[s
         "google_drive_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Drive chat reads are not available here."}
+    if private_pod_runtime() and not owner_cloud_agent():
+        message = (
+            "Google Drive isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
+            "an owner-cloud pod to connect Google Drive."
+        )
+        return {
+            "status": "unavailable",
+            "reason": "hosted_pod_unavailable",
+            "structured": SpecialistReadResult(connector="drive", status="unavailable").model_dump(
+                mode="json"
+            ),
+            "text": message,
+            "message": message,
+            "is_complete": True,
+        }
     return await _specialist_turn("agent_documents", request, tool_context)
 
 
