@@ -65,7 +65,7 @@ export interface CapabilitySetupTileProps {
 export interface SetupNavigationTileProps {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   href: string;
   voiceControlId: string;
   icon: OneCapabilityIcon;
@@ -127,7 +127,7 @@ export function SetupNavigationTile({
       }
       title={title}
       description={
-        <div className="line-clamp-2 md:line-clamp-none">{description}</div>
+        description ? <div className="line-clamp-2 md:line-clamp-none">{description}</div> : undefined
       }
       trailing={
         statusLabel ? (

@@ -153,7 +153,7 @@ describe("Setup saved AI choice", () => {
     const view = render(<OneSetupHub />);
     const finish = await screen.findByRole("button", { name: "Continue" });
     expect(finish).toBeDisabled();
-    expect(screen.getByTestId("one-setup-foundation")).toHaveTextContent("Finish choosing AI access");
+    expect(screen.getByTestId("one-setup-foundation")).toHaveTextContent("Choose AI access.");
 
     state.stagedGeminiKey = true;
     act(() => state.listener?.({ type: "set", key: "bootstrap:owner" }));

@@ -406,11 +406,8 @@ export function PhoneMandatePageContent() {
                       </button>
                     </DialogTrigger>
                     <DialogContent srDescription="How your mobile number is used">
-                      <DialogTitle>About SMS notifications</DialogTitle>
-                      <p>
-                        We’ll send a verification code to confirm your mobile
-                        number. You may also receive SMS notifications from Hushh.
-                      </p>
+                      <DialogTitle>Text messages</DialogTitle>
+                      <p>We’ll text you a verification code. We may also send notifications.</p>
                     </DialogContent>
                   </Dialog>
                 </>
