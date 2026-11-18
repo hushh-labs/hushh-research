@@ -2718,6 +2718,13 @@ One API proxy/ApiService transport. Mock/schema tests do not qualify live model
 behavior or real-provider completeness. See the
 [semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-one-task-suggestions).
 
+Invalid task-suggestion input, including malformed JSON and rejected source
+fields, returns HTTP 422 with `{detail: "Invalid task suggestion request."}` and
+`Cache-Control: private, no-store`. Rejected summaries and validation internals
+are not reflected in the response. The route retains the existing private
+handling of owner-admission errors and does not dispatch the suggestion service
+for invalid input.
+
 ### One Google Calendar
 
 Private-pod Calendar reads use the existing owner-bound
