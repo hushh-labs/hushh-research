@@ -338,7 +338,7 @@ export function FilesEntryRow({
       )}
       {scheduleOpen && areScheduledTasksAvailable() && (
         <ScheduleFileDialog
-          file={entry}
+          file={{ id: entry.id, name: entry.name }}
           open={scheduleOpen}
           onOpenChange={setScheduleOpen}
         />

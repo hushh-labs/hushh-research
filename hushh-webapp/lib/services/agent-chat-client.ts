@@ -811,6 +811,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
   },
+  propose_file_schedule: {
+    label: "Private Files",
+    message: "Preparing a file schedule for your review.",
+    activity: "Preparing a file schedule",
+  },
   open_gmail_email_draft: {
     label: "Gmail",
     message: "Opening an email draft.",
@@ -1940,7 +1945,7 @@ async function streamAgentChatAttempt(input: {
           return;
         }
       }
-      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
+      const safeArgs = toolCallName === "propose_file_schedule" ? {} : privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),

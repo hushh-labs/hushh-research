@@ -11,7 +11,7 @@ after any route's authored Back case changes; do not hand-edit this file.
 ## Visual Map
 
 164 authored routes, 11 of them section/app
-roots. 14 routes additionally branch on query (an action sheet,
+roots. 15 routes additionally branch on query (an action sheet,
 a tab, a detail view) -- those sub-flows are counted on their edge label, not
 drawn individually, so the diagram reads as the hierarchy rather than every
 authored test fixture. See the JSON contract directly for the full
@@ -208,7 +208,7 @@ flowchart TD
   r_one_email -->|push| r_one
   r_one_calendar -->|push| r_one
   r_one_goals -->|push| r_one
-  r_one_tasks -->|push| r_one
+  r_one_tasks -->|push, +1 case| r_one
   r_one_pkm -->|push| r_one
   r_one_pkm_recent -->|push| r_one_pkm
   r_one_pkm_location -->|push| r_one_pkm

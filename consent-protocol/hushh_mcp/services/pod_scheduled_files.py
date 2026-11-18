@@ -17,7 +17,11 @@ class ScheduledFileOrganization:
     async def prepare(self, parameters: dict, *, check=None) -> dict:
         from hushh_mcp.one_adk.agent_tree import _load_product_agent_manifest
 
-        if set(parameters) != {"file_id"}:
+        fields = set(parameters)
+        revisions = {"expected_file_revision", "expected_analysis_revision"}
+        if fields not in ({"file_id"}, {"file_id"} | revisions) or any(
+            type(parameters[key]) is not int or parameters[key] < 0 for key in fields & revisions
+        ):
             raise ScheduleRefused("SCHEDULE_PARAMETERS_REFUSED")
         file_id = identifier(parameters["file_id"])
         manifest = _load_product_agent_manifest("agent_files")
@@ -31,6 +35,11 @@ class ScheduledFileOrganization:
                 entry = await library.stat(file_id)
                 if entry["kind"] != "file" or entry["state"] != "ready":
                     raise ScheduleRefused("SCHEDULE_SOURCE_UNAVAILABLE")
+                if revisions <= fields and (
+                    parameters["expected_file_revision"] != entry["revision"]
+                    or parameters["expected_analysis_revision"] != settings["revision"]
+                ):
+                    raise ScheduleRefused("SCHEDULE_SOURCE_CHANGED")
                 return {
                     "file_id": file_id,
                     "file_revision": entry["revision"],

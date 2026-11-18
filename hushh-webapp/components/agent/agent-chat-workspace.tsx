@@ -310,6 +310,8 @@ import {
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
+import { readFileScheduleProposal, type FileScheduleProposal } from "@/lib/agent/file-schedule-proposal";
+import { ChatFileScheduleCard } from "@/components/scheduled-tasks/chat-file-schedule-card";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
@@ -2957,6 +2959,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // as an inline card; never auto-fired for kind:"action".
   const [pendingSpecialistDirective, setPendingSpecialistDirective] =
     useState<(SpecialistDirectiveEvent & { sourceAssistantMessageId: string }) | null>(null);
+  const [fileScheduleReview, setFileScheduleReview] = useState<{
+    proposal: FileScheduleProposal; assistantId: string; ownerId: string; epoch: number;
+  } | null>(null);
+  const fileScheduleCredentials = useMemo(() => applicationOwnerId && isVaultUnlocked && vaultKey && vaultOwnerToken
+    ? { userId: applicationOwnerId, vaultKey, vaultOwnerToken } : null,
+  [applicationOwnerId, isVaultUnlocked, vaultKey, vaultOwnerToken]);
   const [pendingAppAction, setPendingAppAction] = useState<{
     event: AgentChatToolEvent;
     cancel?: () => Promise<void>;
@@ -6899,6 +6907,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+            if (toolEvent.raw?.toolName === "propose_file_schedule") {
+              const proposal = readFileScheduleProposal(toolEvent.raw.toolName, toolEvent.raw.result);
+              if (proposal && applicationOwnerId && isCanonicalChatRoute && !isPuppySurface &&
+                isVaultSessionEpochCurrent(vaultSessionEpoch) && workspaceOwnerIdRef.current === applicationOwnerId) {
+                setFileScheduleReview({ proposal, assistantId: assistantMessageId, ownerId: applicationOwnerId, epoch: vaultSessionEpoch });
+              }
+              return;
+            }
             if (nameTurn && toolEvent.raw?.toolName === "propose_style_settings") {
               nameTurn.stage(toolEvent.raw.result, toolEvent.callId);
               upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("result", toolEvent));
@@ -10498,6 +10514,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   }}
                 />
               ) : null}
+
+              {fileScheduleReview && fileScheduleCredentials && isCanonicalChatRoute && !isPuppySurface &&
+                fileScheduleReview.ownerId === fileScheduleCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
+                messages.some(message => message.id === fileScheduleReview.assistantId) ? (
+                  <ChatFileScheduleCard key={fileScheduleReview.assistantId} proposal={fileScheduleReview.proposal}
+                    credentials={fileScheduleCredentials} onDismiss={() => setFileScheduleReview(null)} />
+                ) : null}
 
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (

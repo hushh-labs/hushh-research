@@ -22,6 +22,10 @@ import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
+import { FILE_ORGANIZATION_TEMPLATE, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 
 function deferredWrite() {
   let resolve!: (result: Awaited<ReturnType<typeof TodoListPkmService.setStatus>>) => void;
@@ -32,6 +36,7 @@ function deferredWrite() {
 const mocks = vi.hoisted(() => ({
   native: false,
   nativeFailed: false,
+  search: "",
   workspace: null as Parameters<typeof import("@/lib/capacitor/use-native-workspace").useNativeWorkspace>[0] | null,
   user: { uid: "todo-owner", getIdToken: vi.fn() },
   unlocked: true,
@@ -59,7 +64,7 @@ vi.mock("@/lib/capacitor/use-native-workspace", () => ({
   useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
   useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(mocks.search) }));
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: { connected: true }, loadingStatus: false, statusError: mocks.mailError }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
@@ -127,9 +132,11 @@ describe("TodoListPage row actions", () => {
     vi.restoreAllMocks();
     mocks.native = false;
     mocks.nativeFailed = false;
+    mocks.search = "";
     mocks.workspace = null;
     mocks.unlocked = true;
     mocks.user.uid = "todo-owner";
+    publishValidatedAuthSessionOwner(mocks.user.uid);
     mocks.actionables = [];
     mocks.feedError = null;
     mocks.feedLoading = false;
@@ -153,6 +160,40 @@ describe("TodoListPage row actions", () => {
       saveState: "saved",
       fullBlob: {},
     });
+  });
+
+  it.each([false, true])("loads the recorded run in Tasks on a schedule link (native %s)", async native => {
+    mocks.native = native;
+    const id = `schedule_${"a".repeat(32)}`;
+    mocks.search = `scheduled=${id}`;
+    vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as unknown as ReturnType<typeof AuthService.getCurrentUser>);
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "byoc" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+    const status = vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
+      available: true, code: null, templates: [FILE_ORGANIZATION_TEMPLATE], authorization_limit_at: 10_000,
+      tasks: [{ id, title: "Organize Minutes.txt", capability: FILE_ORGANIZATION_TEMPLATE, revision: 4,
+        state: "completed", repeat: "once", timezone: "UTC", next_run_at: 1000, authorization_expires_at: 3000,
+        last_run: { state: "completed", started_at: 1000, finished_at: 1005 } }],
+    });
+    render(<TodoListPage />);
+    if (native) {
+      await waitFor(() => expect(mocks.workspace?.content.sections?.flatMap(section => section.rows)
+        .find(row => row.label === "Organize Minutes.txt")?.detail).toContain("Latest run: Completed"));
+    } else {
+      expect(await screen.findByText(/Latest run: Completed/)).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Scheduled runs" })).toBeVisible();
+    }
+    expect(status).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses Shared execution before reading an owner Pod schedule", async () => {
+    vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as unknown as ReturnType<typeof AuthService.getCurrentUser>);
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "shared" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+    const status = vi.spyOn(PodScheduledTasksClient.prototype, "status");
+    render(<TodoListPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled runs" }));
+    expect(await screen.findByText("Scheduling requires a private agent.")).toBeVisible();
+    expect(status).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
   });
 
   it("binds native task completion and confirmed deletion to the existing service and closes only a successful draft", async () => {

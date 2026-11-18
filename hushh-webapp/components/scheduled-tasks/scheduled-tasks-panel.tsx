@@ -37,6 +37,23 @@ export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
   needs_review: "Needs review",
 };
 
+const runLabels: Record<string, string> = {
+  running: "Running", completed: "Completed", failed: "Failed", needs_review: "Needs review",
+  cancelled: "Cancelled", outcome_uncertain: "Outcome uncertain",
+};
+
+export function scheduledRunSummary(task: ScheduledTask): string {
+  const run = task.last_run;
+  if (!run) return "No run recorded yet";
+  const when = new Date((run.finished_at ?? run.started_at) * 1000).toLocaleString();
+  return `Latest run: ${runLabels[run.state] ?? "Unavailable"} · ${when}`;
+}
+
+export function preferredScheduledTasks(tasks: ScheduledTask[], selectedId?: string | null) {
+  const selected = selectedId ? tasks.find(task => task.id === selectedId) : undefined;
+  return selected ? [selected, ...tasks.filter(task => task.id !== selected.id)] : tasks;
+}
+
 /** Owner opens this view explicitly. No polling keeps a sleeping pod awake. */
 export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   if (!areScheduledTasksAvailable()) return null;
@@ -44,7 +61,7 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <OwnerScheduledTasksPanel key={`${ownerId}:${generation}`} ownerId={ownerId} />;
 }
 
-export function useScheduledTasksModel(ownerId: string) {
+export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.ONE_HOME) {
   const client = useMemo(() => new PodScheduledTasksClient(ownerId), [ownerId]);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
@@ -52,19 +69,21 @@ export function useScheduledTasksModel(ownerId: string) {
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState("");
   const [placementMessage, setPlacementMessage] = useState("");
+  const [readRevision, setReadRevision] = useState(0);
   const active = useRef(false);
   const work = useRef<AbortController | null>(null);
   const close = () => {
     if (!busy) setOpen(false);
     return true;
   };
-  useBackLayer(ROUTES.ONE_HOME, open ? 2 : 0, close);
+  useBackLayer(route, open ? 2 : 0, close);
   useEffect(() => {
     if (!areScheduledTasksAvailable() || !open) return;
     const owner = snapshotValidatedAuthSessionOwner();
     if (owner?.userId !== ownerId) return;
     const request = new AbortController();
     work.current = request;
+    setStatus(null);
     setChecking(true);
     setMessage("");
     setPlacementMessage("");
@@ -76,7 +95,7 @@ export function useScheduledTasksModel(ownerId: string) {
         if (hosting.hostingMode !== "byoc" && hosting.hostingMode !== "hussh_pods") {
           setStatus(null);
           setPlacementMessage(hosting.hostingMode === "shared"
-            ? "Scheduled tasks need Agent One."
+            ? "Scheduling requires a private agent."
             : "Finish setting up Agent One to schedule work.");
           return null;
         }
@@ -100,7 +119,7 @@ export function useScheduledTasksModel(ownerId: string) {
       request.abort();
       work.current = null;
     };
-  }, [client, open, ownerId]);
+  }, [client, open, ownerId, readRevision]);
 
   const control = async (
     task: ScheduledTask,
@@ -167,16 +186,22 @@ export function useScheduledTasksModel(ownerId: string) {
   };
 
   const changeOpen = (value: boolean) => { if (!busy && (!value || areScheduledTasksAvailable())) setOpen(value); };
-  return { open, changeOpen, close, status, message, checking, busy, placementMessage, control };
+  const refresh = () => { if (!busy && !checking && open) setReadRevision(value => value + 1); };
+  return { open, changeOpen, close, status, message, checking, busy, placementMessage, control, refresh };
 }
 
 function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <ScheduledTasksPanelBody model={useScheduledTasksModel(ownerId)} />;
 }
 
-export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof useScheduledTasksModel> }) {
+export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: {
+  model: ReturnType<typeof useScheduledTasksModel>;
+  selectedId?: string | null;
+  inTasks?: boolean;
+}) {
   if (!areScheduledTasksAvailable()) return null;
-  const { open, changeOpen, close, status, message, checking, busy, placementMessage, control } = model;
+  const { open, changeOpen, close, status, message, checking, busy, placementMessage, control, refresh } = model;
+  const title = inTasks ? "Scheduled runs" : "Scheduled tasks";
 
   return (
     <Dialog
@@ -186,20 +211,20 @@ export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof us
       <DialogTrigger asChild>
         <ShellActionSurface
           variant="pill"
-          aria-label="Scheduled tasks"
-          title="Scheduled tasks"
+          aria-label={title}
+          title={title}
           className="h-11 w-11 shrink-0 p-0 min-[520px]:w-auto min-[520px]:px-3.5"
-          data-voice-control-id="one_scheduled_tasks"
+          data-voice-control-id={inTasks ? undefined : "one_scheduled_tasks"}
         >
           <CalendarClock className="h-5 w-5 shrink-0" aria-hidden="true" />
-          <span className="hidden min-[520px]:inline">Scheduled tasks</span>
+          <span className="hidden min-[520px]:inline">{title}</span>
         </ShellActionSurface>
       </DialogTrigger>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Scheduled tasks</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Agent One wakes for approved work.
+            Your private agent runs approved work. Results appear here when recorded.
           </DialogDescription>
         </DialogHeader>
         {message && (
@@ -218,13 +243,16 @@ export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof us
             Scheduling isn’t available on this pod yet.
           </p>
         )}
-        {status?.tasks.length === 0 && (
+        {status?.available && status.tasks.length === 0 && (
           <p className="text-sm text-muted-foreground">
             No scheduled tasks. Choose a file in Files to schedule organization.
           </p>
         )}
+        {selectedId && status && !status.tasks.some(task => task.id === selectedId) ? (
+          <p role="status" className="text-sm text-muted-foreground">This schedule wasn’t found on your current Pod.</p>
+        ) : null}
         <ul className="divide-y divide-border" aria-busy={checking}>
-          {status?.tasks.map((task) => (
+          {status && preferredScheduledTasks(status.tasks, selectedId).map((task) => (
             <li
               key={task.id}
               className="flex min-w-0 flex-wrap items-center gap-3 py-3"
@@ -232,9 +260,10 @@ export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof us
               <div className="min-w-0 flex-1 basis-48">
                 <p className="break-words text-sm font-medium">{task.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  {scheduledTaskLabels[task.state]} ·{" "}
-                  {new Date(task.next_run_at * 1000).toLocaleString()}
+                  {scheduledTaskLabels[task.state]}
+                  {task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
                 </p>
+                <p className="text-xs text-muted-foreground">{scheduledRunSummary(task)}</p>
                 {task.last_run?.state === "outcome_uncertain" && (
                   <p className="text-xs text-muted-foreground">
                     Check the result before scheduling again.
@@ -278,6 +307,8 @@ export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof us
             </li>
           ))}
         </ul>
+        <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={checking || Boolean(busy)} onClick={refresh}>Refresh</Button>
         <Button variant="outline" asChild>
           <Link
             href={placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES}
@@ -290,6 +321,7 @@ export function ScheduledTasksPanelBody({ model }: { model: ReturnType<typeof us
             {placementMessage ? "Hosting" : "Open Files"}
           </Link>
         </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -9,6 +9,9 @@ import {
   type Ref,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { ScheduledTasksPanelBody, useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
+import { areScheduledTasksAvailable, isScheduledTaskId } from "@/lib/services/pod-scheduled-tasks";
 import { NativeTodoWorkspace } from "./native-todo-workspace";
 import { validWorkspaceTaskDraft, type NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 
@@ -149,6 +152,17 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
+  const requestedSchedule = useSearchParams()?.get("scheduled");
+  const selectedSchedule = isScheduledTaskId(requestedSchedule) ? requestedSchedule : null;
+  const schedules = useScheduledTasksModel(writeReady ? userId ?? "" : "", ROUTES.ONE_TASKS);
+  const seenScheduleLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedSchedule) { seenScheduleLink.current = null; return; }
+    if (writeReady && (requestedSchedule === "1" || selectedSchedule) && seenScheduleLink.current !== requestedSchedule) {
+      seenScheduleLink.current = requestedSchedule;
+      schedules.changeOpen(true);
+    }
+  }, [requestedSchedule, schedules, selectedSchedule, writeReady]);
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -403,6 +417,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           actionsInlineMobile
           actions={
             <div className="flex items-center gap-2">
+              {writeReady ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks /> : null}
               {writeReady && agentLoadError ? (
                 <Button
                   variant="none"
@@ -654,5 +669,5 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     ],
     overflowHref: agentFeed.actionables.some(item => item.id === "consent:overflow") ? agentFeed.actionables.find(item => item.id === "consent:overflow")?.href || "/one/feed" : null,
     save: saveTask, toggle: toggleTask, remove: deleteTask,
-  }} fallback={fallback} />;
+  }} fallback={fallback} schedules={areScheduledTasksAvailable() ? schedules : undefined} selectedSchedule={selectedSchedule} />;
 }

@@ -6466,7 +6466,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.tasks",
-        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
+        "purpose": "Review private tasks, the read-only Calendar agenda, and the recorded outcome of approved scheduled Files runs on the owner's private Pod.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -6481,7 +6481,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+        "completion_boundary": "Ordinary task saves require owner confirmation. Scheduled results reflect the current Pod's last-run receipt, including uncertain outcomes. Back closes the scheduled-runs view before leaving Tasks.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

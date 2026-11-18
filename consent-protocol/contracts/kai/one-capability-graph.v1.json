@@ -53005,7 +53005,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c533b9e9c8470aecbbe0641c2b805dc8a15c28224cd5be4555cfeda20e3433f7",
+      "projection_digest": "b9837070127ef991b8de5947c06d1f3199aa9d6979e9fbe1720e3f0af3fe2394",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53024,7 +53024,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f78d5fe90002eead",
+      "source_revision": "5aa4f2628d570838",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -54542,7 +54542,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "f78d5fe90002eead",
+    "source_revision": "5aa4f2628d570838",
     "web": {
       "actions": [
         {
@@ -54585,7 +54585,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "39cf6f976c8f0fe71edcb081e09e41a2b347703108b6706ba05a666968229c3c",
+      "projection_digest": "d363e5c1975f7b79c4c8071566275f31fd648face83248fe629cd6f171ec73ff",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -54604,7 +54604,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f78d5fe90002eead",
+      "source_revision": "5aa4f2628d570838",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -56161,7 +56161,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "f78d5fe90002eead",
+  "revision": "5aa4f2628d570838",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -58196,70 +58196,14 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:answer.request.enable_receiving",
-      "actions:answer.request.pay",
-      "actions:answer.request.prepare",
-      "actions:auth.deletion_done",
-      "actions:auth.deletion_start_fresh",
-      "actions:calendar.connection.connect",
-      "actions:calendar.connection.disconnect",
-      "actions:files.upload",
-      "actions:kyc.save_profile",
-      "actions:messages.copy_text",
-      "actions:pkm.delete_memory",
-      "actions:pkm.edit_memory",
-      "actions:pkm.export_memory",
-      "actions:pkm.prepare_capture",
-      "actions:pkm.retry_capture_section",
-      "actions:pkm.save_capture",
-      "actions:profile.attempt_email.choose",
-      "actions:profile.attempt_email.retry",
-      "actions:profile.attempt_email.save",
-      "actions:route.profile_net_worth_score",
       "screens:screen:/one/goals",
       "screens:screen:/one/tasks"
     ],
     "breaking": [],
-    "changed": [
-      "actions:connect.explore_network",
-      "actions:people.profile.browse_network",
-      "actions:profile.network_visibility.choose",
-      "actions:route.kai_portfolio_allocation",
-      "actions:route.kai_portfolio_holdings",
-      "actions:route.kai_portfolio_performance",
-      "actions:route.kai_portfolio_sources",
-      "actions:route.profile",
-      "actions:route.profile_payouts",
-      "brains:location",
-      "screens:screen:/login",
-      "screens:screen:/one/kai",
-      "screens:screen:/one/kai?tab=analysis",
-      "screens:screen:/one/kai?tab=analysis&focus=active",
-      "screens:screen:/one/kai?tab=analysis&view=history",
-      "screens:screen:/one/kai?tab=portfolio",
-      "screens:screen:/one/profile",
-      "screens:screen:/one/profile/account",
-      "screens:screen:/one/profile/account/phone",
-      "services:service.calendar",
-      "services:service.kyc",
-      "services:service.location",
-      "workflows:workflow.setup.location"
-    ],
-    "compatible": [
-      "actions:route.kai_portfolio_allocation",
-      "actions:route.kai_portfolio_holdings",
-      "actions:route.kai_portfolio_performance",
-      "actions:route.kai_portfolio_sources",
-      "actions:route.profile",
-      "workflows:workflow.setup.location"
-    ],
-    "deprecated": [
-      "actions:connect.explore_network",
-      "actions:people.profile.browse_network",
-      "actions:profile.network_visibility.choose",
-      "actions:route.profile_payouts"
-    ],
-    "from_revision": "6019c40d049d820e",
+    "changed": [],
+    "compatible": [],
+    "deprecated": [],
+    "from_revision": "225fd9551e787568",
     "migrated": [],
     "removed": []
   },
@@ -60637,13 +60581,13 @@
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "95bf915f96421c6ae0c0103afbcf9116f18d87671714180a8c44c3dedde3bc69",
-    "route_orchestration_index": "474de09c1faeb5bfeba8cfdc25468925dc4bf73d67fb9540f6fc636a114c184c",
+    "product_agent_registry": "1ee72ad0e90823cbf733121bc170617ebee12584852cea95b6bf40c0278a1c8e",
+    "route_orchestration_index": "c6dd997db73e8b40bd4223905d200e123c6dfef9ac43c4656f629313619f765d",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "f78d5fe90002eead",
+  "source_revision": "5aa4f2628d570838",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "f78d5fe90002eead",
+    "current_graph_revision": "5aa4f2628d570838",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

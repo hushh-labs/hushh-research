@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
 import {
   Dialog,
   DialogContent,
@@ -11,86 +12,96 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import {
+  FILE_ORGANIZATION_TEMPLATE,
   PodScheduledTasksClient,
+  scheduledTaskHref,
+  type ScheduleFileSelection,
+  type ScheduledTask,
   type ScheduledTasksStatus,
 } from "@/lib/services/pod-scheduled-tasks";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 export function ScheduleFileDialog({
   file,
   open,
   onOpenChange,
+  route = ROUTES.ONE_FILES,
+  initialTime = "",
+  reviewedClient,
+  beforeConfirm,
+  onScheduled,
 }: {
-  file: { id: string; name: string };
+  file: ScheduleFileSelection;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  route?: string;
+  initialTime?: string;
+  reviewedClient?: PodScheduledTasksClient;
+  beforeConfirm?: (signal: AbortSignal) => Promise<void>;
+  onScheduled?: (task: ScheduledTask) => void;
 }) {
-  const [when, setWhen] = useState("");
+  const [when, setWhen] = useState(initialTime);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
-  const selection = useMemo(
-    () => ({ fileId: file.id, fileName: file.name, when, requestId: crypto.randomUUID() }),
-    [file.id, file.name, when],
-  );
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const ownerId = snapshotValidatedAuthSessionOwner()?.userId;
+  const client = useMemo(() => reviewedClient ?? (ownerId ? new PodScheduledTasksClient(ownerId) : null), [ownerId, reviewedClient]);
   const pending = useRef(false);
+  const approved = useRef<{ runAt: number; requestId: string; timezone: string } | null>(null);
   const work = useRef<AbortController | null>(null);
   useEffect(() => () => work.current?.abort(), []);
   useEffect(() => {
-    if (!open) return;
-    const owner = snapshotValidatedAuthSessionOwner()?.userId;
-    if (!owner) return;
+    if (!open || !client) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const epoch = snapshotVaultSessionEpoch();
     const request = new AbortController();
+    const current = () => !request.signal.aborted && owner !== null &&
+      isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch);
     setStatus(null);
     setMessage("");
-    void new PodScheduledTasksClient(owner)
+    void client
       .status(request.signal)
       .then((value) => {
-        if (
-          !request.signal.aborted &&
-          snapshotValidatedAuthSessionOwner()?.userId === owner
-        )
-          setStatus(value);
+        if (current()) setStatus(value);
       })
       .catch(() => {
-        if (
-          !request.signal.aborted &&
-          snapshotValidatedAuthSessionOwner()?.userId === owner
-        )
-          setMessage("Could not verify scheduling. Reopen to try again.");
+        if (current()) setMessage("Couldn’t verify scheduling. Reopen to try again.");
       });
     return () => request.abort();
-  }, [open]);
+  }, [client, open]);
   const close = () => {
     if (!busy) onOpenChange(false);
     return true;
   };
-  useBackLayer(ROUTES.ONE_FILES, open ? 2 : 0, close);
+  useBackLayer(route, open ? 3 : 0, close);
+  const available = status?.available && status.templates.includes(FILE_ORGANIZATION_TEMPLATE);
 
   const schedule = async () => {
-    const owner = snapshotValidatedAuthSessionOwner()?.userId;
-    const runAt = Math.floor(new Date(when).getTime() / 1000);
+    const owner = snapshotValidatedAuthSessionOwner();
+    const epoch = snapshotVaultSessionEpoch();
+    const runAt = approved.current?.runAt ?? Math.floor(new Date(when).getTime() / 1000);
+    const timezone = approved.current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (pending.current) return;
-    if (!owner) {
-      morphyToast.error("Sign in and unlock your cloud agent first");
+    if (!owner || !client) {
+      setMessage("Unlock your private agent first.");
       return;
     }
-    if (!Number.isFinite(runAt) || runAt <= Date.now() / 1000 + 60) {
-      morphyToast.error("Choose a time at least one minute from now");
+    if (!Number.isFinite(runAt) || (!unconfirmed && runAt <= Date.now() / 1000 + 60)) {
+      setMessage("Choose a time at least one minute from now.");
       return;
     }
     if (
-      !status?.available ||
+      !available ||
       !status.authorization_limit_at ||
       runAt + 86_400 > status.authorization_limit_at
     ) {
-      morphyToast.error(
-        "Choose an earlier time within your approved access, or renew access first",
-      );
+      setMessage("Choose an earlier time within your approved access, or renew access first.");
       return;
     }
     pending.current = true;
@@ -99,37 +110,33 @@ export function ScheduleFileDialog({
     const request = new AbortController();
     work.current = request;
     const current = () =>
-      !request.signal.aborted && snapshotValidatedAuthSessionOwner()?.userId === owner;
-    const operation = new PodScheduledTasksClient(owner)
-      .organizeFile(file, runAt, selection.requestId, request.signal)
-      .then((task) => {
-        if (!current()) throw new Error("SCHEDULE_OWNER_CHANGED");
-        if (task.state !== "scheduled") throw new Error("SCHEDULE_UNCONFIRMED");
-        return task;
-      });
-    const notification = morphyToast.promise(operation, {
-      loading: "Scheduling organization…",
-      success: "Organization scheduled",
-      error:
-        "Could not confirm scheduling. Check Scheduled tasks before trying again.",
-      isCurrent: current,
-    });
-    const retire = () => {
-      if (typeof notification === "string" || typeof notification === "number")
-        morphyToast.dismiss(notification);
-    };
-    request.signal.addEventListener("abort", retire, { once: true });
+      !request.signal.aborted && isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch);
+    let attempted = unconfirmed;
     try {
-      await operation;
+      if (!unconfirmed) await beforeConfirm?.(request.signal);
       if (!current()) return;
+      const terms = approved.current ?? { runAt, requestId: crypto.randomUUID(), timezone };
+      approved.current = terms;
+      attempted = true;
+      const task = await client.organizeFile(file, terms.runAt, terms.requestId, request.signal, terms.timezone);
+      if (!current()) return;
+      if (!["scheduled", "running", "completed"].includes(task.state)) throw new Error("SCHEDULE_UNCONFIRMED");
+      onScheduled?.(task);
+      if (!onScheduled) morphyToast.success("Schedule confirmed");
       onOpenChange(false);
-    } catch {
-      // Preserve the request ID for an idempotent retry; the toast owns action feedback.
+    } catch (error) {
+      if (current()) {
+        const changed = error instanceof Error && error.message === "SCHEDULE_SOURCE_CHANGED";
+        if (changed) approved.current = null;
+        setUnconfirmed(attempted && !changed);
+        setMessage(attempted && !changed
+          ? "Scheduling couldn’t be confirmed. Check Tasks first. Retrying this request uses the same file and time."
+          : "The selected file or its permission changed. Close this review and select the file again.");
+      }
     } finally {
-      request.signal.removeEventListener("abort", retire);
       work.current = null;
       pending.current = false;
-      setBusy(false);
+      if (!request.signal.aborted) setBusy(false);
     }
   };
 
@@ -144,7 +151,7 @@ export function ScheduleFileDialog({
         <DialogHeader>
           <DialogTitle>Schedule organization</DialogTitle>
           <DialogDescription className="break-words">
-            Organize {file.name} once, using your current analysis permission.
+            Run on your private Pod. Organize {file.name} once, using your current analysis permission.
             Changes to the file or permission require review.
           </DialogDescription>
         </DialogHeader>
@@ -153,7 +160,7 @@ export function ScheduleFileDialog({
           <Input
             type="datetime-local"
             value={when}
-            disabled={busy || !status?.available}
+            disabled={busy || unconfirmed || !available}
             onChange={(event) => {
               setWhen(event.target.value);
               setMessage("");
@@ -161,8 +168,8 @@ export function ScheduleFileDialog({
           />
         </label>
         <p className="text-xs text-muted-foreground">
-          {status?.available && status.authorization_limit_at
-            ? `Your local time. Approved access ends ${new Date(status.authorization_limit_at * 1000).toLocaleString()}; this task expires 24 hours after its scheduled time.`
+          {available && status.authorization_limit_at
+            ? `Time zone: ${approved.current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}. Approved access ends ${new Date(status.authorization_limit_at * 1000).toLocaleString()}. This task expires 24 hours after its scheduled time.`
             : status
               ? "Scheduling is not available on this pod yet."
               : "Checking scheduling…"}
@@ -173,14 +180,15 @@ export function ScheduleFileDialog({
           </p>
         )}
         <DialogFooter>
+          {unconfirmed ? <Button variant="outline" asChild><Link href={scheduledTaskHref()}>Check Tasks</Link></Button> : null}
           <Button variant="ghost" disabled={busy} onClick={close}>
-            Cancel
+            {unconfirmed ? "Close" : "Cancel"}
           </Button>
           <Button
-            disabled={busy || !when || !status?.available}
+            disabled={busy || !when || !available}
             onClick={() => void schedule()}
           >
-            {busy ? "Scheduling…" : "Schedule"}
+            {busy ? "Scheduling…" : unconfirmed ? "Retry same request" : "Confirm schedule"}
           </Button>
         </DialogFooter>
       </DialogContent>

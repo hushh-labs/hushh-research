@@ -1,7 +1,21 @@
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { ApiService } from "./api-service";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { ROUTES } from "@/lib/navigation/routes";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
+
+export const FILE_ORGANIZATION_TEMPLATE = "agent_files.organize_file.v1";
+export type ScheduleFileSelection = { id: string; name: string } & (
+  { revision: number; analysisRevision: number } | { revision?: never; analysisRevision?: never }
+);
+export function isScheduledTaskId(id: unknown): id is string {
+  return typeof id === "string" && /^schedule_[a-f0-9]{32}$/.test(id);
+}
+
+export function scheduledTaskHref(taskId?: string): string {
+  return `${ROUTES.ONE_TASKS}?scheduled=${isScheduledTaskId(taskId) ? taskId : "1"}`;
+}
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
@@ -41,12 +55,11 @@ function parseTask(value: unknown): ScheduledTask {
     throw new Error("SCHEDULE_RESPONSE_REFUSED");
   const row = value as ScheduledTask;
   if (
-    typeof row.id !== "string" ||
-    !/^schedule_[a-f0-9]{32}$/.test(row.id) ||
+    !isScheduledTaskId(row.id) ||
     typeof row.title !== "string" ||
     !row.title ||
     row.title.length > 80 ||
-    row.capability !== "agent_files.organize_file.v1" ||
+    row.capability !== FILE_ORGANIZATION_TEMPLATE ||
     !Number.isSafeInteger(row.revision) ||
     row.revision < 1 ||
     ![
@@ -125,6 +138,8 @@ async function untilAborted<T>(
 
 /** Direct admitted pod only. No hub task contents, local timer, or Shared fallback. */
 export class PodScheduledTasksClient {
+  private reviewedPodId: string | null = null;
+
   constructor(private readonly ownerId: string) {}
 
   private async request(
@@ -134,8 +149,11 @@ export class PodScheduledTasksClient {
   ): Promise<unknown> {
     if (!areScheduledTasksAvailable()) throw new Error("SCHEDULE_UNAVAILABLE");
     const request = new AbortController();
+    const owner = snapshotValidatedAuthSessionOwner();
+    const epoch = snapshotVaultSessionEpoch();
     const current = () =>
-      snapshotValidatedAuthSessionOwner()?.userId === this.ownerId &&
+      owner?.userId === this.ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
+      isVaultSessionEpochCurrent(epoch) &&
       !request.signal.aborted;
     if (!current()) throw new Error("SCHEDULE_OWNER_CHANGED");
     const abort = () => request.abort();
@@ -149,6 +167,9 @@ export class PodScheduledTasksClient {
       );
       if (!current() || !admission || admission.ownerId !== this.ownerId)
         throw new Error("SCHEDULE_OWNER_POD_REQUIRED");
+      if (this.reviewedPodId !== null && admission.podId !== this.reviewedPodId)
+        throw new Error("SCHEDULE_OWNER_POD_CHANGED");
+      this.reviewedPodId = admission.podId;
       const response = await untilAborted(
         ApiService.ownerPodRequest(
           path,
@@ -202,7 +223,7 @@ export class PodScheduledTasksClient {
       new Set(tasks.map((row) => row.id)).size !== tasks.length ||
       !Array.isArray(body.templates) ||
       body.templates.some(
-        (value) => value !== "agent_files.organize_file.v1",
+        (value) => value !== FILE_ORGANIZATION_TEMPLATE,
       ) ||
       (body.code !== null &&
         (typeof body.code !== "string" || !/^[A-Z_]{1,128}$/.test(body.code)))
@@ -244,10 +265,11 @@ export class PodScheduledTasksClient {
   }
 
   async organizeFile(
-    file: { id: string; name: string },
+    file: ScheduleFileSelection,
     runAt: number,
     requestId: string,
     signal?: AbortSignal,
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
   ): Promise<ScheduledTask> {
     return parseTask(
       await this.request(
@@ -258,11 +280,13 @@ export class PodScheduledTasksClient {
           body: JSON.stringify({
             request_id: requestId,
             title: `Organize ${file.name}`.slice(0, 80),
-            capability: "agent_files.organize_file.v1",
-            parameters: { file_id: file.id },
+            capability: FILE_ORGANIZATION_TEMPLATE,
+            parameters: { file_id: file.id, ...(file.revision !== undefined ? {
+              expected_file_revision: file.revision, expected_analysis_revision: file.analysisRevision,
+            } : {}) },
             first_run_at: runAt,
             repeat: "once",
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timezone,
             authorization_expires_at: runAt + 86_400,
             confirmed: true,
           }),

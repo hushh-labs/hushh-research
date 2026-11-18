@@ -265,6 +265,18 @@ describe("private browser control", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("refuses to submit a schedule reviewed on a different Pod", async () => {
+    api.getComputerUseAdmission.mockResolvedValueOnce({ ownerId: "owner", podId: "pod-first" })
+      .mockResolvedValueOnce({ ownerId: "owner", podId: "pod-second" });
+    api.ownerPodRequest.mockResolvedValue(Response.json({ available: true, code: null,
+      authorization_limit_at: 1000000, templates: ["agent_files.organize_file.v1"], tasks: [] }));
+    const client = new PodScheduledTasksClient("owner");
+    await client.status();
+    await expect(client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id"))
+      .rejects.toThrow("SCHEDULE_OWNER_POD_CHANGED");
+    expect(api.ownerPodRequest).toHaveBeenCalledOnce();
+  });
+
   it("rediscovers current tasks but never admits recovered work from an old incarnation", async () => {
     api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod", environment: "development" });
     const wireBinding = { owner_id: "owner", pod_id: "pod", incarnation: "previous", task_id: "browser_" + "a".repeat(32), environment: "development" };

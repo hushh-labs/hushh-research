@@ -5041,7 +5041,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "de817aeafb4c5674dadb1785bf316e4a10cde0cf0c8516ba86aefbd8420f3fbc",
+      "system_instruction_sha256": "b993f915248f23ad39e66d13a0f181712cf5651e06496822843f0aa52630c7fe",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -5139,6 +5139,12 @@
           "name": "propose_style_settings",
           "py_func": "hushh_mcp.one_adk.owner_style.propose_style_settings",
           "required_scope": "vault.owner"
+        },
+        {
+          "description": "Offer an owner review for organizing one private Files upload later. Reads and schedules nothing.",
+          "name": "propose_file_schedule",
+          "py_func": "hushh_mcp.one_adk.file_schedule_proposal.propose_file_schedule",
+          "required_scope": "cap.one.invoke"
         },
         {
           "description": "Add one optional contextual emoji to the latest typed-chat user message; presentation only, never ends the answer or persists a reaction.",

@@ -270,9 +270,13 @@ controls. Pod execution remains separately qualified for Dev, so visible UAT
 controls do not establish UAT scheduling acceptance. Operational cloud jobs are
 not affected by this product availability rule.
 
-One's **Scheduled tasks** view exposes approved work without keeping a pod awake.
-The first customer action is **Schedule organization** on a ready file. It reviews
-a one-time run in the owner's timezone against the existing Files analysis opt-in.
+**Tasks → Scheduled runs** reads approved work and the latest run receipt on
+request. Its completion label reports the scheduler outcome. Use Files to
+inspect any rename or move. **Schedule organization** on a ready file and the
+private agent's Chat proposal both use the same confirmation form. In Chat the
+owner picks an exact private-library upload and confirms the time. An uncertain
+response offers Check Tasks or a retry of the exact same request. The one-time
+run uses the owner's timezone and the existing Files analysis permission.
 The existing `agent_files` task specialist remains the semantic decision-maker.
 General goals and scheduled browser tasks are not registered execution templates.
 

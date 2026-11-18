@@ -4649,6 +4649,21 @@ Goal details are hidden when the vault locks or the owner changes. Web, iOS and
 Android use the same client and PKM transport. A saved plan grants no background
 execution authority; Pod and Puppy retain their existing approval gates.
 
+### Chat review for a private Files schedule
+
+The Dev private agent's typed Chat tool `propose_file_schedule` emits a review
+offer with an optional timezone-qualified instant. The tool reads and changes
+no file or schedule. The unlocked owner selects an exact upload from private
+Files and confirms a one-time run. The client rechecks the file and uses the
+existing owner-bound Pod scheduling API with the reviewed Pod and request ID.
+The Files adapter rejects a changed file or analysis revision during creation.
+Retries after an uncertain response use the same request and unchanged terms.
+
+The confirmation links to `/one/tasks?scheduled=<opaque-schedule-id>`. Tasks
+reads the current Pod's existing schedule projection and shows the latest run
+state and recorded time. The opaque link supplies no access. Shared hosting
+keeps foreground planning available and cannot submit or read a Pod schedule.
+
 ### Owner-confirmed Gmail To-do follow-ups
 
 An owner may explicitly ask One to prepare Gmail follow-ups for the encrypted

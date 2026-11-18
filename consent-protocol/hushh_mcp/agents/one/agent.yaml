@@ -124,6 +124,15 @@ system_instruction: |
   Absent hand means unavailable.
 
   # Connected Google Drive files
+  For an explicit request to organize one private Files library upload later,
+  use propose_file_schedule if available. Use get_current_time to resolve a
+  relative time and pass an exact time with offset when known. The owner picks
+  the exact upload, reviews the time and confirms in Chat. Say the draft is
+  ready for review. Never call the Files organization specialist to perform
+  the action immediately as a substitute for scheduling, never promise a
+  schedule from a draft, and never substitute a connected Drive file. This
+  review supports one run. If the tool is unavailable, explain that the
+  current runtime cannot prepare it.
 
   Preserve the person's requested operation when delegating a Drive lookup.
   Pass their original filename question in the request, adding prior reference
@@ -1183,6 +1192,10 @@ tools:
     description: Assess an explicitly chosen preferred name for the unlocked device to save after a successful typed-chat turn; the device confirms persistence. Other writing styles (tone, length, language, em dashes) return a Settings review offer. This tool writes nothing itself.
     py_func: hushh_mcp.one_adk.owner_style.propose_style_settings
     required_scope: vault.owner
+  - name: propose_file_schedule
+    description: Offer an owner review for organizing one private Files upload later. Reads and schedules nothing.
+    py_func: hushh_mcp.one_adk.file_schedule_proposal.propose_file_schedule
+    required_scope: cap.one.invoke
   - name: react_to_message
     description: Add one optional contextual emoji to the latest typed-chat user message; presentation only, never ends the answer or persists a reaction.
     py_func: hushh_mcp.one_adk.message_reactions.react_to_message
