@@ -106,9 +106,8 @@ export function FilesWorkspace({
     parent === "root" &&
     !trash &&
     (!query || "personal wiki".includes(query.toLocaleLowerCase()));
-  const available = Boolean(
-    userId && vaultKey && vaultOwnerToken && hosting,
-  );
+  const vaultUnlocked = Boolean(userId && vaultKey && vaultOwnerToken);
+  const available = Boolean(vaultUnlocked && hosting);
   const visibleEntries = entries.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   );
@@ -310,7 +309,7 @@ export function FilesWorkspace({
         <PageHeader title="Files" titleVisuallyHidden className="sr-only" />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
-        {!available ? (
+        {!available && !(vaultUnlocked && inWikiFolder) ? (
           <p className="text-sm text-muted-foreground">
             {connectionError ||
               (vaultKey && vaultOwnerToken

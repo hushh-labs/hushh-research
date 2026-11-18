@@ -1,6 +1,34 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { files, session } from "../fixtures/files-workspace";
+
+vi.mock("@/lib/pkm/agent-core-markdown-files", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pkm/agent-core-markdown-files")>();
+  return {
+    ...actual,
+    peekCoreAgentMarkdownFile: vi.fn(() => null),
+    loadCoreAgentMarkdownFile: vi.fn(async ({ docId }: { docId: "memory.md" | "identity.md" | "soul.md" }) => ({
+      id: docId,
+      markdown: `# ${docId}\n\nVerified personal notes.`,
+      storedMarkdown: `# ${docId}\n\nVerified personal notes.`,
+      persisted: true,
+      isDefaultTemplate: false,
+      updatedAt: "2026-11-18T10:00:00Z",
+    })),
+    saveCoreAgentMarkdownFile: vi.fn(async ({ docId, markdown }: { docId: "memory.md" | "identity.md" | "soul.md"; markdown: string }) => ({
+      success: true,
+      document: {
+        id: docId,
+        markdown,
+        storedMarkdown: markdown,
+        persisted: true,
+        isDefaultTemplate: false,
+        updatedAt: "2026-11-18T10:05:00Z",
+      },
+    })),
+  };
+});
+
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
@@ -203,5 +231,30 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
     expect(
       await screen.findByTestId("files-personal-wiki-folder"),
     ).toBeInTheDocument();
+  });
+
+  it("opens initialDoc core markdown sheet and keeps Core agent files usable even when remote wiki overview fails", async () => {
+    files.wikiOverview.mockRejectedValueOnce(new Error("POD_UNAVAILABLE"));
+    const onConsumed = vi.fn();
+
+    render(
+      <FilesWorkspace
+        initialFolder="personal-wiki"
+        initialDoc="memory.md"
+        onInitialSelectionConsumed={onConsumed}
+      />,
+    );
+
+    const sheet = await screen.findByTestId("files-markdown-document-sheet");
+    expect(sheet).toBeInTheDocument();
+    expect(sheet).toHaveTextContent("memory.md");
+
+    expect(screen.getByTestId("wiki-core-doc-memory.md")).toBeInTheDocument();
+    expect(screen.getByTestId("wiki-core-doc-identity.md")).toBeInTheDocument();
+    expect(screen.getByTestId("wiki-core-doc-soul.md")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(await screen.findByLabelText("memory.md content")).toBeInTheDocument();
+    await waitFor(() => expect(onConsumed).toHaveBeenCalled());
   });
 });

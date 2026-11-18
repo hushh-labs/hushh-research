@@ -69,6 +69,13 @@ export function PersonalWikiPanel({
   const localAbort = useRef<AbortController | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const initialHandledRef = useRef<string | null>(null);
+  const lastOwnerRef = useRef<string | undefined>(ownerId);
+
+  useEffect(() => {
+    if (!ownerId || !vaultKey || !vaultOwnerToken) {
+      setDocTarget(null);
+    }
+  }, [ownerId, vaultKey, vaultOwnerToken]);
 
   const loadOverview = useCallback(
     async (activeSignal: AbortSignal) => {
@@ -105,7 +112,13 @@ export function PersonalWikiPanel({
     const onParentAbort = () => controller.abort();
     signal.addEventListener("abort", onParentAbort, { once: true });
 
-    setDocTarget(null);
+    if (lastOwnerRef.current !== ownerId) {
+      lastOwnerRef.current = ownerId;
+      setDocTarget(null);
+      initialHandledRef.current = null;
+    } else if (unavailable) {
+      setDocTarget((prev) => (prev?.kind === "core" ? prev : null));
+    }
     setConfirmRollback(false);
     if (!ownerId || unavailable) {
       setOverview(null);
@@ -198,25 +211,23 @@ export function PersonalWikiPanel({
   );
 
   useEffect(() => {
-    if (!ownerId || unavailable) return;
-    const key = `${ownerId}:${initialDocId ?? ""}:${initialPageId ?? ""}`;
-    if (!initialDocId && !initialPageId) return;
-    if (initialHandledRef.current === key) return;
-
+    if (!ownerId) return;
     if (isCoreAgentMarkdownId(initialDocId)) {
       if (!vaultKey || !vaultOwnerToken) return;
-      initialHandledRef.current = key;
+      const coreKey = `core:${ownerId}:${initialDocId}`;
+      if (initialHandledRef.current === coreKey) return;
+      initialHandledRef.current = coreKey;
       void openCoreDoc(initialDocId).finally(() => {
         onInitialSelectionConsumed?.();
       });
       return;
     }
-
-    if (initialPageId) {
-      initialHandledRef.current = key;
-      openPage(initialPageId);
-      onInitialSelectionConsumed?.();
-    }
+    if (unavailable || !initialPageId) return;
+    const pageKey = `page:${ownerId}:${initialPageId}`;
+    if (initialHandledRef.current === pageKey) return;
+    initialHandledRef.current = pageKey;
+    openPage(initialPageId);
+    onInitialSelectionConsumed?.();
   }, [
     ownerId,
     unavailable,
@@ -228,38 +239,6 @@ export function PersonalWikiPanel({
     openPage,
     onInitialSelectionConsumed,
   ]);
-
-  if (loading) {
-    return (
-      <p role="status" className="text-sm text-muted-foreground">
-        Opening personal wiki…
-      </p>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="space-y-3">
-        <p role="alert" className="text-sm text-muted-foreground">
-          {loadError}
-        </p>
-        <Button
-          variant="outline"
-          disabled={busy || unavailable}
-          onClick={() => {
-            const activeSignal = localAbort.current?.signal ?? signal;
-            void act(
-              () => loadOverview(activeSignal),
-              "Personal wiki refreshed",
-              false,
-            );
-          }}
-        >
-          Try again
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -274,7 +253,7 @@ export function PersonalWikiPanel({
               description={warm?.updatedAt ? `${meta.subtitle} · Saved` : meta.subtitle}
               leading={<FileText className="size-4 text-muted-foreground" aria-hidden="true" />}
               chevron
-              disabled={disabled || !vaultKey || !vaultOwnerToken}
+              disabled={busy || !vaultKey || !vaultOwnerToken}
               testId={`wiki-core-doc-${docId}`}
               onClick={() => void openCoreDoc(docId)}
             />
@@ -282,7 +261,37 @@ export function PersonalWikiPanel({
         })}
       </SettingsGroup>
 
-      <SettingsGroup title="Preferences" embedded>
+      {unavailable ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Checking your Personal wiki connection…
+        </p>
+      ) : loading ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Opening personal wiki…
+        </p>
+      ) : loadError ? (
+        <div className="space-y-3">
+          <p role="alert" className="text-sm text-muted-foreground">
+            {loadError}
+          </p>
+          <Button
+            variant="outline"
+            disabled={busy || unavailable}
+            onClick={() => {
+              const activeSignal = localAbort.current?.signal ?? signal;
+              void act(
+                () => loadOverview(activeSignal),
+                "Personal wiki refreshed",
+                false,
+              );
+            }}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <>
+          <SettingsGroup title="Preferences" embedded>
         <SettingsRow
           title="Remember from conversations"
           description="Saves durable notes to your private wiki. Never shares with anyone or connects external accounts."
@@ -641,11 +650,13 @@ export function PersonalWikiPanel({
           </div>
         </details>
       ) : null}
+        </>
+      )}
 
       <FilesMarkdownDocumentSheet
         open={docTarget !== null}
         target={docTarget}
-        busy={disabled}
+        busy={docTarget?.kind === "core" ? busy : disabled}
         initialMode="preview"
         onClose={() => setDocTarget(null)}
         onSaveCore={async ({
