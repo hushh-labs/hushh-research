@@ -179,6 +179,34 @@ async function settle(page: Page, _width: number) {
     .toBe(0);
 }
 
+test("Connect preloads Explore before opening and keeps warmed tabs ready", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await open(page, 393, false);
+  const source = page.getByRole("button", { name: "Explore your network", exact: true });
+  const html = page.locator("html");
+  await expect.poll(async () => ({ reads: await html.getAttribute("data-network-list-reads"), errors })).toEqual({ reads: "4", errors: [] });
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      if (document.querySelector("[data-person-profile-preview]")?.textContent?.includes("Loading connections…")) {
+        document.documentElement.dataset.networkLoaderSeen = "yes";
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
+  await source.click();
+  const preview = page.getByRole("dialog", { name: "Your network" });
+  await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
+  await preview.getByRole("button", { name: "Through connections" }).click();
+  await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
+  await preview.getByRole("button", { name: "Back to previous screen" }).click();
+  await expect(preview).toHaveCount(0);
+  await source.click();
+  await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
+  await expect(html).toHaveAttribute("data-network-list-reads", "4");
+  expect(await html.getAttribute("data-network-loader-seen")).toBeNull();
+});
+
 for (const destination of ["mutual-list", "discovery"] as const) {
   test(`late single-mutual lookup cannot replace a newer ${destination} visit`, async ({ page }) => {
     await open(page, 393, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => { document.documentElement.dataset.delayedSingleMutual = "1"; });

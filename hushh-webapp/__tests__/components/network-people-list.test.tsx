@@ -18,6 +18,7 @@ import { PersonNetworkSummary } from "@/components/connections/person-network-su
 import { NetworkVisibilitySetting } from "@/components/profile/network-visibility-setting";
 import { PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import { discoveryNetworkPages, NetworkPageCache, preloadNetworkDiscovery } from "@/lib/connect/network-page-cache";
 
 const row = (ref: string) => ({ publicPersonRef: ref, displayName: ref, photoUrl: null, networkDegree: 2 });
 const page = (number = 1) => ({ person: { publicPersonRef: "target", displayName: "Target" }, items: [row(`Person ${number}`)], page: number, hasMore: number === 1 });
@@ -190,7 +191,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
     await waitFor(() => expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toHaveFocus());
     expect(mounted.container.firstElementChild!.scrollTop).toBe(180);
     state.list.mockRejectedValue(new state.Error(403));
-    act(() => window.dispatchEvent(new Event("focus")));
+    act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
     await screen.findByRole("alert");
     expect(screen.queryByRole("button", { name: "Open Person 2's profile" })).toBeNull();
   });
@@ -234,6 +235,38 @@ describe("network permission and journey return @feature_connected_profiles", ()
     act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
     expect(screen.queryByRole("button", { name: "Open Peer's profile" })).toBeNull();
     await screen.findByText("No people to show right now. Check back as more people join.");
+  });
+
+  it("renders preloaded filters and a paged journey return without waiting on network or tab focus", async () => {
+    const owner = "acct_recreated_owner";
+    preloadNetworkDiscovery(owner, state.user.getIdToken);
+    const cache = discoveryNetworkPages(owner);
+    await waitFor(() => expect(cache.peek({ mode: "discovery", query: "", degree: 3, page: 1 })).toBeDefined());
+    const view = () => <NetworkPeopleList mode="discovery" visitKey="preloaded-return" embedded retainedPages={cache} />;
+    const first = render(view());
+    expect(screen.getByRole("button", { name: "Open Person 1's profile" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    expect(screen.getByRole("button", { name: "Open Person 1's profile" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Person 2's profile" }));
+    first.unmount();
+    state.list.mockClear();
+    render(view());
+    expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toBeVisible();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toHaveFocus());
+    expect(screen.queryByText("Loading connections…")).toBeNull();
+    expect(state.list).not.toHaveBeenCalled();
+  });
+
+  it("rejects a retained private read after authentication changes", async () => {
+    const retainedPages = new NetworkPageCache();
+    await retainedPages.load({ mode: "connections", personRef: "target", query: "", page: 1 }, state.user.getIdToken);
+    state.generation++;
+    expect(retainedPages.peek({ mode: "connections", personRef: "target", query: "", page: 1 })).toBeUndefined();
   });
 
   it("keeps suggestions after loading more and prefers a newly qualified network row", async () => {

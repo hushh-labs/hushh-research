@@ -11,12 +11,15 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { PERSON_PROFILE_PREVIEW_EVENT, type PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { discoveryNetworkPages, NetworkPageCache } from "@/lib/connect/network-page-cache";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { loadNetworkPreviewList, preloadedNetworkPreviewList, type NetworkListComponent } from "@/components/connect/network-preview-list-loader";
 
 const loadProfile = () => import("./person-profile-page").then(module => ({ default: module.PersonProfilePage }));
 const Profile = lazy(loadProfile);
-const NetworkList = lazy(() => import("../connect/network-people-list").then(module => ({ default: module.NetworkPeopleList })));
+const LazyNetworkList = lazy(loadNetworkPreviewList);
 let nextJourneyKey = 0;
-type Visit = PersonProfilePreviewIdentity & { owner: string; generation: number | null; route: string; key: number; scrollTop?: number; focus?: { control?: string; person?: string } };
+type Visit = PersonProfilePreviewIdentity & { owner: string; generation: number | null; route: string; key: number; journeyPages: NetworkPageCache; listPages?: NetworkPageCache; listComponent?: NetworkListComponent; resolvedRef?: string; scrollTop?: number; focus?: { control?: string; person?: string } };
 
 class PreviewBoundary extends Component<{ children: ReactNode; unavailable: string }, { failed: boolean }> {
   state = { failed: false };
@@ -26,7 +29,8 @@ class PreviewBoundary extends Component<{ children: ReactNode; unavailable: stri
 
 /** Keep the calling screen and its sheets mounted, including selections and scroll. */
 export function PersonProfilePreview() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
+  const sessionOwner = userId ?? user?.uid;
   const pathname = usePathname();
   const search = useSearchParams()?.toString() ?? "";
   const [entry, setEntry] = useState<Visit | null>(null);
@@ -34,6 +38,7 @@ export function PersonProfilePreview() {
   // Bounded, per-host memory restores known Forward entries; history itself has
   // only opaque counters. A cold reload deliberately starts from the route.
   const visits = useRef(new Map<number, Visit>());
+  const privatePages = useRef<NetworkPageCache | null>(null);
   const opening = useRef(false);
   const closing = useRef(false);
   const returnFocus = useRef<HTMLElement | undefined>(undefined);
@@ -44,9 +49,16 @@ export function PersonProfilePreview() {
   const route = `${pathname}?${search}`;
   const active = entry && entry.owner === user?.uid && entry.generation === getAuthSessionGeneration() && entry.route === route ? entry : null;
   useEffect(() => subscribeAuthSessionGeneration(() => {
+    privatePages.current?.clear();
     visits.current.clear(); setEntry(null); setResolved(null);
     opening.current = false; closing.current = false;
   }), []);
+  useEffect(() => {
+    const unsubscribe = subscribeToConnectionGraphChanges(event => {
+      if (event.userId === sessionOwner) privatePages.current?.clear();
+    });
+    return () => { unsubscribe(); privatePages.current?.clear(); };
+  }, [sessionOwner]);
   const rememberVisit = useCallback((focusOverride?: HTMLElement) => {
     const visit = currentEntry.current;
     if (!visit) return;
@@ -84,7 +96,16 @@ export function PersonProfilePreview() {
 
   useLayoutEffect(() => {
     opening.current = Boolean(active);
-    if (!active) { closing.current = false; return; }
+    if (!active) {
+      closing.current = false;
+      privatePages.current?.clear();
+      privatePages.current = null;
+      return;
+    }
+    if (privatePages.current !== active.journeyPages) {
+      privatePages.current?.clear();
+      privatePages.current = active.journeyPages;
+    }
     // Onboarding is an existing fullscreen takeover. Lift the standard dialog
     // layer only while viewing a person there, including nested request dialogs.
     const takeover = document.querySelector<HTMLElement>('[data-one-onboarding-design="location-agent-v3"]');
@@ -135,7 +156,14 @@ export function PersonProfilePreview() {
       if (!opening.current) returnFocus.current = detail.returnFocus;
       opening.current = true;
       const key = ++nextJourneyKey;
-      const visit: Visit = { personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList, owner: user.uid, generation: getAuthSessionGeneration(), route, key };
+      const journeyPages = privatePages.current ?? new NetworkPageCache();
+      privatePages.current = journeyPages;
+      const visit: Visit = {
+        personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList,
+        owner: user.uid, generation: getAuthSessionGeneration(), route, key, journeyPages,
+        listPages: detail.networkList === "discovery" ? discoveryNetworkPages(sessionOwner ?? user.uid) : journeyPages,
+        listComponent: preloadedNetworkPreviewList(),
+      };
       visits.current.set(key, visit);
       if (visits.current.size > 64) visits.current.delete(visits.current.keys().next().value!);
       openPersonPreviewHistory(key);
@@ -143,20 +171,26 @@ export function PersonProfilePreview() {
     };
     window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, open);
     return () => window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, open);
-  }, [user, route, rememberVisit]);
+  }, [user, sessionOwner, route, rememberVisit]);
 
   useEffect(() => {
-    if (!active || active.networkList || active.personRef?.trim() || !user) return;
+    if (!active || active.networkList || active.personRef?.trim() || active.resolvedRef || !user) return;
     let cancelled = false;
     const key = active.key;
     void user.getIdToken().then(idToken => ConnectionsService.getPersonContext({ idToken, counterpartUserId: active.userId!.trim() }))
-      .then(context => { if (!cancelled) setResolved({ key, personRef: context.person.publicPersonRef?.trim() || null }); })
+      .then(context => {
+        if (cancelled) return;
+        const personRef = context.person.publicPersonRef?.trim() || null;
+        if (personRef) active.resolvedRef = personRef;
+        setResolved({ key, personRef });
+      })
       .catch(() => { if (!cancelled) setResolved({ key, personRef: null }); });
     return () => { cancelled = true; };
   }, [active, user]);
 
-  const personRef = active?.personRef?.trim() || (resolved?.key === active?.key ? resolved?.personRef : null);
+  const personRef = active?.personRef?.trim() || active?.resolvedRef || (resolved?.key === active?.key ? resolved?.personRef : null);
   const networkMode = active?.networkList;
+  const NetworkList = active?.listComponent ?? LazyNetworkList;
   const title = networkMode === "discovery" ? "Your network" : networkMode === "mutuals" ? "Mutual connections" : networkMode === "connections" ? "Connections" : "Profile";
   return <Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
     {active ? <DialogContent data-person-profile-preview aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
@@ -167,7 +201,7 @@ export function PersonProfilePreview() {
         <DialogTitle>{title}</DialogTitle>
       </div>
       <div ref={scroll} data-network-scroll-owner className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[var(--preview-gutter)] pt-3 pb-4 [scrollbar-gutter:stable] sm:pt-4 sm:pb-5">
-        {active.networkList ? <PreviewBoundary key={active.key} unavailable="This connection list is unavailable."><Suspense fallback={<p role="status" className="text-sm text-muted-foreground">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} onDismiss={close} /></Suspense></PreviewBoundary>
+        {active.networkList ? <PreviewBoundary key={active.key} unavailable="This connection list is unavailable."><Suspense fallback={<p role="status" className="text-sm text-muted-foreground">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded retainedPages={active.listPages} onReady={restoreVisit} onDismiss={close} /></Suspense></PreviewBoundary>
           : personRef ? <PreviewBoundary key={active.key} unavailable="This profile is unavailable."><Suspense fallback={<p role="status" className="text-sm text-muted-foreground">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
           : <p role={resolved?.key === active.key ? "alert" : "status"} className="text-sm text-muted-foreground">{resolved?.key === active.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>

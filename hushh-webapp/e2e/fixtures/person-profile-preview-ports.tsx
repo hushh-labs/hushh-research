@@ -27,6 +27,10 @@ function rowMetadata(person: typeof PEOPLE[number]) {
 }
 export const PersonProfileService = { connect: async (ref: string) => { requests.add(ref); return { status: "pending_outgoing" }; } };
 export const CacheSyncService = { onConnectionGraphMutated(userId: string) { dispatchConnectionGraphChanged(userId); } };
+function recordNetworkListRead() {
+  const dataset = document.documentElement.dataset;
+  dataset.networkListReads = String(Number(dataset.networkListReads ?? 0) + 1);
+}
 export const ConnectionsService = {
   getPersonContext: async ({ counterpartUserId: userId }: { counterpartUserId: string }) => {
     const person = userId === "peer" ? PEOPLE[0] : userId === "second-peer" ? PEOPLE[1] : null;
@@ -40,22 +44,28 @@ export const ConnectionsService = {
       mutualConnectionPreview: person.networkDegree === 2 ? PEOPLE[1] : mutuals[0], canBrowseConnections: person.networkDegree === 1,
       visibleConnectionCount: person.networkDegree === 1 ? sharedConnections(personRef).length : null };
   },
-  listMutualConnections: async ({ personRef }: { personRef: string }) => ({
-    person: PEOPLE.find(p => p.publicPersonRef === personRef),
-    items: PEOPLE.filter(p => p.networkDegree === 1 && p.publicPersonRef !== personRef).map(rowMetadata),
-    totalCount: 2, page: 1, hasMore: false,
-  }),
-  listNetwork: async ({ personRef, degree, query, includeSuggestions }: { personRef?: string; degree?: number; query?: string; includeSuggestions?: boolean }) => ({
-    person: personRef ? PEOPLE.find(p => p.publicPersonRef === personRef) : null,
-    items: !personRef && new URLSearchParams(window.location.search).has("newNetwork") ? []
-      : (personRef ? sharedConnections(personRef) : PEOPLE)
-        .filter(p => (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase())))
-        .map(rowMetadata),
-    suggestions: includeSuggestions && (!query || SUGGESTED.displayName.toLowerCase().includes(query.trim().toLowerCase()))
-      ? [{ ...SUGGESTED, suggestionReason: query ? "name_match" : "verified_advisor", relationship: requests.has(SUGGESTED.publicPersonRef) ? "pending_outgoing" : "none" }]
-      : [],
-    page: 1, hasMore: false,
-  }),
+  listMutualConnections: async ({ personRef }: { personRef: string }) => {
+    recordNetworkListRead();
+    return {
+      person: PEOPLE.find(p => p.publicPersonRef === personRef),
+      items: PEOPLE.filter(p => p.networkDegree === 1 && p.publicPersonRef !== personRef).map(rowMetadata),
+      totalCount: 2, page: 1, hasMore: false,
+    };
+  },
+  listNetwork: async ({ personRef, degree, query, includeSuggestions }: { personRef?: string; degree?: number; query?: string; includeSuggestions?: boolean }) => {
+    recordNetworkListRead();
+    return {
+      person: personRef ? PEOPLE.find(p => p.publicPersonRef === personRef) : null,
+      items: !personRef && new URLSearchParams(window.location.search).has("newNetwork") ? []
+        : (personRef ? sharedConnections(personRef) : PEOPLE)
+          .filter(p => (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase())))
+          .map(rowMetadata),
+      suggestions: includeSuggestions && (!query || SUGGESTED.displayName.toLowerCase().includes(query.trim().toLowerCase()))
+        ? [{ ...SUGGESTED, suggestionReason: query ? "name_match" : "verified_advisor", relationship: requests.has(SUGGESTED.publicPersonRef) ? "pending_outgoing" : "none" }]
+        : [],
+      page: 1, hasMore: false,
+    };
+  },
 };
 
 /** Synthetic read boundary; the browser mounts the production preview, hero and row controls. */
