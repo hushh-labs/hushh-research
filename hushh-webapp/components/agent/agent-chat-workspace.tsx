@@ -2912,7 +2912,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
   const [pendingSpecialistDirective, setPendingSpecialistDirective] =
-    useState<(SpecialistDirectiveEvent & { sourceAssistantMessageId: string }) | null>(null);
+    useState<(SpecialistDirectiveEvent & {
+      sourceAssistantMessageId: string;
+      sourceAssistantServerMessageId?: string;
+    }) | null>(null);
   const [pendingAppAction, setPendingAppAction] = useState<{
     event: AgentChatToolEvent;
     cancel?: () => Promise<void>;
@@ -7004,6 +7007,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             setIsStreaming(false);
           },
           onServerMessageId: (serverMessageId) => {
+            if (!streamAbortController.signal.aborted) {
+              setPendingSpecialistDirective(current =>
+                current?.sourceAssistantMessageId === assistantMessageId &&
+                current.delegateAgentId === "agent_calendar" &&
+                current.directive.payload.type === "calendar.connect"
+                  ? { ...current, sourceAssistantServerMessageId: serverMessageId }
+                  : current,
+              );
+            }
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               serverMessageId,
@@ -7382,6 +7394,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             }));
           },
           onServerMessageId: (serverMessageId) => {
+            if (!streamAbortController.signal.aborted) {
+              setPendingSpecialistDirective(current =>
+                current?.sourceAssistantMessageId === assistantMessageId &&
+                current.delegateAgentId === "agent_calendar" &&
+                current.directive.payload.type === "calendar.connect"
+                  ? { ...current, sourceAssistantServerMessageId: serverMessageId }
+                  : current,
+              );
+            }
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               serverMessageId,
@@ -8791,11 +8812,64 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const hasStartedConversation = messages.some(
     (message) => message.id !== "agent-greeting",
   );
+  const calendarConnectDirective =
+    pendingSpecialistDirective?.delegateAgentId === "agent_calendar" &&
+    pendingSpecialistDirective.directive.payload.type === "calendar.connect"
+      ? pendingSpecialistDirective
+      : null;
+  const calendarConnectAnchorId = calendarConnectDirective
+    ? messages.find(message => message.role === "assistant" && (
+        message.id === calendarConnectDirective.sourceAssistantMessageId ||
+        message.id === calendarConnectDirective.sourceAssistantServerMessageId
+      ))?.id
+    : undefined;
+  const cancelCalendarDirective = () => {
+    directiveConnect.cancel();
+    setPendingSpecialistDirective(null);
+    setCalendarSlot(null);
+    toast.info("Calendar change cancelled. Nothing was changed.", { className: calendarType.toast });
+  };
+  const renderCalendarConnectCard = (directive: SpecialistDirectiveEvent) => {
+    const { payload } = directive.directive;
+    return (
+      <SpecialistDirectiveCard
+        brand="calendar"
+        summary={String(payload.summary ?? directive.message)}
+        confirmLabel={String(payload.confirmLabel ?? "Continue")}
+        busy={specialistBusy}
+        busyLabel={directiveConnectWaiting ? "Waiting for Google…" : undefined}
+        cancelWhileBusy={directiveConnectWaiting}
+        onCancel={cancelCalendarDirective}
+        onConfirm={() => {
+          if (!applicationOwnerId) {
+            addErrorMessage("Sign in again before connecting Google Calendar.");
+            return;
+          }
+          // The shared connector opens Google's window on this click.
+          const requestedAccount = calendarDirectiveAccountId(payload);
+          if (requestedAccount === null) {
+            addErrorMessage("The Calendar account selection is invalid. Check it again before reconnecting.");
+            return;
+          }
+          const selectedAccount = calendarInvitationContext?.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current
+            ? calendarInvitationContext.selection.accountId ?? "default"
+            : calendarSlot?.selection.ownerId === applicationOwnerId && calendarSlot.conversationId === conversationIdRef.current
+              ? calendarSlot.selection.accountId ?? "default" : null;
+          if (selectedAccount !== null && requestedAccount !== selectedAccount) {
+            addErrorMessage("The Calendar account selection changed. Check the selected account again before reconnecting.");
+            return;
+          }
+          runDirectiveConnect("calendar", requestedAccount);
+        }}
+      />
+    );
+  };
   const visibleMessages = dedupeAdjacentAgentMessages(
     messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? redactReceiptAnswer(message) : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
       if (
         pendingSpecialistDirective &&
+        message.id !== calendarConnectAnchorId &&
         message.role === "assistant" &&
         !message.text.trim() &&
         // An ended answer arrives with empty text and renders "Access ended".
@@ -8838,6 +8912,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ? messages.filter(
         (message) =>
           message.id !== "agent-greeting" &&
+          message.id !== calendarConnectAnchorId &&
           message.role === "assistant" &&
           !message.text.trim(),
       )
@@ -10270,6 +10345,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
+                  {calendarConnectDirective && message.id === calendarConnectAnchorId
+                    ? renderCalendarConnectCard(calendarConnectDirective)
+                    : null}
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
                     : null}
@@ -10459,7 +10537,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {pendingSpecialistDirective ? (
+              {pendingSpecialistDirective && !calendarConnectDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
                   <SpecialistConsentRequiredCard
                     agentId={
@@ -10780,31 +10858,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         })
                       : [];
                     const onConfirm = async () => {
-                      if (type === "calendar.connect") {
-                        if (!applicationOwnerId) {
-                          addErrorMessage(
-                            "Sign in again before connecting Google Calendar.",
-                          );
-                          return;
-                        }
-                        // Opens Google's window synchronously, in this click;
-                        // the chat window never navigates.
-                        const requestedAccount = calendarDirectiveAccountId(payload);
-                        if (requestedAccount === null) {
-                          addErrorMessage("The Calendar account selection is invalid. Check it again before reconnecting.");
-                          return;
-                        }
-                        const selectedAccount = calendarInvitationContext?.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current
-                          ? calendarInvitationContext.selection.accountId ?? "default"
-                          : calendarSlot?.selection.ownerId === applicationOwnerId && calendarSlot.conversationId === conversationIdRef.current
-                            ? calendarSlot.selection.accountId ?? "default" : null;
-                        if (selectedAccount !== null && requestedAccount !== selectedAccount) {
-                          addErrorMessage("The Calendar account selection changed. Check the selected account again before reconnecting.");
-                          return;
-                        }
-                        runDirectiveConnect("calendar", requestedAccount);
-                        return;
-                      }
                       if (type !== "calendar.execute_proposal") {
                         setPendingSpecialistDirective(null);
                         addErrorMessage(
@@ -10829,15 +10882,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       }
                       enqueueCalendarDirective(directive, token, applicationOwnerId);
                     };
-                    const onCancel = () => {
-                      directiveConnect.cancel();
-                      setPendingSpecialistDirective(null);
-                      setCalendarSlot(null);
-                      toast.info(
-                        "Calendar change cancelled. Nothing was changed.",
-                        { className: calendarType.toast },
-                      );
-                    };
+                    const onCancel = cancelCalendarDirective;
 
                     if (type === "calendar.execute_proposal") {
                       const reply = payload.gmailReply as Record<string, unknown> | undefined;

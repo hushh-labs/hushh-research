@@ -51,6 +51,9 @@ from tests.email_oss_cases.bindings import (
     test_legacy_mail_offer_is_migrated_only_for_current_owner_conversation_account as test_legacy_mail_offer_is_migrated_only_for_current_owner_conversation_account,
 )
 from tests.email_oss_cases.bindings import (
+    test_mail_connection_status_only_returns_current_connected_address as test_mail_connection_status_only_returns_current_connected_address,
+)
+from tests.email_oss_cases.bindings import (
     test_oss_delegation_uses_existing_owner_memory_and_no_legacy_planner as test_oss_delegation_uses_existing_owner_memory_and_no_legacy_planner,
 )
 from tests.email_oss_cases.bindings import (

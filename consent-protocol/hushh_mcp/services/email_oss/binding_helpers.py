@@ -4,21 +4,40 @@ from __future__ import annotations
 
 import re
 
+from hushh_mcp.managed_ai_config import load_scoped_text_policy
+from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+from hushh_mcp.runtime_providers.factory import VERTEX_ADC_AUTH_MODE
 
-def approved_azure_binding():
-    from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+MAIL_PROCESSING_SCOPE = "one_mail_chat"
 
-    binding = ManagedAzureBinding.from_environment()
-    if binding is None:
-        raise RuntimeError("The centralized Azure runtime is unavailable")
-    binding.require_current()
-    descriptor = binding.capabilities.get("one_text_root")
-    if not isinstance(descriptor, dict) or not all(
-        isinstance(descriptor.get(key), str) and descriptor[key]
-        for key in ("deployment", "reasoning_effort", "text_verbosity")
-    ):
-        raise RuntimeError("The approved One text deployment is unavailable")
-    return binding, descriptor
+
+def approved_mail_model_policy() -> dict:
+    policy = load_scoped_text_policy(MAIL_PROCESSING_SCOPE)
+    if policy is None:
+        raise RuntimeError("The managed Mail model is unavailable")
+    return policy
+
+
+def build_email_model(policy: dict):
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    binding = ManagedGeminiRuntimeBinding.from_environment()
+    if binding.auth_mode != VERTEX_ADC_AUTH_MODE or binding.primary_location != "global":
+        raise RuntimeError("The managed Mail model requires global Vertex ADC")
+    model = binding.validate_model(policy["model"])
+    return ChatGoogleGenerativeAI(
+        model=model,
+        vertexai=True,
+        project=binding.project,
+        location=binding.primary_location,
+        thinking_level=policy["thinking_level"],
+        include_thoughts=False,
+        max_tokens=policy["max_output_tokens"],
+        # Vertex retries retryable HTTP status codes before opening the stream.
+        # This never restarts a consumed model stream or the agent graph.
+        max_retries=2,
+        timeout=20,
+    )
 
 
 async def restore_email_selection(gmail, user_id, execution, selected_messages):
@@ -57,7 +76,7 @@ def connection_status_port(gmail, admitted, user_id):
         await admitted()
         result = await gmail.get_status(user_id=user_id)
         await admitted()
-        return {
+        connection = {
             key: result.get(key)
             for key in (
                 "connected",
@@ -67,28 +86,8 @@ def connection_status_port(gmail, admitted, user_id):
                 "modify_permission_granted",
             )
         }
+        if result.get("connected") is True:
+            connection["google_email"] = result.get("google_email")
+        return connection
 
     return status
-
-
-def build_email_model(binding, descriptor, sync_http, async_http):
-    from langchain_openai import ChatOpenAI
-
-    from .prompts import get_agent_manifest
-
-    # The central account/deployment stays authoritative; the canonical agent
-    # manifest owns this specialist's existing bounded thinking preference.
-    preference = getattr(get_agent_manifest().model, "thinking_level", None)
-    return ChatOpenAI(
-        model=descriptor["deployment"],
-        base_url=binding.endpoint,
-        api_key=binding.token_supplier,
-        use_responses_api=True,
-        reasoning={"effort": preference or descriptor["reasoning_effort"]},
-        verbosity=descriptor["text_verbosity"],
-        max_tokens=4096,
-        max_retries=0,
-        timeout=30,
-        http_client=sync_http,
-        http_async_client=async_http,
-    )

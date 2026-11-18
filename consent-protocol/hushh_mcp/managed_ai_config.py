@@ -92,6 +92,7 @@ def profile_hash(value: dict) -> str:
 TEXT_POLICY_KEYS = {
     "drive_document_requests": "drive_text_uat",
     "one_text_chat": "one_chat_text_uat",
+    "one_mail_chat": "one_mail_text_uat",
 }
 
 
@@ -106,7 +107,11 @@ def load_scoped_text_policy(
     if scope not in TEXT_POLICY_KEYS:
         raise ValueError("Unsupported managed text processing scope")
     document = json.loads(path.read_text()) if document is None else document
-    thinking_levels = ("low", "high") if scope == "drive_document_requests" else ("low",)
+    thinking_levels = {
+        "one_text_chat": ("low",),
+        "drive_document_requests": ("low", "high"),
+        "one_mail_chat": ("low", "medium", "high"),
+    }[scope]
     value = document.get(TEXT_POLICY_KEYS[scope])
     if value is None:
         return None

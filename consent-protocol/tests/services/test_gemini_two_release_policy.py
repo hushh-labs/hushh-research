@@ -3,23 +3,27 @@
 A roll-forward replaces the oldest id, it never adds a third. This test holds every
 surface that names a text release to that rule: the generation contract, the person
 facing catalog, the lane default, the code tree, the deploy substitutions, and the
-agent manifests. It reads files only; nothing here touches a network.
+agent manifests. UAT typed Mail has a separate Vertex scope. This
+test enforces its exact config field and the two-release rule everywhere else.
 """
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
 import yaml
 
 from hushh_mcp.constants import FLEET_TEXT_MODEL_DEFAULT
-from hushh_mcp.managed_ai_config import load_profile
+from hushh_mcp.managed_ai_config import load_profile, load_scoped_text_policy
 from hushh_mcp.runtime_providers import gemini_config, model_catalog
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
 SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
+_MANAGED_CONFIG = BACKEND_ROOT / "config" / "managed-ai-runtime.json"
+_UAT_MAIL_MODEL = "gemini-4-argon"
 
 # Ordered GA text release lineage, oldest to newest. A roll-forward advances the
 # two-release window by one step and retires the older release.
@@ -83,11 +87,28 @@ def _code_lines(path: pathlib.Path) -> list[tuple[int, str]]:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return []
+    if path == _MANAGED_CONFIG:
+        config = json.loads(text)
+        mail = config.get("one_mail_text_uat")
+        if isinstance(mail, dict) and mail.get("model") == _UAT_MAIL_MODEL:
+            # The UAT Mail scope owns this one model. Scan every other field.
+            del mail["model"]
+            text = json.dumps(config, indent=2)
     return [
         (number, line)
         for number, line in enumerate(text.splitlines(), 1)
         if not line.lstrip().startswith("#")
     ]
+
+
+def test_argon_is_configured_only_for_the_uat_mail_scope() -> None:
+    policy = load_scoped_text_policy("one_mail_chat", environment="uat")
+    assert policy is not None
+    assert policy["model"] == _UAT_MAIL_MODEL
+    assert policy["provider"] == "vertex"
+    assert policy["allow_cross_provider_fallback"] is False
+    for environment in ("local", "development", "production"):
+        assert load_scoped_text_policy("one_mail_chat", environment=environment) is None
 
 
 def test_no_other_gemini_3_text_id_on_a_code_line() -> None:
