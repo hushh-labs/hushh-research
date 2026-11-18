@@ -351,6 +351,11 @@ def test_isolation_is_account_bound_operator_evidence_and_reviewers_are_distinct
         },
     }
     assert reviewer_bindings(reviewers, policy) == {"primary": "owner", "counterpart": "buyer"}
+    three_user_policy = SandboxPolicy("acct_fixture", ("owner", "buyer", "tester3"))
+    assert reviewer_bindings(reviewers, three_user_policy) == {
+        "primary": "owner",
+        "counterpart": "buyer",
+    }
     reviewers["reviewers"]["counterpart"]["user_id"] = "owner"
     with pytest.raises(CommerceProviderError, match="sandbox_reviewer_binding_invalid"):
         reviewer_bindings(reviewers, policy)
