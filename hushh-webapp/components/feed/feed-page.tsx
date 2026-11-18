@@ -48,9 +48,7 @@ import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
 import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedSharedFilesSheet } from "@/components/feed/feed-shared-files-sheet";
-import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-notice";
-import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
 import { DocumentRequestPriceSheet } from "@/components/consent/document-request-price-sheet";
 import { DocumentBankPayoutStatusCard } from "@/components/consent/document-payout-account";
@@ -1082,10 +1080,8 @@ function FeedPageSession({
         {/* No in-body header: the shared top bar owns the single Feed title. */}
         <SettingsPresentationProvider density="compact">
           <AppPageContentRegion>
-            <FeedPushPrompt />
             <FeedPaymentReturnNotice />
             <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
-            {userId ? <FeedSoundControl userId={userId} firstPageItems={data?.items ?? null} /> : null}
             {hasLiveActionables ? (
               <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>
