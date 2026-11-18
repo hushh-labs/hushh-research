@@ -2321,7 +2321,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string },
+    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string; readOnly?: boolean },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2334,18 +2334,20 @@ export class ApiService {
     }
 
     const force = options?.force ?? true;
-    const path = options?.requireSuccess === true
+    const path = options?.readOnly === true
+      ? "/api/account/identity"
+      : options?.requireSuccess === true
       ? "/api/account/identity/refresh?require_success=true"
       : force
       ? "/api/account/identity/refresh"
       : "/api/account/identity/refresh?force=false";
 
     return apiFetch(path, {
-      method: "POST",
+      method: options?.readOnly ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
-      ...(options?.verifiedPhoneNumber ? {
+      ...(!options?.readOnly && options?.verifiedPhoneNumber ? {
         body: JSON.stringify({ verified_phone_number: options.verifiedPhoneNumber }),
       } : {}),
     });

@@ -804,19 +804,32 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
   });
 
-  it("does not refresh the identity shadow during automated reviewer bootstrap", async () => {
-    window.__HUSHH_NATIVE_TEST__ = {
+  it.each([false, true])("hydrates a saved phone through the correct authority and observes later claims (reviewer: %s)", async reviewer => {
+    if (reviewer) window.__HUSHH_NATIVE_TEST__ = {
       enabled: true,
       autoReviewerLogin: true,
     };
     mocks.firebaseUser = makeUser("account-owner", null);
-
-    renderProvider();
+    const identity = { user_id: "account-owner", phone_number: "+12025550101", phone_verified: true };
+    mocks.identityRefresh.mockResolvedValue(identity);
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
 
     await screen.findByText("Vault content for account-owner");
     await act(async () => Promise.resolve());
 
-    expect(mocks.identityRefresh).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550101"));
+    expect(mocks.identityRefresh).toHaveBeenCalledWith(mocks.firebaseUser, reviewer ? { readOnly: true } : { force: true });
+    expect(mocks.identityRefresh.mock.calls.every(([, options]) => reviewer
+      ? options?.readOnly === true : options?.force === true && options?.readOnly !== true)).toBe(true);
+    const replacement = { ...identity, phone_number: "+12025550102" };
+    mocks.identityPeek.mockReturnValue({ data: replacement, isStale: false });
+    act(() => CacheService.getInstance().set(CACHE_KEYS.ACCOUNT_IDENTITY("account-owner"), replacement, 60_000));
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550102");
+    const removed = { user_id: "account-owner", phone_number: null, phone_verified: false };
+    mocks.identityPeek.mockReturnValue({ data: removed, isStale: false });
+    act(() => CacheService.getInstance().set(CACHE_KEYS.ACCOUNT_IDENTITY("account-owner"), removed, 60_000));
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent("missing");
+    expect(screen.getByTestId("phone-status")).toHaveTextContent("missing");
   });
 
   it("can leave recovery without waiting on token-dependent notification cleanup", async () => {
