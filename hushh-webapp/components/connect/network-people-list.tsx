@@ -7,7 +7,7 @@ import { Search } from "@/components/icons";
 import { NetworkPersonRow } from "@/components/connect/network-person-row";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { ConnectionsService, ConnectionsServiceRequestError, type NetworkDegree, type NetworkPage } from "@/lib/services/connections-service";
+import { ConnectionsServiceRequestError, type NetworkDegree, type NetworkPage } from "@/lib/services/connections-service";
 import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { connectPersonName } from "@/lib/connections/person-label";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
