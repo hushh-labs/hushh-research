@@ -115,10 +115,11 @@ for (const width of [320, 393, 768, 1440]) {
         connect.boundingBox(),
         preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox(),
       ]);
-      return connectBounds && profileBounds
-        ? profileBounds.x + profileBounds.width - connectBounds.x
-        : Number.POSITIVE_INFINITY;
-    }).toBeLessThanOrEqual(0);
+      return Boolean(connectBounds && profileBounds && (
+        profileBounds.x + profileBounds.width <= connectBounds.x ||
+        profileBounds.y + profileBounds.height <= connectBounds.y
+      ));
+    }).toBe(true);
     expect(await connect.evaluate(button => {
       const row = button.closest("li")!;
       return row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight) - button.getBoundingClientRect().right;
@@ -159,6 +160,7 @@ for (const width of [320, 393, 768, 1440]) {
     await page.evaluate(() => history.forward());
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
     await back();
+    await expect(preview).toHaveCount(0);
     await source.getByRole("button", { name: "Explore your network", exact: true }).click();
     await expect(preview.getByRole("heading", { name: "Your network", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
@@ -194,7 +196,7 @@ for (const width of [320, 393, 768, 1440]) {
   });
 }
 
-for (const width of [393, 1440]) {
+for (const width of [320, 393, 1440]) {
   test(`extended network helps a new user find and request a connection at ${width}px`, async ({ page }, testInfo) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
@@ -212,6 +214,15 @@ for (const width of [393, 1440]) {
     const results = preview.getByRole("list", { name: "Extended network people" });
     await expect(results.getByRole("listitem")).toHaveCount(1);
     await expect(results.getByText("Suggested · Verified advisor")).toBeVisible();
+    await preview.getByRole("button", { name: "My connections", exact: true }).click();
+    await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
+    await preview.getByRole("button", { name: "Extended network", exact: true }).click();
+    await expect(results.getByRole("listitem")).toHaveCount(1);
+    await expect(preview.getByText("Loading connections…")).toHaveCount(0);
+    const scroller = preview.locator("[data-network-scroll-owner]");
+    const geometry = await preview.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+    expect(geometry.width).toBeLessThan(width);
+    expect(await scroller.evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath(`extended-network-new-${width}.png`) });
     const search = preview.getByRole("textbox", { name: "Search people by name" });
     await search.fill("No matches");
@@ -226,6 +237,7 @@ for (const width of [393, 1440]) {
     await results.getByRole("button", { name: "Open Priya Anand's profile" }).click();
     const profile = page.locator("[data-person-profile-preview]");
     await expect(profile.getByRole("heading", { name: "Priya Anand", exact: true })).toBeVisible();
+    expect(await profile.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }))).toEqual(geometry);
     await profile.getByRole("button", { name: "Back to previous screen" }).click();
     await expect(search).toHaveValue("Priya");
     await expect(results.getByRole("button", { name: "Open Priya Anand's profile" })).toBeFocused();

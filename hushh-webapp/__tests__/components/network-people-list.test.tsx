@@ -233,6 +233,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
     render(<NetworkPeopleList mode="discovery" visitKey="warm-filters" />);
     await screen.findByRole("button", { name: "Open Peer's profile" });
     expect(state.list.mock.calls.map(([options]) => options.degree)).toEqual([undefined, 1, 2, 3]);
+    act(() => window.dispatchEvent(new Event("focus")));
     fireEvent.click(screen.getByRole("button", { name: "My connections" }));
     expect(screen.getByRole("button", { name: "Open Direct's profile" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Through connections" }));

@@ -15,6 +15,8 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
 import { DIRECTORY_PASSIVE_REFRESH_AFTER_MS } from "@/lib/connect/directory-first-page-cache";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { cn } from "@/lib/utils";
 
 type Mode = "mutuals" | "connections" | "discovery";
 type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
@@ -53,7 +55,9 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   const generation = getAuthSessionGeneration();
   const memoryKey = `network:${visitKey}`;
   const [saved] = useState(() => readConnectListMemory<Snapshot>(owner, memoryKey));
-  const [query, setQuery] = useState(saved?.query ?? "");
+  const [draftQuery, setDraftQuery] = useState(saved?.query ?? "");
+  const query = useDebouncedValue(draftQuery.trim(), 250);
+  const searchPending = draftQuery.trim() !== query;
   const [degree, setDegree] = useState<NetworkDegree | undefined>(saved?.degree);
   const extended = mode === "discovery" && degree === 3;
   const [page, setPage] = useState(saved?.page ?? 1);
@@ -68,6 +72,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   const notifyingOwnRequest = useRef(false);
   const firstPages = useRef<FirstPages | null>(null);
   const preserveOnRefresh = useRef(false);
+  const lastReadAt = useRef(0);
   const lastForegroundRefresh = useRef(0);
   const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
   const root = useRef<HTMLElement>(null);
@@ -77,7 +82,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   const lastSuccessfulRead = useRef<{ scope: string; page: number } | null>(null);
   const scope = JSON.stringify([owner, generation, mode, personRef, degree, query, revision]);
   const snapshot = useRef<Snapshot>({ query, degree, page, scrollTop: 0, focusRef: saved?.focusRef, focusControl: saved?.focusControl });
-  snapshot.current = { ...snapshot.current, query, degree, page: result?.page ?? page };
+  snapshot.current = { ...snapshot.current, query: draftQuery, degree, page: restore.current && busy ? page : result?.page ?? page };
   useLayoutEffect(() => {
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     return () => {
@@ -88,6 +93,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
 
   const refresh = useCallback((preserveRows = false) => {
     ++requestRef.current;
+    lastReadAt.current = Date.now();
     const opener = root.current?.contains(document.activeElement) ? document.activeElement?.closest<HTMLElement>("[data-network-person]") : null;
     restoreSnapshot.current = { ...snapshot.current,
       scrollTop: root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop(),
@@ -108,22 +114,27 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     if (event.userId === owner && !notifyingOwnRequest.current) refresh();
   }), [owner, refresh]);
   useEffect(() => {
-    const visible = () => {
-      if (document.visibilityState !== "visible") {
-        lastForegroundRefresh.current = 0;
-        return;
-      }
-      if (Date.now() - lastForegroundRefresh.current < 200) return;
-      lastForegroundRefresh.current = Date.now();
-      refresh();
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastForegroundRefresh.current < 200) return;
+      if (mode === "discovery" && now - lastReadAt.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
+      lastForegroundRefresh.current = now;
+      refresh(true);
     };
-    window.addEventListener("focus", visible);
-    document.addEventListener("visibilitychange", visible);
-    return () => { window.removeEventListener("focus", visible); document.removeEventListener("visibilitychange", visible); };
-  }, [refresh]);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        lastForegroundRefresh.current = Date.now();
+        refresh();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [mode, refresh]);
 
   useEffect(() => {
-    if (!user || mode !== "discovery") return;
+    if (!user || mode !== "discovery" || searchPending) return;
     const controller = new AbortController();
     const pages = new Map<NetworkDegree | undefined, NetworkPage>();
     const requests = new Map<NetworkDegree | undefined, Promise<NetworkPage>>();
@@ -153,15 +164,11 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     };
     const cache = { pages, read };
     firstPages.current = cache;
-    // Warm the unfiltered first pages once per open view. Typed searches use only the selected filter.
-    if (!query.trim() && !saved && revision === 0) {
-      for (const filter of networkFilters) void read(filter).catch(() => {});
-    }
     return () => {
       controller.abort();
       if (firstPages.current === cache) firstPages.current = null;
     };
-  }, [user, generation, mode, query, revision, saved]);
+  }, [user, generation, mode, query, revision, searchPending]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -173,6 +180,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     const keepRows = preserveOnRefresh.current;
     preserveOnRefresh.current = false;
     if (cached) {
+      lastReadAt.current = Date.now();
       lastSuccessfulRead.current = { scope, page: cached.page };
       setResult(markRequests(cached, requestedPeople.current));
       setBusy(false);
@@ -184,30 +192,42 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
       lastSuccessfulRead.current = null;
       if (!keepRows) setResult(null);
     }
-    if (!user) { setBusy(false); return () => controller.abort(); }
-    const timer = setTimeout(() => void (async () => {
+    if (!user || searchPending) {
+      if (!user) setBusy(false);
+      return () => controller.abort();
+    }
+    void (async () => {
       try {
         const pages: NetworkPage[] = [];
         let idToken: string | undefined;
         for (let next = append ? page : 1; next <= page; next++) {
           if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
+          let value: NetworkPage;
           if (next === 1 && cache) {
-            const first = await cache.read(degree);
-            pages.push(first);
-            if (!first.hasMore) break;
-            continue;
+            value = await cache.read(degree);
+            // Give the requested tab priority, including the pages that must
+            // be requalified to restore its scroll position on Back.
+            if (page === 1 && !query && revision === 0 && !controller.signal.aborted && request === requestRef.current) {
+              for (const filter of networkFilters) if (filter !== degree) void cache.read(filter).catch(() => {});
+            }
+          } else {
+            idToken ??= await user.getIdToken();
+            if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
+            value = mode === "mutuals" && personRef
+              ? await ConnectionsService.listMutualConnections({ idToken, personRef, page: next, signal: controller.signal })
+              : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, includeSuggestions: mode === "discovery" && degree === 3, signal: controller.signal });
           }
-          idToken ??= await user.getIdToken();
-          if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
-          const value = mode === "mutuals" && personRef
-            ? await ConnectionsService.listMutualConnections({ idToken, personRef, page: next, signal: controller.signal })
-            : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, includeSuggestions: mode === "discovery" && degree === 3, signal: controller.signal });
+          if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
           pages.push(value);
+          if (!keepRows && next === 1 && page > 1 && value.hasMore) {
+            setResult(markRequests(value, requestedPeople.current));
+          }
           if (!value.hasMore) break;
         }
         if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
         const last = pages[pages.length - 1];
         if (last) {
+          lastReadAt.current = Date.now();
           lastSuccessfulRead.current = { scope, page: last.page };
           const items = pages.flatMap(value => value.items);
           setResult(current => {
@@ -233,15 +253,15 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
       } finally {
         if (!controller.signal.aborted && request === requestRef.current && generation === getAuthSessionGeneration()) setBusy(false);
       }
-    })(), query ? 250 : 0);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [user, owner, generation, mode, personRef, degree, query, page, revision, retry, memoryKey, scope]);
+    })();
+    return () => controller.abort();
+  }, [user, owner, generation, mode, personRef, degree, query, searchPending, page, revision, retry, memoryKey, scope]);
 
   useEffect(() => { if (result && !busy && !error) onReady?.(); }, [result, busy, error, onReady]);
 
   useEffect(() => {
     const retained = restoreSnapshot.current;
-    if (!result || !restore.current || !retained) return;
+    if (!result || busy || !restore.current || !retained) return;
     restore.current = false;
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     const frame = requestAnimationFrame(() => {
@@ -254,12 +274,12 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     });
     const cancel = !scroll ? restoreConnectListScroll(retained.scrollTop) : undefined;
     return () => { cancelAnimationFrame(frame); cancel?.(); };
-  }, [result]);
+  }, [result, busy]);
 
   const title = mode === "discovery" ? "Explore your network" : mode === "mutuals" ? `${result?.totalCount ?? ""} mutual ${result?.totalCount === 1 ? "connection" : "connections"}`.trim() : result?.person ? `${connectPersonName(result.person)}’s connections` : "Connections";
   const remember = (personRef: string, focusControl: "profile" | "mutual" | "request" | "connect" = "profile") => {
     const scrollTop = root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop();
-    snapshot.current = { query, degree, page: result?.page ?? page, scrollTop, focusRef: personRef, focusControl };
+    snapshot.current = { query: draftQuery, degree, page: result?.page ?? page, scrollTop, focusRef: personRef, focusControl };
     saveConnectListMemory(owner, memoryKey, snapshot.current);
   };
   // A refresh can replace rows while their explicit Connect actions are pending.
@@ -306,7 +326,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     ? [...networkPeople, ...(result?.suggestions ?? []).filter(person => !networkRefs.has(person.publicPersonRef))]
     : networkPeople;
   const Heading = embedded ? "h3" : "h1";
-  return <section ref={root} tabIndex={-1} className="mx-auto w-full max-w-[880px] space-y-3 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:space-y-4 sm:px-5" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
+  return <section ref={root} tabIndex={-1} className={cn("mx-auto w-full min-w-0 max-w-[880px] space-y-3 sm:space-y-4", !embedded && "px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5")} data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
       {!embedded || mode !== "discovery" ? <Heading data-connect-role="section">{title}</Heading> : null}
       <p data-connect-role="description" className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "Third-degree connections and suggested people." : "Find people through connections that allow discovery."}</p>
@@ -315,21 +335,23 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     {mode !== "mutuals" ? (
       <div className="relative">
         <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input aria-label={extended ? "Search people by name" : "Search network by name"} placeholder="Search by name" value={query} className="ps-9" maxLength={160}
+        <Input aria-label={extended ? "Search people by name" : "Search network by name"} placeholder="Search by name" value={draftQuery} className="ps-9" maxLength={160}
           onChange={event => {
-            if (event.target.value === query) return;
+            const nextQuery = event.target.value;
+            setDraftQuery(nextQuery);
+            if (nextQuery.trim() === draftQuery.trim()) return;
+            ++requestRef.current;
             restore.current = false;
             firstPages.current = null;
             setResult(null);
             setBusy(true);
             setError(null);
-            setQuery(event.target.value);
             setPage(1);
           }} />
       </div>
     ) : null}
     {mode === "discovery" ? (
-      <div className="grid grid-cols-2 gap-1.5 min-[480px]:flex min-[480px]:flex-wrap" role="group" aria-label="Connection degree filters">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Connection degree filters">
         {networkFilters.map(value => (
           <button
             data-connect-role="action"
@@ -339,7 +361,10 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
             className="min-h-11 min-w-0 rounded-full border px-2 py-1.5 text-xs leading-tight [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground min-[360px]:text-sm sm:px-3"
             onClick={() => {
               if (value === degree) return;
+              ++requestRef.current;
               restore.current = false;
+              const scroller = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
+              if (scroller) scroller.scrollTop = 0;
               const cached = firstPages.current?.pages.get(value);
               setResult(cached ? markRequests(cached, requestedPeople.current) : null);
               setBusy(!cached);
@@ -363,7 +388,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
         openPersonProfilePreview({ personRef: person.publicPersonRef }, element);
       }} />)}
     </ul> : null}
-    {result && !people.length ? <div className="py-3 text-sm text-muted-foreground">
+    {result && !busy && !people.length ? <div className="py-3 text-sm text-muted-foreground">
       <p data-connect-role="description" role="status">{extended && !query.trim()
         ? "No people to show right now. Check back as more people join."
         : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>

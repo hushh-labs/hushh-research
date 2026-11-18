@@ -16,15 +16,16 @@ import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css"
 import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
 import { cn } from "@/lib/utils";
 
-const Profile = lazy(() => import("./person-profile-page").then(module => ({ default: module.PersonProfilePage })));
+const loadProfile = () => import("./person-profile-page").then(module => ({ default: module.PersonProfilePage }));
+const Profile = lazy(loadProfile);
 const NetworkList = lazy(() => import("../connect/network-people-list").then(module => ({ default: module.NetworkPeopleList })));
 let nextJourneyKey = 0;
 type Visit = PersonProfilePreviewIdentity & { owner: string; generation: number | null; route: string; key: number; scrollTop?: number; focus?: { control?: string; person?: string } };
 
-class PreviewBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class PreviewBoundary extends Component<{ children: ReactNode; unavailable: string }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  render() { return this.state.failed ? <p role="alert" className="p-6">This profile is unavailable.</p> : this.props.children; }
+  render() { return this.state.failed ? <p role="alert" className="text-sm text-muted-foreground">{this.props.unavailable}</p> : this.props.children; }
 }
 
 /** Keep the calling screen and its sheets mounted, including selections and scroll. */
@@ -133,6 +134,7 @@ export function PersonProfilePreview() {
       if (!user || (!detail?.personRef?.trim() && !detail?.userId?.trim() && detail?.networkList !== "discovery")) return;
       event.preventDefault();
       if (closing.current) return;
+      if (detail.networkList) void loadProfile().catch(() => {});
       rememberVisit(detail.returnFocus);
       if (!opening.current) returnFocus.current = detail.returnFocus;
       opening.current = true;
@@ -165,20 +167,18 @@ export function PersonProfilePreview() {
   const calendar = active?.presentation === "calendar";
   const title = networkMode === "discovery" ? "Your network" : networkMode === "mutuals" ? "Mutual connections" : networkMode === "connections" ? "Connections" : "Profile";
   return <TypographyScopeProvider className={active?.presentation === "connect" ? connectTypography.surface : undefined}><Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
-    <DialogContent data-person-profile-preview data-connect-type-scale={calendar ? "page" : undefined} aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
-      className={cn(calendar && calendarPresentation.portal, networkMode
-        ? "!w-[calc(100%-1rem)] !max-w-[760px] !gap-0 !overflow-hidden !p-0 sm:!w-[calc(100%-2rem)]"
-        : "!w-full !max-w-[880px] !gap-0 !p-0")}
+    {active ? <DialogContent data-person-profile-preview data-connect-type-scale={calendar ? "page" : undefined} aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
+      className={cn(calendar && calendarPresentation.portal, "!h-[min(42rem,calc(100dvh-2rem))] !w-[calc(100%-1rem)] !max-w-[880px] !gap-0 !overflow-hidden !p-0 [--preview-gutter:0.75rem] sm:!w-[calc(100%-2rem)] sm:[--preview-gutter:1.25rem]")}
       onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); }}>
-      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b bg-background px-3 py-2">
-        <button type="button" aria-label="Back to previous screen" className="flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft className="size-5" /></button>
+      <div className="flex shrink-0 items-center gap-2 border-b bg-background px-[var(--preview-gutter)] py-2">
+        <button type="button" aria-label="Back to previous screen" className="flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft aria-hidden="true" className="size-5 rtl:rotate-180" /></button>
         <DialogTitle>{title}</DialogTitle>
       </div>
-      <div ref={scroll} data-network-scroll-owner className="min-h-0 overflow-y-auto overscroll-contain py-4">
-        {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p data-connect-role="description" role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} onDismiss={close} /></Suspense></PreviewBoundary>
-          : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p data-connect-role="description" role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded calendarPresentation={calendar} onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
-          : <p data-connect-role="description" role={resolved?.key === active?.key ? "alert" : "status"} className="p-6">{resolved?.key === active?.key ? "This profile is unavailable." : "Loading profile…"}</p>}
+      <div ref={scroll} data-network-scroll-owner className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[var(--preview-gutter)] pt-3 pb-4 [scrollbar-gutter:stable] sm:pt-4 sm:pb-5">
+        {active.networkList ? <PreviewBoundary key={active.key} unavailable="This connection list is unavailable."><Suspense fallback={<p data-connect-role="description" role="status" className="text-sm text-muted-foreground">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} onDismiss={close} /></Suspense></PreviewBoundary>
+          : personRef ? <PreviewBoundary key={active.key} unavailable="This profile is unavailable."><Suspense fallback={<p data-connect-role="description" role="status" className="text-sm text-muted-foreground">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded calendarPresentation={calendar} onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
+          : <p data-connect-role="description" role={resolved?.key === active.key ? "alert" : "status"} className="text-sm text-muted-foreground">{resolved?.key === active.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>
-    </DialogContent>
+    </DialogContent> : null}
   </Dialog></TypographyScopeProvider>;
 }
