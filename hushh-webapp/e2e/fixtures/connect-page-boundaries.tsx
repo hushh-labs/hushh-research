@@ -123,7 +123,11 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
 
 export class ConnectionsServiceRequestError extends Error { status = 500; }
 export const ConnectionsService = {
-  listNetwork: async () => ({ person: null, items: [], page: 1, hasMore: false }),
+  listNetwork: async () => {
+    const dataset = document.documentElement.dataset;
+    dataset.networkListReads = String(Number(dataset.networkListReads ?? 0) + 1);
+    return { person: null, items: [], page: 1, hasMore: false };
+  },
   listMutualConnections: async ({ personRef, page }: { personRef: string; page: number }) => {
     if (personRef === "person_directory_1" && dataset().delayedSingleMutual === "1") {
       document.documentElement.dataset.singleMutualPending = "1";
@@ -261,7 +265,7 @@ export const useContactSync = () => ({
   result: null,
   setResultsOpen: noop,
   resultsSheetProps: null,
-  discoverabilityConsentDialogProps: null,
+  discoverabilityConsentDialogProps: { open: false },
 });
 export const ContactSyncResultsSheet = () => null;
 export const ContactDiscoverabilityConsentDialog = () => null;

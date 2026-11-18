@@ -17,15 +17,22 @@ import { DIRECTORY_PASSIVE_REFRESH_AFTER_MS } from "@/lib/connect/directory-firs
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
+import { NETWORK_FILTERS, NetworkPageCache, type NetworkListMode, type NetworkPageRead } from "@/lib/connect/network-page-cache";
 
-type Mode = "mutuals" | "connections" | "discovery";
 type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
-type ListProps = { mode: Mode; personRef?: string; visitKey: string; embedded?: boolean; onReady?: () => void; onDismiss?: () => void };
-const networkFilters = [undefined, 1, 2, 3] as const;
-type FirstPages = {
-  pages: Map<NetworkDegree | undefined, NetworkPage>;
-  read: (degree?: NetworkDegree) => Promise<NetworkPage>;
-};
+type ListProps = { mode: NetworkListMode; personRef?: string; visitKey: string; embedded?: boolean; retainedPages?: NetworkPageCache; onReady?: () => void; onDismiss?: () => void };
+
+function cachedResult(cache: NetworkPageCache, read: NetworkPageRead): NetworkPage | null {
+  const pages: NetworkPage[] = [];
+  for (let page = 1; page <= read.page; page++) {
+    const value = cache.peek({ ...read, page });
+    if (!value) return null;
+    pages.push(value);
+    if (!value.hasMore) break;
+  }
+  const last = pages.at(-1);
+  return last ? { ...last, items: pages.flatMap(page => page.items), suggestions: pages[0]?.suggestions } : null;
+}
 
 function markRequests(page: NetworkPage, requested: ReadonlySet<string>): NetworkPage {
   const mark = (person: NetworkPage["items"][number]) =>
@@ -44,13 +51,13 @@ export function networkDegreeLabel(degree: NetworkDegree | null | undefined): st
   return degree === 1 ? "1st" : degree === 2 ? "2nd" : degree === 3 ? "3rd" : null;
 }
 
-/** Shared list owner; private rows are never retained in navigation memory. */
+/** Shared list owner. Navigation history and snapshots contain no rows. */
 export function NetworkPeopleList(props: ListProps) {
   const { userId } = useAuth();
   const generation = useSyncExternalStore(subscribeAuthSessionGeneration, getAuthSessionGeneration, () => null);
   return <NetworkListSession key={`${userId ?? "signed-out"}:${generation}`} {...props} />;
 }
-function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDismiss }: ListProps) {
+function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages, onReady, onDismiss }: ListProps) {
   const { user, userId: owner } = useAuth();
   const generation = getAuthSessionGeneration();
   const memoryKey = `network:${visitKey}`;
@@ -61,8 +68,13 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   const [degree, setDegree] = useState<NetworkDegree | undefined>(saved?.degree);
   const extended = mode === "discovery" && degree === 3;
   const [page, setPage] = useState(saved?.page ?? 1);
-  const [result, setResult] = useState<NetworkPage | null>(null);
-  const [busy, setBusy] = useState(true);
+  const [localPages] = useState(() => new NetworkPageCache());
+  const pageCache = retainedPages ?? localPages;
+  const [result, setResult] = useState<NetworkPage | null>(() => {
+    const cached = user && cachedResult(pageCache, { mode, personRef, degree, query, page });
+    return cached ? markRequests(cached, new Set()) : null;
+  });
+  const [busy, setBusy] = useState(!result);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [retry, setRetry] = useState(0);
@@ -70,9 +82,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   const connectionIntents = useRef(new Set<string>());
   const requestedPeople = useRef(new Set<string>());
   const notifyingOwnRequest = useRef(false);
-  const firstPages = useRef<FirstPages | null>(null);
-  const preserveOnRefresh = useRef(false);
-  const lastReadAt = useRef(0);
+  const refreshKind = useRef<"quiet" | "invalidate" | null>(null);
   const lastForegroundRefresh = useRef(0);
   const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
   const root = useRef<HTMLElement>(null);
@@ -83,6 +93,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
   const scope = JSON.stringify([owner, generation, mode, personRef, degree, query, revision]);
   const snapshot = useRef<Snapshot>({ query, degree, page, scrollTop: 0, focusRef: saved?.focusRef, focusControl: saved?.focusControl });
   snapshot.current = { ...snapshot.current, query: draftQuery, degree, page: restore.current && busy ? page : result?.page ?? page };
+  useEffect(() => () => localPages.clear(), [localPages]);
   useLayoutEffect(() => {
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     return () => {
@@ -93,7 +104,6 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
 
   const refresh = useCallback((preserveRows = false) => {
     ++requestRef.current;
-    lastReadAt.current = Date.now();
     const opener = root.current?.contains(document.activeElement) ? document.activeElement?.closest<HTMLElement>("[data-network-person]") : null;
     restoreSnapshot.current = { ...snapshot.current,
       scrollTop: root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop(),
@@ -102,11 +112,13 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     };
     restore.current = true;
     requestedPeople.current.clear();
-    firstPages.current = null;
-    preserveOnRefresh.current = preserveRows;
-    if (!preserveRows) setResult(null);
+    refreshKind.current = preserveRows ? "quiet" : "invalidate";
+    if (!preserveRows) {
+      pageCache.clear();
+      setResult(null);
+    }
     setRevision(value => value + 1);
-  }, []);
+  }, [pageCache]);
   usePeriodicTask(`network-people-availability:${owner}:${visitKey}`, DIRECTORY_PASSIVE_REFRESH_AFTER_MS, () => {
     if (!busy && navigator.onLine !== false) refresh(true);
   }, { enabled: Boolean(user && owner) });
@@ -118,69 +130,28 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
       if (document.visibilityState !== "visible") return;
       const now = Date.now();
       if (now - lastForegroundRefresh.current < 200) return;
-      if (mode === "discovery" && now - lastReadAt.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
+      const { degree, query, page } = snapshot.current;
+      const read = { mode, personRef, degree, query: query.trim(), page };
+      if (pageCache.peek(read) && pageCache.peek({ ...read, page: 1 })) return;
       lastForegroundRefresh.current = now;
       refresh(true);
     };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        lastForegroundRefresh.current = Date.now();
-        refresh();
-      }
-    };
     window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisibility); };
-  }, [mode, refresh]);
-
-  useEffect(() => {
-    if (!user || mode !== "discovery" || searchPending) return;
-    const controller = new AbortController();
-    const pages = new Map<NetworkDegree | undefined, NetworkPage>();
-    const requests = new Map<NetworkDegree | undefined, Promise<NetworkPage>>();
-    let token: Promise<string> | undefined;
-    const read = (filter?: NetworkDegree) => {
-      const cached = pages.get(filter);
-      if (cached) return Promise.resolve(cached);
-      const pending = requests.get(filter);
-      if (pending) return pending;
-      token ??= user.getIdToken().catch(failure => {
-        token = undefined;
-        throw failure;
-      });
-      const request = token.then(idToken => {
-        if (controller.signal.aborted || generation !== getAuthSessionGeneration()) {
-          throw new DOMException("Network view closed", "AbortError");
-        }
-        return ConnectionsService.listNetwork({
-          idToken, degree: filter, query, page: 1, includeSuggestions: filter === 3, signal: controller.signal,
-        });
-      }).then(value => {
-        if (!controller.signal.aborted && generation === getAuthSessionGeneration()) pages.set(filter, value);
-        return value;
-      }).finally(() => requests.delete(filter));
-      requests.set(filter, request);
-      return request;
-    };
-    const cache = { pages, read };
-    firstPages.current = cache;
-    return () => {
-      controller.abort();
-      if (firstPages.current === cache) firstPages.current = null;
-    };
-  }, [user, generation, mode, query, revision, searchPending]);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+  }, [mode, personRef, pageCache, refresh]);
 
   useEffect(() => {
     const controller = new AbortController();
     const request = ++requestRef.current;
     const previous = lastSuccessfulRead.current;
     const append = previous?.scope === scope && page === previous.page + 1;
-    const cache = mode === "discovery" ? firstPages.current : null;
-    const cached = page === 1 ? cache?.pages.get(degree) : undefined;
-    const keepRows = preserveOnRefresh.current;
-    preserveOnRefresh.current = false;
+    const read = { mode, personRef, degree, query, page };
+    const refresh = refreshKind.current;
+    refreshKind.current = null;
+    const keepRows = refresh === "quiet";
+    const cached = user && !searchPending && !append && !refresh && cachedResult(pageCache, read);
     if (cached) {
-      lastReadAt.current = Date.now();
       lastSuccessfulRead.current = { scope, page: cached.page };
       setResult(markRequests(cached, requestedPeople.current));
       setBusy(false);
@@ -199,25 +170,15 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     void (async () => {
       try {
         const pages: NetworkPage[] = [];
-        let idToken: string | undefined;
+        let token: Promise<string> | undefined;
+        const getToken = () => token ??= user.getIdToken();
         for (let next = append ? page : 1; next <= page; next++) {
           if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
-          let value: NetworkPage;
-          if (next === 1 && cache) {
-            value = await cache.read(degree);
-            // Give the requested tab priority, including the pages that must
-            // be requalified to restore its scroll position on Back.
-            if (page === 1 && !query && revision === 0 && !controller.signal.aborted && request === requestRef.current) {
-              for (const filter of networkFilters) if (filter !== degree) void cache.read(filter).catch(() => {});
-            }
-          } else {
-            idToken ??= await user.getIdToken();
-            if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
-            value = mode === "mutuals" && personRef
-              ? await ConnectionsService.listMutualConnections({ idToken, personRef, page: next, signal: controller.signal })
-              : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, includeSuggestions: mode === "discovery" && degree === 3, signal: controller.signal });
-          }
+          const value = await pageCache.load({ ...read, page: next }, getToken, Boolean(refresh) || retry > 0 && next === page);
           if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
+          if (mode === "discovery" && page === 1 && next === 1 && !query && revision === 0) {
+            for (const filter of NETWORK_FILTERS) if (filter !== degree) void pageCache.load({ ...read, degree: filter }, getToken).catch(() => {});
+          }
           pages.push(value);
           if (!keepRows && next === 1 && page > 1 && value.hasMore) {
             setResult(markRequests(value, requestedPeople.current));
@@ -227,7 +188,6 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
         if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
         const last = pages[pages.length - 1];
         if (last) {
-          lastReadAt.current = Date.now();
           lastSuccessfulRead.current = { scope, page: last.page };
           const items = pages.flatMap(value => value.items);
           setResult(current => {
@@ -248,23 +208,26 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
           lastSuccessfulRead.current = null;
           setResult(null);
         }
-        if (unavailable) saveConnectListMemory(owner, memoryKey, null);
+        if (unavailable) {
+          pageCache.clear();
+          saveConnectListMemory(owner, memoryKey, null);
+        }
         setError(unavailable ? "This connection list is unavailable." : "Could not load connections. Please try again.");
       } finally {
         if (!controller.signal.aborted && request === requestRef.current && generation === getAuthSessionGeneration()) setBusy(false);
       }
     })();
     return () => controller.abort();
-  }, [user, owner, generation, mode, personRef, degree, query, searchPending, page, revision, retry, memoryKey, scope]);
+  }, [user, owner, generation, mode, personRef, degree, query, searchPending, page, revision, retry, memoryKey, scope, pageCache]);
 
   useEffect(() => { if (result && !busy && !error) onReady?.(); }, [result, busy, error, onReady]);
 
   useEffect(() => {
     const retained = restoreSnapshot.current;
     if (!result || busy || !restore.current || !retained) return;
-    restore.current = false;
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     const frame = requestAnimationFrame(() => {
+      restore.current = false;
       if (scroll) scroll.scrollTop = retained.scrollTop;
       const controls = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("button[data-network-person]") ?? []).filter(element => element.dataset.networkPerson === retained.focusRef);
       const target = controls.find(element => (element.dataset.networkFocus ?? "profile") === (retained.focusControl ?? "profile"))
@@ -342,7 +305,6 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
             if (nextQuery.trim() === draftQuery.trim()) return;
             ++requestRef.current;
             restore.current = false;
-            firstPages.current = null;
             setResult(null);
             setBusy(true);
             setError(null);
@@ -352,7 +314,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
     ) : null}
     {mode === "discovery" ? (
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Connection degree filters">
-        {networkFilters.map(value => (
+        {NETWORK_FILTERS.map(value => (
           <button
             key={value ?? "all"}
             type="button"
@@ -364,7 +326,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
               restore.current = false;
               const scroller = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
               if (scroller) scroller.scrollTop = 0;
-              const cached = firstPages.current?.pages.get(value);
+              const cached = pageCache.peek({ mode, personRef, degree: value, query, page: 1 });
               setResult(cached ? markRequests(cached, requestedPeople.current) : null);
               setBusy(!cached);
               setError(null);
@@ -387,7 +349,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, onReady, onDi
         openPersonProfilePreview({ personRef: person.publicPersonRef }, element);
       }} />)}
     </ul> : null}
-    {result && !busy && !people.length ? <div className="py-3 text-sm text-muted-foreground">
+    {result && (!busy || result.page === page) && !people.length ? <div className="py-3 text-sm text-muted-foreground">
       <p role="status">{extended && !query.trim()
         ? "No people to show right now. Check back as more people join."
         : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>

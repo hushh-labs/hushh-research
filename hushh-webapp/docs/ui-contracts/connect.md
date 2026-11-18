@@ -909,11 +909,11 @@ people directory, with a reason on each row. The tab uses the existing profile
 preview and connection request controls. With no results and no active search,
 **Back to Find people** closes the dialog and restores the source.
 
-Opening the discovery dialog loads each filter's first page and reuses it
-while the dialog and viewer session remain active. A sent request updates
-that person's row in place. Search changes, foreground returns and other
-connection graph changes retire the affected reads before displaying new
-results.
+An authenticated Connect entry preloads discovery. The All results start first,
+then the other filters' first pages load. Repeated filters and Back reuse fresh
+pages for the same viewer and query. A sent request updates that person's row
+in place. Search results are scoped to the exact query, and connection graph
+changes invalidate affected pages immediately.
 
 Signed-in profiles show network details under the hero's contact details. The
 connection count opens the paginated list after the server confirms that
@@ -933,9 +933,13 @@ dismissal restores the original control and preserves the mounted source picker.
 The existing history owner stores opaque counters only. Visit identities and list
 query/filter/page/scroll/focus snapshots are bounded to 64 memory entries and are
 cleared by owner/authentication-generation changes. List snapshots expire after
-15 minutes; list people are re-fetched before display on return, focus, visibility
-or graph changes. Denied lists clear people immediately. Cold reload or evicted
-visit memory returns to the authored route, without reconstructing private history.
+15 minutes. Authorized pages for mutuals and someone's connections may be reused
+for two minutes within the open preview journey. Closing the preview disposes
+those pages, and discovery pages remain briefly in the authenticated viewer's
+in-memory cache. Foreground refreshes preserve the current result while checking
+its availability. Graph changes and denied reads clear affected rows immediately.
+Cold reload or evicted visit memory returns to the authored route without
+reconstructing private history.
 
 Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.test.tsx`
 and `connections-service.test.ts` in the nearest frontend suites. These prove the

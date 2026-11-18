@@ -512,6 +512,12 @@ test.describe("Connected profile preview and network return", () => {
       await preview.getByRole("textbox", { name: "Search network by name" }).fill("Second");
       const connect = preview.getByRole("button", { name: "Connect with Second Degree Person" });
       await expect(connect).toBeVisible();
+      await preview.getByRole("button", { name: "Open Second Degree Person's profile" }).click();
+      await expect(preview.getByRole("heading", { name: "Second Degree Person", exact: true })).toBeVisible();
+      const readsBeforeReturning = await page.locator("html").getAttribute("data-network-list-reads");
+      await back();
+      await expect(preview.getByRole("button", { name: "Open Second Degree Person's profile" })).toBeFocused();
+      await expect(page.locator("html")).toHaveAttribute("data-network-list-reads", readsBeforeReturning!);
       await expect.poll(async () => {
         const [connectBounds, profileBounds] = await Promise.all([
           connect.boundingBox(),

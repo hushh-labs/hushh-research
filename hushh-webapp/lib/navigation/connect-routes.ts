@@ -5,7 +5,7 @@ export const CONNECT_SURFACE_PARAM = "tab";
 export const CONNECT_SEARCH_QUERY_PARAM = "q";
 export const CONNECT_MUTUALS_PARAM = "mutuals";
 
-export function connectDirectoryReturnHref(params: { get(name: string): string | null; toString(): string }, currentQuery?: string): string {
+export function connectDirectoryReturnHref(params: { get(name: string): string | null; toString(): string }, currentQuery?: string, directory?: string): string {
   const serialized = params.toString();
   const query = new URLSearchParams(serialized === "[object Object]" ? "" : serialized);
   for (const key of ["q", "view", "from"]) {
@@ -20,12 +20,13 @@ export function connectDirectoryReturnHref(params: { get(name: string): string |
     if (currentQuery.trim()) query.set(CONNECT_SEARCH_QUERY_PARAM, currentQuery.trim().slice(0, 160));
     else query.delete(CONNECT_SEARCH_QUERY_PARAM);
   }
+  if (directory && (directory !== "people" || query.has(CONNECT_DIRECTORY_PARAM))) query.set(CONNECT_DIRECTORY_PARAM, directory);
   query.set(CONNECT_SURFACE_PARAM, "all");
   return `${ROUTES.CONNECT}?${query}`;
 }
 
-export function connectMutualsHref(personRef: string, params: { get(name: string): string | null; toString(): string }, currentQuery?: string): string {
-  const href = new URL(connectDirectoryReturnHref(params, currentQuery), "https://app.invalid");
+export function connectMutualsHref(personRef: string, params: { get(name: string): string | null; toString(): string }, currentQuery?: string, directory?: string): string {
+  const href = new URL(connectDirectoryReturnHref(params, currentQuery, directory), "https://app.invalid");
   href.searchParams.set(CONNECT_MUTUALS_PARAM, personRef);
   return `${href.pathname}?${href.searchParams}`;
 }

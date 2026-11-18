@@ -7,6 +7,7 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { networkDegreeLabel } from "@/components/connect/network-people-list";
+import { DIRECTORY_PASSIVE_REFRESH_AFTER_MS } from "@/lib/connect/directory-first-page-cache";
 
 export function PersonNetworkSummary({ personRef, onReady }: { personRef: string; onReady?: () => void }) {
   const { user, userId } = useAuth();
@@ -20,22 +21,42 @@ function SummarySession({ personRef, onReady }: { personRef: string; onReady?: (
   const [revision, setRevision] = useState(0);
   const [opening, setOpening] = useState(false);
   const mounted = useRef(true);
+  const lastReadAt = useRef(0);
   useEffect(() => { if (summary || error) onReady?.(); }, [summary, error, onReady]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    const refresh = () => { setSummary(null); setRevision(value => value + 1); };
-    const unsubscribe = subscribeToConnectionGraphChanges(event => { if (event.userId === userId) refresh(); });
-    window.addEventListener("focus", refresh);
-    return () => { unsubscribe(); window.removeEventListener("focus", refresh); };
+    const onFocus = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastReadAt.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
+      lastReadAt.current = Date.now();
+      setRevision(value => value + 1);
+    };
+    const unsubscribe = subscribeToConnectionGraphChanges(event => {
+      if (event.userId !== userId) return;
+      setSummary(null);
+      setRevision(value => value + 1);
+    });
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { unsubscribe(); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, [userId]);
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
     const generation = getAuthSessionGeneration();
     setError(null);
-    void user.getIdToken().then(idToken => ConnectionsService.getNetworkSummary({ idToken, personRef, signal: controller.signal }))
-      .then(value => { if (!controller.signal.aborted && generation === getAuthSessionGeneration()) setSummary(value); })
-      .catch(() => { if (!controller.signal.aborted && generation === getAuthSessionGeneration()) setError("Network details are unavailable."); });
+    const current = () => !controller.signal.aborted && generation === getAuthSessionGeneration();
+    void user.getIdToken().then(idToken => {
+      if (current()) return ConnectionsService.getNetworkSummary({ idToken, personRef, signal: controller.signal });
+    }).then(value => {
+      if (value && current()) {
+        lastReadAt.current = Date.now();
+        setSummary(value);
+      }
+    }).catch(() => {
+      if (!current()) return;
+      setSummary(null);
+      setError("Network details are unavailable.");
+    });
     return () => controller.abort();
   }, [user, personRef, revision]);
   const openMutual = async (returnFocus: HTMLElement) => {
