@@ -33,6 +33,15 @@ import { AuthService } from "@/lib/services/auth-service";
 import { decodeFirebaseTokenSubject } from "@/lib/auth/firebase-token-subject";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
+import {
+  extractHostedMigrationErrorMessage,
+  parseHostedAzureMigrationResult,
+  parseHostedAzureMigrationStatus,
+  parseHostedUmbrellaCellsStatus,
+  type HostedAzureMigrationResult,
+  type HostedAzureMigrationStatus,
+  type HostedUmbrellaCellsStatus,
+} from "@/lib/services/hosted-pod-migration";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import {
   toDurationBucket,
@@ -1892,6 +1901,61 @@ export class ApiService {
     });
     if (!response.ok) throw new Error("HOSTED_SELECT_FAILED");
     return response.json();
+  }
+
+  static async getHostedUmbrellaCellsStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedUmbrellaCellsStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/cells/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_CELLS_STATUS_UNAVAILABLE");
+    return parseHostedUmbrellaCellsStatus(await response.json());
+  }
+
+  static async getHostedAzureMigrationStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedAzureMigrationStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/azure/migrate/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_MIGRATION_STATUS_UNAVAILABLE");
+    return parseHostedAzureMigrationStatus(await response.json());
+  }
+
+  static async migrateToHostedAzure(options?: {
+    cellId?: string;
+    allowFreshPodLog?: boolean;
+    isEffectCurrent?: () => boolean;
+  }): Promise<HostedAzureMigrationResult> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/azure/migrate", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        ...(options?.cellId ? { cellId: options.cellId } : {}),
+        ...(options?.allowFreshPodLog ? { allowFreshPodLog: true } : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(payload, "Could not move your pod right now. Your current setup is unchanged."),
+      );
+    }
+    return parseHostedAzureMigrationResult(payload);
   }
 
   static async selectSharedHosting(): Promise<{

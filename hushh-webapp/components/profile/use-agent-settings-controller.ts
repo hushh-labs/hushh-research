@@ -13,7 +13,7 @@ import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
-import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import { hostedPodDisplayLabel, isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
@@ -162,7 +162,7 @@ export function useAgentSettingsController({
                 ? cloudHostingHealthSentence(inspectedHealth.status)
                 : isOwnerCloudTarget(next.deploymentTarget)
                   ? "Cloud resources checked."
-                  : `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
+                  : `Hosting confirmed: ${next.hostingMode === "hussh_pods" ? hostedPodDisplayLabel(next.deploymentTarget) : HOST_LABELS[next.hostingMode as HostingMode]}.`
               : updateCheckMessage(next),
           error:
             kind === "hosting"

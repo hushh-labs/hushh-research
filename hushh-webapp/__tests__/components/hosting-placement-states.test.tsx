@@ -53,6 +53,8 @@ vi.mock("@/lib/services/api-service", () => ({
     selectHostedCloud: vi.fn(),
     selectSharedHosting: vi.fn(),
     beginByocAuthorize: vi.fn(),
+    getHostedAzureMigrationStatus: vi.fn(),
+    migrateToHostedAzure: vi.fn(),
   },
 }));
 vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
@@ -283,5 +285,23 @@ describe("cloud step placement states", () => {
     expect(screen.queryByTestId(`hosting-${kind}-retry`)).toBeNull();
     expect(ApiService.apiFetch).not.toHaveBeenCalled();
     expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
+  });
+
+  it("shows graphical Hussh Pods provider identity and Azure migration option on Dev", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    vi.mocked(ApiService.getHostedAzureMigrationStatus).mockResolvedValue({
+      job: null,
+      deploymentTarget: "gcp",
+      registryStatus: "provisioned",
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+      cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+    });
+    given({ hostingMode: "hussh_pods", state: "active", deploymentTarget: "gcp" });
+    render(<ByocCloudSetupPage />);
+    const card = await screen.findByTestId("hussh-pods-connected");
+    expect(card).toHaveAttribute("data-provider", "gcp");
+    expect(card).toHaveTextContent("Hussh Pods · Google Cloud");
+    expect(await screen.findByTestId("hussh-pods-migration-route")).toBeInTheDocument();
+    vi.unstubAllEnvs();
   });
 });

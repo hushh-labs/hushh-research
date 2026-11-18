@@ -270,7 +270,7 @@ def _create_only_signing_secret(arm: ArmClient, secret_path: str) -> None:
             op="replenish_secret_create",
         )
     finally:
-        secret_val = ""
+        del secret_val
 
 
 def provision_azure_warm_skeleton_sync(
@@ -299,9 +299,15 @@ def provision_azure_warm_skeleton_sync(
 
     arm = arm_client
     if arm is None:
-        client_id = (os.getenv("HUSSH_HOSTED_AZURE_CLIENT_ID") or cell.controller_client_id).strip()
+        controller_client_id = (
+            os.getenv("HUSSH_HOSTED_AZURE_CLIENT_ID") or cell.controller_client_id
+        ).strip()
         arm = ArmClient(
-            lambda: azure_federation.app_token(cell.tenant_id, client_id=client_id).access_token,
+            lambda: (
+                azure_federation.app_token(
+                    cell.tenant_id, client_id=controller_client_id
+                ).access_token
+            ),
             sleep=sleep,
         )
 
@@ -345,9 +351,9 @@ def provision_azure_warm_skeleton_sync(
         op="replenish_identity",
     )
     uami_props = uami.get("properties") or {}
-    client_id = str(uami_props.get("clientId") or "").strip()
+    uami_client_id = str(uami_props.get("clientId") or "").strip()
     principal_id = str(uami_props.get("principalId") or "").strip()
-    if not client_id or not principal_id:
+    if not uami_client_id or not principal_id:
         raise RuntimeError(f"Managed identity {identity_name} did not return client/principal IDs")
 
     arm.put(
@@ -397,7 +403,7 @@ def provision_azure_warm_skeleton_sync(
         app_id=app_path,
         fqdn="",
         identity_id=identity_path,
-        identity_client_id=client_id,
+        identity_client_id=uami_client_id,
         blob_url=blob_url,
         key_vault_key=key_uri_with_version,
         signing_secret_url=signing_secret_url,
@@ -438,7 +444,7 @@ def provision_azure_warm_skeleton_sync(
         app_id=app_path,
         fqdn=fqdn,
         identity_id=identity_path,
-        identity_client_id=client_id,
+        identity_client_id=uami_client_id,
         identity_principal_id=principal_id,
         blob_url=blob_url,
         key_vault_key=key_uri_with_version,
@@ -454,7 +460,7 @@ def _discover_occupied_ids_best_effort(db: Any) -> set[str] | None:
             _discover_occupied_app_ids,
         )
 
-        return _discover_occupied_app_ids(db)
+        return set(_discover_occupied_app_ids(db))
     except OSError as exc:
         if "Database credentials not set" in str(exc):
             return None
