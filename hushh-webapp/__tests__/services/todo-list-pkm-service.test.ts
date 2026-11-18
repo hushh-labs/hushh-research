@@ -129,6 +129,17 @@ describe("Goals sharing the encrypted task domain", () => {
     expect(() => build({ ...coordinatorContext, currentDomainData: goalDomain([]) })).toThrow("goal_conflict");
   });
 
+  it("checks new plan links on the same revision as the rest of the edit", async () => {
+    const save = mockSuccessfulWrite();
+    const plan = { title: "Updated outcome", outcome: goal.outcome, taskIds: [task.id] };
+    await GoalsPkmService.savePlan({ ...goalEdit, plan });
+    const build = save.mock.calls[0]![0].build;
+    const updated = await build({ ...coordinatorContext, currentDomainData: goalDomain() });
+    expect(readGoals(updated.domainData)[0]).toMatchObject({ ...plan, revision: 2 });
+    expect(() => build({ ...coordinatorContext, attempt: 1, currentDomainData: goalDomain([goal], []) }))
+      .toThrow("task_unavailable");
+  });
+
   it("allows a saved task to support multiple goals but refuses missing/deleted task links on retry", async () => {
     const save = mockSuccessfulWrite();
     const other = { ...goal, id: "goal_2", taskIds: [task.id] };

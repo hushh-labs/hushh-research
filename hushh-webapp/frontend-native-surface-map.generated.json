@@ -3453,6 +3453,75 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/goals/goals-workspace.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.goals",
+          "purpose": "Review saved goals, describe the intended outcome, and link saved tasks in the owner's unlocked vault.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Keep goal information unavailable until the owner unlocks the vault.",
+            "cancelled": "Close the editor without saving the draft.",
+            "failed": "Keep the draft and report that the save could not be confirmed.",
+            "timeout": "Ask the owner to check the saved goal before trying again.",
+            "callback_error": "Return to the verified recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The owner confirms each save and explicitly marks goal completion. Linked task status comes from Tasks. A plan grants no background execution permission.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Never invent a control or infer execution permission from a saved goal."
+        }
+      },
+      "native": {
+        "route": "/one/goals",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fgoals",
+        "expectedMarker": "native-route-one-goals",
+        "expectedRoute": "/one/goals",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/kai",
       "page_file": "app/one/kai/page.tsx",
       "physical_page_exists": true,
@@ -9288,8 +9357,8 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
         "mode": "standard",
@@ -9306,7 +9375,7 @@
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.one.todos",
+          "playbook_id": "route.one.tasks",
           "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
           "screen": "app",
           "entry_cue": "",
@@ -9329,11 +9398,11 @@
         }
       },
       "native": {
-        "route": "/one/todos",
+        "route": "/one/tasks",
         "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Ftodos",
-        "expectedMarker": "native-route-one-todos",
-        "expectedRoute": "/one/todos",
+        "initialRoute": "/login?redirect=%2Fone%2Ftasks",
+        "expectedMarker": "native-route-one-tasks",
+        "expectedRoute": "/one/tasks",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -9343,6 +9412,55 @@
           "unavailable-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Existing To-do links open the canonical Tasks workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.todos",
+          "purpose": "Open the Tasks workspace from an older To-do link.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Keep the Tasks destination behind its existing access check.",
+            "cancelled": "Retain the current screen.",
+            "failed": "Offer the canonical Tasks destination.",
+            "timeout": "Retain the canonical Tasks destination.",
+            "callback_error": "Offer the canonical Tasks destination.",
+            "route_mismatch": "Use the verified Tasks route."
+          },
+          "completion_boundary": "Both web and native clients open the same Tasks workspace.",
+          "next_route": "/one/tasks",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Retain the destination's access checks."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -11265,5 +11383,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "dd7dc68c2bd57c7c9ae75d87579861f872b6316424fb03e1c3976e9b37bc6327"
+  "content_sha256": "96c73eb24ba71ba4fecbcdb1927d7c50b991bfc34e6e61e2097c7ccb2bb5fa1a"
 }

@@ -106,9 +106,9 @@ describe("back leaves a destination by its origin", () => {
     // To-dos/Feed/Career/Referrals had no destination identity, so Back
     // always dumped the person on the One dashboard.
     recordDestinationEntry(LOCATION_PEOPLE);
-    recordDestinationEntry("/one/todos");
+    recordDestinationEntry("/one/tasks");
 
-    expect(resolveTopShellBackAction({ pathname: "/one/todos" })?.href).toBe(
+    expect(resolveTopShellBackAction({ pathname: "/one/tasks" })?.href).toBe(
       LOCATION_PEOPLE,
     );
   });

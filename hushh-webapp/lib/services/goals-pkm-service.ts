@@ -19,6 +19,28 @@ import {
 
 type GoalWriteParams = TodoWriteParams & { confirmedByUser: true };
 type GoalEditParams = GoalWriteParams & { goalId: string; expectedRevision: number };
+export type GoalPlanInput = GoalInput & { taskIds: string[] };
+
+function validateLinks(domain: Record<string, unknown>, requested: string[], existing: string[] = []) {
+  const saved = new Set(readTodoListState(domain).tasks.filter(task => task.status !== "deleted").map(task => task.id));
+  const retained = new Set(existing);
+  if (requested.some(id => !retained.has(id) && !saved.has(id))) {
+    throw new GoalContractError("task_unavailable");
+  }
+}
+
+function copyTaskIds(ids: string[]) {
+  const taskIds = [...ids];
+  if (taskIds.some(id => typeof id !== "string" || !id.trim() || id.length > 240) ||
+    new Set(taskIds).size !== taskIds.length) throw new GoalContractError("invalid_goal");
+  return taskIds;
+}
+
+function loadDomain({ userId, vaultKey, vaultOwnerToken }: TodoWriteParams) {
+  return PersonalKnowledgeModelService.loadDomainData({
+    userId, vaultKey, vaultOwnerToken, domain: TODO_LIST_PKM_DOMAIN,
+  });
+}
 
 /** Existing task writers preserve this sibling, unlike new fields on task rows. */
 function writeGoals(
@@ -86,23 +108,28 @@ function editGoal(
 /** Owner-confirmed planning only. Scheduling uses its own qualified authority. */
 export const GoalsPkmService = {
   async load(params: TodoWriteParams): Promise<{ goals: Goal[] }> {
-    const domain = await PersonalKnowledgeModelService.loadDomainData({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-      domain: TODO_LIST_PKM_DOMAIN,
-    });
-    return { goals: readGoals(domain) };
+    return { goals: readGoals(await loadDomain(params)) };
   },
 
-  async create(input: GoalInput, params: GoalWriteParams) {
+  async loadWorkspace(params: TodoWriteParams) {
+    const domain = await loadDomain(params);
+    return { goals: readGoals(domain), tasks: readTodoListState(domain).tasks };
+  },
+
+  async create(input: GoalInput & { taskIds?: string[] }, params: GoalWriteParams & { draftId?: string }) {
     const fields = goalInput(input);
-    const goalId = `goal_${crypto.randomUUID()}`;
-    const result = await writeGoals(params, `create:${goalId}`, (goals, _domain, now) => {
-      // The stable identity is allocated before the coordinator's CAS retries.
+    const taskIds = copyTaskIds(input.taskIds ?? []);
+    const draftId = params.draftId ?? crypto.randomUUID();
+    if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(draftId)) {
+      throw new GoalContractError("invalid_goal");
+    }
+    const goalId = `goal_${draftId}`;
+    const result = await writeGoals(params, `create:${goalId}`, (goals, domain, now) => {
+      // A replay must preserve the first accepted plan, even after a later edit or deletion.
       if (goals.some((goal) => goal.id === goalId)) return goals;
+      validateLinks(domain, taskIds);
       return [...goals, {
-        ...fields, id: goalId, status: "active", taskIds: [], revision: 1,
+        ...fields, id: goalId, status: "active", taskIds, revision: 1,
         createdAt: now, updatedAt: now, completedAt: null, deletedAt: null,
       }];
     });
@@ -115,6 +142,15 @@ export const GoalsPkmService = {
     return editGoal(params, (goal) => ({
       ...goal, ...fields, category: replaceCategory ? fields.category : goal.category,
     }));
+  },
+
+  savePlan(params: GoalEditParams & { plan: GoalPlanInput }) {
+    const fields = goalInput(params.plan);
+    const taskIds = copyTaskIds(params.plan.taskIds);
+    return editGoal(params, (goal, domain) => {
+      validateLinks(domain, taskIds, goal.taskIds);
+      return { ...goal, ...fields, taskIds };
+    });
   },
 
   setStatus(params: GoalEditParams & { status: GoalStatus }) {
@@ -131,15 +167,9 @@ export const GoalsPkmService = {
   },
 
   setTaskLinks(params: GoalEditParams & { taskIds: string[] }) {
-    // Validate against the latest saved task snapshot on every conflict retry.
-    const taskIds = [...params.taskIds];
-    if (taskIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 240) ||
-      new Set(taskIds).size !== taskIds.length) throw new GoalContractError("invalid_goal");
+    const taskIds = copyTaskIds(params.taskIds);
     return editGoal(params, (goal, domain) => {
-      const tasks = readTodoListState(domain).tasks;
-      if (taskIds.some((id) => !tasks.some((task) => task.id === id && task.status !== "deleted"))) {
-        throw new GoalContractError("task_unavailable");
-      }
+      validateLinks(domain, taskIds);
       return JSON.stringify(goal.taskIds) === JSON.stringify(taskIds) ? goal : { ...goal, taskIds };
     });
   },

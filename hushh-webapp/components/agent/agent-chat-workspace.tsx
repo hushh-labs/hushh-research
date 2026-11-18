@@ -9362,7 +9362,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setOpen: handleHistoryDrawerOpenChange,
     openConnectors: openHistoryConnectors,
     openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
-    openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TODOS); },
+    openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TASKS); },
   });
   const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
     const isCurrent = () => emailScopeRef.current === scope &&

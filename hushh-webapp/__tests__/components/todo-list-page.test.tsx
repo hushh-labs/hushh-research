@@ -59,7 +59,7 @@ vi.mock("@/lib/capacitor/use-native-workspace", () => ({
   useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
   useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/one/todos", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: { connected: true }, loadingStatus: false, statusError: mocks.mailError }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({

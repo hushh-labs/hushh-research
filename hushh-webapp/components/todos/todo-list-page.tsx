@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
   type Ref,
 } from "react";
 import Link from "next/link";
@@ -42,19 +41,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { TodoAddItemSheet, emptyTaskDraft, type EditableTodoFields } from "./todo-add-item-sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
+import { ROUTES } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   TodoListPkmService,
@@ -88,157 +78,6 @@ export {
   taskSort,
 } from "./todo-list-presentation";
 export type { DueReceiptItem } from "./todo-list-presentation";
-
-type EditableTodoFields = {
-  title: string;
-  date: string | null;
-  time: string | null;
-  notes: string | null;
-};
-
-const emptyTaskDraft = (): NativeWorkspaceTaskDraft => ({ title: "", date: "", time: "", notes: "" });
-
-function TodoAddItemSheet({
-  draft, onDraftChange,
-  open,
-  saving,
-  onOpenChange,
-  onSave,
-}: {
-  draft: NativeWorkspaceTaskDraft;
-  onDraftChange: (draft: NativeWorkspaceTaskDraft) => unknown;
-  open: boolean;
-  saving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (input: EditableTodoFields) => Promise<unknown>;
-}) {
-  const { title, date, time, notes } = draft;
-  const [notesOpen, setNotesOpen] = useState(() => !!draft.notes);
-
-  useEffect(() => { if (!open) setNotesOpen(false); }, [open]);
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    await onSave({
-      title: title.trim(),
-      date: date || null,
-      time: time || null,
-      notes: notes.trim() || null,
-    });
-  };
-
-  return (
-    <Sheet
-      modal
-      open={open}
-      onOpenChange={(next) => {
-        if (!saving) onOpenChange(next);
-      }}
-    >
-      <SheetContent
-        side="bottom"
-        className="mx-auto max-w-xl gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
-        showCloseButton={!saving}
-      >
-        <form onSubmit={(event) => void submit(event)}>
-          <SheetHeader className="px-5 pb-3 pt-2 text-left">
-            <SheetTitle className="text-xl tracking-[-0.02em]">
-              Add item
-            </SheetTitle>
-            <SheetDescription className="sr-only">
-              This stays encrypted in Agent One.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 px-5 pb-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="todo-title" className="sr-only">
-                Title
-              </Label>
-              <Input
-                id="todo-title"
-                autoFocus
-                value={title}
-                onChange={(event) => onDraftChange({ ...draft, title: event.target.value })}
-                disabled={saving}
-                placeholder="What do you want to do?"
-                maxLength={240}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-date">Date</Label>
-                <Input
-                  id="todo-date"
-                  type="date"
-                  value={date}
-                  onChange={(event) => onDraftChange({ ...draft, date: event.target.value })}
-                  disabled={saving}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-time">Time</Label>
-                <Input
-                  id="todo-time"
-                  type="time"
-                  value={time}
-                  onChange={(event) => onDraftChange({ ...draft, time: event.target.value })}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-            {notesOpen ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-notes">Notes</Label>
-                <Textarea
-                  id="todo-notes"
-                  autoFocus
-                  value={notes}
-                  onChange={(event) => onDraftChange({ ...draft, notes: event.target.value })}
-                  disabled={saving}
-                  placeholder="Add a detail"
-                  maxLength={1200}
-                  className="min-h-22 resize-none"
-                />
-              </div>
-            ) : (
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="compact"
-                className="!px-0"
-                disabled={saving}
-                onClick={() => setNotesOpen(true)}
-              >
-                Add a note
-              </Button>
-            )}
-          </div>
-          <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
-            <Button
-              type="button"
-              variant="none"
-              effect="fill"
-              disabled={saving}
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              size="prominent"
-              disabled={saving || !title.trim()}
-              loading={saving}
-            >
-              Save
-            </Button>
-          </SheetFooter>
-        </form>
-      </SheetContent>
-    </Sheet>
-  );
-}
 
 function AddItemButton({
   disabled,
@@ -538,8 +377,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       fitContent
       className="bg-transparent"
       nativeTest={{
-        routeId: "/one/todos",
-        marker: "native-route-one-todos",
+        routeId: ROUTES.ONE_TASKS,
+        marker: "native-route-one-tasks",
         authState: user ? "authenticated" : "anonymous",
         dataState: itemsLoading
           ? "loading"

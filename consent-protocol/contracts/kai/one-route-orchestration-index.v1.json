@@ -2074,6 +2074,49 @@
       "native_surface_id": "native-route-gmail"
     },
     {
+      "route_pattern": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.goals",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.goals",
+        "purpose": "Review saved goals, describe the intended outcome, and link saved tasks in the owner's unlocked vault.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep goal information unavailable until the owner unlocks the vault.",
+          "cancelled": "Close the editor without saving the draft.",
+          "failed": "Keep the draft and report that the save could not be confirmed.",
+          "timeout": "Ask the owner to check the saved goal before trying again.",
+          "callback_error": "Return to the verified recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "The owner confirms each save and explicitly marks goal completion. Linked task status comes from Tasks. A plan grants no background execution permission.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Never invent a control or infer execution permission from a saved goal."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-goals"
+    },
+    {
       "route_pattern": "/one/kai",
       "page_file": "app/one/kai/page.tsx",
       "route_mode": "standard",
@@ -6415,14 +6458,14 @@
       "native_surface_id": "native-route-ria-onboarding"
     },
     {
-      "route_pattern": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route_pattern": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "route_mode": "standard",
       "orchestration_class": "context_only",
-      "instruction_id": "route.one.todos",
+      "instruction_id": "route.one.tasks",
       "context_policy": "minimal",
       "voice_playbook": {
-        "playbook_id": "route.one.todos",
+        "playbook_id": "route.one.tasks",
         "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
         "screen": "app",
         "entry_cue": "",
@@ -6455,7 +6498,50 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-one-todos"
+      "native_surface_id": "native-route-one-tasks"
+    },
+    {
+      "route_pattern": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.todos",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.todos",
+        "purpose": "Open the Tasks workspace from an older To-do link.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep the Tasks destination behind its existing access check.",
+          "cancelled": "Retain the current screen.",
+          "failed": "Offer the canonical Tasks destination.",
+          "timeout": "Retain the canonical Tasks destination.",
+          "callback_error": "Offer the canonical Tasks destination.",
+          "route_mismatch": "Use the verified Tasks route."
+        },
+        "completion_boundary": "Both web and native clients open the same Tasks workspace.",
+        "next_route": "/one/tasks",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Retain the destination's access checks."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "block_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/wallet",

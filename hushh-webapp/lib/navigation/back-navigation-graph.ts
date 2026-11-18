@@ -186,7 +186,8 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_MESSAGES]: "Messages",
-    [ROUTES.ONE_TODOS]: "To-do List",
+    [ROUTES.ONE_TASKS]: "Tasks",
+    [ROUTES.ONE_GOALS]: "Goals",
     [ROUTES.EMAIL_AGENT]: "Mail Agent",
     [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
@@ -923,14 +924,23 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
-    id: "one-todos",
+    id: "one-goals",
+    resolve: (pathname) => pathname === ROUTES.ONE_GOALS ? {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Goals" }],
+    } : undefined,
+  },
+  {
+    id: "one-tasks",
     resolve: (pathname) => {
-      if (pathname !== ROUTES.ONE_TODOS) return undefined;
+      if (pathname !== ROUTES.ONE_TASKS) return undefined;
       return {
         backHref: ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "To-do List" }],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
       };
     },
   },

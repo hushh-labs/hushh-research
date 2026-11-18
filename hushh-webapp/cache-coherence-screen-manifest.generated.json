@@ -10,19 +10,19 @@
     "cache_reference": "../docs/development/contracts/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 162,
-    "physical_page_count": 161,
-    "route_contract_count": 162,
-    "surface_map_count": 162,
+    "total_screens": 164,
+    "physical_page_count": 163,
+    "route_contract_count": 164,
+    "surface_map_count": 164,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 48,
+      "redirect/alias": 49,
       "vault-backed": 67,
       "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 3,
-      "PKM-secure": 7,
+      "PKM-secure": 8,
       "public/static": 1
     },
     "pages_missing_route_contract": [],
@@ -2053,6 +2053,55 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "secure-resource",
+      "cache_keys": [
+        "PKM_DOMAIN_RESOURCE(one_todos)"
+      ],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
+      "warm_source": "Vault unlock plus secure resource cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fgoals",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/kai",
@@ -5946,8 +5995,8 @@
       ]
     },
     {
-      "route": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "PKM-secure",
       "cache_policy": "secure-resource",
@@ -5976,7 +6025,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Ftodos",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Ftasks",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5986,6 +6035,46 @@
         "secure_cache": false,
         "cache_sync": false,
         "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/todos",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
@@ -7292,5 +7381,5 @@
       ]
     }
   ],
-  "content_sha256": "e7502eed99062a04dbe3d142062f14cf96608e107c9998b841666339576ad530"
+  "content_sha256": "a53fd991f45b33feda0e3b5e389bbeaa801b2a94538ed367846e53f33ed209ef"
 }

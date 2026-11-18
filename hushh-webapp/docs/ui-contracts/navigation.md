@@ -187,7 +187,7 @@ acceptance. This documentation change performs no navigation/runtime mutation.
 ## Experimental native Tasks
 
 When the existing experimental native-interface preference admits the iPhone
-workspace, `/one/todos` uses the shared native presentation owner. React retains
+workspace, `/one/tasks` uses the shared native presentation owner. React retains
 loading, task projection, encrypted writes, confirmation outcomes and feedback.
 The adapter maps grouped pending/completed rows, receipts, retries and the
 existing source links; task detail provides complete/restore, Open/Join and

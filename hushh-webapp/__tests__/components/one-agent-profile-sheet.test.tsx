@@ -474,7 +474,7 @@ describe("One agent profile feed preview", () => {
     const binding = pane.dataset.context;
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "Tasks", "Profile"]);
     await screen.findByText("Mail connected");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
@@ -684,13 +684,13 @@ describe("One agent profile feed preview", () => {
     expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
     expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
-  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
+  it("loads the shared Tasks preview only when selected without a duplicate workspace link", async () => {
     const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "Tasks", "Profile"]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
     expect(await screen.findByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
     expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });

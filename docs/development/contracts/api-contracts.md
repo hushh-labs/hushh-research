@@ -2675,7 +2675,7 @@ merging two businesses merely because their names or contact details overlap.
 
 ### One task inventory and reviewed suggestions
 
-One profile To-do and `/one/todos` share live pending-work projection and encrypted
+The private agent's profile Tasks preview and `/one/tasks` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
 services. This is a bounded foreground inventory, not a background sweep of all
@@ -4641,11 +4641,13 @@ versions or malformed records stop a write rather than being discarded.
 Goal details and links remain encrypted; metadata keeps the existing task
 counters and timestamp only. The `one_todos` domain stays unshareable.
 
-This is a client-service foundation with contract tests, not an installed
-Goals/Tasks workspace or an execution API. No new endpoint, native plugin,
-database table or consent scope is introduced. Web, iOS and Android reuse the
-existing PKM transport. A saved plan grants no scheduled/background authority;
-Pod and Puppy scheduling retain their separate qualification and approval gates.
+The Goals workspace reads goals and saved tasks in one unlocked owner snapshot.
+The editor saves the outcome, category and task links in a single revision.
+Existing unavailable links can be retained or removed. New links must resolve
+to saved tasks. A create retry keeps the editor's original draft identity.
+Goal details are hidden when the vault locks or the owner changes. Web, iOS and
+Android use the same client and PKM transport. A saved plan grants no background
+execution authority; Pod and Puppy retain their existing approval gates.
 
 ### Owner-confirmed Gmail To-do follow-ups
 

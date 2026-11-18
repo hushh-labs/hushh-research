@@ -10,7 +10,7 @@ import { useNativeWorkspace, useNativeWorkspacePresentation } from "@/lib/capaci
 import type { NativeWorkspaceChoice, NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
+import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate, type DueReceiptItem } from "./todo-list-presentation";
 
@@ -51,7 +51,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const latest = useRef({ model, pathname });
   useLayoutEffect(() => { latest.current = { model, pathname }; });
-  const current = () => mounted.current && latest.current.pathname === "/one/todos" && latest.current.model.current();
+  const current = () => mounted.current && latest.current.pathname === ROUTES.ONE_TASKS && latest.current.model.current();
   const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const closeEditor = () => { if (!saving.current) latest.current.model.closeEditor(); };
   const back = () => {
@@ -61,7 +61,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
     if (selection) { setSelection(null); return true; }
     return false;
   };
-  useBackLayer("/one/todos", confirmDelete ? 3 : editing || selection ? 2 : 0, back);
+  useBackLayer(ROUTES.ONE_TASKS, confirmDelete ? 3 : editing || selection ? 2 : 0, back);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const action = (key: string, label: string, callback: () => unknown, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
     const id = handles(key); actions.set(id, () => { if (current()) return callback() as void | Promise<unknown>; });
@@ -118,10 +118,10 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
     },
     onSaved: closeEditor, onCancel: closeEditor,
   } : undefined;
-  const active = pathname === "/one/todos";
+  const active = pathname === ROUTES.ONE_TASKS;
   const phase = useNativeWorkspace({ owner: model.owner!, content: { workspace: "tasks", page: "overview", title, enabled: active, backEnabled: false, sections }, actions, current,
     editor, editorKind: "task", presentationOwner: presentation.owner, contentFrame, active, back });
   return <AppPageShell as="main" ref={contentFrame} width="reading" aria-busy={phase !== "native"} data-native-todo-workspace={phase}
-    nativeTest={{ routeId: "/one/todos", marker: phase === "native" ? "native-route-one-todos" : "native-todo-admission", authState: "authenticated",
+    nativeTest={{ routeId: ROUTES.ONE_TASKS, marker: phase === "native" ? "native-route-one-tasks" : "native-todo-admission", authState: "authenticated",
       dataState: phase === "blocked" ? "error" : phase !== "native" ? "booting" : model.loading ? "loading" : model.pending.length || model.completed.length ? "loaded" : "empty-valid" }} />;
 }

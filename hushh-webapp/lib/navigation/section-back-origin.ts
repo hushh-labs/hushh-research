@@ -55,7 +55,8 @@ const BOTTOM_NAV_ROOTS: readonly string[] = [
  * dashboard no matter where the person came from.
  */
 const STANDALONE_ROOTS: readonly string[] = [
-  ROUTES.ONE_TODOS,
+  ROUTES.ONE_TASKS,
+  ROUTES.ONE_GOALS,
   ROUTES.ONE_FEED,
   ROUTES.ONE_MARKETPLACE,
   ROUTES.ONE_CAREER,
