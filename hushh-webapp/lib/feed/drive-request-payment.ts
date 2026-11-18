@@ -180,6 +180,7 @@ export function describeFeedDrivePayment(
   >,
   now = Date.now(),
   context?: SharingRequestContext,
+  options?: { priceOnAction: boolean },
 ): Pick<FeedDrivePayment, "status" | "title" | "description"> {
   // The same order as effectiveRequesterPaymentState: the request's own
   // deadline first, then the Checkout window.
@@ -200,7 +201,7 @@ export function describeFeedDrivePayment(
       : null;
   return {
     status,
-    ...paymentCopy(status, payment.amountCents, payment.ownerLabel, remainingMs, payment.requestedAt, context),
+    ...paymentCopy(status, payment.amountCents, payment.ownerLabel, remainingMs, payment.requestedAt, context, options?.priceOnAction),
   };
 }
 
@@ -232,12 +233,21 @@ function paymentCopy(
   remainingMs: number | null = null,
   requestedAt: number | null = null,
   context?: SharingRequestContext,
+  priceOnAction = false,
 ): Pick<FeedDrivePayment, "title" | "description"> {
   const price = formatDocumentRequestPrice(amountCents);
   const subject = context ? compactPurpose(context) : null;
   const deadline = remainingMs !== null && remainingMs > 0
     ? formatPaymentRemaining(remainingMs)
     : null;
+  if (status === "ready" && priceOnAction) {
+    const details = [subject && owner ? `From ${owner}` : null,
+      context ? requestPeriod(context) : requestedDate(requestedAt), deadline].filter(Boolean);
+    return {
+      title: subject || (owner ? `Document request from ${owner}` : "Document request ready"),
+      description: details.join(" · ") || "Sharing starts after payment.",
+    };
+  }
   if (subject) {
     return {
       title: status === "expired" ? REQUESTER_PAYMENT_TITLES.requestExpired
