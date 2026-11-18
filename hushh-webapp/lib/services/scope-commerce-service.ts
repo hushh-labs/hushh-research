@@ -1,6 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
-import { extractSandboxRemainingCents, verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
+import { extractSandboxRemainingCents, resolveCommerceSandboxOrigin, verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 import { parseCommerceHostedSession } from "@/lib/services/scope-commerce-return";
 import { validateCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
 import { parseCommerceReadiness, commerceActionError, type CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
@@ -189,7 +189,7 @@ async function request(token: string, path: string, body?: unknown): Promise<Rec
 
 export const ScopeCommerceService = {
   async sandboxStatus(token: string) {
-    const origin = resolveShareableAppOrigin();
+    const origin = resolveCommerceSandboxOrigin(resolveShareableAppOrigin());
     if (!origin) throw new Error("Sandbox identity could not be verified.");
     const raw = await request(token, `sandbox-readiness?${new URLSearchParams({ app_origin: origin })}`);
     return {

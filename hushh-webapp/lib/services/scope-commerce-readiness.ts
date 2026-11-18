@@ -56,7 +56,7 @@ const ACTION_ERRORS: Record<string, string> = {
   ...Object.fromEntries(PLATFORM_REASONS.map(code => [code, "Paid sharing is unavailable. Review Payments and earnings; free sharing does not require Stripe."])),
   ...Object.fromEntries(SELLER_REASONS.map(code => [code, "Review information-access payout setup in Payments and earnings before continuing with paid sharing."])),
   provider_sandbox_reviewer_required: "Paid sharing is limited to the approved Sandbox reviewers. Free sharing still requires your approval.",
-  provider_sandbox_funding_budget_exceeded: "This amount exceeds your remaining $20.00 sandbox test allowance. Choose a shorter duration or enter a smaller top-up amount.",
+  provider_sandbox_funding_budget_exceeded: "This amount exceeds your remaining sandbox test allowance. Choose a shorter duration or enter a smaller top-up amount.",
   funding_amount_invalid: "Enter a coin top-up between $0.50 and $1,000.00.",
   seller_country_unavailable: "Payout setup is not available for that country code yet.",
   provider_onboarding_link_expired: "Your Stripe setup link expired. Request a new link to continue.",

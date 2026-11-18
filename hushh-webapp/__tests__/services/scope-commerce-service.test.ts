@@ -117,6 +117,13 @@ describe("scope commerce review boundary", () => {
       expect(() => verifyCommerceSandbox({ ...proof, ...change }, origin)).toThrow();
     }
     expect(() => verifyCommerceSandbox(proof, "http://preview.example.com")).toThrow();
+    const localOrigin = "http://localhost:3000";
+    expect(verifyCommerceSandbox({ ...proof, app_origin: localOrigin }, localOrigin)).toBe(true);
+    for (const restrictedEnv of ["uat", "production"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", restrictedEnv);
+      expect(() => verifyCommerceSandbox({ ...proof, app_origin: localOrigin }, localOrigin)).toThrow();
+    }
+    vi.unstubAllEnvs();
   });
   beforeEach(() => vi.resetAllMocks());
   const quote = () => ({ id: requestId, request_id: documentId, scope_handle: "scope_food", machine_scope: "attr.food.preferences.*",
