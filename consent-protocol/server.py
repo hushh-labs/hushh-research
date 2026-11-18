@@ -1556,6 +1556,31 @@ async def startup_pod_liveness_worker() -> None:
 
 
 @app.on_event("startup")
+async def startup_umbrella_cell_replenisher_worker() -> None:
+    """Maintain Dev Umbrella Cell warm standby headroom under strict zero-idle cost bounds."""
+    if pod_mode():
+        logger.info("startup.umbrella_cell_replenisher_skipped reason=pod_mode")
+        return
+    try:
+        from hushh_mcp.services.umbrella_cell_replenisher import (  # noqa: PLC0415
+            start_umbrella_cell_replenisher_loop,
+        )
+
+        task = start_umbrella_cell_replenisher_loop(
+            interval_seconds=180.0,
+            initial_delay_seconds=15.0,
+            sweep_lock=fleet_sweep_lock.UMBRELLA_CELL_REPLENISH,
+        )
+        if task is None:
+            logger.info("startup.umbrella_cell_replenisher_off reason=lane_or_flag")
+            return
+        _track_startup_background_task(task)
+        logger.info("startup.umbrella_cell_replenisher_registered interval_s=180 fleet_lock=on")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.umbrella_cell_replenisher_failed reason=%s", type(exc).__name__)
+
+
+@app.on_event("startup")
 async def startup_account_deletion_cleanup_worker() -> None:
     """Retry durable Firebase identity cleanup intents after account erasure."""
     if pod_mode():

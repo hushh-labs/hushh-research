@@ -16,6 +16,10 @@
       "softWatermark": 64,
       "hardWatermark": 80,
       "minWarmSkeletons": 0,
+      "maxWarmSkeletons": 4,
+      "replenishBatchSize": 2,
+      "sharedCellFixedMonthlyUsd": 0.0,
+      "perWarmSlotStandingMonthlyUsd": 0.0,
       "slots": []
     },
     {
@@ -37,7 +41,11 @@
       "imageDigest": "sha256:9f771f108e06ad3fe51a433b6cd3753a0b4f8d5b24a00c82c511a421d01a9b64",
       "softWatermark": 40,
       "hardWatermark": 50,
-      "minWarmSkeletons": 1,
+      "minWarmSkeletons": 2,
+      "maxWarmSkeletons": 3,
+      "replenishBatchSize": 1,
+      "sharedCellFixedMonthlyUsd": 5.0,
+      "perWarmSlotStandingMonthlyUsd": 0.0,
       "slots": [
         {
           "slotId": "slot01",

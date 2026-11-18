@@ -23,6 +23,7 @@ from hushh_mcp.services import azure_federation
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
 from hushh_mcp.services.azure_container_app_renderer import (
     AgentCoordinates,
+    refuse_metered_configuration,
     render_container_app,
 )
 from hushh_mcp.services.compute_backend import (
@@ -42,6 +43,20 @@ _DEFAULT_CORS_ORIGINS = (
     "https://dev.one.hushh.ai,https://dev.one.hussh.ai,"
     "http://localhost:3000,http://127.0.0.1:3000,"
     "http://localhost:3001,http://127.0.0.1:3001"
+)
+_WARM_STANDBY_STRIP_ENV = frozenset(
+    {
+        "HUSHH_ID",
+        "HUSSH_BILLING_SPACE_ID",
+        "HUSSH_SPACE_ID",
+        "HUSSH_PHONE_HASH",
+        "POD_STORAGE_AZURE_BLOB_URL",
+        "HUSSH_POD_KEY_VAULT_KEY",
+        "POD_WRAPPED_KEY_OBJECT",
+        "POD_DURABLE_IDENTITY_ENABLED",
+        "POD_AGENT_MEMORY_ENABLED",
+        "POD_LOCAL_PKM_ENABLED",
+    }
 )
 
 
@@ -189,6 +204,8 @@ class HostedAzureBackend:
             **body.get("tags", {}),
             "hussh-pool-state": "bound_active",
             "hussh-owner-hash": _owner_hash(spec.hushh_id),
+            "hussh-kv-key-uri": slot.key_vault_key,
+            "hussh-blob-url": slot.blob_url,
         }
 
         from hushh_mcp.runtime_settings import get_app_runtime_settings
@@ -222,6 +239,76 @@ class HostedAzureBackend:
                 {"name": "HUSSH_POD_SLOT_ID", "value": slot.slot_id},
             ],
         )
+        return body
+
+    def render_warm_standby_config(
+        self, slot_override: HostedAzureCellSlotSpec | None = None
+    ) -> dict[str, Any]:
+        """Render a virgin, zero-owner, scale-to-zero warm standby Container App body."""
+        slot = slot_override or self._require_dev_authority()
+        placeholder_spec = PodSpec(
+            hushh_id="ha1_warmstandbyskeleton00000000",
+            phone_e164_hash="warm-standby",
+            pod_pubkey="",
+            region=slot.location,
+            tier=TIER_DEDICATED,
+            deployment_target=BACKEND_AZURE,
+            model_credential_mode="byok_per_turn",
+        )
+        coords = self._coordinates(slot, incarnation="warm-standby")
+        body = render_container_app(placeholder_spec, coords)
+        body["tags"] = {
+            "hussh-tenancy": "hussh-hosted",
+            "hussh-environment": "dev",
+            "hussh-cell-id": slot.cell_id,
+            "hussh-slot-id": slot.slot_id,
+            "hussh-pool-state": "warm_standby",
+            "hussh-kv-key-uri": slot.key_vault_key,
+            "hussh-blob-url": slot.blob_url,
+        }
+
+        from hushh_mcp.runtime_settings import get_app_runtime_settings
+
+        tpl = body["properties"]["template"]
+        scale = tpl.setdefault("scale", {})
+        scale["minReplicas"] = 0
+        scale["maxReplicas"] = 1
+        scale["cooldownPeriod"] = 60
+
+        container = tpl["containers"][0]
+        kept_env = [
+            entry
+            for entry in list(container.get("env") or [])
+            if entry.get("name") not in _WARM_STANDBY_STRIP_ENV
+        ]
+        container["env"] = _upsert_env(
+            kept_env,
+            [
+                {"name": "POD_STORAGE_BACKEND", "value": "null"},
+                {"name": "POD_IDLE_GRACE_SECONDS", "value": "60"},
+                {"name": "PERSONAL_AGENT_ENABLED", "value": "true"},
+                {"name": "HUSHH_DEPLOY_ENV", "value": "dev"},
+                {
+                    "name": "HUSSH_HUB_BASE_URL",
+                    "value": (os.getenv("HUSSH_HUB_BASE_URL") or _DEFAULT_DEV_HUB_URL).strip(),
+                },
+                {
+                    "name": "APP_FRONTEND_ORIGIN",
+                    "value": (
+                        get_app_runtime_settings().app_frontend_origin or _DEFAULT_DEV_ORIGIN
+                    ).strip(),
+                },
+                {
+                    "name": "CORS_ALLOWED_ORIGINS",
+                    "value": (os.getenv("CORS_ALLOWED_ORIGINS") or _DEFAULT_CORS_ORIGINS).strip(),
+                },
+                {"name": "AZURE_OPENAI_VOICE_ENABLED", "value": "false"},
+                {"name": "CHROMIUM_SANDBOX", "value": "false"},
+                {"name": "HUSSH_POD_CELL_ID", "value": slot.cell_id},
+                {"name": "HUSSH_POD_SLOT_ID", "value": slot.slot_id},
+            ],
+        )
+        refuse_metered_configuration(body)
         return body
 
     async def health(self) -> bool:
@@ -345,6 +432,45 @@ class HostedAzureBackend:
             api_version=API_VERSIONS["container_apps"],
             op="hosted_azure_observe",
         )
+
+    def list_cell_apps_sync(
+        self,
+        *,
+        subscription_id: Optional[str] = None,
+        resource_group: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """List all Container Apps in a cell resource group via O(1) ARM control-plane read."""
+        if deploy_lane() != "dev":
+            raise HostedTierNotPermittedError(
+                "Hussh-Hosted Azure Umbrella Cells are restricted to the dev lane"
+            )
+        sub = (subscription_id or (self._slot.subscription_id if self._slot else "")).strip()
+        rg = (resource_group or (self._slot.resource_group if self._slot else "")).strip()
+        if not sub or not rg:
+            slot = self._require_dev_authority()
+            sub, rg = slot.subscription_id, slot.resource_group
+        client = self._arm_client
+        if client is None:
+            if self._token_provider is not None:
+                client = ArmClient(self._token_provider)
+            else:
+                slot = self._require_dev_authority()
+                client_id = (
+                    os.getenv("HUSSH_HOSTED_AZURE_CLIENT_ID") or slot.controller_client_id
+                ).strip()
+                client = ArmClient(
+                    lambda: (
+                        azure_federation.app_token(slot.tenant_id, client_id=client_id).access_token
+                    )
+                )
+        path = f"/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps"
+        resp = client.get(
+            path,
+            api_version=API_VERSIONS["container_apps"],
+            op="hosted_azure_list_cell",
+        )
+        value = resp.get("value") if isinstance(resp, dict) else None
+        return [item for item in (value or []) if isinstance(item, dict)]
 
 
 __all__ = [

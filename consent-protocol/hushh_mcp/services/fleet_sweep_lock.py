@@ -218,3 +218,4 @@ async def release_held_turns(timeout_seconds: float = 5.0) -> int:
 
 POD_LIVENESS = FleetSweepLock(name="pod_liveness", sweep_id=1)
 PERSONAL_AGENT_RECONCILE = FleetSweepLock(name="personal_agent_reconcile", sweep_id=2)
+UMBRELLA_CELL_REPLENISH = FleetSweepLock(name="umbrella_cell_replenish", sweep_id=3)
