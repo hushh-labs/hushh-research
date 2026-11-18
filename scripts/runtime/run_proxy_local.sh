@@ -172,7 +172,19 @@ fi
 
 proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
 
-if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
+if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -f "$REPO_ROOT/scripts/env/local_runtime_parity.py" ]; then
+  PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
+  chmod 600 "$PROXY_CREDENTIALS_TEMP"
+  if ! PROXY_CREDENTIALS_FILE="$(python3 "$REPO_ROOT/scripts/env/local_runtime_parity.py" resolve-proxy-credentials --env-file "$BACKEND_ENV_FILE" --materialize-temp "$PROXY_CREDENTIALS_TEMP")"; then
+    rm -f "$PROXY_CREDENTIALS_TEMP"
+    PROXY_CREDENTIALS_TEMP=""
+    exit 1
+  fi
+  if [ "$PROXY_CREDENTIALS_FILE" != "$PROXY_CREDENTIALS_TEMP" ]; then
+    rm -f "$PROXY_CREDENTIALS_TEMP"
+    PROXY_CREDENTIALS_TEMP=""
+  fi
+elif [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
   PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
   "$BACKEND_VENV_PYTHON" - "$PROXY_CREDENTIALS_TEMP" "$BACKEND_ENV_FILE" <<'PY'
 import json
@@ -191,7 +203,6 @@ fi
 
 if [ -z "$PROXY_CREDENTIALS_FILE" ]; then
   echo "local requires Cloud SQL proxy credentials from FIREBASE_ADMIN_CREDENTIALS_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
-  echo "Refusing to fall back to local gcloud/ADC credentials." >&2
   exit 1
 fi
 
