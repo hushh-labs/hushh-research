@@ -34,6 +34,7 @@ export function useAccountPhoneBinding({
 }) {
   const [read, setRead] = useState<ProviderPhoneRead | null>(null);
   const request = useRef(0);
+  const verifiedAppPhone = appStatus === "verified" ? appPhone : null;
   const currentOwner = useCallback(() => {
     const owner = snapshotValidatedAuthSessionPrincipal();
     return active && owner?.ownerId === ownerId && owner?.firebaseUid === firebaseUid ? owner : null;
@@ -62,7 +63,7 @@ export function useAccountPhoneBinding({
   useLayoutEffect(() => {
     void refreshProviderPhone();
     return () => { request.current += 1; };
-  }, [refreshProviderPhone]);
+  }, [refreshProviderPhone, verifiedAppPhone]);
 
   const acceptVerifiedUser = useCallback((user: FirebasePhoneUser) => {
     const owner = currentOwner();
@@ -74,8 +75,8 @@ export function useAccountPhoneBinding({
   const current = active && read?.owner.userId === ownerId &&
     isValidatedAuthSessionOwnerCurrent(read.owner) ? read : null;
   const providerPhone = current?.status === "ready" ? current.phoneNumber : null;
-  const linkedPhone = current?.status === "ready" && appStatus === "verified" &&
-    providerPhone === appPhone ? appPhone : null;
+  const linkedPhone = current?.status === "ready" && providerPhone === verifiedAppPhone
+    ? verifiedAppPhone : null;
   const status: AccountPhoneBindingStatus = current?.status === "unavailable" || appStatus === "unavailable"
     ? "unavailable"
     : current?.status !== "ready" || (!appPhone && appStatus !== "missing")
