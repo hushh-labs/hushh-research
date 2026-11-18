@@ -2623,6 +2623,14 @@ request-scoped: it does not grant connector access, fetch sources, or persist
 preferences. Clients remain responsible for omitting unselected summaries from
 requests and keeping durable owner preferences in their existing encrypted store.
 
+Sources explicitly marked `already_pending: true` are excluded before model
+dispatch and cannot be returned as suggestions. Duplicate input references are
+still rejected across the complete submitted collection, including excluded
+sources. If only pending or unselected evidence remains, the model is not called;
+the endpoint returns an empty list after the normal authority and rollout checks.
+This is a guard on explicit task state, not a second task store: completion and
+dismissal continue to belong to the existing encrypted task records.
+
 One's manifest-owned `one_todo_suggestions` single-turn gene has no tools or
 conversation history. Its strict response is `{items: [{source_ref,title,reason}]}`,
 at most 12 rows with title length 1-160 and reason length 1-240. Unknown or
