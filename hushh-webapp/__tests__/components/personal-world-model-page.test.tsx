@@ -12,7 +12,6 @@ import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { pwmClaimKey } from "@/lib/services/world-model-decision-service";
-import { AuthService } from "@/lib/services/auth-service";
 import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/profile/world-model-fact-sheet";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
