@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
 from api.routes.one import todo_suggestions as route
-from hushh_mcp.services.one_todo_suggestions import TaskSuggestions
+from hushh_mcp.services.one_todo_suggestions import TaskSuggestions, suggest_tasks
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 ROOT = "/api/one/todos/suggestions"
@@ -37,6 +37,55 @@ def test_status_and_disabled_dispatch_are_private(client, monkeypatch):
     response = client.post(ROOT, json=BODY)
     assert response.status_code == 503
     assert response.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.parametrize("invalid", ["summary", "extra_source", "selection"])
+def test_invalid_task_information_is_not_reflected_or_cacheable(client, monkeypatch, invalid):
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    marker = "synthetic-private-task-information"
+    body = {**BODY, "sources": [dict(BODY["sources"][0])]}
+    if invalid == "summary":
+        body["sources"][0]["summary"] = marker * 20
+    elif invalid == "extra_source":
+        body["sources"][0]["message_body"] = marker
+    else:
+        body["selected_capabilities"] = [marker]
+    response = client.post(ROOT, json=body)
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid task suggestion request."}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert marker not in response.text
+    suggest.assert_not_called()
+
+
+def test_malformed_task_json_is_private_without_service_dispatch(client, monkeypatch):
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    response = client.post(
+        ROOT,
+        content='{"sources": ["synthetic-private-task-information"',
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid task suggestion request."}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "synthetic-private-task-information" not in response.text
+    suggest.assert_not_called()
+
+
+def test_private_validation_wrapper_preserves_owner_admission_errors(client, monkeypatch):
+    def refuse():
+        raise HTTPException(403, "Owner session required")
+
+    client.app.dependency_overrides[hub_content_owner] = refuse
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    response = client.post(ROOT, json=BODY)
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Owner session required"}
+    assert response.headers["cache-control"] == "private, no-store"
+    suggest.assert_not_called()
 
 
 def test_real_route_checks_self_owner_and_placement_before_release(client, monkeypatch):
@@ -78,3 +127,46 @@ def test_placement_refusal_and_model_errors_do_not_leak_inputs(client, monkeypat
     assert response.status_code == 503
     assert "private provider detail" not in response.text
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_selected_capabilities_reach_the_existing_suggestion_service(client, monkeypatch):
+    suggest = AsyncMock(return_value=TaskSuggestions(items=[]))
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    selected = ["calendar", "gmail", "messages"]
+    response = client.post(ROOT, json={**BODY, "selected_capabilities": selected})
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert suggest.call_args.args[0].selected_capabilities == selected
+
+
+@pytest.mark.parametrize("selected", [["calendar", "calendar"], ["unknown"], "calendar"])
+def test_invalid_source_selection_is_rejected_before_processing(client, monkeypatch, selected):
+    suggest = AsyncMock()
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    response = client.post(ROOT, json={**BODY, "selected_capabilities": selected})
+    assert response.status_code == 422
+    suggest.assert_not_called()
+
+
+def test_pending_task_lifecycle_reaches_the_existing_service_without_a_model(client, monkeypatch):
+    validate = AsyncMock(return_value={"user_id": "owner"})
+    monkeypatch.setattr(route, "validate_first_party_owner_token", validate)
+
+    async def current(_user_id, _operation, check):
+        await check()
+
+    monkeypatch.setattr(route, "require_hub_content_current", current)
+    runner = AsyncMock()
+
+    async def suggest(body, **kwargs):
+        return await suggest_tasks(body, runner=runner, **kwargs)
+
+    monkeypatch.setattr(route, "suggest_tasks", suggest)
+    body = {**BODY, "sources": [{**BODY["sources"][0], "already_pending": True}]}
+    response = client.post(ROOT, json=body)
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert validate.await_count == 2
+    runner.assert_not_called()

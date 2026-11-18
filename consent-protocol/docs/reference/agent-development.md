@@ -28,9 +28,12 @@ Typed Gmail chat uses `services/email_oss/runtime.py`: the installed semantic-ro
 `IndexedRouter` scopes the six Email routes; LangChain `create_agent` owns the tool
 loop. `gmail_execution.py` imports the pinned upstream execution/MIME helpers;
 `vendor/PROVENANCE.md` records their exact licenses, revisions and adaptations.
-The existing OAuth vault supplies account-bound read/compose credentials; the
-central managed Azure binding supplies its approved One text deployment; the
-Email manifest authors its low thinking budget, without changing One root policy.
+The existing OAuth vault supplies account-bound read and compose credentials.
+The UAT Mail policy selects Gemini 4 Argon on managed Vertex ADC and uses medium
+thinking. The existing graph handles tool calls and streaming. Vertex may retry
+one eligible HTTP failure before opening the stream. The turn retains its
+90-second deadline and existing tool limits. Connection checks expose the
+linked address only for an active connection and current owner authority.
 The owner clock includes local day boundaries with epoch seconds, so Gmail
 calendar-day queries can use the correct timezone without a query compiler. There is no per-message
 assessment model, custom date parser or receipt-snapshot redirect on this path.

@@ -90,7 +90,7 @@ dependencies = [
     "semantic-router[fastembed]==1.1.1",
     "google-api-python-client==2.201.0",
     "langchain==1.3.13",
-    "langchain-openai==1.6.3",
+    "langchain-google-genai==4.4.2",
 ]
 
 [dependency-groups]

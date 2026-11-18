@@ -11,6 +11,7 @@ window.addEventListener("fixture:ai-choice-saved", () => {
   listeners.forEach(listener => listener({type:"set",key:"bootstrap:fixture"}));
 });
 export const useRouter = () => router;
+export const usePathname = () => "/one/setup";
 export const useSearchParams = () => params;
 const authSnapshot = { user: { uid: "fixture" }, userId: "fixture", signOut: noop };
 export const useAuth = () => authSnapshot;
@@ -35,10 +36,11 @@ export default function Image({alt="",unoptimized:_unoptimized,...props}:React.I
 
 export const resolveKaiOnboardingCompletion = () => false;
 
-export const AccountIdentityService = { peekCachedIdentity: () => ({data:{phoneVerified:true}}), refreshCurrentUserIdentity: async () => ({phoneVerified:true}), hasVerifiedPhone: () => true };
+export const AccountIdentityService = { peekCachedIdentity: () => ({data:{phone_verified:true}}), refreshCurrentUserIdentity: async () => ({phone_verified:true}), hasVerifiedPhone: () => true };
 export const useCapabilitySetupStates = () => ({byId:{},isLoading:false,isEnriching:false});
 export const ApiService = {getByocSetupStatus: async () => ({status:"idle"})};
 export const OneAgentPresence = () => null;
+export const ownerChatMemory = unavailable;
 export const PublicProfileDiscoveryCard = () => null;
 
 export const BufferHandoffScreen = () => null;
@@ -57,6 +59,6 @@ export const loadSelectedAiProvider = unavailable;
 // Loaded preferences reproduce the actual form which used to cover setup.
 export const useMarketingPreference = () => ({
   value: { enabled: true, frequency: "weekly" }, enabledDraft: true,
-  frequencyDraft: "weekly", loading: false, busy: false, error: null,
+  frequencyDraft: "weekly", showFrequency: true, loading: false, busy: false, error: null,
   saved: false, save: unavailable, edit: noop, refresh: unavailable,
 });

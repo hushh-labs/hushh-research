@@ -3487,8 +3487,8 @@ describe("Connect — Circles", () => {
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
   });
 
-  it("switches to Circles without exposing selection mode", async () => {
-    render(<ConnectPageClient />);
+  it("returns from Circles to the loaded directory without starting another read", async () => {
+    const { rerender } = render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
     expect(screen.queryByRole("button", { name: "Select people" })).toBeNull();
@@ -3497,9 +3497,20 @@ describe("Connect — Circles", () => {
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    rerender(<ConnectPageClient />);
     expect(
       screen.queryByRole("button", { name: "Cancel selecting people" }),
     ).toBeNull();
+
+    const reads = mocks.searchDirectory.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "Connections", exact: true }));
+      mocks.searchParams = new URLSearchParams("tab=all");
+      rerender(<ConnectPageClient />);
+    });
+    expect(screen.getByRole("button", { name: "Explore your network" })).toBeVisible();
+    expect(mocks.searchDirectory).toHaveBeenCalledTimes(reads);
   });
 
   it("keeps directory tab switches local while Circles stays linkable", async () => {

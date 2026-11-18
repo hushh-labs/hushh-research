@@ -513,7 +513,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const identity = await withinAccountSessionValidationBudget(
         AccountIdentityService.refreshCurrentUserIdentity(
           currentUser,
-          { force: true },
+          shouldSkipAmbientIdentityHydrationForAutomation() ? { readOnly: true } : { force: true },
         ),
         Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
       );
@@ -559,7 +559,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [setPhoneNumberStatus]);
 
   useEffect(() => {
-    if (!user || !accountPrincipal || shouldSkipAmbientIdentityHydrationForAutomation()) return;
+    if (!user || !accountPrincipal) return;
     const expectedUid = user.uid;
     const ownerId = accountPrincipal.ownerId;
     const generation = getAuthSessionGeneration();
@@ -604,7 +604,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (phoneNumberRef.current) {
           // Revalidate the last committed claim while keeping it visible through an outage.
           const identity = await withinAccountSessionValidationBudget(
-            AccountIdentityService.refreshCurrentUserIdentity(user, { force: true }),
+            AccountIdentityService.refreshCurrentUserIdentity(user,
+              shouldSkipAmbientIdentityHydrationForAutomation() ? { readOnly: true } : { force: true }),
             Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
           );
           applyPhoneIdentity(freshIdentity() ?? identity);

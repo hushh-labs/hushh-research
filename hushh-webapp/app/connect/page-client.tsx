@@ -33,6 +33,8 @@ import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { MutualConnectionsList } from "@/components/connect/mutual-connections-list";
 import { openPersonProfilePreview, PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { preloadNetworkDiscovery } from "@/lib/connect/network-page-cache";
+import { loadNetworkPreviewList } from "@/components/connect/network-preview-list-loader";
 import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -107,6 +109,7 @@ import {
 } from "@/lib/navigation/routes";
 import {
   CONNECT_CONNECTION_VIEW_PARAM,
+  CONNECT_DIRECTORY_PARAM,
   CONNECT_MUTUALS_PARAM,
   connectDirectoryReturnHref,
   connectMutualsHref,
@@ -571,7 +574,6 @@ function ConnectPageClientContent() {
 
   const searchParams = useSearchParams();
   const [directoryMemory] = useState(() => readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory"));
-  const restoreDirectoryReadRef = useRef(Boolean(directoryMemory));
   const commandReviewPerson = searchParams.get(CONNECT_REVIEW_PERSON_PARAM);
   const openedCommandReview = useRef<string | null>(null);
   const connectOwnerRef = useRef(userId);
@@ -632,6 +634,12 @@ function ConnectPageClientContent() {
     circleFlowAction,
     circleFlowId,
   );
+  useEffect(() => {
+    if (user && userId && !isFocusedCircleTask && !mutualPersonRef && navigator.onLine !== false) {
+      void loadNetworkPreviewList().catch(() => {});
+      preloadNetworkDiscovery(userId, () => user.getIdToken());
+    }
+  }, [user, userId, isFocusedCircleTask, mutualPersonRef]);
 
   // Every navigation on this page passes `scroll: false`, because the surface
   // strip and the Circle flows are query-only states that must not jump the
@@ -644,7 +652,10 @@ function ConnectPageClientContent() {
     behavior: "auto",
   });
 
-  const [tab, setTab] = useState<ConnectTab>(directoryMemory?.tab ?? "people");
+  const directoryEntry = searchParams.get(CONNECT_DIRECTORY_PARAM);
+  const entryDirectory: ConnectTab = directoryEntry === "advisors" || directoryEntry === "nearby" ? directoryEntry : "people";
+  const [tab, setTab] = useState<ConnectTab>(directoryEntry ? entryDirectory : directoryMemory?.tab ?? "people");
+  useEffect(() => { if (directoryEntry) setTab(entryDirectory); }, [directoryEntry, entryDirectory]);
   const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: userId, query: "" });
   const connectionsQuery = connectionsSearchDraft.ownerId === userId ? connectionsSearchDraft.query : "";
   const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: userId, query: value }), [userId]);
@@ -712,11 +723,15 @@ function ConnectPageClientContent() {
   // the refresh below. It also stays on screen when that refresh is refused, so
   // people already known are never swapped for an error. Browse only: a typed
   // search is a different result set.
-  const [people, setPeople] = useState<DirectoryPerson[]>(() =>
-    directoryMemory?.query === query ? directoryMemory.people : query.trim()
-      ? []
-      : (readSavedDirectoryFirstPage(userId, "all")?.items ?? []),
-  );
+  const [initialDirectory] = useState(() => {
+    if (directoryMemory?.tab === tab && directoryMemory.query === trimmedQuery) return directoryMemory;
+    if (trimmedQuery || tab === "nearby") return null;
+    const saved = readSavedDirectoryFirstPage(userId, CONNECT_TAB_AUDIENCE[tab]);
+    return saved ? { people: saved.items, page: saved.page, hasMore: saved.hasMore } : null;
+  });
+  const restoreDirectoryReadRef = useRef((initialDirectory?.page ?? 1) > 1);
+  const [directoryResolved, setDirectoryResolved] = useState(Boolean(initialDirectory));
+  const [people, setPeople] = useState<DirectoryPerson[]>(initialDirectory?.people ?? []);
   const peopleCountRef = useRef(people.length);
   peopleCountRef.current = people.length;
   // When the directory was last read, for any reason. Passive triggers (focus,
@@ -730,7 +745,7 @@ function ConnectPageClientContent() {
   const [initialFirstPage] = useState<ConnectionPage | null>(() =>
     userId
       ? CacheService.getInstance().get<ConnectionPage>(
-          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
+          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, tab === "advisors" ? "ria" : "all"),
         )
       : null,
   );
@@ -752,7 +767,7 @@ function ConnectPageClientContent() {
   );
   // Whose rows are on screen, as "uid:audience"; null when there are none.
   const connectionsListOwnerRef = useRef<string | null>(
-    initialFirstPage && userId ? `${userId}:all` : null,
+    initialFirstPage && userId ? `${userId}:${tab === "advisors" ? "ria" : "all"}` : null,
   );
   // Open by default: My connections is the first thing a person opens
   // Connect to see, and a collapsed panel hid the list (and its only retry
@@ -772,8 +787,10 @@ function ConnectPageClientContent() {
     Record<string, string>
   >({});
   const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(directoryMemory?.hasMore ?? false);
-  const [currentPage, setCurrentPage] = useState(directoryMemory?.page ?? 1);
+  const [hasMore, setHasMore] = useState(initialDirectory?.hasMore ?? false);
+  const [currentPage, setCurrentPage] = useState(initialDirectory?.page ?? 1);
+  const directoryAppending = loading && currentPage > 1 && !restoreDirectoryReadRef.current;
+  const directoryLoading = directoryQueryPending || loading && !directoryResolved;
   useEffect(() => {
     if (mutualPersonRef) return;
     const saved = readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory");
@@ -966,12 +983,14 @@ function ConnectPageClientContent() {
       clearBeforeLoad = false,
       removedConnection = false,
       background = false,
+      quiet = false,
       accountCheck = background ? "observe" : undefined,
     }: {
       audience: ConnectionAudience;
       clearBeforeLoad?: boolean;
       removedConnection?: boolean;
       background?: boolean;
+      quiet?: boolean;
       accountCheck?: "observe" | "reconcile";
     }) => {
       const requestId = background
@@ -981,19 +1000,20 @@ function ConnectPageClientContent() {
         connectionsFirstPageRequestRef.current = requestId;
         // A first-page refresh supersedes any append already in flight.
         setConnectionsLoadingMore(false);
-        setConnectionsRefreshingFirstPage(true);
-      }
-      if (clearBeforeLoad) {
-        verifiedConnectionsFirstPage.current = null;
-        setConnections([]);
-        setConnectionsTotalCount(0);
-        setConnectionsPage(1);
-        setConnectionsHasMore(false);
-        setConnectionsLoaded(false);
+        setConnectionsRefreshingFirstPage(!quiet);
       }
       const cacheKey = userId
         ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, audience)
         : null;
+      if (clearBeforeLoad) {
+        const saved = cacheKey ? CacheService.getInstance().get<ConnectionPage>(cacheKey) : null;
+        verifiedConnectionsFirstPage.current = saved;
+        setConnections(saved?.items ?? []);
+        setConnectionsTotalCount(saved?.totalCount ?? 0);
+        setConnectionsPage(saved?.page ?? 1);
+        setConnectionsHasMore(saved?.hasMore ?? false);
+        setConnectionsLoaded(Boolean(saved));
+      }
 
       try {
         const result = await loadConnectionsPage(1, audience, "", accountCheck);
@@ -1166,6 +1186,7 @@ function ConnectPageClientContent() {
     void refreshConnectionsFirstPage({
       audience: connectionAudience,
       clearBeforeLoad,
+      quiet: true,
     });
     return () => {
       connectionsRequestRef.current += 1;
@@ -1339,7 +1360,7 @@ function ConnectPageClientContent() {
   // No count until the list has answered: "(0)" is a claim, not a placeholder.
   const connectionsHeadingLabel = isAdvisorTab ? "My RIAs" : "My connections";
   const handleRefreshConnections = useCallback(() => {
-    if (connectionsRefreshingFirstPage) return;
+    if (connectionsRefreshingFirstPage || connectionsFirstPageRequestRef.current !== null) return;
     void refreshConnectionsFirstPage({ audience: connectionAudience });
   }, [
     connectionAudience,
@@ -1416,16 +1437,14 @@ function ConnectPageClientContent() {
     // arrive. A different owner, audience, or search must clear stale results.
     if (renderedDirectoryScopeKey !== directoryScopeKey) {
       setRenderedDirectoryScopeKey(directoryScopeKey);
+      restoreDirectoryReadRef.current = false;
       // The saved list for the new audience, when there is one; otherwise
       // empty, so rows from the old audience never sit under the new heading.
-      setPeople(
-        trimmedQuery
-          ? []
-          : (readSavedDirectoryFirstPage(userId, directoryAudience)?.items ??
-              []),
-      );
+      const saved = trimmedQuery ? null : readSavedDirectoryFirstPage(userId, directoryAudience);
+      setPeople(saved?.items ?? []);
+      setDirectoryResolved(Boolean(saved));
+      setHasMore(saved?.hasMore ?? false);
     }
-    setHasMore(false);
     setError(null);
     setErrorRateLimited(false);
     setLoading(true);
@@ -1436,10 +1455,9 @@ function ConnectPageClientContent() {
     const generation = ++directoryReadGenerationRef.current;
     const isCurrent = () => !cancelled && generation === directoryReadGenerationRef.current;
     async function run() {
-      if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
+      if (!user || !userId || isFocusedCircleTask || tab === "nearby" || mutualPersonRef) return;
       try {
         directoryRequestPendingRef.current = true;
-        if (currentPage <= 1) setHasMore(false);
         setLoading(true);
         setError(null);
         setErrorRateLimited(false);
@@ -1461,6 +1479,7 @@ function ConnectPageClientContent() {
         if (!page) return;
         if (isCurrent()) {
           restoreDirectoryReadRef.current = false;
+          setDirectoryResolved(true);
           // Keep server order and a single row per user when an offset page
           // overlaps after a directory update. Page one replaces the generation.
           setPeople((previous) =>
@@ -1541,7 +1560,7 @@ function ConnectPageClientContent() {
     // refused. Bumping the nonce starts a fresh first-page generation.
     directoryRefreshNonce,
     directoryRetryNonce,
-    surface,
+    isFocusedCircleTask,
     tab,
     mutualPersonRef,
   ]);
@@ -3204,7 +3223,7 @@ function ConnectPageClientContent() {
 
   if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
 
-  const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
+  const rememberDirectory = () => directoryResolved && !directoryQueryPending && saveConnectListMemory(userId, "directory", {
     query: trimmedQuery, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
   } satisfies DirectoryNavigationSnapshot);
 
@@ -3238,7 +3257,7 @@ function ConnectPageClientContent() {
                   : sortedConnections.length ? "loaded" : "empty-valid"
               : error
               ? "unavailable-valid"
-              : loading
+              : directoryLoading
                 ? "loading"
                 : people.length === 0
                   ? "empty-valid"
@@ -3486,7 +3505,7 @@ function ConnectPageClientContent() {
                               }
                             >
                               {exploreNetworkAction}
-                              {directoryQueryPending || (loading && people.length === 0) ? (
+                              {directoryLoading ? (
                                 <SettingsRow
                                   title="Finding people…"
                                   density="compact"
@@ -3611,7 +3630,7 @@ function ConnectPageClientContent() {
                                               router.push(
                                                 buildPersonProfileRoute(
                                                   person.publicPersonRef!,
-                                                  { from: connectDirectoryReturnHref(searchParams, query) },
+                                                    { from: connectDirectoryReturnHref(searchParams, query, tab) },
                                                 ),
                                               ); }
                                           : undefined
@@ -3630,18 +3649,18 @@ function ConnectPageClientContent() {
                                                     try {
                                                       const result = await ConnectionsService.listMutualConnections({ idToken: await user.getIdToken(), personRef: person.publicPersonRef!, page: 1 });
                                                       if (request !== mutualResolutionRef.current || connectOwnerRef.current !== userId || generation !== getAuthSessionGeneration()) return;
-                                                      if (result.totalCount > 1) router.push(connectMutualsHref(person.publicPersonRef!, searchParams, query), { scroll: false });
+                                                      if (result.totalCount > 1) router.push(connectMutualsHref(person.publicPersonRef!, searchParams, query, tab), { scroll: false });
                                                       else if (result.items[0]) openPersonProfilePreview({ personRef: result.items[0].publicPersonRef, presentation: "connect" });
                                                       else toast.info("This mutual connection’s profile is unavailable.", { className: connectTypography.toast });
                                                     } catch { if (request === mutualResolutionRef.current && connectOwnerRef.current === userId && generation === getAuthSessionGeneration()) toast.error("Could not open this mutual connection. Please try again.", { className: connectTypography.toast }); }
                                                     return;
                                                   }
                                                   router.push((person.mutualConnectionCount ?? 0) > 1
-                                                    ? connectMutualsHref(person.publicPersonRef!, searchParams, query)
+                                                    ? connectMutualsHref(person.publicPersonRef!, searchParams, query, tab)
                                                     :
                                                     buildPersonProfileRoute(
                                                       person.mutualConnectionPreview!.publicPersonRef!,
-                                                      { from: connectDirectoryReturnHref(searchParams, query) },
+                                                      { from: connectDirectoryReturnHref(searchParams, query, tab) },
                                                     ),
                                                     { scroll: false },
                                                   ); }
@@ -3795,13 +3814,13 @@ function ConnectPageClientContent() {
                                 })
                               )}
                               {!directoryQueryPending && people.length > 0 &&
-                              (hasMore || loading || error) ? (
+                              (hasMore || directoryAppending || error) ? (
                                 <div
                                   ref={directoryLoadMoreRef}
                                   className="flex min-h-14 items-center justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
                                   data-testid="connect-load-more-row"
                                 >
-                                  {loading ? (
+                                  {directoryAppending ? (
                                     <span
                                       role="status"
                                       className="inline-flex items-center gap-2"
@@ -3820,6 +3839,7 @@ function ConnectPageClientContent() {
                                       variant="plain"
                                       size="compact"
                                       className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                      disabled={loading}
                                       onClick={loadNextDirectoryBatch}
                                     >
                                       {error

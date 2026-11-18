@@ -31,6 +31,7 @@ import {
   CONTACT_INVITE_FOOTER_CLASSNAME,
   CONTACT_INVITE_HEADER_CLASSNAME,
   CONTACT_INVITE_LIST_CLASSNAME,
+  CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
   CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME,
   CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME,
   CONTACT_INVITE_SEARCH_CLASSNAME,
@@ -120,6 +121,11 @@ export function ContactInvitationSheet({
     ),
   );
   const atLimit = queue.length >= MAX_INVITATION_RECIPIENTS;
+  const emptySelection = step === "select" && candidates.length === 0;
+  const hasExcludedContacts = candidates.length < controller.candidates.length;
+  const emptySelectionDescription = native
+    ? "No contacts with a valid phone number are available to invite."
+    : "No contacts with an email address are available to invite.";
   const finish = () => {
     controller.clear();
     onFinish();
@@ -168,12 +174,17 @@ export function ContactInvitationSheet({
                 : "Your invitation"}
           </SheetTitle>
           <SheetDescription>
-            {step === "select"
-              ? "Choose up to 15. Contact details stay on your device."
-              : "One message for all selected contacts."}
+            {emptySelection
+              ? emptySelectionDescription
+              : step === "select"
+                ? "Choose up to 15. Contact details stay on your device."
+                : "One message for all selected contacts."}
+            {emptySelection && !native && hasExcludedContacts
+              ? " Use the One mobile app to invite contacts by phone."
+              : null}
           </SheetDescription>
         </SheetHeader>
-        {step === "select" ? (
+        {step === "select" && !emptySelection ? (
           <div className={CONTACT_INVITE_SEARCH_CLASSNAME}>
             <Input
               aria-label="Search contacts to invite"
@@ -189,9 +200,63 @@ export function ContactInvitationSheet({
         <div
           ref={listRef}
           data-contact-invite-list
-          className={CONTACT_INVITE_LIST_CLASSNAME}
+          className={cn(
+            CONTACT_INVITE_LIST_CLASSNAME,
+            emptySelection && CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
+          )}
         >
-          {step === "select" ? (
+          {emptySelection ? (
+            <div className="flex flex-col gap-2">
+              {controller.share ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    data-location-type-role="utility-action"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void act("share")}
+                  >
+                    Share link
+                  </Button>
+                  <Button
+                    data-location-type-role="utility-action"
+                    variant="ghost"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void act("copy")}
+                  >
+                    Copy invitation
+                  </Button>
+                </div>
+              ) : null}
+              {controller.preparing ? (
+                <p data-location-type-role="status" role="status">Preparing invitation…</p>
+              ) : null}
+              {controller.error ? (
+                <div>
+                  <p data-location-type-role="row-description" role="alert">{controller.error}</p>
+                  <Button
+                    data-location-type-role="utility-action"
+                    variant="outline"
+                    className="mt-2 min-h-11"
+                    disabled={controller.preparing || busy}
+                    onClick={() => void controller.retryPreparation()}
+                  >
+                    Retry invitation link
+                  </Button>
+                </div>
+              ) : null}
+              {outcome ? (
+                <p data-location-type-role="status" role="status" className="text-sm">
+                  {OUTCOME_TEXT[outcome]}
+                </p>
+              ) : null}
+              {error ? (
+                <p data-location-type-role="row-description" role="alert" className="text-sm">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          ) : step === "select" ? (
             <>
               {(["no_match", "email_only"] as const).map((classification) => {
                 const rows = filtered
@@ -307,15 +372,11 @@ export function ContactInvitationSheet({
                 );
               })}
               {!filtered.length ? (
-                <p data-location-type-role="row-description" className="py-6 text-sm text-muted-foreground">
-                  {query.trim()
-                    ? "No contacts match your search."
-                    : native
-                      ? "No contacts with a valid phone number are available to invite."
-                      : "No contacts with an email address are available to invite. Sync Google contacts with emails, or share your invitation link."}
+                <p data-location-type-role="row-description" role="status" className="text-sm text-muted-foreground">
+                  No contacts match your search.
                 </p>
               ) : null}
-              {candidates.length < controller.candidates.length ? (
+              {filtered.length > 0 && hasExcludedContacts ? (
                 <p data-location-type-role="helper" className="mt-3 text-xs text-muted-foreground">
                   {native
                     ? "Only contacts with a phone number appear here."
@@ -325,52 +386,6 @@ export function ContactInvitationSheet({
               {atLimit ? (
                 <p data-location-type-role="status" role="status" className="mt-3 text-sm text-muted-foreground">
                   15 contacts selected. Remove one to choose another.
-                </p>
-              ) : null}
-              {!candidates.length && controller.share ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button data-location-type-role="utility-action"
-                    variant="outline"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={() => void act("share")}
-                  >
-                    Share link instead
-                  </Button>
-                  <Button data-location-type-role="utility-action"
-                    variant="ghost"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={() => void act("copy")}
-                  >
-                    Copy invitation
-                  </Button>
-                </div>
-              ) : null}
-              {!candidates.length && controller.preparing ? (
-                <p data-location-type-role="status" role="status">Preparing invitation…</p>
-              ) : null}
-              {!candidates.length && controller.error ? (
-                <div className="mt-3">
-                  <p data-location-type-role="row-description" role="alert">{controller.error}</p>
-                  <Button data-location-type-role="utility-action"
-                    variant="outline"
-                    className="mt-2 min-h-11"
-                    disabled={controller.preparing || busy}
-                    onClick={() => void controller.retryPreparation()}
-                  >
-                    Retry invitation link
-                  </Button>
-                </div>
-              ) : null}
-              {!candidates.length && outcome ? (
-                <p data-location-type-role="status" role="status" className="mt-3 text-sm">
-                  {OUTCOME_TEXT[outcome]}
-                </p>
-              ) : null}
-              {!candidates.length && error ? (
-                <p data-location-type-role="row-description" role="alert" className="mt-3 text-sm">
-                  {error}
                 </p>
               ) : null}
               {filtered.length > visible ? (
@@ -508,52 +523,54 @@ export function ContactInvitationSheet({
             </>
           )}
         </div>
-        <div className={CONTACT_INVITE_FOOTER_CLASSNAME}>
-          {step === "select" ? (
-            <Button
-              className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
-              disabled={!queue.length}
-              onClick={() => setStep("review")}
-            >
-              Review {queue.length}{" "}
-              {queue.length === 1 ? "invitation" : "invitations"}
-            </Button>
-          ) : (
-            <>
-              {step === "review" || !handedOff ? (
-                <Button
-                  className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
-                  disabled={
-                    busy ||
-                    !queue.length ||
-                    !controller.share ||
-                    controller.preparing ||
-                    (native && smsAvailable !== true)
-                  }
-                  onClick={() => void act("compose")}
-                >
-                  {native ? "Open Messages" : "Open email"} · {queue.length}{" "}
-                  {queue.length === 1 ? "contact" : "contacts"}
-                </Button>
-              ) : (
-                <Button
-                  className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
-                  onClick={finish}
-                >
-                  Done
-                </Button>
-              )}
+        {!emptySelection ? (
+          <div className={CONTACT_INVITE_FOOTER_CLASSNAME}>
+            {step === "select" ? (
               <Button
-                variant="ghost"
-                className={CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME}
-                disabled={busy}
-                onClick={back}
+                className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
+                disabled={!queue.length}
+                onClick={() => setStep("review")}
               >
-                {step === "review" ? "Back to selection" : "Back to review"}
+                Review {queue.length}{" "}
+                {queue.length === 1 ? "invitation" : "invitations"}
               </Button>
-            </>
-          )}
-        </div>
+            ) : (
+              <>
+                {step === "review" || !handedOff ? (
+                  <Button
+                    className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
+                    disabled={
+                      busy ||
+                      !queue.length ||
+                      !controller.share ||
+                      controller.preparing ||
+                      (native && smsAvailable !== true)
+                    }
+                    onClick={() => void act("compose")}
+                  >
+                    {native ? "Open Messages" : "Open email"} · {queue.length}{" "}
+                    {queue.length === 1 ? "contact" : "contacts"}
+                  </Button>
+                ) : (
+                  <Button
+                    className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
+                    onClick={finish}
+                  >
+                    Done
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  className={CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME}
+                  disabled={busy}
+                  onClick={back}
+                >
+                  {step === "review" ? "Back to selection" : "Back to review"}
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );
