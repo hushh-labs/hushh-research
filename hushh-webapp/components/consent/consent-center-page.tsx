@@ -30,9 +30,16 @@ import {
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { formatCommerceMoney, scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
+import {
+  ScopeCommerceService,
+  formatCommerceMicroUsd,
+  formatCommerceMoney,
+  scopeCommerceStatusCopy,
+  type NegativeNetAcknowledgement,
+  type NegativeNetTerms,
+} from "@/lib/services/scope-commerce-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { ConsentSharingRevokeDialog } from "@/components/consent/consent-sharing-revoke-dialog";
-import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
 import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
@@ -1035,6 +1042,7 @@ function ConsentEntryDetail({
     members: ConsentCenterEntry[],
     durationHours?: number,
     modelProcessingAllowed?: boolean,
+    negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
   ) => void;
   onDenyBundle?: (members: ConsentCenterEntry[]) => void;
   /**
@@ -1046,6 +1054,7 @@ function ConsentEntryDetail({
     decline: ConsentCenterEntry[],
     durationHours?: number,
     modelProcessingAllowed?: boolean,
+    negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
   ) => void;
   onApprove: (
     entry: ConsentCenterEntry,
@@ -1055,6 +1064,7 @@ function ConsentEntryDetail({
       offeredScopeHandles: string[];
     },
     modelProcessingAllowed?: boolean,
+    negativeNetAcknowledgement?: NegativeNetAcknowledgement,
   ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
@@ -1099,6 +1109,10 @@ function ConsentEntryDetail({
   );
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
   const [modelApproval, setModelApproval] = useState<{ review: string; epoch: number } | null>(null);
+  const [negativeNetTermsByRequestId, setNegativeNetTermsByRequestId] = useState<
+    Record<string, NegativeNetTerms>
+  >({});
+  const [acknowledgedNegativeBindings, setAcknowledgedNegativeBindings] = useState<string>("");
   useEffect(() => subscribeVaultSessionEpoch(() => setModelApproval(null)), []);
   useEffect(() => {
     setSelectedDuration(defaultDuration);
@@ -1173,6 +1187,57 @@ function ConsentEntryDetail({
       : [],
     enabled: previewEnabled,
   });
+
+  const entryAllowedNextAction = String(entry?.allowed_next_action || "").trim();
+  const entryIsPendingDecision = Boolean(
+    entry &&
+    !isDriveSharingEntry(entry) &&
+    !isCircleMemberInviteConsent(entry.metadata) &&
+    (entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+    (entryAllowedNextAction
+      ? entryAllowedNextAction === "review_request"
+      : entry.status === "pending"),
+  );
+  const paidReviewIds = entry && entryIsPendingDecision
+    ? (bundleMembers.length > 1 ? bundleMembers : [entry])
+        .filter(
+          (member) =>
+            member.metadata?.commercial_required === true &&
+            (member.request_id || member.metadata?.request_id || member.id) &&
+            !(
+              typeof member.metadata?.request_price_coins === "number" &&
+              member.metadata.request_price_coins > 50
+            ),
+        )
+        .map((member) => String(member.request_id || member.metadata?.request_id || member.id))
+    : [];
+  const paidReviewKey = paidReviewIds.join("|");
+  useEffect(() => {
+    let active = true;
+    setNegativeNetTermsByRequestId({});
+    setAcknowledgedNegativeBindings("");
+    if (!paidReviewKey || typeof ScopeCommerceService?.scopeRequest !== "function") {
+      return () => { active = false; };
+    }
+    void AuthService?.getIdToken?.()
+      .then(async (firebaseToken) => {
+        if (!active || !firebaseToken) return;
+        const resolved = await Promise.all(
+          paidReviewKey.split("|").map(async (id) => {
+            const req = await ScopeCommerceService.scopeRequest(firebaseToken, id).catch(() => null);
+            return req?.negative_net_acknowledgement ? ([id, req.negative_net_acknowledgement] as const) : null;
+          }),
+        );
+        if (!active) return;
+        const next: Record<string, NegativeNetTerms> = {};
+        for (const item of resolved) {
+          if (item) next[item[0]] = item[1];
+        }
+        setNegativeNetTermsByRequestId(next);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [paidReviewKey]);
 
   if (!entry) {
     return (
@@ -1360,10 +1425,6 @@ function ConsentEntryDetail({
       : isConnectionDecision
         ? entry.scope_description || "Trusted connection"
         : joinInformationLabels(decisionLabels, decisionLabels.length);
-  const paidSharingMembers = (bundleMembers.length > 1 ? bundleMembers : [entry]).filter(
-    member => member.metadata?.commercial_required === true &&
-      (member.request_id || member.metadata?.request_id),
-  );
   const detailItems = [
     [
       "Contact",
@@ -1422,6 +1483,31 @@ function ConsentEntryDetail({
       : null,
     entry.reason ? ["Reason", entry.reason] : null,
   ].filter((item): item is [string, string] => Boolean(item));
+
+  const activePaidMembers = isPendingDecision
+    ? (isBundleDecision
+        ? bundleMembers.filter((member) => chosenRefs.has(bundleMemberRef(member)))
+        : [entry])
+    : [];
+  const activeNegativeTerms = activePaidMembers
+    .map((member) => {
+      const id = String(member.request_id || member.metadata?.request_id || member.id || "");
+      const terms = id ? negativeNetTermsByRequestId[id] : undefined;
+      return terms ? { id, terms } : null;
+    })
+    .filter((item): item is { id: string; terms: NegativeNetTerms } => Boolean(item));
+  const negativeTermsBindingKey = activeNegativeTerms.map((item) => item.terms.binding).sort().join("|");
+  const negativeTermsConfirmed =
+    activeNegativeTerms.length === 0 || acknowledgedNegativeBindings === negativeTermsBindingKey;
+  const negativeAcknowledgementsMap: Record<string, NegativeNetAcknowledgement> | undefined =
+    activeNegativeTerms.length > 0 && negativeTermsConfirmed
+      ? Object.fromEntries(
+          activeNegativeTerms.map(({ id, terms }) => [
+            id,
+            { version: 1 as const, binding: terms.binding, acknowledged: true as const },
+          ]),
+        )
+      : undefined;
 
   return (
     <div className="space-y-4">
@@ -1540,6 +1626,20 @@ function ConsentEntryDetail({
           className="flex flex-wrap items-center justify-end gap-2 pt-1"
           aria-label="Consent decision"
         >
+          {activeNegativeTerms.length > 0 ? (
+            <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={negativeTermsConfirmed}
+                disabled={requestBusy}
+                onCheckedChange={(checked) =>
+                  setAcknowledgedNegativeBindings(checked === true ? negativeTermsBindingKey : "")
+                }
+              />
+              <span>
+                The estimated processing fee ({formatCommerceMicroUsd(activeNegativeTerms[0]!.terms.processing_fee_micro_usd)}) exceeds this request amount, resulting in {formatCommerceMicroUsd(activeNegativeTerms[0]!.terms.net_earnings_micro_usd)} net earnings settled from future earnings.
+              </span>
+            </label>
+          ) : null}
           {!isConnectionDecision && !isLocationEntry && !isMarketplaceDecision && entry?.scope?.startsWith("attr.") ? (
             <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
               <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
@@ -1583,7 +1683,7 @@ function ConsentEntryDetail({
             effect="fill"
             size="sm"
             className="min-h-11"
-            disabled={requestBusy || (canChooseItems && chosenCount === 0)}
+            disabled={requestBusy || (canChooseItems && chosenCount === 0) || !negativeTermsConfirmed}
             onClick={() => {
               if (partialChoice) {
                 const { allow, decline } = splitBundleChoice(
@@ -1591,11 +1691,11 @@ function ConsentEntryDetail({
                   bundleMemberRef,
                   chosenRefs,
                 );
-                onDecideBundle!(allow, decline, effectiveDurationHours, modelProcessingApproved());
+                onDecideBundle!(allow, decline, effectiveDurationHours, modelProcessingApproved(), negativeAcknowledgementsMap);
                 return;
               }
               return isBundleDecision
-                ? onApproveBundle!(bundleMembers, effectiveDurationHours, modelProcessingApproved())
+                ? onApproveBundle!(bundleMembers, effectiveDurationHours, modelProcessingApproved(), negativeAcknowledgementsMap)
                 : onApprove(
                     entry,
                     isConnectionDecision || isMarketplaceDecision
@@ -1608,6 +1708,7 @@ function ConsentEntryDetail({
                         }
                       : undefined,
                     modelProcessingApproved(),
+                    negativeAcknowledgementsMap?.[String(entry.request_id || entry.metadata?.request_id || entry.id || "")],
                   );
             }}
             data-voice-control-id="consent_approve"
@@ -1670,21 +1771,6 @@ function ConsentEntryDetail({
             {revokeBusy ? "Stopping..." : "Stop sharing"}
           </Button>
           <ConsentSharingRevokeDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen} counterpartLabel={resolveCounterpartLabel(entry)} onConfirm={() => onRevoke(entry)} />
-        </SettingsGroup>
-      ) : null}
-
-      {paidSharingMembers.length > 0 ? (
-        <SettingsGroup embedded title="Paid sharing">
-          {paidSharingMembers.map(member => (
-            <SettingsRow
-              key={member.id}
-              title={paidSharingMembers.length > 1 ? consentEntryInformationLabel(member) : "Sharing details"}
-              description={member.metadata?.commerce_status === "awaiting_owner" && isPendingDecision ? "Coins reserved. Review fees before sharing." : undefined}
-              trailing={
-                <Button data-consent-role="compact-action" asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(member.metadata?.request_id || member.request_id))}`}>View sharing</Link></Button>
-              }
-            />
-          ))}
         </SettingsGroup>
       ) : null}
 
@@ -2022,12 +2108,12 @@ export function ConsentCenterPage() {
   const activePage = tab === "active" ? page : activeLocalPage;
   const previousPage = tab === "history" ? page : previousLocalPage;
   const connectionsPage = tab === "connections" ? page : connectionsLocalPage;
+  const commerceRequestId = /^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? searchParams.get("commerceRequestId") : null;
   const selectedId =
-    searchParams.get("requestId") || searchParams.get("selected");
+    searchParams.get("requestId") || searchParams.get("selected") || commerceRequestId;
   // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
   // without a requestId). Used as a selection fallback below.
   const selectedBundleId = searchParams.get("bundleId");
-  const commerceRequestId = /^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? searchParams.get("commerceRequestId") : null;
   const notificationAction = normalizeNotificationAction(
     searchParams.get("notificationAction"),
   );
@@ -2347,6 +2433,7 @@ export function ConsentCenterPage() {
         offeredScopeHandles: string[];
       },
       modelProcessingAllowed = false,
+      negativeNetAcknowledgement?: NegativeNetAcknowledgement,
     ) => {
       // A document request or Drive question is not a PKM grant or a
       // voice-approvable action; only its own card can decide it.
@@ -2385,7 +2472,10 @@ export function ConsentCenterPage() {
         return;
       }
       recordApprovalInFlight(entry, durationHours);
-      void handleApprove(toPendingConsent(entry, durationHours), { modelProcessingAllowed });
+      void handleApprove(toPendingConsent(entry, durationHours), {
+        modelProcessingAllowed,
+        negativeNetAcknowledgement,
+      });
     },
     [
       recordApprovalInFlight,
@@ -2472,7 +2562,12 @@ export function ConsentCenterPage() {
     ],
   );
   const approveBundleEntries = useCallback(
-    (members: ConsentCenterEntry[], durationHours?: number, modelProcessingAllowed = false) => {
+    (
+      members: ConsentCenterEntry[],
+      durationHours?: number,
+      modelProcessingAllowed = false,
+      negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
+    ) => {
       const head = members[0];
       if (!head) return;
       const name = requesterShortName(
@@ -2489,6 +2584,7 @@ export function ConsentCenterPage() {
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
           modelProcessingAllowed,
+          negativeNetAcknowledgements,
           successMessage: `${name} can now see your ${joinInformationLabels(labels)}.`,
         },
       ).catch((error: unknown) => {
@@ -2520,6 +2616,7 @@ export function ConsentCenterPage() {
       decline: ConsentCenterEntry[],
       durationHours?: number,
       modelProcessingAllowed = false,
+      negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
     ) => {
       const head = allow[0] ?? decline[0];
       if (!head) return;
@@ -2540,6 +2637,7 @@ export function ConsentCenterPage() {
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
           modelProcessingAllowed,
+          negativeNetAcknowledgements,
           successMessage: `${name} can now see your ${shared}. ${held} ${decline.length === 1 ? "wasn't" : "weren't"} shared.`,
         },
       ).catch((error: unknown) => {
@@ -3544,6 +3642,7 @@ export function ConsentCenterPage() {
         requestId: null,
         selected: null,
         bundleId: null,
+        commerceRequestId: null,
         notificationAction: null,
       });
     });
@@ -3729,7 +3828,6 @@ export function ConsentCenterPage() {
   nativeActions.set(searchId, choice => { if (typeof choice.text === "string") setSearchValue(choice.text); });
   const nativeSupported = !nativeHasInlineDecision && !showSessionRecovery && !showCompactRetryState && !showFullRetryState &&
     !(tab === "connections" && centerResource.data && centerResource.data.activeConnections == null) &&
-    !commerceRequestId &&
     searchValue.length <= 256 && nativeRows.length <= 200 && nativeRows.every(row => row.label.length > 0 && row.label.length <= 4096 && (!row.detail || row.detail.length <= 4096) && (!row.trailing || row.trailing.length <= 32));
   const nativeActive = customNativePresentationEnabled() && nativeCurrent() && nativeSupported && !nativeChild &&
     !selectedId && !selectedBundleId && !isPanelOpen && !rowUnlockPrompt.open;
@@ -3744,11 +3842,6 @@ export function ConsentCenterPage() {
     <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent data-consent-presentation="workspace">
       <div ref={nativeAnchor} hidden aria-hidden="true" />
       {nativePhase === "web" && !presentation.status.held && <>
-      {commerceRequestId ? <SettingsPresentationProvider density="compact">
-        <AppPageContentRegion>
-          <ScopeCommerceRequestPanel key={`${userId}:${commerceRequestId}`} requestId={commerceRequestId} />
-        </AppPageContentRegion>
-      </SettingsPresentationProvider> : <>
       <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
@@ -4051,7 +4144,12 @@ export function ConsentCenterPage() {
                     ? selectedEntry.kind === "connection"
                       ? "Connection details"
                       : selectedEntry.kind === "active_grant"
-                        ? "Active access"
+                        ? selectedEntry.metadata?.commercial_required === true &&
+                          ["awaiting_payment", "approved_awaiting_payment", "reserved", "preparing"].includes(
+                            String(selectedEntry.metadata?.commerce_status || ""),
+                          )
+                          ? scopeCommerceStatusCopy(selectedEntry.metadata?.commerce_status)
+                          : "Active access"
                         : selectedEntry.kind === "history"
                           ? `${formatStatus(selectedEntry.status)} access`
                           : selectedEntry.status === "pending"
@@ -4191,23 +4289,23 @@ export function ConsentCenterPage() {
               actor={actor}
               entry={selectedEntry}
               bundleMembers={selectedBundleMembers}
-              onApproveBundle={(members, durationHours, modelProcessingAllowed) => {
+              onApproveBundle={(members, durationHours, modelProcessingAllowed, negativeNetAcknowledgements) => {
                 closeDetailPanel();
-                approveBundleEntries(members, durationHours, modelProcessingAllowed);
+                approveBundleEntries(members, durationHours, modelProcessingAllowed, negativeNetAcknowledgements);
               }}
               onDenyBundle={(members) => {
                 closeDetailPanel();
                 denyBundleEntries(members);
               }}
-              onDecideBundle={(allow, decline, durationHours, modelProcessingAllowed) => {
+              onDecideBundle={(allow, decline, durationHours, modelProcessingAllowed, negativeNetAcknowledgements) => {
                 closeDetailPanel();
-                decideBundleEntries(allow, decline, durationHours, modelProcessingAllowed);
+                decideBundleEntries(allow, decline, durationHours, modelProcessingAllowed, negativeNetAcknowledgements);
               }}
-              onApprove={(entry, durationHours, scopeSelection, modelProcessingAllowed) => {
+              onApprove={(entry, durationHours, scopeSelection, modelProcessingAllowed, negativeNetAcknowledgement) => {
                 // Dismiss the panel immediately; the list already optimistically
                 // removes the row and any failure surfaces via toast.
                 closeDetailPanel();
-                approveEntry(entry, durationHours, scopeSelection, modelProcessingAllowed);
+                approveEntry(entry, durationHours, scopeSelection, modelProcessingAllowed, negativeNetAcknowledgement);
               }}
               onDeny={(entry) => {
                 closeDetailPanel();
@@ -4227,7 +4325,6 @@ export function ConsentCenterPage() {
         </SettingsDetailPanel>
         <OwnerConsentUnlockPrompt prompt={rowUnlockPrompt} />
       </SettingsPresentationProvider>
-      </>}
       </>}
     </AppPageShell>
   );

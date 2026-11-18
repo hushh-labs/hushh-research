@@ -21,7 +21,9 @@ export async function prepareAndStagePaidScopeExport(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   negativeNetAcknowledgement?: NegativeNetAcknowledgement;
+  activateOnStage?: boolean;
 }) {
+  const activateImmediately = params.activateOnStage ?? true;
   const acknowledgement = params.negativeNetAcknowledgement
     ? { ...params.negativeNetAcknowledgement } : undefined;
   const ownerCosts = acknowledgement ? { negative_net_acknowledgement: acknowledgement } : {};
@@ -47,12 +49,16 @@ export async function prepareAndStagePaidScopeExport(params: {
   };
   assertCurrent();
   const preparation = await ScopeCommerceService.preparePurchase(
-    params.purchaseId, { sourceRevisions, ...ownerCosts }, params.vaultOwnerToken,
+    params.purchaseId,
+    { sourceRevisions, ...ownerCosts, ...(activateImmediately ? { activate_immediately: true } : {}) },
+    params.vaultOwnerToken,
   );
   assertCurrent();
   if (preparation.machineScope !== scope || !preparation.preparationId || !preparation.exportId ||
       preparation.exportRevision !== 1 || !Number.isSafeInteger(preparation.startsAtMs) ||
-      !Number.isSafeInteger(preparation.expiresAtMs) || preparation.startsAtMs <= Date.now() ||
+      !Number.isSafeInteger(preparation.expiresAtMs) ||
+      (!activateImmediately && preparation.startsAtMs <= Date.now()) ||
+      preparation.expiresAtMs <= Date.now() ||
       preparation.expiresAtMs <= preparation.startsAtMs) {
     throw new Error("The export preparation changed. Refresh before sharing.");
   }
@@ -81,6 +87,7 @@ export async function prepareAndStagePaidScopeExport(params: {
   return ScopeCommerceService.stagePurchase(params.purchaseId, {
     ...ownerCosts,
     preparation_id: preparation.preparationId,
+    ...(activateImmediately ? { activate_on_stage: true } : {}),
     envelope: {
       ...encrypted, exportEnvelope, sourceRevisions,
       wrappedKey: {

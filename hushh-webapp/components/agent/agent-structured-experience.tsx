@@ -1,7 +1,7 @@
 "use client";
 import type { InformationRequestPrice } from "@/lib/services/person-profile-service";
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
-import { InformationRequestReceipt, InformationRequestReviewLinks } from "@/components/agent/information-request-receipt";
+import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -795,7 +795,12 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     isOutgoingSubmitted, isVaultUnlocked, refreshRevision, refreshState, userId, vaultKey, vaultOwnerToken]);
 
   const displayFields = current?.fields || experience.fields;
-  const displayStatus = current?.status || experience.status;
+  const hasBlockedPaidGrant = Boolean(
+    current?.fields.some((field) => field.status === "granted" && field.accessReady === false),
+  );
+  const displayStatus = hasBlockedPaidGrant
+    ? "pending"
+    : (current?.status || experience.status);
   // What is shared right now opens at once in the secure card (CONTRACT-2
   // decision 2), for sensitive items too: the model only ever had their
   // outline. The card owns opening, the unlock prompt and ended access.
@@ -882,8 +887,20 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   ) : null;
 
   // C1: the living card, when the server reports progress for this request.
-  // It keeps its last reading through a refetch (and a failed one).
-  const progress = isOutgoingSubmitted ? current?.progress ?? null : null;
+  // Hold the UI on "Waiting" if any granted item's encrypted export is not ready yet.
+  const rawProgress = isOutgoingSubmitted ? current?.progress ?? null : null;
+  const progress = rawProgress && hasBlockedPaidGrant
+    ? {
+        ...rawProgress,
+        outcome: "pending" as const,
+        decidedAt: null,
+        fields: rawProgress.fields.map((field, index) =>
+          current?.fields[index]?.accessReady === false
+            ? { ...field, status: "pending" as const }
+            : field,
+        ),
+      }
+    : rawProgress;
   if (progress) {
     const progressLabels = progress.fields.length ? progress.fields.map((field) => field.label) : displayFields.map((field) => field.label);
     const ended = isAccessEnded(progress);
@@ -904,7 +921,6 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
         >
           <RequesterProgressBody progress={progress} phase={phase} personName={experience.personName}
             purpose={experience.purpose} />
-          <InformationRequestReviewLinks fields={displayFields} />
         </ExperienceShell>
         {ended ? null : sharedCard}
       </div>

@@ -237,11 +237,12 @@ def build_request_progress(
 ) -> dict[str, Any]:
     """Contract C1 ``progress``: where a person-to-person request stands.
 
-    ``delivered_at`` is the first NOTIFICATION_SENT for any field and
-    ``seen_at`` the first NOTIFICATION_OPENED. ``decided_at`` is set once no
-    field waits. ``access_ends_at`` is when current access ends; ``ended_at`` is
-    when access that WAS granted ended (revoked or run out), and stays null for
-    a request that ran out before anyone decided.
+    ``delivered_at`` is the first NOTIFICATION_SENT for any field. Read-receipt
+    tracking (``seen_at``) is intentionally never exposed so owners can review
+    requests privately without notifying requesters of views before a decision.
+    ``decided_at`` is set once no field waits. ``access_ends_at`` is when current
+    access ends; ``ended_at`` is when access that WAS granted ended (revoked or
+    run out), and stays null for a request that ran out before anyone decided.
     """
     by_request: dict[str, list[dict[str, Any]]] = {}
     for row in sorted(ledger_rows, key=lambda row: _int_or_none(row.get("issued_at")) or 0):
@@ -281,7 +282,7 @@ def build_request_progress(
     return {
         "requested_at": _iso_any(bundle.get("created_at")),
         "delivered_at": first("NOTIFICATION_SENT"),
-        "seen_at": first("NOTIFICATION_OPENED"),
+        "seen_at": None,
         "decided_at": _iso_ms(max(decided)) if decided and outcome != "pending" else None,
         "outcome": outcome,
         "access_ends_at": _iso_ms(max(access_ends)) if access_ends else None,
@@ -549,6 +550,11 @@ class InformationRequestService:
         ):
             raise InformationRequestError(UNREQUESTABLE_MESSAGE, status_code=403)
         subject_user_id = str(subject.get("user_id") or "")
+        if reviewed_prices is None:
+            await self._require_free_without_price_review(
+                owner_user_id=subject_user_id,
+                scopes=scopes,
+            )
         principal = requester_principal(str(viewer["public_person_ref"]))
         idem_hash = hashlib.sha256(f"{requester_user_id}|{idempotency_key}".encode()).hexdigest()
         from hushh_mcp.services.information_request_prices import request_fingerprint as fingerprint
@@ -823,6 +829,80 @@ class InformationRequestService:
             ),
         }
 
+    async def _require_free_without_price_review(
+        self, *, owner_user_id: str, scopes: list[dict[str, Any]]
+    ) -> None:
+        """Refuse unquoted requests when the owner published a positive price."""
+        expected_pairs = {
+            (
+                str(
+                    scope.get("registry_handle")
+                    or scope_handle_for_machine_scope(owner_user_id, str(scope.get("scope") or ""))
+                ),
+                str(scope.get("scope") or ""),
+            )
+            for scope in scopes
+            if str(scope.get("scope") or "").startswith("attr.")
+        }
+        if not expected_pairs:
+            return
+        from asyncpg import UndefinedTableError
+
+        from db.connection import get_pool
+
+        conn = self._connection
+        if conn is None:
+            if type(self._consent) is not ConsentDBService:
+                return
+            pool = await get_pool()
+            if pool.__class__.__module__.startswith("db.offline"):
+                return
+            handles = sorted({pair[0] for pair in expected_pairs})
+            machine_scopes = sorted({pair[1] for pair in expected_pairs})
+            async with pool.acquire() as acquired:
+                try:
+                    rows = await acquired.fetch(
+                        """SELECT DISTINCT ON (scope_handle, machine_scope)
+                                  scope_handle, machine_scope, price_cents
+                           FROM scope_commerce_tariffs
+                           WHERE owner_user_id = $1
+                             AND scope_handle = ANY($2::text[])
+                             AND machine_scope = ANY($3::text[])
+                           ORDER BY scope_handle, machine_scope, revision DESC""",
+                        owner_user_id,
+                        handles,
+                        machine_scopes,
+                    )
+                except UndefinedTableError:
+                    return
+        else:
+            handles = sorted({pair[0] for pair in expected_pairs})
+            machine_scopes = sorted({pair[1] for pair in expected_pairs})
+            try:
+                rows = await conn.fetch(
+                    """SELECT DISTINCT ON (scope_handle, machine_scope)
+                              scope_handle, machine_scope, price_cents
+                       FROM scope_commerce_tariffs
+                       WHERE owner_user_id = $1
+                         AND scope_handle = ANY($2::text[])
+                         AND machine_scope = ANY($3::text[])
+                       ORDER BY scope_handle, machine_scope, revision DESC""",
+                    owner_user_id,
+                    handles,
+                    machine_scopes,
+                )
+            except UndefinedTableError:
+                return
+        if any(
+            (str(row["scope_handle"]), str(row["machine_scope"])) in expected_pairs
+            and int(row.get("price_cents") or 0) > 0
+            for row in rows
+        ):
+            raise InformationRequestError(
+                "Review and confirm the request price before sending.",
+                status_code=409,
+            )
+
     async def _progress_rows(
         self, bundle: dict[str, Any], items: list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -840,7 +920,7 @@ class InformationRequestService:
         )
         events = await self._consent.list_internal_request_events(
             request_ids,
-            actions=["NOTIFICATION_SENT", "NOTIFICATION_OPENED"],
+            actions=["NOTIFICATION_SENT"],
             user_id=subject_user_id,
         )
         notifications = [row for row in events if str(row.get("user_id") or "") == subject_user_id]

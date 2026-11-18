@@ -1317,7 +1317,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                                   effect="fade"
                                 >
                                   <Link
-                                    href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}
+                                    href={`/one/consent?requestId=${encodeURIComponent(item.requestId)}`}
                                   >
                                     Review request
                                   </Link>
