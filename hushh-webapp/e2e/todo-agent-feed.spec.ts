@@ -15,6 +15,7 @@ for (const width of [393, 1280]) {
     await page.addScriptTag({ content: script });
     await page.getByRole("button", { name: "Task sources", exact: true }).click();
     const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("region", { name: "One task suggestions" })).toHaveCount(0);
     await dialog.getByRole("checkbox", { name: "Consent", exact: true }).uncheck();
     await expect(dialog.getByRole("checkbox", { name: "Consent", exact: true })).toBeEnabled();
     await page.keyboard.press("Escape");
@@ -415,6 +416,7 @@ for (const [width, height] of [[320, 568], [390, 844], [1440, 900]] as const) {
     await page.getByRole("button", { name: "Task sources", exact: true }).click();
     const sources = page.getByRole("dialog", { name: "Task sources", exact: true });
     await expect(sources.getByRole("switch")).toHaveCount(9);
+    await expect(sources.getByRole("region", { name: "One task suggestions" })).toHaveCount(0);
     const pane = page.locator('[data-todo-active="true"]');
     const [sourceBox, paneBox] = await Promise.all([sources.boundingBox(), pane.boundingBox()]);
     expect(sourceBox!.x).toBeGreaterThanOrEqual(paneBox!.x);
