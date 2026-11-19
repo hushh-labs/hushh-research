@@ -569,8 +569,45 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
 
-        scope_items = await asyncio.to_thread(
-            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        scope_items, viewer_ref_row, request_rows, relationship = await asyncio.gather(
+            asyncio.to_thread(self._requestable_scope_entries, viewer_user_id, subject_user_id),
+            asyncio.to_thread(
+                self._execute_one,
+                """
+                SELECT public_person_ref
+                FROM actor_profiles
+                WHERE user_id = :viewer_user_id
+                LIMIT 1
+                """,
+                {"viewer_user_id": viewer_user_id},
+            ),
+            asyncio.to_thread(
+                lambda: [
+                    dict(item)
+                    for item in (
+                        get_db()
+                        .execute_raw(
+                            """
+                            SELECT bundle.bundle_id, bundle.purpose,
+                                   bundle.duration_seconds, bundle.created_at,
+                                   bundle.cancelled_at, item.request_id,
+                                   item.scope_ref, item.scope, item.label, item.sensitivity
+                            FROM one_information_request_bundles bundle
+                            JOIN one_information_request_items item
+                              ON item.bundle_id = bundle.bundle_id
+                            WHERE bundle.requester_user_id = :viewer
+                              AND bundle.subject_user_id = :subject
+                            ORDER BY bundle.created_at DESC, item.created_at
+                            LIMIT 100
+                            """,
+                            {"viewer": viewer_user_id, "subject": subject_user_id},
+                        )
+                        .data
+                        or []
+                    )
+                ]
+            ),
+            asyncio.to_thread(self._relationship, viewer_user_id, subject_user_id),
         )
         scope_by_name: dict[str, dict[str, Any]] = {}
         for item in scope_items:
@@ -607,43 +644,40 @@ class PersonProfileService:
             scopes = [scope_by_name[item["scope"]] for item in page["items"]]
             catalog = {key: value for key, value in page.items() if key != "items"}
 
-        viewer_ref_row = await asyncio.to_thread(
-            self._execute_one,
-            """
-            SELECT public_person_ref
-            FROM actor_profiles
-            WHERE user_id = :viewer_user_id
-            LIMIT 1
-            """,
-            {"viewer_user_id": viewer_user_id},
-        )
         viewer_ref = str((viewer_ref_row or {}).get("public_person_ref") or "")
-        grants = []
-        if viewer_ref:
+        request_ids = [str(item["request_id"]) for item in request_rows if item.get("request_id")]
+        batch_status_loader = getattr(self._consent_db, "get_request_statuses", None)
+        has_batch_status_loader = callable(batch_status_loader)
+
+        async def _load_grants_bundle() -> tuple[
+            list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]
+        ]:
+            if not viewer_ref:
+                return [], {}, []
             active = await self._consent_db.get_active_tokens(
                 subject_user_id,
                 agent_id=requester_principal(viewer_ref),
             )
-            export_revisions = await self._consent_db.get_active_token_export_revisions(
-                [str(grant.get("token_id") or "") for grant in active]
-            )
             active_request_ids = [
                 str(grant["request_id"]) for grant in active if grant.get("request_id")
             ]
-            bundle_rows = (
-                await asyncio.to_thread(
+
+            async def _load_bundle_rows() -> list[dict[str, Any]]:
+                if not active_request_ids:
+                    return []
+                return await asyncio.to_thread(
                     lambda: (
                         get_db()
                         .execute_raw(
                             """
-                        SELECT item.request_id, bundle.bundle_id
-                        FROM one_information_request_items item
-                        JOIN one_information_request_bundles bundle
-                          ON bundle.bundle_id = item.bundle_id
-                        WHERE item.request_id = ANY(:request_ids)
-                          AND bundle.requester_user_id = :viewer
-                          AND bundle.subject_user_id = :subject
-                        """,
+                            SELECT item.request_id, bundle.bundle_id
+                            FROM one_information_request_items item
+                            JOIN one_information_request_bundles bundle
+                              ON bundle.bundle_id = item.bundle_id
+                            WHERE item.request_id = ANY(:request_ids)
+                              AND bundle.requester_user_id = :viewer
+                              AND bundle.subject_user_id = :subject
+                            """,
                             {
                                 "request_ids": active_request_ids,
                                 "viewer": viewer_user_id,
@@ -654,9 +688,52 @@ class PersonProfileService:
                         or []
                     )
                 )
-                if active_request_ids
-                else []
+
+            export_revisions, bundle_rows = await asyncio.gather(
+                self._consent_db.get_active_token_export_revisions(
+                    [str(grant.get("token_id") or "") for grant in active]
+                ),
+                _load_bundle_rows(),
             )
+            return active, export_revisions, bundle_rows
+
+        async def _load_statuses() -> dict[str, Any]:
+            if has_batch_status_loader and request_ids:
+                return await batch_status_loader(subject_user_id, request_ids)
+            return {}
+
+        async def _load_contact_row() -> dict[str, Any] | None:
+            if relationship["status"] != "connected":
+                return None
+            # Recheck the edge when reading identity: a profile URL or a
+            # relationship that was just removed grants no contact access.
+            return await asyncio.to_thread(
+                self._execute_one,
+                """
+                SELECT identity.email, identity.phone_number, identity.phone_verified
+                FROM connections edge
+                JOIN actor_identity_cache identity ON identity.user_id = :subject
+                WHERE edge.status = 'active'
+                  AND edge.user_a_id = LEAST(:viewer, :subject)
+                  AND edge.user_b_id = GREATEST(:viewer, :subject)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM account_deletion_tombstones deletion
+                    WHERE deletion.user_id_hash =
+                        'sha256:' || encode(sha256(convert_to(:subject, 'UTF8')), 'hex')
+                  )
+                LIMIT 1
+                """,
+                {"viewer": viewer_user_id, "subject": subject_user_id},
+            )
+
+        (active, export_revisions, bundle_rows), statuses, contact_row = await asyncio.gather(
+            _load_grants_bundle(),
+            _load_statuses(),
+            _load_contact_row(),
+        )
+
+        grants = []
+        if viewer_ref:
             bundle_by_request = {
                 str(item["request_id"]): str(item["bundle_id"]) for item in bundle_rows
             }
@@ -698,41 +775,8 @@ class PersonProfileService:
                 )
             )
 
-        request_rows = await asyncio.to_thread(
-            lambda: [
-                dict(item)
-                for item in (
-                    get_db()
-                    .execute_raw(
-                        """
-                        SELECT bundle.bundle_id, bundle.purpose,
-                               bundle.duration_seconds, bundle.created_at,
-                               bundle.cancelled_at, item.request_id,
-                               item.scope_ref, item.scope, item.label, item.sensitivity
-                        FROM one_information_request_bundles bundle
-                        JOIN one_information_request_items item
-                          ON item.bundle_id = bundle.bundle_id
-                        WHERE bundle.requester_user_id = :viewer
-                          AND bundle.subject_user_id = :subject
-                        ORDER BY bundle.created_at DESC, item.created_at
-                        LIMIT 100
-                        """,
-                        {"viewer": viewer_user_id, "subject": subject_user_id},
-                    )
-                    .data
-                    or []
-                )
-            ]
-        )
         request_history = []
         now_ms = int(time.time() * 1000)
-        request_ids = [str(item["request_id"]) for item in request_rows if item.get("request_id")]
-        batch_status_loader = getattr(self._consent_db, "get_request_statuses", None)
-        has_batch_status_loader = callable(batch_status_loader)
-        if has_batch_status_loader:
-            statuses = await batch_status_loader(subject_user_id, request_ids)
-        else:
-            statuses = {}
         for item in request_rows:
             request_id = str(item["request_id"])
             if has_batch_status_loader:
@@ -772,30 +816,9 @@ class PersonProfileService:
                 }
             )
 
-        relationship = await asyncio.to_thread(self._relationship, viewer_user_id, subject_user_id)
         contact_email = None
         contact_phone_number = None
         if relationship["status"] == "connected":
-            # Recheck the edge when reading identity: a profile URL or a
-            # relationship that was just removed grants no contact access.
-            contact_row = await asyncio.to_thread(
-                self._execute_one,
-                """
-                SELECT identity.email, identity.phone_number, identity.phone_verified
-                FROM connections edge
-                JOIN actor_identity_cache identity ON identity.user_id = :subject
-                WHERE edge.status = 'active'
-                  AND edge.user_a_id = LEAST(:viewer, :subject)
-                  AND edge.user_b_id = GREATEST(:viewer, :subject)
-                  AND NOT EXISTS (
-                    SELECT 1 FROM account_deletion_tombstones deletion
-                    WHERE deletion.user_id_hash =
-                        'sha256:' || encode(sha256(convert_to(:subject, 'UTF8')), 'hex')
-                  )
-                LIMIT 1
-                """,
-                {"viewer": viewer_user_id, "subject": subject_user_id},
-            )
             contact_email = str((contact_row or {}).get("email") or "").strip() or None
             phone = str((contact_row or {}).get("phone_number") or "").strip()
             if (contact_row or {}).get("phone_verified") is True and re.fullmatch(

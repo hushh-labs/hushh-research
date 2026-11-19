@@ -1642,27 +1642,33 @@ class ConsentCenterService:
             "metadata": metadata,
         }
 
-    async def _load_investor_pending_entries(self, user_id: str) -> list[dict[str, Any]]:
+    async def _load_investor_pending_entries(
+        self, user_id: str, *, hydrate: bool = True
+    ) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
         pending = await self._consent_db.get_pending_requests(
             user_id,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
-        return await self._hydrate_entry_identities(
-            [self._normalize_pending(item) for item in pending]
-        )
+        entries = [self._normalize_pending(item) for item in pending]
+        return await self._hydrate_entry_identities(entries) if hydrate else entries
 
-    async def _load_investor_active_entries(self, user_id: str) -> list[dict[str, Any]]:
+    async def _load_investor_active_entries(
+        self, user_id: str, *, hydrate: bool = True
+    ) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
         active = await self._consent_db.get_active_tokens(
             user_id,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
-        return self._annotate_person_bundles(
-            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
-        )
+        entries = [self._normalize_active(item) for item in active]
+        if hydrate:
+            entries = await self._hydrate_entry_identities(entries)
+        return self._annotate_person_bundles(entries)
 
-    async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
+    async def _load_investor_previous_entries(
+        self, user_id: str, *, hydrate: bool = True
+    ) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
         history_result = await self._consent_db.get_audit_log(
             user_id,
@@ -1674,9 +1680,8 @@ class ConsentCenterService:
             history_result.get("items", [])
         ):
             raise RuntimeError("consent_source_history_incomplete")
-        return await self._hydrate_entry_identities(
-            [self._normalize_history(item) for item in history_result.get("items", [])]
-        )
+        entries = [self._normalize_history(item) for item in history_result.get("items", [])]
+        return await self._hydrate_entry_identities(entries) if hydrate else entries
 
     async def _load_ria_outgoing_entries(self, user_id: str) -> list[dict[str, Any]]:
         return await self.list_outgoing_requests(user_id)
@@ -2158,9 +2163,9 @@ class ConsentCenterService:
             ) = await asyncio.gather(
                 self._location_counts_async(user_id),
                 self._extra_buckets_async(user_id),
-                self._load_investor_pending_entries(user_id),
-                self._load_investor_active_entries(user_id),
-                self._load_investor_previous_entries(user_id),
+                self._load_investor_pending_entries(user_id, hydrate=False),
+                self._load_investor_active_entries(user_id, hydrate=False),
+                self._load_investor_previous_entries(user_id, hydrate=False),
                 asyncio.gather(
                     self._incoming_connection_request_count(user_id),
                     self._drive_counts(user_id),

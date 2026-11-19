@@ -2,14 +2,42 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
 from ag_ui_adk.request_state_service import RequestStateSessionService
 from ag_ui_adk.session_manager import SessionManager
+from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.models.google_llm import Gemini
+from google.genai import types as genai_types
 
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_ONE, TimedADKAgent
+
+
+def _adk_context_cache_config(root_agent: Any) -> ContextCacheConfig | None:
+    """Enable ADK 2.14 implicit prompt/tool context caching only on native Gemini models."""
+    if os.getenv("HUSHH_ADK_CONTEXT_CACHE_DISABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return None
+    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("HUSHH_ADK_CONTEXT_CACHE_FORCE_TEST") != "1":
+        return None
+    model = getattr(root_agent, "model", None)
+    supports_gemini_cache = (isinstance(model, str) and model.startswith("gemini-")) or (
+        type(model) is Gemini and not getattr(model, "use_interactions_api", False)
+    )
+    if not supports_gemini_cache:
+        return None
+    return ContextCacheConfig(
+        min_tokens=4096,
+        ttl_seconds=1800,
+        cache_intervals=10,
+        create_http_options=genai_types.HttpOptions(timeout=5000),
+    )
 
 
 class _DurableSessionManager(SessionManager):
@@ -72,6 +100,7 @@ def build_authenticated_agui(
             name=app_name,
             root_agent=root_agent,
             plugins=plugins or [],
+            context_cache_config=_adk_context_cache_config(root_agent),
             resumability_config=ResumabilityConfig(is_resumable=True),
         ),
         head=HEAD_ONE,

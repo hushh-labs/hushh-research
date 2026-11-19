@@ -19,15 +19,25 @@ _projection: PodAdkSessionProjection | None = None
 
 
 class PodChatContext:
-    async def _finish_turn(self, memory: Any, input: Any) -> None:
-        if memory is not None:
-            await memory.commit(input)
+    async def _finish_snapshot(self, _input: Any) -> None:
         await self.require_access()
         await self.projection.snapshot(force_save=True)
-        projection = getattr(self.authority, "recovery_projection", None)
-        if projection is not None:
-            await projection.recover(self.log, force_save=True)
         await self.require_access()
+
+    async def _finish_post_turn(self, memory: Any, input: Any) -> None:
+        wrote = False
+        if memory is not None:
+            wrote = bool(await memory.commit(input))
+        if wrote:
+            await self.require_access()
+            projection = getattr(self.authority, "recovery_projection", None)
+            if projection is not None:
+                await projection.recover(self.log, force_save=True)
+            await self.require_access()
+
+    async def _finish_turn(self, memory: Any, input: Any) -> None:
+        await self._finish_snapshot(input)
+        await self._finish_post_turn(memory, input)
 
     def __init__(
         self, authorization: str | None, *, needs_key: bool = True, browser_runtime: Any = None
@@ -275,7 +285,8 @@ class PodChatContext:
             require_access=self.require_access,
             runtime_scope=self.runtime_scope,
             before_run=prepare,
-            after_run=lambda input: self._finish_turn(memory, input),
+            after_run=self._finish_snapshot,
+            post_run=lambda input: self._finish_post_turn(memory, input),
             mcp_owner_admission=self._mcp_owner_admission,
         )
         return agent
