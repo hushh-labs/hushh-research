@@ -1,5 +1,8 @@
 "use client";
 
+import { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+export { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
@@ -371,29 +374,6 @@ export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
   // One's one-line reply reads first, then the secure card it points to (C6).
   "one.shared_with_me_card.v1",
 ]);
-
-/**
- * One secure card per person in a turn. One may both list and show what a
- * person shared; the reader sees that person's card once, where it last
- * arrived.
- */
-export function onePerPersonSharedCard<T extends { id: string; experience: AgentStructuredExperience }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  const kept: T[] = [];
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]!;
-    if (item.experience.type !== "one.shared_with_me_card.v1") {
-      kept.unshift(item);
-      continue;
-    }
-    const cards = item.experience.cards.filter((card) => !seen.has(card.person.personRef));
-    cards.forEach((card) => seen.add(card.person.personRef));
-    if (!cards.length) continue;
-    kept.unshift(cards.length === item.experience.cards.length
-      ? item : { ...item, experience: { ...item.experience, cards } });
-  }
-  return kept;
-}
 
 export function AgentTurnStreamPanel({
   allowFinancePreviewStart,

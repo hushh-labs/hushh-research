@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -165,4 +166,30 @@ async def test_selected_analysis_admission_requires_owner_and_forbids_unknown_fi
     assert not admit_analysis_result({"financeAnalysisResult": result}, owner_admitted=False)
     assert not admit_analysis_result(
         {"financeAnalysisResult": {**result, "holdings": []}}, owner_admitted=True
+    )
+
+
+def test_stock_preview_history_retains_only_the_ticker() -> None:
+    from hushh_mcp.one_adk.history_descriptors import _safe_agent_history_metadata
+
+    def history_event(response, *, tool_name):
+        part = SimpleNamespace(function_response=SimpleNamespace(name=tool_name, response=response))
+        return SimpleNamespace(id="finance-preview", content=SimpleNamespace(parts=[part]))
+
+    payload = {
+        "status": "preview_offered",
+        "structured": {
+            "type": "one.finance_stock_preview.v1",
+            "ticker": "NVDA",
+            "runId": "untrusted",
+            "confirmed": True,
+        },
+    }
+    metadata = _safe_agent_history_metadata(history_event(payload, tool_name="show_stock_preview"))
+    assert metadata["structuredExperience"]["content"] == {
+        "type": "one.finance_stock_preview.v1",
+        "ticker": "NVDA",
+    }
+    assert (
+        _safe_agent_history_metadata(history_event(payload, tool_name="get_market_quotes")) is None
     )

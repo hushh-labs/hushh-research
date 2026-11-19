@@ -1,3 +1,4 @@
+import { readActiveKaiDebateRun, type ActiveKaiDebateRequest } from "./kai-active-debate-read";
 import { requestPhoneTransfer } from "./account-phone-api";
 import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
@@ -6105,23 +6106,8 @@ export class ApiService {
     return response;
   }
 
-  static async getActiveKaiDebateRun(data: {
-    userId: string;
-    debateSessionId: string;
-    vaultOwnerToken: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const query = new URLSearchParams({
-      user_id: data.userId,
-      debate_session_id: data.debateSessionId,
-    }).toString();
-    return apiFetch(`/api/kai/analyze/run/active?${query}`, {
-      method: "GET",
-      signal: data.signal,
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-    });
+  static getActiveKaiDebateRun(data: ActiveKaiDebateRequest): Promise<Response> {
+    return readActiveKaiDebateRun(apiFetch, data);
   }
 
   static async cancelKaiDebateRun(data: {

@@ -1,3 +1,5 @@
+import type { DebateRunTask } from "@/lib/services/debate-run-manager";
+
 /** Browser-local authority for a selected result; never an owner credential. */
 export type FinanceResultScope = {
   ownerId: string | null;
@@ -27,4 +29,17 @@ export function canRetryFinanceResult(
 ): boolean {
   return retrySafe && Boolean(task && task.userId === ownerId && task.status === "completed" &&
     task.completedAt && task.finalDecision?.finalStatement);
+}
+
+export function projectFinanceResult(ownerId: string, task: DebateRunTask | null | undefined) {
+  if (!task || task.userId !== ownerId || task.status !== "completed" ||
+      !task.completedAt || !task.finalDecision?.finalStatement) return undefined;
+  return {
+    runId: task.runId,
+    ticker: task.ticker,
+    decision: task.finalDecision.decision.slice(0, 80),
+    finalStatement: task.finalDecision.finalStatement.slice(0, 4000),
+    confidence: task.finalDecision.confidence,
+    completedAt: task.completedAt,
+  };
 }

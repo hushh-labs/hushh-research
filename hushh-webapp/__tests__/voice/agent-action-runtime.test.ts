@@ -12,89 +12,9 @@ import {
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
-import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
-
-function runtimeState(
-  overrides: Partial<AppRuntimeState> = {},
-): AppRuntimeState {
-  return {
-    auth: {
-      signed_in: true,
-      user_id: "user_1",
-    },
-    vault: {
-      unlocked: true,
-      token_available: true,
-      token_valid: true,
-    },
-    route: {
-      pathname: ROUTES.HOME,
-      screen: "chat",
-      subview: null,
-    },
-    runtime: {
-      analysis_active: false,
-      analysis_ticker: null,
-      analysis_run_id: null,
-      import_active: false,
-      import_run_id: null,
-      busy_operations: [],
-    },
-    portfolio: {
-      has_portfolio_data: true,
-    },
-    persona: {
-      active: "investor",
-      primary_nav: "investor",
-      available: ["investor"],
-      transition_target: null,
-      ria_switch_available: false,
-      ria_setup_available: false,
-    },
-    voice: {
-      available: true,
-      tts_playing: false,
-      last_tool_name: null,
-      last_ticker: null,
-    },
-    ...overrides,
-  };
-}
+import { runtimeState } from "./agent-action-runtime-fixture";
 
 describe("executeAgentGatewayAction", () => {
-  it("admits confirmed stock analysis only on an eligible live chat card", async () => {
-    const handler = vi.fn(async (_slots, context) =>
-      context?.humanConfirmationToken === "visible-tap"
-        ? { status: "succeeded" as const, summary: "Started" }
-        : { status: "blocked" as const, summary: "Confirm first" });
-    registerLocalOnboardingHandler("analysis.confirm_preview", handler);
-    const common = {
-      actionId: "analysis.confirm_preview", userId: "user_1", router: { push: vi.fn() },
-      hasPortfolioData: true, busyOperations: {}, setAnalysisParams: vi.fn(),
-      surfaceMetadata: { actions: [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start" }] },
-    };
-    try {
-      const hidden = await executeAgentGatewayAction({ ...common, allowedActionIds: [], appRuntimeState: runtimeState() });
-      expect(hidden.status).toBe("blocked");
-      const advisor = await executeAgentGatewayAction({ ...common, appRuntimeState: runtimeState({
-        persona: { active: "ria", primary_nav: "ria", available: ["ria"], ria_switch_available: true, ria_setup_available: false },
-      }) });
-      expect(advisor.status).toBe("blocked");
-      const busy = await executeAgentGatewayAction({ ...common, appRuntimeState: runtimeState({
-        runtime: { analysis_active: true, analysis_ticker: "NVDA", analysis_run_id: "other", import_active: false, import_run_id: null, busy_operations: [] },
-      }) });
-      expect(busy.status).toBe("blocked");
-      expect(handler).not.toHaveBeenCalled();
-      const result = await executeAgentGatewayAction({ ...common, appRuntimeState: runtimeState(),
-        executionContext: { humanConfirmationToken: "visible-tap" } });
-      expect(result.status).toBe("succeeded");
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(common.router.push).not.toHaveBeenCalled();
-    } finally {
-      unregisterLocalOnboardingHandler("analysis.confirm_preview", handler);
-    }
-  });
-
   it.each([
     ["ria.picks.open_category_avoid", "/ria/picks?source=my&category=top-picks&search=1&share=private", "avoid", "my"],
     ["ria.picks.open_source_kai", "/ria/picks?source=my&category=avoid&search=1&share=private", "avoid", "kai"],

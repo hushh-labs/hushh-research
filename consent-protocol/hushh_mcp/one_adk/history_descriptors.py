@@ -13,18 +13,12 @@ from hushh_mcp.one_adk.history_projection import (
     _record,
     _safe_workspace_connector_setup_descriptor,
 )
+from hushh_mcp.one_adk.output_privacy import public_text as _event_text
 from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
     project_shared_with_me_card,
 )
-
-
-def _event_text(event: Any) -> str:
-    from hushh_mcp.one_adk.output_privacy import public_text
-
-    return public_text(event)
-
 
 _SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
 

@@ -31,24 +31,6 @@ def _event(response: dict, *, tool_name: str = "discover_person_information") ->
     )
 
 
-def test_stock_preview_history_retains_only_the_ticker() -> None:
-    payload = {
-        "status": "preview_offered",
-        "structured": {
-            "type": "one.finance_stock_preview.v1",
-            "ticker": "NVDA",
-            "runId": "untrusted",
-            "confirmed": True,
-        },
-    }
-    metadata = _safe_agent_history_metadata(_event(payload, tool_name="show_stock_preview"))
-    assert metadata["structuredExperience"]["content"] == {
-        "type": "one.finance_stock_preview.v1",
-        "ticker": "NVDA",
-    }
-    assert _safe_agent_history_metadata(_event(payload, tool_name="get_market_quotes")) is None
-
-
 def test_queued_input_history_marks_only_joined_owner_messages() -> None:
     def queued(author: str) -> SimpleNamespace:
         return SimpleNamespace(

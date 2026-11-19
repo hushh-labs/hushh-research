@@ -348,16 +348,10 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
     )
 
 
-async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
-    from time import time
-
-    turn_started_at = time()
-    if any(message.role == "system" for message in input_data.messages):
-        raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
-    from hushh_mcp.one_adk.receipt_client_tools import (
-        STATE_RECEIPT_RESULT,
-    )
-
+async def _resolve_turn_credentials(
+    request: Request,
+) -> tuple[str | None, str | None, dict[str, Any] | None, str]:
+    """Resolve the existing chat credentials and refuse mixed owners."""
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
@@ -381,6 +375,20 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
         if token is not None and firebase_uid != token["user_id"]:
             raise HTTPException(status_code=403, detail="Credential owner mismatch")
+    return authorization, consent_header, token, firebase_uid
+
+
+async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
+    if any(message.role == "system" for message in input_data.messages):
+        raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
+    from hushh_mcp.one_adk.receipt_client_tools import (
+        STATE_RECEIPT_RESULT,
+    )
+
+    authorization, consent_header, token, firebase_uid = await _resolve_turn_credentials(request)
     owner_id = (token or {}).get("user_id") or firebase_uid  # Firebase-only is still an owner.
     await admit_hub_content(owner_id, "agent_chat", resolve_mode=get_owner_hosting_mode)
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}

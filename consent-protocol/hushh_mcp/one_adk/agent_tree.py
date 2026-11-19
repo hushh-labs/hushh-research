@@ -150,6 +150,9 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
+from hushh_mcp.one_adk.legacy_navigation import APP_ROUTES as APP_ROUTES
+from hushh_mcp.one_adk.legacy_navigation import CRM_PRODUCT_AVAILABLE as _CRM_PRODUCT_AVAILABLE
+from hushh_mcp.one_adk.legacy_navigation import open_screen
 from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
@@ -171,7 +174,9 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.one_adk.specialist_focus import specialist_focus_instruction as focus_instruction
+from hushh_mcp.one_adk.state_keys import STATE_PENDING_DIRECTIVE as STATE_PENDING_DIRECTIVE
 from hushh_mcp.one_adk.state_keys import STATE_USER_ID as STATE_USER_ID
+from hushh_mcp.one_adk.state_keys import STATE_VOICE_CONTEXT as STATE_VOICE_CONTEXT
 from hushh_mcp.one_adk.turn_location import get_my_location
 from hushh_mcp.one_adk.web_search import (
     instruction_for_head,
@@ -208,7 +213,6 @@ from hushh_mcp.services.agent_task_context import (
     record_pending_specialist_directive,
     specialist_directive_fingerprint,
 )
-from hushh_mcp.services.crm_product_availability import crm_product_available
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +262,6 @@ STATE_DATA_DOOR_GRANTS = "hussh:data_door_grants"
 # Redacted browser state used by action tools to avoid proposing controls the
 # current surface did not declare available. It never contains vault content,
 # credentials, or raw page text.
-STATE_VOICE_CONTEXT = "hussh:voice_context"
 # Optional, turn-bounded PKM projection supplied after vault unlock. The value
 # is seeded into an ephemeral text session and never logged or persisted by
 # the One runtime. Voice sessions do not set this key.
@@ -316,7 +319,6 @@ STATE_MEMORY_DIGEST = "hussh:memory_digest"
 STATE_MEMORY_AVAILABLE = "hussh:memory_available"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
-STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 # Where the last Email receipts list stopped, so "show more" continues it. It
 # holds the list's filters and offset only, never a receipt, and expires on its
 # own. Unlike the request secrets it must outlive one HTTP request, so it lives
@@ -327,25 +329,6 @@ STATE_RECEIPT_CURSOR = "hussh:receipt_cursor"
 # shape as STATE_PENDING_DIRECTIVE, kept as its own prefix since a trace is
 # never executed and never settles -- it is just forwarded and rendered.
 STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
-
-_CRM_PRODUCT_AVAILABLE = crm_product_available()
-
-# Governed navigation allowlist: screen id -> app route. Mirrors the /one
-# roster plus core account surfaces. One can ONLY navigate here; anything
-# else is refused by construction.
-APP_ROUTES: dict[str, str] = {
-    "home": "/one",
-    "setup": "/one/setup",
-    "finance": "/one/kai",
-    "ria": "/ria",
-    "email": "/one/email",
-    "location": "/one/location",
-    "personal_data": "/one/pkm",
-    "consent": "/one/consent",
-    "profile": "/profile",
-}
-if _CRM_PRODUCT_AVAILABLE:
-    APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
 # Keep the pod Live compatibility surface on the same manifest/env contract as
 # the existing infrastructure runtime.  The ordinary text head below uses the
@@ -1946,48 +1929,6 @@ async def _specialist_turn(
                 "The app is showing the user a choice card. Tell the user to pick an option there."
             )
     return payload
-
-
-async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Legacy non-live navigation helper.
-
-    Live One sessions must use a generated action currently published by the
-    browser. Keeping this compatibility tool fail-closed in a live session
-    prevents it from bypassing route, setup, and visible-control authority.
-    """
-    voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
-    if isinstance(voice_context, dict) and voice_context.get("route_family"):
-        return {
-            "status": "action_required",
-            "message": (
-                "Use one of the generated actions available on the current screen; "
-                "I cannot navigate around its controls directly."
-            ),
-        }
-    key = str(screen or "").strip().lower().replace("-", "_").replace(" ", "_")
-    route = APP_ROUTES.get(key)
-    if not route:
-        return {
-            "status": "unknown_screen",
-            "message": f"'{screen}' is not a screen I can open.",
-            "valid_screens": sorted(APP_ROUTES),
-        }
-    tool_context.state[f"{STATE_PENDING_DIRECTIVE}:{key}"] = {
-        "kind": "navigate",
-        "payload": {"route": route, "screen": key},
-    }
-    return {
-        "status": "ok",
-        "message": f"Opening {key.replace('_', ' ')}.",
-        "route": route,
-        # Proactive-prompting: this text becomes the tool RESULT the model
-        # reads on its next turn (there is no separate server-injected
-        # system turn for tool results, unlike the greeting/screen-change
-        # notes in adk_live.py). Nudging here means One offers a next step
-        # after every screen it opens, not only after onboarding-tagged
-        # screen changes.
-        "next_step": "Wait for route settlement before describing the next step.",
-    }
 
 
 async def open_gmail_email_draft(
