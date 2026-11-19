@@ -73,16 +73,22 @@ class SanitizationReceipt:
 
 
 class WeeklySandboxQuotaLedger:
-    """Enforce Muse-style invite admission and 7-day rolling usage quota for hosted tier."""
+    """Optional invite and 7-day rolling usage quota ledger for hosted sandboxes (#9744).
+
+    Defaults to open, unrestricted adoption (`require_invite=False`, `weekly_limit_units=None`)
+    while preserving bounded concurrency and explicit policy enforcement when configured.
+    """
 
     def __init__(
         self,
         *,
-        weekly_limit_units: int = DEFAULT_WEEKLY_QUOTA_UNITS,
+        weekly_limit_units: int | None = None,
         clock_s: Callable[[], int] | None = None,
-        require_invite: bool = True,
+        require_invite: bool = False,
     ) -> None:
-        self.weekly_limit_units = max(1, int(weekly_limit_units))
+        self.weekly_limit_units: int | None = (
+            None if weekly_limit_units is None else max(1, int(weekly_limit_units))
+        )
         self._clock_s = clock_s or (lambda: int(time.time()))
         self.require_invite = bool(require_invite)
         self._invited_owners: set[str] = set()
@@ -116,12 +122,13 @@ class WeeklySandboxQuotaLedger:
         if not clean_owner:
             raise SandboxAdmissionError(SANDBOX_INVITE_REQUIRED, "Authenticated owner required")
         now_s = int(self._clock_s())
+        limit = self.weekly_limit_units
         if self.is_exempt_target(target):
             return WeeklyQuotaSnapshot(
                 owner_id=clean_owner,
                 exempt_target=True,
                 used_units=0,
-                limit_units=self.weekly_limit_units,
+                limit_units=limit or 0,
                 used_pct=0.0,
                 reset_at_epoch_s=now_s + _WEEK_SECONDS,
             )
@@ -132,8 +139,8 @@ class WeeklySandboxQuotaLedger:
                 status=403,
             )
         start_s, used = self._window_for(clean_owner, now_s)
-        cost = max(1, int(units))
-        if used + cost > self.weekly_limit_units:
+        cost = max(0, int(units))
+        if limit is not None and used + cost > limit:
             raise SandboxAdmissionError(
                 SANDBOX_WEEKLY_QUOTA_EXCEEDED,
                 f"Weekly free quota reached; resets at epoch {start_s + _WEEK_SECONDS}.",
@@ -141,12 +148,12 @@ class WeeklySandboxQuotaLedger:
             )
         next_used = used + cost
         self._owner_windows[clean_owner] = (start_s, next_used)
-        pct = round((next_used / self.weekly_limit_units) * 100.0, 2)
+        pct = round((next_used / limit) * 100.0, 2) if limit else 0.0
         return WeeklyQuotaSnapshot(
             owner_id=clean_owner,
             exempt_target=False,
             used_units=next_used,
-            limit_units=self.weekly_limit_units,
+            limit_units=limit or 0,
             used_pct=pct,
             reset_at_epoch_s=start_s + _WEEK_SECONDS,
         )

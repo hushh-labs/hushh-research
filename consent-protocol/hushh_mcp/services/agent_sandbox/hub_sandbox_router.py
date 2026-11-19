@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import time
 from dataclasses import dataclass
@@ -45,9 +46,10 @@ class AllocatedSandboxSession:
     workspace_id: str
     quota: WeeklyQuotaSnapshot
     endpoint_url: str
+    direct_endpoint_url: str | None = None
 
     def to_public_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "lease_id": self.lease_id,
             "claim_name": self.claim_name,
             "sandbox_name": self.sandbox_name,
@@ -62,6 +64,9 @@ class AllocatedSandboxSession:
                 "reset_at_epoch_s": self.quota.reset_at_epoch_s,
             },
         }
+        if self.direct_endpoint_url:
+            payload["direct_endpoint_url"] = self.direct_endpoint_url
+        return payload
 
 
 @dataclass(frozen=True)
@@ -84,15 +89,45 @@ class HubSandboxSessionRouter:
         audit_ledger: TamperEvidentAuditLedger,
         sentinel_control: SentinelControlClient | None = None,
         warm_pool_name: str = "hussh-one-warm-pool",
+        edge_gateway_url: str | None = None,
     ) -> None:
         self.claim_client = claim_client
         self.lease_manager = lease_manager
         self.audit_ledger = audit_ledger
         self.sentinel_control = sentinel_control
         self.warm_pool_name = warm_pool_name
+        raw_edge = (
+            edge_gateway_url
+            if edge_gateway_url is not None
+            else (os.environ.get("HUSSH_SANDBOX_EDGE_GATEWAY_URL") or "")
+        )
+        self.edge_gateway_url = str(raw_edge).strip().rstrip("/") or None
         self._sessions: dict[
             str, tuple[SandboxLeaseRecord, ClaimedSandboxEndpoint, WeeklyQuotaSnapshot]
         ] = {}
+        self._owner_leases: dict[str, str] = {}
+
+    def _build_session(
+        self,
+        lease: SandboxLeaseRecord,
+        endpoint: ClaimedSandboxEndpoint,
+        quota: WeeklyQuotaSnapshot,
+    ) -> AllocatedSandboxSession:
+        direct_url = (
+            f"{self.edge_gateway_url}/u/{lease.workspace_id}" if self.edge_gateway_url else None
+        )
+        return AllocatedSandboxSession(
+            lease_id=lease.lease_id,
+            claim_name=endpoint.claim_name,
+            sandbox_name=endpoint.sandbox_name,
+            pod_ip=endpoint.pod_ip,
+            port=endpoint.port,
+            owner_id=lease.owner_id,
+            workspace_id=lease.workspace_id,
+            quota=quota,
+            endpoint_url=f"http://{endpoint.pod_ip}:{endpoint.port}",
+            direct_endpoint_url=direct_url,
+        )
 
     def allocate_turn_sandbox(
         self,
@@ -103,6 +138,7 @@ class HubSandboxSessionRouter:
         target: str = "ace",
         units: int = 1,
         idle_shutdown_seconds: int = 600,
+        reuse_existing: bool = True,
     ) -> AllocatedSandboxSession:
         clean_owner = str(owner_id or "").strip()
         clean_ws = str(workspace_id or "").strip()
@@ -111,6 +147,13 @@ class HubSandboxSessionRouter:
             raise SandboxAdmissionError(
                 "SANDBOX_REQUEST_INVALID", "owner_id and workspace_id required", status=400
             )
+
+        if reuse_existing:
+            existing_lease_id = self._owner_leases.get(clean_owner)
+            if existing_lease_id and existing_lease_id in self._sessions:
+                lease, endpoint, quota = self._sessions[existing_lease_id]
+                if lease.state == "CLAIMED_ACTIVE":
+                    return self._build_session(lease, endpoint, quota)
 
         # Check invite and weekly allowance BEFORE provisioning Kubernetes compute.
         quota = self.lease_manager.quota_ledger.check_and_consume(
@@ -143,34 +186,15 @@ class HubSandboxSessionRouter:
             preferred_instance_id=endpoint.sandbox_name,
         )
         self._sessions[lease.lease_id] = (lease, endpoint, quota)
-        return AllocatedSandboxSession(
-            lease_id=lease.lease_id,
-            claim_name=claim_name,
-            sandbox_name=endpoint.sandbox_name,
-            pod_ip=endpoint.pod_ip,
-            port=endpoint.port,
-            owner_id=clean_owner,
-            workspace_id=clean_ws,
-            quota=quota,
-            endpoint_url=f"http://{endpoint.pod_ip}:{endpoint.port}",
-        )
+        self._owner_leases[clean_owner] = lease.lease_id
+        return self._build_session(lease, endpoint, quota)
 
     def get_session(self, lease_id: str, *, owner_id: str) -> AllocatedSandboxSession:
         stored = self._sessions.get(lease_id)
         if stored is None or stored[0].owner_id != owner_id:
             raise SandboxAdmissionError("SANDBOX_LEASE_NOT_FOUND", "Unknown lease", status=404)
         lease, endpoint, quota = stored
-        return AllocatedSandboxSession(
-            lease_id=lease.lease_id,
-            claim_name=endpoint.claim_name,
-            sandbox_name=endpoint.sandbox_name,
-            pod_ip=endpoint.pod_ip,
-            port=endpoint.port,
-            owner_id=lease.owner_id,
-            workspace_id=lease.workspace_id,
-            quota=quota,
-            endpoint_url=f"http://{endpoint.pod_ip}:{endpoint.port}",
-        )
+        return self._build_session(lease, endpoint, quota)
 
     async def coordinate_browser_terminal_handoff(
         self,
@@ -235,4 +259,6 @@ class HubSandboxSessionRouter:
         self.claim_client.delete_claim(endpoint.claim_name)
         receipt = self.lease_manager.release_and_destroy(lease_id, owner_id=owner_id)
         self._sessions.pop(lease_id, None)
+        if self._owner_leases.get(owner_id) == lease_id:
+            self._owner_leases.pop(owner_id, None)
         return receipt

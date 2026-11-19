@@ -95,17 +95,23 @@ class LiveK8sSandboxClaimClient:
         self,
         *,
         api_server: str,
-        bearer_token: str,
+        bearer_token: str | None = None,
+        token_provider: Any | None = None,
         ca_cert_path: Path | None = None,
+        ca_cert_pem: str | None = None,
         namespace: str = "hussh-agents",
         poll_interval_s: float = 0.5,
+        on_demand_scale_pool: bool = True,
     ) -> None:
         self.api_server = api_server.rstrip("/")
-        self._token = str(bearer_token or "").strip()
+        self._static_auth = str(bearer_token or "").strip()
+        self._token_provider = token_provider
         self.namespace = namespace
         self.poll_interval_s = max(0.1, float(poll_interval_s))
+        self.on_demand_scale_pool = bool(on_demand_scale_pool)
         self._ssl_ctx = ssl.create_default_context(
-            cafile=str(ca_cert_path) if ca_cert_path is not None else None
+            cafile=str(ca_cert_path) if ca_cert_path is not None else None,
+            cadata=ca_cert_pem,
         )
 
     @classmethod
@@ -114,29 +120,72 @@ class LiveK8sSandboxClaimClient:
         *,
         namespace: str = "hussh-agents",
         sa_dir: Path = DEFAULT_K8S_SA_DIR,
+        on_demand_scale_pool: bool = True,
     ) -> LiveK8sSandboxClaimClient:
         jwt_file = sa_dir.joinpath("token")
         ca_path = sa_dir.joinpath("ca.crt")
         return cls(
             api_server="https://kubernetes.default.svc",
-            bearer_token=jwt_file.read_text(encoding="utf-8").strip(),
+            token_provider=lambda: jwt_file.read_text(encoding="utf-8").strip(),
             ca_cert_path=ca_path,
             namespace=namespace,
+            on_demand_scale_pool=on_demand_scale_pool,
         )
 
+    @classmethod
+    def from_gcp_credentials(
+        cls,
+        *,
+        api_server: str,
+        ca_cert_pem: str | None = None,
+        ca_cert_path: Path | None = None,
+        namespace: str = "hussh-agents",
+        on_demand_scale_pool: bool = True,
+    ) -> LiveK8sSandboxClaimClient:
+        """Connect from Cloud Run to GKE master via auto-refreshing GCP ADC access tokens."""
+        import google.auth  # noqa: PLC0415
+        import google.auth.transport.requests  # noqa: PLC0415
+
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        req = google.auth.transport.requests.Request()
+
+        def _refresh_bearer() -> str:
+            if not getattr(creds, "valid", False) or not getattr(creds, "token", None):
+                creds.refresh(req)
+            return str(getattr(creds, "token", "") or "").strip()
+
+        return cls(
+            api_server=api_server,
+            token_provider=_refresh_bearer,
+            ca_cert_path=ca_cert_path,
+            ca_cert_pem=ca_cert_pem.strip() + "\n" if ca_cert_pem else None,
+            namespace=namespace,
+            on_demand_scale_pool=on_demand_scale_pool,
+        )
+
+    def _current_bearer(self) -> str:
+        if self._token_provider is not None:
+            return str(self._token_provider() or "").strip()
+        return self._static_auth
+
     def _request_json(
-        self, method: str, path: str, payload: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        content_type: str = "application/json",
     ) -> tuple[int, dict[str, Any]]:
         parsed = urllib.parse.urlsplit(f"{self.api_server}{path}")
         if parsed.scheme != "https" or not parsed.hostname:
             raise ValueError(f"Unsupported Kubernetes API server URL: {self.api_server}")
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {
-            "Authorization": f"Bearer {self._token}",
+            "Authorization": f"Bearer {self._current_bearer()}",
             "Accept": "application/json",
         }
         if data is not None:
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = content_type
         conn = http.client.HTTPSConnection(
             parsed.hostname,
             parsed.port or 443,
@@ -176,6 +225,18 @@ class LiveK8sSandboxClaimClient:
                 return pod_ip
         return ""
 
+    def _set_warm_pool_replicas(self, warm_pool_name: str, replicas: int) -> None:
+        pool_path = (
+            f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}"
+            f"/sandboxwarmpools/{warm_pool_name}"
+        )
+        self._request_json(
+            "PATCH",
+            pool_path,
+            {"spec": {"replicas": replicas}},
+            content_type="application/merge-patch+json",
+        )
+
     def create_and_wait_claim(
         self,
         *,
@@ -183,7 +244,7 @@ class LiveK8sSandboxClaimClient:
         billing_space_id: str,
         warm_pool_name: str = "hussh-one-warm-pool",
         idle_shutdown_seconds: int = 600,
-        timeout_s: float = 30.0,
+        timeout_s: float = 180.0,
     ) -> ClaimedSandboxEndpoint:
         manifest = render_sandbox_claim(
             claim_name=claim_name,
@@ -192,32 +253,54 @@ class LiveK8sSandboxClaimClient:
             billing_space_id=billing_space_id,
             idle_shutdown_seconds=idle_shutdown_seconds,
         )
-        base = f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}/sandboxclaims"
-        status, created = self._request_json("POST", base, manifest)
-        if status not in {200, 201, 202}:
-            raise RuntimeError(f"SandboxClaim create failed ({status}): {created}")
+        scaled_from_zero = False
+        if self.on_demand_scale_pool:
+            pool_path = (
+                f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}"
+                f"/sandboxwarmpools/{warm_pool_name}"
+            )
+            p_status, p_doc = self._request_json("GET", pool_path)
+            if p_status == 200 and int((p_doc.get("spec") or {}).get("replicas") or 0) == 0:
+                self._set_warm_pool_replicas(warm_pool_name, 1)
+                scaled_from_zero = True
 
-        deadline = time.monotonic() + max(2.0, float(timeout_s))
-        latest = created
-        while time.monotonic() < deadline:
-            sandbox_name = str(
-                ((latest.get("status") or {}).get("sandbox") or {}).get("name") or ""
-            ).strip()
-            if sandbox_name and self._is_ready(latest):
-                pod_ip = self._extract_pod_ip(sandbox_name, latest)
-                if pod_ip:
-                    return ClaimedSandboxEndpoint(
-                        claim_name=claim_name,
-                        namespace=self.namespace,
-                        sandbox_name=sandbox_name,
-                        pod_ip=pod_ip,
-                        ready=True,
-                    )
-            time.sleep(self.poll_interval_s)
-            get_status, latest = self._request_json("GET", f"{base}/{claim_name}")
-            if get_status != 200:
-                latest = {}
-        raise TimeoutError(f"SandboxClaim {claim_name} did not become Ready within {timeout_s}s")
+        base = f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}/sandboxclaims"
+        try:
+            status, created = self._request_json("POST", base, manifest)
+            if status not in {200, 201, 202}:
+                raise RuntimeError(f"SandboxClaim create failed ({status}): {created}")
+
+            deadline = time.monotonic() + max(2.0, float(timeout_s))
+            latest = created
+            while time.monotonic() < deadline:
+                sandbox_name = str(
+                    ((latest.get("status") or {}).get("sandbox") or {}).get("name") or ""
+                ).strip()
+                if sandbox_name and scaled_from_zero:
+                    # Reset pool target back to 0 as soon as the controller adopts a sandbox
+                    # so no second idle standby instance is left running.
+                    self._set_warm_pool_replicas(warm_pool_name, 0)
+                    scaled_from_zero = False
+                if sandbox_name and self._is_ready(latest):
+                    pod_ip = self._extract_pod_ip(sandbox_name, latest)
+                    if pod_ip:
+                        return ClaimedSandboxEndpoint(
+                            claim_name=claim_name,
+                            namespace=self.namespace,
+                            sandbox_name=sandbox_name,
+                            pod_ip=pod_ip,
+                            ready=True,
+                        )
+                time.sleep(self.poll_interval_s)
+                get_status, latest = self._request_json("GET", f"{base}/{claim_name}")
+                if get_status != 200:
+                    latest = {}
+            raise TimeoutError(
+                f"SandboxClaim {claim_name} did not become Ready within {timeout_s}s"
+            )
+        finally:
+            if scaled_from_zero:
+                self._set_warm_pool_replicas(warm_pool_name, 0)
 
     def delete_claim(self, claim_name: str) -> None:
         base = f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}/sandboxclaims"

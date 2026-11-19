@@ -297,6 +297,7 @@ def render_sandbox_network_policy(
     hub_namespace: str = "hussh-hub-router",
     proxy_namespace: str = "hussh-sandbox-system",
     proxy_port: int = DEFAULT_EGRESS_PROXY_PORT,
+    edge_vpc_cidr: str | None = None,
 ) -> dict[str, Any]:
     """Render default-deny Ingress/Egress NetworkPolicy (NIST SC-7(5))."""
     policy_name = _require_dns_label(name, field_name="policy name")
@@ -305,6 +306,20 @@ def render_sandbox_network_policy(
     proxy_ns = _require_dns_label(proxy_namespace, field_name="proxy namespace")
     if not 1 <= proxy_port <= 65535:
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: proxy_port out of range")
+    ingress_from: list[dict[str, Any]] = [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": hub_ns}},
+            "podSelector": {"matchLabels": {"app": "hussh-consent-hub"}},
+        }
+    ]
+    if edge_vpc_cidr is not None:
+        try:
+            net = ipaddress.ip_network(str(edge_vpc_cidr).strip(), strict=False)
+        except ValueError as exc:
+            raise ValueError(
+                f"{K8S_MANIFEST_INVARIANT_ERROR}: valid edge_vpc_cidr required"
+            ) from exc
+        ingress_from.append({"ipBlock": {"cidr": str(net)}})
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",
@@ -314,14 +329,7 @@ def render_sandbox_network_policy(
             "policyTypes": ["Ingress", "Egress"],
             "ingress": [
                 {
-                    "from": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": hub_ns}
-                            },
-                            "podSelector": {"matchLabels": {"app": "hussh-consent-hub"}},
-                        }
-                    ],
+                    "from": ingress_from,
                     "ports": [{"protocol": "TCP", "port": 8080}],
                 }
             ],
