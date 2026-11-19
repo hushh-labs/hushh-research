@@ -652,6 +652,13 @@ popup; the return page signals the opening tab over a same-origin
    `HUSSH_AZURE_OAUTH_REDIRECT_URI` must equal its registered value exactly;
    only `https` or `http://localhost` is accepted.
 
+#### `HushOne Inc.` organization consent, publisher domain, and B2B guest parity
+
+- **Tenant-wide admin consent (`oauth2PermissionGrants`, `AllPrincipals`):** Restricted guests in `HushOne Inc.` cannot self-consent to multi-tenant apps without explicit tenant grants. Maintain `AllPrincipals` grants for both `Hussh One Sign-In` (`openid email profile User.Read` on Microsoft Graph) and `Hussh Cloud Connect` (`openid email profile User.Read` on Microsoft Graph plus `user_impersonation` on Azure Resource Manager).
+- **Verified publisher domain (`hussh.ai`):** External Entra tenants (such as an existing company directory on `hushh.ai`) enforce Microsoft's recommended user-consent policy, which blocks `User.Read` self-consent against an unverified `.onmicrosoft.com` `publisherDomain`. Stage `hussh.ai` as a verified custom domain in `HushOne Inc.` so both app registrations carry a verified publisher domain.
+- **B2B guest redemption resets (`AADSTS50020`):** Guests who originally redeemed an invitation via Email One-Time Passcode (`issuer: "mail"`) instead of their signed-in organizational or personal Microsoft account will fail portal sign-in with `AADSTS50020` when selecting their signed-in identity. Re-issue an invitation with `resetRedemption: true` targeting that guest's existing object ID (`scripts/ops/reconcile_oauth_and_mail_posture.py --reconcile-all --apply --reset-guest <email>`) to preserve RBAC assignments while allowing native session binding. Never re-invite retired accounts such as `ankit@hushh.ai`.
+- **Team Azure CLI onboarding (`./bin/hushh az`):** Because teammates' Workspace domains are separate Managed Entra tenants, bare `az login` lands in the wrong home tenant (`AADSTS50020` or missing subscriptions), and restricted guest defaults previously blocked directory lookups. `HushOne Inc.` maintains the `Microsoft Azure CLI` enterprise SP with `AllPrincipals` Graph/ARM consent grants and the collaborative `guestUserRoleId` (`a0b1b346-4d3e-4e8b-98f8-753987be4970`). Engineers sign in via `./bin/hushh az login` (or `--device-code`) and verify ARM + Graph readiness via `./bin/hushh az doctor`.
+
 ### Hub configuration
 
 | Variable | Value |
