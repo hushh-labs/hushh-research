@@ -80,6 +80,7 @@ from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
+from .sandbox_claims import router as sandbox_claims_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .shared_files import router as shared_files_router
 from .source_journal import router as source_journal_router
@@ -169,6 +170,7 @@ router.include_router(pod_heartbeat_router)
 router.include_router(pod_lifecycle_router)
 router.include_router(pod_wake_router)
 router.include_router(pod_relay_router)
+router.include_router(sandbox_claims_router)
 router.include_router(puppy_relay_router)
 # Hub-only, like the relay: the broker READS a DB-backed specialist for a
 # keyless pod. A pod holds no DB credential and must never mount this. The

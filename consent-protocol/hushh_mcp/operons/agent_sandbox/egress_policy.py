@@ -235,6 +235,7 @@ def evaluate_sandbox_egress(
         "PUT",
         "PATCH",
         "DELETE",
+        "CONNECT",
     }:
         return EgressVerdict(
             decision="allow",

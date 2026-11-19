@@ -25,7 +25,7 @@ Select hosting, verify AI access, provision or resume the recorded operation, th
 
 ## Components and dependencies
 
-Shared, GCP Cloud Run, Azure Container Apps, and the staged Kubernetes Agent Sandbox pool baseline use different provider authorities under existing placement and lifecycle contracts.
+Shared, GCP Cloud Run, Azure Container Apps, and the staged Kubernetes Agent Sandbox pool baseline (Hub claim router plus out-of-sandbox Sentinel proxy runtime gated behind `HUSSH_AGENT_SANDBOX_POOL_ENABLED`) use different provider authorities under existing placement and lifecycle contracts.
 
 ## Trust boundary and limits
 

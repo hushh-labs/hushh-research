@@ -201,3 +201,52 @@ class AceComputeBackend:
             runtime_class=runtime_class,  # type: ignore[arg-type]
             warm_pool_replicas=warm_pool_replicas,
         )
+
+    def build_hub_sandbox_router(
+        self,
+        *,
+        audit_hmac_key: bytes,
+        namespace: str = "hussh-agents",
+        warm_pool_name: str = "hussh-one-warm-pool",
+        require_invite: bool = True,
+        sentinel_control_url: str | None = None,
+        sentinel_control_token: str | None = None,
+        use_in_cluster_k8s: bool = False,
+    ) -> Any:
+        """Assemble the Hub SandboxClaim allocator and single-use lease router (#9744)."""
+        from hushh_mcp.operons.agent_sandbox.tamper_evident_audit import TamperEvidentAuditLedger
+        from hushh_mcp.services.agent_sandbox.hub_sandbox_router import HubSandboxSessionRouter
+        from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
+            InMemorySandboxClaimClient,
+            LiveK8sSandboxClaimClient,
+            SandboxClaimPort,
+            SentinelControlClient,
+        )
+        from hushh_mcp.services.agent_sandbox.lease_manager import (
+            VirginSandboxLeaseManager,
+            WeeklySandboxQuotaLedger,
+        )
+
+        ledger = TamperEvidentAuditLedger(audit_hmac_key)
+        quota = WeeklySandboxQuotaLedger(require_invite=require_invite)
+        lease_mgr = VirginSandboxLeaseManager(quota_ledger=quota, audit_ledger=ledger)
+        claim_client: SandboxClaimPort = (
+            LiveK8sSandboxClaimClient.from_incluster(namespace=namespace)
+            if use_in_cluster_k8s
+            else InMemorySandboxClaimClient()
+        )
+        sentinel = (
+            SentinelControlClient(
+                base_url=sentinel_control_url,
+                control_token=sentinel_control_token,
+            )
+            if sentinel_control_url and sentinel_control_token
+            else None
+        )
+        return HubSandboxSessionRouter(
+            claim_client=claim_client,
+            lease_manager=lease_mgr,
+            audit_ledger=ledger,
+            sentinel_control=sentinel,
+            warm_pool_name=warm_pool_name,
+        )
