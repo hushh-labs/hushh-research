@@ -73,7 +73,9 @@ The JSON response includes:
 
 Generation consists of two assigned 180-point report pages using the same
 manifest-owned instruction, both admitted immediately. Each page
-permits one continuation only for missing numbered/tagged points. The complete
+permits one format repair for missing numbered/tagged points or an explicitly
+received empty response without a provider block. Provider blocks and uncertain
+failed calls are not retried. The complete
 invocation has a 660-second budget; individual provider requests have a
 600-second deadline and SDK retries are disabled. The request-scoped SDK uses its supported HTTPX
 transport with connector retries disabled, avoiding the aiohttp implicit

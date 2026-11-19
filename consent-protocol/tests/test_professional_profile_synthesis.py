@@ -292,35 +292,55 @@ async def test_professional_synthesis_completion_requires_finished_output_and_ho
 
 
 @pytest.mark.asyncio
-async def test_professional_synthesis_empty_point_stubs_are_not_a_report():
+@pytest.mark.parametrize("case", ["stubs", "empty_repaired", "blocked", "safety"])
+async def test_professional_synthesis_empty_response_repair_is_bounded_and_respects_blocks(case):
     from hushh_mcp.services.professional_profile_synthesis import (
         ProfessionalProfileRequest,
         SynthesisUnavailable,
         synthesize_professional_profile,
     )
 
+    calls = {}
+
     async def generate(contents, request_id):
         low, high = map(
             int,
             re.search(r"ONLY points #(\d{3}) through #(\d{3})", contents[0].parts[0].text).groups(),
         )
-        text = "\n".join(f"#{n:03} [ECOSYSTEM-CONTEXT]" for n in range(low, high + 1))
+        calls[low] = calls.get(low, 0) + 1
+        if case == "blocked":
+            return SimpleNamespace(
+                candidates=[], prompt_feedback=SimpleNamespace(block_reason="SAFETY")
+            )
+        if case == "empty_repaired" and calls[low] == 1:
+            return SimpleNamespace(candidates=[], prompt_feedback=None)
+        body = " Complete public context." if case == "empty_repaired" else ""
+        text = "\n".join(f"#{n:03} [ECOSYSTEM-CONTEXT]{body}" for n in range(low, high + 1))
         return SimpleNamespace(
             candidates=[
                 SimpleNamespace(
                     content=SimpleNamespace(parts=[SimpleNamespace(text=text, thought=False)]),
-                    finish_reason="STOP",
+                    finish_reason="SAFETY" if case == "safety" else "STOP",
                     grounding_metadata=None,
                 )
             ]
         )
 
-    with pytest.raises(SynthesisUnavailable):
-        await synthesize_professional_profile(
+    async def run():
+        return await synthesize_professional_profile(
             ProfessionalProfileRequest(**_professional_profile_input()),
             generate=generate,
             model="fixture-model",
         )
+
+    if case == "empty_repaired":
+        report = await run()
+        assert report.status == "complete" and report.point_count == 360
+    else:
+        with pytest.raises(SynthesisUnavailable):
+            await run()
+    expected = {1: 1, 181: 1} if case in {"blocked", "safety"} else {1: 2, 181: 2}
+    assert calls == expected
 
 
 @pytest.mark.asyncio

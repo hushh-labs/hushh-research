@@ -205,6 +205,23 @@ def _part_contents(
     return [types.Content(role="user", parts=[types.Part(text=prompt)])]
 
 
+def _empty_response_repairable(response: Any) -> bool:
+    feedback = getattr(response, "prompt_feedback", None)
+    block = str(getattr(feedback, "block_reason", "") or "").split(".")[-1]
+    if block not in {"", "BLOCK_REASON_UNSPECIFIED"}:
+        return False
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return True
+    candidate = candidates[0]
+    if str(getattr(candidate, "finish_reason", "")).split(".")[-1] != "STOP":
+        return False
+    return not any(
+        getattr(item, "text", None) and not getattr(item, "thought", False)
+        for item in (getattr(getattr(candidate, "content", None), "parts", None) or [])
+    )
+
+
 async def _run_part(
     profile: ProfessionalProfileRequest, *, part: int, generate: Generate, request_id: str
 ) -> dict[str, Any]:
@@ -227,11 +244,21 @@ async def _run_part(
                 )
                 response = await generate(contents, request_id)
                 candidates = getattr(response, "candidates", None) or []
+                if attempt == 1 and _empty_response_repairable(response):
+                    logger.info(
+                        "professional_synthesis.format_retry request=%s part=%d reason=empty_response",
+                        request_id,
+                        part,
+                    )
+                    continue
                 if not candidates:
                     failure = SynthesisFailure(part=part, reason="incomplete_output")
                     break
                 candidate = candidates[0]
                 content = getattr(candidate, "content", None)
+                if content is None:
+                    failure = SynthesisFailure(part=part, reason="incomplete_output")
+                    break
                 text = "".join(
                     item.text or ""
                     for item in (getattr(content, "parts", None) or [])
@@ -259,7 +286,7 @@ async def _run_part(
                     failure = SynthesisFailure(part=part, reason="incomplete_output")
                 if not missing:
                     break
-                if not points or finish not in {"STOP", "MAX_TOKENS"}:
+                if not text.strip() or finish not in {"STOP", "MAX_TOKENS"}:
                     break
                 # Same generation stage, bounded continuation for an explicit format failure.
                 # Preserve opaque provider signatures in memory, never in telemetry/results.
