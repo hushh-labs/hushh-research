@@ -222,6 +222,25 @@ Deterministic validators may not:
 
 ## Required declaration for new semantic work
 
+### Declared: public professional synthesis API
+
+- Owner: Career Agent internal `agent_career_professional_synthesis`, authored
+  only in `hushh_mcp/agents/career/agent.yaml`.
+- Output: `ProfessionalProfileReport` in
+  `hushh_mcp/services/professional_profile_synthesis.py`; two numbered report
+  pages of the same generation, no semantic assessor or per-item model calls.
+- Validation: required name/ISO DOB/gender, at least two nonblank institution
+  anchors, exact numbered ranges and nonempty evidence-tagged paragraphs,
+  normal provider completion and native receipts for verified-tagged claims.
+  Ordering/completeness do not independently verify factual meaning.
+- Authority: developer bearer token checked at ingress and result release;
+  no caller-selected owner identity, private records, PKM access or report store.
+- Evaluation: focused input/auth/partial/continuation contracts and full live
+  managed-Vertex report before release, then exact deployed-URL live proof.
+- Surfaces: backend developer API only; no new One chat/voice router.
+  See [API reference](./professional-profile-synthesis.md).
+
+
 Any new semantic backend feature must declare:
 
 - owning agent

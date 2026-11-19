@@ -69,6 +69,7 @@ from api.routes.developer_consent_contracts import (
     MCPScopedExportRequest as MCPScopedExportRequest,
 )
 from api.routes.developer_oauth import router as oauth_router
+from api.routes.professional_profile import router as professional_profile_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
@@ -3267,3 +3268,5 @@ async def update_developer_oauth_redirect_uris(
 router.include_router(developer_api_router)
 router.include_router(portal_router)
 router.include_router(oauth_router)
+
+router.include_router(professional_profile_router)

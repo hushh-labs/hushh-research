@@ -5646,3 +5646,17 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 `GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
+
+## Public professional profile synthesis
+
+`POST /api/v1/professional-profile/synthesize` requires a developer bearer token,
+`name`, ISO `dob`, `gender` and at least two nonblank fields among `school`,
+`college`, `company`. All three are accepted. Invalid input returns sanitized
+private/no-store `422` before paid generation. This is separate from owner-only
+profile onboarding and grants no target private-record access.
+
+Two bounded Vertex report pages produce the360 numbered points. Responses
+retain native sources/Search Suggestions, ordered points, explicit partial
+failures and a model-generated/not-independently-verified marker. No subject or
+report is persisted. Existing authentication usage metadata is unchanged.
+See [request, response and curl reference](../../../consent-protocol/docs/reference/professional-profile-synthesis.md).

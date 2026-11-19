@@ -56,6 +56,7 @@ It does not own:
 | Build a new agent or operon | [reference/agent-development.md](./reference/agent-development.md) |
 | Maintain Drive evidence and reusable packets | [reference/drive-continuous-packets.md](./reference/drive-continuous-packets.md) |
 | Publish against the developer API / MCP | [reference/developer-api.md](./reference/developer-api.md) |
+| Generate a public professional360-point report | [reference/professional-profile-synthesis.md](./reference/professional-profile-synthesis.md) |
 | Understand data encryption and storage | [reference/personal-knowledge-model.md](./reference/personal-knowledge-model.md) |
 | Browse every backend reference doc | [reference/README.md](./reference/README.md) |
 | Configure app-review mode for a store submission | [app-review-mode-config.md](./app-review-mode-config.md) |
