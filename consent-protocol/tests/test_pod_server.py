@@ -392,6 +392,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         # pkm.read and the current local Google grant (test_pod_todo_sources.py).
         "/api/one/pod/calendar/events",
         "/api/one/pod/gmail/todos",
+        "/api/one/pod/todos/suggestions",
+        "/api/one/pod/todos/suggestions/status",
         "/health",
         "/health/ready",
         # Capabilities remain private; only liveness is public. Each command/Files route
