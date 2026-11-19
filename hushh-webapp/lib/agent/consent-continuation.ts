@@ -271,18 +271,15 @@ export function useInformationRequestPhaseReader(
 // --- Doorbell: an adaptive check while a request waits and the chat shows --
 
 /**
- * About 2s for the first five minutes after a send while the chat is visible.
- * Most people answer inside that window, and an approval should read as
- * "Reading…" within a few seconds (measured 2026-09-28: a 15s backoff after two
- * minutes made Allow take 25s to reach the requester).
+ * Live SSE (`information_request_updated` -> `CONSENT_STATE_CHANGED_EVENT`)
+ * rings the doorbell immediately; periodic polling is only a quiet fallback for
+ * visible tabs so we don't saturate Cloud SQL with overlapping reads.
  */
-export const DOORBELL_FAST_INTERVAL_MS = 2_000;
+export const DOORBELL_FAST_INTERVAL_MS = 30_000;
 export const DOORBELL_FAST_WINDOW_MS = 5 * 60_000;
-/** Then about 5s until the request has waited thirty minutes. */
-export const DOORBELL_STEADY_INTERVAL_MS = 5_000;
+export const DOORBELL_STEADY_INTERVAL_MS = 30_000;
 export const DOORBELL_STEADY_WINDOW_MS = 30 * 60_000;
-/** Then every 15s. Hidden is always paused; a push, event or focus checks at once. */
-export const DOORBELL_SLOW_INTERVAL_MS = 15_000;
+export const DOORBELL_SLOW_INTERVAL_MS = 60_000;
 
 /** The wait before the next check, given how long the newest request has waited. */
 export function doorbellDelayMs(waitedMs: number): number {

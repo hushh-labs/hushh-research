@@ -1,7 +1,7 @@
 "use client";
 import type { InformationRequestPrice } from "@/lib/services/person-profile-service";
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
-import { InformationRequestReceipt, InformationRequestReviewLinks } from "@/components/agent/information-request-receipt";
+import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -256,21 +256,21 @@ function ExperienceShell({
 }) {
   const isConsentReview = ["one.information_request_review.v1", "one.document_request_review.v1", "one.drive_share_review.v1", "one.drive_bulk_share_review.v1"].includes(experienceType);
   return (
-    <section data-experience-type={experienceType} className={`${isConsentReview ? "consent-presentation-surface " : ""}overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]`}>
-      <header className="flex items-start gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
+    <section data-experience-type={experienceType} className={`${isConsentReview ? "consent-presentation-surface " : ""}overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/60 bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]`}>
+      <header className="flex items-start gap-3 border-b border-border/40 px-4 pb-3.5 pt-4 sm:px-5 sm:pt-5">
         {/* /one iconography: a bare duotone glyph on a transparent well. A
             registry capability glyph keeps its own colour; a utility glyph
-            takes the accent. Never a filled tile with a white glyph. */}
-        <span data-slot="card-header-icon" className="inline-flex h-10 w-10 shrink-0 items-center justify-center text-accent-strong">
+            stays neutral. Never a filled tile with a white glyph. */}
+        <span data-slot="card-header-icon" className="inline-flex h-10 w-10 shrink-0 items-center justify-center text-muted-foreground">
           {icon}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="ui-text-section-label text-accent-strong">{label}</p>
+          <p className="ui-text-section-label text-muted-foreground">{label}</p>
           <h3 data-consent-role="row-title" className="mt-1 text-base font-semibold tracking-[-0.015em] text-foreground">{title}</h3>
           {summary ? <p data-consent-role="body" className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p> : null}
         </div>
       </header>
-      <div className="bg-background/72 px-4 py-4 backdrop-blur-xl sm:px-5">{children}</div>
+      <div className="px-4 py-4 sm:px-5">{children}</div>
     </section>
   );
 }
@@ -795,7 +795,12 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     isOutgoingSubmitted, isVaultUnlocked, refreshRevision, refreshState, userId, vaultKey, vaultOwnerToken]);
 
   const displayFields = current?.fields || experience.fields;
-  const displayStatus = current?.status || experience.status;
+  const hasBlockedPaidGrant = Boolean(
+    current?.fields.some((field) => field.status === "granted" && field.accessReady === false),
+  );
+  const displayStatus = hasBlockedPaidGrant
+    ? "pending"
+    : (current?.status || experience.status);
   // What is shared right now opens at once in the secure card (CONTRACT-2
   // decision 2), for sensitive items too: the model only ever had their
   // outline. The card owns opening, the unlock prompt and ended access.
@@ -873,6 +878,13 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
                     ? "Access revoked"
                     : "Status unavailable";
 
+  const embeddedSharedCard = sharedItems.length && experience.subjectRef ? (
+    <SharedWithYouCard
+      person={{ personRef: experience.subjectRef, displayName: experience.personName }}
+      items={sharedItems}
+      variant="embedded"
+    />
+  ) : null;
   const sharedCard = sharedItems.length && experience.subjectRef ? (
     <SharedWithYouCard
       person={{ personRef: experience.subjectRef, displayName: experience.personName }}
@@ -882,8 +894,20 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   ) : null;
 
   // C1: the living card, when the server reports progress for this request.
-  // It keeps its last reading through a refetch (and a failed one).
-  const progress = isOutgoingSubmitted ? current?.progress ?? null : null;
+  // Hold the UI on "Waiting" if any granted item's encrypted export is not ready yet.
+  const rawProgress = isOutgoingSubmitted ? current?.progress ?? null : null;
+  const progress = rawProgress && hasBlockedPaidGrant
+    ? {
+        ...rawProgress,
+        outcome: "pending" as const,
+        decidedAt: null,
+        fields: rawProgress.fields.map((field, index) =>
+          current?.fields[index]?.accessReady === false
+            ? { ...field, status: "pending" as const }
+            : field,
+        ),
+      }
+    : rawProgress;
   if (progress) {
     const progressLabels = progress.fields.length ? progress.fields.map((field) => field.label) : displayFields.map((field) => field.label);
     const ended = isAccessEnded(progress);
@@ -894,7 +918,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
             : progress.outcome === "expired" ? "Request expired"
               : progress.outcome === "partially_granted" ? "Partly shared" : "Shared with you";
     return (
-      <div className="consent-presentation-surface space-y-3">
+      <div className="consent-presentation-surface">
         <ExperienceShell
           experienceType={experience.type}
           label={progressLabel}
@@ -902,11 +926,14 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
           summary={experience.durationLabel}
           icon={<ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />}
         >
-          <RequesterProgressBody progress={progress} phase={phase} personName={experience.personName}
-            purpose={experience.purpose} />
-          <InformationRequestReviewLinks fields={displayFields} />
+          <RequesterProgressBody
+            progress={progress}
+            phase={phase}
+            personName={experience.personName}
+            purpose={experience.purpose}
+            details={ended ? null : embeddedSharedCard}
+          />
         </ExperienceShell>
-        {ended ? null : sharedCard}
       </div>
     );
   }

@@ -127,9 +127,9 @@ for (const [width, height] of [[393, 852], [1440, 900]] as const)
     await page.addScriptTag({ content: script });
     await awaitProductFont(page);
 
-    await expect(page.locator("[data-state='waiting'] [data-testid='request-timeline']")).toBeVisible();
+    await expect(page.locator("[data-state='waiting'] [data-testid='request-status-badge']")).toBeVisible();
     await expect(page.locator("[data-state='no-progress']")).toContainText("Waiting for Kushal Trivedi's approval");
-    await expect(page.locator("[data-state='no-progress'] [data-testid='request-timeline']")).toHaveCount(0);
+    await expect(page.locator("[data-state='no-progress'] [data-testid='request-status-badge']")).toHaveCount(0);
     await expect(page.locator("[data-state='reading']")).toContainText("Reading what Kushal shared…");
     await expect(page.locator("[data-state='partial']")).toContainText("Access ends Oct 5");
     await expect(page.locator("[data-state='access-ended']"))
@@ -169,7 +169,7 @@ for (const [width, height] of [[393, 852], [1440, 900]] as const)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 
     // The live pulse moves only when motion is welcome.
-    const pulse = page.locator("[data-state='waiting'] [data-testid='timeline-pulse']");
+    const pulse = page.locator("[data-state='waiting'] [data-testid='status-pulse']");
     expect(await pulse.evaluate((node) => getComputedStyle(node).animationName)).not.toBe("none");
     await page.emulateMedia({ reducedMotion: "reduce" });
     expect(await pulse.evaluate((node) => getComputedStyle(node).animationName)).toBe("none");

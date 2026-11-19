@@ -321,26 +321,40 @@ export async function buildConsentExportForScope(params: {
         approvedPaths.length ? approvedPaths : [parsedScope.path ?? ""],
       );
   const segmentIds = mergeSegmentIds(manifestSegmentIds, pathSegmentIds);
-  let effectiveSegmentIds = segmentIds;
-  let encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
-    params.userId,
-    parsedScope.domain,
-    params.vaultOwnerToken,
-    effectiveSegmentIds,
-  );
-  if (
-    !encryptedDomainBlob &&
-    !isDomainWideScope &&
-    effectiveSegmentIds.length > 0
-  ) {
-    effectiveSegmentIds = [];
-    encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
+  const loadDomainAndBlob = async (segIds: string[]) => {
+    if (typeof PersonalKnowledgeModelService.loadDomainDataWithBlob === "function") {
+      return PersonalKnowledgeModelService.loadDomainDataWithBlob({
+        userId: params.userId,
+        domain: parsedScope.domain,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+        segmentIds: segIds,
+      });
+    }
+    const blob = await PersonalKnowledgeModelService.getDomainData(
       params.userId,
       parsedScope.domain,
       params.vaultOwnerToken,
-      effectiveSegmentIds,
+      segIds,
     );
+    if (!blob) return { blob: null, data: null };
+    const data = await PersonalKnowledgeModelService.loadDomainData({
+      userId: params.userId,
+      domain: parsedScope.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      segmentIds: segIds,
+    });
+    return { blob, data };
+  };
+
+  let effectiveSegmentIds = segmentIds;
+  let loaded = await loadDomainAndBlob(effectiveSegmentIds);
+  if (!loaded.blob && !isDomainWideScope && effectiveSegmentIds.length > 0) {
+    effectiveSegmentIds = [];
+    loaded = await loadDomainAndBlob(effectiveSegmentIds);
   }
+  let encryptedDomainBlob = loaded.blob;
   if (!encryptedDomainBlob) {
     throw new ConsentExportNoDataError(
       `No approved PKM information is available for ${parsedScope.domain.replaceAll("_", " ")}.`,
@@ -367,13 +381,7 @@ export async function buildConsentExportForScope(params: {
     },
   });
 
-  let domainData = await PersonalKnowledgeModelService.loadDomainData({
-    userId: params.userId,
-    domain: parsedScope.domain,
-    vaultKey: params.vaultKey,
-    vaultOwnerToken: params.vaultOwnerToken,
-    segmentIds: effectiveSegmentIds,
-  });
+  let domainData = loaded.data;
   let payload = buildPayload(domainData || {}, effectiveSegmentIds);
 
   if (
@@ -381,25 +389,11 @@ export async function buildConsentExportForScope(params: {
     !isDomainWideScope &&
     effectiveSegmentIds.length > 0
   ) {
-    const fullDomainBlob = await PersonalKnowledgeModelService.getDomainData(
-      params.userId,
-      parsedScope.domain,
-      params.vaultOwnerToken,
-      [],
-    );
-    if (fullDomainBlob) {
-      const fullDomainData = await PersonalKnowledgeModelService.loadDomainData(
-        {
-          userId: params.userId,
-          domain: parsedScope.domain,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-          segmentIds: [],
-        },
-      );
-      encryptedDomainBlob = fullDomainBlob;
+    const fullLoaded = await loadDomainAndBlob([]);
+    if (fullLoaded.blob) {
+      encryptedDomainBlob = fullLoaded.blob;
       effectiveSegmentIds = [];
-      domainData = fullDomainData;
+      domainData = fullLoaded.data;
       payload = buildPayload(domainData || {}, effectiveSegmentIds);
     }
   }

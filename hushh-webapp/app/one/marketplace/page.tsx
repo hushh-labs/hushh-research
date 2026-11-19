@@ -1255,7 +1255,7 @@ function OneMarketplacePageImpl() {
                           </div>
                         </div>
 
-                        <Link href={`/one/consent?commerceRequestId=${encodeURIComponent(req.id)}`} className="mt-2 inline-flex min-h-11 items-center text-sm underline">Review sharing request and preparation</Link>
+                        <Link href={`/one/consent?requestId=${encodeURIComponent(req.id)}`} className="mt-2 inline-flex min-h-11 items-center text-sm underline">Review sharing request</Link>
                         {req.status === "approved" ? (
                           <div className="mt-3 border-t pt-3">
                             {delivery?.status === "loading" ? (

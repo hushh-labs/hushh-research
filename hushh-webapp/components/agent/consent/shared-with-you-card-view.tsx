@@ -57,8 +57,8 @@ export type SharedWithYouCardViewProps = {
   items: SharedWithYouItemView[];
   onUnlock?: () => void;
   onRetry?: () => void;
-  /** Chat floats the card in the transcript; Profile stacks it in a list. */
-  variant?: "chat" | "profile";
+  /** Chat floats the card in the transcript; Profile stacks it in a list; Embedded nests inside a request card. */
+  variant?: "chat" | "profile" | "embedded";
   className?: string;
 };
 
@@ -212,14 +212,15 @@ function OutlineRows({ names, mode }: { names: string[]; mode: "locked" | "loadi
   );
 }
 
-function SharedItem({ item, personName, status, onRetry }: {
+function SharedItem({ item, personName, status, onRetry, compact = false }: {
   item: SharedWithYouItemView;
   personName: string;
   status: SharedWithYouCardStatus;
   onRetry?: () => void;
+  compact?: boolean;
 }) {
   const [hidden, setHidden] = useState(false);
-  const dates = sharedDatesLine(item.sharedAt, item.accessEndsAt);
+  const dates = compact ? null : sharedDatesLine(item.sharedAt, item.accessEndsAt);
   const rows = item.state === "ready" && item.data ? sharedValueRows(item.data, item.label, item.fields) : [];
   const headingId = `shared-item-${item.key.replace(/[^A-Za-z0-9_-]/g, "")}`;
   // A standard item can still hold an identifier field (an EIN under "Legal
@@ -229,7 +230,7 @@ function SharedItem({ item, personName, status, onRetry }: {
 
   return (
     <article aria-labelledby={headingId} data-testid="shared-with-you-item" data-item-state={item.state}
-      data-sensitive={item.sensitive ? "true" : "false"} className="px-4 py-4 sm:px-5">
+      data-sensitive={item.sensitive ? "true" : "false"} className={compact ? "py-3" : "px-4 py-4 sm:px-5"}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h4 data-consent-role="row-title" id={headingId} className="text-[15px] font-semibold leading-6 tracking-[-0.01em] text-foreground">{item.label}</h4>
@@ -298,13 +299,68 @@ export function SharedWithYouCardView({
 }: SharedWithYouCardViewProps) {
   const line = statusLine(status);
   const name = person.displayName.trim() || "Someone";
+  const embedded = variant === "embedded";
+  const body = (
+    <>
+      {status === "error" ? (
+        <div role="alert" className={cn("flex flex-col items-start gap-3", embedded ? "py-3" : "px-4 py-4 sm:px-5")}>
+          <p data-consent-role="body" className="text-sm leading-6 text-muted-foreground">
+            What {firstName(name)} shared couldn’t be opened. Check your connection and try again.
+          </p>
+          {onRetry ? (
+            <MorphyButton data-consent-role="compact-action" data-consent-quiet-action="true" type="button" variant="muted" size="compact" onClick={onRetry}>
+              <RefreshCw className="mr-1.5 size-4" aria-hidden="true" />
+              Try again
+            </MorphyButton>
+          ) : null}
+        </div>
+      ) : (
+        <div className="divide-y divide-border/50">
+          {items.map((item) => (
+            <SharedItem key={item.key} item={item} personName={name} status={status} onRetry={onRetry} compact={embedded} />
+          ))}
+        </div>
+      )}
+
+      {status === "locked" ? (
+        <footer className={cn("border-t border-border/50", embedded ? "pt-3" : "px-4 py-3.5 sm:px-5")}>
+          <MorphyButton data-consent-role="primary-action" type="button" size="default" className="w-full sm:w-auto" onClick={onUnlock} disabled={!onUnlock}>
+            <LockKeyhole className="mr-1.5 size-4" aria-hidden="true" />
+            Unlock to view
+          </MorphyButton>
+        </footer>
+      ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div
+        data-testid="shared-with-you-card"
+        data-status={status}
+        data-variant="embedded"
+        aria-label={`${name} shared with you`}
+        className={cn("border-t border-border/40 pt-3 consent-presentation-surface", className)}
+      >
+        <p data-testid="shared-with-you-secure"
+          className="flex items-center gap-1.5 text-xs leading-5 text-muted-foreground">
+          {line.icon === "lock"
+            ? <LockKeyhole className="size-3.5 shrink-0" aria-hidden="true" />
+            : <ShieldCheck className="size-3.5 shrink-0 text-[color:var(--app-accent-deep)]" aria-hidden="true" />}
+          <span className="min-w-0 truncate">{line.text}</span>
+        </p>
+        {body}
+      </div>
+    );
+  }
+
   return (
     <section data-testid="shared-with-you-card" data-status={status} data-variant={variant}
       aria-label={`${name} shared with you`}
       className={cn(
-        "overflow-hidden rounded-[calc(var(--app-card-radius-compact)+6px)] bg-[color:var(--app-card-surface-default-solid)]",
+        "overflow-hidden rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)]",
         variant === "chat"
-          ? "shadow-[var(--app-card-shadow-standard)] ring-1 ring-border/50"
+          ? "border border-border/60 shadow-[var(--app-card-shadow-standard)]"
           : "shadow-[var(--app-card-shadow-standard)]",
         "consent-presentation-surface",
         className,
@@ -324,35 +380,7 @@ export function SharedWithYouCardView({
           </p>
         </div>
       </header>
-
-      {status === "error" ? (
-        <div role="alert" className="flex flex-col items-start gap-3 px-4 py-4 sm:px-5">
-          <p data-consent-role="body" className="text-sm leading-6 text-muted-foreground">
-            What {firstName(name)} shared couldn’t be opened. Check your connection and try again.
-          </p>
-          {onRetry ? (
-            <MorphyButton data-consent-role="compact-action" data-consent-quiet-action="true" type="button" variant="muted" size="compact" onClick={onRetry}>
-              <RefreshCw className="mr-1.5 size-4" aria-hidden="true" />
-              Try again
-            </MorphyButton>
-          ) : null}
-        </div>
-      ) : (
-        <div className="divide-y divide-border/50">
-          {items.map((item) => (
-            <SharedItem key={item.key} item={item} personName={name} status={status} onRetry={onRetry} />
-          ))}
-        </div>
-      )}
-
-      {status === "locked" ? (
-        <footer className="border-t border-border/50 px-4 py-3.5 sm:px-5">
-          <MorphyButton data-consent-role="primary-action" type="button" size="default" className="w-full sm:w-auto" onClick={onUnlock} disabled={!onUnlock}>
-            <LockKeyhole className="mr-1.5 size-4" aria-hidden="true" />
-            Unlock to view
-          </MorphyButton>
-        </footer>
-      ) : null}
+      {body}
     </section>
   );
 }

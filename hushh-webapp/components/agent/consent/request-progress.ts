@@ -1,18 +1,18 @@
 /**
- * The requester's living consent card: the progress model (contract C1).
+ * The requester's living consent card: the minimal status model.
  *
  * Inputs
  * - `RequestProgress`: parsed from `GET /api/one/information-requests/{bundle_id}`
- *   `.progress` (`requested_at`, `delivered_at`, `seen_at`, `decided_at`,
+ *   `.progress` (`requested_at`, `delivered_at`, `decided_at`,
  *   `outcome`, `access_ends_at`, `ended_at`, `fields[]`). Missing or malformed
- *   progress parses to null and the card keeps its pre-C1 behaviour.
+ *   progress parses to null and the card keeps its fallback behavior.
  * - `RequesterCardPhase`: set by the chat (lane C2) once an answer has
- *   arrived. "reading" while One reads what was shared, "answered" once One's
- *   reply has landed. The card never infers these from time.
+ *   arrived. "reading" while the private agent reads what was shared, "answered"
+ *   once the reply has landed.
  *
- * Output: `timelineFor(progress, phase)` returns the calm step rail
- * Asked, Delivered, Seen, Decided, Reading, Answered, with exactly one
- * `current` step while something is still in motion.
+ * Output: `requestStatusBadgeFor(progress, phase)` returns a single minimal
+ * status badge (`Waiting -> Shared / Partly shared / Declined / Expired / Withdrawn / Access ended`),
+ * with zero read-receipt surveillance ("Seen" removed).
  */
 
 /** `cancelled`: the requester withdrew the request (the server's `bundle_outcome_from_statuses`). */
@@ -27,7 +27,6 @@ export type RequestProgressField = {
 export type RequestProgress = {
   requestedAt: string;
   deliveredAt: string | null;
-  seenAt: string | null;
   decidedAt: string | null;
   outcome: RequestOutcome;
   accessEndsAt: string | null;
@@ -38,13 +37,10 @@ export type RequestProgress = {
 /** Set by the chat (C2) after an answer arrives; null or undefined otherwise. */
 export type RequesterCardPhase = "reading" | "answered";
 
-export type TimelineStepKey = "asked" | "delivered" | "seen" | "decided" | "reading" | "answered";
-export type TimelineStepState = "done" | "current" | "upcoming";
-export type TimelineStep = {
-  key: TimelineStepKey;
+export type RequestStatusBadge = {
+  state: "waiting" | "shared" | "declined" | "expired" | "withdrawn" | "ended";
   label: string;
-  state: TimelineStepState;
-  /** A quieter "done" for a step that closed without the owner acting, such as a decline. */
+  pulse: boolean;
   tone: "positive" | "neutral";
 };
 
@@ -84,7 +80,6 @@ export function parseRequestProgress(value: unknown): RequestProgress | null {
   return {
     requestedAt,
     deliveredAt: isoOrNull(pick(record, "delivered_at", "deliveredAt")),
-    seenAt: isoOrNull(pick(record, "seen_at", "seenAt")),
     decidedAt: isoOrNull(pick(record, "decided_at", "decidedAt")),
     outcome: outcome as RequestOutcome,
     accessEndsAt: isoOrNull(pick(record, "access_ends_at", "accessEndsAt")),
@@ -103,69 +98,34 @@ export function isUnansweredExpiry(progress: Pick<RequestProgress, "outcome" | "
   return progress.outcome === "expired" && !progress.decidedAt;
 }
 
-function decidedLabel(progress: RequestProgress): string {
-  switch (progress.outcome) {
-    case "granted":
-    case "revoked":
-      return "Shared";
-    case "partially_granted":
-      // The headline says "some"; the rail stays short enough for a phone.
-      return "Shared";
-    case "denied":
-      return "Declined";
-    case "cancelled":
-      return "Withdrawn";
-    case "expired":
-      return progress.decidedAt ? "Shared" : "No answer";
-    default:
-      return "Decided";
+export function requestStatusBadgeFor(
+  progress: RequestProgress,
+  phase?: RequesterCardPhase | null,
+): RequestStatusBadge {
+  if (isAccessEnded(progress)) {
+    return { state: "ended", label: "Access ended", pulse: false, tone: "neutral" };
   }
-}
-
-export function timelineFor(progress: RequestProgress, phase?: RequesterCardPhase | null): TimelineStep[] {
-  const decided = progress.outcome !== "pending";
-  const answeredWithAccess = progress.outcome === "granted" || progress.outcome === "partially_granted"
-    || isAccessEnded(progress);
-  // A decline or an unanswered expiry has nothing to read; One still answers.
-  const skipReading = !answeredWithAccess;
-  const done: Record<TimelineStepKey, boolean> = {
-    asked: true,
-    delivered: Boolean(progress.deliveredAt || progress.seenAt || decided),
-    seen: Boolean(progress.seenAt || (decided && progress.decidedAt)),
-    decided,
-    reading: phase === "answered",
-    answered: phase === "answered",
-  };
-  const keys: TimelineStepKey[] = skipReading
-    ? ["asked", "delivered", "seen", "decided", "answered"]
-    : ["asked", "delivered", "seen", "decided", "reading", "answered"];
-  // Unanswered expiry: the owner never saw a decision point, so Seen is only
-  // done if it really happened. A withdrawn request likewise shows only the
-  // steps that really happened before the requester withdrew it.
-  if (isUnansweredExpiry(progress)) done.seen = Boolean(progress.seenAt);
+  if (progress.outcome === "pending") {
+    return { state: "waiting", label: "Waiting", pulse: true, tone: "positive" };
+  }
+  if (progress.outcome === "denied") {
+    return { state: "declined", label: "Declined", pulse: false, tone: "neutral" };
+  }
   if (progress.outcome === "cancelled") {
-    done.delivered = Boolean(progress.deliveredAt || progress.seenAt);
-    done.seen = Boolean(progress.seenAt);
+    return { state: "withdrawn", label: "Withdrawn", pulse: false, tone: "neutral" };
   }
-  const labels: Record<TimelineStepKey, string> = {
-    asked: "Asked", delivered: "Delivered", seen: "Seen", decided: decidedLabel(progress),
-    reading: "Reading", answered: "Answered",
+  if (progress.outcome === "expired") {
+    return { state: "expired", label: "Expired", pulse: false, tone: "neutral" };
+  }
+  if (phase === "reading") {
+    return { state: "shared", label: "Reading…", pulse: true, tone: "positive" };
+  }
+  return {
+    state: "shared",
+    label: progress.outcome === "partially_granted" ? "Partly shared" : "Shared",
+    pulse: false,
+    tone: "positive",
   };
-  // Only something actually in motion gets the live pulse: the owner has not
-  // decided yet, or One is reading what they shared.
-  const inMotion = progress.outcome === "pending" || (phase === "reading" && !skipReading);
-  let currentAssigned = false;
-  return keys.map((key) => {
-    let state: TimelineStepState = done[key] ? "done" : "upcoming";
-    if (state === "upcoming" && inMotion && !currentAssigned) {
-      state = "current";
-      currentAssigned = true;
-    }
-    const tone = key === "decided"
-      && (progress.outcome === "denied" || progress.outcome === "cancelled" || isUnansweredExpiry(progress))
-      ? "neutral" : "positive";
-    return { key, label: labels[key], state, tone };
-  });
 }
 
 export function firstName(name: string): string {
@@ -215,13 +175,10 @@ export function progressHeadline(progress: RequestProgress, personName: string, 
       ? `${name} shared some of what you asked`
       : `${name} shared ${joinLabels(shared)}`;
   }
-  // The quiet timestamp beside the headline is the seen time: "Kushal saw it 2:14 PM".
-  if (progress.seenAt) return `${name} saw it`;
-  if (progress.deliveredAt) return `Delivered to ${name}`;
-  return `On its way to ${name}`;
+  return `Waiting for ${name}'s approval`;
 }
 
 /** The moment behind the headline, for a quiet timestamp. */
 export function progressMoment(progress: RequestProgress): string | null {
-  return progress.endedAt ?? progress.decidedAt ?? progress.seenAt ?? progress.deliveredAt ?? progress.requestedAt;
+  return progress.endedAt ?? progress.decidedAt ?? progress.requestedAt;
 }

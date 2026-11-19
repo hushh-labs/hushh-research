@@ -1630,6 +1630,28 @@ export class PersonalKnowledgeModelService {
   }
 
   /**
+   * True only when an authoritative cached PKM metadata snapshot exists for the
+   * user and definitively shows `domain` is not stored in the vault yet.
+   */
+  static isDomainAbsentInCachedMetadata(userId: string, domain: string): boolean {
+    const cached = CacheService.getInstance().peek<PersonalKnowledgeModelMetadata>(
+      CACHE_KEYS.PKM_METADATA(userId),
+    );
+    if (
+      !cached?.isFresh ||
+      !cached.data ||
+      !this.isAuthoritativeMetadataSnapshot(cached.data)
+    ) {
+      return false;
+    }
+    const domains = cached.data.domains;
+    if (!Array.isArray(domains) || domains.length === 0) {
+      return false;
+    }
+    return !domains.some((entry) => entry.key === domain);
+  }
+
+  /**
    * Get user PKM metadata for UI display.
    * This is the primary method for fetching profile data.
    *

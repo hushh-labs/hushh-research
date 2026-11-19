@@ -4421,6 +4421,23 @@ export class ApiService {
     return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent: current }, expectedHushhId, uid, vaultEpoch);
   }
 
+  /**
+   * Best-effort app-load pre-warming of private agent pod connection,
+   * standing capability grants, and container wake state.
+   */
+  static async prewarmOwnerPodChatAccess(): Promise<void> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    if (!principal || AuthService.getCurrentUser()?.uid !== principal.firebaseUid) {
+      return;
+    }
+    const access = await import("./pod-app-access");
+    await access.prewarmOwnerPodChatAccess({
+      hosting: () => this.getPersonalAgentStatus(),
+      transport: () => this.ownerPodTransport(),
+      fetch: (url, init) => apiFetch(url, init),
+    });
+  }
+
   /** Public identity only, after signed endpoint verification and app admission. */
   static async getComputerUseAdmission(signal?: AbortSignal): Promise<{
     ownerId: string; podId: string; environment: string;

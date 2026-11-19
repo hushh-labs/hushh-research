@@ -9,6 +9,7 @@ import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resour
 import {
   Fragment,
   FormEvent,
+  memo,
   useCallback,
   useEffect,
   useId,
@@ -1867,7 +1868,7 @@ export function GmailInformationRequestAttachment({
   );
 }
 
-export function AgentBubble({
+export const AgentBubble = memo(function AgentBubble({
   message,
   onOpenConnections,
   onInformationRequestSubmitted,
@@ -2278,7 +2279,7 @@ export function AgentBubble({
       </div>
     </div>
   );
-}
+});
 
 /** The centered date/time line that opens a group of messages. */
 function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparator }) {
@@ -10727,11 +10728,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {message.role === "assistant" && redactedAnswerIds.has(message.id) ? (
                     <AccessEndedNotice variant="message" {...accessEndedNoticeFor(message)} />
                   ) : message.kind === "selection" ? (
-                    <SelectionChip
-                      label={consentChipLabel(message)}
-                      ended={consentChipEnded(message)}
-                      outcome={consentChipOutcome(message)}
-                    />
+                    consentTags.get(message.id)?.role === "chip"
+                    && !consentChipEnded(message)
+                    && outgoingRequestCardFor(message.id) !== null ? null : (
+                      <SelectionChip
+                        label={consentChipLabel(message)}
+                        ended={consentChipEnded(message)}
+                        outcome={consentChipOutcome(message)}
+                      />
+                    )
                   ) : (
                     <AgentBubble
                       message={message}
