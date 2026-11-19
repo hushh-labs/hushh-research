@@ -228,7 +228,11 @@ def browse_network(
     query: str = Query("", max_length=160),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
-    include_suggestions: bool = Query(False),
+    include_suggestions: bool = Query(
+        False,
+        deprecated=True,
+        description="Accepted for older clients. Network results always follow graph distance.",
+    ),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
