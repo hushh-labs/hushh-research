@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Keyboard } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { isComputerUseTerminal, manualBrowserInputAllowed, type ManualBrowserInput } from "@/lib/computer-use/contracts";
+import { isComputerUseActivelyStreaming, manualBrowserInputAllowed, type ManualBrowserInput } from "@/lib/computer-use/contracts";
 import { computerUsePoint, createComputerUseCanvas } from "@/lib/computer-use/preview-canvas";
 import type { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 import { ComputerUseViewport } from "./computer-use-viewport";
@@ -29,6 +29,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
   const phase = state.snapshot?.phase;
   const capability = state.snapshot?.capability;
   const controlEpoch = state.snapshot?.controlEpoch;
+  const activeStreaming = isComputerUseActivelyStreaming(state.snapshot);
   const publicOnly = state.snapshot?.publicResearchOnly === true;
 
   useEffect(() => {
@@ -43,8 +44,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
     const entry = keyboard.current;
     displayed.current = null;
     setPainted(null);
-    if (!surface || !visible || !verified || state.controlling || !phase
-      || capability !== "ready" || isComputerUseTerminal(phase)) return;
+    if (!surface || !visible || !verified || state.controlling || !activeStreaming) return;
     const renderer = createComputerUseCanvas(surface, (frame) => controller.acceptsFrame(frame), (frame) => {
       const previous = displayed.current;
       if (previous?.epoch === frame.controlEpoch && previous.width === frame.width && previous.height === frame.height) return;
@@ -81,7 +81,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
       focusPoint.current = null;
       if (entry) entry.value = "";
     };
-  }, [controller, visible, verified, controlEpoch, capability, phase, state.controlling]);
+  }, [controller, visible, verified, controlEpoch, capability, phase, activeStreaming, state.controlling]);
 
   useEffect(() => {
     const surface = canvas.current;

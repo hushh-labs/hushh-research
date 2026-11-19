@@ -119,6 +119,7 @@ class SandboxEdgeGatewayManager:
         pod_url_base: str | None = None,
         hub_url: str | None = None,
         scheduler_caller_emails: str | None = None,
+        deploy_env: str | None = None,
         claim_timeout_s: float = 180.0,
         health_poll_timeout_s: float = 90.0,
         clock_s: Callable[[], float] | None = None,
@@ -135,6 +136,7 @@ class SandboxEdgeGatewayManager:
         self.pod_url_base = (pod_url_base or "").strip().rstrip("/")
         self.hub_url = (hub_url or "").strip().rstrip("/")
         self.scheduler_caller_emails = (scheduler_caller_emails or "").strip()
+        self.deploy_env = (deploy_env or "").strip().lower()
         self.claim_timeout_s = float(claim_timeout_s)
         self.health_poll_timeout_s = float(health_poll_timeout_s)
         self._clock_s = clock_s or time.monotonic
@@ -177,6 +179,8 @@ class SandboxEdgeGatewayManager:
             payload["hub_url"] = self.hub_url
         if self.scheduler_caller_emails:
             payload["scheduler_caller_emails"] = self.scheduler_caller_emails
+        if self.deploy_env in {"dev", "development", "uat"}:
+            payload["deploy_env"] = self.deploy_env
 
         headers: dict[str, str] = {}
         if self._activation_guard:
@@ -552,5 +556,6 @@ def create_edge_gateway_from_env() -> FastAPI:
         pod_url_base=os.environ.get("HUSSH_SANDBOX_EDGE_PUBLIC_URL"),
         hub_url=os.environ.get("HUSSH_HUB_URL"),
         scheduler_caller_emails=os.environ.get("HUSHH_SCHEDULER_CALLER_EMAILS"),
+        deploy_env=os.environ.get("HUSHH_DEPLOY_ENV"),
     )
     return create_sandbox_edge_gateway_app(manager)

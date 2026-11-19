@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
+  type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
@@ -43,6 +44,11 @@ import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/o
 import { OneModelConnection } from "@/components/agent/one-model-connection";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import {
+  useWorkspaceSplitPaneOpen,
+  WorkspaceSplitPaneDock,
+  WorkspaceSplitPaneProvider,
+} from "@/components/computer-use/workspace-split-pane";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { beginChatPreferredNameTurn } from "@/lib/agent/chat-preferred-name-turn";
 import { saveChatPreferredName } from "@/lib/agent/owner-style-settings-writer";
@@ -569,6 +575,20 @@ export {
   IDLE_AGENT_SUBTITLE,
   chatHeaderSubtitle,
 };
+
+function AgentChatSplitSection({ children }: { children: ReactNode }) {
+  const splitOpen = useWorkspaceSplitPaneOpen();
+  return (
+    <section
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-[color:var(--one-chat-canvas)]",
+        splitOpen ? "flex-1 md:w-[38%] md:min-w-[320px] md:max-w-[480px] md:flex-none" : "flex-1",
+      )}
+    >
+      {children}
+    </section>
+  );
+}
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
@@ -1139,6 +1159,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
   const [browserTasksRefresh, setBrowserTasksRefresh] = useState(0);
+  const [browserReviewCount, setBrowserReviewCount] = useState(0);
+  const [browserOpenReviewSignal, setBrowserOpenReviewSignal] = useState(0);
   // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
   // view of the review card current.
   const pendingMcpReviewsRef = useRef(pendingMcpReviews);
@@ -8318,6 +8340,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         : null}>
       <ConsentCardPhaseContext.Provider value={consentCardPhaseFor}>
       <AgentTranscriptRevealContext.Provider value={revealInTranscript}>
+      <WorkspaceSplitPaneProvider>
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -8358,11 +8381,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               handleHistoryDrawerOpenChange(true);
             } }} /> : null}
 
-        <section
-          className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color:var(--one-chat-canvas)]",
-          )}
-        >
+        <AgentChatSplitSection>
           <div
             data-one-centered-header={!customNativePresentationEnabled() ? "true" : undefined}
             data-agent-header-layout={customNativePresentationEnabled() ? "compact" : "portrait"}
@@ -9115,7 +9134,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               )}
 
               {hasChatAccess && !isPuppySurface && applicationOwnerId ? (
-                <ComputerUseActiveTasks key={applicationOwnerId} ownerId={applicationOwnerId} refreshKey={browserTasksRefresh} route={pathname || "/"} getVaultOwnerToken={getVaultOwnerToken} />
+                <ComputerUseActiveTasks
+                  key={applicationOwnerId}
+                  ownerId={applicationOwnerId}
+                  refreshKey={browserTasksRefresh}
+                  route={pathname || "/"}
+                  getVaultOwnerToken={getVaultOwnerToken}
+                  openReviewSignal={browserOpenReviewSignal}
+                  onReviewCountChange={setBrowserReviewCount}
+                />
               ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
@@ -10035,6 +10062,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {showVoiceBar && !isCanonicalChatRoute ? (
                 <AgentBar layout="slot" />
               ) : null}
+              {browserReviewCount > 0 && !isPuppySurface && !showVoiceBar ? (
+                <div
+                  data-testid="browser-composer-review-bar"
+                  className="mb-2 flex items-center justify-between gap-3 rounded-full border border-[color:var(--app-separator)] bg-foreground/[0.045] px-3.5 py-1.5 text-xs"
+                >
+                  <span className="truncate font-medium text-foreground">
+                    {browserReviewCount} {browserReviewCount === 1 ? "task needs" : "tasks need"} review
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 shrink-0 rounded-full px-2.5 text-xs font-semibold"
+                    onClick={() => {
+                      setBrowserOpenReviewSignal((value) => value + 1);
+                      const tasksEl = transcriptRef.current?.querySelector('[aria-label="Browser tasks"]');
+                      tasksEl?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+                    }}
+                  >
+                    Review
+                  </Button>
+                </div>
+              ) : null}
               <form onSubmit={handleSubmit} hidden={showVoiceBar} inert={showVoiceBar}>
                   {activeDriveSearchSelection && !nativeDockPorts?.owned ? (
                     <div className="mb-2 flex min-w-0 items-center gap-2 rounded-[18px] bg-foreground/[0.045] px-3 py-1.5 text-sm" aria-label="Selected Drive file">
@@ -10167,8 +10217,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           </div>
           </AgentDockPortal>
         </div>
-        </section>
+        </AgentChatSplitSection>
+        {!isPuppySurface ? <WorkspaceSplitPaneDock /> : null}
       </div>
+      </WorkspaceSplitPaneProvider>
       {offerGetApp ? (
         <AgentGetAppPrompt
           open={getAppOpen}
