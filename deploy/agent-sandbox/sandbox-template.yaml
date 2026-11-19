@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+# Reference virgin SandboxTemplate (replace @sha256 placeholder digest during release build).
+apiVersion: agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: hussh-one-sandbox-v1
+  namespace: hussh-agents
+  labels:
+    app.kubernetes.io/part-of: hussh-one
+    hussh.ai/sanitization-mode: single-use-destroy
+    hussh.ai/compliance-profile: fedramp-high-baseline
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: hussh-one-sandbox
+        hussh.ai/pool: hussh-one-sandbox-v1
+        hussh.ai/egress-enforced: sentinel
+    spec:
+      runtimeClassName: kata
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sandbox
+          image: us-docker.pkg.dev/hushh-pda-dev/hussh-sandbox/one-sandbox@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: HUSSH_POD_MODE
+              value: "1"
+            - name: HUSSH_SANDBOX_PROFILE
+              value: virgin_pool_v1
+            - name: TMPDIR
+              value: /run/hussh-tmp
+            - name: HTTP_PROXY
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: HTTPS_PROXY
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: http_proxy
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: https_proxy
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: NO_PROXY
+              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog
+            - name: no_proxy
+              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 4Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: workspace-nvme
+              mountPath: /workspace
+            - name: runtime-tmp
+              mountPath: /run/hussh-tmp
+      volumes:
+        - name: workspace-nvme
+          emptyDir:
+            medium: ""
+            sizeLimit: 4Gi
+        - name: runtime-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
