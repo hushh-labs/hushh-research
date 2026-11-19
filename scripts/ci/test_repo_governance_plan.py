@@ -135,6 +135,8 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/verify-predecessor-acceptance.py",
         "scripts/ops/audit_env_toggles.py",
         "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/reconcile_oauth_and_mail_posture.py",
+        "scripts/ops/hushh_az_cli.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
