@@ -263,7 +263,7 @@ export type WorldModelIdentityInput = {
   email: string | null | undefined;
   emailVerified: boolean;
   phone: string | null | undefined;
-  phoneStatus?: import("@/components/profile/use-account-phone-binding").AccountPhoneBindingStatus;
+  phoneStatus?: ReturnType<typeof import("@/lib/firebase/auth-context").useAuth>["phoneNumberStatus"];
 };
 
 /** The identity group's title for an account, as its landmark is named too. */
@@ -315,8 +315,7 @@ export function WorldModelIdentityGroup({
         icon={ProfileAccountPhoneIcon}
         iconTone="capability"
         title="Phone"
-        description={masked || (phoneStatus === "needs-verification" ? "Finish phone verification"
-          : phoneStatus === "loading" ? "Checking phone number…"
+        description={masked || (phoneStatus === "loading" ? "Checking phone number…"
           : phoneStatus === "unavailable" ? "Phone number temporarily unavailable" : "Not added")}
         trailing={masked ? <Badge variant="secondary">Verified</Badge> : undefined}
       />

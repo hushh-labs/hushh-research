@@ -862,6 +862,14 @@ the updated native clients and frontend before rolling out that enforcement. An
 expired challenge retires only its captured owner and attempt. Missing local
 state is `phone-verification-required`, distinct from provider `code-expired`.
 
+`GET /api/account/identity` reads only the authenticated application owner's saved
+identity through the read-only Firebase dependency. It returns
+`{success, user_id, identity}` with `Cache-Control: private, no-store`. An absent
+record stays `identity: null`. This request performs no Firebase synchronization
+or claim write. Reviewer phone hydration uses this read and retains the existing
+owner, generation and publication-order checks, plus the identity-cache subscription.
+Read-only reviewer activity collection is suppressed at scope capture and dispatch.
+
 When a legacy app claim belongs to a different active owner, the app write
 refuses the claim even if Firebase accepted the link. That result requires
 reconciliation of the two records before release to accounts with unresolved
@@ -3778,13 +3786,13 @@ Cached hints alone never authorize completion. This preserves the native
 same-number/linked Continue path without requiring an SDK phone link for an
 already saved backend-only claim.
 
-Account settings on web, iOS, and Android show a phone as linked when a fresh
-Firebase read for the signed-in UID matches the verified application claim.
-An existing app-only or mismatched phone shows a verification action. The
-Account editor uses the existing provider-link flow, including when the user
-enters the same number already saved in Hussh. A provider link pending app
-persistence can be retried without another SMS through the exact-phone finalizer.
-Legacy claims remain available to flows that use the application identity.
+Your account and Personal World Model show the masked verified application
+phone. Personal World Model uses this binding for its research identity.
+Account settings offer **Change** when a fresh Firebase read for the signed-in
+UID agrees with the application claim. **Manage** lets the owner link a saved
+number to their sign-in account or verify a new number. The editor still
+requires provider proof when the owner enters an app-only number. A provider
+link pending app persistence can be retried through the exact-phone finalizer.
 An identity lookup failure is retryable availability uncertainty, not a removed
 phone. Auth state retains the known same-session claim, accepts later exact-owner
 cache updates, and fences delayed responses against account changes and newer

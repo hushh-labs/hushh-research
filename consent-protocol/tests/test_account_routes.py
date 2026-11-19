@@ -581,6 +581,37 @@ def test_account_deletion_cleanup_drain_is_bounded_and_no_store(monkeypatch, pau
     assert reported == ([paused_reason] if paused_reason else [])
 
 
+@pytest.mark.parametrize("phone_verified", [True, False, None])
+def test_read_account_identity_uses_only_the_admitted_owner_without_sync(
+    monkeypatch, phone_verified
+):
+    owner_id = "acct_" + "a" * 32
+    identity = (
+        {"user_id": owner_id, "phone_verified": phone_verified, "phone_number": "+12025550101"}
+        if phone_verified is not None
+        else None
+    )
+
+    async def read(self, user_ids):
+        assert user_ids == [owner_id]
+        return {owner_id: identity} if identity else {}
+
+    async def refuse_write(*_args, **_kwargs):
+        pytest.fail("Identity GET must not refresh or write the provider shadow")
+
+    monkeypatch.setattr(ActorIdentityService, "get_many", read)
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", refuse_write)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", refuse_write)
+    app = _build_app()
+    client = TestClient(app)
+    assert client.get("/api/account/identity").status_code == 401
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: owner_id
+    response = client.get("/api/account/identity?user_id=another-owner&force=true")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json() == {"success": True, "user_id": owner_id, "identity": identity}
+
+
 def test_refresh_account_identity_returns_synced_identity(monkeypatch):
     async def _mock_sync(self, firebase_uid: str, force: bool = False):
         assert firebase_uid == "firebase_uid_123"

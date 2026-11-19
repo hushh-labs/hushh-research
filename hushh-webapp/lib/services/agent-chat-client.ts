@@ -2254,7 +2254,7 @@ async function streamAgentChatAttempt(input: {
       }
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
@@ -2601,11 +2601,12 @@ export async function streamAgentIntro(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
+      if (input.signal?.aborted) return;
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
@@ -2614,13 +2615,13 @@ export async function streamAgentIntro(input: {
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
@@ -2639,6 +2640,7 @@ export async function streamAgentIntro(input: {
     liveness.stop();
     input.signal?.removeEventListener("abort", abort);
   }
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
   if (!runTerminal) loseStream();
   if (failure) throw failure;
   return { conversationId: threadId, model: null, text };

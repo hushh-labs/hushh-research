@@ -839,7 +839,7 @@ describe("Personal World Model page", () => {
     expect(screen.getByTestId("pwm-progress-row")).toHaveTextContent("Searching public pages");
   });
 
-  it("shows what research looks for, with contacts masked", async () => {
+  it.each([null, "+14155550124"])("shows the verified app phone when Firebase has %s", async (providerPhone) => {
     mock.auth.user = {
       uid: "owner-a",
       displayName: "Alice Example",
@@ -850,7 +850,7 @@ describe("Personal World Model page", () => {
     mock.auth.phoneNumberStatus = "verified";
     publishValidatedAuthSessionPrincipal({ ownerId: "owner-a", firebaseUid: "owner-a", accountGeneration: 0 });
     vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
-      uid: "owner-a", phoneNumber: mock.auth.phoneNumber,
+      uid: "owner-a", phoneNumber: providerPhone,
     } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
     research(pending);
     render(<PersonalWorldModelPage embedded />);
@@ -871,6 +871,28 @@ describe("Personal World Model page", () => {
     expect(phone).toHaveTextContent("0123");
     expect(phone).not.toHaveTextContent("5550123");
     expect(within(phone).getByText("Verified")).toBeInTheDocument();
+    expect(AuthService.reloadPhoneVerificationUser).not.toHaveBeenCalled();
+  });
+
+  it("updates the phone row when the account claim arrives or is removed", async () => {
+    mock.auth.user = { uid: "owner-a", displayName: "Alice", phoneNumber: "+14155550123" };
+    research(pending);
+    const view = render(<PersonalWorldModelPage embedded />);
+    const phone = await screen.findByTestId("pwm-identity-phone");
+    expect(phone).toHaveTextContent("Not added");
+
+    mock.auth.phoneNumber = "+14155550123";
+    mock.auth.phoneNumberStatus = "verified";
+    view.rerender(<PersonalWorldModelPage embedded />);
+    expect(phone).toHaveTextContent("0123");
+    expect(within(phone).getByText("Verified")).toBeInTheDocument();
+
+    mock.auth.phoneNumber = null;
+    mock.auth.phoneNumberStatus = "missing";
+    view.rerender(<PersonalWorldModelPage embedded />);
+    expect(phone).toHaveTextContent("Not added");
+    expect(phone).not.toHaveTextContent("0123");
+    expect(within(phone).queryByText("Verified")).not.toBeInTheDocument();
   });
 
   it("tells the owner what to add when identity is insufficient, with a way there", async () => {

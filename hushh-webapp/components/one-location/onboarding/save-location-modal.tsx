@@ -58,7 +58,7 @@ import {
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { SavedLocationDetailFields } from "./saved-location-detail-fields";
-import { OnboardingPlaceScreen } from "./onboarding-place-screen";
+import { ONBOARDING_PLACE_TITLE, OnboardingPlaceScreen } from "./onboarding-place-screen";
 import { OnboardingLiveMap } from "./onboarding-live-map";
 import { isNative } from "@/lib/capacitor/platform";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
@@ -1169,7 +1169,7 @@ export function SaveLocationModal({
       <style>{CAROUSEL_KEYFRAMES}</style>
       {unifiedOnboarding && compactOnboarding ? (
         <>
-          <DialogTitle className="sr-only">Your place</DialogTitle>
+          <DialogTitle className="sr-only">{ONBOARDING_PLACE_TITLE}</DialogTitle>
           <OnboardingPlaceScreen
             routeId={onboardingRouteId}
             nativeMapShowing={nativeMapShowing}
@@ -1234,14 +1234,14 @@ export function SaveLocationModal({
             data-testid="one-location-onboarding-save-place-scroll"
           >
             <div className="mx-auto w-full max-w-[1120px]">
-              <DialogTitle className="sr-only">Save this place</DialogTitle>
+              <DialogTitle className="sr-only">{ONBOARDING_PLACE_TITLE}</DialogTitle>
               <div className="max-w-[660px]">
                 <h1 data-location-type-role="flow-title"
                   ref={mapTitleRef}
                   tabIndex={-1}
                   className="ui-text-agent-title text-[color:var(--app-label)] outline-none"
                 >
-                  Save this place
+                  {ONBOARDING_PLACE_TITLE}
                 </h1>
                 <p data-location-type-role="row-description"
                   id={descriptionId}
