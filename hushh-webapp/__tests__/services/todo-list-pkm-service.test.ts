@@ -66,6 +66,17 @@ function mockSuccessfulWrite() {
 }
 
 describe("TodoListPkmService", () => {
+  it("saves source choices only in encrypted private memory, preserves tasks and reloads all-off", async () => {
+    const save = mockSuccessfulWrite();
+    await TodoListPkmService.saveSourceChoices({ ...persistence, selectedCapabilities: [] });
+    const plan = await save.mock.calls[0][0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [task], unrelated: "preserved" } },
+    });
+    expect(plan.domainData).toMatchObject({ _private: { selectedCapabilities: [], tasks: [task], unrelated: "preserved" } });
+    expect(plan.summary).not.toHaveProperty("selectedCapabilities");
+    expect(readTodoListState(plan.domainData as Record<string, unknown>)).toMatchObject({ selectedCapabilities: [], tasks: [task] });
+    expect(readTodoListState({ selectedCapabilities: ["gmail"], _private: { tasks: [task] } })).not.toHaveProperty("selectedCapabilities");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

@@ -7,6 +7,9 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { TodoListPkmService, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 import { TodoRow, DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
+import { TodoTaskSources } from "@/components/todos/todo-task-sources";
+import { TodoTaskDetail } from "@/components/todos/todo-task-detail";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { getCachedGmailReceipts, cachedGmailReceiptDisplayItems } from "@/lib/profile/gmail-receipts-cache";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -32,6 +35,9 @@ export function OneTodoPreview({
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const requestRef = useRef(0);
+  const [selected, setSelected] = useState<readonly TaskCapability[]>([]);
+  const [choicesOwner, setChoicesOwner] = useState<symbol | null>(null);
+  const [detail, setDetail] = useState<{ identity: symbol; task: TodoItem } | null>(null);
   const [snapshot, setSnapshot] = useState({ identity, tasks: [] as TodoItem[], loading: true, error: false, savingTaskId: null as string | null });
   const current = ready && snapshot.identity === identity;
   const tasks = useMemo(() => current ? snapshot.tasks : [], [current, snapshot.tasks]);
@@ -46,7 +52,11 @@ export function OneTodoPreview({
     setSnapshot(previous => ({ identity, tasks: previous.identity === identity ? previous.tasks : [], loading: true, error: false, savingTaskId: null }));
     try {
       const state = await TodoListPkmService.load({ userId: ownerId, vaultKey, vaultOwnerToken });
-      if (isCurrent()) setSnapshot({ identity, tasks: state.tasks, loading: false, error: false, savingTaskId: null });
+      if (isCurrent()) {
+        setSelected(state.selectedCapabilities ?? taskCapabilitySchema.options);
+        setChoicesOwner(identity);
+        setSnapshot({ identity, tasks: state.tasks, loading: false, error: false, savingTaskId: null });
+      }
     } catch {
       if (isCurrent()) setSnapshot(previous => ({ ...previous, loading: false, error: true }));
     }
@@ -62,22 +72,22 @@ export function OneTodoPreview({
     [user],
   );
   const gmail = useGmailConnectorStatus({
-    userId: ready ? ownerId : null,
-    idTokenProvider: ready ? idTokenProvider : null,
+    userId: ready && current && choicesOwner === identity && selected.includes("gmail") ? ownerId : null,
+    idTokenProvider: ready && current && choicesOwner === identity && selected.includes("gmail") ? idTokenProvider : null,
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   const cachedReceipts = useMemo(() => {
-    if (!ready || !receiptAccountKey) return null;
+    if (!ready || !current || choicesOwner !== identity || !selected.includes("gmail") || !receiptAccountKey) return null;
     return getCachedGmailReceipts(ownerId, receiptAccountKey);
-  }, [ready, receiptAccountKey, ownerId]);
+  }, [ready, current, choicesOwner, identity, selected, receiptAccountKey, ownerId]);
 
   const dueReceipts = useMemo(() => {
     if (!cachedReceipts) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
   }, [cachedReceipts]);
 
-  const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
+  const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready && current && choicesOwner === identity, tasks, selectedCapabilities: selected });
   const openTasks = live.pending;
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
   const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.emailReadError);
@@ -121,10 +131,17 @@ export function OneTodoPreview({
   const toggleTask = (task: TodoItem, complete: boolean) => persistTask(task, complete ? "done" : "pending");
   const deleteTask = (task: TodoItem) => persistTask(task, "deleted");
 
+  const currentDetail = detail?.identity === identity && (tasks.find(item => item.id === detail.task.id) ?? live.pending.find(item => item.id === detail.task.id) ?? detail.task);
+  if (currentDetail && current && ready && currentDetail.status !== "deleted") return <TodoTaskDetail
+    task={currentDetail} busy={loading || Boolean(savingTaskId)} onBack={() => setDetail(null)} onToggle={toggleTask}
+    onRemove={task => { void persistTask(task, "deleted").then(() => setDetail(null)); }} />;
+
   return (
     <div className={`${styles.todo} profile-home-content`} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
       <div className={styles.sectionHeading}>
         <h3 data-profile-role="header">To-do list</h3>
+        {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} evidence={live.evidence} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
+          isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} onRefresh={retry} onSaved={() => { void loadTasks(); }} /> : null}
       </div>
 
       {ready && (error || sourceError) ? (
@@ -163,6 +180,7 @@ export function OneTodoPreview({
                     saving={loading || Boolean(savingTaskId)}
                     onToggle={toggleTask}
                     onDelete={deleteTask}
+                    onOpen={task => setDetail({ identity, task })}
                   />
                 ))}
               </SurfaceInset>
@@ -197,6 +215,7 @@ export function OneTodoPreview({
                     saving={loading || Boolean(savingTaskId)}
                     onToggle={toggleTask}
                     onDelete={deleteTask}
+                    onOpen={task => setDetail({ identity, task })}
                   />
                 ))}
               </SurfaceInset>

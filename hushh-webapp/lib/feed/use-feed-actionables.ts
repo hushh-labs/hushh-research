@@ -556,13 +556,15 @@ export function buildDebateFeedAnalysisHref(
     : buildKaiMarketRoute("analysis", { focus: "active", run_id: runId });
 }
 
-export function useFeedActionables({ enabled = true, allPending = false }: { enabled?: boolean; allPending?: boolean } = {}): UseFeedActionablesResult {
+export function useFeedActionables({ enabled = true, allPending = false, taskSources }: { enabled?: boolean; allPending?: boolean; taskSources?: readonly string[] } = {}): UseFeedActionablesResult {
   const router = useRouter();
   const { user, userId: ownerId } = useAuth();
   const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
   const userId = enabled ? ownerId : null;
-  const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
+  const consentEnabled = Boolean(userId) && (!taskSources || taskSources.includes("consent"));
+  const locationEnabled = Boolean(userId) && (!taskSources || taskSources.includes("location"));
+  const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId) && !taskSources, userId: taskSources ? null : userId });
   const agentUpdateCard = useAgentUpdateFeedCard({
     userId,
     update: agentFollow.update,
@@ -601,7 +603,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   >(() => (userId ? readDeviceOnlySmsClearIds(userId) : new Set()));
   const deviceOnlySmsCopyRef = useRef<string | null>(null);
   const cache = useMemo(() => CacheService.getInstance(), []);
-  const consentDecision = useOwnerConsentDecision({ userId });
+  const consentDecision = useOwnerConsentDecision({ userId: consentEnabled ? userId : null });
   const readConsentPage = (options: Parameters<typeof ConsentCenterService.listEntries>[0]) =>
     allPending ? listConsentTaskPages(options, () => getAuthSessionGeneration() === authGeneration)
       : ConsentCenterService.listEntries(options);
@@ -701,7 +703,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "one:consents")
       : "consent_center_summary_guest",
     refreshKey: `one:consents:${consentTick}`,
-    enabled: Boolean(userId),
+    enabled: consentEnabled,
     retainOnInvalidate: true,
     // `options.force` is honoured alongside the mutation tick: the consent
     // services keep their own caches, so a live refresh that dropped the flag
@@ -734,7 +736,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         )}${allPending ? ":todos-all" : ""}`
       : "consent_center_list_guest",
     refreshKey: `one:consents:${consentTick}:${pendingConsentCount ?? "?"}`,
-    enabled: Boolean(userId) && (pendingConsentCount ?? 0) > 0,
+    enabled: consentEnabled && (pendingConsentCount ?? 0) > 0,
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
@@ -773,7 +775,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         )}${allPending ? ":todos-all" : ""}`
       : "feed_received_progress_guest",
     refreshKey: `one:consents:progress:${consentTick}:${pendingConsentCount ?? "?"}`,
-    enabled: Boolean(userId),
+    enabled: consentEnabled,
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
@@ -804,7 +806,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         )}${allPending ? ":todos-all" : ""}`
       : "feed_sent_progress_guest",
     refreshKey: `one:consents:sent:progress:${consentTick}`,
-    enabled: Boolean(userId),
+    enabled: consentEnabled,
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
@@ -837,7 +839,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         )}${allPending ? ":todos-all" : ""}`
       : "feed_active_progress_guest",
     refreshKey: `one:consents:active:progress:${consentTick}`,
-    enabled: Boolean(userId),
+    enabled: consentEnabled,
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
@@ -861,7 +863,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     cacheKey: userId
       ? CACHE_KEYS.ONE_LOCATION_STATE(userId)
       : "one_location_state_guest",
-    enabled: Boolean(userId) && Boolean(vaultOwnerToken),
+    enabled: locationEnabled && Boolean(vaultOwnerToken),
     requestScope: `location:${authGeneration}:${locationVaultEpoch}`,
     retainOnInvalidate: true,
     getRequestVersion: () => userId ? OneLocationStateResource.currentRevision(userId) : 0,
@@ -886,7 +888,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
       ? CACHE_KEYS.CONNECTIONS_INCOMING(userId)
       : "connections_incoming_guest",
     refreshKey: `connections:${consentTick}`,
-    enabled: Boolean(userId),
+    enabled: consentEnabled,
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!idToken) throw new Error("Sign in to review connections");
@@ -939,13 +941,13 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // Pull stable slices out of the resource wrappers (which useStaleResource
   // returns fresh every render) so the memo below depends on the actual data
   // + the stable refresh callbacks, not the changing wrapper identity.
-  const locationRequests = locationResource.data?.requests;
-  const receivedGrants = locationResource.data?.receivedGrants;
+  const locationRequests = locationEnabled ? locationResource.data?.requests : undefined;
+  const receivedGrants = locationEnabled ? locationResource.data?.receivedGrants : undefined;
   const latestSmsGrants = useMemo(
     () => latestFeedSmsGrants(receivedGrants ?? [], userId ?? ""),
     [receivedGrants, userId],
   );
-  const circleMemberInvites = locationResource.data?.circleMemberInvites;
+  const circleMemberInvites = locationEnabled ? locationResource.data?.circleMemberInvites : undefined;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
@@ -1295,9 +1297,9 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     [sentProgressItems],
   );
   const paymentContexts = useFeedPaymentContext(
-    userId,
-    vaultOwnerToken,
-    sentPayments.map((payment) => payment.requestId),
+    consentEnabled ? userId : null,
+    consentEnabled ? vaultOwnerToken : null,
+    consentEnabled ? sentPayments.map((payment) => payment.requestId) : [],
   );
   const hasLivePaymentDeadline = sentPayments.some(
     (payment) =>
@@ -1379,18 +1381,17 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // the list and the tab badge use.
   const refreshActionables = useCallback(async () => {
     if (!userId) return;
-    OneLocationStateResource.invalidate(userId);
+    if (locationEnabled) OneLocationStateResource.invalidate(userId);
     await Promise.all([
-      consentSummaryRefresh({ force: true }),
-      consentListRefresh({ force: true }),
-      receivedOverflowRefresh({ force: true }),
-      sentProgressRefresh({ force: true }),
-      activeProgressRefresh({ force: true }),
-      locationRefresh({ force: true }),
-      connectionsRefresh({ force: true }),
+      ...(consentEnabled ? [consentSummaryRefresh({ force: true }), consentListRefresh({ force: true }),
+        receivedOverflowRefresh({ force: true }), sentProgressRefresh({ force: true }),
+        activeProgressRefresh({ force: true }), connectionsRefresh({ force: true })] : []),
+      ...(locationEnabled ? [locationRefresh({ force: true })] : []),
     ]);
   }, [
     userId,
+    consentEnabled,
+    locationEnabled,
     connectionsRefresh,
     consentListRefresh,
     consentSummaryRefresh,
@@ -1404,7 +1405,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     useCallback(() => {
       void refreshActionables();
     }, [refreshActionables]),
-    Boolean(userId),
+    consentEnabled || locationEnabled,
   );
 
   // Requests waiting on this person reach "Needs you" within about 10s while
@@ -1419,7 +1420,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         ]),
       [consentListRefresh, consentSummaryRefresh],
     ),
-    Boolean(userId),
+    consentEnabled,
   );
 
   // Discovery happens on mount/focus and the 45s Feed cadence. Only a request
@@ -1435,7 +1436,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         ]),
       [receivedOverflowRefresh, sentProgressRefresh, activeProgressRefresh],
     ),
-    Boolean(userId) && (inProgress.length > 0 || sentPayments.length > 0),
+    consentEnabled && (inProgress.length > 0 || sentPayments.length > 0),
   );
 
   // A visible live SOS earns a faster server status refresh, including expiry
@@ -1443,7 +1444,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // emergency from this device's wall clock.
   useFeedPendingConsentRefresh(
     useCallback(() => locationRefresh({ force: true }), [locationRefresh]),
-    Boolean(userId) && (receivedGrants ?? []).some(isActiveSmsEmergencyGrant),
+    locationEnabled && (receivedGrants ?? []).some(isActiveSmsEmergencyGrant),
   );
 
   // Revoked/expired SOS cards stay in the feed as a historical alert instead

@@ -16,6 +16,7 @@ import {
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
 
 export const TODO_LIST_PKM_DOMAIN = "one_todos" as const;
 
@@ -74,6 +75,7 @@ export type GmailTodoEvent = {
 
 export type TodoListState = {
   tasks: TodoItem[];
+  selectedCapabilities?: TaskCapability[];
 };
 
 export type TodoWriteParams = {
@@ -85,6 +87,7 @@ export type TodoWriteParams = {
 type PrivateTodoData = {
   tasks?: unknown;
   updatedAt?: unknown;
+  selectedCapabilities?: unknown;
 };
 
 type MutableTodoFields = Pick<TodoItem, "title" | "date" | "time" | "notes">;
@@ -202,6 +205,7 @@ function privateDomainData(
   current: Record<string, unknown>,
   tasks: TodoItem[],
   updatedAt: string,
+  selectedCapabilities?: TaskCapability[],
 ): Record<string, unknown> {
   const privateData = privateTodoData(current);
   return {
@@ -210,6 +214,7 @@ function privateDomainData(
       ...privateData,
       tasks,
       updatedAt,
+      ...(selectedCapabilities === undefined ? {} : { selectedCapabilities }),
     },
   };
 }
@@ -384,6 +389,11 @@ export function readTodoListState(
     tasks: tasks.sort((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt),
     ),
+    ...(Array.isArray(privateData.selectedCapabilities) ? {
+      selectedCapabilities: [...new Set(privateData.selectedCapabilities.filter(
+        (value): value is TaskCapability => taskCapabilitySchema.safeParse(value).success,
+      ))],
+    } : {}),
   };
 }
 
@@ -392,6 +402,7 @@ async function write(
   source: string,
   idempotencyScope: string,
   update: (current: TodoListState) => TodoItem[],
+  selectedCapabilities?: TaskCapability[],
 ): Promise<PkmWriteCoordinatorResult> {
   return PkmWriteCoordinator.saveMergedDomain({
     userId: params.userId,
@@ -418,7 +429,7 @@ async function write(
       ).length;
 
       return {
-        domainData: privateDomainData(currentDomain, tasks, updatedAt),
+        domainData: privateDomainData(currentDomain, tasks, updatedAt, selectedCapabilities),
         // Consumer details stay entirely under `_private`; the discovery
         // projection carries counters only.
         summary: {
@@ -485,6 +496,12 @@ export const TodoListPkmService = {
   },
 
   create: createTodo,
+
+  saveSourceChoices(params: TodoWriteParams & { selectedCapabilities: TaskCapability[] }) {
+    const selected = [...new Set(params.selectedCapabilities.map(value => taskCapabilitySchema.parse(value)))];
+    return write(params, "one_todo_list_owner_source_choices",
+      `one_todo_list:sources:${nowTodoId()}`, current => current.tasks, selected);
+  },
 
   update(
     params: TodoWriteParams & {
