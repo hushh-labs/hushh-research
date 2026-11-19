@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   readiness: vi.fn(),
   scopeRequest: vi.fn(),
   approveInactive: vi.fn(),
+  prepareAndStagePaidScopeExport: vi.fn(),
   denyPendingConsent: vi.fn(),
   revokeConsent: vi.fn(),
   onConsentMutated: vi.fn(),
@@ -25,6 +26,10 @@ vi.mock("sonner", () => ({
     loading: mocks.toastLoading,
     success: mocks.toastSuccess,
   },
+}));
+
+vi.mock("@/lib/consent/scope-commerce-export", () => ({
+  prepareAndStagePaidScopeExport: mocks.prepareAndStagePaidScopeExport,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -84,9 +89,13 @@ function consent(id = "req-1"): PendingConsent {
   };
 }
 
-describe("paid owner approval releases no encrypted information", () => {
-  beforeEach(() => { vi.resetAllMocks(); mocks.readiness.mockResolvedValue({ capabilities: { approve_paid_request: true } }); });
-  it.each([false, true])("freezes explicit model permission %s before the export builder or legacy approval", async (modelProcessingAllowed) => {
+describe("unified single-click paid owner approval", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.readiness.mockResolvedValue({ capabilities: { approve_paid_request: true } });
+    mocks.prepareAndStagePaidScopeExport.mockResolvedValue({ status: "active" });
+  });
+  it.each([false, true])("freezes explicit model permission %s before exporting when buyer payment is still pending", async (modelProcessingAllowed) => {
     mocks.commerceAccount.mockResolvedValue({ enabled: true });
     mocks.scopeRequest.mockResolvedValue({ role: "owner", tariff: { price_cents: 1 }, duration_seconds: 86400 });
     mocks.approveInactive.mockResolvedValue({ status: "approved_awaiting_payment" });
@@ -96,8 +105,38 @@ describe("paid owner approval releases no encrypted information", () => {
     await act(async () => result.current.handleApprove({ ...consent("paid-request"), scope: "attr.travel.plans", durationHours: 24, metadata: { scope_handle: "exact-handle" } }, { quiet: true, modelProcessingAllowed }));
     expect(mocks.approveInactive).toHaveBeenCalledWith("vault-owner-token", "paid-request", 86400, expect.any(String), modelProcessingAllowed);
     expect(onActionComplete).toHaveBeenCalledWith(expect.objectContaining({ accessPending: true }));
+    expect(mocks.prepareAndStagePaidScopeExport).not.toHaveBeenCalled();
     expect(buildConsentExportForScope).not.toHaveBeenCalled();
     expect(mocks.approvePendingConsent).not.toHaveBeenCalled();
+  });
+  it("encrypts and activates a funded paid request in the same single Allow click", async () => {
+    mocks.commerceAccount.mockResolvedValue({ enabled: true });
+    mocks.scopeRequest
+      .mockResolvedValueOnce({ role: "owner", tariff: { price_cents: 100 }, duration_seconds: 86400 })
+      .mockResolvedValueOnce({
+        role: "owner",
+        tariff: { price_cents: 100 },
+        duration_seconds: 86400,
+        purchase: { id: "purchase-funded", request_id: "paid-funded", status: "reserved", amount_cents: 100, net_earnings_micro_usd: 900000 },
+      });
+    mocks.approveInactive.mockResolvedValue({ status: "approved_funded" });
+    const onActionComplete = vi.fn();
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1", onActionComplete }));
+    await act(async () => result.current.handleApprove({
+      ...consent("paid-funded"),
+      scope: "attr.food.preferences.*",
+      durationHours: 24,
+      metadata: { scope_handle: "exact-handle", commercial_required: true, upfront_price_reviewed: true },
+    }, { quiet: true, modelProcessingAllowed: true }));
+    expect(mocks.approveInactive).toHaveBeenCalledWith("vault-owner-token", "paid-funded", 86400, expect.any(String), true);
+    expect(mocks.prepareAndStagePaidScopeExport).toHaveBeenCalledWith(expect.objectContaining({
+      purchaseId: "purchase-funded",
+      userId: "user-1",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner-token",
+      activateOnStage: true,
+    }));
+    expect(onActionComplete).toHaveBeenCalledWith({ action: "approve", requestId: "paid-funded", source: "consent_actions" });
   });
   it("does not require account or provider readiness for an authoritative free request", async () => {
     mocks.commerceAccount.mockRejectedValue(new Error("no provider"));

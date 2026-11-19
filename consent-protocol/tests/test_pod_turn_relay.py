@@ -535,3 +535,28 @@ async def test_private_or_unknown_owner_never_mints_hub_data_door_grants(monkeyp
         assert await pod_relay.issue_pod_data_door_grants("u1", door_grants=door) == {}
     mint.assert_not_awaited()
     door.assert_not_awaited()
+
+
+async def test_standing_door_grant_cache_reuses_within_ttl_and_invalidates_on_revoke(
+    monkeypatch, _standing_door_issuers, shared_compatibility
+):
+    from hushh_mcp.services.personal_agent_grant_service import invalidate_standing_door_grant_cache
+
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
+    uid = "u_cache_test"
+    invalidate_standing_door_grant_cache(uid)
+    try:
+        first = await pod_relay.issue_pod_data_door_grants(uid)
+        first_call_count = len(_standing_door_issuers)
+        assert first_call_count > 0
+
+        second = await pod_relay.issue_pod_data_door_grants(uid)
+        assert second == first
+        assert len(_standing_door_issuers) == first_call_count
+
+        invalidate_standing_door_grant_cache(uid)
+        third = await pod_relay.issue_pod_data_door_grants(uid)
+        assert third == first
+        assert len(_standing_door_issuers) == first_call_count * 2
+    finally:
+        invalidate_standing_door_grant_cache(uid)

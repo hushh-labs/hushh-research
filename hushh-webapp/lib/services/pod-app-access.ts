@@ -1,8 +1,11 @@
 import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import { AuthService } from "./auth-service";
 import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
-import { markAgentAnswered, sendChatTurn } from "./pod-chat-turn-transport";
-export { forgetAgentAnswers } from "./pod-chat-turn-transport";
+import {
+  forgetAgentAnswers as clearTransportAgentAnswers,
+  markAgentAnswered,
+  sendChatTurn,
+} from "./pod-chat-turn-transport";
 import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
@@ -22,6 +25,29 @@ type AccessPorts = {
   onChatAdmission?: (hushhId: string) => void;
   isCurrent?: () => boolean;
 };
+
+const PREWARM_GRANTS_TTL_MS = 45_000;
+type PrewarmedGrantsEntry = {
+  key: string;
+  fetchedAt: number;
+  grants: Record<string, string>;
+};
+let prewarmedChatGrants: PrewarmedGrantsEntry | null = null;
+const prewarmInFlight = new Map<string, Promise<void>>();
+
+export function resetCachedChatGrantsForTests(): void {
+  prewarmedChatGrants = null;
+  prewarmInFlight.clear();
+}
+
+export function forgetAgentAnswers(): void {
+  clearTransportAgentAnswers();
+  prewarmedChatGrants = null;
+}
+
+function prewarmGrantsCacheKey(uid: string, endpoint: PinnedEndpoint): string {
+  return `${uid}:${endpoint.hushhId}:${endpoint.endpointVersion}:${snapshotVaultSessionEpoch()}`;
+}
 
 function capturePodOwner() {
   const principal = snapshotValidatedAuthSessionPrincipal();
@@ -411,6 +437,21 @@ async function chatGrantsFollowingEndpoint(
   signal?: AbortSignal | null,
 ): Promise<PodConnection & { grants: Record<string, string> }> {
   try {
+    const cacheKey = prewarmGrantsCacheKey(uid, connection.endpoint);
+    const cached = prewarmedChatGrants;
+    if (
+      cached &&
+      cached.key === cacheKey &&
+      Date.now() - cached.fetchedAt <= PREWARM_GRANTS_TTL_MS
+    ) {
+      // Consume the pre-warmed grant entry once so explicit turn retries still
+      // verify live endpoint pinning against the hub.
+      prewarmedChatGrants = null;
+      return {
+        ...connection,
+        grants: cached.grants,
+      };
+    }
     return {
       ...connection,
       grants: await directChatGrants(connection.endpoint, transport, signal),
@@ -539,6 +580,92 @@ export async function reconnectOwnerPod(
     cache: "no-store",
   });
   if (!probe.ok) throw new Error(`POD_DIRECT_UNAVAILABLE:${probe.status}`);
+}
+
+/**
+ * Non-blockingly warms the signed pod binding, standing capability grants, and
+ * private agent container on authenticated app load so Send starts at 0ms setup.
+ */
+export async function prewarmOwnerPodChatAccess(ports: {
+  hosting: () => Promise<{ hostingMode?: string }>;
+  transport: () => Promise<OwnerPodTransport>;
+  fetch: (url: string, init: RequestInit) => Promise<Response>;
+}): Promise<void> {
+  let admittedOwner: ReturnType<typeof capturePodOwner>;
+  try {
+    admittedOwner = capturePodOwner();
+  } catch {
+    return;
+  }
+  const uid = admittedOwner.ownerId;
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const dedupeKey = `${uid}:${vaultEpoch}`;
+  const existing = prewarmInFlight.get(dedupeKey);
+  if (existing) return existing;
+
+  let task!: Promise<void>;
+  task = (async () => {
+    try {
+      const usePod = await usesOwnerPod(ports.hosting).catch(() => false);
+      if (!usePod || !podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
+        return;
+      }
+      const ownerPod = await import("./owner-pod-endpoint");
+      const transport = await ports.transport();
+      if (!(await ownerPod.loadPinnedEndpoint(uid))) {
+        await ownerPod.refreshEndpointFromHub(uid, transport);
+      }
+      const connection = await ownerPod.currentPodConnection(uid, transport);
+      if (!podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
+        return;
+      }
+      const cacheKey = prewarmGrantsCacheKey(uid, connection.endpoint);
+      const alreadyFresh =
+        prewarmedChatGrants &&
+        prewarmedChatGrants.key === cacheKey &&
+        Date.now() - prewarmedChatGrants.fetchedAt <= PREWARM_GRANTS_TTL_MS;
+
+      await Promise.allSettled([
+        alreadyFresh
+          ? Promise.resolve()
+          : directChatGrants(connection.endpoint, transport)
+              .then((grants) => {
+                if (
+                  Object.keys(grants).length > 0 &&
+                  podOwnerIsCurrent(admittedOwner) &&
+                  isVaultSessionEpochCurrent(vaultEpoch)
+                ) {
+                  prewarmedChatGrants = {
+                    key: prewarmGrantsCacheKey(uid, connection.endpoint),
+                    fetchedAt: Date.now(),
+                    grants,
+                  };
+                }
+              })
+              .catch(() => undefined),
+        ports
+          .fetch(`${connection.endpoint.url}/health`, {
+            method: "GET",
+            credentials: "omit",
+            cache: "no-store",
+          })
+          .then((res) => {
+            if (!isAgentStillWaking(res)) markAgentAnswered(connection.endpoint.url);
+            return res.body?.cancel().catch(() => undefined);
+          })
+          .catch(() => undefined),
+      ]);
+    } catch {
+      // Pre-warming is strictly best-effort and must never surface an error.
+    } finally {
+      if (prewarmInFlight.get(dedupeKey) === task) {
+        prewarmInFlight.delete(dedupeKey);
+      }
+    }
+  })();
+
+  prewarmInFlight.set(dedupeKey, task);
+  return task;
 }
 
 /** Select hosting once per request. A verified pin permits hub-outage continuity. */

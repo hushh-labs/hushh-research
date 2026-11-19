@@ -14,7 +14,9 @@ import {
  * minutes of idle time (Azure Container Apps defaults to 300 s), well past this.
  */
 const agentAnswered = new Map<string, number>();
+const fencedProbeAttempts = new Map<string, number>();
 const AGENT_AWAKE_MS = 60_000;
+const MAX_FENCED_PROBE_RETRIES = 2;
 
 export function markAgentAnswered(url: string): void {
   agentAnswered.set(url, Date.now());
@@ -23,6 +25,7 @@ export function markAgentAnswered(url: string): void {
 /** Forget which agents answered recently. Tests start from a cold agent. */
 export function forgetAgentAnswers(): void {
   agentAnswered.clear();
+  fencedProbeAttempts.clear();
 }
 
 function isCancellation(error: unknown, signal?: AbortSignal | null): boolean {
@@ -103,6 +106,29 @@ export async function sendChatTurn(
       void probe.body?.cancel().catch(() => undefined);
       throw new PodNotReachedError();
     }
+    const probeContentType = (probe.headers.get("content-type") ?? "").toLowerCase();
+    if (probe.status === 503 && probeContentType.includes("application/json")) {
+      const errPayload = (await probe.json().catch(() => null)) as {
+        detail?: { code?: unknown };
+      } | null;
+      if (errPayload?.detail?.code === "fenced") {
+        const attempts = (fencedProbeAttempts.get(url) ?? 0) + 1;
+        if (attempts <= MAX_FENCED_PROBE_RETRIES) {
+          fencedProbeAttempts.set(url, attempts);
+          throw new PodNotReachedError();
+        }
+        fencedProbeAttempts.delete(url);
+        if (receipts) throw new Error("POD_CHAT_CAPABILITIES_UNAVAILABLE");
+        return new Response(JSON.stringify(errPayload), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      fencedProbeAttempts.delete(url);
+      if (receipts) throw new Error("POD_CHAT_CAPABILITIES_UNAVAILABLE");
+    } else {
+      fencedProbeAttempts.delete(url);
+    }
     if (receipts) {
       if (!probe.ok) {
         void probe.body?.cancel().catch(() => undefined);
@@ -117,7 +143,9 @@ export async function sendChatTurn(
     } else {
       void probe.body?.cancel().catch(() => undefined);
     }
-    agentAnswered.set(url, Date.now());
+    if (probe.ok) {
+      agentAnswered.set(url, Date.now());
+    }
   }
   assertCurrent?.();
   if (receipts) {

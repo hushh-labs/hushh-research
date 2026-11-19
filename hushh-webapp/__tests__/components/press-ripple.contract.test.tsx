@@ -411,7 +411,10 @@ describe("agent chat", () => {
   });
 
   it("wires the ripple into the chat's message actions and Activity trigger", async () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = [
+      read("components/agent/agent-chat-workspace.tsx"),
+      read("components/agent/workspace/agent-bubble.tsx"),
+    ].join("\n");
     for (const label of [
       "Copy response",
       "Like response",

@@ -462,13 +462,13 @@ export type SharedWithYouCardModel = ReturnType<typeof useSharedWithYouCardModel
 
 /** Compatibility facade: original web geometry and transcript reveal owner. */
 export function SharedWithYouCard({ person, items, variant = "chat", className }: {
-  person: SharedWithYouPerson; items: SharedWithMeCardItem[]; variant?: "chat" | "profile"; className?: string;
+  person: SharedWithYouPerson; items: SharedWithMeCardItem[]; variant?: "chat" | "profile" | "embedded"; className?: string;
 }) {
   const { user, status, items: views, retry: onRetry } = useSharedWithYouCardModel({ person, items });
   const [unlockOpen, setUnlockOpen] = useState(false);
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const revealInTranscript = useContext(AgentTranscriptRevealContext);
-  const [reveal] = useState(() => variant === "chat" ? revealInTranscript : null);
+  const [reveal] = useState(() => (variant === "chat" || variant === "embedded") ? revealInTranscript : null);
   useEffect(() => {
     const element = sectionRef.current;
     if (reveal && element?.closest('[data-message-status="streaming"]')) reveal(element);

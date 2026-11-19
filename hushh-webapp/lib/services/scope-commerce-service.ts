@@ -286,11 +286,20 @@ export const ScopeCommerceService = {
     const row = await request(vaultOwnerToken, `purchases/${identity(id)}/export-context`);
     return { ...row, machineScope: String(row.machine_scope || "") };
   },
-  async preparePurchase(id: string, input: { sourceRevisions: { contentRevision: number; manifestRevision: number }; negative_net_acknowledgement?: NegativeNetAcknowledgement }, vaultOwnerToken: string) {
+  async preparePurchase(
+    id: string,
+    input: {
+      sourceRevisions: { contentRevision: number; manifestRevision: number };
+      negative_net_acknowledgement?: NegativeNetAcknowledgement;
+      activate_immediately?: boolean;
+    },
+    vaultOwnerToken: string,
+  ) {
     if (input.negative_net_acknowledgement) validateNegativeNetAcknowledgement(input.negative_net_acknowledgement);
     const row = await request(vaultOwnerToken, `purchases/${identity(id)}/prepare`, {
       source_revisions: { content_revision: input.sourceRevisions.contentRevision, manifest_revision: input.sourceRevisions.manifestRevision },
       ...(input.negative_net_acknowledgement ? { negative_net_acknowledgement: input.negative_net_acknowledgement } : {}),
+      ...(input.activate_immediately ? { activate_immediately: true } : {}),
     });
     return {
       preparationId: String(row.preparation_id || ""), grantId: String(row.grant_id || ""),
@@ -301,7 +310,16 @@ export const ScopeCommerceService = {
       connectorPublicKey: String(row.connector_public_key || ""), connectorKeyId: String(row.connector_key_id || ""),
     };
   },
-  async stagePurchase(id: string, input: { preparation_id: string; envelope: unknown; negative_net_acknowledgement?: NegativeNetAcknowledgement }, vaultOwnerToken: string) {
+  async stagePurchase(
+    id: string,
+    input: {
+      preparation_id: string;
+      envelope: unknown;
+      negative_net_acknowledgement?: NegativeNetAcknowledgement;
+      activate_on_stage?: boolean;
+    },
+    vaultOwnerToken: string,
+  ) {
     if (input.negative_net_acknowledgement) validateNegativeNetAcknowledgement(input.negative_net_acknowledgement);
     return request(vaultOwnerToken, `purchases/${identity(id)}/stage`, input);
   },
@@ -359,18 +377,18 @@ export function parseCommerceDollarInput(value: string, minimum: number): number
 }
 
 const COMMERCE_STATUS_COPY: Record<string, string> = {
-  awaiting_payment: "Approved. Waiting for payment.",
-  reserved: "Payment reserved. Waiting for the owner to share.",
+  awaiting_payment: "Waiting for payment.",
+  reserved: "Coins reserved. Waiting for your approval.",
   preparing: "Preparing information. Access hasn't started.",
-  staged: "Ready. Access starts at the scheduled time.",
-  armed: "Ready. Access starts at the scheduled time.",
+  staged: "Shared. Access starts at the scheduled time.",
+  armed: "Shared. Access starts at the scheduled time.",
   active: "Access is active.",
   revoked: "Access ended early. Refund for unused time is being checked.",
   cancelled: "Sharing cancelled. Reserved funds return to the buyer's balance.",
   expired: "Access has ended.",
-  approved_awaiting_payment: "Approved. Payment and sharing are still pending.",
-  awaiting_owner: "Coins reserved. Waiting for approval.",
-  approved_funded: "Approved. Ready to share.",
+  approved_awaiting_payment: "Approved. Waiting for payment.",
+  awaiting_owner: "Coins reserved. Waiting for your approval.",
+  approved_funded: "Coins reserved. Sharing now.",
 };
 export function scopeCommerceStatusCopy(status: unknown, role?: ScopeCommerceRequest["role"]): string {
   if (role && status === "awaiting_payment") return role === "owner" ? "Waiting for them to confirm the price." : "Review the price to continue.";

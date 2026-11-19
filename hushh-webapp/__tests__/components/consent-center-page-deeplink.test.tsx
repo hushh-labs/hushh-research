@@ -484,14 +484,12 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
   });
 
-  it("focuses a paid agreement without the generic inbox and retains native web fallback", async () => {
-    mocks.pathname = "/one/consent"; mocks.nativeEnabled = true;
-    mocks.search = "tab=active&page=3&q=food&commerceRequestId=one_person_paid";
+  it("routes commerceRequestId links directly into the unified Consent sheet without a separate screen", async () => {
+    mocks.pathname = "/one/consent";
+    mocks.search = "tab=requests&commerceRequestId=one_person_paid";
     render(<ConsentCenterPage />);
-    expect(await screen.findByTestId("focused-sharing-agreement")).toHaveTextContent("one_person_paid");
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByText("No requests need your review.")).toBeNull();
-    expect(mocks.nativeOptions?.active).toBe(false);
+    expect(await screen.findByRole("dialog", { name: "Consent details" })).toBeInTheDocument();
+    expect(screen.queryByTestId("focused-sharing-agreement")).toBeNull();
   });
 
   beforeEach(() => {
@@ -757,8 +755,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(within(screen.getByTestId("consent-bundle-choice")).getAllByRole("checkbox")).toHaveLength(2);
     expect(within(dialog).getByText("Request total")).toBeTruthy();
     expect(within(dialog).getByText("24 Hussh coins ($0.24)")).toBeTruthy();
-    expect(within(dialog).getByRole("link", { name: "View sharing" }))
-      .toHaveAttribute("href", "/one/consent?commerceRequestId=request-events");
+    expect(within(dialog).queryByRole("link", { name: "View sharing" })).toBeNull();
     const modelPermission = within(dialog).getByRole("checkbox", { name: /selected model/i });
     fireEvent.click(modelPermission);
     expect(modelPermission).toBeChecked();

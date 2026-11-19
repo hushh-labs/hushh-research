@@ -11,6 +11,14 @@ function read(relativePath: string) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
+function readAgentWorkspaceSources() {
+  return [
+    read("components/agent/agent-chat-workspace.tsx"),
+    read("components/agent/workspace/agent-bubble.tsx"),
+    read("components/agent/workspace/agent-message-transforms.ts"),
+  ].join("\n");
+}
+
 describe("private-agent chat shell contract", () => {
   it("keeps recent Drive searches out of the chat workspace", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
@@ -30,7 +38,7 @@ describe("private-agent chat shell contract", () => {
   });
 
   it("uses shared Morphy shell controls and motion in the conversation workspace", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = readAgentWorkspaceSources();
     const history = read("components/agent/agent-history-sidebar.tsx");
 
     expect(workspace).toContain("ShellActionSurface");
@@ -166,7 +174,7 @@ describe("private-agent chat shell contract", () => {
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = readAgentWorkspaceSources();
 
     expect(workspace).toContain("const hasStreamContent =");
     expect(workspace).toContain("streamEvents.length > 0");
@@ -177,7 +185,7 @@ describe("private-agent chat shell contract", () => {
   });
 
   it("keeps the header profile control, drops per-message avatars, and removes idle status chrome", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = readAgentWorkspaceSources();
 
     // The top-right profile control stays, with the canonical avatar source.
     expect(workspace).toContain("useEffectiveAvatarUrl");

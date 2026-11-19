@@ -1262,7 +1262,7 @@ async def get_consent_center_summary(
     mode: str = Query(default="consents", max_length=50),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    service = ConsentCenterService()
+    service = ConsentCenterService(read_only=True)
     return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
 
 

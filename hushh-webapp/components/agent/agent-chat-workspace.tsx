@@ -1,5 +1,5 @@
 "use client";
-import { calendarProposalReviewError, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
+import { calendarProposalReviewError } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";
 import { AgentPromptSuggestions, AgentWelcomePanel } from "./agent-welcome-panel";
 import { CalendarInsightsService, type MeetingContext, type MeetingSelection } from "@/lib/services/calendar-insights-service";
@@ -11,12 +11,10 @@ import {
   FormEvent,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -56,7 +54,6 @@ import {
   AgentPersonSelectionContext,
   AgentTranscriptRevealContext,
   type AgentConsentContinuationHandler,
-  type InformationRequestSubmissionReceipt,
 } from "@/components/agent/agent-structured-experience";
 import { CustomConnectorChatContext } from "@/components/agent/custom-connector-probe-card";
 import {
@@ -64,7 +61,6 @@ import {
   collectOutgoingRequestCards,
   consentRequestDirectiveDuplicatesAskCard,
   continuedElsewhere,
-  foldSubmittedRequestReceipts,
   markConsentContinuationUnavailable,
   mergeServerRedactionFlags,
   prepareConsentContinuation,
@@ -95,29 +91,21 @@ import { FEED_ATTENTION_LABEL } from "@/lib/agent/feed-attention";
 import { useFeedAttentionTurn } from "@/lib/agent/use-feed-attention-turn";
 import {
   AudioLines,
-  Check,
   ChevronDown,
   Cloud,
   Cpu,
-  Copy,
   FileText,
   KeyRound,
   Laptop,
-  Loader2,
   LogIn,
-  Mail,
-  RotateCcw,
   Send,
   StopSquare,
-  ThumbsDown,
-  ThumbsUp,
   User,
   X,
   Zap,
 } from "@/components/icons";
 
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
-import { ownerPodTurnRecoveryPanel } from "@/lib/agent/owner-pod-turn-errors";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   openProfilePane,
@@ -130,7 +118,6 @@ import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import {
   McpCallReviewCard,
   type McpChatReview,
-  type McpReviewActivityOutcome,
 } from "@/components/agent/mcp-call-review-card";
 import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
 import { serverNow } from "@/lib/agent/server-clock";
@@ -143,8 +130,6 @@ import {
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
-  scopeItemFromPendingConsent,
-  type ConsentScopeItem,
 } from "@/lib/consent/consent-scope-items";
 import {
   Select,
@@ -154,7 +139,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
-import { parseEmailDraftToolResult, type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
+import { type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
 import { richEmailPlainText } from "@/components/agent/email-rich-text";
 import {
   AgentCalendarProposalCard,
@@ -173,8 +158,7 @@ import { ProfilePaneMicrophoneIcon } from "@/components/profile/profile-pane-ico
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import walletPresentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
-import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";
-import { SecretPlaceholderText } from "@/components/secrets/secret-placeholder-text";
+import { SecretCaptureCard } from "@/components/secrets/secret-capture-card";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SECRET_OFFER_ROUTES, stageSecretOffer } from "@/lib/pkm/secret-offer-handoff";
@@ -190,11 +174,9 @@ import {
 } from "@/lib/pkm/markdown-memory";
 import {
   WalletService,
-  type WalletCardSecrets,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
-import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   CardNetworkMark,
@@ -203,38 +185,20 @@ import {
 import { useOneModelPreference } from "@/lib/agent/use-one-model-preference";
 import { useChatAgentWake } from "@/lib/agent/use-chat-agent-wake";
 import {
-  SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
   SpecialistDirectiveCard,
   SpecialistFreeTextPromptCard,
-  SpecialistPendingConsentRequestCard,
   SpecialistPromptCard,
-  normalizePendingConsentCardStatus,
   type PendingConsentCardStatus,
-  type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
-import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import { AgentMarkdown } from "@/components/agent/agent-markdown";
-import { type ConnectorBrand } from "@/components/agent/connector-brand-mark";
-import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
-import { isAndroid } from "@/lib/capacitor/platform";
-import {
-  ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
-  OneChatBubble,
-  OneChatTimeSeparator,
-} from "@/components/agent/chat-message-styles";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
-  AgentTurnStreamPanel,
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
-  isRoutineReadinessTool,
   connectorBrandForTool,
-  AgentActivityMark,
   agentActivityIconForTool,
-  type AgentActivityIcon,
   driveBatchProgressToVisibleStreamEvent,
   agentToolEventToVisibleStreamEvent,
   type AgentVisibleStreamEvent,
@@ -254,16 +218,12 @@ import {
 } from "@/components/agent/chat-onboarding/chat-onboarding-transcript";
 import {
   computeChatTimeSeparators,
-  parseChatTimestamp,
-  type ChatTimeSeparator,
   type ChatTimelineItem,
 } from "@/lib/agent/chat-time-separators";
 import { AgentGetAppPrompt } from "@/components/agent/agent-get-app-prompt";
 import {
-  parseAgentActivityExperience,
   personSelectionPrompt,
   type AgentStructuredExperience,
-  type AgentStructuredExperienceWithPresentation,
 } from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
@@ -357,29 +317,21 @@ import {
   snapKaiBottomChromeVisible,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
-  AGENT_CHAT_STREAM_LOST_ERROR,
-  AgentChatStreamLostError,
   createQueuedInputPorts,
   deleteAgentChatConversation,
   getAgentChatConsentOutcomes,
-  getLostAgentTurnOutcome,
   renameAgentChatConversation,
   streamAgentChat,
   streamAgentIntro,
   type AgentChatConsentContinuation,
   type AgentChatConversation,
-  type AgentChatMessage as StoredAgentChatMessage,
-  type AgentChatConsentAccess,
   type AgentChatToolEvent,
-  type PendingEmailDraftContext,
   type SpecialistDirectiveEvent,
-  type AgentSource,
   getAgentChatFeedback,
   setAgentChatFeedback,
   type AgentResponseReportReason,
   InformationRequestReceiptError,
   recordAgentChatInformationRequestWithRetry,
-  parseRestoredTurnActivity,
   prepareAgentChatConnectorConfigurations,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
@@ -419,7 +371,6 @@ import { redactReceiptAnswer, retireReceiptAnswer, withoutSyncingReceiptCard } f
 import { cn } from "@/lib/utils";
 import {
   useConsentActions,
-  type PendingConsent,
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useDeferredConsentDeclines } from "@/lib/consent/deferred-consent-decline";
@@ -438,7 +389,6 @@ import {
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import {
   ConsentCenterService,
-  type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -469,9 +419,8 @@ import {
   type QueuedAgentPrompt,
 } from "@/lib/agent/agent-chat-prompt-queue";
 import { LiveTurnQueue } from "@/lib/agent/agent-chat-live-turn-queue";
-import { AgentMessageReactionBadge } from "./agent-message-reaction";
-import { attachMessageReaction, type AgentMessageReaction } from "@/lib/agent/agent-message-reaction";
-import { AgentQueuedStack, QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
+import { attachMessageReaction } from "@/lib/agent/agent-message-reaction";
+import { AgentQueuedStack } from "@/components/agent/agent-queued-stack";
 import { useAgentChatSlowNotice } from "@/components/agent/agent-chat-slow-notice";
 import {
   combineAttachmentAndComposerText,
@@ -479,13 +428,10 @@ import {
   createAgentTextAttachment,
   createPendingTextAttachment,
   mergePastedText,
-  parseStoredTextAttachments,
   replaceTextAttachmentForResend,
   shouldCaptureLargePaste,
   type AgentTextAttachment,
 } from "@/lib/agent/large-text-attachment";
-import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
-import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
 import { AgentComposerTextAttachment } from "@/components/agent/agent-text-attachment-editor";
 import {
   countUnseenTranscriptMessages,
@@ -522,2043 +468,107 @@ import {
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
 
-// Every memory capture job ends. Automatic and explicit captures both use
-// semantic preparation; an explicit owner save may pause and resume.
-const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
-const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
+import {
+  AGENT_PKM_CAPTURE_DEADLINE_MS,
+  AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS,
+  type AgentMessage,
+  replaceAssistantResponse,
+  canRetryResponse,
+  retireRetriedResponsePresentation,
+  EMPTY_CONSENT_OUTCOMES,
+  type FollowUpTurnResult,
+  AGENT_PARTIAL_ANSWER_LOST_NOTICE,
+  settleAssistantMessageError,
+  type LostTurnRetryPlan,
+  planLostTurnRetry,
+  type AgentStructuredExperienceEntry,
+  upsertAgentStructuredExperience,
+  type EmailDeliveryTimelineItem,
+  type AgentDebugEvent,
+  type QueuedWorkspaceOperation,
+  upsertVisibleStreamEvent,
+  settleVisibleStreamEvents,
+  settleMcpReviewActivity,
+  clearDriveCompilationFromMessages,
+  type AgentWalletWidget,
+  type AgentRunTurnOptions,
+  type AgentChatSurface,
+  type AgentChatWorkspaceProps,
+  EMPTY_PKM_CONTEXT,
+  MEMORY_UNAVAILABLE_FOR_TURN,
+  toPkmFactCountBucket,
+  trackAmbientPkmCaptureFailure,
+  isSilentMemoryToolEvent,
+  getConsentRequiredPayload,
+  getGmailEmailDraftPayload,
+  buildPendingEmailDraftContext,
+  getGmailInformationRequestReplyPayload,
+  getCalendarDirectiveFromToolEvent,
+  getPendingConsentRequestPayload,
+  pendingConsentLookupItemToCardItem,
+  pendingConsentCardItemToPendingConsent,
+  pendingConsentCardRequestIds,
+  resolvePendingConsentCardTargets,
+  agentMessagePendingConsentRequestId,
+  mergePendingConsentMessages,
+  declinedChatRequestMessage,
+  markPendingConsentRequestDirectiveStatus,
+  markConsentDirectiveItemRevoked,
+  stampNow,
+  createGreetingMessage,
+  formatAgentDisplayName,
+  storedMessageToAgentMessage,
+  restoredMessageTime,
+  RESTORED_CONNECTOR_STEP_LABEL,
+  labelRestoredConnectorSteps,
+  storedMessagesToAgentMessages,
+  agentMessagesToStoredMessages,
+} from "./workspace/agent-message-transforms";
+import {
+  GmailInformationRequestAttachment,
+  AgentBubble,
+  ChatTimeSeparatorRow,
+  ChatAgentSubtitle,
+  type ActiveToolCall,
+  IDLE_AGENT_SUBTITLE,
+  chatHeaderSubtitle,
+} from "./workspace/agent-bubble";
 
-type AgentMessage = {
-  id: string;
-  calendarMeeting?: MeetingSelection;
-  /**
-   * The server's id for this answer (ADK event id), set when the run's closing
-   * snapshot arrives. Ratings key on this, so a thumbs given during the live
-   * turn matches the same reply after a reload and joins to its turn.
-   */
-  serverMessageId?: string;
-  role: "user" | "assistant";
-  text: string;
-  /** Pasted text sent with a user turn: rendered as a chip, never as `text`. */
-  attachments?: AgentTextAttachment[];
-  timestamp: string;
-  /**
-   * When the message was sent or created (epoch ms): the live send moment or
-   * the restored row's `created_at`. Absent when unknown; never guessed.
-   */
-  sentAtMs?: number;
-  status?: "streaming" | "done" | "error";
-  ephemeral?: boolean;
-  restoredFromHistory?: boolean;
-  memoryCapture?: AgentPkmCaptureStatus;
-  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
-  receiptRedacted?: boolean;
-  kind?: "selection";
-  /** Sent while One was working and taken into that reply at its next step. */
-  queuedPlacement?: "joined";
-  /** Session-only source handle for the owner-selected Gmail KYC request. */
-  gmailInformationRequestWorkflowId?: string;
-  // Calendar proposal status is already a bounded confirmation/result. Keep
-  // that one message on the regular assistant surface instead of wrapping it
-  // in the generic turn stream panel.
-  renderAsPlainAssistantMessage?: boolean;
-  specialistDirective?: SpecialistDirectiveEvent | null;
-  streamEvents?: AgentVisibleStreamEvent[];
-  sources?: AgentSource[];
-  structuredExperience?: AgentStructuredExperience | null;
-  structuredExperiences?: AgentStructuredExperienceEntry[];
-  driveCompilation?: DriveCompilationUiState;
-  /** Why a partial answer stopped, shown below the text that did arrive. */
-  errorNotice?: string;
-  /** The stream was lost, not the turn: Retry checks history before resending. */
-  lostTurn?: AgentLostTurn;
-  /** One's 2-3 next questions for this answer; in memory only, shown while it is latest. */
-  followUps?: string[];
-  reaction?: AgentMessageReaction | null;
-  /**
-   * The information request this outcome chip or continuation answer belongs
-   * to. Set live when the turn starts; restored from history metadata
-   * (`metadata.consentBundleId`) when the server tags it.
-   */
-  consentBundleId?: string;
-  /** The outcome chip's words for the person; the message text stays the fixed sent label. */
-  consentChipText?: string;
-  /** The server already hid this answer because the sharing it used ended. */
-  consentAccessEnded?: boolean;
-  /** Whose shared information this answer used (`metadata.consentAccess`), names and labels only. */
-  consentAccess?: AgentChatConsentAccess;
+export {
+  replaceAssistantResponse,
+  canRetryResponse,
+  retireRetriedResponsePresentation,
+  AGENT_PARTIAL_ANSWER_LOST_NOTICE,
+  settleAssistantMessageError,
+  type LostTurnRetryPlan,
+  planLostTurnRetry,
+  type AgentStructuredExperienceEntry,
+  upsertAgentStructuredExperience,
+  settleMcpReviewActivity,
+  type AgentChatSurface,
+  getGmailEmailDraftPayload,
+  buildPendingEmailDraftContext,
+  getGmailInformationRequestReplyPayload,
+  getCalendarDirectiveFromToolEvent,
+  getPendingConsentRequestPayload,
+  pendingConsentLookupItemToCardItem,
+  pendingConsentCardItemToPendingConsent,
+  pendingConsentCardRequestIds,
+  resolvePendingConsentCardTargets,
+  mergePendingConsentMessages,
+  declinedChatRequestMessage,
+  storedMessageToAgentMessage,
+  restoredMessageTime,
+  RESTORED_CONNECTOR_STEP_LABEL,
+  labelRestoredConnectorSteps,
+  storedMessagesToAgentMessages,
+  GmailInformationRequestAttachment,
+  AgentBubble,
+  ChatAgentSubtitle,
+  type ActiveToolCall,
+  IDLE_AGENT_SUBTITLE,
+  chatHeaderSubtitle,
 };
-
-type AgentLostTurn = { conversationId: string; startedAtMs: number };
-
-/** Replace only this answer; independent consent and delivery receipts survive. */
-export function replaceAssistantResponse(
-  messages: AgentMessage[],
-  messageId: string,
-  replacement: AgentMessage,
-): AgentMessage[] {
-  const index = messages.findIndex(message => message.id === messageId && message.role === "assistant");
-  if (index < 0) return [...messages, replacement];
-  return messages.map((message, position) => position === index ? replacement : message);
-}
-
-type ResponseRetryGuard = {
-  messageId: string;
-  busy: boolean;
-  emailDeliveries?: readonly Pick<EmailDeliveryTimelineItem, "anchorMessageId" | "status">[];
-};
-
-function canRetryResponse(input: ResponseRetryGuard): boolean {
-  return !input.busy && !input.emailDeliveries?.some(item => item.status === "sending" ||
-    (item.anchorMessageId === input.messageId && item.status === "outcome_unknown"));
-}
-
-/** Retire proposals, never operations or another response's presentation. */
-export function retireRetriedResponsePresentation(input: ResponseRetryGuard & {
-  specialistMessageId?: string | null;
-  emailDraftMessageId: string | null;
-  retireSpecialist: () => void;
-  retireEmailDraft: () => void;
-}): boolean {
-  if (!canRetryResponse(input)) return false;
-  if (input.specialistMessageId === input.messageId) input.retireSpecialist();
-  if (input.emailDraftMessageId === input.messageId) input.retireEmailDraft();
-  return true;
-}
-
-const EMPTY_CONSENT_OUTCOMES: Readonly<Record<string, string>> = Object.freeze({});
-
-/** How a follow-up turn ended; a consent answer another device already gave is settled, not failed. */
-type FollowUpTurnResult = "answered" | "continued_elsewhere" | "failed";
-
-/** Short inline notice under a partial answer whose connection was lost. */
-export const AGENT_PARTIAL_ANSWER_LOST_NOTICE = "Connection lost before One finished.";
-
-/**
- * Settle an assistant bubble as failed. With no text yet the reason is the
- * message; with a partial answer the text stays and the reason shows as a
- * short notice below it, so the person knows why it stopped. Idempotent: the
- * stream's error callback and the thrown error both land here for one failure.
- */
-export function settleAssistantMessageError<T extends AgentMessage>(
-  current: T,
-  reason: string,
-  error?: unknown,
-): T {
-  const lostTurn = error instanceof AgentChatStreamLostError
-    ? { conversationId: error.conversationId, startedAtMs: error.startedAtMs }
-    : current.lostTurn;
-  if (current.status === "error") return lostTurn ? { ...current, lostTurn } : current;
-  const safeReason =
-    error instanceof OwnerPodError ||
-    /^(?:POD_DIRECT_UNAVAILABLE:|SELF_ENROLL_FAILED:|POD_ENROLLMENT_REQUIRES_OWNER_SESSION$|POD_ADMISSION_REFUSED:|BINDING_UNAVAILABLE:|ENDPOINT_UNAVAILABLE:)/.test(
-      reason,
-    )
-      ? "Your private agent could not be reached from this browser session. Check Hosting settings and try again."
-      : reason;
-  const partial = current.text.trim().length > 0;
-  return {
-    ...current,
-    text: partial ? current.text : safeReason,
-    ...(partial
-      ? {
-          errorNotice:
-            safeReason === AGENT_CHAT_STREAM_LOST_ERROR
-              ? AGENT_PARTIAL_ANSWER_LOST_NOTICE
-              : safeReason,
-        }
-      : {}),
-    ...(lostTurn ? { lostTurn } : {}),
-    status: "error",
-    streamEvents: settleVisibleStreamEvents(current.streamEvents, "error"),
-  };
-}
-
-export type LostTurnRetryPlan = "rerun" | "restore" | "reattach";
-
-/**
- * Before a lost turn is sent again, ask history where it stands: an answer the
- * server already saved is shown ("restore"), a turn still running is waited on
- * ("reattach"), and only a turn that never finished is sent again ("rerun").
- * An unreadable history falls back to today's resend.
- */
-export async function planLostTurnRetry(input: {
-  lostTurn: AgentLostTurn | undefined;
-  retryText: string;
-  vaultOwnerToken: string | null;
-  vaultKey: string | null;
-}): Promise<LostTurnRetryPlan> {
-  if (!input.lostTurn || !input.vaultOwnerToken || !input.vaultKey) return "rerun";
-  try {
-    const outcome = await getLostAgentTurnOutcome({
-      conversationId: input.lostTurn.conversationId,
-      userMessage: input.retryText,
-      vaultOwnerToken: input.vaultOwnerToken,
-      vaultKey: input.vaultKey,
-    });
-    return outcome === "answered" ? "restore" : outcome === "pending" ? "reattach" : "rerun";
-  } catch {
-    return "rerun";
-  }
-}
-
-export type AgentStructuredExperienceEntry = {
-  id: string;
-  experience: AgentStructuredExperienceWithPresentation;
-};
-
-/**
- * Upsert a transport-identified AGUI card without silently dropping earlier
- * cards from the same turn. The server may emit several distinct activities;
- * only a repeated identity is a revision of an existing card.
- */
-export function upsertAgentStructuredExperience(
-  current: readonly AgentStructuredExperienceEntry[],
-  id: string,
-  experience: AgentStructuredExperienceWithPresentation,
-): AgentStructuredExperienceEntry[] {
-  const existingIndex = current.findIndex((entry) => entry.id === id);
-  if (existingIndex < 0) {
-    return [...current, { id, experience }];
-  }
-  return current.map((entry, index) =>
-    index === existingIndex ? { id, experience } : entry,
-  );
-}
-
-type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
-  anchorMessageId: string | null;
-};
-
-type AgentDebugEvent = {
-  id: string;
-  turnId: string;
-  timestamp: string;
-  event: string;
-  payload: unknown;
-};
-
-type QueuedWorkspaceOperation = {
-  id: string;
-  prompt?: QueuedAgentPrompt;
-  /** Receives the operation as it is when dequeued, so an edited prompt sends its edit. */
-  run: (current: QueuedWorkspaceOperation) => Promise<void>;
-};
-
-function upsertVisibleStreamEvent(
-  events: AgentVisibleStreamEvent[] | undefined,
-  event: AgentVisibleStreamEvent,
-): AgentVisibleStreamEvent[] {
-  const current = events ?? [];
-  const existingIndex = current.findIndex((item) => item.id === event.id);
-  if (existingIndex >= 0) {
-    const prior = current[existingIndex]!;
-    return current.map((item, index) =>
-      index === existingIndex ? {
-        ...event,
-        createdAtMs: prior.createdAtMs,
-        ...(event.status !== "running"
-          ? { durationMs: Math.max(0, event.createdAtMs - prior.createdAtMs) }
-          : {}),
-      } : item,
-    );
-  }
-  return [...current, event].slice(-10);
-}
-
-function settleVisibleStreamEvents(
-  events: AgentVisibleStreamEvent[] | undefined,
-  status: Extract<AgentVisibleStreamStatus, "done" | "blocked" | "error">,
-): AgentVisibleStreamEvent[] {
-  return (events ?? []).map((event) => {
-    if (event.status !== "running") return event;
-    if (event.batchProgress) {
-      return {
-        ...event,
-        status: status === "error" ? "error" as const : "blocked" as const,
-        message: "Document batch stopped before completion.",
-      };
-    }
-    return {
-      ...event,
-      status,
-      durationMs: Math.max(0, Date.now() - event.createdAtMs),
-    };
-  });
-}
-
-/**
- * A browser review failure has no server tool-result event to replace its
- * Activity rows. Settle only the opaque ids that emitted this review, never a
- * different pending call, and never promise that a post-receipt result did not
- * reach the provider.
- */
-export function settleMcpReviewActivity(
-  events: AgentVisibleStreamEvent[] | undefined,
-  activityIds: readonly string[] | undefined,
-  outcome: McpReviewActivityOutcome,
-): AgentVisibleStreamEvent[] | undefined {
-  if (!events || !activityIds?.length) return events;
-  const ids = new Set(activityIds);
-  const presentation: Record<McpReviewActivityOutcome, {
-    status: Extract<AgentVisibleStreamStatus, "blocked" | "error">;
-    tag: string;
-    message: string;
-  }> = {
-    unavailable: {
-      status: "error",
-      tag: "Unavailable",
-      message: "Connector review unavailable. No change was sent.",
-    },
-    expired: {
-      status: "blocked",
-      tag: "Expired",
-      message: "Review expired. No change was sent.",
-    },
-    unknown: {
-      status: "error",
-      tag: "Check status",
-      message: "Connector outcome could not be verified. Check the connector before trying again.",
-    },
-  };
-  const next = presentation[outcome];
-  return events.map((event) =>
-    ids.has(event.id) && (event.status === "running" || event.status === "waiting")
-      ? {
-          ...event,
-          ...next,
-          durationMs: Math.max(0, Date.now() - event.createdAtMs),
-        }
-      : event,
-  );
-}
-
-function stopDriveCompilationProgress(
-  events: AgentVisibleStreamEvent[] | undefined,
-): AgentVisibleStreamEvent[] | undefined {
-  return events?.map((event) => event.batchProgress && event.status === "running"
-    ? { ...event, status: "blocked" as const,
-        message: "Document batch stopped before completion." }
-    : event);
-}
-
-function clearDriveCompilationFromMessages(messages: AgentMessage[]): AgentMessage[] {
-  if (!messages.some((message) => message.driveCompilation)) return messages;
-  return messages.map((message) => message.driveCompilation
-    ? { ...message, driveCompilation: undefined,
-        streamEvents: stopDriveCompilationProgress(message.streamEvents) }
-    : message);
-}
-
-/**
- * Inline secure card widget in the chat surface. The decrypted values live
- * only in this client state; they are never written into messages, model
- * context, history, or telemetry.
- */
-type AgentWalletWidget =
-  | { id: string; kind: "add" }
-  /** Secrets the device guard kept from an outgoing turn: ids and labels only. */
-  | { id: string; kind: "secrets"; items: KeptSecretRef[] }
-  | { id: string; kind: "list"; summaries: WalletCardSummary[] }
-  | {
-      id: string;
-      kind: "reveal";
-      summary: WalletCardSummary;
-      secrets: WalletCardSecrets;
-    };
-
-type AgentTurnSource = "typed";
-type AgentRunTurnOptions = {
-  source: AgentTurnSource;
-  calendarMeeting?: MeetingSelection;
-  timeZoneOverride?: string;
-  personSelectionHandle?: string;
-  gmailInformationRequestWorkflowId?: string;
-  driveSearchSelection?: { jobId: string; position: number };
-  kycInformationSaveConfirmed?: boolean;
-  appendUserMessage?: boolean;
-  reactionUserMessageId?: string;
-  replaceAssistantMessageId?: string | null;
-  deferPkmContext?: boolean;
-  /** Pasted text sent as separate document parts beside the typed text. */
-  attachments?: AgentTextAttachment[];
-  /**
-   * Queued messages sent together as this one turn, in order. Each shows as
-   * its own bubble; the first one's id identifies the turn's message.
-   */
-  queuedPrompts?: QueuedAgentPrompt[];
-};
-
-type ConsentRequiredDirectivePayload = {
-  kind: "consent_required";
-  agentId?: string;
-  requiredScope?: string;
-  reason?: string;
-};
-
-type ConsentActionsDirectivePayload = {
-  kind: "consent_actions";
-  items: SpecialistConsentActionItem[];
-};
-
-type PendingConsentRequestDirectivePayload = {
-  kind: "pending_consent_request";
-  item: SpecialistPendingConsentRequestItem;
-};
-
-/**
- * Which agent this workspace is showing.
- *
- * Two agents, two transcripts, never one. Puppy One answers on the owner's own
- * machine with its own model and its own memory; One answers in the cloud.
- * Merging their turns would leave a transcript that cannot say where any given
- * answer came from, which is the one thing this surface must always be able to
- * say (`docs/architecture/ai/puppy-one-on-device.md`). So this switches which
- * transcript is on screen and nothing else: no message, no conversation and no
- * history row ever crosses between them.
- */
-export type AgentChatSurface = "one" | "puppy";
-
-type AgentChatWorkspaceProps = {
-  className?: string;
-};
-
-const AGENT_GREETING =
-  "Hi, I'm Agent One. Ask me about your markets, portfolio, memories, or consent workflows.";
-const AGENT_GREETING_TIMESTAMP = "Just now";
-const EMPTY_PKM_CONTEXT: AgentPkmContext = {
-  text: "",
-  domains: [],
-  totalAttributes: 0,
-  updatedAt: null,
-};
-// Sent to One when memory.md could not be read, so it never claims nothing is saved.
-const MEMORY_UNAVAILABLE_FOR_TURN = "memory.md status: could not be read for this turn; its contents are unknown, not empty.";
-
-function toPkmFactCountBucket(
-  count: number,
-): "none" | "1_9" | "10_49" | "50_249" | "250_plus" {
-  if (count <= 0) return "none";
-  if (count < 10) return "1_9";
-  if (count < 50) return "10_49";
-  if (count < 250) return "50_249";
-  return "250_plus";
-}
-
-/** Ambient capture is silent in chat; its failures stay countable here. */
-function trackAmbientPkmCaptureFailure(): void {
-  trackEvent("agent_pkm_save_confirmation_completed", {
-    route_id: "agent", result: "error", saved_count_bucket: toPkmFactCountBucket(0),
-    failed_count_bucket: toPkmFactCountBucket(1), has_active_recipients: false,
-  });
-}
-
-function isSilentMemoryToolEvent(event: AgentChatToolEvent): boolean {
-  return event.actionId === "pkm.add" || event.raw?.toolName === "add_to_pkm";
-}
-
-const AGENT_STREAM_RENDER_FRAME_MS = 32;
-
-function getConsentRequiredPayload(
-  event: SpecialistDirectiveEvent | null,
-): ConsentRequiredDirectivePayload | null {
-  if (!event || event.directive.kind !== "prompt") return null;
-  const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "consent_required") return null;
-  return {
-    kind: "consent_required",
-    agentId:
-      typeof payload.agentId === "string"
-        ? payload.agentId
-        : event.delegateAgentId,
-    requiredScope:
-      typeof payload.requiredScope === "string" ? payload.requiredScope : "",
-    reason: typeof payload.reason === "string" ? payload.reason : undefined,
-  };
-}
-
-export function getGmailEmailDraftPayload(
-  event: AgentChatToolEvent | null,
-): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null; gmailSend: GmailSendReadiness | null } | null {
-  if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
-  // A refusal opens no card; an event without a result (an older server) still does.
-  const result = parseEmailDraftToolResult(event.raw.result);
-  if (result && result.status !== "draft_opened") return null;
-  const instruction = typeof event.slots.request === "string" ? event.slots.request.trim() : "";
-  const driveFileId = typeof event.slots.drive_file_id === "string" ? event.slots.drive_file_id.trim() : "";
-  const draftField = (name: "to" | "cc" | "bcc" | "subject" | "body", limit: number) => {
-    // Recipients the server resolved win over the model's arguments.
-    const value = result?.envelope && name !== "subject" && name !== "body" ? result.envelope[name] : event.slots[name];
-    return typeof value === "string" && value.trim().length <= limit ? value.trim() : "";
-  };
-  const body = draftField("body", 12_000);
-  const initialDraft = {
-    to: draftField("to", 2_048),
-    cc: draftField("cc", 2_048),
-    bcc: draftField("bcc", 2_048),
-    subject: draftField("subject", 512),
-    body,
-  };
-  return instruction
-    ? {
-        instruction,
-        driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null,
-        initialDraft: Object.values(initialDraft).some(Boolean) ? initialDraft : null,
-        gmailSend: result?.gmailSend ?? null,
-      }
-    : null;
-}
-
-/**
- * The draft card as the person sees it, for the next chat turn. A source-bound
- * reply shows its server-derived envelope, so that is what One is told too.
- */
-export function buildPendingEmailDraftContext(
-  draft: EmailDraft | null,
-  sourceBoundEnvelope: { to: string; subject: string } | null,
-  sourceBound: boolean,
-): PendingEmailDraftContext | null {
-  if (!draft) return null;
-  const context: PendingEmailDraftContext = {
-    to: (sourceBound ? sourceBoundEnvelope?.to ?? "" : draft.to).trim(),
-    cc: sourceBound ? "" : draft.cc.trim(),
-    bcc: sourceBound ? "" : draft.bcc.trim(),
-    subject: (sourceBound ? sourceBoundEnvelope?.subject ?? "" : draft.subject).trim(),
-    body: draft.body.trim(),
-    sourceBound,
-  };
-  if (!sourceBound && draft.driveFileId) context.driveFileId = draft.driveFileId;
-  return context.body || context.to || context.subject ? context : null;
-}
-
-export function getGmailInformationRequestReplyPayload(
-  event: AgentChatToolEvent | null,
-): { body: string } | null {
-  if (!event || event.raw.toolName !== "open_gmail_information_request_reply") return null;
-  const body = typeof event.slots.body === "string" ? event.slots.body.trim() : "";
-  return body && body.length <= 12_000 ? { body } : null;
-}
-
-export function getCalendarDirectiveFromToolEvent(
-  event: AgentChatToolEvent | null,
-): SpecialistDirectiveEvent | null {
-  if (!event) return null;
-  const toolName = String(event.raw?.toolName || "");
-  const rawResult = event.raw?.result;
-  let parsed: Record<string, unknown> | null = null;
-  if (typeof rawResult === "string") {
-    try {
-      parsed = JSON.parse(rawResult) as Record<string, unknown>;
-    } catch {
-      parsed = null;
-    }
-  } else if (rawResult && typeof rawResult === "object") {
-    parsed = rawResult as Record<string, unknown>;
-  }
-
-  if (!parsed) return null;
-
-  // 1. Explicit directive in tool result
-  const rawDirective = parsed.directive as Record<string, unknown> | undefined;
-  if (
-    rawDirective &&
-    rawDirective.delegateAgentId === "agent_calendar" &&
-    rawDirective.payload &&
-    typeof rawDirective.payload === "object"
-  ) {
-    const payload = rawDirective.payload as Record<string, unknown>;
-    return {
-      delegateAgentId: "agent_calendar",
-      directive: {
-        kind: rawDirective.kind === "prompt" ? "prompt" : "action",
-        payload,
-      },
-      message: String(payload.summary || parsed.message || ""),
-      stateChanged: true,
-    };
-  }
-
-  // 2. Fallback: confirmation_required from calendar proposal tools
-  if (
-    (parsed.status === "confirmation_required" ||
-      toolName === "propose_calendar_event" ||
-      toolName === "propose_calendar_reschedule" ||
-      toolName === "propose_calendar_cancellation") &&
-    typeof parsed.proposal_id === "string" &&
-    parsed.proposal_id
-  ) {
-    const action = toolName === "propose_calendar_cancellation" ? "cancel" :
-      toolName === "propose_calendar_reschedule" ? "reschedule" : "create";
-    const payload = legacyCalendarProposalPayload(parsed, action);
-    return {
-      delegateAgentId: "agent_calendar",
-      directive: { kind: "action", payload },
-      message: String(parsed.message || payload.summary || ""),
-      stateChanged: true,
-    };
-  }
-
-  // 3. Fallback: connection_required
-  if (
-    parsed.status === "connection_required" &&
-    (toolName.startsWith("calendar_") || toolName.startsWith("propose_calendar_"))
-  ) {
-    return {
-      delegateAgentId: "agent_calendar",
-      directive: {
-        kind: "action",
-        payload: {
-          type: "calendar.connect",
-          accessLevel: "manage",
-          summary: String(parsed.message || "Connect Google Calendar"),
-          confirmLabel: "Allow Calendar scheduling",
-        },
-      },
-      message: String(parsed.message || "Connect Google Calendar"),
-      stateChanged: true,
-    };
-  }
-
-  return null;
-}
-
-function getConsentActionsPayload(
-  event: SpecialistDirectiveEvent | null,
-): ConsentActionsDirectivePayload | null {
-  if (!event || event.directive.kind !== "prompt") return null;
-  const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "consent_actions") return null;
-  const rawItems = Array.isArray(payload.items) ? payload.items : [];
-  const items = rawItems
-    .map((item) =>
-      item && typeof item === "object"
-        ? (item as Record<string, unknown>)
-        : null,
-    )
-    .filter((item): item is Record<string, unknown> => Boolean(item))
-    .map((item) => ({
-      id: typeof item.id === "string" ? item.id : "",
-      label: typeof item.label === "string" ? item.label : "Approved access",
-      summary: typeof item.summary === "string" ? item.summary : null,
-      scope: typeof item.scope === "string" ? item.scope : null,
-      expiresAt: typeof item.expiresAt === "string" ? item.expiresAt : null,
-      status: typeof item.status === "string" ? item.status : null,
-      metadata:
-        item.metadata && typeof item.metadata === "object"
-          ? (item.metadata as Record<string, unknown>)
-          : null,
-      actions: normalizeConsentActions(item),
-    }))
-    .filter((item) => item.id && item.actions.length > 0);
-  return { kind: "consent_actions", items };
-}
-
-function pendingConsentScopeItemFromUnknown(
-  value: unknown,
-): ConsentScopeItem | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = value as Record<string, unknown>;
-  const id = typeof raw.id === "string" ? raw.id.trim() : "";
-  const label = typeof raw.label === "string" ? raw.label.trim() : "";
-  const domainKey =
-    typeof raw.domainKey === "string" ? raw.domainKey.trim() : "";
-  const domainLabel =
-    typeof raw.domainLabel === "string" ? raw.domainLabel.trim() : "";
-  if (!id || !label || !domainKey || !domainLabel) return null;
-  const pathSegments = Array.isArray(raw.pathSegments)
-    ? raw.pathSegments.filter(
-        (segment): segment is string =>
-          typeof segment === "string" && Boolean(segment.trim()),
-      )
-    : [];
-  const description =
-    typeof raw.description === "string" ? raw.description : null;
-  const badge = typeof raw.badge === "string" ? raw.badge : null;
-  return {
-    id,
-    label,
-    description,
-    domainKey,
-    pathSegments,
-    domainLabel,
-    badge,
-    disabled: raw.disabled === true,
-    searchText:
-      typeof raw.searchText === "string"
-        ? raw.searchText
-        : [label, description, domainKey, domainLabel]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase(),
-  };
-}
-
-/**
- * Re-reads a pending consent card item out of the directive payload it was
- * embedded in. The card item is stored as an untyped payload, so every field
- * the card or the approve handler needs has to be carried through here; a
- * field dropped at this hop is dropped for good, however faithfully the
- * mappers before it copied it.
- *
- * Bundle metadata is presentation-only and is retained as sanitized
- * descriptors. Live approval still re-looks up every request id, so restored
- * card payloads cannot grant access from stale transcript data.
- */
-export function getPendingConsentRequestPayload(
-  event: SpecialistDirectiveEvent | null,
-): PendingConsentRequestDirectivePayload | null {
-  if (!event || event.directive.kind !== "prompt") return null;
-  const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "pending_consent_request") return null;
-  const rawItem =
-    payload.item && typeof payload.item === "object"
-      ? (payload.item as Record<string, unknown>)
-      : null;
-  if (!rawItem) return null;
-  const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
-  if (!id) return null;
-  const status = normalizePendingConsentCardStatus(rawItem.status);
-  return {
-    kind: "pending_consent_request",
-    item: {
-      id,
-      requesterLabel:
-        typeof rawItem.requesterLabel === "string" &&
-        rawItem.requesterLabel.trim()
-          ? rawItem.requesterLabel
-          : "An agent",
-      requesterImageUrl:
-        typeof rawItem.requesterImageUrl === "string"
-          ? rawItem.requesterImageUrl
-          : null,
-      requesterWebsiteUrl:
-        typeof rawItem.requesterWebsiteUrl === "string"
-          ? rawItem.requesterWebsiteUrl
-          : null,
-      scope: typeof rawItem.scope === "string" ? rawItem.scope : "",
-      scopeDescription:
-        typeof rawItem.scopeDescription === "string"
-          ? rawItem.scopeDescription
-          : null,
-      requestedAt:
-        typeof rawItem.requestedAt === "number" ||
-        typeof rawItem.requestedAt === "string"
-          ? rawItem.requestedAt
-          : null,
-      approvalTimeoutAt:
-        typeof rawItem.approvalTimeoutAt === "number" ||
-        typeof rawItem.approvalTimeoutAt === "string"
-          ? rawItem.approvalTimeoutAt
-          : null,
-      expiryHours:
-        typeof rawItem.expiryHours === "number" ||
-        typeof rawItem.expiryHours === "string"
-          ? rawItem.expiryHours
-          : null,
-      reason: typeof rawItem.reason === "string" ? rawItem.reason : null,
-      additionalAccessSummary:
-        typeof rawItem.additionalAccessSummary === "string"
-          ? rawItem.additionalAccessSummary
-          : null,
-      status,
-      // Approve wraps the vault key to the requester's public key, which only
-      // travels in metadata. This parser used to rebuild the item without it,
-      // so the card handed the approve handler nothing to wrap.
-      metadata:
-        rawItem.metadata &&
-        typeof rawItem.metadata === "object" &&
-        !Array.isArray(rawItem.metadata)
-          ? (rawItem.metadata as Record<string, unknown>)
-          : null,
-      bundleId:
-        typeof rawItem.bundleId === "string" && rawItem.bundleId.trim()
-          ? rawItem.bundleId.trim()
-          : null,
-      bundleLabel:
-        typeof rawItem.bundleLabel === "string" && rawItem.bundleLabel.trim()
-          ? rawItem.bundleLabel.trim()
-          : null,
-      bundleScopeCount:
-        typeof rawItem.bundleScopeCount === "number" &&
-        Number.isFinite(rawItem.bundleScopeCount)
-          ? rawItem.bundleScopeCount
-          : null,
-      bundledRequestIds: Array.isArray(rawItem.bundledRequestIds)
-        ? Array.from(
-            new Set(
-              rawItem.bundledRequestIds.filter(
-                (requestId): requestId is string =>
-                  typeof requestId === "string" && Boolean(requestId.trim()),
-              ),
-            ),
-          )
-        : [],
-      bundledScopes: Array.isArray(rawItem.bundledScopes)
-        ? rawItem.bundledScopes.flatMap((scope) => {
-            const parsed = pendingConsentScopeItemFromUnknown(scope);
-            return parsed ? [parsed] : [];
-          })
-        : [],
-    },
-  };
-}
-
-export function pendingConsentLookupItemToCardItem(
-  item: PendingConsentLookupItem,
-): SpecialistPendingConsentRequestItem | null {
-  const id = String(item.request_id || "").trim();
-  if (!id) return null;
-  const requesterLabel =
-    item.requester_label || item.agent_id || item.developer || "An agent";
-  const metadata = item.metadata ?? null;
-  const expiryHours = metadata?.expiry_hours;
-  return {
-    id,
-    requesterLabel,
-    requesterImageUrl: item.requester_image_url ?? null,
-    requesterWebsiteUrl: item.requester_website_url ?? null,
-    scope: item.scope || "",
-    scopeDescription: item.scope_description ?? null,
-    requestedAt: item.issued_at ?? null,
-    approvalTimeoutAt: item.poll_timeout_at ?? null,
-    expiryHours:
-      typeof expiryHours === "number" || typeof expiryHours === "string"
-        ? expiryHours
-        : null,
-    reason: item.reason ?? null,
-    additionalAccessSummary: item.additional_access_summary ?? null,
-    status: "pending",
-    // Approve wraps the vault key to the requester's public key, which rides
-    // in metadata. Dropping it here left handleApprove with nothing to wrap
-    // and the backend refusing the approval as missing its wrapped key.
-    metadata,
-    // These three were being dropped here, which is why a fourteen-field
-    // request rendered as fourteen unrelated cards: the wire said they were one
-    // ask and the mapper threw that away.
-    bundleId: item.bundle_id ?? null,
-    bundleLabel: item.bundle_label ?? null,
-    bundleScopeCount: item.bundle_scope_count ?? null,
-    bundledRequestIds: [id],
-    bundledScopes: [scopeItemFromPendingConsent(item)].filter(
-      (scope): scope is NonNullable<typeof scope> => Boolean(scope),
-    ),
-  };
-}
-
-export function pendingConsentCardItemToPendingConsent(
-  item: SpecialistPendingConsentRequestItem,
-): PendingConsent {
-  const requestedAt =
-    typeof item.requestedAt === "number"
-      ? item.requestedAt
-      : Number(item.requestedAt || Date.now());
-  const approvalTimeoutAt =
-    item.approvalTimeoutAt == null || item.approvalTimeoutAt === ""
-      ? undefined
-      : Number(item.approvalTimeoutAt);
-  const expiryHours =
-    item.expiryHours == null || item.expiryHours === ""
-      ? undefined
-      : Number(item.expiryHours);
-  return {
-    id: item.id,
-    developer: item.requesterLabel,
-    developerImageUrl: item.requesterImageUrl || undefined,
-    developerWebsiteUrl: item.requesterWebsiteUrl || undefined,
-    scope: item.scope,
-    scopeDescription: item.scopeDescription || undefined,
-    requestedAt: Number.isFinite(requestedAt) ? requestedAt : Date.now(),
-    approvalTimeoutAt:
-      typeof approvalTimeoutAt === "number" &&
-      Number.isFinite(approvalTimeoutAt)
-        ? approvalTimeoutAt
-        : undefined,
-    expiryHours:
-      typeof expiryHours === "number" && Number.isFinite(expiryHours)
-        ? expiryHours
-        : undefined,
-    reason: item.reason || undefined,
-    additionalAccessSummary: item.additionalAccessSummary || undefined,
-    bundleId: item.bundleId || undefined,
-    metadata: item.metadata ?? null,
-  };
-}
-
-/**
- * The requests a pending consent card decides for: the head request first,
- * then every request folded into the card. A single-request card yields only
- * its own id, so that path is unchanged.
- */
-export function pendingConsentCardRequestIds(
-  item: SpecialistPendingConsentRequestItem,
-): string[] {
-  const ids = [item.id, ...(item.bundledRequestIds || [])]
-    .map((entry) => String(entry || "").trim())
-    .filter(Boolean);
-  return Array.from(new Set(ids));
-}
-
-/**
- * The PendingConsents a card's Approve or Deny acts on.
- *
- * A folded card says "you decide together, once", so its buttons must answer
- * every request in it, not only the head one. The card carries the head
- * request's metadata only (the others were folded in by id and scope), and
- * Approve wraps the vault key to the key in each request's own metadata, so a
- * folded card looks every member up again and acts on whichever are still
- * pending. Single requests also revalidate current authority; retained card
- * metadata is presentation, never a substitute for the live request.
- */
-export async function resolvePendingConsentCardTargets(input: {
-  userId: string;
-  vaultOwnerToken: string | null;
-  item: SpecialistPendingConsentRequestItem;
-}): Promise<PendingConsent[]> {
-  const requestIds = pendingConsentCardRequestIds(input.item);
-  if (!input.userId.trim() || !input.vaultOwnerToken?.trim()) {
-    throw new Error("Unlock your vault first.");
-  }
-  // Notifications can arrive one item at a time. Never decide a partially
-  // hydrated bundle and then label the whole request approved or denied.
-  if (
-    input.item.bundleId &&
-    typeof input.item.bundleScopeCount === "number" &&
-    input.item.bundleScopeCount > requestIds.length
-  ) {
-    throw new Error("This request is still loading. Review all its fields before deciding.");
-  }
-  // The owner-scoped lookup currently admits 25 IDs, while creation admits
-  // up to 50. Failing closed prevents a truncated batch from being decided.
-  if (requestIds.length > 25) {
-    throw new Error("This request has too many fields for an inline decision.");
-  }
-  const result = await ConsentCenterService.lookupPendingRequests({
-    userId: input.userId,
-    vaultOwnerToken: input.vaultOwnerToken,
-    requestIds,
-  });
-  const byId = new Map<string, SpecialistPendingConsentRequestItem>();
-  for (const raw of result.items) {
-    const card = pendingConsentLookupItemToCardItem(raw);
-    if (card) byId.set(card.id, card);
-  }
-  const targets: PendingConsent[] = [];
-  for (const id of requestIds) {
-    const card = byId.get(id);
-    if (card) targets.push(pendingConsentCardItemToPendingConsent(card));
-  }
-  return targets;
-}
-
-function agentMessagePendingConsentRequestId(
-  message: AgentMessage,
-): string | null {
-  const payload = getPendingConsentRequestPayload(
-    message.specialistDirective ?? null,
-  );
-  return payload?.item.id ?? null;
-}
-
-/**
- * Keep consent cards that arrived while history was warming.
- *
- * Pending requests are owner-scoped live state, while the conversation
- * snapshot is an eventually-consistent transcript. A snapshot must not erase
- * a card that was just hydrated, and a newer local status (approve/deny) must
- * win over an older transcript copy. This merges only safe card descriptors;
- * it never merges decrypted information or replays an action.
- */
-export function mergePendingConsentMessages(
-  restored: AgentMessage[],
-  current: readonly AgentMessage[],
-): AgentMessage[] {
-  const merged = [...restored];
-
-  for (const candidate of current) {
-    const payload = getPendingConsentRequestPayload(
-      candidate.specialistDirective ?? null,
-    );
-    if (!payload) continue;
-    const candidateIds = new Set(pendingConsentCardRequestIds(payload.item));
-    const existingIndex = merged.findIndex((message) => {
-      const existing = getPendingConsentRequestPayload(
-        message.specialistDirective ?? null,
-      );
-      if (!existing) return false;
-      return pendingConsentCardRequestIds(existing.item).some((id) =>
-        candidateIds.has(id),
-      );
-    });
-
-    if (existingIndex >= 0) {
-      merged[existingIndex] = candidate;
-    } else {
-      merged.push(candidate);
-    }
-  }
-
-  return merged;
-}
-
-/** The Undo toast's line for a decline from the chat card, as the Consent Center words it. */
-export function declinedChatRequestMessage(requesterLabel: string): string {
-  const first = requesterLabel.trim().split(/\s+/)[0];
-  return first ? `Declined ${first}'s request.` : "Declined the request.";
-}
-
-function markPendingConsentRequestDirectiveStatus(
-  event: SpecialistDirectiveEvent | null | undefined,
-  itemId: string,
-  // "pending" puts a card back after Undo on a decline.
-  status: PendingConsentCardStatus,
-): SpecialistDirectiveEvent | null | undefined {
-  if (!event || event.directive.kind !== "prompt") return event;
-  const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "pending_consent_request") return event;
-  const item =
-    payload.item && typeof payload.item === "object"
-      ? (payload.item as Record<string, unknown>)
-      : null;
-  if (!item || item.id !== itemId) return event;
-
-  return {
-    ...event,
-    directive: {
-      ...event.directive,
-      payload: {
-        ...payload,
-        item: {
-          ...item,
-          status,
-        },
-      },
-    },
-  };
-}
-
-function normalizeConsentActions(item: Record<string, unknown>): string[] {
-  const rawActions = Array.isArray(item.actions)
-    ? item.actions.filter(
-        (action): action is string => typeof action === "string",
-      )
-    : [];
-  const metadata =
-    item.metadata && typeof item.metadata === "object"
-      ? (item.metadata as Record<string, unknown>)
-      : {};
-  const id = typeof item.id === "string" ? item.id : "";
-  const scope = typeof item.scope === "string" ? item.scope : "";
-  const requestSource =
-    typeof metadata.request_source === "string"
-      ? metadata.request_source.trim()
-      : "";
-  const isLocationGrant =
-    id.startsWith("one_location_grant:") ||
-    requestSource === "one_location_share_grant" ||
-    scope.startsWith("cap.location.");
-
-  if (!isLocationGrant) {
-    return rawActions;
-  }
-
-  const normalized = new Set(["revoke", ...rawActions, "details"]);
-  return Array.from(normalized);
-}
-
-function markConsentDirectiveItemRevoked(
-  event: SpecialistDirectiveEvent | null | undefined,
-  itemId: string,
-): SpecialistDirectiveEvent | null | undefined {
-  if (!event || event.directive.kind !== "prompt") return event;
-  const payload = event.directive.payload as Record<string, unknown>;
-  if (payload.kind !== "consent_actions" || !Array.isArray(payload.items))
-    return event;
-
-  let changed = false;
-  const nextItems = payload.items.map((rawItem) => {
-    if (!rawItem || typeof rawItem !== "object") return rawItem;
-    const item = rawItem as Record<string, unknown>;
-    if (item.id !== itemId) return rawItem;
-
-    changed = true;
-    const rawActions = Array.isArray(item.actions) ? item.actions : [];
-    const actions = rawActions.filter((action) => action !== "revoke");
-    if (!actions.includes("details")) actions.push("details");
-    const label = typeof item.label === "string" ? item.label : "This person";
-    const summary = `${label} can no longer view your live location`;
-
-    return {
-      ...item,
-      status: "revoked",
-      summary,
-      actions,
-    };
-  });
-
-  if (!changed) return event;
-  return {
-    ...event,
-    directive: {
-      ...event.directive,
-      payload: {
-        ...payload,
-        items: nextItems,
-      },
-    },
-  };
-}
-
-function formatNow(): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date());
-}
-
-/** The label and the moment for a message created now, taken together. */
-function stampNow(): { timestamp: string; sentAtMs: number } {
-  const sentAtMs = Date.now();
-  return {
-    timestamp: new Intl.DateTimeFormat(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(sentAtMs)),
-    sentAtMs,
-  };
-}
-
-function createGreetingMessage(): AgentMessage {
-  return {
-    id: "agent-greeting",
-    role: "assistant",
-    text: AGENT_GREETING,
-    timestamp: AGENT_GREETING_TIMESTAMP,
-    status: "done",
-  };
-}
-
-function formatAgentDisplayName(
-  displayName?: string | null,
-  email?: string | null,
-): string {
-  const rawName = displayName?.trim() || email?.split("@")[0]?.trim() || "";
-  const firstName = rawName
-    .replace(/[._-]+/g, " ")
-    .split(/\s+/)
-    .find(Boolean);
-  if (!firstName) return "there";
-  return firstName.charAt(0).toUpperCase() + firstName.slice(1);
-}
-
-function useAnimatedAssistantText(targetText: string, active: boolean) {
-  const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
-  const displayedTextRef = useRef(displayedText);
-  const targetTextRef = useRef(targetText);
-
-  useEffect(() => {
-    targetTextRef.current = targetText;
-
-    // Completed answers must remain readable when a background tab suspends frames.
-    if (!active) {
-      displayedTextRef.current = targetText;
-      setDisplayedText(targetText);
-    }
-  }, [active, targetText]);
-
-  useEffect(() => {
-    if (!active) return;
-    let frame = 0;
-    let lastPaintAt = 0;
-
-    const tick = (now: number) => {
-      const target = targetTextRef.current;
-      const current = displayedTextRef.current;
-
-      if (!target.startsWith(current)) {
-        displayedTextRef.current = target;
-        setDisplayedText(target);
-        return;
-      }
-
-      if (current.length >= target.length) {
-        return;
-      }
-
-      if (lastPaintAt && now - lastPaintAt < AGENT_STREAM_RENDER_FRAME_MS) {
-        frame = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      const elapsedMs = lastPaintAt
-        ? Math.max(12, now - lastPaintAt)
-        : AGENT_STREAM_RENDER_FRAME_MS;
-      lastPaintAt = now;
-      const backlog = target.length - current.length;
-      const charsPerSecond = backlog > 900 ? 2600 : backlog > 260 ? 1500 : 620;
-      const step = Math.max(
-        1,
-        Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000)),
-      );
-      const nextText = target.slice(0, current.length + step);
-      displayedTextRef.current = nextText;
-      setDisplayedText(nextText);
-
-      if (nextText.length < target.length) {
-        frame = window.requestAnimationFrame(tick);
-      }
-    };
-
-    const target = targetTextRef.current;
-    const current = displayedTextRef.current;
-    if (
-      target &&
-      (!target.startsWith(current) || current.length < target.length)
-    ) {
-      frame = window.requestAnimationFrame(tick);
-    }
-
-    return () => {
-      if (frame) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, [active, targetText]);
-
-  return {
-    displayedText: active ? displayedText : targetText,
-    isAnimating: active,
-  };
-}
-
-function AgentThinkingDots() {
-  return (
-    <span
-      className="inline-flex items-center gap-1 py-1 text-muted-foreground"
-      aria-label="Agent is thinking"
-    >
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current motion-reduce:animate-none" />
-    </span>
-  );
-}
-
-export function GmailInformationRequestAttachment({
-  loadPreview,
-}: {
-  loadPreview: () => Promise<GmailInformationRequestSourcePreview>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [preview, setPreview] = useState<GmailInformationRequestSourcePreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const previewRequestRef = useRef(0);
-  const previewId = useId();
-
-  useEffect(() => {
-    return () => {
-      previewRequestRef.current += 1;
-    };
-  }, []);
-
-  const toggle = async () => {
-    const nextOpen = !open;
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      previewRequestRef.current += 1;
-      setPreview(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    if (preview || loading) return;
-    const requestId = ++previewRequestRef.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const source = await loadPreview();
-      if (previewRequestRef.current === requestId) setPreview(source);
-    } catch {
-      if (previewRequestRef.current === requestId) {
-        setError("Couldn’t load this Gmail message. Please try again.");
-      }
-    } finally {
-      if (previewRequestRef.current === requestId) setLoading(false);
-    }
-  };
-
-  return (
-    <div
-      className={cn(
-        "mt-3 overflow-hidden rounded-[18px] border text-left shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)] transition-colors",
-        open
-          ? "border-white/30 bg-white/[0.11]"
-          : "border-white/20 bg-white/[0.075] hover:border-white/30 hover:bg-white/[0.11]",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => void toggle()}
-        aria-expanded={open}
-        aria-controls={open ? previewId : undefined}
-        className="group relative flex min-h-14 w-full items-center gap-3 rounded-[inherit] px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
-      >
-        <MaterialRipple variant="none" effect="fill" />
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-black/[0.12] text-white shadow-sm">
-          <Mail className="h-[18px] w-[18px]" aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold leading-5 text-white">
-            Mail
-          </span>
-          <span className="block text-xs leading-5 text-white/65">
-            Selected Gmail message
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-white/[0.10] px-2.5 py-1 text-[11px] font-semibold text-white/90 transition-colors group-hover:bg-white/[0.16]">
-          {open ? "Hide" : "View"}
-          <ChevronDown
-            className={cn(
-              "h-3.5 w-3.5 transition-transform duration-150",
-              open && "rotate-180",
-            )}
-            aria-hidden="true"
-          />
-        </span>
-      </button>
-      {open ? (
-        <div
-          id={previewId}
-          aria-live="polite"
-          className="border-t border-white/15 bg-black/[0.075] px-3.5 py-3.5 text-xs leading-5"
-        >
-          {loading ? (
-            <span className="flex items-center gap-2 text-white/70">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              Loading Gmail message…
-            </span>
-          ) : null}
-          {error ? <span className="text-red-100">{error}</span> : null}
-          {preview ? (
-            <div className="space-y-3 whitespace-pre-wrap break-words">
-              <dl className="space-y-2">
-                {preview.from ? (
-                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2">
-                    <dt className="font-medium text-white/55">From</dt>
-                    <dd className="min-w-0 text-white/95">{preview.from}</dd>
-                  </div>
-                ) : null}
-                {preview.subject ? (
-                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2">
-                    <dt className="font-medium text-white/55">Subject</dt>
-                    <dd className="min-w-0 font-medium text-white">{preview.subject}</dd>
-                  </div>
-                ) : null}
-              </dl>
-              <p className="border-t border-white/15 pt-3 text-white/85">
-                {preview.body || "This email has no readable text."}
-              </p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-export function AgentBubble({
-  message,
-  onOpenConnections,
-  onInformationRequestSubmitted,
-  onCompileDriveNotes,
-  onDownloadDriveNotes,
-  onRetry,
-  retryDisabled = false,
-  busyConsentItemId = null,
-  turnPanelOpportunities,
-  onConsentRevoke,
-  onConsentDetails,
-  onPendingConsentApprove,
-  onPendingConsentDeny,
-  onPendingConsentDetails,
-  rating = null,
-  onRate,
-  reported = false,
-  onReport,
-  gmailInformationRequestAttachment,
-  driveMemoryReview,
-  onResendAttachment,
-  onConfirmMemoryNeedsOwner,
-  onRetryMemorySave,
-  pendingMemoryCards,
-  canConfirmMemoryNeedsOwner,
-  onUnlockVault,
-  ephemeralCard,
-  businessProfileCard,
-}: {
-  message: AgentMessage;
-  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
-  onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
-  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
-  onDownloadDriveNotes?: () => void;
-  onRetry?: () => void;
-  retryDisabled?: boolean;
-  busyConsentItemId?: string | null;
-  turnPanelOpportunities?: ReactNode;
-  onConsentRevoke?: (item: SpecialistConsentActionItem) => Promise<void> | void;
-  onConsentDetails?: (item: SpecialistConsentActionItem) => void;
-  onPendingConsentApprove?: (
-    item: SpecialistPendingConsentRequestItem,
-  ) => Promise<void> | void;
-  onPendingConsentDeny?: (
-    item: SpecialistPendingConsentRequestItem,
-  ) => Promise<void> | void;
-  onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
-  rating?: "up" | "down" | null;
-  onRate?: (rating: "up" | "down" | null) => void;
-  reported?: boolean;
-  onReport?: (reason: AgentResponseReportReason) => Promise<void>;
-  gmailInformationRequestAttachment?: ReactNode;
-  driveMemoryReview?: ReactNode;
-  /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
-  onResendAttachment?: (index: number, editedText: string) => boolean | void | Promise<boolean | void>;
-  onConfirmMemoryNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
-  /** Continue a paused or gapped memory save job for this message. */
-  onRetryMemorySave?: () => Promise<void>;
-  pendingMemoryCards?: readonly AgentPkmPreviewCard[];
-  canConfirmMemoryNeedsOwner?: boolean;
-  onUnlockVault?: () => void;
-  /** App-owned background card, never model HTML or persisted chat content. */
-  ephemeralCard?: ReactNode;
-  /** Compatibility for the existing Business Intelligence card. */
-  businessProfileCard?: ReactNode;
-}) {
-  const backgroundCard = ephemeralCard ?? businessProfileCard;
-  const [copied, setCopied] = useState(false);
-  // The rating is owned by the workspace so it survives a reload; the bubble
-  // only reflects it. It used to be local state that died with the tab, which
-  // meant nobody could ever read what people thought of an answer.
-  const liked = rating === "up";
-  const disliked = rating === "down";
-  const isUser = message.role === "user";
-  const isStreaming = message.status === "streaming";
-  const isError = message.status === "error";
-  const streamEvents = (message.streamEvents ?? []).filter(
-    (event) => event.label !== "Memory" && event.label !== "Add to Memory",
-  );
-  const structuredExperiences =
-    message.structuredExperiences ??
-    (message.structuredExperience
-      ? [
-          {
-            id: "legacy-structured-experience",
-            experience: message.structuredExperience,
-          },
-        ]
-      : []);
-  // Use the activity surface only while a turn is active or when the settled
-  // turn has safe, inspectable activity. Plain completed answers stay readable.
-  const hasStreamContent =
-    isStreaming ||
-    streamEvents.length > 0 ||
-    Boolean(message.sources?.length) ||
-    structuredExperiences.length > 0;
-  const shouldRenderStreamPanel =
-    !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
-  const animated = useAnimatedAssistantText(
-    message.text,
-    !isUser && isStreaming,
-  );
-  const assistantText = isUser ? message.text : animated.displayedText;
-  const backgroundOnly = Boolean(backgroundCard) && Boolean(message.ephemeral) &&
-    !isUser && !isStreaming && !isError && !shouldRenderStreamPanel &&
-    assistantText.trim().length === 0;
-  const consentActionsPayload = !isUser
-    ? getConsentActionsPayload(message.specialistDirective ?? null)
-    : null;
-  const canRenderConsentActions = Boolean(
-    consentActionsPayload && onConsentRevoke && onConsentDetails,
-  );
-  const pendingConsentRequestPayload = !isUser
-    ? getPendingConsentRequestPayload(message.specialistDirective ?? null)
-    : null;
-  const canRenderPendingConsentRequest = Boolean(
-    pendingConsentRequestPayload &&
-    onPendingConsentApprove &&
-    onPendingConsentDeny &&
-    onPendingConsentDetails,
-  );
-  const showResponseActions =
-    !isUser &&
-    !message.ephemeral &&
-    !isStreaming &&
-    assistantText.trim().length > 0;
-  // Give the assistant turn the same rounded-card shape as the user bubble
-  // (just in a neutral tone, not primary) so both sides of the conversation
-  // read as one consistent rhythm. The stream panel and the consent-actions-
-  // only turn (nothing rendered here; actions render elsewhere) own their
-  // own framing, so they're excluded to avoid a double card or an empty box.
-  const showAssistantBubble =
-    !isUser &&
-    !shouldRenderStreamPanel &&
-    !backgroundOnly &&
-    (assistantText.trim().length > 0 ||
-      !(canRenderConsentActions || canRenderPendingConsentRequest));
-
-  const handleCopy = async () => {
-    try {
-      await copyTextToClipboard(message.text || assistantText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      toast.error("Could not copy response.");
-    }
-  };
-
-  // Only settled, successful answers move their controls beside the bubble;
-  // an error keeps its Try again in plain sight.
-  const hoverResponseActions = showResponseActions && !isError;
-  const responseActionButtons = (
-    <div className="flex items-center gap-1">
-      {!isError ? (
-        <>
-      <button
-        type="button"
-        onClick={handleCopy}
-        className="relative grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200"
-        aria-label={copied ? "Response copied" : "Copy response"}
-        title={copied ? "Copied" : "Copy response"}
-      >
-        <Copy
-          className={cn(
-            "col-start-1 row-start-1 h-3.5 w-3.5 transition-[transform,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none",
-            copied ? "scale-75 opacity-0" : "scale-100 opacity-100",
-          )}
-        />
-        <Check
-          className={cn(
-            "col-start-1 row-start-1 h-3.5 w-3.5 text-[color:var(--app-accent)] transition-[transform,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none",
-            copied ? "scale-100 opacity-100" : "scale-75 opacity-0",
-          )}
-        />
-        <MaterialRipple variant="none" effect="glass" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onRate?.(liked ? null : "up")}
-        className={cn(
-          "relative grid h-7 w-7 place-items-center rounded-md border transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-          liked
-            ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-            : "border-transparent text-[rgba(0,0,0,0.46)] [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200",
-        )}
-        aria-label="Like response"
-        aria-pressed={liked}
-        title="Like response"
-      >
-        <ThumbsUp className="h-3.5 w-3.5" weight={liked ? "fill" : "regular"} />
-        <MaterialRipple variant="none" effect="glass" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onRate?.(disliked ? null : "down")}
-        className={cn(
-          "relative grid h-7 w-7 place-items-center rounded-md border transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-          disliked
-            ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-            : "border-transparent text-[rgba(0,0,0,0.46)] [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200",
-        )}
-        aria-label="Dislike response"
-        aria-pressed={disliked}
-        title="Dislike response"
-      >
-        <ThumbsDown className="h-3.5 w-3.5" weight={disliked ? "fill" : "regular"} />
-        <MaterialRipple variant="none" effect="glass" />
-      </button>
-      {onReport && isAndroid() ? (
-        // Google Play AI-Generated Content policy. Android only for
-        // now, so iOS and web chat stay exactly as they are.
-        <AgentResponseReportButton reported={reported} onReport={onReport} />
-      ) : null}
-        </>
-      ) : null}
-      {onRetry ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          disabled={retryDisabled}
-          className="relative ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition-[background-color,border-color,color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 [@media(hover:hover)_and_(pointer:fine)]:hover:border-black/10 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-black/[0.04] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:border-white/10 [@media(hover:hover)_and_(pointer:fine)]:dark:hover:bg-white/[0.06] [@media(hover:hover)_and_(pointer:fine)]:dark:hover:text-zinc-200"
-          aria-label="Try again"
-          title="Try again"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          {/* One line everywhere: it wrapped to two lines beside the bubble. */}
-          <span>Try again</span>
-          <MaterialRipple variant="none" effect="glass" disabled={retryDisabled} />
-        </button>
-      ) : null}
-    </div>
-  );
-  const hoverResponseActionsNode = hoverResponseActions ? (
-    <div
-      data-agent-response-actions="hover"
-      className="one-chat-hover-actions items-center text-[rgba(0,0,0,0.46)] dark:text-zinc-500"
-    >
-      {responseActionButtons}
-    </div>
-  ) : null;
-
-  return (
-    <div
-      data-message-role={message.role}
-      data-message-id={message.id}
-      data-message-status={message.status}
-      // The time is kept on the row for tooling; the transcript shows it in
-      // the centered separator above each group instead of under every bubble.
-      data-message-sent-at={message.sentAtMs ? new Date(message.sentAtMs).toISOString() : undefined}
-      className={cn(
-        "motion-step-enter flex w-full items-start gap-2",
-        isUser ? "justify-end" : "justify-start",
-      )}
-    >
-      <div
-        className={cn(
-          "min-w-0",
-          (shouldRenderStreamPanel || backgroundOnly) && !isUser
-            ? "w-full max-w-none"
-            : isUser
-              ? "max-w-[90%] sm:max-w-[min(76%,42rem)]"
-              : "w-full max-w-[90%] sm:max-w-[min(82%,48rem)]",
-        )}
-      >
-        <OneChatBubble
-          aria-live={!isUser && isStreaming ? "polite" : undefined}
-          data-agent-streaming={!isUser && isStreaming ? "true" : undefined}
-          tone={isUser ? "user" : showAssistantBubble ? "assistant" : "plain"}
-          className={cn(
-            (isUser || showAssistantBubble) && "relative",
-            isError &&
-              "rounded-2xl border border-destructive/20 bg-destructive/[0.06] px-4 py-2.5 text-foreground",
-          )}
-        >
-          {isUser ? (
-            <>
-              {message.text ? (
-                <span className="whitespace-pre-wrap break-words"><SecretPlaceholderText text={message.text} /></span>
-              ) : null}
-              {message.attachments?.length ? (
-                <div className={cn(message.text && "mt-2")}>
-                  <AgentMessageAttachments
-                    attachments={message.attachments}
-                    onResend={onResendAttachment}
-                  />
-                </div>
-              ) : null}
-              {gmailInformationRequestAttachment}
-              {message.reaction && <AgentMessageReactionBadge reaction={message.reaction} />}
-            </>
-          ) : shouldRenderStreamPanel ? (
-            <AgentTurnStreamPanel
-              streamEvents={streamEvents}
-              sources={message.sources}
-              structuredExperience={message.structuredExperience}
-              structuredExperiences={structuredExperiences}
-              onOpenConnections={onOpenConnections}
-              onInformationRequestSubmitted={onInformationRequestSubmitted}
-              onCompileDriveNotes={onCompileDriveNotes}
-              onDownloadDriveNotes={onDownloadDriveNotes}
-              driveCompilation={message.driveCompilation}
-              responseText={assistantText}
-              isStreaming={isStreaming}
-              isError={isError}
-              opportunities={turnPanelOpportunities}
-              response={
-                assistantText ? (
-                  <div
-                    data-agent-response-bubble
-                    className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-full min-w-0 max-w-full break-words")}
-                  >
-                    <AgentMarkdown text={assistantText} />
-                    {hoverResponseActionsNode}
-                  </div>
-                ) : null
-              }
-            />
-          ) : assistantText ? (
-            <>
-              <AgentMarkdown text={assistantText} />
-              {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
-            </>
-          ) : backgroundOnly || canRenderConsentActions ||
-            canRenderPendingConsentRequest ? null : (
-            <AgentThinkingDots />
-          )}
-          {!isUser && isError && message.errorNotice ? (
-            <p
-              role="status"
-              data-testid="agent-message-error-notice"
-              className="mt-2 text-xs font-medium text-destructive"
-            >
-              {message.errorNotice}
-            </p>
-          ) : null}
-          {!isUser && isError ? (() => {
-            const recoveryPanel = ownerPodTurnRecoveryPanel(assistantText || message.errorNotice);
-            if (!recoveryPanel) return null;
-            return (
-              <div className="mt-2.5">
-                <button
-                  type="button"
-                  data-testid="agent-message-pod-recovery-action"
-                  onClick={() => {
-                    if (typeof window === "undefined") return;
-                    openProfilePane(
-                      window.location.pathname,
-                      window.location.search,
-                      { panel: recoveryPanel, detail: null },
-                      { returnsToOrigin: true },
-                    );
-                  }}
-                  className="inline-flex h-8 touch-manipulation items-center rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] px-3 text-xs font-semibold text-foreground transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:opacity-[0.84] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
-                >
-                  {recoveryPanel === "software-updates" ? "Open Agent updates" : "Open Hosting"}
-                </button>
-              </div>
-            );
-          })() : null}
-          {!isUser && backgroundCard ? <div className={backgroundOnly ? undefined : "mt-3"}>{backgroundCard}</div> : null}
-        </OneChatBubble>
-        {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
-        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} canConfirmNeedsOwner={canConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
-        {!isUser && !isStreaming && !isError ? driveMemoryReview : null}
-        {showResponseActions ? (
-        <div
-          data-testid="agent-message-response-actions"
-          data-agent-response-actions="inline"
-          // Pointer desktops show these beside the bubble on hover instead
-          // (see `hoverResponseActions`); touch keeps this row, always shown.
-          data-hover-twin={hoverResponseActions ? "true" : undefined}
-          className="mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500"
-        >
-          {responseActionButtons}
-        </div>
-        ) : null}
-        {canRenderConsentActions && consentActionsPayload ? (
-          <div className="mt-4">
-            <SpecialistConsentActionsCard
-              items={consentActionsPayload.items}
-              busyItemId={busyConsentItemId}
-              onRevoke={(item) => {
-                void onConsentRevoke?.(item);
-              }}
-              onDetails={(item) => {
-                onConsentDetails?.(item);
-              }}
-            />
-          </div>
-        ) : null}
-        {canRenderPendingConsentRequest && pendingConsentRequestPayload ? (
-          <div className="mt-4">
-            <SpecialistPendingConsentRequestCard
-              item={pendingConsentRequestPayload.item}
-              busy={busyConsentItemId === pendingConsentRequestPayload.item.id}
-              onApprove={(item) => {
-                void onPendingConsentApprove?.(item);
-              }}
-              onDeny={(item) => {
-                void onPendingConsentDeny?.(item);
-              }}
-              onDetails={(item) => {
-                onPendingConsentDetails?.(item);
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/** The centered date/time line that opens a group of messages. */
-function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparator }) {
-  return (
-    <div data-testid="agent-chat-time-separator">
-      <OneChatTimeSeparator
-        accessibleLabel={separator.accessibleLabel}
-        dateTime={separator.dateTime}
-        label={separator.text}
-      />
-    </div>
-  );
-}
-
-// Safety-net for legacy DB rows written before Task 8 metadata was added.
-// Those rows carry no metadata and their content is the raw recipient/duration
-// seed "I selected: recipientUserId=…; … do not guess — and proceed."
-// Matching them prevents the ugly id-dump from ever rendering as a user bubble.
-// The shorter acknowledgement seeds ("Yes, go ahead.", "No, do not proceed.",
-// "I changed my mind — cancel that, take no action.") are already human-readable
-// and must NOT be reclassified — the pattern is intentionally narrow.
-const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
-
-export function storedMessageToAgentMessage(
-  message: StoredAgentChatMessage,
-  seenExperienceIds: Set<string> = new Set(),
-): AgentMessage | null {
-  if (message.role !== "user" && message.role !== "assistant") return null;
-  const createdAt = restoredMessageTime(message.created_at);
-  // A selection message must never re-render its raw `I selected:` seed on
-  // reload: prefer the persisted display label and render it as a chip. The
-  // backend (Task 3) guarantees metadata.display for new selection messages;
-  // legacy rows without metadata are detected via LEGACY_SELECTION_SEED below.
-  // The follow-up turn after an answer is sent as the server's fixed label
-  // ("Consent approved"). It is a status chip, never the person's words, even
-  // when the server did not mark it (it refused the continuation, or a retry
-  // sent the label as a plain turn): the chip then names the request above it.
-  const isConsentOutcomeLabel =
-    message.role === "user" && wireOutcomeForSentLabel(message.content.trim()) !== null;
-  const isSelection = message.metadata?.kind === "selection" || isConsentOutcomeLabel;
-  // Detect legacy rows: user message with raw seed content and no usable metadata.
-  const isLegacySelectionSeed =
-    !isSelection &&
-    message.role === "user" &&
-    LEGACY_SELECTION_SEED.test(message.content);
-
-  const displayText =
-    isConsentOutcomeLabel
-      ? message.content.trim()
-      : isSelection && message.metadata?.display
-      ? message.metadata.display
-      : isLegacySelectionSeed
-        ? "Your selection"
-        : message.content;
-  const descriptor = message.metadata?.structuredExperience;
-  const restoredExperience =
-    descriptor && typeof descriptor.activityType === "string"
-      ? parseAgentActivityExperience(descriptor.activityType, descriptor.content)
-      : null;
-  const orderedExperiences = message.metadata?.structuredExperiences?.flatMap((entry, index) => {
-    if (!entry || typeof entry.activityType !== "string") return [];
-    const experience = parseAgentActivityExperience(entry.activityType, entry.content);
-    return experience ? [{
-      id: (typeof entry.id === "string" ? entry.id.trim() : "") ||
-        `${message.id}:structured-experience:${index}`,
-      experience,
-    }] : [];
-  });
-  const candidates = orderedExperiences?.length ? orderedExperiences : restoredExperience
-    ? [
-        {
-          id:
-            (typeof message.metadata?.structuredExperienceId === "string"
-              ? message.metadata.structuredExperienceId.trim()
-              : "") ||
-            `${message.id}:structured-experience`,
-          experience: restoredExperience,
-        },
-      ]
-    : [];
-  const connectorRead =
-    message.role === "assistant" ? message.metadata?.connectorRead : null;
-  const structuredExperiences = [
-    ...candidates,
-    ...(connectorRead
-      ? [
-          {
-            id: `${message.id}:connector-read`,
-            experience: connectorRead,
-          },
-        ]
-      : []),
-  ].filter(entry => {
-    if (seenExperienceIds.has(entry.id)) return false;
-    seenExperienceIds.add(entry.id);
-    return true;
-  });
-  // The same Activity rows the owner saw live, rebuilt from app-owned labels.
-  const streamEvents: AgentVisibleStreamEvent[] = message.role === "assistant"
-    ? parseRestoredTurnActivity(message.metadata?.turnActivity).map((step) => {
-      // The same product mark the live row carried, from the same rule.
-      const brand = connectorBrandForTool(step.toolName, step.provider) ?? step.provider;
-      return {
-        id: step.id,
-        label: step.label,
-        message: step.message,
-        status: step.status,
-        ...(step.tag ? { tag: step.tag } : {}),
-        ...(brand ? { brand } : {}),
-        icon: agentActivityIconForTool(step.toolName),
-        ...(step.connectorId ? { connectorId: step.connectorId } : {}),
-        ...(isRoutineReadinessTool(step.toolName) ? { routine: true as const } : {}),
-        createdAtMs: createdAt?.getTime() ?? 0,
-      };
-    })
-    : [];
-  // Do not resurrect a duplicate through the legacy descriptor, or leave an
-  // empty thinking bubble. Prose and all distinct cards retain source order.
-  if (candidates.length && !structuredExperiences.length && !displayText.trim()) return null;
-  // Pasted text restores as the chip it was sent as, never as expanded text.
-  const attachments = message.role === "user"
-    ? parseStoredTextAttachments(message.metadata?.attachments)
-    : [];
-  return {
-    id: message.id,
-    role: message.role,
-    text: displayText,
-    ...(attachments.length ? { attachments } : {}),
-    structuredExperience: connectorRead,
-    timestamp:
-      createdAt && !Number.isNaN(createdAt.getTime())
-        ? new Intl.DateTimeFormat(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-          }).format(createdAt)
-        : formatNow(),
-    ...(createdAt && !Number.isNaN(createdAt.getTime())
-      ? { sentAtMs: createdAt.getTime() }
-      : {}),
-    status: message.status === "error" ? "error" : "done",
-    ...(isSelection || isLegacySelectionSeed
-      ? { kind: "selection" as const }
-      : {}),
-    ...(structuredExperiences.length ? { structuredExperiences } : {}),
-    ...(streamEvents.length ? { streamEvents } : {}),
-    ...(message.metadata?.consentBundleId ? { consentBundleId: message.metadata.consentBundleId } : {}),
-    ...(message.metadata?.consentAccessEnded ? { consentAccessEnded: true } : {}),
-    ...(message.metadata?.consentAccess ? { consentAccess: message.metadata.consentAccess } : {}),
-    ...(message.role === "user" && message.metadata?.queuedInput === "joined"
-      ? { queuedPlacement: "joined" as const }
-      : {}),
-  };
-}
-
-/**
- * History timestamps are ADK event times in epoch seconds; ISO strings are
- * accepted too. Reading seconds as milliseconds dated every restored turn to
- * January 1970, which rendered as a wrong clock time after returning to a chat.
- */
-export function restoredMessageTime(value: unknown): Date | null {
-  return parseChatTimestamp(value);
-}
-
-const RESTORED_CONNECTOR_STEP_LABEL = "Connected tool";
-
-/** Replace restored opaque connector rows with the owner's names; unchanged rows keep identity. */
-export function labelRestoredConnectorSteps<T extends { streamEvents?: AgentVisibleStreamEvent[] }>(
-  messages: T[],
-  names: ReadonlyMap<string, string>,
-): T[] {
-  let changed = false;
-  const next = messages.map((message) => {
-    if (!message.streamEvents?.some((event) => event.connectorId &&
-      event.label === RESTORED_CONNECTOR_STEP_LABEL && names.get(event.connectorId)?.trim())) return message;
-    changed = true;
-    return {
-      ...message,
-      streamEvents: message.streamEvents.map((event) => {
-        const name = event.connectorId ? names.get(event.connectorId)?.trim() : undefined;
-        return name && event.label === RESTORED_CONNECTOR_STEP_LABEL ? { ...event, label: name } : event;
-      }),
-    };
-  });
-  return changed ? next : messages;
-}
-
-export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]): AgentMessage[] {
-  const seenExperienceIds = new Set<string>();
-  // A sent request comes back as a draft plus its Send receipt; fold them so
-  // the card restores in place as sent, never as "Not sent yet".
-  return foldSubmittedRequestReceipts(messages
-    .map(message => storedMessageToAgentMessage(message, seenExperienceIds))
-    .filter((message): message is AgentMessage => Boolean(message)));
-}
-
-function agentMessagesToStoredMessages(
-  messages: readonly AgentMessage[],
-  conversationId: string,
-): StoredAgentChatMessage[] {
-  const result: StoredAgentChatMessage[] = [];
-  for (const message of messages) {
-    if (message.id === "agent-greeting") continue;
-    const hasMetadata =
-      Boolean(message.attachments?.length) ||
-      message.kind === "selection" ||
-      Boolean(message.consentBundleId) ||
-      Boolean(message.consentAccessEnded) ||
-      Boolean(message.consentAccess) ||
-      message.queuedPlacement === "joined";
-    const metadata: StoredAgentChatMessage["metadata"] = hasMetadata
-      ? {
-          ...(message.kind === "selection" ? { kind: "selection", display: message.text } : {}),
-          ...(message.attachments?.length ? { attachments: message.attachments } : {}),
-          ...(message.consentBundleId ? { consentBundleId: message.consentBundleId } : {}),
-          ...(message.consentAccessEnded ? { consentAccessEnded: true } : {}),
-          ...(message.consentAccess ? { consentAccess: message.consentAccess } : {}),
-          ...(message.queuedPlacement === "joined" ? { queuedInput: "joined" as const } : {}),
-        }
-      : undefined;
-    const timestampIso =
-      typeof message.sentAtMs === "number" && Number.isFinite(message.sentAtMs)
-        ? new Date(message.sentAtMs).toISOString()
-        : null;
-    result.push({
-      id: message.serverMessageId || message.id,
-      conversation_id: conversationId,
-      role: message.role,
-      status: message.status === "error" ? "error" : "complete",
-      content: message.text,
-      created_at: timestampIso,
-      completed_at:
-        message.status === "done" || message.status === "error" ? timestampIso : null,
-      ...(metadata ? { metadata } : {}),
-    });
-  }
-  return result;
-}
-
-export function ChatAgentSubtitle({ text, working, brand, icon }: { text: string; working: boolean; brand?: ConnectorBrand | null; icon?: AgentActivityIcon }) {
-  const [display, setDisplay] = useState({ text, working, brand, icon });
-  const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    if (display.text === text && display.working === working && display.brand === brand && display.icon === icon) {
-      setVisible(true);
-      return;
-    }
-    setVisible(false);
-    // The mark and label are one projection, including during the fade.
-    const timer = window.setTimeout(() => { setDisplay({ text, working, brand, icon }); setVisible(true); }, 90);
-    return () => window.clearTimeout(timer);
-  }, [display, text, working, brand, icon]);
-  if (!display.text) return null;
-  return <p aria-live="polite" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
-    <span className={`flex min-w-0 items-center gap-1.5 transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>
-      {display.brand || display.icon ? <AgentActivityMark brand={display.brand} icon={display.icon} /> : display.working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : null}
-      <span className="truncate">{display.text}</span>
-    </span>
-  </p>;
-}
-
-export type ActiveToolCall = { id: string; label: string; activity?: string; brand?: ConnectorBrand | null; icon?: AgentActivityIcon };
-
-export const IDLE_AGENT_SUBTITLE = "";
-
-/**
- * The line under the agent's name. While a turn runs it names what One is
- * doing right now ("Checking Gmail…"), from the same app-owned table that
- * labels the Activity rows; the newest running call wins. With nothing in
- * flight it falls back to the turn status, then to the idle subtitle.
- */
-export function chatHeaderSubtitle(input: {
-  isPuppySurface: boolean;
-  activeToolCalls: readonly ActiveToolCall[];
-  statusText: string | null;
-}): string {
-  if (input.isPuppySurface) return "";
-  const current = input.activeToolCalls.at(-1);
-  if (current) return `${current.activity || current.label}…`;
-  return input.statusText || IDLE_AGENT_SUBTITLE;
-}
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
@@ -10727,11 +8737,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {message.role === "assistant" && redactedAnswerIds.has(message.id) ? (
                     <AccessEndedNotice variant="message" {...accessEndedNoticeFor(message)} />
                   ) : message.kind === "selection" ? (
-                    <SelectionChip
-                      label={consentChipLabel(message)}
-                      ended={consentChipEnded(message)}
-                      outcome={consentChipOutcome(message)}
-                    />
+                    consentTags.get(message.id)?.role === "chip"
+                    && !consentChipEnded(message)
+                    && outgoingRequestCardFor(message.id) !== null ? null : (
+                      <SelectionChip
+                        label={consentChipLabel(message)}
+                        ended={consentChipEnded(message)}
+                        outcome={consentChipOutcome(message)}
+                      />
+                    )
                   ) : (
                     <AgentBubble
                       message={message}
