@@ -71,6 +71,7 @@ test.beforeAll(async () => {
   );
   const overrides: Record<string, string> = {
     "hooks/use-auth.ts": "useAuth",
+    "lib/firebase/config.ts": "app,auth,getRecaptchaVerifier",
     "lib/services/feed-service.ts": "FeedService",
     "lib/capacitor/native-drawers.ts": "nativeDrawersPlatformEligible,nativeDrawerIsolation",
     "lib/agent/use-one-display-name.ts": "useOneDisplayName",
@@ -104,10 +105,6 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic" } },
     resolve: { alias: [{ find: "@", replacement: root }] },
     define: {
-      "process.env.NEXT_PUBLIC_FIREBASE_API_KEY": JSON.stringify("fixture-only-public-api-key"),
-      "process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN": JSON.stringify("fixture.invalid"),
-      "process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID": JSON.stringify("fixture-project"),
-      "process.env.NEXT_PUBLIC_FIREBASE_APP_ID": JSON.stringify("1:123:web:fixture"),
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
     },

@@ -3,6 +3,13 @@ import React, { useSyncExternalStore, type ReactNode } from "react";
 import type { FeedActionable } from "../../lib/feed/use-feed-actionables";
 import { documentRequestTaskTitle } from "../../lib/consent/document-request-setup";
 
+// Session is supplied by useAuth below; no Firebase SDK or auth iframe runs.
+export const app = {};
+export const auth = { currentUser: null };
+export function getRecaptchaVerifier(): never {
+  throw new Error("Phone authentication is outside the To-do fixture");
+}
+
 let state = {
   unlocked: true,
   error: false,
