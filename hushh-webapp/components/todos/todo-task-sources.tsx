@@ -30,7 +30,7 @@ export function TodoTaskSources({ persistence, selected, coverage, evidence, loa
   return <>
     <Button variant="none" effect="fade" size="compact" disabled={disabled} onClick={() => setOpen(true)}>Task sources</Button>
     <Sheet open={open} onOpenChange={next => { if (!saving) setOpen(next); }}>
-      <SheetContent side="bottom" className="mx-auto max-h-[85dvh] max-w-lg overflow-y-auto rounded-t-3xl">
+      <SheetContent side="bottom" className="mx-auto max-h-[85dvh] w-full sm:max-w-lg overflow-y-auto rounded-t-3xl">
         <SheetHeader><SheetTitle>Task sources</SheetTitle><SheetDescription>Choose what contributes to your tasks.</SheetDescription></SheetHeader>
         <div className="divide-y">
           {taskCapabilities().map(source => {
