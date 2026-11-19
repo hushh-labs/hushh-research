@@ -4085,8 +4085,8 @@ final class NativeSupportTests: XCTestCase {
         host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
         defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
         host.view.layoutIfNeeded()
-        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 68, accuracy: 1,
-            "The compact editor and trailing action share a 68-point Agent Bar without nested glass")
+        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 52, accuracy: 1,
+            "The compact editor and trailing action share a 52-point Agent Bar")
         let editor = try XCTUnwrap(model.editor)
         XCTAssertFalse(editor.placeholderLabel.isHidden)
         XCTAssertEqual(editor.placeholderLabel.font, editor.font)
@@ -4124,7 +4124,7 @@ final class NativeSupportTests: XCTestCase {
                 button.willMove(toParent: nil); button.view.removeFromSuperview(); button.removeFromParent()
                 window.isHidden = true; previousKeyWindow?.makeKeyAndVisible()
             }
-            host.view.frame = CGRect(x: 16, y: 682, width: 358, height: 68)
+            host.view.frame = CGRect(x: 16, y: 698, width: 358, height: 52)
             for style in [UIUserInterfaceStyle.light, .dark] {
                 parent.overrideUserInterfaceStyle = style
                 host.overrideUserInterfaceStyle = style
@@ -4151,6 +4151,8 @@ final class NativeSupportTests: XCTestCase {
                     for mode in ["text", "voice"] {
                         model.mode = mode
                         model.placeholder = mode == "text" ? "Message One" : "Talk to One"
+                        model.sendNowEnabled = mode == "text"
+                        model.text = mode == "text" ? "Synthetic draft" : ""
                         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                         host.view.layoutIfNeeded()
                         var rendered = false
@@ -4165,7 +4167,7 @@ final class NativeSupportTests: XCTestCase {
                     }
                 }
             }
-            model.mode = "text"; model.placeholder = "Message One"
+            model.mode = "text"; model.placeholder = "Message One"; model.sendNowEnabled = false
         }
         model.text = "Hello 👋"
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
@@ -4305,14 +4307,22 @@ final class NativeSupportTests: XCTestCase {
         fence.edited()
         let send = fence.emitted(kind: "action", action: "send")
         XCTAssertTrue(fence.confirm(identity, sequence: send, applied: 1, editRevision: 1, kind: "action", allowed: true))
-        XCTAssertTrue(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        XCTAssertTrue(fence.consume(identity, sequence: send, editRevision: 1, action: "send", allowed: true))
         XCTAssertEqual(fence.edit, 2)
-        XCTAssertFalse(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: send, editRevision: 1, action: "send", allowed: true))
         fence.edited()
-        let next = fence.emitted(kind: "action", action: "send")
+        let next = fence.emitted(kind: "action", action: "send-now")
         XCTAssertTrue(fence.confirm(identity, sequence: next, applied: 1, editRevision: 3, kind: "action", allowed: true))
         fence.edited() // A later keystroke before the acknowledgement.
-        XCTAssertFalse(fence.consume(identity, sequence: next, editRevision: 3, allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: next, editRevision: 3, action: "send-now", allowed: true))
+        let current = fence.emitted(kind: "action", action: "send-now")
+        XCTAssertFalse(fence.confirm(identity, sequence: current, applied: 1, editRevision: 4, kind: "action", action: "send", allowed: true))
+        XCTAssertTrue(fence.confirm(identity, sequence: current, applied: 1, editRevision: 4, kind: "action", action: "send-now", allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: current, editRevision: 4, action: "send", allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: current, editRevision: 4, action: "send-now", allowed: false))
+        XCTAssertEqual(fence.edit, 4, "A changed or unavailable Send now action must leave the draft intact")
+        XCTAssertTrue(fence.consume(identity, sequence: current, editRevision: 4, action: "send-now", allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: current, editRevision: 4, action: "send-now", allowed: true))
         let open = fence.emitted(kind: "action", action: "attachment-edit")
         XCTAssertTrue(fence.confirm(identity, sequence: open, applied: fence.update, editRevision: fence.edit, kind: "action", allowed: true))
         XCTAssertTrue(fence.admitsEditingTransition(identity, sequence: open, editRevision: fence.edit))

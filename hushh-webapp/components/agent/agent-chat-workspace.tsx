@@ -780,7 +780,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     gate?.release();
     queuedOfferChainRef.current = Promise.resolve();
     stopActiveTurnRef.current = null;
-    sendingImmediatelyRef.current = false;
+    sendingImmediatelyRef.current = null;
     setSendingImmediately(false);
     setQueuedDeliveryChecking(false);
     setQueuedDeliveryUnconfirmed(false);
@@ -833,10 +833,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // A typed turn is running that Stop can end at its next step.
   const [stoppableTurn, setStoppableTurn] = useState(() => Boolean(initialActiveSession?.stoppableTurn));
   const [sendingImmediately, setSendingImmediately] = useState(false);
-  const sendingImmediatelyRef = useRef(false);
+  const sendingImmediatelyRef = useRef<symbol | null>(null);
   useEffect(() => {
     if (queuedPrompts.length === 0 && sendingImmediatelyRef.current) {
-      sendingImmediatelyRef.current = false;
+      sendingImmediatelyRef.current = null;
       setSendingImmediately(false);
     }
   }, [queuedPrompts.length]);
@@ -6526,40 +6526,54 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
   };
 
+  const canInterruptAndSend = Boolean(
+    stoppableTurn &&
+    (isStreaming || isChatLoading) &&
+    !queuedDeliveryUnconfirmed &&
+    !recoveryInspectionPending &&
+    !isVoiceConnecting &&
+    !voiceActive,
+  );
+
   /**
    * Stop One at its next step and immediately club any waiting queued updates
    * plus the current composer draft into one updated turn in chronological order.
    */
-  const sendImmediately = async () => {
-    if (
-      sendingImmediatelyRef.current ||
-      !stoppableTurn ||
-      (!isStreaming && !isChatLoading) ||
-      queuedDeliveryUnconfirmed ||
-      recoveryInspectionPending ||
-      isVoiceConnecting ||
-      voiceActive
-    ) {
-      return;
-    }
+  const sendImmediately = async (nativeText?: string) => {
+    if (sendingImmediatelyRef.current || !canInterruptAndSend) return;
+    const stop = stopActiveTurnRef.current;
+    if (!stop) return;
+    const queue = liveTurnQueueRef.current;
+    const epoch = chatSessionRef.current.value;
+    const owner = workspaceOwnerIdRef.current;
+    const currentChat = () => chatSessionRef.current.isCurrent(epoch) && workspaceOwnerIdRef.current === owner;
+    const currentReply = () => currentChat() && stopActiveTurnRef.current === stop && liveTurnQueueRef.current === queue;
     const attachment = longPromptAttachment;
-    const draftText = attachment?.isExpanded ? "" : input;
-    const attachmentText = attachment?.isExpanded ? input : attachment?.text ?? "";
+    const editorText = nativeText ?? input;
+    const draftText = attachment?.isExpanded ? "" : editorText;
+    const attachmentText = attachment?.isExpanded ? editorText : attachment?.text ?? "";
     const hasDraft = Boolean(draftText.trim() || attachmentText.trim());
     const hasPendingEdit = Boolean(editingQueuedPromptId && editingQueuedPromptText.trim());
     const hasQueued = operationQueueRef.current.snapshot().some((item) => Boolean(item.prompt));
     if (!hasDraft && !hasPendingEdit && !hasQueued) return;
 
-    sendingImmediatelyRef.current = true;
+    const attempt = Symbol();
+    sendingImmediatelyRef.current = attempt;
     setSendingImmediately(true);
+    const release = () => {
+      if (sendingImmediatelyRef.current !== attempt) return;
+      sendingImmediatelyRef.current = null;
+      setSendingImmediately(false);
+    };
     try {
       if (editingQueuedPromptId && editingQueuedPromptText.trim()) {
-        liveTurnQueueRef.current?.stopAccepting();
+        queue?.stopAccepting();
         await editQueuedPrompt(editingQueuedPromptId, editingQueuedPromptText);
+        if (!currentChat()) { release(); return; }
       }
       if (hasDraft) {
         let draftAccepted = false;
-        await submitComposerText(undefined, {
+        await submitComposerText(nativeText, {
           awaitGuard: true,
           offerToLiveTurn: false,
           onSettled: (accepted) => {
@@ -6567,17 +6581,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
         });
         if (!draftAccepted) {
-          sendingImmediatelyRef.current = false;
-          setSendingImmediately(false);
+          release();
           return;
         }
       }
-      liveTurnQueueRef.current?.stopAccepting();
+      if (!currentReply()) { release(); return; }
+      queue?.stopAccepting();
       await queuedOfferChainRef.current;
-      await stopActiveTurnRef.current?.();
+      if (!currentReply()) { release(); return; }
+      await stop();
     } catch {
-      sendingImmediatelyRef.current = false;
-      setSendingImmediately(false);
+      release();
     }
   };
 
@@ -8130,6 +8144,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       expanded: composerExpanded,
       editable: !recoveryInspectionPending && !isVoiceConnecting && !isHistoryDrawerOpen,
       sendEnabled: canSend,
+      sendNowEnabled: canInterruptAndSend && canSend && !sendingImmediately,
       micEnabled: canToggleVoice && !voiceActive,
       cancelEnabled: Boolean(stoppableTurn && (isStreaming || isChatLoading) && !canSend),
       recording: false, recordingReady: false, supportsHold: false, muted: false,
@@ -8148,6 +8163,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     onAction: event => {
       if (["attachment-edit", "attachment-remove", "collapse"].includes(event.action ?? "")) nativeEditor.current.revision++;
       if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text);
+      else if (event.action === "send-now") return sendImmediately(event.text);
       else if (event.action === "mic" && canToggleVoice) void startConversationalVoice();
       else if (event.action === "cancel" && stoppableTurn) void (stopActiveTurnRef.current ?? peekActiveAgentTurnSession<AgentMessage>(isVaultUnlocked ? applicationOwnerId : null, vaultSessionEpoch)?.stop)?.();
       else if (event.action === "attachment-edit" && event.attachmentId === "paste" && longPromptAttachment) {
@@ -8164,14 +8180,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } : null);
   const compactRootComposer = isCanonicalChatRoute && !composerExpanded;
   const composerHasDraft = input.length > 0 || longPromptAttachment !== null;
-  const canInterruptAndSend = Boolean(
-    stoppableTurn &&
-    (isStreaming || isChatLoading) &&
-    !queuedDeliveryUnconfirmed &&
-    !recoveryInspectionPending &&
-    !isVoiceConnecting &&
-    !voiceActive,
-  );
   const composerShowsStop = Boolean(stoppableTurn && (isStreaming || isChatLoading) && !canSend);
   const composerActionRail = (
     <>

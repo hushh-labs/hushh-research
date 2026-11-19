@@ -2421,7 +2421,7 @@ describe("private dock event boundary", () => {
 });
 
 describe("private dock asynchronous submission boundary", () => {
-  function Feature({ blocked, onAction, onEdit }: { blocked: boolean; onAction: NativeDockPort["onAction"]; onEdit?: (text: string) => void }) {
+  function Feature({ blocked, onAction, onEdit, sendNowEnabled }: { blocked: boolean; onAction: NativeDockPort["onAction"]; onEdit?: (text: string) => void; sendNowEnabled?: boolean }) {
     const dock = useAgentDockState();
     const host = useRef<HTMLDivElement>(null);
     useNativeNavigationBlocked(blocked);
@@ -2430,7 +2430,7 @@ describe("private dock asynchronous submission boundary", () => {
     }, [dock]);
     useNativeDockPort("text", { projection: {
       context: "synthetic-conversation", mode: "text", text: "Synthetic draft", placeholder: "Message One",
-      expanded: false, editable: true, sendEnabled: true, micEnabled: true, cancelEnabled: false,
+      expanded: false, editable: true, sendEnabled: true, sendNowEnabled, micEnabled: true, cancelEnabled: false,
       recording: false, recordingReady: false, muted: false, supportsHold: false,
       attachments: [], attachmentRevision: 0, editorRevision: 0,
     }, onAction, onEdit });
@@ -2441,8 +2441,8 @@ describe("private dock asynchronous submission boundary", () => {
     const ports = useNativeDockPorts();
     return <span data-testid="dock-presentation">{ports?.owned ? "reserved" : "fallback"}</span>;
   }
-  function fixture(blocked: boolean, onAction: NativeDockPort["onAction"], onEdit?: (text: string) => void) {
-    return <AgentDockProvider><Feature blocked={blocked} onAction={onAction} onEdit={onEdit} /></AgentDockProvider>;
+  function fixture(blocked: boolean, onAction: NativeDockPort["onAction"], onEdit?: (text: string) => void, sendNowEnabled?: boolean) {
+    return <AgentDockProvider><Feature blocked={blocked} onAction={onAction} onEdit={onEdit} sendNowEnabled={sendNowEnabled} /></AgentDockProvider>;
   }
   function send(state: DockState): DockEvent {
     return { ...state, sequence: 1, editRevision: 0, privacyGeneration: 0, kind: "action", action: "send",
@@ -2721,14 +2721,14 @@ describe("private dock asynchronous submission boundary", () => {
     await waitFor(() => expect((dockBridge.apply.mock.calls.at(-1)![0] as DockState).revision).toBeGreaterThan(initial.revision));
     expect(onAction).not.toHaveBeenCalled();
   });
-  it("keeps consumption unsettled until the feature guard finishes and consumes duplicate Send only once", async () => {
+  it.each(["send", "send-now"] as const)("holds %s until the feature guard finishes and consumes duplicates once", async (action) => {
     const guard = deferred<void>();
     const onAction = vi.fn(() => guard.promise);
     dockBridge.consumeDraft.mockResolvedValue({ consumed: true, editRevision: 1 });
-    render(fixture(false, onAction));
+    render(fixture(false, onAction, undefined, action === "send-now"));
     await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
     const initial = dockBridge.apply.mock.calls.at(-1)![0] as DockState;
-    const request = send(initial);
+    const request = { ...send(initial), action };
     act(() => { dockBridge.callbacks.get("input")?.(request); dockBridge.callbacks.get("input")?.(request); });
     await waitFor(() => expect(onAction).toHaveBeenCalledOnce());
     expect(dockBridge.apply.mock.calls.every(([state]) => state.settledConsumption === 0)).toBe(true);
@@ -2736,6 +2736,18 @@ describe("private dock asynchronous submission boundary", () => {
     await waitFor(() => expect(dockBridge.apply.mock.calls.some(([state]) => state.settledConsumption === 1)).toBe(true));
     expect(onAction).toHaveBeenCalledOnce();
     expect(dockBridge.consumeDraft).toHaveBeenCalledOnce();
+    expect(dockBridge.confirmEvent).toHaveBeenCalledWith(expect.objectContaining({ action }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ action, text: "Synthetic draft" }));
+  });
+  it("keeps a draft when the active projection does not offer Send now", async () => {
+    const onAction = vi.fn();
+    render(fixture(false, onAction));
+    await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+    const initial = dockBridge.apply.mock.calls.at(-1)![0] as DockState;
+    await act(async () => dockBridge.callbacks.get("input")?.({ ...send(initial), action: "send-now" }));
+    await waitFor(() => expect(dockBridge.confirmEvent).toHaveBeenCalledOnce());
+    expect(dockBridge.consumeDraft).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it.each(["send", "collapse"] as const)("withdraws a delayed %s snapshot after a complete native drawer cycle without replay", async action => {
     let isolationCallback!: (event: NativeDrawerIsolation) => void;
