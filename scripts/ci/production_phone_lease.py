@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from runpy import run_path
 import subprocess
+import threading
 import time
 
 import production_phone_receipt as phone
@@ -38,7 +39,7 @@ def _require(condition, reason):
 
 
 def _budget(deadline):
-    remaining = retention.remaining_seconds(90)
+    remaining = retention.remaining_seconds(180)
     if deadline is not None:
         remaining = min(remaining, deadline - time.monotonic())
     _require(remaining > 0, "authority lookup deadline exhausted")
@@ -281,7 +282,11 @@ def _steps(job, current=False, source_gated=False, nonproducer=False):
 
 
 def _current(repository, attempt, job, trusted, restoration=False):
-    jobs = {RESTORATION_JOB} if restoration else {"deploy", "complete-phone-activation"}
+    if restoration:
+        phone = job.get("name") == nonproducer.PRODUCTION_JOB_NAMES[nonproducer.PHONE_JOB_ID]
+        jobs = {nonproducer.PHONE_JOB_ID} if phone else {RESTORATION_JOB}
+    else:
+        jobs = {"deploy", "complete-phone-activation"}
     return (
         trusted
         and os.environ.get("GITHUB_JOB") in jobs
@@ -452,9 +457,18 @@ def assert_reconciled(
     """Walk every attempt to a proven pre-policy boundary; admit no mutation."""
     if source_command is None:
         command = run_path(str(phone.ROOT / "deploy/phone/qualify_image.py"))["run"]
+        source_cache = {}
+        source_lock = threading.Lock()
 
         def source_command(args):
-            return command(args, timeout=_budget(deadline))
+            key = tuple(args)
+            with source_lock:
+                if key in source_cache:
+                    return source_cache[key]
+            output = command(args, timeout=_budget(deadline))
+            with source_lock:
+                source_cache.setdefault(key, output)
+                return source_cache[key]
 
     newer = None
     pending = []

@@ -29,14 +29,15 @@ def test_catalog_comes_from_the_registry_not_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HUSSH_GEMINI_TEXT_MODEL", raising=False)
-    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-4-hydrogen")
     choices = model_catalog.selectable_text_models()
     assert [choice.model_id for choice in choices] == [
-        "gemini-3.8-flash",
-    ], "one registry-backed Flash release and no choice (owner decision 2026-10-15)"
+        "gemini-4-hydrogen",
+    ], "one registry-backed release and no choice (owner decision 2026-11-14)"
     assert all(choice.label.startswith("Gemini ") for choice in choices)
-    assert model_catalog.is_selectable_text_model("gemini-3.8-flash")
-    # A stored 3.7 choice is no longer selectable, so it resolves to the lane default.
+    assert model_catalog.is_selectable_text_model("gemini-4-hydrogen")
+    # Stored prior choices are no longer selectable, so they resolve to the lane default.
+    assert not model_catalog.is_selectable_text_model("gemini-3.8-flash")
     assert not model_catalog.is_selectable_text_model("gemini-3.7-flash")
     assert not model_catalog.is_selectable_text_model("gemini-3.6-flash")
     assert not model_catalog.is_selectable_text_model("gemini-3.1-pro-preview")
@@ -46,50 +47,52 @@ def test_catalog_comes_from_the_registry_not_the_environment(
 
 def test_lane_default_is_read_at_call_time(monkeypatch: pytest.MonkeyPatch) -> None:
     """No copy is frozen into the catalog module when it is first imported."""
-    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.7-flash")
-    assert model_catalog.deployment_default_text_model() == "gemini-3.7-flash"
     monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
     assert model_catalog.deployment_default_text_model() == "gemini-3.8-flash"
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-4-hydrogen")
+    assert model_catalog.deployment_default_text_model() == "gemini-4-hydrogen"
     assert any(
-        choice.is_default and choice.model_id == "gemini-3.8-flash"
+        choice.is_default and choice.model_id == "gemini-4-hydrogen"
         for choice in model_catalog.selectable_text_models()
     )
 
 
 @pytest.mark.asyncio
 async def test_person_choice_outranks_the_lane(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.7-flash")
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
 
     async def _stored(user_id: str) -> str | None:
-        return "gemini-3.8-flash" if user_id == "chooser" else None
+        return "gemini-4-hydrogen" if user_id == "chooser" else None
 
     monkeypatch.setattr(prefs, "_stored_choice", _stored)
 
     chosen = await prefs.resolve_text_model("chooser")
-    assert (chosen.model_id, chosen.source) == ("gemini-3.8-flash", prefs.SOURCE_USER)
+    assert (chosen.model_id, chosen.source) == ("gemini-4-hydrogen", prefs.SOURCE_USER)
 
     followed = await prefs.resolve_text_model("someone-else")
-    assert (followed.model_id, followed.source) == ("gemini-3.7-flash", prefs.SOURCE_DEPLOYMENT)
+    assert (followed.model_id, followed.source) == ("gemini-3.8-flash", prefs.SOURCE_DEPLOYMENT)
 
     anonymous = await prefs.resolve_text_model(None)
-    assert anonymous.model_id == "gemini-3.7-flash"
+    assert anonymous.model_id == "gemini-3.8-flash"
     assert anonymous.selected is None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("withdrawn_model", ["gemini-2.0-retired", "gemini-3.6-flash"])
+@pytest.mark.parametrize(
+    "withdrawn_model", ["gemini-2.0-retired", "gemini-3.6-flash", "gemini-3.7-flash"]
+)
 async def test_a_withdrawn_choice_degrades_instead_of_failing_the_turn(
     monkeypatch: pytest.MonkeyPatch,
     withdrawn_model: str,
 ) -> None:
-    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-4-hydrogen")
 
     async def _stored(user_id: str) -> str | None:
         return withdrawn_model
 
     monkeypatch.setattr(prefs, "_stored_choice", _stored)
     resolved = await prefs.resolve_text_model("chooser")
-    assert resolved.model_id == "gemini-3.8-flash", "a stale choice never reaches the provider"
+    assert resolved.model_id == "gemini-4-hydrogen", "a stale choice never reaches the provider"
     assert resolved.source == prefs.SOURCE_DEPLOYMENT
     assert resolved.selected == withdrawn_model, "the stale choice stays visible"
 
@@ -152,10 +155,10 @@ async def test_an_unavailable_model_is_refused_with_the_list_that_is(monkeypatch
     with pytest.raises(prefs.ModelPreferenceError) as caught:
         await prefs.set_preference(user_id="someone", model_id="gemini-3.1-pro-preview")
     assert caught.value.code == "MODEL_NOT_SELECTABLE"
-    assert "gemini-3.8-flash" in str(caught.value)
+    assert "gemini-4-hydrogen" in str(caught.value)
 
     with pytest.raises(prefs.ModelPreferenceError) as missing_user:
-        await prefs.set_preference(user_id="  ", model_id="gemini-3.8-flash")
+        await prefs.set_preference(user_id="  ", model_id="gemini-4-hydrogen")
     assert missing_user.value.code == "USER_REQUIRED"
 
 

@@ -1,11 +1,10 @@
 """Generation-aware Gemini configuration for the two supported text releases.
 
-Owner decision 2026-10-15 rolls support to 3.8 Flash and 3.7 Flash, with 3.8 as
-the fleet default. 3.8 answered the bounded runtime and quality checks on global;
-a separate LOW-thinking function-call probe returned HTTP 200 with the expected
-synthetic tool arguments. The existing MINIMAL-to-LOW policy remains a fleet
-normalization rule, not a claim that MINIMAL was probed on 3.8. Authored MEDIUM
-and HIGH settings pass through. The adapter keeps sampling policy centralized.
+Owner decision 2026-11-14 rolls support to Gemini 4 Hydrogen and 3.8 Flash, with
+gemini-4-hydrogen as the fleet default across home Vertex projects on global.
+The existing MINIMAL-to-LOW policy remains a fleet normalization rule; None
+engages the provider's dynamic auto-thinking default, and authored LOW, MEDIUM,
+and HIGH levels pass through. The adapter keeps sampling policy centralized.
 Unknown model ids pass through without acquiring this compatibility policy.
 """
 
@@ -13,10 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-GEMINI_37_FLASH = "gemini-3.7-flash"
-
-# Newest first. Exactly two ids, consecutive minor releases; the policy test enforces it.
-SUPPORTED_GEMINI_TEXT_MODELS: tuple[str, ...] = ("gemini-3.8-flash", GEMINI_37_FLASH)
+# Newest first. Exactly two ids, consecutive releases; the policy test enforces it.
+SUPPORTED_GEMINI_TEXT_MODELS: tuple[str, ...] = ("gemini-4-hydrogen", "gemini-3.8-flash")
 
 _SUPPORTED_MODEL_NAMES = frozenset(
     name for model in SUPPORTED_GEMINI_TEXT_MODELS for name in (model, f"models/{model}")
@@ -35,10 +32,6 @@ _COERCED_THINKING_LEVEL = "LOW"
 
 def _normalize_model(model: str | None) -> str:
     return str(model or "").strip().lower()
-
-
-def is_gemini_37_flash(model: str | None) -> bool:
-    return _normalize_model(model) in {GEMINI_37_FLASH, f"models/{GEMINI_37_FLASH}"}
 
 
 def is_supported_gemini_text_model(model: str | None) -> bool:

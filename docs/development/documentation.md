@@ -85,7 +85,7 @@ Never weaken a runtime, consent, security or authority contract to make a move p
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py inventory
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```
 
 The link checker covers maintained docs, root `AGENTS.md` and first-party `.agents`

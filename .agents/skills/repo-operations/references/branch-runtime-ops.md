@@ -2,40 +2,32 @@
 Use this reference for repo-operations tasks involving branch preservation,
 push safety, local runtime terminals, deploy cadence, and UAT release gates.
 
-## Branch Preservation
+## Branch Preservation And Active-Base Worktrees
 
-1. Record `git status --short --branch` before branch, CI, deploy, PR, or
-   hotfix work.
-2. Treat the user's active development branch as the return target.
-3. Do NOT create a new branch for follow-up, continuation, or "phase N" work.
-   Continue on the existing development branch the user named or was last on.
-   Creating a branch is a non-routine action: ask the user first, or only do it
-   when the user explicitly requested a new branch.
-4. The ONLY times a new/temporary branch is allowed without asking: explicit
-   user instruction, a hotfix branched from latest `main`, or genuinely unsafe
-   unrelated in-flight changes that must be isolated. "It felt cleaner to
-   isolate the new work" is NOT a valid reason.
-5. When continuation work spans multiple existing branches (e.g. our merged
-   work plus a teammate's feature branch), apply it to each named existing
-   branch via cherry-pick; do not invent a third aggregation branch.
-6. After temporary hotfix merge/validation, delete the temp branch when safe,
-   return to the preserved development branch, and back-sync landed `main`.
-7. If you discover you created a branch you should not have, move the real
-   commits back onto the correct existing branch(es) and delete the stray
-   branch (local AND remote if it was pushed but never merged); state the
-   correction to the user.
-8. Do not leave the workspace detached, parked on `main`, or parked on a temp
-   branch unless the user explicitly asked for that state. If branch switching
-   happened mid-task (including from another terminal), switch BACK to the
-   developer's starting branch before handoff and say so.
-9. HARD CLEANUP RULE: always delete temporary branches you created, both local
-   and remote, once the work is safely preserved on the kept branches. Before
-   deleting, verify every unique commit/file is represented on a branch you are
-   keeping (`git --no-pager log --oneline <kept-branch> | grep <subject>` for
-   each piece). Close any throwaway PR opened from the temp branch. After
-   cleanup, confirm: developer on their branch, no stray local temp branches
-   (`git branch | grep -iE 'ship/|phase|tmp/'`), no stray remote temp branches
-   (`git ls-remote --heads origin '*<name>*'`), no dangling throwaway PRs.
+1. Record `git status --short --branch` and `git worktree list` before branch, CI, deploy, PR, or hotfix work.
+2. Keep the primary root workspace parked cleanly on the **active base branch** (`dev` for normal dev work, or `uat` when explicitly operating on UAT) and synced with `origin/<active-base>`. Never park dirty task experiments directly on the root checkout.
+3. Create an **ephemeral registered task worktree** from fresh `origin/<active-base>` (under `~/.local/share/hushh-task-worktrees/<task>`, registered in the task ownership register per `.agents/instructions.md`) for code/config edits, merges, or sync PRs. When continuing an active user-named feature branch or open PR worktree, keep working there instead of spawning redundant "phase N" branches.
+4. When a fix spans multiple kept branches (`main`, `uat`, `dev`), land to the upstream destination first and cherry-pick or merge cleanly downstream using registered task worktrees; do not invent long-lived aggregation branches.
+5. If you discover an orphaned branch or worktree you created earlier, migrate its unique commits onto the right kept target, remove the stray ref and worktree, and state the correction.
+6. HARD CLEANUP & MULTI-WORKTREE SYNC RULE: every task worktree binds to a canonical
+   base branch (`dev`, `uat`, or `main`) and merges all unique commits into
+   `origin/<base>` through the governed PR queue before teardown. Fetch and
+   fast-forward the root active-base checkout (`dev` or `uat`) and local base
+   tracking refs after merge so parallel checkouts stay in sync. Before clearing
+   caches, unlinking `node_modules`/`.venv` symlinks, or removing a worktree,
+   audit `git worktree list`, `git status --short`, open PRs, and active
+   processes (`ps`/`lsof`) across simultaneous peer worktrees so in-flight peer
+   edits and shared dependencies are never disturbed. Verify every unique
+   commit/file is represented on `origin/<base>` (`git --no-pager log
+   --oneline origin/<base> | grep <subject>`), close any throwaway PR, remove
+   only the registered task worktree without `--force`, and delete task-owned
+   local/remote temporary branches once merged. Preserve all unrelated peer
+   worktrees and untracked env/Firebase configs.
+7. DOWNSTREAM DELTA ORCHESTRATION (`main -> uat -> dev`): synchronize `Main -> UAT`,
+   `Main -> Dev`, and `UAT -> Dev` downstream by behavior while preserving
+   destination-owned migrations and overlays, regenerating destination-scoped
+   contracts (`CapabilityGraphV1`, UI contracts) against the target base, and never
+   wholesale-promoting `dev` upward into `uat` or `main`.
 
 ## Shared Branch A Teammate Is Actively Pushing
 
@@ -95,7 +87,7 @@ fix loops. Use a visible OS terminal window only when the developer explicitly
 asks to watch logs themselves, or when the agent has no managed terminal.
 
 Canonical local runtime = THREE separate in-session terminals, one per
-component. There is no combined `stack` command — it was removed so each
+component, launched from the root workspace aligned on the active base (`dev` by default, or `uat` when explicitly validating UAT) unless an isolated worktree test is explicitly needed and torn down after completion. There is no combined `stack` command — it was removed so each
 component's telemetry stays isolated and readable. Launch each canonical command
 DIRECTLY (not the `terminal` wrapper, which always pops a visible OS window),
 each as its own background/async terminal in the agent:

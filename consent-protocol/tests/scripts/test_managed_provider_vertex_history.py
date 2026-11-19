@@ -106,7 +106,15 @@ def test_vertex_record_preserves_actual_authored_probe_roster(monkeypatch, scope
     assert all("recovered_after_retry" not in row for row in observed["probe_history"])
     aggregate = gate.evaluate({"vertex": observed}, expected)
     assert aggregate["providers"]["vertex"]["ready"] is True
-    assert aggregate["ready"] is False and aggregate["selected_provider"] is None
+    assert aggregate["ready"] is True and aggregate["selected_provider"] == "vertex"
+    azure_doc = {
+        **gate.json.loads(
+            (gate.ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
+        ),
+        "managed_provider_selection": {"uat": "azure_openai"},
+    }
+    standby = gate.evaluate({"vertex": observed}, expected, document=azure_doc)
+    assert standby["ready"] is False and standby["selected_provider"] is None
 
 
 @pytest.mark.parametrize(

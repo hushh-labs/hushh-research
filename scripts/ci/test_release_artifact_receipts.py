@@ -53,6 +53,59 @@ from production_worker_basis_cases import WorkerBasisCases
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
+class ProductionMemberSafetyTest(unittest.TestCase):
+    def test_prefixed_phone_receipt_preserves_archive_and_json_safety(self):
+        import production_phone_receipt as phone
+
+        name = "phone-rollback/plan.json"
+        for defect in (
+            "unlisted",
+            "suffix",
+            "duplicate",
+            "traversal",
+            "absolute",
+            "symlink",
+            "member_size",
+            "total_size",
+            "count",
+            "json_fields",
+        ):
+            with self.subTest(defect=defect):
+                output = io.BytesIO()
+                with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+                    member = "tmp/" + name
+                    if defect == "unlisted":
+                        member = "tmp/initial-lease.json"
+                    elif defect == "suffix":
+                        member = "elsewhere/" + member
+                    entry = zipfile.ZipInfo(member)
+                    if defect == "symlink":
+                        entry.external_attr = 0o120777 << 16
+                    body = '{"source":"one","source":"two"}' if defect == "json_fields" else "{}"
+                    if defect == "member_size":
+                        body = " " * (2 * 1024 * 1024) + "{}"
+                    bundle.writestr(entry, body)
+                    if defect == "duplicate":
+                        bundle.writestr(name, "{}")
+                    elif defect in {"traversal", "absolute"}:
+                        bundle.writestr("../escape" if defect == "traversal" else "/escape", "{}")
+                    elif defect == "total_size":
+                        bundle.writestr("other", " " * (20 * 1024 * 1024))
+                    elif defect == "count":
+                        for number in range(500):
+                            bundle.writestr(f"other-{number}", "{}")
+                requested = "initial-lease.json" if defect == "unlisted" else name
+                with self.assertRaises(phone.retention.UnsafeState):
+                    phone._document(output.getvalue(), requested)
+        valid = io.BytesIO()
+        with zipfile.ZipFile(valid, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr("tmp/phone-rollback/workos-after.json", '{"qualification":"passed"}')
+        self.assertEqual(
+            phone._document(valid.getvalue(), "phone-rollback/workos-after.json"),
+            {"qualification": "passed"},
+        )
+
+
 class ReplayedReleaseFixture:
     environment = "uat"
 
@@ -213,9 +266,7 @@ class ReplayedReleaseFixture:
             self.jobs["jobs"].append(copy.deepcopy(self.jobs["jobs"][0]))
             self.jobs["total_count"] = len(self.jobs["jobs"])
         elif defect == "skipped_job":
-            self.jobs["jobs"][0].update(
-                status="completed", conclusion="skipped", steps=[]
-            )
+            self.jobs["jobs"][0].update(status="completed", conclusion="skipped", steps=[])
         elif defect == "malformed_skip":
             self.jobs["jobs"][0].update(
                 status="completed", conclusion="skipped", steps=[self.upload]
@@ -233,18 +284,16 @@ class ReplayedReleaseFixture:
         elif defect == "lane":
             self.run["path"] = (
                 ".github/workflows/"
-                + MAINTENANCE.LANES[
-                    "production" if self.environment == "uat" else "uat"
-                ]["workflow"]
+                + MAINTENANCE.LANES["production" if self.environment == "uat" else "uat"][
+                    "workflow"
+                ]
             )
         elif defect == "job_name":
             self.jobs["jobs"][0]["name"] = "Another lane's deployment"
         elif defect == "upload_name":
             self.upload["name"] = "Another lane's upload"
         elif defect == "name":
-            self.name = (
-                "prod-release-300" if self.environment == "uat" else "uat-release-300"
-            )
+            self.name = "prod-release-300" if self.environment == "uat" else "uat-release-300"
 
 
 class ReplayedUatReleaseArtifactTest(
@@ -311,9 +360,7 @@ class ReplayedUatReleaseArtifactTest(
                     return_value=subprocess.CompletedProcess([], 0, archive, b""),
                 ) as fetch,
             ):
-                result = MAINTENANCE.load_release(
-                    self.repo, 300, directory, self.environment
-                )
+                result = MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
                 self.assertEqual(result["marker"], "attempt-two")
                 self.assertIn("/artifacts/100/zip", fetch.call_args.args[0][-1])
                 if self.environment == "production":
@@ -350,7 +397,6 @@ class ReplayedUatReleaseArtifactTest(
                         )
 
 
-
 class ReplayedProductionReleaseArtifactTest(
     ProductionReleaseAliasReceiptCases,
     ProductionEvidenceFlagCases,
@@ -374,7 +420,6 @@ class ReplayedProductionReleaseArtifactTest(
     maintenance = MAINTENANCE
 
 
-
 class CheckpointArchiveFixture:
     def setUp(self):
         self.receipts = MAINTENANCE.release_artifact_receipts
@@ -394,9 +439,7 @@ class CheckpointArchiveFixture:
             "completed.json": json.dumps(completed).encode(),
             **{name + ".json": b'{"pending_mutation":null}' for name in self.services},
         }
-        self.missing = {
-            name: value for name, value in self.full.items() if name != "README.txt"
-        }
+        self.missing = {name: value for name, value in self.full.items() if name != "README.txt"}
 
     def archive(self, members, *, mode=None):
         stream = io.BytesIO()
@@ -416,24 +459,16 @@ class CheckpointArchiveCopyTest(CheckpointArchiveFixture, unittest.TestCase):
         with self.assertRaises(MAINTENANCE.retention.UnsafeState):
             self.receipts.checkpoint_archive(archive, self.services)
         with self.assertRaises(MAINTENANCE.retention.UnsafeState):
-            self.receipts.checkpoint_archive(
-                archive, self.services, allow_missing_readme="true"
-            )
+            self.receipts.checkpoint_archive(archive, self.services, allow_missing_readme="true")
         self.assertEqual(
-            self.receipts.checkpoint_archive(
-                archive, self.services, allow_missing_readme=True
-            ),
+            self.receipts.checkpoint_archive(archive, self.services, allow_missing_readme=True),
             self.missing,
         )
         for members, mode in (
             ({**self.full, "../outside.json": b"{}"}, None),
             (self.full, 0o120777),
             (
-                {
-                    name: value
-                    for name, value in self.missing.items()
-                    if name != "completed.json"
-                },
+                {name: value for name, value in self.missing.items() if name != "completed.json"},
                 None,
             ),
         ):

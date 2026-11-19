@@ -23,7 +23,7 @@
     "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
-    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
     "./bin/hushh agents audit",
     "cd packages/hushh-mcp && npm run print-config"
   ],
@@ -31,12 +31,12 @@
     {
       "id": "hushh-consent-mcp",
       "commands": [
-        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
         "./bin/hushh agents audit",
         "cd packages/hushh-mcp && npm run print-config"
       ],
       "tests": [
-        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
         "./bin/hushh agents audit"
       ]
     }

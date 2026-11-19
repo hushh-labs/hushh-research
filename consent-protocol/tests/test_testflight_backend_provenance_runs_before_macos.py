@@ -62,12 +62,18 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     "path,allowed",
     [
         ("hushh-webapp/scripts/testing/phone-conflict-flow.mjs", True),
+        ("hushh-webapp/scripts/testing/benchmark-advisor-matching.mjs", True),
+        ("hushh-webapp/scripts/testing/build-advisor-preview.mjs", True),
         ("hushh-webapp/scripts/testing/phone-conflict-flow-helper.mjs", False),
+        ("hushh-webapp/scripts/testing/benchmark-advisor-matching-helper.mjs", False),
+        ("hushh-webapp/scripts/testing/build-advisor-preview-helper.mjs", False),
         ("hushh-webapp/scripts/native/ios-firebase-config.mjs", False),
         ("hushh-webapp/package.json", False),
+        ("hushh-webapp/package-lock.json", False),
+        ("hushh-webapp/ios/App/App.xcodeproj/project.pbxproj", False),
     ],
 )
-def test_signing_parity_ignores_only_the_uninvoked_phone_diagnostic(tmp_path, path, allowed):
+def test_signing_parity_ignores_only_exact_uninvoked_diagnostics(tmp_path, path, allowed):
     def git(*args):
         return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
             ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL

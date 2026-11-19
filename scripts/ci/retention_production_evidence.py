@@ -84,6 +84,37 @@ SOURCE_PROFILES = (
     },
 )
 
+# Reviewed Main212986: the static manual controller refuses publication before
+# restoring cleanup state or touching provider resources. Its separate earlier
+# operational-reference step retains its own immutable intent and tag readback.
+# This is historical absence-of-cleanup evidence, never current release authority.
+MANUAL_STATIC_SOURCE_SHA = "212986079daab42038119fba15d6023f4ac7087c"
+MANUAL_STATIC_SOURCE_PROFILE = {
+    base.OWNER: ("cda6877dbbc5fd5f838e1a73ca771fcf0843b783", 96172),
+    base.WORKFLOW: ("943a4ac0772fbc110baa1bbcedf3d0764d217ba3", 21387),
+    PUBLICATION: ("13c9c2f6400ede6400eb5cd6637c607f14ab93de", 30462),
+    "scripts/ci/retention_pass_diagnostics.py": ("855d2f936eb49d67c4f4e1c58847e0da40f183dc", 6576),
+}
+MANUAL_STATIC_SOURCE_PROFILES = {
+    MANUAL_STATIC_SOURCE_SHA: MANUAL_STATIC_SOURCE_PROFILE,
+    # Main c9029800 (failed attempt 43889925748/1): same static manual guard
+    # refusing at stage=publication_guard before restore_state or provider access.
+    "c902980098072633483305631271bbd084641689": {
+        base.OWNER: ("22da863c84a521ff38edef8f83c630f3dd44a2d9", 97467),
+        base.WORKFLOW: ("943a4ac0772fbc110baa1bbcedf3d0764d217ba3", 21387),
+        PUBLICATION: ("ef6ba0e9048f0be6fcd434f5c8168c68ed50f311", 30879),
+        "scripts/ci/retention_pass_diagnostics.py": ("855d2f936eb49d67c4f4e1c58847e0da40f183dc", 6576),
+    },
+    # Main ab0ef1a7 (failed attempt 43901186548/1): same static manual guard
+    # refusing at stage=publication_guard before restore_state or provider access.
+    "ab0ef1a7170693366d62dab640d479a66b799b07": {
+        base.OWNER: ("22da863c84a521ff38edef8f83c630f3dd44a2d9", 97467),
+        base.WORKFLOW: ("943a4ac0772fbc110baa1bbcedf3d0764d217ba3", 21387),
+        PUBLICATION: ("aa583855b133bdd83089efdfd3a1f515951c4f20", 30966),
+        "scripts/ci/retention_pass_diagnostics.py": ("855d2f936eb49d67c4f4e1c58847e0da40f183dc", 6576),
+    },
+}
+
 # GitHub prints this setup action input's multi-line default without line stamps.
 # Only this exact block, directly after its exact header, inherits that header's
 # stamp; every other unstamped line still refuses, and all content is still scanned.
@@ -325,6 +356,31 @@ def qualify_guard_run(
         )
     if not isinstance(run, dict) or not isinstance(job, dict):
         return None
+    static = job.get("name") == "Production revision maintenance"
+    if static:
+        from retention_production_profile_evidence import _static_cleanup_view
+        from release_acceptance_provenance import historical_human_dispatch
+
+        if (not historical_human_dispatch(run) or type(job.get("run_id")) is not int):
+            return None
+        created, started, completed = (
+            base._stamp(run.get("created_at")), base._stamp(job.get("started_at")),
+            base._stamp(job.get("completed_at")),
+        )
+        if not (created and started and completed and created <= started <= completed):
+            return None
+        job = _static_cleanup_view(job, manual=True)
+        if job is None:
+            return None
+    reviewed = _reviewed(source_blobs, workflow_blob)
+    if static:
+        profile = MANUAL_STATIC_SOURCE_PROFILES.get(str(run.get("head_sha", "")))
+        expected = (
+            {path: {"sha": sha, "size": size} for path, (sha, size) in profile.items()}
+            if profile is not None
+            else None
+        )
+        reviewed = expected is not None and source_blobs == expected and workflow_blob == expected[base.WORKFLOW]
     common = (
         repository == base.REPOSITORY
         and environment == ENVIRONMENT
@@ -344,10 +400,11 @@ def qualify_guard_run(
             for key in ("repository", "head_repository")
         )
     )
+    clock_bound_manual = static and not _steps_match(job)
     if (
         not common
-        or not _reviewed(source_blobs, workflow_blob)
-        or not _steps_match(job)
+        or not reviewed
+        or not _steps_match(job, clock_bound=clock_bound_manual)
     ):
         return None
     if not (
@@ -362,8 +419,20 @@ def qualify_guard_run(
     ):
         return None
     rows = _raw_rows(log, job)
-    checkout = actual_checkout(log, job)
-    if rows is None or checkout is None or not _guard_failure(rows, job):
+    checkout = actual_checkout(log, job, clock_bound=clock_bound_manual)
+    diagnostic_hash = (
+        "92a62086059b8a9de7bcc8ef9a6bace61a84731476492166f64be4189e855313"
+        if static else None
+    )
+    if (rows is None or checkout is None
+            or (static and (checkout != run["head_sha"] or checkout not in MANUAL_STATIC_SOURCE_PROFILES))
+            or not _guard_failure(
+                rows,
+                job,
+                expected_diagnostic_sha256=diagnostic_hash,
+                clock_bound=clock_bound_manual,
+                allow_clock_records=clock_bound_manual,
+            )):
         return None
     return {
         "run_id": run["id"],

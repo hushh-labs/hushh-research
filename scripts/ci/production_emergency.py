@@ -28,9 +28,27 @@ def require(condition: object, message: str) -> None:
         raise ValueError(message)
 
 
+def _phase_admitted(inputs: dict, *, refresh: bool) -> bool:
+    phone_phase = inputs.get("phone_phase", "standard")
+    worker_stage_run = inputs.get("phone_worker_stage_run_id", "")
+    if refresh:
+        return phone_phase == "standard" and not worker_stage_run
+    if phone_phase == "worker":
+        return inputs.get("scope") == "backend" and not worker_stage_run
+    return phone_phase == "standard" and (
+        not worker_stage_run
+        or (
+            bool(re.fullmatch(r"[1-9][0-9]*", str(worker_stage_run)))
+            and inputs.get("scope", "auto") in {"auto", "all", "backend"}
+        )
+    )
+
+
 def dispatch(event: dict, environment: dict, policy: dict) -> dict:
     inputs = event.get("inputs") or {}
-    refresh = importlib.import_module("production_auth_domain_refresh").validate_inputs(inputs)
+    refresh = importlib.import_module("production_auth_domain_refresh").validate_inputs(
+        inputs
+    )
     source_ref = inputs.get("emergency_source_ref", "")
     reason = inputs.get("emergency_reason", "")
     if not source_ref and not reason:
@@ -46,7 +64,10 @@ def dispatch(event: dict, environment: dict, policy: dict) -> dict:
         "Emergency production requires the trusted Main manual workflow",
     )
     from github_team_authority import request_operation_authority
-    request_operation_authority(environment, "production", environment.get("GITHUB_ACTOR"), protected=True)
+
+    request_operation_authority(
+        environment, "production", environment.get("GITHUB_ACTOR"), protected=True
+    )
     require(
         isinstance(source_ref, str)
         and 1 <= len(source_ref) <= 160
@@ -68,13 +89,12 @@ def dispatch(event: dict, environment: dict, policy: dict) -> dict:
         "restoration_activation_attempt",
         "phone_rollback_sha",
         "phone_activation_run_id",
-        "phone_worker_stage_run_id",
         "phone_schema_origin_run_id",
         "phone_schema_origin_attempt",
     )
     require(
         not any(inputs.get(key) for key in incompatible)
-        and inputs.get("phone_phase", "standard") == "standard"
+        and _phase_admitted(inputs, refresh=refresh)
         and inputs.get("backend_image_source", "build-from-source")
         == "build-from-source"
         and inputs.get("drive_live_mode", "preserve") == "preserve"
@@ -216,10 +236,12 @@ def admit(authority: dict, observed: dict, scope: str, *, run=command) -> dict:
         refresh = importlib.import_module("production_auth_domain_refresh")
         refresh.validate_source(receipt, run=run)
         control = importlib.import_module("production_backend_successor_control")
-        profile = control.current_auth_domain_acceptance_profile(observed, revalidate_live=False)
+        profile = control.current_auth_domain_acceptance_profile(
+            observed, revalidate_live=False
+        )
         revision = provider("revisions", observed["backend"]["revision"])
-        receipt["backend_acceptance_origin"] = refresh.qualify_backend_acceptance_origin(
-            receipt, profile, revision
+        receipt["backend_acceptance_origin"] = (
+            refresh.qualify_backend_acceptance_origin(receipt, profile, revision)
         )
     return receipt
 

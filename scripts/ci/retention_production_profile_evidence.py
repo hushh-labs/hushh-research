@@ -20,6 +20,13 @@ APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
 # This reviewed contract reaches publication admission before provider mutation.
 # Compare its actual blobs, not a mutable Main ref or an invented historical profile.
 STATIC_GUARD_SOURCE = "b31636cee1f7281688d58b54e0445ddf717e825e"
+# The reviewed activation/worker readers changed the owner tuple, while
+# publication admission still precedes every provider mutation.
+STATIC_GUARD_SOURCES = (
+    STATIC_GUARD_SOURCE,
+    "619e37615f35d11b79909420f23cf0d5a75b679b",
+    "ab0ef1a7170693366d62dab640d479a66b799b07",
+)
 STATIC_GUARD_PATHS = (*production.SOURCE_PATHS, records.PASS_DIAGNOSTICS)
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
 PROFILE_NAME = "publication-aec6-blobless-v2"
@@ -506,26 +513,36 @@ def _clock_proof(owner, repository, worker_run, candidate):
     return record, proof
 
 
-def _static_cleanup_view(job):
+def _static_cleanup_view(job, *, manual=False):
     """Adapt only the exact authored labels for existing pure transcript checks."""
     from retention_production_clock_evidence import CLOCK_BOUND_STEP_NAMES
 
     steps = job.get("steps")
     modes = ("Maintenance mode: inspection", "Maintenance mode: cleanup")
-    names = (CLOCK_BOUND_STEP_NAMES[0], *modes, *CLOCK_BOUND_STEP_NAMES[1:])
-    if not isinstance(steps, list) or len(steps) != len(names):
+    candidates = (
+        ((production.STEP_NAMES, False), (CLOCK_BOUND_STEP_NAMES, True))
+        if manual
+        else ((CLOCK_BOUND_STEP_NAMES, True),)
+    )
+    if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
         return None
-    if any(not isinstance(step, dict) for step in steps):
-        return None
-    numbers = [step.get("number") for step in steps]
-    if (tuple(step.get("name") for step in steps) != names
+    for expected, clock_bound in candidates:
+        names = (expected[0], *modes, *expected[1:])
+        if len(steps) != len(names):
+            continue
+        numbers = [step.get("number") for step in steps]
+        if (
+            tuple(step.get("name") for step in steps) != names
             or any(type(number) is not int or number < 1 for number in numbers)
             or numbers != sorted(set(numbers))
             or any(steps[i].get("status") != "completed" for i in (1, 2))
-            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]):
-        return None
-    view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
-    return view if production._steps_match(view, clock_bound=True) else None
+            or [steps[i].get("conclusion") for i in (1, 2)] != ["skipped", "success"]
+        ):
+            continue
+        view = {**job, "name": production.JOB, "steps": [steps[0], *steps[3:]]}
+        if production._steps_match(view, clock_bound=clock_bound):
+            return view
+    return None
 
 
 def qualify_source_refusal(
@@ -553,14 +570,14 @@ def qualify_source_refusal(
         )
     }
     if static:
-        approved = source_reader(owner, repository, STATIC_GUARD_SOURCE, STATIC_GUARD_PATHS)
-        _require(owner, isinstance(approved, dict) and set(approved) == set(STATIC_GUARD_PATHS),
-                 "reviewed static guard source is incomplete")
-        current_profiles = {
-            STATIC_GUARD_SOURCE: {
+        current_profiles = {}
+        for reference in STATIC_GUARD_SOURCES:
+            approved = source_reader(owner, repository, reference, STATIC_GUARD_PATHS)
+            _require(owner, isinstance(approved, dict) and set(approved) == set(STATIC_GUARD_PATHS),
+                     "reviewed static guard source is incomplete")
+            current_profiles[reference] = {
                 path: (blob["sha"], blob["size"]) for path, blob in approved.items()
             }
-        }
     checkout = run["head_sha"]
     core = source_reader(owner, repository, checkout, production.SOURCE_PATHS)
     _require(

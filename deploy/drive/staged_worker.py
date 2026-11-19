@@ -37,9 +37,7 @@ RECORDED_EXPIRED_UID = "5f167ea5-0c42-4409-a9f1-b626f3297892"
 
 def run(command: list[str], *, timeout: int = 120) -> bytes:
     # Reuse the existing bounded subprocess/group owner; no detached SDK child.
-    return run_path(str(ROOT / "deploy/phone/qualify_image.py"))["run"](
-        command, timeout=timeout
-    )
+    return run_path(str(ROOT / "deploy/phone/qualify_image.py"))["run"](command, timeout=timeout)
 
 
 def gcloud(*args: str) -> dict | list:
@@ -142,6 +140,30 @@ def service(*, expected_uid=None) -> dict:
     return value
 
 
+def _strip_stale_startup_traffic(value: dict, desired: list, actual: list, serving: str) -> list:
+    template_name = value.get("spec", {}).get("template", {}).get("metadata", {}).get("name", "")
+    status = value.get("status", {})
+    if (
+        not re.fullmatch(SERVICE + r"-s-[1-9][0-9]*-[1-9][0-9]*", str(template_name))
+        or template_name == serving
+        or status.get("latestCreatedRevisionName") != template_name
+        or status.get("latestReadyRevisionName") != serving
+        or any(item.get("revisionName") == template_name for item in actual)
+    ):
+        return desired
+    stale = startup_target({"candidate": template_name})
+    return [
+        row
+        for row in desired
+        if not (
+            row.get("revisionName") == stale["revisionName"]
+            and row.get("tag") == stale["tag"]
+            and row.get("percent", 0) == 0
+            and not row.get("latestRevision")
+        )
+    ]
+
+
 def traffic(value: dict) -> list:
     desired = value.get("spec", {}).get("traffic")
     actual = value.get("status", {}).get("traffic")
@@ -160,7 +182,7 @@ def traffic(value: dict) -> list:
         or desired_positive[0].get("revisionName") != positive[0].get("revisionName")
     ):
         raise ValueError("worker_requires_exact_existing_100_percent_revision")
-    return desired
+    return _strip_stale_startup_traffic(value, desired, actual, positive[0]["revisionName"])
 
 
 def snapshot(path: Path, value: dict) -> str:
@@ -223,52 +245,101 @@ def recovery_stage(fields):
     return fields["source"] == RECOVERY["APPLICATION_SHA"]
 
 
+def startup_required(fields: dict) -> bool:
+    return recovery_stage(fields) or fields.get("protected") == "true"
+
+
+def _unserved_staged_template(
+    value: dict, prior: dict, fields: dict, old: dict, template_name: object
+) -> dict:
+    same_spec = VERIFIER["same_worker_spec"]
+    if recovery_stage(fields):
+        if (
+            prior["uid"] != RECORDED_WORKER_UID
+            or prior["serving"] != RECORDED_SERVING
+            or old["metadata"].get("uid") != RECORDED_SERVING_UID
+            or template_name != RECORDED_EXPIRED
+            or value["status"].get("latestCreatedRevisionName") != RECORDED_EXPIRED
+            or value["status"].get("latestReadyRevisionName") != RECORDED_EXPIRED
+            or any(
+                target.get("revisionName") == RECORDED_EXPIRED
+                for target in [*prior["traffic"], *value["status"]["traffic"]]
+            )
+        ):
+            raise ValueError("worker_latest_template_is_not_serving_revision")
+        expired = revision(RECORDED_EXPIRED)
+        if expired["metadata"].get("uid") != RECORDED_EXPIRED_UID or not same_spec(
+            value["spec"]["template"]["spec"], expired["spec"]
+        ):
+            raise ValueError("worker_recorded_expired_template_changed")
+        return expired
+    if (
+        not re.fullmatch(SERVICE + r"-s-[1-9][0-9]*-[1-9][0-9]*", str(template_name or ""))
+        or value["status"].get("latestCreatedRevisionName") != template_name
+        or value["status"].get("latestReadyRevisionName") not in {template_name, prior["serving"]}
+        or any(
+            target.get("revisionName") == template_name
+            for target in [*prior["traffic"], *value["status"]["traffic"]]
+        )
+    ):
+        raise ValueError("worker_latest_template_is_not_serving_revision")
+    unserved = revision(str(template_name))
+    if not unserved["metadata"].get("uid") or not same_spec(
+        value["spec"]["template"]["spec"], unserved["spec"]
+    ):
+        raise ValueError("worker_latest_template_is_not_serving_revision")
+    return unserved
+
+
 def stage_template(value, prior, fields, version, name):
     old = revision(prior["serving"])
     template = value["spec"]["template"]
     template_name = template.get("metadata", {}).get("name")
     same_spec = VERIFIER["same_worker_spec"]
     if template_name != prior["serving"] or not same_spec(template["spec"], old["spec"]):
-        if (
-            not recovery_stage(fields)
-            or prior["uid"] != RECORDED_WORKER_UID
-            or prior["serving"] != RECORDED_SERVING
-            or old["metadata"].get("uid") != RECORDED_SERVING_UID
-            or template_name != RECORDED_EXPIRED
-            or value["status"].get("latestCreatedRevisionName") != RECORDED_EXPIRED
-            or value["status"].get("latestReadyRevisionName") != RECORDED_EXPIRED
-            or any(target.get("revisionName") == RECORDED_EXPIRED
-                   for target in [*prior["traffic"], *value["status"]["traffic"]])
-        ):
-            raise ValueError("worker_latest_template_is_not_serving_revision")
-        expired = revision(RECORDED_EXPIRED)
-        if (
-            expired["metadata"].get("uid") != RECORDED_EXPIRED_UID
-            or not same_spec(template["spec"], expired["spec"])
-        ):
-            raise ValueError("worker_recorded_expired_template_changed")
+        _unserved_staged_template(value, prior, fields, old, template_name)
         ignored = {
-            "run.googleapis.com/operation-id", "serving.knative.dev/creator",
+            "run.googleapis.com/operation-id",
+            "serving.knative.dev/creator",
             "serving.knative.dev/lastModifier",
         }
-        annotations = {key: val for key, val in old["metadata"].get("annotations", {}).items()
-                       if key not in ignored}
-        if annotations != template["metadata"].get("annotations", {}):
+        annotations = {
+            key: val
+            for key, val in old["metadata"].get("annotations", {}).items()
+            if key not in ignored
+            and not (key == "run.googleapis.com/health-check-disabled" and val == "false")
+        }
+        observed_annotations = {
+            key: val
+            for key, val in template["metadata"].get("annotations", {}).items()
+            if not (key == "run.googleapis.com/health-check-disabled" and val == "false")
+        }
+        if annotations != observed_annotations:
             raise ValueError("worker_serving_template_controls_changed")
-        labels = {key: val for key, val in old["metadata"]["labels"].items()
-                  if not key.startswith(("serving.knative.dev/", "cloud.googleapis.com/",
-                                         "run.googleapis.com/"))}
+        labels = {
+            key: val
+            for key, val in old["metadata"]["labels"].items()
+            if not key.startswith(
+                ("serving.knative.dev/", "cloud.googleapis.com/", "run.googleapis.com/")
+            )
+        }
         spec = copy.deepcopy(old["spec"])
         scanner = next(item for item in spec["containers"] if item["name"] == "clamav")
         scanner["image"] = f"clamav/clamav@{SCANNER_INDEX}"
         template = {"metadata": {"annotations": annotations, "labels": labels}, "spec": spec}
-    verify(old, {
-        "source": old["metadata"]["labels"]["deploy-sha"],
-        "image": next(item["image"] for item in old["spec"]["containers"]
-                      if item["name"] == "drive-worker"),
-    })
+    verify(
+        old,
+        {
+            "source": old["metadata"]["labels"]["deploy-sha"],
+            "image": next(
+                item["image"]
+                for item in old["spec"]["containers"]
+                if item["name"] == "drive-worker"
+            ),
+        },
+    )
     result = candidate({"spec": {"template": template}}, fields, version, name)
-    if recovery_stage(fields):
+    if startup_required(fields):
         result["metadata"]["annotations"]["run.googleapis.com/health-check-disabled"] = "false"
     return result
 
@@ -285,19 +356,24 @@ def startup_verified(value, actual, receipt):
     return (
         value["status"].get("latestCreatedRevisionName") == name
         and value["status"].get("latestReadyRevisionName") == name
-        and any(row.get("type") == "ContainerHealthy" and row.get("status") == "True"
-                for row in actual.get("status", {}).get("conditions", []))
+        and any(
+            row.get("type") == "ContainerHealthy" and row.get("status") == "True"
+            for row in actual.get("status", {}).get("conditions", [])
+        )
     )
 
 
-def worker_startup_state(value, receipt, scheduler_hash):
+def worker_startup_state(value, receipt, scheduler_hash, *, require_status=True):
     tag = startup_target(receipt)
     normalized = copy.deepcopy(value)
     found = []
     for lane in ("spec", "status"):
         rows = value[lane]["traffic"]
-        owned = [row for row in rows if row.get("tag") == tag["tag"]
-                 or row.get("revisionName") == receipt["candidate"]]
+        owned = [
+            row
+            for row in rows
+            if row.get("tag") == tag["tag"] or row.get("revisionName") == receipt["candidate"]
+        ]
         if owned and (
             len(owned) != 1
             or owned[0].get("tag") != tag["tag"]
@@ -309,27 +385,32 @@ def worker_startup_state(value, receipt, scheduler_hash):
         found.append(bool(owned))
         normalized[lane]["traffic"] = [row for row in rows if row not in owned]
     continuity(normalized, receipt, scheduler_hash, allow_retirement=False)
-    if found[0] != found[1]:
+    if require_status and found[0] != found[1]:
         raise PendingWorkerReadback("worker_startup_route_unreconciled")
-    return found[0]
+    return found[0] or found[1]
 
 
 def finish_recovery_startup(receipt, template, scheduler_hash):
     candidate_uid = None
 
-    def observe(*, started=False, untagged=False):
+    def observe(*, started=False, untagged=False, require_status=True):
         nonlocal candidate_uid
         for attempt in range(7):
             try:
                 after = service(expected_uid=receipt["baseline"]["uid"])
-                if (candidate_uid is None
-                        and fingerprint(after["spec"]["template"]) == receipt["baseline_template"]):
+                if (
+                    candidate_uid is None
+                    and fingerprint(after["spec"]["template"]) == receipt["baseline_template"]
+                ):
                     continuity(after, receipt, scheduler_hash, allow_retirement=False)
                     raise PendingWorkerReadback("worker_submitted_template_unobserved")
                 actual = revision(receipt["candidate"])
                 if (
-                    after["spec"]["template"].get("metadata", {}).get("name") != receipt["candidate"]
-                    or not VERIFIER["same_worker_spec"](template["spec"], after["spec"]["template"]["spec"])
+                    after["spec"]["template"].get("metadata", {}).get("name")
+                    != receipt["candidate"]
+                    or not VERIFIER["same_worker_spec"](
+                        template["spec"], after["spec"]["template"]["spec"]
+                    )
                     or not VERIFIER["same_worker_spec"](template["spec"], actual["spec"])
                     or not actual["metadata"].get("uid")
                 ):
@@ -338,18 +419,30 @@ def finish_recovery_startup(receipt, template, scheduler_hash):
                 if candidate_uid is not None and observed_uid != candidate_uid:
                     raise ValueError("worker_staged_revision_changed")
                 candidate_uid = observed_uid
-                tagged = worker_startup_state(after, receipt, scheduler_hash)
+                tagged = worker_startup_state(
+                    after, receipt, scheduler_hash, require_status=require_status
+                )
                 if started and not startup_verified(after, actual, receipt):
                     raise PendingWorkerReadback("worker_provider_startup_unqualified")
                 if untagged and tagged:
-                    raise PendingWorkerReadback("worker_startup_tag_removal_unresolved_repair_required")
+                    raise PendingWorkerReadback(
+                        "worker_startup_tag_removal_unresolved_repair_required"
+                    )
                 return after, actual, tagged
-            except (PendingWorkerReadback, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            except (
+                PendingWorkerReadback,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+            ) as error:
                 if attempt == 6:
-                    outcome = "worker_provider_startup_unqualified" if (
-                        isinstance(error, PendingWorkerReadback)
-                        and str(error) == "worker_provider_startup_unqualified"
-                    ) else "worker_provider_readback_unresolved_repair_required"
+                    outcome = (
+                        "worker_provider_startup_unqualified"
+                        if (
+                            isinstance(error, PendingWorkerReadback)
+                            and str(error) == "worker_provider_startup_unqualified"
+                        )
+                        else "worker_provider_readback_unresolved_repair_required"
+                    )
                     raise ValueError(outcome) from error
                 time.sleep(3)
 
@@ -358,7 +451,7 @@ def finish_recovery_startup(receipt, template, scheduler_hash):
     try:
         after, actual, _ = observe(started=True)
     finally:
-        after, actual, tagged = observe()
+        after, actual, tagged = observe(require_status=False)
         if tagged:
             try:
                 submit(after, after["spec"]["template"], targets=receipt["baseline"]["traffic"])
@@ -380,8 +473,7 @@ def prepare(path: Path, release_basis_path: Path | None = None) -> None:
             json.loads(annotations.get("run.googleapis.com/custom-audiences", "[]"))
             != ["https://api.hushh.ai"]
         )
-        or annotations.get("run.googleapis.com/invoker-iam-disabled", "false")
-        != "false"
+        or annotations.get("run.googleapis.com/invoker-iam-disabled", "false") != "false"
     ):
         raise ValueError("worker_private_service_controls_mismatch")
     secret = gcloud(
@@ -392,17 +484,13 @@ def prepare(path: Path, release_basis_path: Path | None = None) -> None:
         f"--secret={fields['config_secret']}",
     )
     version = secret.get("name", "").rsplit("/", 1)[-1]
-    if (
-        not version.isascii()
-        or not version.isdecimal()
-        or secret.get("state") != "ENABLED"
-    ):
+    if not version.isascii() or not version.isdecimal() or secret.get("state") != "ENABLED":
         raise ValueError("worker_config_version_unavailable")
     name = f"{SERVICE}-s-{fields['run_id']}-{fields['attempt']}"
     if len(name) > 63:
         raise ValueError("worker_staged_revision_name_too_long")
     template = stage_template(value, prior, fields, version, name)
-    if recovery_stage(fields) and any(
+    if startup_required(fields) and any(
         row.get("tag") == startup_target({"candidate": name})["tag"]
         for row in [*prior["traffic"], *value["status"]["traffic"]]
     ):
@@ -426,9 +514,7 @@ def prepare(path: Path, release_basis_path: Path | None = None) -> None:
     )
 
 
-def continuity(
-    value: dict, receipt: dict, scheduler_hash: str, *, allow_retirement: bool
-) -> None:
+def continuity(value: dict, receipt: dict, scheduler_hash: str, *, allow_retirement: bool) -> None:
     expected = receipt["baseline"]
     observed = baseline(value, scheduler_hash)
     old_traffic, new_traffic = expected["traffic"], observed["traffic"]
@@ -436,8 +522,7 @@ def continuity(
         # Ordinary retention may remove only obsolete zero-traffic targets.
         observed["traffic"] = old_traffic
         if any(item not in old_traffic for item in new_traffic) or any(
-            item.get("percent", 0) > 0 and item not in new_traffic
-            for item in old_traffic
+            item.get("percent", 0) > 0 and item not in new_traffic for item in old_traffic
         ):
             raise ValueError("worker_traffic_changed_since_staging")
     if observed != expected:
@@ -492,23 +577,26 @@ def stage(path: Path) -> None:
     )
     if fingerprint(value["spec"]["template"]) != receipt["baseline_template"]:
         raise ValueError("worker_baseline_template_changed")
-    rows = gcloud(
-        "run", "revisions", "list", f"--service={SERVICE}", f"--region={REGION}"
-    )
+    rows = gcloud("run", "revisions", "list", f"--service={SERVICE}", f"--region={REGION}")
     if not isinstance(rows, list) or any(
         row.get("metadata", {}).get("name") == receipt["candidate"] for row in rows
     ):
         raise ValueError("worker_stage_outcome_already_exists_or_unknown")
     template = stage_template(
-        value, receipt["baseline"], receipt["context"], receipt["config_version"],
+        value,
+        receipt["baseline"],
+        receipt["context"],
+        receipt["config_version"],
         receipt["candidate"],
     )
     if fingerprint(template) != receipt["template"]:
         raise ValueError("worker_stage_template_intent_mismatch")
     scheduler_hash = fingerprint(json.loads(scheduler.read_bytes()))
-    if recovery_stage(receipt["context"]):
+    if startup_required(receipt["context"]):
         try:
-            submit(value, template, targets=[*receipt["baseline"]["traffic"], startup_target(receipt)])
+            submit(
+                value, template, targets=[*receipt["baseline"]["traffic"], startup_target(receipt)]
+            )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass  # Reconcile the one submitted candidate; never create a second.
         after, actual = finish_recovery_startup(receipt, template, scheduler_hash)
@@ -556,10 +644,12 @@ def validate(receipt: dict, snapshot_path: Path, *, allow_retirement: bool) -> d
     )
     actual = revision(receipt["candidate"])
     verify(actual, receipt["context"], receipt["config_version"])
-    if recovery_stage(receipt["context"]) and (
+    if startup_required(receipt["context"]) and (
         not startup_verified(value, actual, receipt)
-        or any(target.get("revisionName") == receipt["candidate"]
-               for target in [*value["spec"]["traffic"], *value["status"]["traffic"]])
+        or any(
+            target.get("revisionName") == receipt["candidate"]
+            for target in [*value["spec"]["traffic"], *value["status"]["traffic"]]
+        )
     ):
         raise ValueError("worker_staged_provider_startup_changed")
     config = gcloud(
@@ -599,9 +689,7 @@ def admission(path: Path, snapshot_path: Path, *, prepare_only: bool) -> str:
             {
                 **receipt,
                 "status": "activation_prepared",
-                "baseline": baseline(
-                    value, fingerprint(json.loads(snapshot_path.read_bytes()))
-                ),
+                "baseline": baseline(value, fingerprint(json.loads(snapshot_path.read_bytes()))),
                 "expires": min(receipt["expires"], int(time.time()) + 900),
                 "staged_sha256": hashlib.sha256(staged.read_bytes()).hexdigest(),
             },
@@ -611,9 +699,7 @@ def admission(path: Path, snapshot_path: Path, *, prepare_only: bool) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "phase", choices=("prepare", "stage", "prepare-activation", "activate")
-    )
+    parser.add_argument("phase", choices=("prepare", "stage", "prepare-activation", "activate"))
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--release-basis", type=Path)
     parser.add_argument("--scheduler-snapshot", type=Path)
@@ -642,11 +728,7 @@ def main() -> int:
         RuntimeError,
         subprocess.SubprocessError,
     ) as error:
-        reason = (
-            str(error)
-            if re.fullmatch(r"worker_[a-z_]+", str(error))
-            else type(error).__name__
-        )
+        reason = str(error) if re.fullmatch(r"worker_[a-z_]+", str(error)) else type(error).__name__
         print(f"Drive worker stage refused: {reason}", file=sys.stderr)
         return 1
     return 0

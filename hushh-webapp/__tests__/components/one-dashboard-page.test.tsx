@@ -1,6 +1,6 @@
 vi.mock("@/components/wallet/wallet-entry-warmup", () => ({ WalletEntryWarmup: () => null }));
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
@@ -17,7 +17,8 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getCurrentUser: () => ({ uid: schedule.owner }) },
 }));
-vi.mock("@/lib/services/pod-scheduled-tasks", () => ({
+vi.mock("@/lib/services/pod-scheduled-tasks", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/pod-scheduled-tasks")>(),
   PodScheduledTasksClient: class {
     status = schedule.status;
   },
@@ -25,13 +26,22 @@ vi.mock("@/lib/services/pod-scheduled-tasks", () => ({
 vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: () => undefined }));
 
 describe("Scheduled tasks placement", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     schedule.owner = "owner";
     publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionOwner(schedule.owner);
     schedule.hosting.mockReset();
     schedule.status.mockReset();
     schedule.status.mockResolvedValue({ available: true, tasks: [] });
+  });
+  it("hides production scheduling without reading hosting or admitting a pod", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    render(<OneDashboardPage userId="owner" />);
+    expect(screen.queryByRole("button", { name: "Scheduled tasks" })).toBeNull();
+    expect(schedule.hosting).not.toHaveBeenCalled();
+    expect(schedule.status).not.toHaveBeenCalled();
   });
   it("explains the Shared limit without admitting or waking a pod", async () => {
     schedule.hosting.mockResolvedValue({ hostingMode: "shared" });

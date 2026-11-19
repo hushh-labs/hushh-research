@@ -5,6 +5,7 @@ import contextvars
 import copy
 import hashlib
 import json
+from itertools import product
 import subprocess
 import sys
 import threading
@@ -1007,7 +1008,7 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                         owner, base.REPOSITORY, ancestor, descendant
                     )
 
-    def _static_refusal(self):
+    def _static_refusal(self, source=profile_evidence.STATIC_GUARD_SOURCE):
         case = list(self._case(source_profile="publication-pass-diagnostics-v4"))
         run, job = case[2:4]
         old_sha, run["head_sha"] = run["head_sha"], "e" * 40
@@ -1023,18 +1024,20 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         for number, step in enumerate(job["steps"], start=1):
             step["number"] = number
         root = Path(__file__).resolve().parents[2]
-        anchor = {}
-        for path in profile_evidence.STATIC_GUARD_PATHS:
-            blob = subprocess.check_output(
-                ["git", "show", f"{profile_evidence.STATIC_GUARD_SOURCE}:{path}"], cwd=root
-            )
-            anchor[path] = {
-                "sha": hashlib.sha1(f"blob {len(blob)}\0".encode() + blob).hexdigest(),
-                "size": len(blob),
-            }
+        anchors = {}
+        for reference in profile_evidence.STATIC_GUARD_SOURCES:
+            anchors[reference] = {}
+            for path in profile_evidence.STATIC_GUARD_PATHS:
+                blob = subprocess.check_output(
+                    ["git", "show", f"{reference}:{path}"], cwd=root
+                )
+                anchors[reference][path] = {
+                    "sha": hashlib.sha1(f"blob {len(blob)}\0".encode() + blob).hexdigest(),
+                    "size": len(blob),
+                }
         case[5].clear()
-        case[5].update(copy.deepcopy(anchor))
-        return case, anchor
+        case[5].update(copy.deepcopy(anchors[source]))
+        return case, anchors
 
     def _qualify_static(self, case, anchor):
         owner, _, run, job, log, blobs, _ = case
@@ -1042,7 +1045,7 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
             owner, base.REPOSITORY, run, job, run,
             log_reader=lambda *_: log,
             source_reader=lambda _o, _r, sha, paths: {
-                path: (anchor if sha == profile_evidence.STATIC_GUARD_SOURCE else blobs)[path]
+                path: anchor.get(sha, blobs)[path]
                 for path in paths
             },
             actor_validator=lambda *_: None,
@@ -1050,27 +1053,29 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         )
 
     def test_static_refusal_preserves_actual_identity_and_older_custody(self):
-        case, anchor = self._static_refusal()
-        original = copy.deepcopy(case[3])
-        proof = self._qualify_static(case, anchor)
-        self.assertEqual(proof, {
-            "run_id": case[2]["id"], "attempt": 1, "job_id": case[3]["id"],
-            "checkout_sha": case[2]["head_sha"], "qualification": "no_provider_mutation",
-        })
-        self.assertEqual(case[3], original)
-        self.assertTrue(uat_guard._proof_record(
-            "maintenance_publication_proof=" + json.dumps(proof, sort_keys=True),
-            allow_clock_records=True,
-        ))
-        case[0].api.assert_not_called()
+        for source in profile_evidence.STATIC_GUARD_SOURCES:
+            with self.subTest(source=source):
+                case, anchor = self._static_refusal(source)
+                original = copy.deepcopy(case[3])
+                proof = self._qualify_static(case, anchor)
+                self.assertEqual(proof, {
+                    "run_id": case[2]["id"], "attempt": 1, "job_id": case[3]["id"],
+                    "checkout_sha": case[2]["head_sha"], "qualification": "no_provider_mutation",
+                })
+                self.assertEqual(case[3], original)
+                self.assertTrue(uat_guard._proof_record(
+                    "maintenance_publication_proof=" + json.dumps(proof, sort_keys=True),
+                    allow_clock_records=True,
+                ))
+                case[0].api.assert_not_called()
 
     def test_static_refusal_rejects_source_and_execution_changes(self):
-        for mutation in (*profile_evidence.STATIC_GUARD_PATHS, "mode", "extra_step",
-                         "number", "save", "provider_step", "checkout", "attempt",
-                         "actor", "diagnostic"):
-            with self.subTest(mutation=mutation):
-                case, anchor = self._static_refusal()
-                if mutation in anchor:
+        for source, mutation in product(profile_evidence.STATIC_GUARD_SOURCES,
+                (*profile_evidence.STATIC_GUARD_PATHS, "mode", "extra_step", "number",
+                 "save", "provider_step", "checkout", "attempt", "actor", "diagnostic")):
+            with self.subTest(source=source, mutation=mutation):
+                case, anchor = self._static_refusal(source)
+                if mutation in profile_evidence.STATIC_GUARD_PATHS:
                     case[5][mutation] = {"sha": "f" * 40, "size": 1}
                 elif mutation == "mode":
                     case[3]["steps"][1]["conclusion"] = "success"

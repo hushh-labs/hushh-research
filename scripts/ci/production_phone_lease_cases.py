@@ -365,6 +365,59 @@ class ProductionPhoneSkippedLeaseCases:
             )
         return case, environment
 
+    def phone_activation_lease(self, conclusion="failure", *, active=False):
+        case, environment = self.restoration_lease(conclusion, active=active)
+        jobs = case.jobs[(300, 2)]["jobs"]
+        jobs[1].update({**copy.deepcopy(jobs[0]),
+                        "name": lease.nonproducer.PRODUCTION_JOB_NAMES["complete-phone-activation"]})
+        jobs[1]["steps"][0]["name"] = lease.nonproducer.PHONE_ADMISSION_STEP
+        jobs[0].update(status="completed", conclusion="skipped", steps=[])
+        if active:
+            environment["GITHUB_JOB"] = "complete-phone-activation"
+        return case, environment
+
+    def test_phone_activation_has_no_cold_lease_but_preserves_older_custody(self):
+        self.setUp()
+        for conclusion in ("success", "failure", "cancelled", None):
+            with self.subTest(conclusion=conclusion):
+                case, environment = self.phone_activation_lease(conclusion, active=conclusion is None)
+                with mock.patch.dict("os.environ", environment):
+                    self.assertIsNone(self.lease_check(case))
+                    self.lease_defect(case, "older_pending")
+                    with self.assertRaises(lease.retention.UnsafeState):
+                        self.lease_check(case)
+
+    def test_phone_activation_cannot_hide_a_producer_or_foreign_guard(self):
+        self.setUp()
+        for defect in ("source", "exclusion", "ordinary", "wrong_admission", "marker", "admission", "sha", "extra_active", "sibling"):
+            with self.subTest(defect=defect):
+                case, environment = self.phone_activation_lease(active=defect not in {"ordinary", "wrong_admission"})
+                jobs = case.jobs[(300, 2)]["jobs"]
+                job = jobs[1]
+                sha = case.runs[0]["head_sha"]
+                if defect == "source":
+                    case.sources[sha] = case.sources[sha].replace(b"Require qualified activation continuation", b"Changed activation authority")
+                elif defect == "exclusion":
+                    case.sources[sha] = case.sources[sha].replace(b" && inputs.phone_phase != 'activate'", b"", 1)
+                elif defect == "ordinary":
+                    jobs[0].update({**copy.deepcopy(job), "name": "Deploy Production Scope"})
+                    job.update(status="completed", conclusion="skipped", steps=[])
+                elif defect == "marker":
+                    job["steps"].append({"name": lease.BEGIN, "status": "completed", "conclusion": "skipped"})
+                elif defect == "wrong_admission":
+                    job["steps"][0]["name"] = lease.RESTORATION_ADMIT
+                elif defect == "admission":
+                    job["steps"][0]["conclusion"] = "skipped"
+                elif defect == "sha":
+                    environment["GITHUB_SHA"] = "f" * 40
+                    case.sources["f" * 40] = case.sources[sha]
+                elif defect == "extra_active":
+                    job["steps"].append({"name": "Unexpected work", "status": "in_progress", "conclusion": None})
+                else:
+                    jobs[0].update(status="in_progress", conclusion=None, steps=[{"name": lease.GUARD, "status": "in_progress", "conclusion": None}])
+                with mock.patch.dict("os.environ", environment), self.assertRaises(lease.retention.UnsafeState):
+                    self.lease_check(case)
+
     def test_restoration_nonproducer_keeps_current_metadata_and_every_older_lease(self):
         self.setUp()
         for conclusion, admission, historical in (

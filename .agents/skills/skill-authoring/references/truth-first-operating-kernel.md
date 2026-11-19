@@ -53,7 +53,7 @@ When sources disagree about implementation, current executable code plus checked
 
 ## Founder Wiki North-Star Probe
 
-The founder wiki MCP is a north-star evidence lane, not a current-state implementation source. Use `.agents/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when a task touches product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or material PR governance.
+The founder wiki MCP is a north-star evidence lane, not a current-state implementation source. Use `.agents/skills/skill-authoring/references/founder-wiki-north-star-probe.md` when a task touches product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or material PR governance.
 
 Default boundary:
 
@@ -61,7 +61,7 @@ Default boundary:
 - founder wiki product canon defines direction, language, and future-state alignment
 - conflicts should be classified as `current_state_vs_north_star_drift`
 - private wiki evidence stays local-only unless the user explicitly asks for a public-safe citation
-- Codex should not write, cache, or mirror private wiki pages by default
+- Agents should not write, cache, or mirror private wiki pages by default
 
 ## Default Answer Shape
 
@@ -73,7 +73,7 @@ For repo-backed Q&A and contributor guidance, answer in this order:
 4. What not to build.
 5. Smallest acceptable next PR.
 
-Do not write as if the project is blank. Hussh already has shipped contracts, and Codex must actively find and reuse them.
+Do not write as if the project is blank. Hussh already has shipped contracts, and agents must actively find and reuse them.
 
 ## Planning Question Contract
 
@@ -82,12 +82,12 @@ For non-trivial plans, do not ask bare choices. Research first, synthesize the l
 Every material planning question should include:
 
 1. `Current truth`: verified facts from repo, GitHub, CI, docs, runtime logs, or generated contracts.
-2. `Recommended path`: the solution Codex would choose and the expected output.
+2. `Recommended path`: the recommended solution and the expected output.
 3. `Risk if accepted blindly`: what could break if the prompt or PR is accepted without the decision.
 4. `Decision needed`: the precise unresolved choice.
 5. `Options`: mutually exclusive choices with the recommended option first and a short outcome for each.
 
-Keep this concise. Include enough research for the operator to approve the recommended path without opening unrelated context, but do not dump every inspected detail. Do not ask the user to discover facts Codex can verify.
+Keep this concise. Include enough research for the operator to approve the recommended path without opening unrelated context, but do not dump every inspected detail. Do not ask the user to discover facts an agent can verify.
 
 ## Agent Evidence Handoff
 

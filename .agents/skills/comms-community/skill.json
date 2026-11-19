@@ -17,7 +17,7 @@
   "required_reads": [
     ".agents/skills/comms-community/references/reply-rules.md",
     ".agents/skills/comms-community/references/whatsapp-formatting.md",
-    ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
+    ".agents/skills/skill-authoring/references/truth-first-operating-kernel.md",
     "docs/architecture/identity/README.md",
     "consent-protocol/docs/reference/developer-api.md"
   ],

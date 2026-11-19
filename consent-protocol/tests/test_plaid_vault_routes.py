@@ -891,17 +891,69 @@ def test_failures_never_log_tokens(authed_client, monkeypatch, caplog):
         assert not record.exc_info or _ACCESS_TOKEN not in str(record.exc_info[1])
 
 
-@pytest.mark.parametrize("mode,status", [("unknown", 503), ("unplaced", 409), ("byoc", 409)])
-def test_snapshot_refuses_non_shared_owners_before_plaid(authed_client, monkeypatch, mode, status):
-    async def observed_owner(user_id: str) -> str:
-        assert user_id == "owner-123"
-        return mode
+def test_vault_passthrough_admits_byoc_and_private_owners_without_placement_lookup(
+    authed_client, monkeypatch
+):
+    async def unexpected_placement_lookup(_user_id: str) -> str:
+        raise AssertionError(
+            "stateless Plaid vendor-secret passthrough must not gate on owner hosting placement"
+        )
 
-    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", observed_owner)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", unexpected_placement_lookup
+    )
+    _use(
+        monkeypatch,
+        _FakePlaid(
+            {
+                "/link/token/create": [{"link_token": "l", "expiration": "e"}],
+                "/item/public_token/exchange": [
+                    {"access_token": _ACCESS_TOKEN, "item_id": "item-1"}
+                ],
+                "/item/get": [_item(["transactions"]), _item(["transactions"])],
+                "/institutions/get_by_id": [{"institution": {"name": "Bank"}}],
+                "/accounts/get": [{"accounts": [_ACCOUNT]}],
+                "/transactions/sync": [{"added": [], "next_cursor": "c"}],
+                "/item/remove": [{}],
+            }
+        ),
+    )
+
+    assert authed_client.post(f"{_BASE}/link-token", json={}).status_code == 200
+    assert (
+        authed_client.post(f"{_BASE}/exchange", json={"public_token": _PUBLIC_TOKEN}).status_code
+        == 200
+    )
+    assert (
+        authed_client.post(f"{_BASE}/snapshot", json={"access_token": _ACCESS_TOKEN}).status_code
+        == 200
+    )
+    assert (
+        authed_client.post(f"{_BASE}/remove", json={"access_token": _ACCESS_TOKEN}).status_code
+        == 200
+    )
+
+
+def test_snapshot_rejects_unauthenticated_and_kai_content_routes_still_refuse_byoc(
+    app: FastAPI, monkeypatch, active_account_lifecycle
+):
+    monkeypatch.setattr(plaid_vault, "_plaid_config", _config)
     fake = _use(monkeypatch, _FakePlaid({}))
-    response = authed_client.post(f"{_BASE}/snapshot", json={"access_token": _ACCESS_TOKEN})
-    assert response.status_code == status
-    assert response.json()["detail"]["code"] == (
-        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    unauthed = TestClient(app)
+    assert (
+        unauthed.post(f"{_BASE}/snapshot", json={"access_token": _ACCESS_TOKEN}).status_code == 401
     )
     assert fake.calls == []
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner-byoc"}
+
+    async def byoc_owner(user_id: str) -> str:
+        assert user_id == "owner-byoc"
+        return "byoc"
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", byoc_owner)
+    byoc_client = TestClient(app)
+    refused = byoc_client.post("/api/kai/analyze", json={})
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"

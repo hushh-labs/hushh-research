@@ -11,6 +11,17 @@ from .json_schema import (
     schema_document,
 )
 
+_STRICT_UNSUPPORTED_KEYWORDS = frozenset(
+    {
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "examples",
+    }
+)
+
 
 def _schema(value: Any, *, strict: bool) -> dict:
     """Translate native schema syntax; response selection protects open maps."""
@@ -23,7 +34,7 @@ def _schema(value: Any, *, strict: bool) -> dict:
             return node
         result = {}
         for key, child in node.items():
-            if key in {"default", "title"}:
+            if key in {"default", "title"} or (strict and key in _STRICT_UNSUPPORTED_KEYWORDS):
                 continue
             if key in {"properties", "$defs", "definitions", "patternProperties"}:
                 result[key] = {name: visit(item) for name, item in child.items()}

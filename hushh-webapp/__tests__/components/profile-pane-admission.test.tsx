@@ -329,7 +329,7 @@ it("names the software updates panel in the visible sheet header", () => {
   vault.isVaultUnlocked = true;
   render(<ProfilePane open onOpenChange={vi.fn()} />);
   expect(
-    screen.getByRole("heading", { name: "Software updates" }),
+    screen.getByRole("heading", { name: "Agent updates" }),
   ).toBeTruthy();
   url.query = "profile_pane=1&profile_panel=preferences";
 });

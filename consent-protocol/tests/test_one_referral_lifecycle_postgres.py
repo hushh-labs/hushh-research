@@ -45,6 +45,7 @@ def db(monkeypatch):
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.exec_driver_sql("""
               CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,created_at TIMESTAMPTZ DEFAULT clock_timestamp());
+              CREATE TABLE account_deletion_tombstones(user_id_hash TEXT PRIMARY KEY);
               CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT,phone_verified BOOLEAN);
               CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY,setup_completed BOOLEAN,setup_completed_at BIGINT);
               CREATE TABLE one_location_circles(id UUID PRIMARY KEY,name TEXT,status TEXT DEFAULT 'active',owner_user_id TEXT,system_kind TEXT);

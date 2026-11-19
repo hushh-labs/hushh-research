@@ -372,10 +372,11 @@ def test_sealed_cold_workos_observation_preserves_only_original_direct_evidence(
     "kind,defect",
     [
         (kind, defect)
-        for kind in ("operational", "activation", "ordinary")
+        for kind in ("operational", "activation", "ordinary", "frontend")
         for defect in (None, "authority", "attempt", "tag")
     ]
-    + [(kind, "discovery_attempt") for kind in ("activation", "ordinary")],
+    + [(kind, "discovery_attempt") for kind in ("activation", "ordinary", "frontend")]
+    + [("frontend", "frontend_refresh"), ("frontend", "uninherited")],
 )
 def test_retired_workos_observation_follows_authenticated_original_cold_pointer(
     sealed_workos_case, monkeypatch, kind, defect
