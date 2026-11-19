@@ -1416,3 +1416,17 @@ new task writes or provider actions. Recheck occurs before output release.
 Disable it to withdraw processing while preserving existing encrypted tasks.
 Live-model evaluation and provider rehearsal are required before enabling this capability;
 private placement remains unavailable until its owner-direct transport qualifies.
+
+### OAuth, Firebase Microsoft IdP, and outbound mail preflight
+
+Deploy pipelines (`deploy-dev-implementation.yml`, `deploy-uat-implementation.yml`,
+and `deploy-production.yml`) run `scripts/ops/reconcile_oauth_and_mail_posture.py
+--verify-deploy` before backend Cloud Build submission. The preflight fails closed
+without ever logging secret values if outbound mail secrets diverge from
+`one@hushh.ai` (`SUPPORT_EMAIL_MODE=live`), if `hushh-mail-api` stops reporting
+`google-workspace-gmail-delegated` transport, if Google or Drive OAuth secrets or
+redirect URIs fail live provider validation, or if `MICROSOFT_FIREBASE_CLIENT_ID` /
+`MICROSOFT_FIREBASE_CLIENT_SECRET` drifts. Operators run `--reconcile-all [--apply]`
+to audit Firebase `microsoft.com` IdP parity and `HushOne Inc.` Microsoft Entra grants,
+redirect URIs, custom domain verification, and B2B guest redemptions across Dev,
+UAT, and Production.
