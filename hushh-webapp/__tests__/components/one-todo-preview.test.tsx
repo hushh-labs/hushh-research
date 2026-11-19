@@ -157,7 +157,8 @@ describe("One profile To-do live-source parity", () => {
     mocks.events = [event];
     const view = render(<OneTodoPreview {...props()} />);
     await screen.findByText(event.title);
-    fireEvent.click(screen.getByRole("button", { name: `Delete ${event.title}` }));
+    fireEvent.click(screen.getByRole("button", { name: event.title, exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove task", exact: true }));
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(expect.objectContaining({ task: expect.objectContaining({ sourceAgent: "calendar", title: event.title }) })));
     view.rerender(<OneTodoPreview {...props()} />);
     expect(await screen.findByText("All clear.")).toBeVisible();
