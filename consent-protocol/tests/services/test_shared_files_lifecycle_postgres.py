@@ -27,9 +27,9 @@ local_postgres = _postgres_fixture
 
 OPS = Path(__file__).resolve().parents[3] / "scripts/ops"
 sys.path.insert(0, str(OPS))
-from reconcile_uat_shared_files import Provider  # noqa: E402
-from shared_files_maintenance_contract import (  # noqa: E402
+from reconcile_uat_shared_files import (  # noqa: E402
     PROTOCOL,
+    Provider,  # noqa: E402
     RecoveryRefused,
     absence_receipt,
     inventory_digest,
@@ -52,8 +52,7 @@ async def test_operator_maintenance_fences_enrollment_and_old_write_paths(
     from types import SimpleNamespace
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/ops"))
-    from reconcile_uat_shared_files import Database
-    from shared_files_maintenance_contract import PROTOCOL
+    from reconcile_uat_shared_files import PROTOCOL, Database
 
     alice = await registry.resource(
         "alice",
@@ -125,8 +124,13 @@ async def test_operator_verifier_rejects_inert_same_name_guard(shared_storage, l
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/ops"))
-    from reconcile_uat_shared_files import PROTECTED_COLUMNS, Database
-    from shared_files_maintenance_contract import FUNCTION, TRIGGER, RecoveryRefused
+    from reconcile_uat_shared_files import (
+        FUNCTION,
+        PROTECTED_COLUMNS,
+        TRIGGER,
+        Database,
+        RecoveryRefused,
+    )
 
     await registry.resource(
         "alice",
