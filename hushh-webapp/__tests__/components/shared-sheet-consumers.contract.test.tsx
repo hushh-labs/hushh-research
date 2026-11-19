@@ -66,7 +66,7 @@ const SHEET_CONSUMERS = [
   "components/one-location/redesign/circles/circle-grow-actions.tsx",
   "components/one-location/redesign/circles/named-circle-flows.tsx",
   "components/profile/profile-avatar-editor.tsx",
-  "components/todos/todo-list-page.tsx",
+  "components/todos/todo-add-item-sheet.tsx",
   "components/ui/sidebar.tsx",
   "lib/morphy-ux/ui/task-surfaces.tsx",
 ] as const;
@@ -140,7 +140,7 @@ describe("the shared bottom sheet stays shared", () => {
           // The complete inventory exposes one pre-existing Todo cap. Keep
           // that measured legacy baseline while blocking narrower/new caps;
           // its phone/desktop transport is outside this task migration.
-          const legacyMinimum = consumer === "components/todos/todo-list-page.tsx" ? 576 : 640;
+          const legacyMinimum = consumer === "components/todos/todo-add-item-sheet.tsx" ? 576 : 640;
           if (px !== null && px < legacyMinimum) {
             offenders.push(`${consumer} → ${match[0]} (${px}px)`);
           }

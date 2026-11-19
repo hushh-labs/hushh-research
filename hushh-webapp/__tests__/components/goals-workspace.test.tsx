@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GoalsWorkspace } from "@/components/goals/goals-workspace";
+import { ChatGoalPlanCard } from "@/components/goals/chat-goal-plan-card";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { readGoalPlanProposal } from "@/lib/goals/goal-plan-proposal";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import type { TodoItem } from "@/lib/todos/todo-list-model";
 
@@ -36,6 +39,7 @@ describe("Goals workspace", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.owner = "owner-a";
+    publishValidatedAuthSessionOwner(mocks.owner);
     mocks.unlocked = true;
     mocks.loadWorkspace.mockResolvedValue({ goals: [], tasks: [task] });
   });
@@ -84,5 +88,31 @@ describe("Goals workspace", () => {
     expect(screen.getByText(/Unlock your vault/)).toBeVisible();
     expect(screen.queryByText(goal.title)).not.toBeInTheDocument();
     expect(screen.queryByText(task.title)).not.toBeInTheDocument();
+  });
+
+  it("reviews a typed Chat draft without writing, then saves edited steps only after confirmation", async () => {
+    const proposal = { type: "goals.plan", status: "proposal_ready", title: goal.title, outcome: goal.outcome,
+      category: null, steps: ["Draft the notes"], taskIds: ["untrusted-id"] };
+    expect(readGoalPlanProposal({ ...proposal, steps: [""] })).toBeNull();
+    const draft = readGoalPlanProposal(proposal)!;
+    expect(draft.taskIds).toEqual([]);
+    mocks.create.mockResolvedValue({ goalId: goal.id, result: { success: true } });
+    render(<ChatGoalPlanCard proposal={draft} credentials={{ userId: mocks.owner, vaultKey: "test-key", vaultOwnerToken: "test-token" }}
+      onDismiss={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Review plan" }));
+    expect(await screen.findByLabelText("Task 1")).toHaveValue("Draft the notes");
+    act(() => { expect(unwindBackLayer("/")).toBe(true); });
+    expect(mocks.create).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review plan" }));
+    fireEvent.change(await screen.findByLabelText("Task 1"), { target: { value: "Organize the notes" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Draft agenda/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save goal" }));
+    expect(await screen.findByRole("link", { name: "Open Goals" })).toHaveAttribute("href", "/one/goals");
+    expect(mocks.create).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ steps: ["Organize the notes"], taskIds: [task.id] }),
+      expect.objectContaining({ confirmedByUser: true, draftId: expect.any(String) }),
+    );
   });
 });

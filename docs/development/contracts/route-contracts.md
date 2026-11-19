@@ -9,6 +9,10 @@ dashboard. Back cancels an open editor, then returns from goal detail to the
 list, then returns to the dashboard. Goals and their task links use the existing
 encrypted task domain.
 
+Typed Chat can offer a goal and proposed tasks for review in the same editor.
+Back dismisses the review before leaving Chat. The owner's Save commits the goal,
+its confirmed new tasks and its links in one encrypted revision. Organizing a
+private Files upload later requires its own schedule confirmation.
 
 ## Visual Map
 

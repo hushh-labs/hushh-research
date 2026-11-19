@@ -30,7 +30,9 @@ export function GoalEditor({ initial, tasks, editing, saving, error, onSave, onC
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!saving && plan.title.trim() && plan.outcome.trim()) onSave(plan);
+    if (!saving && plan.title.trim() && plan.outcome.trim()) {
+      onSave({ ...plan, steps: plan.steps?.map(step => step.trim()).filter(Boolean) });
+    }
   }
 
   return (
@@ -51,6 +53,16 @@ export function GoalEditor({ initial, tasks, editing, saving, error, onSave, onC
           <Input id={`${id}-category`} maxLength={80} value={plan.category ?? ""}
             onChange={event => setPlan({ ...plan, category: event.target.value })} />
         </div>
+        {plan.steps?.length ? (
+          <fieldset className="min-w-0 space-y-2">
+            <legend className="text-sm font-medium">Proposed tasks</legend>
+            <HelperText>Clear a step to leave it out of Tasks.</HelperText>
+            {plan.steps.map((step, index) => (
+              <Input key={index} value={step} maxLength={240} aria-label={`Task ${index + 1}`}
+                onChange={event => setPlan({ ...plan, steps: plan.steps?.map((value, item) => item === index ? event.target.value : value) })} />
+            ))}
+          </fieldset>
+        ) : null}
         <fieldset className="min-w-0 space-y-2">
           <legend className="text-sm font-medium">Linked tasks</legend>
           {tasks.length === 0 && visibleIds.length === 0 ? <HelperText>No saved tasks to link yet.</HelperText> : null}

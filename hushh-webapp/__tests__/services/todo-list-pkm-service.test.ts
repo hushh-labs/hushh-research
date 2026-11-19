@@ -119,6 +119,22 @@ describe("Goals sharing the encrypted task domain", () => {
     expect(replay.unchanged).toBe(true);
   });
 
+  it("commits reviewed steps and their goal links together and does not recreate steps on replay", async () => {
+    const save = mockSuccessfulWrite();
+    const { goalId } = await GoalsPkmService.create({
+      title: goal.title, outcome: goal.outcome, taskIds: [task.id], steps: ["Organize the approved file"],
+    }, goalPersistence);
+    const build = save.mock.calls[0]![0].build;
+    const rawTask = { ...task, futureField: "preserve" };
+    const first = await build({ ...coordinatorContext, currentDomainData: goalDomain([goal], [rawTask]) });
+    const step = readTodoListState(first.domainData).tasks.find(item => item.title === "Organize the approved file");
+    expect(step).toMatchObject({ type: "manual", status: "pending", revision: 1 });
+    expect(readGoals(first.domainData).find(item => item.id === goalId)?.taskIds).toEqual([task.id, step?.id]);
+    expect(first.domainData).toMatchObject({ _private: { tasks: [expect.any(Object), rawTask] } });
+    expect(await build({ ...coordinatorContext, attempt: 1, currentDomainData: first.domainData }))
+      .toMatchObject({ unchanged: true, domainData: first.domainData });
+  });
+
   it("rejects stale edits and cannot revive deleted goals", async () => {
     const save = mockSuccessfulWrite();
     await GoalsPkmService.update({ ...goalEdit, update: { title: "Late edit", outcome: goal.outcome } });

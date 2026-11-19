@@ -6,9 +6,13 @@ from datetime import datetime, timezone
 def propose_file_schedule(run_at: str = "") -> dict[str, str | None]:
     """Offer a review for organizing one private Files library upload later.
 
-    Supply run_at as a resolved ISO 8601 date and time with an explicit offset.
-    Leave it empty when the exact time is unknown. The owner selects the file
-    and confirms its schedule in the app. This tool reads and schedules nothing.
+    Use only for an explicit request to organize a private Files upload once
+    later. Resolve relative times with get_current_time. Supply run_at in ISO
+    8601 with an explicit offset or leave it empty when unknown. The owner picks
+    the exact file, reviews the time and confirms in Chat. Say the draft is
+    ready for review. This tool reads and schedules nothing. Never substitute
+    immediate organization or Google Drive. If unavailable, explain that the
+    current runtime cannot prepare the schedule.
     """
     instant = None
     if isinstance(run_at, str) and len(run_at) <= 40:

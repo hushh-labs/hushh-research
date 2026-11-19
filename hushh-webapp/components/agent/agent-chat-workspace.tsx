@@ -323,6 +323,8 @@ import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/googl
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
 import { readFileScheduleProposal, type FileScheduleProposal } from "@/lib/agent/file-schedule-proposal";
+import { ChatGoalPlanCard } from "@/components/goals/chat-goal-plan-card";
+import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ChatFileScheduleCard } from "@/components/scheduled-tasks/chat-file-schedule-card";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
@@ -3113,7 +3115,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [fileScheduleReview, setFileScheduleReview] = useState<{
     proposal: FileScheduleProposal; assistantId: string; ownerId: string; epoch: number;
   } | null>(null);
-  const fileScheduleCredentials = useMemo(() => applicationOwnerId && isVaultUnlocked && vaultKey && vaultOwnerToken
+  const [goalPlanReview, setGoalPlanReview] = useState<{
+    proposal: GoalPlanInput; assistantId: string; ownerId: string; epoch: number;
+  } | null>(null);
+  const planningCredentials = useMemo(() => applicationOwnerId && isVaultUnlocked && vaultKey && vaultOwnerToken
     ? { userId: applicationOwnerId, vaultKey, vaultOwnerToken } : null,
   [applicationOwnerId, isVaultUnlocked, vaultKey, vaultOwnerToken]);
   const [pendingAppAction, setPendingAppAction] = useState<{
@@ -7327,6 +7332,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               void appendPendingConsentRequestRef.current?.(requestId);
             }
           },
+          onGoalPlanProposal: (proposal) => {
+            if (streamAbortController.signal.aborted || !applicationOwnerId || !isCanonicalChatRoute || isPuppySurface ||
+              !isVaultSessionEpochCurrent(vaultSessionEpoch) || workspaceOwnerIdRef.current !== applicationOwnerId) return;
+            setGoalPlanReview(current => current?.assistantId === assistantMessageId ? current :
+              { proposal, assistantId: assistantMessageId, ownerId: applicationOwnerId, epoch: vaultSessionEpoch });
+          },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
@@ -11157,11 +11168,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {fileScheduleReview && fileScheduleCredentials && isCanonicalChatRoute && !isPuppySurface &&
-                fileScheduleReview.ownerId === fileScheduleCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
+              {goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+                goalPlanReview.ownerId === planningCredentials.userId && goalPlanReview.epoch === vaultSessionEpoch &&
+                messages.some(message => message.role === "assistant" && message.id === goalPlanReview.assistantId) ? (
+                  <ChatGoalPlanCard key={goalPlanReview.assistantId} proposal={goalPlanReview.proposal}
+                    credentials={planningCredentials} onDismiss={() => setGoalPlanReview(null)} />
+                ) : null}
+
+              {fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+                fileScheduleReview.ownerId === planningCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
                 messages.some(message => message.id === fileScheduleReview.assistantId) ? (
                   <ChatFileScheduleCard key={fileScheduleReview.assistantId} proposal={fileScheduleReview.proposal}
-                    credentials={fileScheduleCredentials} onDismiss={() => setFileScheduleReview(null)} />
+                    credentials={planningCredentials} onDismiss={() => setFileScheduleReview(null)} />
                 ) : null}
 
               {pendingSpecialistDirective && !calendarConnectDirective ? (

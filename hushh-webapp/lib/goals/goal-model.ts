@@ -58,6 +58,11 @@ export function goalInput(input: GoalInput): Pick<Goal, "title" | "outcome" | "c
   };
 }
 
+export function goalStepTitles(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 8) throw new GoalContractError("invalid_goal");
+  return [...new Set(value.map(step => requiredText(step, 240).trim()))];
+}
+
 /** Reject unreadable versions/records instead of dropping them on the next save. */
 export function readGoals(domain: Record<string, unknown> | null | undefined): Goal[] {
   const privateData = domain?._private;

@@ -2564,7 +2564,7 @@ def _one_roster_tools(
     allow_private_mcp: bool = False,
     allow_receipt_tools: bool = False,
     memory_available: bool | None = None,
-    allow_file_schedule_review: bool = False,
+    allow_planning_review: bool = False,
 ) -> list:
     """The /one specialist roster, shared by every One head.
 
@@ -2683,6 +2683,10 @@ def _one_roster_tools(
                 RegisteredMcpToolset(authorize_call=review_private_call),
             ]
         )
+    if allow_planning_review:
+        from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
+
+        tools.append(propose_goal_plan)
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.one_adk.files_agent import build_files_agent
         from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
@@ -2692,7 +2696,7 @@ def _one_roster_tools(
         tools.extend(pod_wiki_recall_tools())
         from hushh_mcp.services.pod_session_authority import active_session_authority
 
-        authority = active_session_authority() if allow_file_schedule_review else None
+        authority = active_session_authority() if allow_planning_review else None
         if authority is not None and authority.environment in {"dev", "development"}:
             from hushh_mcp.one_adk.file_schedule_proposal import propose_file_schedule
 
@@ -2850,7 +2854,7 @@ def build_one_text_agent(
             allow_private_mcp=allow_private_mcp,
             allow_receipt_tools=execution_mode == "chat" and include_client_receipt_tools,
             memory_available=memory_available,
-            allow_file_schedule_review=execution_mode == "chat",
+            allow_planning_review=execution_mode == "chat",
         ),
         # Consent is checked per turn and redacted per model call (C3).
         before_agent_callback=[timed_one_before_agent, track_current_consent],

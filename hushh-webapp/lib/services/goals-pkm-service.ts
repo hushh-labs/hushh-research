@@ -3,6 +3,7 @@
 import {
   GoalContractError,
   goalInput,
+  goalStepTitles,
   isGoalRecord,
   readGoals,
   type Goal,
@@ -12,6 +13,7 @@ import {
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
+  buildTodo,
   TODO_LIST_PKM_DOMAIN,
   readTodoListState,
   type TodoWriteParams,
@@ -19,7 +21,7 @@ import {
 
 type GoalWriteParams = TodoWriteParams & { confirmedByUser: true };
 type GoalEditParams = GoalWriteParams & { goalId: string; expectedRevision: number };
-export type GoalPlanInput = GoalInput & { taskIds: string[] };
+export type GoalPlanInput = GoalInput & { taskIds: string[]; steps?: string[] };
 
 function validateLinks(domain: Record<string, unknown>, requested: string[], existing: string[] = []) {
   const saved = new Set(readTodoListState(domain).tasks.filter(task => task.status !== "deleted").map(task => task.id));
@@ -47,6 +49,7 @@ function writeGoals(
   params: GoalWriteParams,
   operationId: string,
   mutate: (goals: Goal[], domain: Record<string, unknown>, now: string) => Goal[],
+  newSteps: ReadonlyArray<{ id: string; title: string }> = [],
 ) {
   if (params.confirmedByUser !== true) throw new GoalContractError("confirmation_required");
   const now = new Date().toISOString();
@@ -62,13 +65,23 @@ function writeGoals(
       const next = mutate(goals, currentDomainData, now);
       const privateData = isGoalRecord(currentDomainData._private) ? currentDomainData._private : {};
       const envelope = isGoalRecord(privateData.goals) ? privateData.goals : {};
-      const tasks = readTodoListState(currentDomainData).tasks;
+      const steps = next === goals ? [] : newSteps.map(step => ({ ...buildTodo(step, now), revision: 1 }));
+      if (steps.length && privateData.tasks !== undefined && !Array.isArray(privateData.tasks)) {
+        throw new GoalContractError("task_unavailable");
+      }
+      const rawTasks = Array.isArray(privateData.tasks) ? privateData.tasks : [];
+      const existingTasks = readTodoListState(currentDomainData).tasks;
+      if (steps.some(step => rawTasks.some(task => isGoalRecord(task) && task.id === step.id))) {
+        throw new GoalContractError("goal_conflict");
+      }
+      const tasks = [...steps, ...existingTasks];
       return {
         unchanged: next === goals,
         domainData: {
           ...currentDomainData,
           _private: {
             ...privateData,
+            ...(steps.length ? { tasks: [...steps, ...rawTasks], updatedAt: now } : {}),
             goals: { ...envelope, schemaVersion: 1, items: next },
           },
         },
@@ -116,7 +129,7 @@ export const GoalsPkmService = {
     return { goals: readGoals(domain), tasks: readTodoListState(domain).tasks };
   },
 
-  async create(input: GoalInput & { taskIds?: string[] }, params: GoalWriteParams & { draftId?: string }) {
+  async create(input: GoalInput & { taskIds?: string[]; steps?: string[] }, params: GoalWriteParams & { draftId?: string }) {
     const fields = goalInput(input);
     const taskIds = copyTaskIds(input.taskIds ?? []);
     const draftId = params.draftId ?? crypto.randomUUID();
@@ -124,15 +137,19 @@ export const GoalsPkmService = {
       throw new GoalContractError("invalid_goal");
     }
     const goalId = `goal_${draftId}`;
+    const steps = goalStepTitles(input.steps ?? []).map((title, index) => ({
+      id: `todo_goal_${draftId}_${index + 1}`,
+      title,
+    }));
     const result = await writeGoals(params, `create:${goalId}`, (goals, domain, now) => {
       // A replay must preserve the first accepted plan, even after a later edit or deletion.
       if (goals.some((goal) => goal.id === goalId)) return goals;
       validateLinks(domain, taskIds);
       return [...goals, {
-        ...fields, id: goalId, status: "active", taskIds, revision: 1,
+        ...fields, id: goalId, status: "active", taskIds: [...taskIds, ...steps.map(step => step.id)], revision: 1,
         createdAt: now, updatedAt: now, completedAt: null, deletedAt: null,
       }];
-    });
+    }, steps);
     return { goalId, result };
   },
 
