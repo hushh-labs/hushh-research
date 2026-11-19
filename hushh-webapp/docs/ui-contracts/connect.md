@@ -902,12 +902,14 @@ neighbors shared by the viewer and the target: zero has no control, one opens th
 available profile (resolving a missing preview through one mutual page), and more
 than one opens a list. An unavailable single profile explains that state.
 
-**Extended network** shows third-degree connections and up to four suggested
-people in one list. Third-degree rows come first and carry their degree.
-Suggestions use eligible verified advisor profiles or name matches from the
-people directory, with a reason on each row. The tab uses the existing profile
-preview and connection request controls. With no results and no active search,
-**Back to Find people** closes the dialog and restores the source.
+**Extended network** shows people whose shortest eligible connection path has
+three active edges. Both intermediaries must allow discovery. Search and
+pagination stay within this third-degree set. Each result carries its degree
+and uses the existing profile preview and connection request controls.
+An empty list explains how connecting with people grows the network.
+**Back to Find people** closes the dialog and restores the directory, where
+new users can find their first connections. The UI filters legacy mixed
+responses by degree during staggered releases.
 
 An authenticated Connect entry preloads discovery. The All results start first,
 then the other filters' first pages load. Repeated filters and Back reuse fresh
