@@ -26,9 +26,8 @@
 .detailMeta { margin-top: 9px; color: var(--muted-foreground); font-size: 13px; line-height: 1.7; }
 .sourceLabels { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 14px; color: var(--muted-foreground); font-size: 12px; }
 .sourceLabels span { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; }
-.sourceLabels svg, .status svg { width: 14px; height: 14px; }
+.sourceLabels svg { width: 14px; height: 14px; }
 .divider { height: 1px; background: var(--border); margin: 15px 0 23px; }
-.status { display: flex; align-items: center; gap: 7px; min-height: 28px; color: var(--muted-foreground); font-size: 12px; }
 .information h4 { --foundation-headline-size: 13px; --foundation-headline-line: 1.5; --foundation-headline-weight: 600; margin: 24px 0 8px; }
 .information p { font-size: 13px; line-height: 1.9; color: var(--muted-foreground); white-space: pre-wrap; overflow-wrap: anywhere; }
 .detailFooter { display: flex; flex: none; flex-direction: column; gap: 8px; padding: 14px 24px max(17px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--background); }
@@ -47,8 +46,6 @@
 .switchHit { display: flex; align-items: center; justify-content: flex-end; width: 44px; min-height: 44px; }
 .pickerFooter { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; min-height: 57px; padding: 4px 14px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
 .done { min-height: 44px; min-width: 56px; color: var(--app-accent); font-size: 12px; font-weight: 600; }
-.suggestions { padding: 12px 0; font-size: 12px; }
-.suggestions summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .workspace button:disabled, .detail button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 600px) { .detailTitle { --foundation-title3-size: 23px; } .detailBody { padding: 14px 21px 24px; } .detailHeader { min-height: 61px; padding: 13px 15px 4px; } .detailFooter { padding: 13px 21px max(17px, env(safe-area-inset-bottom)); } .list { padding-inline: 13px; } .row { min-height: 74px; } }
 @media (max-width: 360px) { .toolbar h3 { --foundation-title3-size: 17px; } .sourcesTrigger { font-size: 10px; padding-inline: 3px; gap: 3px; } }

@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ChevronLeft, Clock3, ClipboardList } from "@/components/icons";
+import { CalendarDays, ChevronLeft, ClipboardList } from "@/components/icons";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate } from "./todo-list-presentation";
@@ -35,7 +35,7 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
       {date || time ? <p className={styles.detailMeta}>{[date, time].filter(Boolean).join(" · ")}</p> : null}
       {task.sourceAgent ? <div className={styles.sourceLabels}><span>{task.sourceAgent === "calendar" ? <CalendarDays aria-hidden /> : <ClipboardList aria-hidden />}{TODO_SOURCE_LABELS[task.sourceAgent]}</span></div> : null}
       <div className={styles.divider} />
-      <p role="status" className={styles.status}><Clock3 aria-hidden />{task.status === "done" ? "Completed" : "To do"}</p>
+      <p role="status" className="sr-only">{task.status === "done" ? "Completed" : "To do"}</p>
       {task.notes ? <div className={styles.information}><h4>{task.sourceAgent === "calendar" ? "About the meeting" : "About this task"}</h4><p>{task.notes}</p></div> : null}
     </div>
     <footer className={styles.detailFooter}>
