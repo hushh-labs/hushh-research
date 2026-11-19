@@ -423,6 +423,7 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
         "289_one_referral_program_settings_v2.sql",
         "338_one_referral_usd_catalogue.sql",
         "425_account_phone_transfers.sql",
+        "341_pwm_research_lifecycle.sql",
     ),
 )
 def test_replay_rejects_changed_published_source(filename):
@@ -655,6 +656,11 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             "ee91dfcc494deda10e84e0a06b506a93022c3416264c160ae6541db5786dda4a",
         ),
         (
+            341,
+            "341_pwm_research_lifecycle.sql",
+            "cdf051074c2ed61437d54c79d0211177af284ca4b5c1e60b9abe330074afba43",
+        ),
+        (
             212,
             "212_location_command_runtime.sql",
             "c10a587ce907e5913df4eeec25a4d71ef1aa8a709d8fccccf2eb223e23448d3d",
@@ -718,6 +724,7 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
         "304_connect_bank_payout_reconciliation.sql",
         "361_system_push_outbox.sql",
         "329_drive_request_cent_prices.sql",
+        "341_pwm_research_lifecycle.sql",
         "212_location_command_runtime.sql",
         "231_document_review_authority.sql",
         "248_adk_chat_action_authority.sql",
