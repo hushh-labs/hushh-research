@@ -283,16 +283,13 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
       if (active()) setConnecting(new Set(connectionIntents.current));
     }
   };
-  const networkPeople = result?.items ?? [];
-  const networkRefs = new Set(networkPeople.map(person => person.publicPersonRef));
-  const people = extended
-    ? [...networkPeople, ...(result?.suggestions ?? []).filter(person => !networkRefs.has(person.publicPersonRef))]
-    : networkPeople;
+  // Enforce the selected distance during staggered API rollouts and cache reads.
+  const people = (result?.items ?? []).filter(person => !degree || person.networkDegree === degree);
   const Heading = embedded ? "h3" : "h1";
   return <section ref={root} tabIndex={-1} className={cn("mx-auto w-full min-w-0 max-w-[880px] space-y-3 sm:space-y-4", !embedded && "px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5")} data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
       {!embedded || mode !== "discovery" ? <Heading>{title}</Heading> : null}
-      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "Third-degree connections and suggested people." : "Find people through connections that allow discovery."}</p>
+      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Discovery follows their privacy settings." : "Find people through connections that allow discovery."}</p>
       {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
     {mode !== "mutuals" ? (
@@ -351,7 +348,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
     </ul> : null}
     {result && (!busy || result.page === page) && !people.length ? <div className="py-3 text-sm text-muted-foreground">
       <p role="status">{extended && !query.trim()
-        ? "No people to show right now. Check back as more people join."
+        ? "No 3rd-degree connections to show yet. Connect with people you know to grow your network."
         : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>
       {extended && !query.trim() && onDismiss ? <button type="button"
         data-voice-control-id="network-find-people"

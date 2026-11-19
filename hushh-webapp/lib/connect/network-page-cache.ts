@@ -47,7 +47,7 @@ export class NetworkPageCache {
         ? ConnectionsService.listMutualConnections({ idToken, personRef, page, signal: abort.signal })
         : ConnectionsService.listNetwork({
           idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page,
-          includeSuggestions: mode === "discovery" && degree === 3, signal: abort.signal,
+          signal: abort.signal,
         });
     }).then(data => {
       if (!isCurrent()) throw new DOMException("Network session changed", "AbortError");
