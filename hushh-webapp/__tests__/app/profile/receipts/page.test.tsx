@@ -119,6 +119,10 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: mocks.useGmailConnectorStatus,
 }));
 
+vi.mock("@/lib/services/private-agent-specialist-chat", () => ({
+  ownerContentIsPrivate: async () => false,
+}));
+
 vi.mock("@/lib/services/gmail-receipts-service", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/services/gmail-receipts-service")>();
