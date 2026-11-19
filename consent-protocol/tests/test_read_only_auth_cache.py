@@ -1,45 +1,41 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-
 
 def test_read_only_tombstone_negative_cache(monkeypatch):
     from api.middlewares.observability import _read_only_request_ctx
-    from hushh_mcp.services import account_deletion_lifecycle_service as deletion_mod
     from hushh_mcp.services import read_only_auth_cache
 
     read_only_auth_cache.invalidate_tombstone_cache()
     db_tombstone_calls = 0
     tombstoned_flag = False
 
-    class _FakeExecResult:
-        def first(self):
-            return ("erased",) if tombstoned_flag else None
-
-    class _FakeConn:
-        def execute(self, *_args, **_kwargs):
-            return _FakeExecResult()
-
-    @contextmanager
-    def _fake_conn():
+    def _probe_and_settle(uid: str) -> bool:
+        use_cache, cached_clear = read_only_auth_cache.probe_cached_not_tombstoned(uid)
+        if cached_clear:
+            return False
         nonlocal db_tombstone_calls
         db_tombstone_calls += 1
-        yield _FakeConn()
+        row = ("erased",) if tombstoned_flag else None
+        return read_only_auth_cache.settle_tombstone_row(
+            uid,
+            row,
+            use_cache=use_cache,
+            in_progress_exc_cls=RuntimeError,
+        )
 
     monkeypatch.setattr(
         read_only_auth_cache, "allow_read_only_auth_cache", lambda: _read_only_request_ctx.get()
     )
-    monkeypatch.setattr(deletion_mod, "get_db_connection", _fake_conn)
 
     tok = _read_only_request_ctx.set(True)
     try:
-        assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is False
-        assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is False
+        assert _probe_and_settle("u_cache_1") is False
+        assert _probe_and_settle("u_cache_1") is False
         assert db_tombstone_calls == 1
         read_only_auth_cache.invalidate_tombstone_cache("u_cache_1")
         tombstoned_flag = True
-        assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is True
-        assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is True
+        assert _probe_and_settle("u_cache_1") is True
+        assert _probe_and_settle("u_cache_1") is True
         assert db_tombstone_calls == 3
     finally:
         _read_only_request_ctx.reset(tok)
@@ -47,7 +43,7 @@ def test_read_only_tombstone_negative_cache(monkeypatch):
     tombstoned_flag = False
     tok = _read_only_request_ctx.set(False)
     try:
-        assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is False
+        assert _probe_and_settle("u_cache_1") is False
         assert db_tombstone_calls == 4
     finally:
         _read_only_request_ctx.reset(tok)

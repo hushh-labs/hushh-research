@@ -45,12 +45,6 @@ from hushh_mcp.services.account_deletion_inventory_review import (
 
 logger = logging.getLogger(__name__)
 
-from hushh_mcp.services.read_only_auth_cache import (  # noqa: E402
-    invalidate_tombstone_cache,
-    probe_cached_not_tombstoned,
-    settle_tombstone_row,
-)
-
 if TYPE_CHECKING:
     from hushh_mcp.services.account_deletion_provider_journal import ProviderCleanupClaim
 
@@ -314,7 +308,6 @@ class AccountDeletionLifecycleService:
         )
         persisted_all = True
         for normalized in user_ids:
-            invalidate_tombstone_cache(normalized)
             result = conn.execute(
                 text(
                     """
@@ -469,7 +462,6 @@ class AccountDeletionLifecycleService:
         }
         if accept_local_erasure and review.local_erasure_required:
             receipt["localErasureAccepted"] = True
-        invalidate_tombstone_cache(owner, identity)
         conn.execute(
             text("""INSERT INTO account_deletion_tombstones
                 (user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory,
@@ -901,9 +893,6 @@ class AccountDeletionLifecycleService:
     def is_tombstoned(user_id: str) -> bool:
         normalized_user_ids = AccountDeletionLifecycleService._normalize_user_ids((user_id,))
         normalized_user_id = normalized_user_ids[0]
-        use_cache, cached_clear = probe_cached_not_tombstoned(normalized_user_id)
-        if cached_clear:
-            return False
         user_hash = account_deletion_user_hash(normalized_user_id)
         with get_db_connection() as conn:
             # Force a fresh command snapshot after any wait. A plain SELECT can
@@ -960,12 +949,9 @@ class AccountDeletionLifecycleService:
                 ),
                 {"user_id_hash": user_hash},
             ).first()
-        return settle_tombstone_row(
-            normalized_user_id,
-            row,
-            use_cache=use_cache,
-            in_progress_exc_cls=AccountDeletionInProgressError,
-        )
+        if row is not None and row[0] in {"provider_cleanup", "local_erasure"}:
+            raise AccountDeletionInProgressError("approved account cleanup is still running")
+        return row is not None
 
     @staticmethod
     def record_cleanup_outcome(
