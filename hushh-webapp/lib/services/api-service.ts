@@ -1249,6 +1249,7 @@ export interface KaiHomeMovers {
   as_of: string | null;
   source_tags: string[];
   degraded: boolean;
+  stale?: boolean;
   /** India only: how many large NSE stocks the movers were ranked from. */
   universe_size?: number | null;
 }

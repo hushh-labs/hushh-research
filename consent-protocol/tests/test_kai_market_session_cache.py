@@ -273,7 +273,8 @@ async def test_open_warmer_refreshes_shared_quotes_first_and_regardless_of_the_f
     )
     await market_insights._refresh_public_market_modules_once()
     assert keys[:2] == [INDEX_LAST_CLOSE_KEY, picks_key(["AAPL", "ADBE"])]
-    assert len(keys) == (2 if budget_critical else 5)
+    assert keys[2] == market_insights.US_MOVERS_KEY
+    assert len(keys) == (3 if budget_critical else 5)
 
 
 async def test_price_store_retention_reaches_next_opening(monkeypatch):
@@ -434,6 +435,37 @@ async def test_closed_home_keeps_news_and_indices_without_sparklines(monkeypatch
     if saved_movers:
         assert payload["movers"]["gainers"][0]["symbol"] == "AAPL"
         assert payload["provider_status"]["sparklines"] == "unavailable"
+    news.assert_awaited_once()
+    for tripwire in tripwires:
+        tripwire.assert_not_awaited()
+
+
+async def test_warm_home_reads_a_newer_shared_snapshot(monkeypatch):
+    saved_at, cache, tripwires, news = _closed_home_environment(monkeypatch, [])
+    cache.seed_entry(
+        INDEX_LAST_CLOSE_KEY,
+        {"quotes": {"^GSPC": {"price": 100, "quoted_at": "2026-07-14T19:45:00Z"}}},
+        saved_at,
+    )
+    first = await _closed_home_payload(["AAPL"])
+    assert first["market_overview"][0]["value"] == 100
+
+    cache.seed_entry(
+        INDEX_LAST_CLOSE_KEY,
+        {"quotes": {"^GSPC": {"price": 105, "quoted_at": "2026-07-14T19:59:00Z"}}},
+        saved_at + 1,
+    )
+    cache.seed_entry(
+        market_insights.US_MOVERS_KEY,
+        ({"gainers": [{"symbol": "TSLA", "price": 200, "change_pct": 3}]}, {}),
+        saved_at + 1,
+    )
+    second = await _closed_home_payload(["AAPL"])
+
+    assert second["market_overview"][0]["value"] == 105
+    assert second["market_overview"][0]["as_of"] == "2026-07-14T19:59:00Z"
+    assert first["market_overview"][0]["value"] == 100
+    assert second["movers"]["gainers"][0]["symbol"] == "TSLA"
     news.assert_awaited_once()
     for tripwire in tripwires:
         tripwire.assert_not_awaited()

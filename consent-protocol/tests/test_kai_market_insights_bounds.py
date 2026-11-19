@@ -5,20 +5,20 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import require_firebase_auth
 from api.routes.kai import market_insights
 
 
 def _build_app() -> FastAPI:
     app = FastAPI()
 
-    def _mock_require_vault_owner_token():
+    def _mock_market_content_owner():
         return {"user_id": "user_123", "token": "valid_token"}
 
     def _mock_require_firebase_auth():
         return "user_123"
 
-    app.dependency_overrides[require_vault_owner_token] = _mock_require_vault_owner_token
+    app.dependency_overrides[market_insights.hub_content_owner] = _mock_market_content_owner
     app.dependency_overrides[require_firebase_auth] = _mock_require_firebase_auth
     app.include_router(market_insights.router)
     return app

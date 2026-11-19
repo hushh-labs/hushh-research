@@ -57,7 +57,7 @@ async def _refresh(monkeypatch, outcomes: list[dict]) -> list:
 
 @pytest.mark.asyncio
 async def test_a_thin_refresh_keeps_the_last_complete_list(monkeypatch):
-    complete, thin = _movers(6, 6), _movers(2, 1)
+    complete, thin = _movers(20, 20), _movers(6, 6)
     first, second = await _refresh(monkeypatch, [complete, thin])
     assert len(first["gainers"]) >= 3 and len(first["losers"]) >= 3
     assert second["gainers"] == first["gainers"] and second["losers"] == first["losers"]
@@ -65,9 +65,12 @@ async def test_a_thin_refresh_keeps_the_last_complete_list(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_complete_refresh_replaces_the_list(monkeypatch):
-    older, newer = _movers(4, 4), _movers(7, 7)
+    older = _movers(20, 20)
+    newer = india_market.build_india_movers(
+        [{**row, "as_of": "2026-11-13T10:01:00+00:00"} for row in _rows(21, 21)]
+    )
     _first, second = await _refresh(monkeypatch, [older, newer])
-    assert len(second["gainers"]) == len(newer["gainers"])
+    assert second["as_of"] == newer["as_of"] and second["universe_size"] == 42
 
 
 @pytest.mark.asyncio
