@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing, asynccontextmanager
 from typing import Any
@@ -46,6 +47,7 @@ class PodTimedADKAgent(TimedADKAgent):
         runtime_scope: Callable,
         before_run: Any = None,
         after_run: Any = None,
+        post_run: Any = None,
         mcp_owner_admission: Any = None,
     ) -> None:
         self._pod_require_access = require_access
@@ -53,7 +55,12 @@ class PodTimedADKAgent(TimedADKAgent):
         self._pod_background: set[asyncio.Task] = set()
         self._pod_hooks: set[asyncio.Task] = set()
         self._pod_started = False
-        self._pod_before_run, self._pod_after_run = before_run, after_run
+        self._pod_before_run, self._pod_after_run, self._pod_post_run = (
+            before_run,
+            after_run,
+            post_run,
+        )
+        self._pod_last_input: RunAgentInput | None = None
         self._pod_persistence_failed = False
         self._pod_mcp_scope: McpTurnResources | None = None
         self._pod_mcp_owner_admission = mcp_owner_admission
@@ -153,6 +160,19 @@ class PodTimedADKAgent(TimedADKAgent):
                     await asyncio.gather(*tasks, return_exceptions=True)
                 if self._pod_hooks:
                     await asyncio.gather(*self._pod_hooks, return_exceptions=True)
+                post_run = getattr(self, "_pod_post_run", None)
+                last_input = getattr(self, "_pod_last_input", None)
+                if (
+                    not cancel
+                    and not self._pod_persistence_failed
+                    and post_run is not None
+                    and last_input is not None
+                ):
+                    try:
+                        with self._pod_runtime_scope():
+                            await post_run(last_input)
+                    except Exception:
+                        logger.warning("pod_chat.post_run_failed")
                 if self._pod_mcp_scope is not None:
                     await self._pod_mcp_scope.close()
                 await self.close()
@@ -166,6 +186,7 @@ class PodTimedADKAgent(TimedADKAgent):
         if self._pod_started:
             raise RuntimeError("Pod chat request cannot be reused.")
         self._pod_started = True
+        self._pod_last_input = input
         await self._pod_require_access()
         if input.thread_id in _ACTIVE_THREADS or len(_ACTIVE_THREADS) >= 8:
             yield RunErrorEvent(
@@ -187,13 +208,21 @@ class PodTimedADKAgent(TimedADKAgent):
             _ACTIVE_THREADS.discard(input.thread_id)
             raise
         terminal = False
+        last_access_check = 0.0
         try:
             with self._pod_runtime_scope(), retain_request_chat_key():
                 if self._pod_before_run is not None:
                     await self._run_hook(self._pod_before_run, input)
                 async with aclosing(super().run(input)) as stream:
                     async for event in stream:
-                        await self._pod_require_access()
+                        now = time.monotonic()
+                        if (
+                            last_access_check == 0.0
+                            or event.type != EventType.TEXT_MESSAGE_CONTENT
+                            or (now - last_access_check) >= 1.5
+                        ):
+                            await self._pod_require_access()
+                            last_access_check = time.monotonic()
                         if event.type == EventType.RUN_FINISHED:
                             tasks = tuple(self._pod_background)
                             if tasks:

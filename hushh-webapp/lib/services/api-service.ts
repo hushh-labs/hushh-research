@@ -1465,6 +1465,17 @@ export interface AccountPhoneTestStartResponse {
 export class ApiService {
   private static readonly appReviewModeSessions = new Map<string, Promise<{ token: string }>>();
 
+  private static routingHostingBurstCache: {
+    key: string;
+    fnRef: unknown;
+    expiresAt: number;
+    value: PersonalAgentStatus;
+  } | null = null;
+
+  static clearRoutingHostingBurstCache(): void {
+    ApiService.routingHostingBurstCache = null;
+  }
+
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
     Promise<KaiDashboardProfilePicksResponse>
@@ -3809,7 +3820,7 @@ export class ApiService {
     const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
       : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, isCurrent));
     return access.agentChatRequest(path, init, {
-      hosting: () => this.getPersonalAgentStatus(), fetch: fetcher,
+      hosting: () => this.getPersonalAgentStatusForRouting(), fetch: fetcher,
       direct: (route, options) => this.ownerPodRequest(route, options, streaming, onChatAdmission, undefined, isCurrent),
       isCurrent,
     });
@@ -3908,11 +3919,50 @@ export class ApiService {
       signal: input.signal,
     });
     if (!response.ok) throw new Error(`AGENT_PROVISION_FAILED:${response.status}`);
+    ApiService.clearRoutingHostingBurstCache();
     return response.json();
   }
 
   static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<PersonalAgentStatus> {
     return readPersonalAgentStatus(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  /**
+   * Reuse settled agent hosting mode across short client routing bursts
+   * (prewarm + composer + first turn) while always honoring principal,
+   * vault-epoch, mutation invalidation, and explicit status polling.
+   */
+  static async getPersonalAgentStatusForRouting(options?: {
+    signal?: AbortSignal;
+  }): Promise<PersonalAgentStatus> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const currentUid = AuthService.getCurrentUser?.()?.uid;
+    if (!principal || !currentUid || currentUid !== principal.firebaseUid || options?.signal) {
+      return this.getPersonalAgentStatus(options);
+    }
+    const key = `${principal.firebaseUid}:${principal.ownerId}:${principal.accountGeneration}:${snapshotVaultSessionEpoch()}`;
+    const cached = ApiService.routingHostingBurstCache;
+    if (
+      cached &&
+      cached.key === key &&
+      cached.fnRef === this.getPersonalAgentStatus &&
+      Date.now() < cached.expiresAt
+    ) {
+      return cached.value;
+    }
+    const status = await this.getPersonalAgentStatus(options);
+    const settled =
+      status.hostingMode === "shared" ||
+      (status.hostingMode === "byoc" && status.state === "active");
+    if (settled) {
+      ApiService.routingHostingBurstCache = {
+        key,
+        fnRef: this.getPersonalAgentStatus,
+        expiresAt: Date.now() + 5_000,
+        value: status,
+      };
+    }
+    return status;
   }
 
   static async getPersonalAgentCloudRemovalAvailability(options?: { signal?: AbortSignal }) {
@@ -3973,6 +4023,7 @@ export class ApiService {
       }),
     });
     if (!response.ok) throw new Error(`AGENT_UPDATE_${action.toUpperCase()}_FAILED:${response.status}`);
+    ApiService.clearRoutingHostingBurstCache();
     return response.json();
   }
 
@@ -4399,7 +4450,7 @@ export class ApiService {
   static async reconnectOwnerPod(): Promise<void> {
     const access = await import("./pod-app-access");
     return access.reconnectOwnerPod({ transport: () => this.ownerPodTransport(), fetch: apiFetch,
-      hosting: () => this.getPersonalAgentStatus() });
+      hosting: () => this.getPersonalAgentStatusForRouting() });
   }
 
   private static async ownerDirectPodResponse(

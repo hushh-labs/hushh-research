@@ -18,7 +18,11 @@ export function wakingChatTransport(
       signal: init?.signal,
       onWaking,
       isOwnerAgent: async () =>
-        (await import("@/lib/services/pod-app-access")).usesOwnerPod(() => ApiService.getPersonalAgentStatus()),
+        (await import("@/lib/services/pod-app-access")).usesOwnerPod(() =>
+          typeof ApiService.getPersonalAgentStatusForRouting === "function"
+            ? ApiService.getPersonalAgentStatusForRouting()
+            : ApiService.getPersonalAgentStatus(),
+        ),
     },
   );
 }
