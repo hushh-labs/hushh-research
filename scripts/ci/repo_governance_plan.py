@@ -444,6 +444,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ops/audit_env_toggles.py",
             "scripts/ops/sync_backend_runtime_secrets.py",
             "scripts/ops/runtime_config_retention.py",
+            "scripts/ops/reconcile_oauth_and_mail_posture.py",
+            "scripts/ops/hushh_az_cli.py",
         }:
             return frozenset({"controller"}), None
         if path in {
