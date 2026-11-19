@@ -7,12 +7,13 @@ import { suggestTodoTasks, todoSuggestionsAvailable } from "@/lib/services/todo-
 import { taskSuggestionInput } from "@/lib/todos/task-suggestion-input";
 import { createTodo } from "@/lib/services/todo-list-pkm-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
-import { taskCapabilities, type TaskCoverage, type TaskEvidence, type TaskSuggestion } from "@/lib/todos/task-suggestion-model";
+import { taskCapabilities, type TaskCapability, type TaskCoverage, type TaskEvidence, type TaskSuggestion } from "@/lib/todos/task-suggestion-model";
 
 type Props = {
   userId: string; vaultKey: string; vaultOwnerToken: string;
   evidence: TaskEvidence[]; coverage: TaskCoverage[]; loading: boolean;
   onRefresh: () => void; onSaved: () => void;
+  selectedCapabilities?: readonly TaskCapability[];
 };
 
 function Coverage({ coverage, loading }: Pick<Props, "coverage" | "loading">) {
@@ -29,9 +30,9 @@ function Coverage({ coverage, loading }: Pick<Props, "coverage" | "loading">) {
   </details>;
 }
 
-export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, evidence, coverage, loading, onRefresh, onSaved }: Props) {
+export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, evidence, coverage, loading, onRefresh, onSaved, selectedCapabilities }: Props) {
   const epoch = snapshotVaultSessionEpoch();
-  const signature = JSON.stringify(evidence);
+  const signature = JSON.stringify([evidence, selectedCapabilities]);
   const identity = useMemo(() => Symbol(`todo-suggestions-${Boolean(userId)}-${Boolean(vaultKey)}-${Boolean(vaultOwnerToken)}-${epoch}-${signature.length}`), [userId, vaultKey, vaultOwnerToken, epoch, signature]);
   const current = useRef(identity);
   current.current = identity;
@@ -60,7 +61,7 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
     const isCurrent = () => current.current === identity && !controller.signal.aborted && isVaultSessionEpochCurrent(epoch);
     setState(previous => ({ ...previous, busy: true, error: "" }));
     try {
-      const items = await suggestTodoTasks({ vaultOwnerToken, sources: evidence, allowModelProcessing: true, signal: controller.signal, isCurrent });
+      const items = await suggestTodoTasks({ vaultOwnerToken, sources: evidence, selectedCapabilities, allowModelProcessing: true, signal: controller.signal, isCurrent });
       if (isCurrent()) setState(previous => ({ ...previous, items, busy: false, checked: true }));
     } catch {
       if (isCurrent()) setState(previous => ({ ...previous, busy: false, error: "Suggestions could not load. Try again." }));
@@ -87,14 +88,14 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
     }
   };
   return <section aria-label="One task suggestions" className="space-y-1">
-    <Coverage coverage={coverage} loading={loading} />
+    {selectedCapabilities === undefined ? <Coverage coverage={coverage} loading={loading} /> : null}
     {coverage.some(source => source.status === "unavailable" || source.status === "incomplete") ? <HelperText as="p" data-profile-role="description" role="status">Some sources couldn’t be fully checked.</HelperText> : null}
     <label className="flex min-h-11 items-center gap-2">
       <input type="checkbox" className="size-4 shrink-0 accent-[var(--app-accent)]" checked={approved} disabled={!available || busy} onChange={event => setState({ identity, approved: event.target.checked, busy: false, saving: null, error: "", items: [], checked: false })} />
       <span data-profile-role="name">Let One suggest tasks from summaries.</span>
     </label>
     {!available ? <HelperText as="p" data-profile-role="description">Suggestions aren’t available for this agent.</HelperText> : null}
-    <HelperText as="p" data-profile-role="description">Up to 100 loaded summaries; no message content, card details or Memory content. Review before adding.</HelperText>
+    <HelperText as="p" data-profile-role="description">{selectedCapabilities === undefined ? "Up to 100 loaded summaries; no message content, card details or Memory content. Review before adding." : "Summaries only. Review before adding."}</HelperText>
     <div className="flex flex-wrap gap-1">
       <Button variant="none" effect="fade" size="compact" data-profile-role="action" className="min-h-11" disabled={!available || !approved || busy || loading || !evidence.length} onClick={() => void find()}>{busy ? "Working…" : "Suggest tasks"}</Button>
       <Button variant="none" effect="fade" size="compact" data-profile-role="action" className="min-h-11" disabled={busy || loading} onClick={onRefresh}>Refresh sources</Button>

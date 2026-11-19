@@ -6,9 +6,12 @@ import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-c
 vi.mock("@/lib/services/api-client", () => ({ apiJson: vi.fn() }));
 vi.mock("@/lib/services/private-agent-specialist-chat", () => ({ ownerContentIsPrivate: vi.fn() }));
 const sources = [{ key: "opaque-local-handle", capability: "calendar" as const, summary: "An upcoming meeting", href: "/one/calendar" }];
+const podRequest = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { ownerPodRequest: podRequest } }));
 const input = () => ({ vaultOwnerToken: "fixture-owner-token", sources, allowModelProcessing: true as const, isCurrent: () => true });
 describe("One task suggestion boundary", () => {
   beforeEach(() => {
+    podRequest.mockReset().mockResolvedValue(new Response(JSON.stringify({ items: [] })));
     vi.mocked(ownerContentIsPrivate).mockResolvedValue(false);
     vi.mocked(apiJson).mockReset().mockResolvedValue({ items: [{ source_ref: "s1", title: "Prepare notes", reason: "Prepare for the upcoming meeting." }] });
   });
@@ -35,8 +38,24 @@ describe("One task suggestion boundary", () => {
   });
   it("never forwards private placement summaries to the hub", async () => {
     vi.mocked(ownerContentIsPrivate).mockResolvedValue(true);
+    await expect(suggestTodoTasks(input())).resolves.toEqual([]);
+    expect(podRequest).toHaveBeenCalledWith("todos/suggestions", expect.objectContaining({ method: "POST", cache: "no-store" }), false, undefined, undefined, expect.any(Function));
+    expect(apiJson).not.toHaveBeenCalled();
+  });
+  it("does not fall back to Shared when the private agent fails", async () => {
+    vi.mocked(ownerContentIsPrivate).mockResolvedValue(true);
+    podRequest.mockResolvedValue(new Response("unavailable", { status: 503 }));
     await expect(suggestTodoTasks(input())).rejects.toThrow(/private agent/);
     expect(apiJson).not.toHaveBeenCalled();
+  });
+  it("sends only selected summaries that are not already tasks", async () => {
+    await suggestTodoTasks({ ...input(), selectedCapabilities: ["calendar"], sources: [
+      ...sources, { ...sources[0], key: "off", capability: "gmail" },
+      { ...sources[0], key: "pending", pendingTitle: "Existing task" },
+    ] });
+    const body = JSON.parse(vi.mocked(apiJson).mock.calls[0][1]!.body as string);
+    expect(body.selected_capabilities).toEqual(["calendar"]);
+    expect(body.sources).toHaveLength(1);
   });
   it("drops results after owner or vault authority changes", async () => {
     let current = true;

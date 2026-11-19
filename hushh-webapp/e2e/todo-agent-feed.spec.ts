@@ -4,6 +4,55 @@ import os from "node:os";
 import path from "node:path";
 import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
+for (const width of [393, 1280]) {
+  test(`task source choices persist and task detail stays on one view at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("http://localhost/todo-fixture", route => route.fulfill({ contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+    await page.goto("http://localhost/todo-fixture");
+    await page.addScriptTag({ content: script });
+    await page.getByRole("button", { name: "Task sources", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("checkbox", { name: "Consent", exact: true }).uncheck();
+    await expect(dialog.getByRole("checkbox", { name: "Consent", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Reopen list" }).click();
+    await expect(page.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole("button", { name: "Task sources", exact: true }).click();
+    await expect(dialog.getByRole("checkbox", { name: "Consent", exact: true })).not.toBeChecked();
+    await dialog.getByRole("checkbox", { name: "Consent", exact: true }).check();
+    await expect(dialog.getByRole("checkbox", { name: "Consent", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Toggle save failure" }).click();
+    await page.getByRole("button", { name: "Task sources", exact: true }).click();
+    await dialog.getByRole("checkbox", { name: "Consent", exact: true }).uncheck();
+    await expect(dialog.getByRole("checkbox", { name: "Consent", exact: true })).toBeChecked();
+    await expect(dialog.getByText("Couldn’t save. Try again.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Toggle save failure" }).click();
+    await page.getByRole("button", { name: "Review Alex's connection request", exact: true }).click();
+    const detail = page.getByRole("region", { name: "Task details" });
+    await expect(detail).toBeVisible();
+    const complete = detail.getByRole("button", { name: "Mark as completed", exact: true });
+    const remove = detail.getByRole("button", { name: "Remove task", exact: true });
+    const [first, second] = await Promise.all([complete.boundingBox(), remove.boundingBox()]);
+    expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height);
+    expect(Math.abs(first!.x - second!.x)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: test.info().outputPath(`todo-task-detail-${width}.png`) });
+    await complete.click();
+    await expect(detail.getByRole("status")).toHaveText("Completed");
+    await detail.getByRole("button", { name: "Mark as not completed", exact: true }).click();
+    await expect(detail.getByRole("status")).toHaveText("To do");
+    await remove.click();
+    await detail.getByRole("button", { name: "Remove task", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
 // Production TodoListPage + persistence adapter. Only session/provider/storage
 // boundaries are isolated; no real owner, Calendar or Gmail records are changed.
 let script: string;
@@ -152,7 +201,7 @@ for (const [width, dark] of [
       await expect(locator).toHaveCSS("font-weight", weight);
       await expect(locator).toHaveCSS("font-family", /Plus Jakarta Sans/);
     }
-    await expect(preview.getByText("Task sources", { exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Task sources", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Suggest tasks", exact: true })).toHaveCount(0);
     await expect(preview.getByRole("button", { name: "Refresh sources", exact: true })).toHaveCount(0);
     for (const control of await preview.locator('button, a, summary, label').all()) {
@@ -327,7 +376,7 @@ test.describe("Calendar and email task list", () => {
     await expect(preview.getByText("Gmail", { exact: true })).toBeVisible();
     await expect(preview.getByRole("heading", { name: "Connect Google Drive — Request from Saru", exact: true })).toBeVisible();
     await expect(preview.getByRole("link", { name: "Open Reply to Saru: Meeting details", exact: true })).toHaveAttribute("href", "/one/gmail");
-    await expect(preview.getByText("Task sources", { exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Task sources", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Suggest tasks", exact: true })).toHaveCount(0);
     await expect(preview.getByText("Some tasks could not refresh.", { exact: true })).toHaveCount(0);
     await preview.getByRole("checkbox", { name: "Mark Reply to Saru: Meeting details as completed", exact: true }).click();

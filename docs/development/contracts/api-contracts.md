@@ -2595,6 +2595,33 @@ merging two businesses merely because their names or contact details overlap.
 
 ### One task inventory and reviewed suggestions
 
+Task Sources saves the owner's selected capability IDs inside the encrypted
+`one_todos._private.selectedCapabilities` branch using the existing PKM write
+coordinator. Missing preferences retain the legacy nine-source selection; an
+empty list means all sources are off. Choices must load successfully before
+source collection starts. Disabled sources are excluded from collection,
+automatic projections and model inputs; manual tasks and private completion or
+dismissal records are preserved. Public discovery summaries contain counters,
+never source preferences. Coverage remains bounded and reports unavailable or
+partial reads explicitly; Memory supplies refresh metadata, not its contents.
+
+Private owners use `GET /api/one/pod/todos/suggestions/status` and
+`POST /api/one/pod/todos/suggestions`, through the existing admitted owner-direct
+transport. The body and result match the Shared suggestion contract below.
+These doors require the current app-role `pkm.read` session, a held incarnation
+and the matching pod owner. Hub consent-token relays, foreign owners and fenced
+sessions are refused. Inference uses the owner's configured native runtime,
+never the Shared model credential or a Shared fallback. Existing drain admission,
+concurrency bounds, disconnect cancellation and final authority revalidation
+apply. Model failures and validation errors disclose no supplied content and
+responses are private/no-store. Explicit processing consent and a separate
+owner-confirmed Add remain required. No task action or background schedule is
+executed. The existing rollout flag is unchanged.
+
+Local service/HTTP and browser-fixture checks cover the integrated contracts.
+Live private-owner/model acceptance must be repeated after a separately
+authorized deployment; local fixture checks do not establish deployed behavior.
+
 One profile To-do and `/one/todos` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized

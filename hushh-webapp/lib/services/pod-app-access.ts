@@ -65,6 +65,8 @@ const OWNER_POD_ROUTES = new Set([
   "tasks/control",
   "calendar/events",
   "gmail/todos",
+  "todos/suggestions",
+  "todos/suggestions/status",
 ]);
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -182,10 +184,10 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
-  if (route === "calendar/events" || route === "gmail/todos") {
+  if (["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
+    const post = route === "calendar/events" || route === "todos/suggestions";
     if (session.role !== "app" || !session.scopes.includes("pkm.read") ||
-      method !== (route === "calendar/events" ? "POST" : "GET") ||
-      (route === "gmail/todos" && body != null)) {
+      method !== (post ? "POST" : "GET") || (!post && body != null)) {
       throw new Error("POD_TASK_SOURCE_READ_REFUSED");
     }
   }
