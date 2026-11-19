@@ -72,6 +72,13 @@ class RequestTraceMetadata:
 _request_trace_ctx: ContextVar[RequestTraceMetadata | None] = ContextVar(
     "request_trace_metadata", default=None
 )
+_read_only_request_ctx: ContextVar[bool] = ContextVar("read_only_request", default=False)
+
+
+def is_read_only_request() -> bool:
+    """True only while handling an HTTP GET/HEAD request."""
+    return bool(_read_only_request_ctx.get())
+
 
 _SAFE_REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9_.:-]{8,128}$")
 
@@ -298,6 +305,7 @@ async def _observability_middleware(request: Request, call_next):
     )
     request.state.trace_metadata = metadata
     token = _request_trace_ctx.set(metadata)
+    read_only_token = _read_only_request_ctx.set(metadata.method in {"GET", "HEAD"})
     query_token = begin_query_telemetry()
     # Audit and request metadata share the resolved trace correlation; the
     # request ID keeps its existing response-header compatibility.
@@ -320,6 +328,7 @@ async def _observability_middleware(request: Request, call_next):
             return response
     finally:
         reset_trace_id(audit_token)
+        _read_only_request_ctx.reset(read_only_token)
         _request_trace_ctx.reset(token)
         reset_query_telemetry(query_token)
 

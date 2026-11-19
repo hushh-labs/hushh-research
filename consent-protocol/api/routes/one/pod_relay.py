@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
@@ -493,7 +494,7 @@ async def issue_pod_data_door_grants(
     if door_grants is None:
         cached = get_cached_standing_door_grants(user_id, door_enabled=door_enabled)
         if cached is not None:
-            return cached
+            return {str(k): str(v) for k, v in cached.items()}
 
     service = PersonalAgentGrantService()
     tasks: list[tuple[str, Any]] = [
@@ -526,14 +527,16 @@ async def issue_pod_data_door_grants(
     results = await asyncio.gather(*(coro for _, coro in tasks), return_exceptions=True)
     data_door_grants: dict[str, str] = {}
     for (door_key, _), outcome in zip(tasks, results, strict=True):
-        if isinstance(outcome, Exception):
+        if isinstance(outcome, BaseException):
             logger.info(
                 "pod_relay.data_door_grant_skipped door=%s %s",
                 door_key,
                 type(outcome).__name__,
             )
             continue
-        token = str((outcome or {}).get("token") or "")
+        if not isinstance(outcome, Mapping):
+            continue
+        token = str(outcome.get("token") or "")
         if token:
             data_door_grants[door_key] = token
 

@@ -18,7 +18,7 @@ import {
   sendWhileAgentWakes,
 } from "@/lib/agent/owner-pod-wake";
 import { formatAgentChatErrorMessage } from "@/lib/services/agent-chat-client";
-import { forgetAgentAnswers, ownerPodRequest } from "@/lib/services/pod-app-access";
+import { forgetAgentAnswers, ownerPodRequest, prewarmOwnerPodChatAccess, resetCachedChatGrantsForTests } from "@/lib/services/pod-app-access";
 
 const pod = vi.hoisted(() => ({
   loadPinnedEndpoint: vi.fn(),
@@ -68,6 +68,7 @@ async function refusal(request: Promise<unknown>): Promise<Error & { code?: stri
 beforeEach(() => {
   vi.clearAllMocks();
   forgetAgentAnswers();
+  resetCachedChatGrantsForTests();
   pod.loadPinnedEndpoint.mockResolvedValue(PIN);
   pod.currentPodConnection.mockResolvedValue({ endpoint: PIN, session: { session: "pst1.cached" } });
 });
@@ -239,6 +240,28 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     const error = await refusal(ownerPodRequest("agent-chat", turnInit(), ports));
     expect(error).toBeInstanceOf(DeviceOfflineError);
     expect(formatAgentChatErrorMessage(error.message, error.code)).toMatch(/^This device is offline, so your message was not sent/);
+  });
+
+  it("consumes app-load prewarmed grants once without re-hitting chat-grants, then verifies live on subsequent turns", async () => {
+    const hub = vi.fn(async () => grants());
+    const fetch = vi.fn(async () => new Response("{}", { headers: { "content-type": "application/json" } }));
+    await prewarmOwnerPodChatAccess({
+      hosting: async () => ({ hostingMode: "byoc" }),
+      transport: async () => ({ hub, direct: vi.fn() }),
+      fetch,
+    });
+    expect(hub).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES]);
+
+    const ports = { transport: async () => ({ hub, direct: vi.fn() }), fetch } as unknown as Parameters<typeof ownerPodRequest>[2];
+    await ownerPodRequest("agent-chat", turnInit(), ports);
+    // Consumed prewarmed grant on first turn -> still only 1 hub call and pod is already awake.
+    expect(hub).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES, TURN]);
+
+    // Second turn still checks hub live so endpoint pinning rotation cannot be skipped.
+    await ownerPodRequest("agent-chat", turnInit(), ports);
+    expect(hub).toHaveBeenCalledTimes(2);
   });
 });
 

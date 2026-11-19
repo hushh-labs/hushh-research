@@ -623,6 +623,16 @@ class UmbrellaCellReplenisher:
             try:
                 await _process_cell(cell)
             except Exception as exc:  # noqa: BLE001 - isolate per cell with backoff
+                if (
+                    isinstance(exc, azure_federation.AzureFederationError)
+                    and "not configured" in str(exc).lower()
+                ):
+                    self._backoff_until[cell.cell_id] = now + 3600.0
+                    logger.info(
+                        "umbrella_cell_replenisher.federation_unconfigured_cooldown cell=%s cooldown_s=3600",
+                        cell.cell_id,
+                    )
+                    continue
                 self._record_backoff(cell.cell_id, now)
                 err_tag = f"{cell.cell_id}:{_sanitize_err(exc)}"
                 errors.append(err_tag)

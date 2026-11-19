@@ -1,4 +1,5 @@
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { readFinancialNws } from "./nws-financial-report";
 import type { FinancialDomain } from "./types";
 
@@ -7,6 +8,9 @@ export async function loadAgentTurnNws(
   isCurrent: () => boolean,
 ) {
   if (!isCurrent()) return null;
+  if (PersonalKnowledgeModelService.isDomainAbsentInCachedMetadata?.(owner.userId, "financial")) {
+    return null;
+  }
   try {
     const snapshot = await PkmDomainResourceService.getStaleFirst({
       userId: owner.userId, vaultKey: owner.vaultKey, vaultOwnerToken: owner.vaultOwnerToken,
