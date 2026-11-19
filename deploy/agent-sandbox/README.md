@@ -11,7 +11,7 @@ in `#9744`).
 
 - **GKE Autopilot / Assured Workloads:** `runtimeClassName: gvisor` is verified live on `hussh-one-sandbox-dev` (`us-central1` Autopilot); `microvm` (`kata-clh` Cloud Hypervisor hardware microVMs) is supported where Autopilot/Standard microVM node pools are enabled.
 - **AWS GovCloud EKS / Azure Gov AKS:** use `runtimeClassName: kata` (Kata microVM).
-- **Network Fencing:** `sandbox-network-policy.yaml` restricts sandbox pods strictly to `hussh-consent-hub` on TCP `8080` and `sentinel-egress-proxy` on TCP `3128`.
+- **Network Fencing:** `sandbox-network-policy.yaml` restricts sandbox pods strictly to `hussh-consent-hub` on TCP `8080` and `sentinel-egress-proxy` on TCP `3128`, while `sentinel-egress-proxy.yaml` isolates the proxy control port (`8081`) strictly to `hussh-consent-hub`.
 
 ## Reconciler (Plan-First, No Terraform)
 

@@ -41,7 +41,7 @@ if [ "$MODE" = "plan" ]; then
   echo "  2. Ensure Cloud Router $ROUTER_NAME and Cloud NAT $NAT_NAME in $REGION (default VPC)"
   echo "  3. Ensure private GKE Autopilot cluster $CLUSTER_NAME in $REGION"
   echo "  4. Apply kubernetes-sigs/agent-sandbox $AGENT_SANDBOX_RELEASE CRDs + controller"
-  echo "  5. Apply namespaces, NetworkPolicy, microvm/gvisor SandboxTemplate, and SandboxWarmPool (replicas=$REPLICAS)"
+  echo "  5. Apply namespaces, NetworkPolicy, Sentinel proxy Service/NetworkPolicy, microvm/gvisor SandboxTemplate, and SandboxWarmPool (replicas=$REPLICAS)"
   exit 0
 fi
 
@@ -74,7 +74,8 @@ kctl() {
 
 if [ "$MODE" = "scale-zero" ]; then
   kctl -n "$NAMESPACE" patch sandboxwarmpool "$POOL_NAME" --type=merge -p '{"spec":{"replicas":0}}'
-  echo "Scaled $POOL_NAME to 0 replicas in namespace $NAMESPACE."
+  kctl -n hussh-sandbox-system scale deployment/sentinel-egress-proxy --replicas=0 >/dev/null 2>&1 || true
+  echo "Scaled $POOL_NAME and sentinel-egress-proxy to 0 replicas."
   exit 0
 fi
 
@@ -83,8 +84,9 @@ kctl -n agent-sandbox-system rollout status deployment/agent-sandbox-controller 
 
 for ns in "$NAMESPACE" hussh-hub-router hussh-sandbox-system; do
   kctl create namespace "$ns" --dry-run=client -o yaml | kctl apply -f -
+  kctl label namespace "$ns" "kubernetes.io/metadata.name=${ns}" --overwrite >/dev/null 2>&1 || true
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 kctl apply -f "${SCRIPT_DIR}/sandbox-network-policy.yaml"
-echo "Reconcile complete. Apply an exact signed image SandboxTemplate and SandboxWarmPool to activate warm replicas."
+echo "Reconcile complete. Apply exact signed image manifests (sandbox-template.yaml, sentinel-egress-proxy.yaml, sandbox-warm-pool.yaml) to activate."

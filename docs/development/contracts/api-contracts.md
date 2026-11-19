@@ -1977,6 +1977,8 @@ See [UAT policy and recovery](../../architecture/identity/rollout-and-environmen
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
 | POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
 | POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+| POST | `/api/one/sandbox/claims` | Firebase Bearer | Hub-only single-use Agent Sandbox warm-pool claim allocator enforcing weekly allowance gates (`404` when `HUSSH_AGENT_SANDBOX_POOL_ENABLED` is off). |
+| GET,DELETE | `/api/one/sandbox/claims/{lease_id}` | Firebase Bearer | Inspect or tear down a claimed single-use sandbox lease with RAM scratch key zeroization and Sentinel surrogate revocation. |
 
 Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
 registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when

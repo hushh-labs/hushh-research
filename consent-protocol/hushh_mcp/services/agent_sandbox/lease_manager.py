@@ -194,6 +194,7 @@ class VirginSandboxLeaseManager:
         billing_space_id: str,
         target: str = "ace",
         units: int = 1,
+        preferred_instance_id: str | None = None,
     ) -> tuple[SandboxLeaseRecord, WeeklyQuotaSnapshot]:
         """Claim one untouched virgin sandbox and bind a fresh ephemeral NVMe key."""
         if not self._virgin_pool:
@@ -201,7 +202,18 @@ class VirginSandboxLeaseManager:
                 "SANDBOX_WARM_POOL_EMPTY", "No virgin sandbox available", status=503
             )
         quota = self.quota_ledger.check_and_consume(owner_id, target=target, units=units)
-        instance_id = self._virgin_pool.popleft()
+        if preferred_instance_id is not None:
+            clean_pref = str(preferred_instance_id).strip()
+            if clean_pref not in self._virgin_pool:
+                raise SandboxAdmissionError(
+                    "SANDBOX_WARM_POOL_EMPTY",
+                    f"Requested virgin sandbox {clean_pref} unavailable",
+                    status=503,
+                )
+            self._virgin_pool.remove(clean_pref)
+            instance_id = clean_pref
+        else:
+            instance_id = self._virgin_pool.popleft()
         if instance_id in self._tombstoned_instances or instance_id in self._active_by_instance:
             raise SandboxObjectReuseViolation(
                 f"{SC4_SINGLE_USE_VIOLATION}: instance {instance_id} already dirty"
