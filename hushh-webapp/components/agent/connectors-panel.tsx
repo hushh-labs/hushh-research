@@ -42,6 +42,7 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { ConnectorVectorGlyph } from "./connector-brand-mark";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { summarizePlaidVaultProjection } from "@/lib/kai/plaid-vault/projection-summary";
 import { connectVaultPlaid, disconnectVaultPlaid, refreshVaultConnections, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
@@ -628,6 +629,9 @@ function OwnerConnectorsPanel({
   const plaidConnections = vaultKey && vaultOwnerToken && financial.data
     ? Object.values(vaultConnections(financial.data.data))
     : [];
+  const plaidProjection = summarizePlaidVaultProjection(
+    vaultKey && vaultOwnerToken ? financial.data?.data : null,
+  );
   const refresh = useCallback(async (signal?: AbortSignal, verifyDrive = false) => {
     const token = currentToken.current;
     if (!token) {
@@ -2488,12 +2492,31 @@ function OwnerConnectorsPanel({
 
   const plaidDetail: Extract<ConnectorDetailPresentation, { kind: "plaid" }> = {
     kind: "plaid", status: financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected",
-    message: plaidBusy && !changesInFlight.current.has("plaid:connect") ? "Disconnecting bank…" : plaidMessage,
+    message:
+      plaidBusy && changesInFlight.current.has("plaid:refresh")
+        ? "Refreshing live bank data…"
+        : plaidBusy && !changesInFlight.current.has("plaid:connect")
+          ? "Disconnecting bank…"
+          : plaidMessage,
     banks: Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => ({
-      key: itemId, name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+      key: itemId, name: connection.institution_name || "Bank connection",
+      status: [
+        connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+        plaidProjection.byItemId[itemId]?.summaryLabel ?? null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       disconnect: detailAction("Disconnect", plaidBusy, () => setConfirm(`plaid:${itemId}`), true),
     })),
-    ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", plaidBusy, () => { void connectPlaidFromChat(); }) } : {}),
+    ...(!financial.loading && !financial.error
+      ? {
+          connect: detailAction(
+            plaidConnections.length > 0 ? "Add bank" : "Connect a bank",
+            plaidBusy,
+            () => { void connectPlaidFromChat(); },
+          ),
+        }
+      : {}),
   };
   const curatedDetail: Extract<ConnectorDetailPresentation, { kind: "curated" }> | null = selectedCatalog ? {
     kind: "curated", name: selectedCatalog.displayName, description: selectedCatalog.description,
@@ -3103,13 +3126,31 @@ function OwnerConnectorsPanel({
                   <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-normal">{connection.institution_name || "Bank connection"}</p>
-                      <p className="text-xs text-muted-foreground">{connection.status === "needs_relink" ? "Reconnect needed" : "Connected"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[
+                          connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+                          plaidProjection.byItemId[itemId]?.summaryLabel ?? null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
                     <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => setConfirm(`plaid:${itemId}`)}>
                       Disconnect
                     </Button>
                   </div>
                 ))}
+                {plaidConnections.length > 0 && plaidProjection.hasData ? (
+                  <div
+                    data-testid="plaid-live-projection-summary"
+                    className="space-y-1 rounded-xl border border-border bg-background/60 p-3 text-xs text-muted-foreground"
+                  >
+                    <p className="font-medium text-foreground">Live scope projection</p>
+                    {plaidProjection.totalsLine ? <p>{plaidProjection.totalsLine}</p> : null}
+                    {plaidProjection.projectedScopesLine ? <p>{plaidProjection.projectedScopesLine}</p> : null}
+                    <p>Active ongoing shares update automatically on sync.</p>
+                  </div>
+                ) : null}
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidDetail.message}</p>
                 <div className="flex flex-wrap gap-2">
                   {plaidConnections.length > 0 && !financial.loading && !financial.error && (
@@ -3117,9 +3158,9 @@ function OwnerConnectorsPanel({
                       Refresh live
                     </Button>
                   )}
-                  {!plaidConnections.length && !financial.loading && !financial.error && (
+                  {!financial.loading && !financial.error && (
                     <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
-                      Connect a bank
+                      {plaidConnections.length > 0 ? "Add bank" : "Connect a bank"}
                     </Button>
                   )}
                 </div>

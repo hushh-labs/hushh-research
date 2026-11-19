@@ -115,6 +115,10 @@ async def finalize_paid_export(conn: Any, purchase: dict) -> dict:
         "activation_at_ms": int(activation_at.timestamp() * 1000),
         "commerce_status": "active" if activation_at <= now else "armed",
         "request_id": binding["request_id"],
+        "connector_public_key": binding["connector_public_key"],
+        "connector_key_id": binding["connector_key_id"],
+        "connector_wrapping_alg": binding["connector_wrapping_alg"],
+        "refresh_policy": binding["refresh_policy"],
     }
     if binding["metadata"].get("request_source") == "marketplace":
         await conn.execute(

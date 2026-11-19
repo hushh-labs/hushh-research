@@ -20,6 +20,10 @@ import {
   buildConsentExportForScope,
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
+import {
+  ensureFreshPlaidProjectionForScope,
+  PlaidExportRefreshError,
+} from "@/lib/consent/financial-plaid-export-refresh";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OwnerFacingConsentError, ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -376,6 +380,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         // PKM scopes: build export from encrypted PKM storage (BYOK)
         if (isPkmScope(consent.scope)) {
           try {
+            await ensureFreshPlaidProjectionForScope({
+              userId,
+              scope: consent.scope,
+              vaultKey,
+              vaultOwnerToken,
+            });
             const builtExport = await buildConsentExportForScope({
               userId,
               scope: consent.scope,
@@ -386,6 +396,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             sourceContentRevision = builtExport.sourceContentRevision;
             sourceManifestRevision = builtExport.sourceManifestRevision;
           } catch (err) {
+            if (err instanceof PlaidExportRefreshError) {
+              throw new OwnerFacingConsentError(err.message);
+            }
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
               throw new OwnerFacingConsentError(

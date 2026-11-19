@@ -1,6 +1,5 @@
 import { buildConsentExportForScope } from "@/lib/consent/export-builder";
-import { hasVaultConnections, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { ensureFreshPlaidProjectionForScope } from "@/lib/consent/financial-plaid-export-refresh";
 import {
   buildConsentExportAadV2,
   buildConsentExportEnvelopeSubmissionV2,
@@ -44,40 +43,13 @@ export async function prepareAndStagePaidScopeExport(params: {
   assertCurrent();
   const scope = directScope || String(context?.machineScope || context?.machine_scope || "");
   if (!scope.startsWith("attr.")) throw new Error("The approved scope is unavailable.");
-  if (scope === "attr.financial" || scope.startsWith("attr.financial.")) {
-    const financialSnapshot = await PersonalKnowledgeModelService.getDomainSnapshot({
-      userId: params.userId,
-      domain: "financial",
-      vaultOwnerToken: params.vaultOwnerToken,
-      force: true,
-    });
-    assertCurrent();
-    if (financialSnapshot) {
-      const financialData = await PersonalKnowledgeModelService.decryptDomainSnapshot({
-        snapshot: financialSnapshot,
-        vaultKey: params.vaultKey,
-      });
-      assertCurrent();
-      if (hasVaultConnections(financialData)) {
-        const refreshOutcome = await refreshVaultConnections({
-          userId: params.userId,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-          financial: financialData,
-          force: true,
-        });
-        assertCurrent();
-        if (
-          refreshOutcome.refreshed === 0 &&
-          (refreshOutcome.failed > 0 || refreshOutcome.needsRelink.length > 0)
-        ) {
-          throw new Error(
-            "Reconnect or refresh your linked bank in Connectors before sharing real-time financial information.",
-          );
-        }
-      }
-    }
-  }
+  await ensureFreshPlaidProjectionForScope({
+    userId: params.userId,
+    scope,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    assertCurrent,
+  });
   const built = await buildConsentExportForScope({
     userId: params.userId, scope, vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,

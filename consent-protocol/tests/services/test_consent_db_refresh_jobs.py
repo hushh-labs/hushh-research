@@ -138,3 +138,39 @@ async def test_refresh_completion_preserves_eager_boolean_receipt_off_loop(paylo
         source_manifest_revision=1,
     )
     assert result is expected
+
+
+@pytest.mark.asyncio
+async def test_refresh_job_claim_uses_select_star_on_raw_sql_client_to_expand_composite_rows():
+    loop_thread = threading.get_ident()
+    calls = []
+
+    def execute_raw(sql, params):
+        calls.append((threading.get_ident(), sql, params))
+        return SimpleNamespace(
+            data=[
+                {
+                    "claim_id": "synthetic-claim",
+                    "consent_token": "HCT:synthetic",
+                    "expected_export_revision": 1,
+                }
+            ]
+        )
+
+    def rpc(_name, _params):
+        raise AssertionError("execute_raw should be preferred to expand SETOF composite columns")
+
+    service = ConsentDBService()
+    service._get_db = lambda: SimpleNamespace(execute_raw=execute_raw, rpc=rpc)
+    rows = await service.claim_consent_export_refresh_jobs("synthetic-owner")
+
+    assert rows == [
+        {
+            "claim_id": "synthetic-claim",
+            "consent_token": "HCT:synthetic",
+            "expected_export_revision": 1,
+        }
+    ]
+    assert calls[0][0] != loop_thread
+    assert "SELECT * FROM claim_consent_export_refresh_jobs_v2(" in calls[0][1]
+    assert calls[0][2]["p_user_id"] == "synthetic-owner"

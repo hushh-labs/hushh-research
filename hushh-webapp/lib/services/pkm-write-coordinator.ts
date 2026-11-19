@@ -38,6 +38,7 @@ import {
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeService } from "@/lib/services/pkm-upgrade-service";
 import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
+import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 
 const MAX_CONFLICT_RETRIES = 2;
@@ -625,6 +626,14 @@ export class PkmWriteCoordinator {
         };
 
         if (result.success) {
+          if (params.mayPublish?.() ?? true) {
+            void ConsentExportRefreshOrchestrator.ensureRunning({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              initiatedBy: `pkm_write:${params.domain}`,
+            });
+          }
           return {
             saveState: upgradedInSession
               ? "upgraded_and_saved"
@@ -803,6 +812,14 @@ export class PkmWriteCoordinator {
         };
 
         if (result.success) {
+          if (!result.idempotentReplay && (params.mayPublish?.() ?? true)) {
+            void ConsentExportRefreshOrchestrator.ensureRunning({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              initiatedBy: `pkm_write:${params.domain}`,
+            });
+          }
           return {
             idempotentReplay: result.idempotentReplay,
             saveState: upgradedInSession
