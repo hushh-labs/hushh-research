@@ -1,13 +1,23 @@
 "use client";
 
-import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { ApiService } from "@/lib/services/api-service";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { VaultContext } from "@/lib/vault/vault-context";
+import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { summarizePlaidVaultProjection } from "@/lib/kai/plaid-vault/projection-summary";
+import { syncPlaidPostureToPersonalWikiBestEffort } from "@/lib/kai/plaid-vault/wiki-posture-sync";
+import {
+  connectVaultPlaid,
+  refreshVaultConnections,
+  vaultConnections,
+} from "@/lib/kai/plaid-vault/vault-sync";
+import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { ConnectedSystemsAgentIcon } from "@/components/icons";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -127,7 +137,16 @@ const WORKSPACE_PROVIDER_LABEL: Record<WorkspaceConnectorProvider, string> = {
   gmail: "Gmail",
   calendar: "Calendar",
   custom: "Connectors",
+  plaid: "Plaid",
+  stripe: "Stripe",
 };
+
+export type AgentConnectorContinuationHandler = {
+  continueAfterConnectorSync: (prompt: string) => void;
+};
+
+export const AgentConnectorContinuationContext =
+  createContext<AgentConnectorContinuationHandler | null>(null);
 
 /**
  * One surface for every connector card in a turn: the Activity panel's inset
@@ -222,6 +241,8 @@ export function WorkspaceConnectorSetupCard({
 }) {
   if (experience.provider === "gmail") return <GmailConnectorChatCard onOpenConnections={onOpenConnections} />;
   if (experience.provider === "custom") return <CustomConnectorsCard experience={experience} onOpenConnections={onOpenConnections} />;
+  if (experience.provider === "plaid") return <PlaidConnectorChatCard onOpenConnections={onOpenConnections} />;
+  if (experience.provider === "stripe") return <StripeConnectorChatCard onOpenConnections={onOpenConnections} />;
   return <GoogleConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
 }
 
@@ -289,6 +310,328 @@ function CustomConnectorsCard({
         </li>)}
       </ul> : null}
     </ConnectorCardShell>
+  );
+}
+
+function PlaidConnectorChatCard({
+  onOpenConnections,
+}: {
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+}) {
+  const { userId } = useAuth();
+  const vault = useContext(VaultContext);
+  const continuation = useContext(AgentConnectorContinuationContext);
+  const vaultKey = vault?.vaultKey ?? null;
+  const vaultOwnerToken = vault?.vaultOwnerToken ?? null;
+  const financial = usePkmDomainResource({
+    userId: userId ?? "",
+    domain: "financial",
+    vaultKey,
+    vaultOwnerToken,
+    enabled: Boolean(userId && vaultKey && vaultOwnerToken),
+  }) as {
+    data: { data?: Record<string, unknown> } | null;
+    loading: boolean;
+    error: string | null;
+    refresh?: (options?: { force?: boolean }) => Promise<{ data?: Record<string, unknown> } | null | undefined>;
+  };
+
+  const [busyAction, setBusyAction] = useState<"connect" | "refresh" | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const connections =
+    vaultKey && vaultOwnerToken && financial.data?.data
+      ? Object.entries(vaultConnections(financial.data.data))
+      : [];
+  const projection = summarizePlaidVaultProjection(
+    vaultKey && vaultOwnerToken ? financial.data?.data : null,
+  );
+  const connected = connections.length > 0;
+  const hasVaultAccess = Boolean(userId && vaultKey && vaultOwnerToken);
+  const needsRelink = connections.some(([, item]) => item.status === "needs_relink");
+
+  const title = !hasVaultAccess
+    ? "Plaid · Unlock vault to connect bank accounts"
+    : financial.loading && !financial.data
+      ? "Plaid · Checking"
+      : connected
+        ? `Plaid · ${connections.length} connected ${connections.length === 1 ? "institution" : "institutions"}`
+        : "Plaid · Connect bank or financial account";
+
+  const detail = statusMessage
+    ? statusMessage
+    : connected
+      ? [
+          projection.totalsLine,
+          projection.projectedScopesLine,
+          needsRelink ? "Reconnect required on at least one institution." : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Connected in your encrypted financial vault."
+      : "Link checking, savings, credit card, investment, or loan accounts. Your vault stays encrypted on your device.";
+
+  const handleConnect = async (trigger: HTMLButtonElement) => {
+    if (!hasVaultAccess || !userId || !vaultKey || !vaultOwnerToken) {
+      onOpenConnections?.("plaid", trigger);
+      return;
+    }
+    setBusyAction("connect");
+    setStatusMessage("Opening Plaid Link…");
+    try {
+      const result = await connectVaultPlaid({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        originSurface: "agentone_chat",
+      });
+      if (!mounted.current) return;
+      if (result.status === "connected") {
+        const refreshed = await financial.refresh?.({ force: true }).catch(() => undefined);
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: refreshed?.data ?? financial.data?.data,
+        });
+        if (!mounted.current) return;
+        const label = result.institutionName
+          ? `${result.institutionName} connected and synced to your financial scopes & Personal Wiki.`
+          : "Bank connected and synced to your financial scopes & Personal Wiki.";
+        setStatusMessage(label);
+        continuation?.continueAfterConnectorSync(
+          result.institutionName
+            ? `I just connected ${result.institutionName} with Plaid. Summarize my connected accounts, balances, and updated financial scopes.`
+            : "I just connected my bank account with Plaid. Summarize my connected accounts, balances, and updated financial scopes.",
+        );
+      } else if (result.status === "blocked") {
+        setStatusMessage(result.reason);
+      } else {
+        setStatusMessage("");
+      }
+    } catch {
+      if (mounted.current) setStatusMessage("Could not connect Plaid right now. Try again.");
+    } finally {
+      if (mounted.current) setBusyAction(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!hasVaultAccess || !userId || !vaultKey || !vaultOwnerToken) return;
+    setBusyAction("refresh");
+    setStatusMessage("Refreshing live balances from Plaid…");
+    try {
+      const outcome = await refreshVaultConnections({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        financial: financial.data?.data,
+        force: true,
+      });
+      if (!mounted.current) return;
+      const refreshed = await financial.refresh?.({ force: true }).catch(() => undefined);
+      await syncPlaidPostureToPersonalWikiBestEffort({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        financial: refreshed?.data ?? financial.data?.data,
+      });
+      if (!mounted.current) return;
+      if (outcome.needsRelink.length > 0) {
+        setStatusMessage("One or more institutions need re-authentication.");
+      } else if (outcome.refreshed > 0) {
+        setStatusMessage("Balances refreshed, financial scopes & Personal Wiki updated.");
+        continuation?.continueAfterConnectorSync(
+          "I just refreshed my Plaid bank accounts. Summarize my updated balances and confirm my shared scopes updated.",
+        );
+      } else {
+        setStatusMessage("Accounts are already up to date.");
+      }
+    } catch {
+      if (mounted.current) setStatusMessage("Could not refresh balances right now. Try again.");
+    } finally {
+      if (mounted.current) setBusyAction(null);
+    }
+  };
+
+  return (
+    <ConnectorCardShell
+      ariaLabel="Plaid connection"
+      brand="plaid"
+      title={title}
+      detail={detail}
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          {connected ? (
+            <Button
+              type="button"
+              variant="muted"
+              size="compact"
+              disabled={busyAction !== null}
+              onClick={() => void handleRefresh()}
+            >
+              {busyAction === "refresh" ? "Refreshing…" : "Refresh now"}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="muted"
+            size="compact"
+            disabled={busyAction !== null}
+            onClick={(event) => void handleConnect(event.currentTarget)}
+          >
+            {busyAction === "connect" ? "Opening Plaid…" : connected ? "Add bank" : "Connect bank"}
+          </Button>
+        </div>
+      }
+    >
+      {connections.length > 0 ? (
+        <ul className="mt-2 divide-y divide-border/70" aria-label="Connected Plaid institutions">
+          {connections.map(([itemId, conn]) => (
+            <li key={itemId} className="flex min-h-10 items-center justify-between gap-3 py-1.5 text-xs">
+              <span className="min-w-0 truncate font-medium text-foreground">
+                {conn.institution_name || "Connected bank"}
+              </span>
+              <span className="shrink-0 text-muted-foreground">
+                {projection.byItemId[itemId]?.summaryLabel ??
+                  (conn.status === "needs_relink" ? "Reconnect needed" : "Active")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </ConnectorCardShell>
+  );
+}
+
+function StripeConnectorChatCard({
+  onOpenConnections,
+}: {
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+}) {
+  const { userId } = useAuth();
+  const vault = useContext(VaultContext);
+  const vaultOwnerToken = vault?.vaultOwnerToken ?? null;
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [payoutsEnabled, setPayoutsEnabled] = useState(false);
+  const [detailsSubmitted, setDetailsSubmitted] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken) return;
+    let cancelled = false;
+    setLoading(true);
+    void ApiService.apiFetch("/api/one/payouts", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${vaultOwnerToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { account?: { payoutsEnabled?: boolean; detailsSubmitted?: boolean } | null } | null) => {
+        if (cancelled || !data) return;
+        const account = data.account;
+        setConnected(Boolean(account));
+        setPayoutsEnabled(Boolean(account?.payoutsEnabled));
+        setDetailsSubmitted(Boolean(account?.detailsSubmitted));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, vaultOwnerToken]);
+
+  const startStripeOnboarding = async (trigger: HTMLButtonElement) => {
+    if (!userId || !vaultOwnerToken) {
+      onOpenConnections?.("stripe", trigger);
+      return;
+    }
+    setBusy(true);
+    setErrorMsg("");
+    try {
+      const endpoint = connected && detailsSubmitted
+        ? "/api/one/payouts/account/manage"
+        : "/api/one/payouts/onboard";
+      const response = await ApiService.apiFetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${vaultOwnerToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const data = (await response.json().catch(() => null)) as { url?: string } | null;
+      if (response.ok && data?.url && typeof window !== "undefined") {
+        window.open(data.url, "_blank", "noopener,noreferrer");
+      } else if (typeof window !== "undefined") {
+        openProfilePane(window.location.pathname, window.location.search, { panel: "payouts", detail: null }, { returnsToOrigin: true });
+      }
+    } catch {
+      setErrorMsg("Could not open Stripe Connect right now.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const statusLabel = loading
+    ? "Checking"
+    : payoutsEnabled
+      ? "Connected"
+      : detailsSubmitted
+        ? "Setup in progress"
+        : connected
+          ? "Finish setup"
+          : "Not connected";
+
+  return (
+    <ConnectorCardShell
+      ariaLabel="Stripe connection"
+      brand="stripe"
+      title={`Stripe · ${statusLabel}`}
+      detail={
+        errorMsg ||
+        (payoutsEnabled
+          ? "Stripe Express payouts are ready to receive marketplace and data earnings."
+          : "Set up Stripe Connect to receive payouts from shared marketplace requests.")
+      }
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="muted"
+            size="compact"
+            disabled={busy || loading}
+            onClick={(event) => void startStripeOnboarding(event.currentTarget)}
+          >
+            {busy
+              ? "Opening Stripe…"
+              : payoutsEnabled
+                ? "Manage payouts"
+                : connected
+                  ? "Continue Stripe setup"
+                  : "Set up Stripe"}
+          </Button>
+          {onOpenConnections ? (
+            <Button
+              type="button"
+              variant="muted"
+              size="compact"
+              onClick={(event) => onOpenConnections("stripe", event.currentTarget)}
+            >
+              Connectors
+            </Button>
+          ) : null}
+        </div>
+      }
+    />
   );
 }
 

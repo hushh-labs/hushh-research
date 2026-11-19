@@ -55,7 +55,10 @@ import {
   AgentTranscriptRevealContext,
   type AgentConsentContinuationHandler,
 } from "@/components/agent/agent-structured-experience";
+import { AgentConnectorContinuationContext } from "@/components/agent/connector-read-receipt";
 import { CustomConnectorChatContext } from "@/components/agent/custom-connector-probe-card";
+import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import type { FinancialDomain } from "@/lib/kai/plaid-vault/types";
 import {
   claimConsentContinuation,
   collectOutgoingRequestCards,
@@ -5196,11 +5199,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           : null,
         screenContext: (() => {
           const context = buildOneVoiceStructuredScreenContext({
-          appRuntimeState: appRuntimeStateRef.current,
-          state: useAgentVoiceState.getState().oneVoiceState,
-          lastTransition: useAgentVoiceState.getState().lastTransition,
+            appRuntimeState: appRuntimeStateRef.current,
+            state: useAgentVoiceState.getState().oneVoiceState,
+            lastTransition: useAgentVoiceState.getState().lastTransition,
           });
-          return { ...context, screen_state: { ...context.one_voice_context?.screen_state, ...nameTurn?.screenState } };
+          const cachedFinancial = applicationOwnerId && isVaultUnlocked
+            ? CacheService.getInstance().get<FinancialDomain>(
+                CACHE_KEYS.DOMAIN_DATA(applicationOwnerId, "financial"),
+              )
+            : null;
+          const plaidCount = cachedFinancial
+            ? Object.keys(vaultConnections(cachedFinancial)).length
+            : 0;
+          return {
+            ...context,
+            screen_state: {
+              ...context.one_voice_context?.screen_state,
+              ...(isVaultUnlocked && cachedFinancial
+                ? {
+                    plaid_connected: plaidCount > 0,
+                    plaid_institution_count: plaidCount,
+                  }
+                : {}),
+              ...nameTurn?.screenState,
+            },
+          };
         })() as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
@@ -8313,6 +8336,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
       <CustomConnectorChatContext.Provider value={customConnectorChat}>
+      <AgentConnectorContinuationContext.Provider
+        value={hasChatAccess && !isStreaming
+          ? {
+              continueAfterConnectorSync: (prompt) => {
+                enqueuePrompt(prompt);
+              },
+            }
+          : null}
+      >
       <AgentConsentContinuationContext.Provider value={hasChatAccess
         ? { conversationId, continueWithOutcome: continueWithConsentOutcome }
         : null}>
@@ -10190,6 +10222,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       </AgentTranscriptRevealContext.Provider>
       </ConsentCardPhaseContext.Provider>
       </AgentConsentContinuationContext.Provider>
+      </AgentConnectorContinuationContext.Provider>
       </CustomConnectorChatContext.Provider>
       </AgentPersonSelectionContext.Provider>
     </div>

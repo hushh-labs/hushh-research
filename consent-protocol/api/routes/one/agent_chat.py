@@ -602,6 +602,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # as settling; that would suppress the consent confirmation card even
         # while the current browser frame is idle.
         "hussh:typed_chat_context": True,
+        "temp:hussh:split_dynamic_context": not bool(
+            consent_continuation.get("temp:hussh:consent_continuation")
+        ),
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)

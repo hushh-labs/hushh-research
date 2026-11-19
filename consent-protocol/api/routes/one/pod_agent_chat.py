@@ -214,6 +214,9 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     from api.routes.one.pod_consent_chat import admit_continuation
 
     state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
+    state["temp:hussh:split_dynamic_context"] = not bool(
+        state.get("temp:hussh:consent_continuation")
+    )
     await owner.require_access()
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.

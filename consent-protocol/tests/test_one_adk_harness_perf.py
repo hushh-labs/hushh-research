@@ -113,7 +113,7 @@ def test_context_cache_config_targets_native_gemini_only(monkeypatch):
     assert _adk_context_cache_config(SimpleNamespace(model=gemini_model)) is None
 
 
-def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history():
+def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history(monkeypatch):
     core_padding = [f"core_tool_{i}" for i in range(25)]
     all_names = [
         *core_padding,
@@ -157,6 +157,13 @@ def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history():
             tools_dict={name: _StubTool(name) for name in all_names},
         )
 
+    # Prefix-cache default: without opt-in flag, tool declarations stay stable across turns.
+    monkeypatch.delenv("HUSHH_ONE_TOOL_SCOPING_ENABLED", raising=False)
+    default_req = make_request("analyze NVDA stock price")
+    scope_leaf_tools_before_model(None, default_req)
+    assert {d.name for d in default_req.config.tools[0].function_declarations} == set(all_names)
+
+    monkeypatch.setenv("HUSHH_ONE_TOOL_SCOPING_ENABLED", "1")
     generic_req = make_request("analyze NVDA stock price")
     scope_leaf_tools_before_model(None, generic_req)
     kept_generic = {d.name for d in generic_req.config.tools[0].function_declarations}

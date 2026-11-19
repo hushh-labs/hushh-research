@@ -35,7 +35,13 @@ export type ConnectorReadExperience = {
 export const WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE =
   "one.workspace_connector_setup.v1" as const;
 
-export type WorkspaceConnectorProvider = "drive" | "gmail" | "calendar" | "custom";
+export type WorkspaceConnectorProvider =
+  | "drive"
+  | "gmail"
+  | "calendar"
+  | "custom"
+  | "plaid"
+  | "stripe";
 
 export type WorkspaceConnectorSetupExperience = {
   type: typeof WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE;
@@ -84,6 +90,52 @@ export function parseWorkspaceConnectorSetup(
         ...(saved ? { saved } : {}),
       }
       : null;
+  }
+  if (toolName === "manage_connector") {
+    const outer = parseRecord(value);
+    if (!outer) return null;
+    const result = [outer.result, outer.content, outer.data]
+      .map(parseRecord)
+      .find((candidate) => candidate?.status) ?? outer;
+    const rawStatus = String(result.status || "");
+    const setupStatus: WorkspaceConnectorSetupExperience["status"] | null =
+      rawStatus === "connect_required" || rawStatus === "permission_required"
+        ? "connect_required"
+        : ["manage_available", "api_available", "ok", "setup_available"].includes(rawStatus)
+          ? "manage_available"
+          : null;
+    if (!setupStatus) return null;
+    const args = parseRecord(toolArguments);
+    const resultProvider = result.provider;
+    const argumentProvider = args?.provider;
+    if (resultProvider && argumentProvider && resultProvider !== argumentProvider) {
+      return null;
+    }
+    const provider = resultProvider ?? argumentProvider;
+    if (
+      provider !== "plaid" &&
+      provider !== "stripe" &&
+      provider !== "drive" &&
+      provider !== "gmail" &&
+      provider !== "calendar" &&
+      provider !== "custom"
+    ) {
+      return null;
+    }
+    if (provider === "custom") {
+      const saved = parseSavedConnectors(result.saved);
+      return {
+        type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+        provider: "custom",
+        status: "manage_available",
+        ...(saved ? { saved } : {}),
+      };
+    }
+    return {
+      type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+      provider,
+      status: setupStatus,
+    };
   }
   if (toolName !== "discover_workspace_tools" && toolName !== "read_workspace_tool") {
     return null;
@@ -147,7 +199,15 @@ export function parseWorkspaceConnectorSetupDescriptor(
     const saved = parseSavedConnectors(input?.saved);
     return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status, ...(saved ? { saved } : {}) };
   }
-  if (provider !== "drive" && provider !== "gmail" && provider !== "calendar") return null;
+  if (
+    provider !== "drive" &&
+    provider !== "gmail" &&
+    provider !== "calendar" &&
+    provider !== "plaid" &&
+    provider !== "stripe"
+  ) {
+    return null;
+  }
   if (status !== "connect_required" && status !== "manage_available") return null;
   return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status };
 }

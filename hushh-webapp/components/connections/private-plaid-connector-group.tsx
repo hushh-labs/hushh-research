@@ -166,7 +166,19 @@ export function usePrivatePlaidConnectorModel({
         });
         if (!stillCurrent()) return;
         if (result.status === "connected") {
-          await financial.refresh?.({ force: true });
+          const refreshed = await financial.refresh?.({ force: true });
+          const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+            "@/lib/kai/plaid-vault/wiki-posture-sync"
+          );
+          await syncPlaidPostureToPersonalWikiBestEffort({
+            userId: resolvedAccess.userId,
+            vaultKey: resolvedAccess.vaultKey,
+            vaultOwnerToken: resolvedAccess.vaultOwnerToken,
+            financial:
+              refreshed && typeof refreshed === "object" && "data" in refreshed
+                ? (refreshed as { data?: Record<string, unknown> }).data
+                : financial.data?.data,
+          });
           if (stillCurrent()) {
             setMessage(
               result.institutionName
@@ -197,7 +209,21 @@ export function usePrivatePlaidConnectorModel({
           force: true,
         });
         if (!stillCurrent()) return;
-        await financial.refresh?.({ force: true });
+        const refreshed = await financial.refresh?.({ force: true });
+        if (outcome.refreshed > 0) {
+          const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+            "@/lib/kai/plaid-vault/wiki-posture-sync"
+          );
+          await syncPlaidPostureToPersonalWikiBestEffort({
+            userId: resolvedAccess.userId,
+            vaultKey: resolvedAccess.vaultKey,
+            vaultOwnerToken: resolvedAccess.vaultOwnerToken,
+            financial:
+              refreshed && typeof refreshed === "object" && "data" in refreshed
+                ? (refreshed as { data?: Record<string, unknown> }).data
+                : financial.data?.data,
+          });
+        }
         if (!stillCurrent()) return;
         if (outcome.needsRelink.length > 0) {
           setMessage("At least one bank needs re-authentication before refreshing.");
