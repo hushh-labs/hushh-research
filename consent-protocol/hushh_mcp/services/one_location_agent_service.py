@@ -4822,9 +4822,20 @@ class OneLocationAgentService:
         )
 
     def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        connection = getattr(self, "_key_writer_connection", None)
+        if connection is not None:
+            return cast(
+                set[str],
+                active_directory_user_ids(user_ids, use_cache=False, connection=connection),
+            )
         return cast(set[str], active_directory_user_ids(user_ids, use_cache=False))
 
     def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        connection = getattr(self, "_key_writer_connection", None)
+        if connection is not None:
+            return cast(
+                dict[str, dict[str, str]], directory_auth_profiles(user_ids, connection=connection)
+            )
         return cast(dict[str, dict[str, str]], directory_auth_profiles(user_ids))
 
     def search_directory_candidates(
