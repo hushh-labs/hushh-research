@@ -454,6 +454,8 @@ GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
 POST /api/one/runtime/shared/select
 POST /api/one/runtime/standby/sync
+POST /api/one/sandbox/claims
+DELETE,GET /api/one/sandbox/claims/{lease_id}
 GET /api/one/u/{hushh_id}/diagnostics/model
 GET /api/one/u/{hushh_id}/info
 GET /api/one/u/{hushh_id}/memory/status

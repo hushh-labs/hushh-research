@@ -1752,3 +1752,4 @@ tests/scripts/test_db_data_health.py
 tests/services/test_agent_sandbox_fedramp_controls.py
 tests/services/test_workspace_cas_sync_store.py
 tests/services/test_agent_sandbox_process_and_adk_terminal.py
+tests/services/test_agent_sandbox_phase2_routing_and_proxy.py

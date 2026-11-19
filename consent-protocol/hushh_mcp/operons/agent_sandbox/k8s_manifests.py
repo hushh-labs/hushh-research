@@ -11,6 +11,7 @@ and `gvisor`), AWS GovCloud EKS (`kata`), and Azure Gov AKS (`kata`).
 from __future__ import annotations
 
 import datetime
+import ipaddress
 import re
 import time
 from typing import Any, Literal
@@ -64,6 +65,7 @@ def render_sandbox_template(
     cpu_millis: int = DEFAULT_CPU_MILLIS,
     memory_limit: str = DEFAULT_MEMORY_LIMIT,
     egress_proxy_url: str = DEFAULT_EGRESS_PROXY_URL,
+    sentinel_service_ip: str | None = None,
     command: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Render a virgin hardened v1beta1 SandboxTemplate with zero owner state or SA tokens."""
@@ -84,6 +86,24 @@ def render_sandbox_template(
     if not clean_proxy.startswith(("http://", "https://")):
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: valid egress_proxy_url required")
 
+    host_aliases: list[dict[str, Any]] | None = None
+    if sentinel_service_ip is not None:
+        try:
+            parsed_ip = ipaddress.ip_address(str(sentinel_service_ip).strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"{K8S_MANIFEST_INVARIANT_ERROR}: valid sentinel_service_ip required"
+            ) from exc
+        host_aliases = [
+            {
+                "ip": str(parsed_ip),
+                "hostnames": [
+                    "sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local",
+                    "sentinel-egress-proxy.hussh-sandbox-system.svc",
+                ],
+            }
+        ]
+
     entrypoint = list(command) if command is not None else list(DEFAULT_STANDBY_COMMAND)
     if not entrypoint or not all(isinstance(part, str) and part.strip() for part in entrypoint):
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: non-empty command is required")
@@ -101,6 +121,65 @@ def render_sandbox_template(
     ]
     if any(entry["name"] in _RESERVED_FORBIDDEN_ENV for entry in env_list):
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: virgin template cannot carry tenant env")
+
+    pod_spec: dict[str, Any] = {
+        "runtimeClassName": runtime_class,
+        "automountServiceAccountToken": False,
+        "restartPolicy": "Never",
+        "securityContext": {
+            "runAsNonRoot": True,
+            "runAsUser": DEFAULT_SANDBOX_UID,
+            "runAsGroup": DEFAULT_SANDBOX_UID,
+            "fsGroup": DEFAULT_SANDBOX_UID,
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+        "containers": [
+            {
+                "name": "sandbox",
+                "image": clean_image,
+                "command": entrypoint,
+                "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
+                "env": env_list,
+                "readinessProbe": {
+                    "httpGet": {"path": "/healthz", "port": 8080},
+                    "initialDelaySeconds": 1,
+                    "periodSeconds": 5,
+                },
+                "resources": {
+                    "requests": {"cpu": f"{cpu_millis}m", "memory": memory_limit},
+                    "limits": {"cpu": f"{cpu_millis}m", "memory": memory_limit},
+                },
+                "securityContext": {
+                    "allowPrivilegeEscalation": False,
+                    "readOnlyRootFilesystem": True,
+                    "runAsNonRoot": True,
+                    "runAsUser": DEFAULT_SANDBOX_UID,
+                    "capabilities": {"drop": ["ALL"]},
+                },
+                "volumeMounts": [
+                    {"name": "workspace-nvme", "mountPath": "/workspace"},
+                    {"name": "runtime-tmp", "mountPath": "/run/hussh-tmp"},
+                    {"name": "gunicorn-runtime", "mountPath": "/app/.gunicorn"},
+                ],
+            }
+        ],
+        "volumes": [
+            {
+                "name": "workspace-nvme",
+                "emptyDir": {"sizeLimit": "4Gi"},
+            },
+            {
+                "name": "runtime-tmp",
+                "emptyDir": {"medium": "Memory", "sizeLimit": "256Mi"},
+            },
+            {
+                "name": "gunicorn-runtime",
+                "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"},
+            },
+        ],
+    }
+    if host_aliases is not None:
+        pod_spec["hostAliases"] = host_aliases
 
     return {
         "apiVersion": AGENT_SANDBOX_EXTENSIONS_API_VERSION,
@@ -127,62 +206,7 @@ def render_sandbox_template(
                         "hussh.ai/egress-enforced": "sentinel",
                     }
                 },
-                "spec": {
-                    "runtimeClassName": runtime_class,
-                    "automountServiceAccountToken": False,
-                    "restartPolicy": "Never",
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": DEFAULT_SANDBOX_UID,
-                        "runAsGroup": DEFAULT_SANDBOX_UID,
-                        "fsGroup": DEFAULT_SANDBOX_UID,
-                        "seccompProfile": {"type": "RuntimeDefault"},
-                    },
-                    "containers": [
-                        {
-                            "name": "sandbox",
-                            "image": clean_image,
-                            "command": entrypoint,
-                            "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
-                            "env": env_list,
-                            "readinessProbe": {
-                                "httpGet": {"path": "/healthz", "port": 8080},
-                                "initialDelaySeconds": 1,
-                                "periodSeconds": 5,
-                            },
-                            "resources": {
-                                "requests": {"cpu": f"{cpu_millis}m", "memory": memory_limit},
-                                "limits": {"cpu": f"{cpu_millis}m", "memory": memory_limit},
-                            },
-                            "securityContext": {
-                                "allowPrivilegeEscalation": False,
-                                "readOnlyRootFilesystem": True,
-                                "runAsNonRoot": True,
-                                "runAsUser": DEFAULT_SANDBOX_UID,
-                                "capabilities": {"drop": ["ALL"]},
-                            },
-                            "volumeMounts": [
-                                {"name": "workspace-nvme", "mountPath": "/workspace"},
-                                {"name": "runtime-tmp", "mountPath": "/run/hussh-tmp"},
-                                {"name": "gunicorn-runtime", "mountPath": "/app/.gunicorn"},
-                            ],
-                        }
-                    ],
-                    "volumes": [
-                        {
-                            "name": "workspace-nvme",
-                            "emptyDir": {"sizeLimit": "4Gi"},
-                        },
-                        {
-                            "name": "runtime-tmp",
-                            "emptyDir": {"medium": "Memory", "sizeLimit": "256Mi"},
-                        },
-                        {
-                            "name": "gunicorn-runtime",
-                            "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"},
-                        },
-                    ],
-                },
+                "spec": pod_spec,
             },
         },
     }
