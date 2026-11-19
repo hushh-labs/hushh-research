@@ -36,8 +36,8 @@ struct HushhNativeNavigationState {
         return true
     }
 
-    func isPresented(appIsActive: Bool, shielded: Bool, keyboardVisible: Bool) -> Bool {
-        visible && appIsActive && !shielded && !keyboardVisible
+    func isPresented(appIsActive: Bool, shielded: Bool, keyboardVisible: Bool, keepPaintDuringKeyboard: Bool = false) -> Bool {
+        visible && appIsActive && !shielded && (!keyboardVisible || keepPaintDuringKeyboard)
     }
 
     func acceptsTap(_ tab: String, appIsActive: Bool, shielded: Bool, keyboardVisible: Bool) -> Bool {
@@ -213,9 +213,11 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                     }
                     if note.name == UIResponder.keyboardWillShowNotification {
                         self.keyboardVisible = true; self.keyboardHidePending = false
+                        self.confirmedSequence = self.tapSequence
                     }
                     if note.name == UIResponder.keyboardWillHideNotification {
                         self.keyboardVisible = true; self.keyboardHidePending = true
+                        self.confirmedSequence = self.tapSequence
                     }
                     if note.name == UIResponder.keyboardDidHideNotification {
                         guard self.keyboardHidePending else { return }
@@ -378,19 +380,13 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     @objc func confirmSelection(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
-                call.resolve(["valid": false]); return
-            }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let sequence = call.getInt("sequence") ?? -1
             let tab = call.getString("tab") ?? ""
-            let valid = self.compositor?.interactionIsolated != true && call.getString("documentId") == self.state.documentId &&
+            let valid = self.acceptsSelection(tab, privacy: privacy) && call.getString("documentId") == self.state.documentId &&
                 call.getInt("interactionEpoch") == self.state.interactionEpoch &&
                 call.getInt("privacyGeneration") == privacy.generation &&
-                sequence == self.tapSequence && sequence > self.confirmedSequence &&
-                self.currentColumnFrame != nil &&
-                self.state.acceptsTap(tab, appIsActive: privacy.appIsActive,
-                                      shielded: privacy.shielded, keyboardVisible: self.keyboardVisible)
+                sequence == self.tapSequence && sequence > self.confirmedSequence
             if valid { self.confirmedSequence = sequence }
             call.resolve(["valid": valid])
         }
@@ -475,16 +471,24 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         publishPresentationProbe()
     }
 
+    private func acceptsSelection(_ tab: String, privacy: HushhSessionPrivacyShield.Snapshot) -> Bool {
+        NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil &&
+            compositor?.interactionIsolated != true &&
+            state.acceptsTap(tab, appIsActive: privacy.appIsActive, shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+    }
+
     private func updatePresentation() {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         if privacy.shielded && privacy.cause == "restart" && privacy.generation != retiredRestartGeneration {
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
-                                     shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
-        let interactive = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil && compositor?.interactionIsolated != true && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
-                                          shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
+        // Preserve the coherent bar's paint behind the keyboard for dismissal.
+        // Touch and accessibility use the same gate as dispatch and confirmation.
+        let show = NativeDrawerQualificationPolicy.coherentPresentationEnabled && currentColumnFrame != nil &&
+            state.isPresented(appIsActive: privacy.appIsActive, shielded: privacy.shielded, keyboardVisible: keyboardVisible,
+                              keepPaintDuringKeyboard: compositor?.wholeNativeDrawers == true)
+        let interactive = acceptsSelection(state.selected, privacy: privacy)
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = interactive
         tabBar?.accessibilityElementsHidden = !interactive
@@ -536,13 +540,11 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     }
 
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-        guard NativeDrawerQualificationPolicy.coherentPresentationEnabled,
-              HushhNativeNavigationState.tabs.indices.contains(item.tag) else { return }
+        guard HushhNativeNavigationState.tabs.indices.contains(item.tag) else { return }
         let tab = HushhNativeNavigationState.tabs[item.tag]
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.
-        guard currentColumnFrame != nil, compositor?.interactionIsolated != true, state.acceptsTap(tab, appIsActive: privacy.appIsActive,
-                              shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true) else { return }
+        guard acceptsSelection(tab, privacy: privacy) else { return }
         // Tracking has completed. Reveal for this deliberate tab intent only
         // now, never by moving its target during touch-up-inside tracking.
         invalidateScroll(snap: true)

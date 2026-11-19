@@ -4624,6 +4624,10 @@ final class NativeSupportTests: XCTestCase {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))
         XCTAssertTrue(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertTrue(state.isPresented(appIsActive: true, shielded: false, keyboardVisible: true, keepPaintDuringKeyboard: true))
+        XCTAssertFalse(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: true),
+            "Retained paint behind the keyboard must not admit a tab selection")
+        XCTAssertFalse(state.isPresented(appIsActive: true, shielded: true, keyboardVisible: true, keepPaintDuringKeyboard: true))
         // Covered presentation is retained; neither direct taps nor VoiceOver
         // admission may navigate underneath the authored interaction layer.
         XCTAssertTrue(state.apply(document: "first", revision: 2, visible: true, selected: "chat", interactionEpoch: 1, interactionEnabled: false))
