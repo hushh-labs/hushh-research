@@ -61,6 +61,9 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
+import { TodoTaskSources } from "./todo-task-sources";
+import { TodoTaskDetail } from "./todo-task-detail";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -281,6 +284,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
+  const [selected, setSelected] = useState<readonly TaskCapability[]>([]);
+  const [choicesLoaded, setChoicesLoaded] = useState(false);
+  const [detail, setDetail] = useState<TodoItem | null>(null);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [itemsLoadError, setItemsLoadError] = useState(false);
@@ -309,19 +315,19 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     [user],
   );
   const liveTasks = useTodoLiveTasks({
-    userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
+    userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady && choicesLoaded, tasks, selectedCapabilities: selected,
   });
   const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading } = liveTasks;
   const gmail = useGmailConnectorStatus({
-    userId,
-    idTokenProvider: user ? idTokenProvider : null,
+    userId: writeReady && selected.includes("gmail") ? userId : null,
+    idTokenProvider: user && selected.includes("gmail") ? idTokenProvider : null,
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   const cachedReceipts = useMemo(() => {
-    if (!writeReady || !receiptAccountKey) return null;
+    if (!writeReady || !selected.includes("gmail") || !receiptAccountKey) return null;
     return getCachedGmailReceipts(userId, receiptAccountKey);
-  }, [receiptAccountKey, userId, writeReady]);
+  }, [receiptAccountKey, userId, writeReady, selected]);
   const dueReceipts = useMemo(() => {
     if (!cachedReceipts) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
@@ -347,6 +353,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       });
       if (revision !== itemsLoadRevision.current) return;
       setTasks(state.tasks);
+      setSelected(state.selectedCapabilities ?? taskCapabilitySchema.options);
+      setChoicesLoaded(true);
     } catch {
       if (revision !== itemsLoadRevision.current) return;
       setItemsLoadError(true);
@@ -514,6 +522,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     setDeleteRequest(task);
   };
 
+  const currentDetail = detail && (tasks.find(task => task.id === detail.id) ?? pending.find(task => task.id === detail.id) ?? detail);
+  if (writeReady && currentDetail && currentDetail.status !== "deleted") return <AppPageShell as="main" width="reading" fitContent><AppPageContentRegion><TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => void toggleTask(task, complete)} onRemove={task => { void deleteTask(task).then(() => setDetail(null)); }} /></AppPageContentRegion></AppPageShell>;
+
   return (
     <AppPageShell
       as="main"
@@ -549,6 +560,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           actionsInlineMobile
           actions={
             <div className="flex items-center gap-2">
+              {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoTaskSources persistence={{ userId, vaultKey, vaultOwnerToken }} selected={selected} coverage={liveTasks.coverage} evidence={liveTasks.evidence} loading={liveTasks.sourceLoading} disabled={itemsLoading || !itemsLoaded || itemsLoadError || isSaving}
+                isCurrent={isCurrent} onChange={setSelected} onRefresh={() => { void liveTasks.refreshSources(); calendar.refresh(); upcoming.refresh(); }} onSaved={() => { void loadItems(); }} /> : null}
               {writeReady && agentLoadError ? (
                 <Button
                   variant="none"
@@ -655,6 +668,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             savingTaskIds={savingTaskIds}
             onToggle={toggleTask}
             onDelete={requestDelete}
+            onOpen={setDetail}
           />
         ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
@@ -726,6 +740,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
                   savingTaskIds={savingTaskIds}
                   onToggle={toggleTask}
                   onDelete={requestDelete}
+                  onOpen={setDetail}
                 />
               ) : null}
             </div>

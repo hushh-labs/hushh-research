@@ -9196,8 +9196,13 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/todos/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "todos.complete",
+        "todos.detail",
+        "todos.remove",
+        "todos.sources"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -11076,5 +11081,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "cb03660be102ad705c396324d9fed035c8bc48f348879ca3e7d2f57bb791b858"
+  "content_sha256": "0757b692ad5a63294bcc804e1bd922ad404aa12b179389cff0fab45b4d9682b1"
 }
