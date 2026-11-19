@@ -57,7 +57,7 @@ import {
 } from "@/lib/kai/market-snapshot";
 import { cn } from "@/lib/utils";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
-import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
+import { useStockPreview } from "@/lib/kai/use-stock-preview";
 import { CacheService } from "@/lib/services/cache-service";
 import {
   deriveAnalysisRouteIntent,
@@ -197,9 +197,6 @@ export function KaiAnalysisPageContent() {
   const lastFocusedRouteKeyRef = useRef<string | null>(null);
   const [headerSnapshotState, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
-  const [stockPreviewResult, setStockPreview] = useState<{ ticker: string; payload: KaiStockPreviewResponse } | null>(null);
-  const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
-  const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
   const [previewPickSource, setPreviewPickSource] = useState("default");
   const [startingPreviewDebate, setStartingPreviewDebate] = useState(false);
   // The URL (as a string) at the moment a live debate was cancelled. While the
@@ -214,7 +211,7 @@ export function KaiAnalysisPageContent() {
     setStartingPreviewDebate(false);
     launchPendingRef.current = false;
     return () => { previewStartRef.current += 1; };
-  }, [pathname, searchParams]);
+  }, [pathname, searchParams, previewPickSource, userId, vaultOwnerToken]);
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -680,7 +677,16 @@ export function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
-  const stockPreview = stockPreviewResult?.ticker === previewTickerFromQuery ? stockPreviewResult.payload : null;
+  const {
+    preview: stockPreview,
+    loading: stockPreviewLoading,
+    error: stockPreviewError,
+  } = useStockPreview({
+    userId,
+    vaultOwnerToken,
+    ticker: previewTickerFromQuery,
+    pickSource: previewPickSource,
+  });
   const previewMarketSnapshot = previewTickerFromQuery
     ? extractTickerMarketSnapshotFromKaiHome(marketHomePayload, previewTickerFromQuery)
     : null;
@@ -738,7 +744,7 @@ export function KaiAnalysisPageContent() {
             ...(liveIntentReady ? [{ id: "analysis.cancel_active", actionId: "analysis.cancel_active", label: "Cancel analysis", purpose: "Cancel the active analysis." }] : []),
           ]
         : [
-            ...(previewTickerFromQuery ? [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start analysis debate from preview", purpose: "Confirm the visible preview before a debate begins." }] : []),
+            ...(stockPreview ? [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start analysis debate from preview", purpose: "Confirm the visible preview before a debate begins." }] : []),
             ...(activeRunTask ? [{ id: "analysis.resume_active", actionId: "analysis.resume_active", label: "Open active analysis", purpose: "Resume the active analysis workspace." }] : []),
           ]),
     ];
@@ -779,7 +785,7 @@ export function KaiAnalysisPageContent() {
             ...(liveIntentReady ? [{ id: "analysis_cancel", label: "Cancel analysis", purpose: "Cancel the active analysis.", actionId: "analysis.cancel_active", role: "button" }] : []),
           ]
         : [
-            ...(previewTickerFromQuery ? [{ id: "analysis_start_preview", label: "Start analysis debate", purpose: "Confirm the preview and begin the debate.", actionId: "analysis.confirm_preview", role: "button" }] : []),
+            ...(stockPreview ? [{ id: "analysis_start_preview", label: "Start analysis debate", purpose: "Confirm the preview and begin the debate.", actionId: "analysis.confirm_preview", role: "button" }] : []),
             ...(activeRunTask ? [{ id: "analysis_open_active", label: "Open active analysis", purpose: "Resume the active analysis.", actionId: "analysis.resume_active", role: "button" }] : []),
           ]),
     ];
@@ -880,6 +886,7 @@ export function KaiAnalysisPageContent() {
     vaultKey,
     stockPreviewError,
     stockPreviewLoading,
+    stockPreview,
     workspaceTab,
   ]);
   usePublishVoiceSurfaceMetadata(analysisVoiceSurfaceMetadata);
@@ -988,7 +995,7 @@ export function KaiAnalysisPageContent() {
     return { status: "succeeded", summary: "Active analysis opened." };
   });
   useLocalOnboardingActionHandler("analysis.confirm_preview", () => {
-    if (!previewTickerFromQuery) return { status: "blocked", summary: "Open a stock preview before starting a debate." };
+    if (!stockPreview) return { status: "blocked", summary: "Wait for the current stock preview before starting a debate." };
     handleStartDebateFromPreview();
     return { status: "started", summary: "Starting the confirmed analysis debate." };
   });
@@ -1070,48 +1077,8 @@ export function KaiAnalysisPageContent() {
   }, [activePickSource, previewPickSourceFromQuery, userId]);
 
   useEffect(() => {
-    if (!previewTickerFromQuery || !userId || !vaultOwnerToken) {
-      setStockPreview(null);
-      setStockPreviewLoading(false);
-      setStockPreviewError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setStockPreviewLoading(true);
-    setStockPreviewError(null);
-    void (async () => {
-      try {
-        const payload = await ApiService.getKaiStockPreview({
-          userId,
-          symbol: previewTickerFromQuery,
-          vaultOwnerToken,
-          pickSource: previewPickSource,
-        });
-        if (!cancelled) {
-          setStockPreview({ ticker: previewTickerFromQuery, payload });
-          if (payload.active_pick_source && payload.active_pick_source !== previewPickSource) {
-            setPreviewPickSource(payload.active_pick_source);
-          }
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setStockPreview(null);
-          setStockPreviewError(
-            error instanceof Error ? error.message : "Failed to load stock preview"
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setStockPreviewLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [previewPickSource, previewTickerFromQuery, userId, vaultOwnerToken]);
+    if (stockPreview?.active_pick_source) setPreviewPickSource(stockPreview.active_pick_source);
+  }, [stockPreview]);
 
   useEffect(() => {
     if (

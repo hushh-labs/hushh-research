@@ -33,6 +33,8 @@ import { PersonProfileService, mergePersonScopePage, type InformationRequestBund
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import { MailChatCard } from "@/components/agent/mail-chat-card";
+import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
+import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
@@ -112,6 +114,9 @@ export { AgentTranscriptRevealContext };
 
 export function AgentStructuredExperienceView({
   experience,
+  allowFinancePreviewStart,
+  onSelectFinanceResult,
+  onConfirmFinanceAnalysis,
   onOpenConnections,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
@@ -119,6 +124,9 @@ export function AgentStructuredExperienceView({
   driveCompilation,
 }: {
   experience: AgentStructuredExperience;
+  allowFinancePreviewStart?: boolean;
+  onSelectFinanceResult?: (runId: string) => void;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -127,6 +135,10 @@ export function AgentStructuredExperienceView({
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.finance_portfolio.v1":
+      return <FinancePortfolioCard section={experience.section} />;
+    case "one.finance_stock_preview.v1":
+      return <FinanceStockPreviewCard ticker={experience.ticker} allowStart={allowFinancePreviewStart} onSelectResult={onSelectFinanceResult} onConfirm={onConfirmFinanceAnalysis} />;
     case "one.shared_with_me_card.v1":
       return <div className="space-y-3">
         {experience.cards.map((card) => (

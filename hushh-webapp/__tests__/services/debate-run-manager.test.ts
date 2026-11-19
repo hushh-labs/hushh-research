@@ -151,6 +151,17 @@ describe("DebateRunManagerService start gate", () => {
     expect(manager.getTask("fresh-run")?.status).toBe("running");
   });
 
+  it("does not attach or start when a restored card asks for a different ticker", async () => {
+    const manager = await loadManager([]);
+    apiMocks.getActiveKaiDebateRun.mockResolvedValue(response(200, { run: runPayload("other-run") }));
+    const onRunFound = vi.fn();
+    const result = await manager.resumeActiveRun({ ...ensureParams, expectedTicker: "NVDA", onRunFound });
+    expect(result).toBeNull();
+    expect(onRunFound).not.toHaveBeenCalled();
+    expect(apiMocks.streamKaiDebateRun).not.toHaveBeenCalled();
+    expect(apiMocks.startKaiDebateRunStream).not.toHaveBeenCalled();
+  });
+
   // UAT 2026-09-26/27: every debate started, then its separate GET .../stream
   // reached a backend process that never held the run and got 404. A new run
   // must be streamed by the request that starts it, never by a second request.
@@ -290,6 +301,13 @@ describe("DebateRunManagerService start gate", () => {
         runId: "resume-run",
         resumeCursor: 1,
       });
+      await manager.reconnectRun({ ...ensureParams, runId: "resume-run", userId: "another-owner" });
+      expect(apiMocks.streamKaiDebateRun).toHaveBeenCalledTimes(2);
+      await manager.reconnectRun({ ...ensureParams, runId: "resume-run" });
+      expect(apiMocks.streamKaiDebateRun.mock.calls[2]?.[0]).toMatchObject({
+        userId: "user-1", runId: "resume-run", resumeCursor: 1,
+      });
+      expect(apiMocks.startKaiDebateRunStream).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

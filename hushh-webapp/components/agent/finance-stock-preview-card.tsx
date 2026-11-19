@@ -1,0 +1,222 @@
+"use client";
+
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
+import { useAuth } from "@/hooks/use-auth";
+import { prepareStockDebate } from "@/lib/kai/prepare-stock-debate";
+import { useStockPreview } from "@/lib/kai/use-stock-preview";
+import { Button } from "@/lib/morphy-ux/button";
+import { DebateRunManagerService, type DebateRunTask } from "@/lib/services/debate-run-manager";
+import { useVault } from "@/lib/vault/vault-context";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+
+const RESEARCH_STEPS: Record<string, string> = {
+  start: "Starting research…",
+  round_start: "Research round underway…",
+  debate_round: "Debate round underway…",
+  agent_start: "A research specialist is working…",
+  agent_complete: "A research specialist finished.",
+  insight_extracted: "Reviewing research findings…",
+};
+
+function FinanceDebateResult({
+  runId, userId, vaultOwnerToken, vaultKey, allowActions, onSelectResult,
+}: { runId: string; userId: string; vaultOwnerToken: string; vaultKey: string; allowActions: boolean; onSelectResult?: (runId: string) => void }) {
+  const [task, setTask] = useState<DebateRunTask | null>(null);
+  const [progress, setProgress] = useState("Starting research…");
+
+  useEffect(() => {
+    const unsubscribeState = DebateRunManagerService.subscribe(state => {
+      setTask(state.tasks.find(item => item.runId === runId && item.userId === userId) ?? null);
+    });
+    const unsubscribeEvents = DebateRunManagerService.subscribeRunEvents(runId, envelope => {
+      const label = RESEARCH_STEPS[envelope.event];
+      if (typeof label === "string") setProgress(label);
+    });
+    return () => { unsubscribeState(); unsubscribeEvents(); };
+  }, [runId, userId]);
+
+  if (!task) return <p role="status">Loading debate…</p>;
+  if (task.status === "running") {
+    return (
+      <div className="space-y-2">
+        <p role="status">
+          {task.streamState === "paused" ? "Live updates paused."
+            : task.streamState === "reconnecting" ? "Reconnecting to this debate…" : progress}
+        </p>
+        {allowActions && task.streamState === "paused" ? (
+          <Button size="sm" onClick={() => void DebateRunManagerService.reconnectRun({
+            runId, userId, vaultOwnerToken, vaultKey,
+          })}>Reconnect</Button>
+        ) : null}
+      </div>
+    );
+  }
+  if (task.status !== "completed") {
+    return <p role="status">{task.status === "canceled" ? "Debate cancelled." : "Debate could not finish."}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <p role="status">Analysis complete.</p>
+      <p className="text-sm">{task.finalDecision?.finalStatement || "The decision details are unavailable."}</p>
+      {allowActions && task.finalDecision?.finalStatement && onSelectResult ? (
+        <Button size="sm" onClick={() => onSelectResult(runId)}>Ask One about this analysis</Button>
+      ) : null}
+      {task.persistenceState === "saved" ? <p className="text-sm">Saved to Finance history.</p> : null}
+      {task.persistenceState === "pending" ? <p role="status">Saving to Finance history…</p> : null}
+      {task.persistenceState === "failed" ? (
+        <div className="space-y-2">
+          <p role="status">The result is ready. It could not be saved to Finance history.</p>
+          {allowActions ? <Button size="sm" onClick={() => void DebateRunManagerService.retryTaskPersistence(
+            runId, { userId, vaultKey },
+          )}>
+            Retry saving
+          </Button> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function FinanceStockPreviewCard({ ticker, allowStart = false, onSelectResult, onConfirm }: { ticker: string; allowStart?: boolean; onSelectResult?: (runId: string) => void; onConfirm?: (confirmation: string) => Promise<void> }) {
+  const { userId } = useAuth();
+  const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
+  const [open, setOpen] = useState(false);
+  const [run, setRun] = useState<{ runId: string; userId: string; ticker: string } | null>(null);
+  const [pending, setPending] = useState(false);
+  const [startAttempted, setStartAttempted] = useState(false);
+  const [notice, setNotice] = useState("");
+  const operation = useRef<AbortController | null>(null);
+  const pendingConfirmation = useRef<string | null>(null);
+  const ownerToken = isVaultUnlocked && vaultKey ? vaultOwnerToken : null;
+  const currentRun = run?.userId === userId && run.ticker === ticker ? run : null;
+  const { preview, loading, error } = useStockPreview({
+    userId,
+    vaultOwnerToken: ownerToken,
+    ticker: allowStart && open && !currentRun ? ticker : "",
+    pickSource: "default",
+  });
+  const canConfirm = Boolean(allowStart && open && userId && ownerToken && vaultKey &&
+    !currentRun && !pending && !startAttempted && preview?.symbol === ticker);
+  const actionMetadata = useMemo(() => canConfirm ? {
+    actions: [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start analysis debate" }],
+    controls: [{ id: "analysis_start_preview", actionId: "analysis.confirm_preview", label: "Start analysis debate", role: "button" }],
+  } : null, [canConfirm]);
+  usePublishVoiceSurfaceMetadata(actionMetadata, { role: "chrome" });
+  useLocalOnboardingActionHandler("analysis.confirm_preview", async (_slots, context) => {
+    if (!canConfirm || context?.signal?.aborted || !pendingConfirmation.current ||
+        context?.humanConfirmationToken !== pendingConfirmation.current)
+      return { status: "blocked", summary: "Confirm the current preview first." };
+    pendingConfirmation.current = null;
+    const started = await operate("start");
+    return started ? { status: "succeeded", summary: "Analysis started." }
+      : { status: "blocked", summary: "Analysis did not start. Check the card for details." };
+  }, { enabled: canConfirm });
+
+  useLayoutEffect(() => {
+    setPending(false);
+    setNotice("");
+    return () => {
+      operation.current?.abort();
+      operation.current = null;
+      pendingConfirmation.current = null;
+    };
+  }, [ticker, userId, ownerToken, vaultKey]);
+
+  async function operate(mode: "start" | "resume") {
+    if (!allowStart || !userId || !ownerToken || !vaultKey || operation.current || currentRun) return false;
+    if (mode === "start" && (!allowStart || !open || startAttempted || preview?.symbol !== ticker)) return false;
+    const controller = new AbortController();
+    operation.current = controller;
+    setPending(true);
+    setNotice("");
+    const credentials = { userId, vaultOwnerToken: ownerToken, vaultKey };
+    const bindRun = (task: DebateRunTask) => {
+      if (!controller.signal.aborted && task.userId === userId && task.ticker === ticker) {
+        setRun({ runId: task.runId, userId, ticker });
+      }
+    };
+    try {
+      if (mode === "resume") {
+        const existing = await DebateRunManagerService.resumeActiveRun({
+          ...credentials, expectedTicker: ticker, signal: controller.signal, onRunFound: bindRun,
+        });
+        if (!controller.signal.aborted && !existing) setNotice("No active debate for this stock was found.");
+        return Boolean(existing);
+      }
+      setStartAttempted(true);
+      const pickSource = preview?.active_pick_source || "default";
+      const { context, effectiveRiskProfile } = await prepareStockDebate(credentials);
+      if (controller.signal.aborted) return false;
+      const result = await DebateRunManagerService.ensureRun({
+        ...credentials, ticker, pickSource, riskProfile: effectiveRiskProfile, userContext: context,
+      });
+      if (controller.signal.aborted) return false;
+      if (result.kind === "blocked") {
+        setNotice("A debate is already running. Use Resume if it is for this stock.");
+        return false;
+      }
+      bindRun(result.task);
+      return true;
+    } catch {
+      if (!controller.signal.aborted) setNotice(
+        mode === "start" ? "Could not confirm the start. Check for an active debate before trying again."
+          : "Could not check for an active debate.",
+      );
+      return false;
+    } finally {
+      if (operation.current === controller) {
+        operation.current = null;
+        setPending(false);
+      }
+    }
+  }
+
+  if (!allowStart && !currentRun) {
+    return (
+      <p className="rounded-xl border border-border p-3 text-sm">
+        {ticker} stock analysis preview
+      </p>
+    );
+  }
+
+  return (
+    <details className="rounded-xl border border-border p-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer font-medium">{ticker} stock analysis</summary>
+      {open ? (
+        <div className="mt-3 space-y-3">
+          {!userId || !ownerToken || !vaultKey ? (
+            <p className="text-sm text-muted-foreground">Sign in and unlock your vault to view the analysis.</p>
+          ) : currentRun ? (
+            <FinanceDebateResult key={currentRun.runId} runId={currentRun.runId} userId={userId}
+              vaultOwnerToken={ownerToken} vaultKey={vaultKey} allowActions={allowStart} onSelectResult={onSelectResult} />
+          ) : (
+            <>
+              <StockComparisonPreview compact preview={preview} loading={loading}
+                error={error ? "Could not load the stock preview. Close and reopen it to retry." : null}
+                showStartAction={false} />
+              {allowStart && !startAttempted ? (
+                <>
+                  <p className="text-sm text-muted-foreground">The debate uses your Finance profile and portfolio when available.</p>
+                  <Button size="sm" data-voice-control-id="analysis_start_preview" disabled={!canConfirm || !onConfirm}
+                    onClick={() => {
+                      const confirmation = crypto.randomUUID();
+                      pendingConfirmation.current = confirmation;
+                      void onConfirm?.(confirmation).finally(() => {
+                        if (pendingConfirmation.current === confirmation) pendingConfirmation.current = null;
+                      });
+                    }}>Confirm and start debate</Button>
+                </>
+              ) : null}
+              <Button size="sm" variant="none" disabled={pending}
+                onClick={() => void operate("resume")}>Resume active {ticker} debate</Button>
+              {pending || notice ? <p role="status">{pending ? "Connecting to Finance…" : notice}</p> : null}
+            </>
+          )}
+        </div>
+      ) : null}
+    </details>
+  );
+}

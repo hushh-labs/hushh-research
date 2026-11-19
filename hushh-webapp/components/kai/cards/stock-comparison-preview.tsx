@@ -78,7 +78,7 @@ export function StockComparisonPreview({
   marketSnapshot?: TickerMarketSnapshot | null;
   loading?: boolean;
   error?: string | null;
-  onStartDebate: () => void;
+  onStartDebate?: () => void;
   onBrowseRecommendations?: () => void;
   onChangeStock?: () => void;
   activePickSource?: string;
@@ -337,7 +337,7 @@ export function StockComparisonPreview({
             </div>
           </SurfaceInset>
 
-          {showStartAction ? (
+          {showStartAction && onStartDebate ? (
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="none"

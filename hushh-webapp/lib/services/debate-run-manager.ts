@@ -663,6 +663,9 @@ class DebateRunManager {
     userId: string;
     vaultOwnerToken: string;
     vaultKey?: string;
+    expectedTicker?: string;
+    onRunFound?: (task: DebateRunTask) => void;
+    signal?: AbortSignal;
   }): Promise<DebateRunTask | null> {
     const { userId, vaultOwnerToken, vaultKey } = params;
     const vaultEpoch = snapshotVaultSessionEpoch();
@@ -670,7 +673,9 @@ class DebateRunManager {
       userId,
       debateSessionId: this.debateSessionId,
       vaultOwnerToken,
+      ...(params.signal ? { signal: params.signal } : {}),
     });
+    if (params.signal?.aborted) return null;
     if (!response.ok) {
       if (response.status === 404) {
         this.markMissingActiveRun(userId);
@@ -681,18 +686,28 @@ class DebateRunManager {
     const payload = (await response.json()) as {
       run?: Record<string, unknown>;
     };
+    if (params.signal?.aborted) return null;
     if (!payload.run) {
       this.markMissingActiveRun(userId);
       return null;
     }
 
-    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+    const discovered = this.makeTaskFromServer(payload.run);
+    if (!discovered.runId || discovered.userId !== userId ||
+        discovered.debateSessionId !== this.debateSessionId ||
+        (params.expectedTicker && discovered.ticker !== toUpperTicker(params.expectedTicker))) {
+      return null;
+    }
+    const known = this.getTask(discovered.runId);
+    const task = known?.status === "running" && discovered.status === "running"
+      ? known
+      : this.upsertTask(discovered);
     if (task.status !== "running") {
       return null;
     }
-    if (isVaultSessionEpochCurrent(vaultEpoch)) {
-      this.runSecrets.set(task.runId, { vaultKey, vaultEpoch });
-    }
+    this.runSecrets.set(task.runId, { vaultKey, vaultEpoch });
+    params.onRunFound?.(task);
     await this.connectRunStream(task.runId, {
       userId,
       vaultOwnerToken,
@@ -707,8 +722,21 @@ class DebateRunManager {
     userId: string;
     vaultOwnerToken: string;
     vaultKey?: string;
+    expectedTicker?: string;
+    onRunFound?: (task: DebateRunTask) => void;
+    signal?: AbortSignal;
   }): Promise<DebateRunTask | null> {
     return this.verifyActiveRunWithBackend(params);
+  }
+
+  async reconnectRun(params: { userId: string; runId: string; vaultOwnerToken: string; vaultKey?: string }): Promise<void> {
+    const task = this.getTask(params.runId);
+    if (task?.userId !== params.userId || task.status !== "running") return;
+    await this.connectRunStream(params.runId, {
+      ...params,
+      vaultEpoch: snapshotVaultSessionEpoch(),
+      resetBuffer: false,
+    });
   }
 
   private ensureRunStartKey(userId: string): string {
@@ -1188,10 +1216,16 @@ class DebateRunManager {
     });
   }
 
-  async retryTaskPersistence(runId: string): Promise<void> {
+  async retryTaskPersistence(runId: string, credentials?: { userId: string; vaultKey: string }): Promise<void> {
     const task = this.tasks.get(runId);
-    if (!task) return;
-    if (task.status !== "completed" || task.persistenceState !== "failed") return;
+    if (task?.status !== "completed" || task.persistenceState !== "failed") return;
+    if (credentials) {
+      if (task.userId !== credentials.userId) return;
+      this.runSecrets.set(runId, {
+        vaultKey: credentials.vaultKey,
+        vaultEpoch: snapshotVaultSessionEpoch(),
+      });
+    }
     await this.persistDecisionHistory(runId, task);
   }
 

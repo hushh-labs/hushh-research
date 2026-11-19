@@ -324,6 +324,8 @@ import {
 } from "@/lib/agent/agent-chat-turn-watch";
 import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
+import { canRetryFinanceResult, isCurrentFinanceResultScope } from "@/lib/agent/finance-result-scope";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
@@ -552,6 +554,7 @@ type AgentMessage = {
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
+  liveFinancePreview?: boolean;
   driveCompilation?: DriveCompilationUiState;
   /** Why a partial answer stopped, shown below the text that did arrive. */
   errorNotice?: string;
@@ -1828,6 +1831,9 @@ export function GmailInformationRequestAttachment({
 
 export function AgentBubble({
   message,
+  allowFinancePreviewStart,
+  onSelectFinanceResult,
+  onConfirmFinanceAnalysis,
   onOpenConnections,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
@@ -1857,6 +1863,9 @@ export function AgentBubble({
   businessProfileCard,
 }: {
   message: AgentMessage;
+  allowFinancePreviewStart?: boolean;
+  onSelectFinanceResult?: (runId: string) => void;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -2111,6 +2120,9 @@ export function AgentBubble({
             </>
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
+              allowFinancePreviewStart={allowFinancePreviewStart && message.liveFinancePreview === true}
+              onSelectFinanceResult={onSelectFinanceResult}
+              onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
               streamEvents={streamEvents}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
@@ -2630,6 +2642,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     conversationId: string | null;
     draftContext: string | undefined;
     observedLock: boolean;
+    financeRunId?: string;
+    retrySafe: true;
   } | null>(null);
   const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? applicationOwnerId ?? null : null);
   const { input, setInput: writeInput, attachment: longPromptAttachment, setAttachment: writeAttachment,
@@ -3015,6 +3029,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const reattachRestoreRef = useRef<Promise<void> | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const selectedFinanceResultRef = useRef<{
+    ownerId: string; conversationId: string | null; vaultEpoch: number; chatEpoch: number; runId: string;
+  } | null>(null);
   const chatMemory = useChatMemory({
     userId: applicationOwnerId, vaultKey, vaultEpoch: vaultSessionEpoch,
     getToken: getVaultOwnerToken, vaultOwnerToken, conversationId, messages,
@@ -6531,6 +6548,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
         })
       : null;
+    let consumedFinanceSelection: typeof selectedFinanceResultRef.current = null;
     const pkmContextStartedAt = performance.now();
     performance.mark("hushh:agent-chat:pkm-prepare-start");
     const loadConnectorConfigurations = prepareAgentChatConnectorConfigurations({
@@ -6732,6 +6750,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
+        financeAnalysisResult: (() => {
+          const selected = selectedFinanceResultRef.current;
+          selectedFinanceResultRef.current = null;
+          if (!selected || selected.ownerId !== userId ||
+              selected.conversationId !== conversationIdRef.current ||
+              !chatSessionRef.current.isCurrent(selected.chatEpoch) ||
+              !isVaultSessionEpochCurrent(selected.vaultEpoch)) return undefined;
+          const task = DebateRunManagerService.getTask(selected.runId);
+          if (!task || task.userId !== userId || task.status !== "completed" ||
+              !task.completedAt || !task.finalDecision?.finalStatement) return undefined;
+          consumedFinanceSelection = selected;
+          return {
+            runId: task.runId, ticker: task.ticker,
+            decision: task.finalDecision.decision.slice(0, 80),
+            finalStatement: task.finalDecision.finalStatement.slice(0, 4000),
+            confidence: task.finalDecision.confidence,
+            completedAt: task.completedAt,
+          };
+        })(),
         loadConnectorConfigurations,
         // Receipt, Soul.md (or the memory-unavailable status), today's activity, then the Live Mirror block, last.
         pkmContext: composeAgentPkmContext({
@@ -6962,6 +6999,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   stableId,
                   structuredExperience,
                 ),
+                liveFinancePreview: message.liveFinancePreview || structuredExperience.type === "one.finance_stock_preview.v1",
               };
             });
           },
@@ -7135,6 +7173,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             conversationId: meetingOrigin ? meetingOrigin.conversationId : conversationIdRef.current,
             draftContext: turnDraftContext,
             observedLock: !pkmCaptureReadinessRef.current.isVaultUnlocked,
+            financeRunId: consumedFinanceSelection?.runId, retrySafe: true,
           } : null;
           setVaultDialogOpen(true);
         }
@@ -7192,6 +7231,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const pendingAttachmentText = pendingAttachments.map((item) => item.text).join("\n\n");
       if (!freshEmptyDraft && currentDraftRef.current.attachment?.text !== pendingAttachmentText) return;
       setLongPromptAttachment(null);
+    }
+    if (pending.financeRunId) {
+      const task = DebateRunManagerService.getTask(pending.financeRunId);
+      if (!canRetryFinanceResult(pending.retrySafe, pending.owner.userId, task)) {
+        toast.error("The selected analysis is no longer available. Review it in Finance before retrying.");
+        return;
+      }
+      selectedFinanceResultRef.current = {
+        ownerId: pending.owner.userId, conversationId: pending.conversationId,
+        vaultEpoch: snapshotVaultSessionEpoch(), chatEpoch: chatSessionRef.current.value,
+        runId: pending.financeRunId,
+      };
     }
     setInput("");
     void runAgentTurnRef.current(pending.text, pending.options);
@@ -9018,6 +9069,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           message.status !== "streaming" &&
           message.text.trim().length > 0,
       )?.id ?? null;
+  const latestTranscriptMessageId = visibleMessages.findLast((message) => !message.ephemeral)?.id;
+  const latestFinanceMessageIdRef = useRef(latestTranscriptMessageId);
+  latestFinanceMessageIdRef.current = latestTranscriptMessageId;
+  const financeCardScope = {
+    ownerId: applicationOwnerId, conversationId, vaultEpoch: vaultSessionEpoch,
+    chatEpoch: chatSessionRef.current.value,
+  };
   const responseActionBusy = isChatLoading || isStreaming || specialistBusy || appActionBusy ||
     directiveConnectWaiting || activeFrontendToolCount > 0 || activePkmToolCount > 0 ||
     emailDraftSaveState === "saving" || emailDeliveryHistory.some(item => item.status === "sending");
@@ -10104,6 +10162,49 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      allowFinancePreviewStart={message.id === latestTranscriptMessageId}
+                      onConfirmFinanceAnalysis={async (confirmation) => {
+                        if (!applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken ||
+                            message.id !== latestFinanceMessageIdRef.current || !message.liveFinancePreview) return;
+                        const actionRun = appInteractionCoordinator.startActionRun({
+                          actionId: "analysis.confirm_preview", label: "Start analysis debate",
+                          source: "search", directiveId: null,
+                        });
+                        try {
+                          appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
+                          const result = await executeAgentGatewayAction({
+                            actionId: "analysis.confirm_preview", userId: applicationOwnerId, router,
+                            appRuntimeState: appRuntimeStateRef.current, surfaceMetadata: getVoiceSurfaceMetadata(),
+                            hasPortfolioData, busyOperations, setAnalysisParams, switchPersona,
+                            executionContext: { humanConfirmationToken: confirmation, confirmedAt: new Date().toISOString() },
+                          });
+                          appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
+                            status: result.status, summary: result.resultSummary, reason: result.reason,
+                            routeAfter: result.routeAfter, screenAfter: result.screenAfter,
+                          });
+                          if (result.status === "blocked" || result.status === "failed" || result.status === "invalid")
+                            toast.error(result.resultSummary);
+                        } catch {
+                          appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "failed", message: "Analysis could not start." });
+                          toast.error("Analysis could not start.");
+                        }
+                      }}
+                      onSelectFinanceResult={(runId) => {
+                        if (!applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken ||
+                            !isCurrentFinanceResultScope(
+                              { ...financeCardScope, messageId: message.id },
+                              { ownerId: workspaceOwnerIdRef.current, conversationId: conversationIdRef.current,
+                                vaultEpoch: snapshotVaultSessionEpoch(), chatEpoch: chatSessionRef.current.value,
+                                messageId: latestFinanceMessageIdRef.current },
+                            ) || !message.liveFinancePreview) return;
+                        const task = DebateRunManagerService.getTask(runId);
+                        if (!task || task.userId !== applicationOwnerId || task.status !== "completed") return;
+                        selectedFinanceResultRef.current = {
+                          ownerId: applicationOwnerId, conversationId: financeCardScope.conversationId,
+                          vaultEpoch: financeCardScope.vaultEpoch, chatEpoch: financeCardScope.chatEpoch, runId,
+                        };
+                        toast.success("Analysis selected. Ask One your follow-up.");
+                      }}
                       driveMemoryReview={renderDriveMemoryReview(message)}
                       onResendAttachment={
                         message.role === "user" && message.attachments?.length && !message.calendarMeeting && !message.attachments.some(item => item.name === "Meeting sources.txt")

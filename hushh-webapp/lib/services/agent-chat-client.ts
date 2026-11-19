@@ -1206,6 +1206,7 @@ async function streamAgentChatAttempt(input: {
   consentContinuation?: AgentChatConsentContinuation;
   /** Exact recipient-decrypted curated Finance object; server rechecks active model authority. */
   financeShare?: { grantId: string; revision: number; projectionText: string };
+  financeAnalysisResult?: { ticker: string; runId: string; decision: string; finalStatement: string; confidence: number; completedAt: string };
   /**
    * The turn a "One has something for you" tap starts. Only the opaque feed
    * row id is sent; the server admits it only for an item it actually pushed.
@@ -1561,6 +1562,7 @@ async function streamAgentChatAttempt(input: {
               timezone,
               turnLocation,
               pkmContext: input.pkmContext,
+              ...(input.financeAnalysisResult && mcpSessionCurrent() ? { financeAnalysisResult: input.financeAnalysisResult } : {}),
               emailMemoryProjection: input.emailMemoryProjection,
               ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
               communicationPreferences,
@@ -2087,6 +2089,7 @@ async function streamAgentChatAttempt(input: {
                   forwardedProps: {
                     ...await connectorProjection(),
                     timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
+                    ...(input.financeAnalysisResult && mcpSessionCurrent() ? { financeAnalysisResult: input.financeAnalysisResult } : {}),
                     emailMemoryProjection: input.emailMemoryProjection,
                     ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
                     personSelectionHandle: input.personSelectionHandle,
@@ -2193,6 +2196,7 @@ async function streamAgentChatAttempt(input: {
       forwardedProps: {
         ...connectors,
         ...(nwsReport ? { nwsReport } : {}),
+        ...(input.financeAnalysisResult ? { financeAnalysisResult: input.financeAnalysisResult } : {}),
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,

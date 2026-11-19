@@ -27,6 +27,26 @@ const scopeResult = {
 };
 
 describe("AG-UI structured experience registry", () => {
+  it("admits only the four portfolio sections and excludes model-provided holdings", () => {
+    const structured = { type: "one.finance_portfolio.v1", section: "allocation", holdings: [{ symbol: "PRIVATE" }] };
+    expect(parseAgentToolResultExperience("show_portfolio_card", { status: "card_offered", structured }))
+      .toEqual({ type: "one.finance_portfolio.v1", section: "allocation" });
+    expect(parseAgentToolResultExperience("show_portfolio_card", {
+      status: "card_offered", structured: { ...structured, section: "trade" },
+    })).toBeNull();
+  });
+
+  it("accepts a ticker-only preview from the stock preview tool and rejects invalid descriptors", () => {
+    const structured = { type: "one.finance_stock_preview.v1", ticker: "BRK-B" };
+    const result = { status: "preview_offered", structured };
+    expect(parseAgentToolResultExperience("show_stock_preview", result)).toEqual(structured);
+    expect(parseAgentActivityExperience(structured.type, structured)).toEqual(structured);
+    expect(parseAgentToolResultExperience("get_market_quotes", result)).toBeNull();
+    expect(parseAgentToolResultExperience("show_stock_preview", {
+      ...result, structured: { ...structured, ticker: "/one/kai" },
+    })).toBeNull();
+  });
+
   it("stages a dated document request without treating the proposal as sent", () => {
     const proposal = {
       status: "proposal_ready",

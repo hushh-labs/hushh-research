@@ -35257,9 +35257,11 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
+          "/",
           "/one/kai?tab=analysis"
         ],
         "screens": [
+          "chat",
           "kai_analysis"
         ],
         "hidden_navigable": false,

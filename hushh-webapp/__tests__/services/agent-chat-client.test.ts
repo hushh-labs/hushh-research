@@ -853,6 +853,27 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain("PRIVATE");
   });
 
+  it("delivers a stock preview tool result to the card without staging an action", async () => {
+    const onStructuredExperience = vi.fn();
+    const onToolWaiting = vi.fn();
+    const structured = { type: "one.finance_stock_preview.v1", ticker: "NVDA" };
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: {
+        toolCallId: "preview-call", toolCallName: "show_stock_preview",
+      } });
+      subscriber.onToolCallResultEvent({ event: {
+        toolCallId: "preview-call",
+        content: JSON.stringify({ status: "preview_offered", structured }),
+      } });
+    };
+    await streamAgentChat({
+      vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Preview NVDA in this chat",
+      vaultOwnerToken: "fixture", handlers: { onStructuredExperience, onToolWaiting },
+    });
+    expect(onStructuredExperience).toHaveBeenCalledWith(structured, "preview-call");
+    expect(onToolWaiting).not.toHaveBeenCalled();
+  });
+
   it("keeps private connector setup names out of transport diagnostics", async () => {
     const onStructuredExperience = vi.fn();
     const onToolResult = vi.fn();
@@ -1273,6 +1294,15 @@ describe("AG-UI Agent One client", () => {
     await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Compile my standups", vaultOwnerToken: "fixture",
       handlers: { onDriveBatchProgress } });
     expect(onDriveBatchProgress).not.toHaveBeenCalled();
+  });
+
+  it("forwards the explicitly selected analysis result in the current turn", async () => {
+    const financeAnalysisResult = { ticker: "NVDA", runId: "run-1", decision: "hold",
+      finalStatement: "Synthetic decision", confidence: 0.8, completedAt: "2026-11-19T12:00:00Z" };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+      message: "Explain this analysis", conversationId: "thread-1", vaultOwnerToken: "owner-token",
+      financeAnalysisResult, handlers: {} });
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.financeAnalysisResult).toEqual(financeAnalysisResult);
   });
 
   it("forwards the versioned agent-safe PKM packet on every chat turn", async () => {

@@ -191,6 +191,9 @@ export function isInformativeActivityEvent(
 }
 
 export type AgentTurnStreamPanelProps = {
+  allowFinancePreviewStart?: boolean;
+  onSelectFinanceResult?: (runId: string) => void;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   streamEvents: AgentVisibleStreamEvent[];
   responseText: string;
   isStreaming: boolean;
@@ -393,6 +396,9 @@ export function onePerPersonSharedCard<T extends { id: string; experience: Agent
 }
 
 export function AgentTurnStreamPanel({
+  allowFinancePreviewStart,
+  onSelectFinanceResult,
+  onConfirmFinanceAnalysis,
   streamEvents,
   responseText,
   isStreaming,
@@ -512,6 +518,9 @@ export function AgentTurnStreamPanel({
               return <AgentStructuredExperienceView
                 key={id}
                 experience={experience}
+                allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
+                onSelectFinanceResult={onSelectFinanceResult}
+                onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}
                 onInformationRequestSubmitted={onInformationRequestSubmitted
                   ? (receipt) => onInformationRequestSubmitted(id, receipt) : undefined}

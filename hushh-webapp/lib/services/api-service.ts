@@ -6109,6 +6109,7 @@ export class ApiService {
     userId: string;
     debateSessionId: string;
     vaultOwnerToken: string;
+    signal?: AbortSignal;
   }): Promise<Response> {
     const query = new URLSearchParams({
       user_id: data.userId,
@@ -6116,6 +6117,7 @@ export class ApiService {
     }).toString();
     return apiFetch(`/api/kai/analyze/run/active?${query}`, {
       method: "GET",
+      signal: data.signal,
       headers: {
         Authorization: `Bearer ${data.vaultOwnerToken}`,
       },
