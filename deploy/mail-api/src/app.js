@@ -73,7 +73,10 @@ export const createApp = ({
       status: "healthy",
       service: SERVICE_NAME,
       version: SERVICE_VERSION,
-      transport: "google-workspace-gmail-smtp",
+      transport:
+        config.mode === "workspace-delegated" || config.mode === "workload-dwd"
+          ? "google-workspace-gmail-delegated"
+          : "google-workspace-gmail-smtp",
       // Booleans and counts only — never the sender address or key material.
       configured: {
         workspaceSender: isConfigured(config),
@@ -107,7 +110,7 @@ export const createApp = ({
 
     const config = workspaceConfig(env);
     if (!isConfigured(config)) {
-      console.error(`${SERVICE_NAME}: GMAIL_USER/GMAIL_APP_PASSWORD are not bound`);
+      console.error(`${SERVICE_NAME}: Workspace mail sender is not configured`);
       return res.status(503).json({ error: "Mail transport is not configured" });
     }
 
@@ -133,6 +136,8 @@ export const createApp = ({
       }
     }
 
+    const { from, warning } = resolveFrom(body.from, config);
+
     // Dry run short-circuits before the rate limiter: previewing markup costs
     // no quota and integrating projects lean on it heavily.
     if (dryRun) {
@@ -140,6 +145,7 @@ export const createApp = ({
         success: true,
         dryRun: true,
         consumer,
+        from: from.email,
         template: content.content.template,
         subject: content.content.subject,
         html: content.content.html,
@@ -158,14 +164,13 @@ export const createApp = ({
       });
     }
 
-    const { from, warning } = resolveFrom(body.from, config);
     const replyToResult = normalizeRecipients(
       body.replyTo || config.defaultReplyTo,
       "replyTo"
     );
 
     try {
-      const transporter = getTransporter(config, transporterFactory);
+      const transporter = getTransporter(config, transporterFactory, fetchImpl, now);
       const info = await transporter.sendMail({
         from: formatAddress(from),
         to: envelope.envelope.to,
@@ -185,6 +190,7 @@ export const createApp = ({
       const result = {
         success: true,
         messageId: info?.messageId ?? null,
+        from: from.email,
         template: content.content.template,
         subject: content.content.subject,
         consumer,
@@ -206,10 +212,10 @@ export const createApp = ({
     } catch (error) {
       console.error(`${SERVICE_NAME}: send failed for consumer=${consumer}:`, error?.message);
 
-      // 502: the request was well-formed, the upstream SMTP hop failed.
+      // 502: the request was well-formed, the upstream mail transport failed.
       return res.status(502).json({
         error: "Failed to send email",
-        detail: error?.message || "Unknown SMTP error",
+        detail: error?.message || "Unknown mail transport error",
       });
     }
   });

@@ -33,7 +33,7 @@ one HTTP call and no mail code of its own.
 | | |
 |---|---|
 | Service | `hushh-mail-api` · `hushh-tech-prod` · `us-central1` |
-| Transport | Google Workspace Gmail SMTP (`smtp.gmail.com:465`, App Password) |
+| Transport | Google Workspace Gmail API via keyless Domain-Wide Delegation (`one@hushh.ai`) |
 | Auth | `x-api-key: <key>` or `Authorization: Bearer <key>` |
 | Source | `deploy/mail-api/` |
 | Deploy | `MAIL_API_APPROVED_PRODUCTION=1 MAIL_API_REVISION_SUFFIX=<reviewed suffix> bash deploy/mail-api/deploy.sh` (candidate only) |
@@ -240,12 +240,12 @@ REGION=us-central1
 gcloud iam service-accounts create hushh-mail-api \
   --project="$PROJECT" --display-name="Hushh Mail API runtime"
 
-# The Workspace sender secrets already exist for the website. Grant read access.
-for secret in hushh-tech-gmail-user hushh-tech-gmail-app-password; do
-  gcloud secrets add-iam-policy-binding "$secret" --project="$PROJECT" \
-    --member="serviceAccount:hushh-mail-api@${PROJECT}.iam.gserviceaccount.com" \
-    --role=roles/secretmanager.secretAccessor
-done
+# Keyless Workspace Domain-Wide Delegation via IAM Credentials API (zero private keys).
+gcloud services enable iamcredentials.googleapis.com --project="$PROJECT"
+gcloud iam service-accounts add-iam-policy-binding "hushh-mail-api@${PROJECT}.iam.gserviceaccount.com" \
+  --project="$PROJECT" \
+  --member="serviceAccount:hushh-mail-api@${PROJECT}.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountTokenCreator
 
 # Default consumer key.
 openssl rand -base64 32 | tr -d '\n' \
@@ -255,7 +255,7 @@ gcloud secrets add-iam-policy-binding hushh-mail-api-key --project="$PROJECT" \
   --member="serviceAccount:hushh-mail-api@${PROJECT}.iam.gserviceaccount.com" \
   --role=roles/secretmanager.secretAccessor
 
-bash cloud-run/hushh-mail-api/deploy.sh
+bash deploy/mail-api/deploy.sh
 ```
 
 ---
@@ -264,12 +264,13 @@ bash cloud-run/hushh-mail-api/deploy.sh
 
 | Variable | Source | Required | Purpose |
 |---|---|---|---|
-| `GMAIL_USER` | secret `hushh-tech-gmail-user` | yes | Workspace account that authenticates to SMTP |
-| `GMAIL_APP_PASSWORD` | secret `hushh-tech-gmail-app-password` | yes | App Password for that account |
+| `WORKLOAD_DWD_SERVICE_ACCOUNT_EMAIL` | env | yes (hosted keyless DWD) | Runtime SA signed via `iamcredentials.signJwt` (client ID allowlisted in Workspace Admin for `gmail.send`) |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY` | secret | optional | Explicit RS256 credential override when metadata/IAM `signJwt` is unavailable |
+| `ONE_EMAIL_DELEGATED_USER` | env | no | Workspace role mailbox to impersonate (`one@hushh.ai` default) |
 | `MAIL_API_KEY` | secret `hushh-mail-api-key` | yes | Default consumer key |
-| `MAIL_API_KEY_*` | secret per consumer | no | One key per project |
+| `MAIL_API_KEY_*` | secret per consumer | no | One key per project / environment |
 | `MAIL_ALLOWED_FROM` | env | no | Comma-separated verified "Send mail as" aliases |
-| `MAIL_DEFAULT_FROM_NAME` | env | no | Display name. Default `Hushh` |
+| `MAIL_DEFAULT_FROM_NAME` | env | no | Display name. Default `One` (delegated) / `Hushh` |
 | `MAIL_DEFAULT_REPLY_TO` | env | no | Reply-To when a caller does not set one |
 | `MAIL_RATE_LIMIT_PER_MINUTE` | env | no | Recipients per key per minute. Default `60` |
 
@@ -278,21 +279,21 @@ bash cloud-run/hushh-mail-api/deploy.sh
 These are the constraints that shape the transport — worth knowing before
 changing anything:
 
-1. **App Password, not OAuth.** Requires 2-Step Verification on the Workspace
-   account; issued at <https://myaccount.google.com/apppasswords>. It bypasses
-   OAuth entirely, which is exactly why it must never reach a browser.
+1. **Keyless Domain-Wide Delegation, not personal App Passwords.** `hushh-mail-api`
+   exchanges an RS256-signed JWT assertion (`scope=gmail.send`, `sub=one@hushh.ai`)
+   for short-lived OAuth2 access tokens cached in memory. Personal developer
+   accounts (such as `ankit@hushh.ai`) are explicitly rejected.
 2. **Gmail rewrites the From header** to the authenticated user unless the
    address is a verified *Send mail as* alias on that account. The service
    therefore only honours `from` addresses in `MAIL_ALLOWED_FROM`; anything else
-   falls back to `GMAIL_USER` and the response carries a `warnings` entry saying
-   so. Add the alias in Gmail → Settings → Accounts → *Send mail as* first, then
-   to `MAIL_ALLOWED_FROM`.
+   falls back to `one@hushh.ai` and the response carries a `warnings` entry saying
+   so.
 3. **Daily send cap.** Workspace allows ~2,000 messages/day per account, counted
    **per recipient**. The rate limiter is a burst guard, not a quota manager — a
    high-volume campaign needs a dedicated sender account or a bulk provider, not
    this service.
-4. **`service: "gmail"`** in nodemailer resolves to exactly `smtp.gmail.com:465`
-   over implicit TLS. This service states host and port explicitly instead.
+4. **MIME construction via MailComposer.** Messages compile in memory with file
+   and URL access disabled, then dispatch directly to Gmail REST `messages.send`.
 
 ### Rate limiting caveat
 

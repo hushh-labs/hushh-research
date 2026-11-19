@@ -6,10 +6,11 @@
  */
 
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { after, before, describe, it } from "node:test";
 
 import { createApp } from "../src/app.js";
-import { resolveFrom, workspaceConfig } from "../src/mailer.js";
+import { isConfigured, resolveFrom, workspaceConfig } from "../src/mailer.js";
 import { authenticate } from "../src/auth.js";
 import { invitationTemplate } from "../src/templates/invitation.js";
 import { safeUrl } from "../src/templates/layout.js";
@@ -468,5 +469,224 @@ describe("rate limiting", () => {
     assert.ok(Number(third.headers.get("retry-after")) > 0);
 
     await new Promise((resolve) => local.close(resolve));
+  });
+});
+
+describe("Workspace Domain-Wide Delegation default sender (one@hushh.ai)", () => {
+  const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString("utf8");
+  const escapedPem = pem.replace(/\n/g, "\\n");
+
+  it("blocks ankit@hushh.ai as a configured Workspace sender", () => {
+    const legacyCfg = workspaceConfig({
+      GMAIL_USER: "ankit@hushh.ai",
+      GMAIL_APP_PASSWORD: "legacy-app-password",
+    });
+    assert.equal(isConfigured(legacyCfg), false);
+    const delegatedCfg = workspaceConfig({
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: "notifier@hushh-devops-notifier.iam.gserviceaccount.com",
+      GOOGLE_PRIVATE_KEY: escapedPem,
+      ONE_EMAIL_DELEGATED_USER: "ankit@hushh.ai",
+    });
+    assert.equal(isConfigured(delegatedCfg), false);
+  });
+
+  it("returns 503 when ankit@hushh.ai is configured via SMTP", async () => {
+    const blocked = createApp({
+      env: {
+        GMAIL_USER: "ankit@hushh.ai",
+        GMAIL_APP_PASSWORD: "legacy-app-password",
+        MAIL_API_KEY: API_KEY,
+      },
+      transporterFactory: createFakeTransport().factory,
+    });
+    const local = blocked.listen(0);
+    const url = `http://127.0.0.1:${local.address().port}`;
+    try {
+      const health = await fetch(`${url}/`).then((r) => r.json());
+      assert.equal(health.configured.workspaceSender, false);
+      const sendRes = await fetch(`${url}/v1/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({
+          to: "owner@example.com",
+          subject: "SOS",
+          html: "<p>SOS</p>",
+        }),
+      });
+      assert.equal(sendRes.status, 503);
+    } finally {
+      await new Promise((resolve) => local.close(resolve));
+    }
+  });
+
+  it("exchanges RS256 JWT assertion, caches token, and sends from one@hushh.ai", async () => {
+    let tokenCalls = 0;
+    const gmailCalls = [];
+    const fetchMock = async (url, options) => {
+      if (url === "https://oauth2.googleapis.com/token") {
+        tokenCalls += 1;
+        const params = new URLSearchParams(options.body);
+        assert.equal(params.get("grant_type"), "urn:ietf:params:oauth:grant-type:jwt-bearer");
+        const [, claimB64] = params.get("assertion").split(".");
+        const claims = JSON.parse(Buffer.from(claimB64, "base64url").toString("utf8"));
+        assert.equal(claims.sub, "one@hushh.ai");
+        assert.equal(claims.iss, "notifier@hushh-devops-notifier.iam.gserviceaccount.com");
+        assert.equal(claims.scope, "https://www.googleapis.com/auth/gmail.send");
+        return new Response(
+          JSON.stringify({ access_token: "dwd-access-token-1", expires_in: 3600 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      gmailCalls.push({ url, options });
+      return new Response(JSON.stringify({ id: "dwd-msg-123" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const app = createApp({
+      env: {
+        GOOGLE_SERVICE_ACCOUNT_EMAIL: "notifier@hushh-devops-notifier.iam.gserviceaccount.com",
+        GOOGLE_PRIVATE_KEY: `"${escapedPem}"`,
+        MAIL_API_KEY: API_KEY,
+      },
+      fetchImpl: fetchMock,
+    });
+    const local = app.listen(0);
+    const url = `http://127.0.0.1:${local.address().port}`;
+    try {
+      const health = await fetch(`${url}/`).then((r) => r.json());
+      assert.equal(health.transport, "google-workspace-gmail-delegated");
+      assert.equal(health.configured.workspaceSender, true);
+
+      const first = await fetch(`${url}/v1/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({
+          to: "contact@example.com",
+          subject: "Save my Soul Alert",
+          html: "<p>Emergency</p>",
+          text: "Emergency",
+        }),
+      });
+      const firstBody = await first.json();
+      assert.equal(first.status, 200);
+      assert.equal(firstBody.success, true);
+      assert.equal(firstBody.from, "one@hushh.ai");
+      assert.equal(firstBody.messageId, "dwd-msg-123");
+
+      const second = await fetch(`${url}/v1/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({
+          to: "contact2@example.com",
+          subject: "Second Alert",
+          html: "<p>Second</p>",
+        }),
+      });
+      assert.equal(second.status, 200);
+      assert.equal(tokenCalls, 1, "access token must be cached across sends");
+      assert.equal(gmailCalls.length, 2);
+      assert.equal(
+        gmailCalls[0].url,
+        "https://gmail.googleapis.com/gmail/v1/users/one%40hushh.ai/messages/send"
+      );
+      assert.equal(gmailCalls[0].options.headers.Authorization, "Bearer dwd-access-token-1");
+      const mime = Buffer.from(JSON.parse(gmailCalls[0].options.body).raw, "base64url").toString();
+      assert.match(mime, /From: One <one@hushh\.ai>/);
+    } finally {
+      await new Promise((resolve) => local.close(resolve));
+    }
+  });
+
+  it("signs JWT keylessly via metadata + IAM signJwt when WORKLOAD_DWD_SERVICE_ACCOUNT_EMAIL is set", async () => {
+    let metaCalls = 0;
+    let signCalls = 0;
+    let tokenCalls = 0;
+    const gmailCalls = [];
+    const fetchMock = async (url, options) => {
+      if (url.includes("/service-accounts/default/token")) {
+        metaCalls += 1;
+        assert.equal(options.headers["Metadata-Flavor"], "Google");
+        return new Response(JSON.stringify({ access_token: "adc-meta-token", expires_in: 3600 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith(":signJwt")) {
+        signCalls += 1;
+        assert.equal(options.headers.Authorization, "Bearer adc-meta-token");
+        const claims = JSON.parse(JSON.parse(options.body).payload);
+        assert.equal(claims.iss, "hushh-mail-api@hushh-tech-prod.iam.gserviceaccount.com");
+        assert.equal(claims.sub, "one@hushh.ai");
+        assert.equal(claims.scope, "https://www.googleapis.com/auth/gmail.send");
+        return new Response(JSON.stringify({ signedJwt: "header.claims.workloadsig" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "https://oauth2.googleapis.com/token") {
+        tokenCalls += 1;
+        const params = new URLSearchParams(options.body);
+        assert.equal(params.get("assertion"), "header.claims.workloadsig");
+        return new Response(JSON.stringify({ access_token: "workload-gmail-tok", expires_in: 3600 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      gmailCalls.push({ url, options });
+      return new Response(JSON.stringify({ id: "workload-msg-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const app = createApp({
+      env: {
+        WORKLOAD_DWD_SERVICE_ACCOUNT_EMAIL: "hushh-mail-api@hushh-tech-prod.iam.gserviceaccount.com",
+        MAIL_API_KEY: API_KEY,
+      },
+      fetchImpl: fetchMock,
+    });
+    const local = app.listen(0);
+    const url = `http://127.0.0.1:${local.address().port}`;
+    try {
+      const health = await fetch(`${url}/`).then((r) => r.json());
+      assert.equal(health.transport, "google-workspace-gmail-delegated");
+      assert.equal(health.configured.workspaceSender, true);
+
+      const first = await fetch(`${url}/v1/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({
+          from: { name: "One", email: "one@hushh.ai" },
+          to: "contact@example.com",
+          subject: "SOS",
+          html: "<p>SOS</p>",
+        }),
+      });
+      const firstBody = await first.json();
+      assert.equal(first.status, 200);
+      assert.equal(firstBody.from, "one@hushh.ai");
+
+      const second = await fetch(`${url}/v1/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({
+          to: "contact2@example.com",
+          subject: "SOS 2",
+          html: "<p>SOS 2</p>",
+        }),
+      });
+      assert.equal(second.status, 200);
+      assert.equal(metaCalls, 1);
+      assert.equal(signCalls, 1);
+      assert.equal(tokenCalls, 1);
+      assert.equal(gmailCalls.length, 2);
+      assert.equal(gmailCalls[0].options.headers.Authorization, "Bearer workload-gmail-tok");
+    } finally {
+      await new Promise((resolve) => local.close(resolve));
+    }
   });
 });
