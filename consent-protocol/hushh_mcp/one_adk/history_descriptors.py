@@ -7,6 +7,7 @@ import re
 import uuid
 from typing import Any
 
+from hushh_mcp.one_adk.finance_chat_cards import finance_card_history_descriptor
 from hushh_mcp.one_adk.history_projection import (
     _bounded_text,
     _record,
@@ -576,38 +577,6 @@ def _safe_submitted_information_request_descriptor(
     return None
 
 
-def _safe_stock_preview_descriptor(part: Any) -> dict[str, Any] | None:
-    function_response = getattr(part, "function_response", None)
-    if getattr(function_response, "name", None) != "show_stock_preview":
-        return None
-    response = _record(getattr(function_response, "response", None)) or {}
-    structured = _record(response.get("structured")) or {}
-    kind = "one.finance_stock_preview.v1"
-    ticker = structured.get("ticker")
-    if response.get("status") != "preview_offered" or structured.get("type") != kind:
-        return None
-    from hushh_mcp.one_adk.finance_market_tools import normalize_tickers
-
-    if not isinstance(ticker, str) or normalize_tickers(ticker, limit=1) != [ticker]:
-        return None
-    return {"activityType": kind, "content": {"type": kind, "ticker": ticker}}
-
-
-def _safe_portfolio_descriptor(part: Any) -> dict[str, Any] | None:
-    function_response = getattr(part, "function_response", None)
-    if getattr(function_response, "name", None) != "show_portfolio_card":
-        return None
-    response = _record(getattr(function_response, "response", None)) or {}
-    structured = _record(response.get("structured")) or {}
-    kind = "one.finance_portfolio.v1"
-    section = structured.get("section")
-    if response.get("status") != "card_offered" or structured.get("type") != kind:
-        return None
-    if section not in ("holdings", "allocation", "performance", "sources"):
-        return None
-    return {"activityType": kind, "content": {"type": kind, "section": section}}
-
-
 def _safe_agent_history_metadata(
     event: Any,
     suppressed_discovery_ids: set[str] | None = None,
@@ -639,9 +608,7 @@ def _safe_agent_history_metadata(
         or "event"
     )
     for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
-        descriptor = _safe_stock_preview_descriptor(part)
-        if descriptor is None:
-            descriptor = _safe_portfolio_descriptor(part)
+        descriptor = finance_card_history_descriptor(part)
         if descriptor is None:
             descriptor = _safe_discovery_descriptor(event, [part])
         if descriptor is None:

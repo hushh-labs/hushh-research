@@ -8,7 +8,7 @@ import { PerformanceStrip } from "@/components/kai/performance/performance-strip
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { useAuth } from "@/hooks/use-auth";
-import type { FinancePortfolioSection } from "@/lib/agent/agui-structured-experiences";
+import type { FinancePortfolioSection } from "@/lib/agent/finance-chat-experiences";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { groupHoldingPositions } from "@/lib/kai/holding-positions";
 import { formatCurrency } from "@/lib/kai/market-value-format";

@@ -1,3 +1,4 @@
+import { FINANCE_PORTFOLIO_EXPERIENCE_TYPE, FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE, parseFinancePortfolio, parseFinanceStockPreview, parseFinanceToolResult, type FinanceCardExperience } from "./finance-chat-experiences";
 import { asRecord, parseRecord, unwrapToolResult } from "./tool-result-envelope";
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
 import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
@@ -37,15 +38,6 @@ export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
 export const STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE = "one.style_settings_offer.v1" as const;
-export const FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE = "one.finance_stock_preview.v1" as const;
-export const FINANCE_PORTFOLIO_EXPERIENCE_TYPE = "one.finance_portfolio.v1" as const;
-export type FinancePortfolioSection = "holdings" | "allocation" | "performance" | "sources";
-type FinancePortfolioExperience = { type: typeof FINANCE_PORTFOLIO_EXPERIENCE_TYPE; section: FinancePortfolioSection };
-
-type FinanceStockPreviewExperience = {
-  type: typeof FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE;
-  ticker: string;
-};
 
 /**
  * One's offer to change how it writes to the owner. It names the proposed
@@ -261,8 +253,7 @@ export type AgentStructuredExperience =
   | MemoryImportReviewExperience
   | EvidenceBriefExperience
   | StyleSettingsOfferExperience
-  | FinanceStockPreviewExperience
-  | FinancePortfolioExperience
+  | FinanceCardExperience
   | MailBriefExperience
   | ReceiptSetupExperience;
 
@@ -758,22 +749,6 @@ export function parseSharedWithMeCard(content: unknown): SharedWithMeCardExperie
   return cards.length ? { type: SHARED_WITH_ME_CARD_EXPERIENCE_TYPE, cards } : null;
 }
 
-function parseFinanceStockPreview(content: unknown): FinanceStockPreviewExperience | null {
-  const record = asRecord(content);
-  if (record?.type !== FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE) return null;
-  const { ticker } = record;
-  if (typeof ticker !== "string" || !/^[A-Z0-9^][A-Z0-9.\-^=]{0,15}$/.test(ticker)) return null;
-  return { type: FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE, ticker };
-}
-
-function parseFinancePortfolio(content: unknown): FinancePortfolioExperience | null {
-  const record = asRecord(content);
-  const section = record?.section;
-  if (record?.type !== FINANCE_PORTFOLIO_EXPERIENCE_TYPE ||
-      (section !== "holdings" && section !== "allocation" && section !== "performance" && section !== "sources")) return null;
-  return { type: FINANCE_PORTFOLIO_EXPERIENCE_TYPE, section };
-}
-
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [FINANCE_PORTFOLIO_EXPERIENCE_TYPE]: parseFinancePortfolio,
   [FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE]: parseFinanceStockPreview,
@@ -816,14 +791,8 @@ export function parseAgentToolResultExperience(
   // shared-with-me card renders it.
   const sharedCard = parseSharedWithMeCard(content);
   if (sharedCard) return sharedCard;
-  if (toolName === "show_stock_preview") {
-    const result = unwrapToolResult(content);
-    return result?.status === "preview_offered" ? parseFinanceStockPreview(result.structured) : null;
-  }
-  if (toolName === "show_portfolio_card") {
-    const result = unwrapToolResult(content);
-    return result?.status === "card_offered" ? parseFinancePortfolio(result.structured) : null;
-  }
+  const financeCard = parseFinanceToolResult(toolName, content);
+  if (financeCard) return financeCard;
   if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
     const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapToolResult(content)) : null;
     if (brief) return brief;
