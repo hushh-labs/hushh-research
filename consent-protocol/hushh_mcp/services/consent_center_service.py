@@ -488,11 +488,15 @@ class ConsentCenterService:
 
     async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
         try:
-            identifiers = (
-                await self._identity.list_account_identifiers(normalized_user_id, refresh=False)
-                if (getattr(self, "_read_only", False) or getattr(self, "_require_complete", False))
-                else await self._identity.list_account_identifiers(normalized_user_id)
-            )
+            if getattr(self, "_read_only", False) or getattr(self, "_require_complete", False):
+                try:
+                    identifiers = await self._identity.list_account_identifiers(
+                        normalized_user_id, refresh=False
+                    )
+                except TypeError:
+                    identifiers = await self._identity.list_account_identifiers(normalized_user_id)
+            else:
+                identifiers = await self._identity.list_account_identifiers(normalized_user_id)
         except Exception as exc:
             if getattr(self, "_require_complete", False):
                 raise
@@ -587,9 +591,12 @@ class ConsentCenterService:
             and str(entry.get("counterpart_id") or "").strip()
         ]
         identity_ids.extend(person_user_ids.values())
+        use_read_only_get_many = (
+            getattr(self, "_read_only", False) or getattr(self, "_require_complete", False)
+        ) and callable(getattr(self._identity, "get_many", None))
         identities = (
             await self._identity.get_many(identity_ids)
-            if getattr(self, "_read_only", False) or getattr(self, "_require_complete", False)
+            if use_read_only_get_many
             else await self._identity.ensure_many(identity_ids)
         )
 
@@ -1648,8 +1655,11 @@ class ConsentCenterService:
             user_id,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
-        return await self._hydrate_entry_identities(
-            [self._normalize_pending(item) for item in pending]
+        entries = [self._normalize_pending(item) for item in pending]
+        return (
+            entries
+            if getattr(self, "_skip_summary_hydration", False)
+            else await self._hydrate_entry_identities(entries)
         )
 
     async def _load_investor_active_entries(self, user_id: str) -> list[dict[str, Any]]:
@@ -1658,9 +1668,10 @@ class ConsentCenterService:
             user_id,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
-        return self._annotate_person_bundles(
-            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
-        )
+        entries = [self._normalize_active(item) for item in active]
+        if not getattr(self, "_skip_summary_hydration", False):
+            entries = await self._hydrate_entry_identities(entries)
+        return self._annotate_person_bundles(entries)
 
     async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
@@ -1674,8 +1685,11 @@ class ConsentCenterService:
             history_result.get("items", [])
         ):
             raise RuntimeError("consent_source_history_incomplete")
-        return await self._hydrate_entry_identities(
-            [self._normalize_history(item) for item in history_result.get("items", [])]
+        entries = [self._normalize_history(item) for item in history_result.get("items", [])]
+        return (
+            entries
+            if getattr(self, "_skip_summary_hydration", False)
+            else await self._hydrate_entry_identities(entries)
         )
 
     async def _load_ria_outgoing_entries(self, user_id: str) -> list[dict[str, Any]]:
@@ -2148,24 +2162,29 @@ class ConsentCenterService:
                 for surface in ("pending", "active", "previous")
             )
         elif normalized_actor == "investor":
-            (
-                location_counts,
-                marketplace_buckets,
-                pending_entries,
-                active_entries,
-                previous_entries,
-                (connection_count, drive_counts),
-            ) = await asyncio.gather(
-                self._location_counts_async(user_id),
-                self._extra_buckets_async(user_id),
-                self._load_investor_pending_entries(user_id),
-                self._load_investor_active_entries(user_id),
-                self._load_investor_previous_entries(user_id),
-                asyncio.gather(
-                    self._incoming_connection_request_count(user_id),
-                    self._drive_counts(user_id),
-                ),
-            )
+            prev_skip_hydration = getattr(self, "_skip_summary_hydration", False)
+            self._skip_summary_hydration = True
+            try:
+                (
+                    location_counts,
+                    marketplace_buckets,
+                    pending_entries,
+                    active_entries,
+                    previous_entries,
+                    (connection_count, drive_counts),
+                ) = await asyncio.gather(
+                    self._location_counts_async(user_id),
+                    self._extra_buckets_async(user_id),
+                    self._load_investor_pending_entries(user_id),
+                    self._load_investor_active_entries(user_id),
+                    self._load_investor_previous_entries(user_id),
+                    asyncio.gather(
+                        self._incoming_connection_request_count(user_id),
+                        self._drive_counts(user_id),
+                    ),
+                )
+            finally:
+                self._skip_summary_hydration = prev_skip_hydration
 
             def contributor_count(surface: str) -> int:
                 bucket = {
