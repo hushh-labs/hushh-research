@@ -32,6 +32,12 @@ export class NetworkPageCache {
     return undefined;
   }
 
+  /** Discovery may repaint this session's last view while a fresh read settles. */
+  peekDiscoverySnapshot(read: NetworkPageRead): NetworkPage | undefined {
+    if (read.mode !== "discovery" || this.generation !== getAuthSessionGeneration()) return undefined;
+    return this.pages.get(keyFor(read))?.data;
+  }
+
   load(read: NetworkPageRead, getToken: () => Promise<string>, renew = false): Promise<NetworkPage> {
     const key = keyFor(read);
     const inFlight = this.pending.get(key);
@@ -55,6 +61,11 @@ export class NetworkPageCache {
       this.pages.set(key, { data, readAt: Date.now() });
       if (this.pages.size > MAX_PAGES) this.pages.delete(this.pages.keys().next().value!);
       return data;
+    }).catch(failure => {
+      const status = failure && typeof failure === "object" && "status" in failure ? failure.status : null;
+      // A denied preload or unmounted reader must also revoke its display snapshot.
+      if (isCurrent() && typeof status === "number" && [401, 403, 404].includes(status)) this.clear();
+      throw failure;
     }).finally(() => {
       if (this.pending.get(key)?.abort === abort) this.pending.delete(key);
     });
