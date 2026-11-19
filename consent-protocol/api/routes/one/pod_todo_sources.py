@@ -292,7 +292,7 @@ async def run_task_suggestions(body: Any, *, runner: Any = None, **door: Any) ->
         require_access=current,
         runner=runner or _private_todo_gene,
     )
-    return result.model_dump()
+    return dict(result.model_dump())
 
 
 @router.get("/todos/suggestions/status")

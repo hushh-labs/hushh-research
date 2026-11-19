@@ -27,7 +27,7 @@
       "label": "View task details",
       "meaning": "The person opens one task detail view and returns to the same list with Back. Opening details does not execute a source action.",
       "aliases": [], "search_keywords": ["task details"],
-      "guard_ids": ["manual_user_execution"], "risk_level": "low", "execution_policy": "manual_only",
+      "guard_ids": ["manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
       "execution_target": {"status": "unwired", "reason": "The person selects a task in their list.", "intended_handler": "TodoTaskDetail"},
       "control_ids": [], "state_exposure": [], "docs_references": ["components/todos/todo-task-detail.tsx"]
     },

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { groupByDate } from "./todo-list-presentation";
 
 /** One detail view; mutations keep their existing encrypted persistence owner. */
 export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetailBackChange }: {
@@ -15,6 +16,8 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
 }) {
   const [confirm, setConfirm] = useState(false);
   const pathname = usePathname() ?? "/one/todos";
+  const date = task.date ? groupByDate([task])[0]?.label : null;
+  const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
   const back = useCallback(() => {
     if (busy) return true;
     if (confirm) setConfirm(false); else onBack();
@@ -30,7 +33,7 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
     <div className="space-y-3">
       {task.sourceAgent ? <p data-profile-role="description" className="text-muted-foreground">{TODO_SOURCE_LABELS[task.sourceAgent]}</p> : null}
       <h3 data-profile-role="header" className="break-words text-xl font-semibold">{task.title}</h3>
-      {task.date || task.time ? <p data-profile-role="description">{[task.date, task.time].filter(Boolean).join(" · ")}</p> : null}
+      {date || time ? <p data-profile-role="description">{[date, time].filter(Boolean).join(" · ")}</p> : null}
       <p role="status" data-profile-role="description" className="text-muted-foreground">{task.status === "done" ? "Completed" : "To do"}</p>
       {task.notes ? <p data-profile-role="description" className="whitespace-pre-wrap break-words">{task.notes}</p> : null}
     </div>
