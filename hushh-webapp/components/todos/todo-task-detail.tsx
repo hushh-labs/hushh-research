@@ -1,24 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 
 /** One detail view; mutations keep their existing encrypted persistence owner. */
-export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove }: {
+export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetailBackChange }: {
   task: TodoItem; busy: boolean; onBack: () => void;
   onToggle: (task: TodoItem, complete: boolean) => void;
   onRemove: (task: TodoItem) => void;
+  onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   const pathname = usePathname() ?? "/one/todos";
-  useBackLayer(pathname, confirm ? 3 : 2, () => {
+  const back = useCallback(() => {
     if (busy) return true;
     if (confirm) setConfirm(false); else onBack();
     return true;
-  });
+  }, [busy, confirm, onBack]);
+  useBackLayer(pathname, confirm ? 3 : 2, back);
+  useLayoutEffect(() => {
+    onDetailBackChange?.(back);
+    return () => onDetailBackChange?.(null);
+  }, [onDetailBackChange, back]);
   return <section aria-label="Task details" className="flex min-h-[65dvh] flex-col gap-4">
     <Button variant="none" effect="fade" size="compact" className="self-start" disabled={busy} onClick={onBack}>Back to tasks</Button>
     <div className="space-y-3">

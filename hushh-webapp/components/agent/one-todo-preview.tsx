@@ -21,6 +21,7 @@ export function OneTodoPreview({
   vaultKey,
   vaultOwnerToken,
   isVaultUnlocked,
+  onDetailBackChange,
 }: {
   user: User;
   /** Validated application owner (useAuth().userId); `user` supplies only the Firebase ID token. */
@@ -28,6 +29,7 @@ export function OneTodoPreview({
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   isVaultUnlocked: boolean;
+  onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
   const ready = Boolean(ownerId && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const epoch = snapshotVaultSessionEpoch();
@@ -134,6 +136,7 @@ export function OneTodoPreview({
   const currentDetail = detail?.identity === identity && (tasks.find(item => item.id === detail.task.id) ?? live.pending.find(item => item.id === detail.task.id) ?? detail.task);
   if (currentDetail && current && ready && currentDetail.status !== "deleted") return <TodoTaskDetail
     task={currentDetail} busy={loading || Boolean(savingTaskId)} onBack={() => setDetail(null)} onToggle={toggleTask}
+    onDetailBackChange={onDetailBackChange}
     onRemove={task => { void persistTask(task, "deleted").then(() => setDetail(null)); }} />;
 
   return (
