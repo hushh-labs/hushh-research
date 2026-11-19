@@ -221,6 +221,9 @@ class VirginStandbyRuntime:
                         val = str(payload.get(opt_field) or "").strip()
                         if val:
                             os.environ[env_name] = val
+                    deploy_env = str(payload.get("deploy_env") or "").strip().lower()
+                    if deploy_env in {"dev", "development", "uat"}:
+                        os.environ["HUSHH_DEPLOY_ENV"] = deploy_env
 
                     runtime._activated = True
                     runtime.activation_info = {

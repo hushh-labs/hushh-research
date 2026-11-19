@@ -2697,7 +2697,7 @@ def _one_roster_tools(
         from hushh_mcp.services.pod_session_authority import active_session_authority
 
         authority = active_session_authority() if allow_planning_review else None
-        if authority is not None and authority.environment in {"dev", "development"}:
+        if authority is not None and authority.environment in {"dev", "development", "uat"}:
             from hushh_mcp.one_adk.file_schedule_proposal import propose_file_schedule
 
             tools.append(propose_file_schedule)

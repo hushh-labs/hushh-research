@@ -182,6 +182,7 @@ class _LocalStandbyClaimClient(SandboxClaimPort):
                     "status": "ok",
                     "sandbox": sandbox_name,
                     "hushh_id": os.environ.get("HUSSH_ID"),
+                    "deploy_env": os.environ.get("HUSHH_DEPLOY_ENV"),
                     **pub_payload,
                 }
 
@@ -355,6 +356,45 @@ async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(
             assert del_resp.status_code == 200
             assert del_resp.json()["released"] is True
             assert len(claim_client.deleted_claims) == 2
+    finally:
+        gw_server.should_exit = True
+        gw_thread.join(timeout=3.0)
+        for cname in list(claim_client.runtimes):
+            claim_client.delete_claim(cname)
+
+
+async def test_edge_gateway_propagates_deploy_env_to_virgin_standby(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("POD_DURABLE_IDENTITY_ENABLED", raising=False)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+
+    guard = "uat-activation-check-value-01"
+    claim_client = _LocalStandbyClaimClient(tmp_path, activation_guard=guard)
+    manager = SandboxEdgeGatewayManager(
+        claim_client=claim_client,
+        master_seed=b"U" * 32,
+        activation_header_value=guard,
+        admin_header_value="uat-admin-token",
+        deploy_env="uat",
+        claim_timeout_s=15.0,
+        health_poll_timeout_s=10.0,
+    )
+    gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    gw_port = _free_port()
+    gw_server = uvicorn.Server(
+        uvicorn.Config(gw_app, host="127.0.0.1", port=gw_port, log_level="error")
+    )
+    gw_thread = threading.Thread(target=gw_server.run, daemon=True)
+    gw_thread.start()
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"http://127.0.0.1:{gw_port}/u/owner_uat/health")
+            assert resp.status_code == 200
+            assert resp.json()["deploy_env"] == "uat"
+            assert os.environ.get("HUSHH_DEPLOY_ENV") == "uat"
     finally:
         gw_server.should_exit = True
         gw_thread.join(timeout=3.0)
