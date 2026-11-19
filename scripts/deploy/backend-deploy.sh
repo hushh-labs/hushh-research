@@ -323,10 +323,29 @@ append_optional_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
 append_optional_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
 append_optional_secret "${_INTELLIGENCE_API_BASE_URL_SECRET}" "INTELLIGENCE_API_BASE_URL"
 append_optional_secret "${_INTELLIGENCE_API_KEY_SECRET}" "INTELLIGENCE_API_KEY"
+_SUPPORT_EMAIL_DELEGATED_USER_SECRET=""
+_SUPPORT_EMAIL_FROM_SECRET=""
+_SUPPORT_EMAIL_MODE_SECRET=""
+_SUPPORT_EMAIL_TEST_TO_SECRET=""
+IFS=',' read -r -a _support_email_pairs <<< "${_SUPPORT_EMAIL_SETTINGS:?missing support email settings}"
+for _pair in "${_support_email_pairs[@]}"; do
+  [[ "${_pair}" == *=* ]] || { echo "Invalid support email settings." >&2; exit 1; }
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  case "${_key}" in
+    delegated) _SUPPORT_EMAIL_DELEGATED_USER_SECRET="${_value}" ;;
+    from) _SUPPORT_EMAIL_FROM_SECRET="${_value}" ;;
+    mode) _SUPPORT_EMAIL_MODE_SECRET="${_value}" ;;
+    test_to) _SUPPORT_EMAIL_TEST_TO_SECRET="${_value}" ;;
+    *) echo "Support email settings carry an unknown key: ${_key}" >&2; exit 1 ;;
+  esac
+done
 append_optional_secret "${_SUPPORT_EMAIL_TEST_TO_SECRET}" "SUPPORT_EMAIL_TEST_TO"
 append_optional_secret "${_SUPPORT_EMAIL_MODE_SECRET}" "SUPPORT_EMAIL_MODE"
 append_optional_secret "${_SUPPORT_EMAIL_DELEGATED_USER_SECRET}" "SUPPORT_EMAIL_DELEGATED_USER"
 append_optional_secret "${_SUPPORT_EMAIL_FROM_SECRET}" "SUPPORT_EMAIL_FROM"
+if [[ -z "${commerce_preview_prefix:-}" ]]; then
+  append_optional_secret SUPPORT_EMAIL_TO SUPPORT_EMAIL_TO
+fi
 append_optional_secret "${_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}" "GOOGLE_SERVICE_ACCOUNT_EMAIL"
 append_optional_secret "${_GOOGLE_PRIVATE_KEY_SECRET}" "GOOGLE_PRIVATE_KEY"
 append_optional_secret "${_RIA_CLAIM_TEST_EMAILS_SECRET}" "RIA_CLAIM_TEST_EMAILS"

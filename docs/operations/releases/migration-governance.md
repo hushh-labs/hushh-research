@@ -300,6 +300,13 @@ later deploys without restoring the older payment-required-only check. Boolean
 grouping, all other cent-price checks and immutable ledger checksums remain
 enforced; an unknown or unvalidated successor cannot use this exception.
 
+Migration 341's checksum-pinned replay adapter preserves the exact validated
+Calendar Feed domain constraint installed by 444. A compatible table lock keeps
+the catalog proof stable while retaining existing Feed rows and read/dismissal
+state. Partial or altered successors refuse replay; pre-Calendar upgrades retain
+the original SQL. Historical SQL, ledger checksums and observe/ledger behavior
+remain unchanged.
+
 Migration 360's replay adapter preserves the exact validated 411 period-packet
 successor. Before that successor exists, the historical retirement still runs.
 After verifying its five typed columns, defaults and complete CHECK, replay
