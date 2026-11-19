@@ -22,10 +22,11 @@ import { NETWORK_FILTERS, NetworkPageCache, type NetworkListMode, type NetworkPa
 type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
 type ListProps = { mode: NetworkListMode; personRef?: string; visitKey: string; embedded?: boolean; retainedPages?: NetworkPageCache; onReady?: () => void; onDismiss?: () => void };
 
-function cachedResult(cache: NetworkPageCache, read: NetworkPageRead): NetworkPage | null {
+function cachedResult(cache: NetworkPageCache, read: NetworkPageRead, allowDiscoverySnapshot = false): NetworkPage | null {
   const pages: NetworkPage[] = [];
   for (let page = 1; page <= read.page; page++) {
-    const value = cache.peek({ ...read, page });
+    const value = (allowDiscoverySnapshot ? cache.peekDiscoverySnapshot({ ...read, page }) : undefined)
+      ?? cache.peek({ ...read, page });
     if (!value) return null;
     pages.push(value);
     if (!value.hasMore) break;
@@ -71,10 +72,10 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
   const [localPages] = useState(() => new NetworkPageCache());
   const pageCache = retainedPages ?? localPages;
   const [result, setResult] = useState<NetworkPage | null>(() => {
-    const cached = user && cachedResult(pageCache, { mode, personRef, degree, query, page });
+    const cached = user && cachedResult(pageCache, { mode, personRef, degree, query, page }, true);
     return cached ? markRequests(cached, new Set()) : null;
   });
-  const [busy, setBusy] = useState(!result);
+  const [busy, setBusy] = useState(() => !(user && cachedResult(pageCache, { mode, personRef, degree, query, page })));
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [retry, setRetry] = useState(0);
@@ -149,7 +150,6 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
     const read = { mode, personRef, degree, query, page };
     const refresh = refreshKind.current;
     refreshKind.current = null;
-    const keepRows = refresh === "quiet";
     const cached = user && !searchPending && !append && !refresh && cachedResult(pageCache, read);
     if (cached) {
       lastSuccessfulRead.current = { scope, page: cached.page };
@@ -158,7 +158,10 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
       setError(null);
       return () => controller.abort();
     }
+    const retained = user && !searchPending && !append && !refresh && cachedResult(pageCache, read, true);
+    const keepRows = refresh === "quiet" || Boolean(retained);
     setBusy(true); setError(null);
+    if (retained) setResult(markRequests(retained, requestedPeople.current));
     if (!append) {
       lastSuccessfulRead.current = null;
       if (!keepRows) setResult(null);
@@ -283,16 +286,13 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
       if (active()) setConnecting(new Set(connectionIntents.current));
     }
   };
-  const networkPeople = result?.items ?? [];
-  const networkRefs = new Set(networkPeople.map(person => person.publicPersonRef));
-  const people = extended
-    ? [...networkPeople, ...(result?.suggestions ?? []).filter(person => !networkRefs.has(person.publicPersonRef))]
-    : networkPeople;
+  // Enforce the selected distance during staggered API rollouts and cache reads.
+  const people = (result?.items ?? []).filter(person => !degree || person.networkDegree === degree);
   const Heading = embedded ? "h3" : "h1";
   return <section ref={root} tabIndex={-1} className={cn("mx-auto w-full min-w-0 max-w-[880px] space-y-3 sm:space-y-4", !embedded && "px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5")} data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
       {!embedded || mode !== "discovery" ? <Heading>{title}</Heading> : null}
-      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "Third-degree connections and suggested people." : "Find people through connections that allow discovery."}</p>
+      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Discovery follows their privacy settings." : "Find people through connections that allow discovery."}</p>
       {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
     {mode !== "mutuals" ? (
@@ -326,9 +326,11 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
               restore.current = false;
               const scroller = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
               if (scroller) scroller.scrollTop = 0;
-              const cached = pageCache.peek({ mode, personRef, degree: value, query, page: 1 });
+              const read = { mode, personRef, degree: value, query, page: 1 };
+              const fresh = pageCache.peek(read);
+              const cached = fresh ?? pageCache.peekDiscoverySnapshot(read);
               setResult(cached ? markRequests(cached, requestedPeople.current) : null);
-              setBusy(!cached);
+              setBusy(!fresh);
               setError(null);
               setDegree(value);
               setPage(1);
@@ -351,7 +353,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
     </ul> : null}
     {result && (!busy || result.page === page) && !people.length ? <div className="py-3 text-sm text-muted-foreground">
       <p role="status">{extended && !query.trim()
-        ? "No people to show right now. Check back as more people join."
+        ? "No 3rd-degree connections to show yet. Connect with people you know to grow your network."
         : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>
       {extended && !query.trim() && onDismiss ? <button type="button"
         data-voice-control-id="network-find-people"

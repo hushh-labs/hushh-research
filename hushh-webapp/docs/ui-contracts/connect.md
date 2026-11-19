@@ -902,12 +902,14 @@ neighbors shared by the viewer and the target: zero has no control, one opens th
 available profile (resolving a missing preview through one mutual page), and more
 than one opens a list. An unavailable single profile explains that state.
 
-**Extended network** shows third-degree connections and up to four suggested
-people in one list. Third-degree rows come first and carry their degree.
-Suggestions use eligible verified advisor profiles or name matches from the
-people directory, with a reason on each row. The tab uses the existing profile
-preview and connection request controls. With no results and no active search,
-**Back to Find people** closes the dialog and restores the source.
+**Extended network** shows people whose shortest eligible connection path has
+three active edges. Both intermediaries must allow discovery. Search and
+pagination stay within this third-degree set. Each result carries its degree
+and uses the existing profile preview and connection request controls.
+An empty list explains how connecting with people grows the network.
+**Back to Find people** closes the dialog and restores the directory, where
+new users can find their first connections. The UI filters legacy mixed
+responses by degree during staggered releases.
 
 An authenticated Connect entry preloads discovery. The All results start first,
 then the other filters' first pages load. Repeated filters and Back reuse fresh
@@ -935,9 +937,14 @@ query/filter/page/scroll/focus snapshots are bounded to 64 memory entries and ar
 cleared by owner/authentication-generation changes. List snapshots expire after
 15 minutes. Authorized pages for mutuals and someone's connections may be reused
 for two minutes within the open preview journey. Closing the preview disposes
-those pages, and discovery pages remain briefly in the authenticated viewer's
-in-memory cache. Foreground refreshes preserve the current result while checking
-its availability. Graph changes and denied reads clear affected rows immediately.
+those pages. Discovery keeps the authenticated viewer's last successful pages in
+the bounded session cache. Returning after the two-minute freshness age or changing
+to a previously viewed filter paints that snapshot while a fresh read reconciles
+it. The list remains busy until reconciliation settles; readiness, focus and
+scroll restoration wait for that read. Foreground refreshes also preserve the
+current result while checking availability. This display-only snapshot is never
+used for private mutual or connection lists. Graph changes, authentication changes
+and denied reads clear affected rows immediately.
 Cold reload or evicted visit memory returns to the authored route without
 reconstructing private history.
 

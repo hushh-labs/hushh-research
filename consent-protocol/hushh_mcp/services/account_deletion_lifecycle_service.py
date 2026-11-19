@@ -7,7 +7,11 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
@@ -43,6 +47,32 @@ from hushh_mcp.services.account_deletion_inventory_review import (
 )
 
 logger = logging.getLogger(__name__)
+
+_NOT_TOMBSTONED_CACHE_TTL_SECONDS = 15.0
+_NOT_TOMBSTONED_CACHE_MAX_ENTRIES = 4096
+_NOT_TOMBSTONED_CACHE_LOCK = threading.RLock()
+_NOT_TOMBSTONED_CACHE: OrderedDict[str, float] = OrderedDict()
+
+
+def invalidate_tombstone_cache(*user_ids: str) -> None:
+    """Evict cached negative tombstone lookups when deletion state changes."""
+    with _NOT_TOMBSTONED_CACHE_LOCK:
+        if not user_ids:
+            _NOT_TOMBSTONED_CACHE.clear()
+            return
+        for raw_uid in user_ids:
+            clean_uid = str(raw_uid or "").strip()
+            if clean_uid:
+                _NOT_TOMBSTONED_CACHE.pop(clean_uid, None)
+
+
+def _allow_read_only_tombstone_cache() -> bool:
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    from api.middlewares.observability import is_read_only_request
+
+    return is_read_only_request()
+
 
 if TYPE_CHECKING:
     from hushh_mcp.services.account_deletion_provider_journal import ProviderCleanupClaim
@@ -345,6 +375,7 @@ class AccountDeletionLifecycleService:
                 return isolated
         persisted_all = True
         for normalized in user_ids:
+            invalidate_tombstone_cache(normalized)
             result = conn.execute(
                 text(
                     """
@@ -517,6 +548,7 @@ class AccountDeletionLifecycleService:
             receipt["localErasureAccepted"] = True
         from hushh_mcp.services.account_deletion_firebase_erasure import prepare_authority
 
+        invalidate_tombstone_cache(owner, identity)
         firebase_authority = prepare_authority(
             conn, owner=owner, identity=identity, cleanup_id=cleanup_id
         )
@@ -969,6 +1001,16 @@ class AccountDeletionLifecycleService:
     def is_tombstoned(user_id: str) -> bool:
         normalized_user_ids = AccountDeletionLifecycleService._normalize_user_ids((user_id,))
         normalized_user_id = normalized_user_ids[0]
+        use_cache = _allow_read_only_tombstone_cache()
+        if use_cache:
+            now = time.monotonic()
+            with _NOT_TOMBSTONED_CACHE_LOCK:
+                expires_at = _NOT_TOMBSTONED_CACHE.get(normalized_user_id)
+                if expires_at is not None and expires_at > now:
+                    _NOT_TOMBSTONED_CACHE.move_to_end(normalized_user_id)
+                    return False
+                if expires_at is not None:
+                    _NOT_TOMBSTONED_CACHE.pop(normalized_user_id, None)
         user_hash = account_deletion_user_hash(normalized_user_id)
         with get_db_connection() as conn:
             # Force a fresh command snapshot after any wait. A plain SELECT can
@@ -1026,8 +1068,20 @@ class AccountDeletionLifecycleService:
                 {"user_id_hash": user_hash},
             ).first()
         if row is not None and row[0] in {"provider_cleanup", "local_erasure"}:
+            invalidate_tombstone_cache(normalized_user_id)
             raise AccountDeletionInProgressError("approved account cleanup is still running")
-        return row is not None
+        if row is not None:
+            invalidate_tombstone_cache(normalized_user_id)
+            return True
+        if use_cache:
+            with _NOT_TOMBSTONED_CACHE_LOCK:
+                _NOT_TOMBSTONED_CACHE[normalized_user_id] = (
+                    time.monotonic() + _NOT_TOMBSTONED_CACHE_TTL_SECONDS
+                )
+                _NOT_TOMBSTONED_CACHE.move_to_end(normalized_user_id)
+                while len(_NOT_TOMBSTONED_CACHE) > _NOT_TOMBSTONED_CACHE_MAX_ENTRIES:
+                    _NOT_TOMBSTONED_CACHE.popitem(last=False)
+        return False
 
     @staticmethod
     def record_cleanup_outcome(

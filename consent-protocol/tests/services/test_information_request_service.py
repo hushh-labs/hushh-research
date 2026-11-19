@@ -647,7 +647,7 @@ async def test_progress_reports_each_stage_and_keeps_revoked_apart_from_expired(
     granted = (await service.get(requester_user_id="viewer", bundle_id=bundle_id))["progress"]
     assert granted["outcome"] == "granted"
     assert granted["delivered_at"] == "1970-01-01T00:00:01+00:00"
-    assert granted["seen_at"] == "1970-01-01T00:00:09+00:00"
+    assert granted["seen_at"] is None
     assert granted["decided_at"] is not None and granted["access_ends_at"] is not None
     assert granted["ended_at"] is None
 
@@ -1131,3 +1131,66 @@ async def test_model_permission_comes_only_from_current_grant_and_ends_on_revoca
     )
     status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
     assert status["items"][0]["modelProcessingAllowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_notification_opened_never_exposes_seen_at():
+    from hushh_mcp.services.information_request_service import build_request_progress
+
+    service = _Service()
+    created = await service.create(**_CREATE)
+    bundle_id = created["bundleId"]
+    request_id = created["items"][0]["requestId"]
+    if hasattr(service.consent, "audit_events"):
+        service.consent.audit_events.append(
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "action": "NOTIFICATION_OPENED",
+                "issued_at": 9_000,
+            }
+        )
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["progress"]["seen_at"] is None
+    now_ms = int(time.time() * 1000)
+    direct_progress = build_request_progress(
+        bundle={
+            "bundle_id": bundle_id,
+            "subject_user_id": "subject",
+            "created_at": 1_000,
+        },
+        items=[
+            {
+                "request_id": request_id,
+                "scope": "attr.identity.legal_name",
+                "label": "Legal name",
+            }
+        ],
+        ledger_rows=[
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "scope": "attr.identity.legal_name",
+                "action": "PENDING",
+                "issued_at": 1_000,
+                "expires_at": now_ms + 3_600_000,
+            }
+        ],
+        notification_rows=[
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "action": "NOTIFICATION_SENT",
+                "issued_at": 5_000,
+            },
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "action": "NOTIFICATION_OPENED",
+                "issued_at": 9_000,
+            },
+        ],
+        now_ms=now_ms,
+    )
+    assert direct_progress["delivered_at"] == "1970-01-01T00:00:05+00:00"
+    assert direct_progress["seen_at"] is None

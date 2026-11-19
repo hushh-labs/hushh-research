@@ -54,6 +54,52 @@ PERSONAL_AGENT_ID = "personal_agent"
 # re-mints before expiry.
 DEFAULT_STANDING_READ_EXPIRY_MS = 24 * 60 * 60 * 1000
 
+_STANDING_DOOR_GRANT_CACHE: dict[tuple[str, bool], tuple[float, dict[str, str]]] = {}
+_STANDING_DOOR_GRANT_CACHE_TTL_SECONDS = 90.0
+_STANDING_DOOR_GRANT_CACHE_MAX_ENTRIES = 1024
+
+
+def get_cached_standing_door_grants(user_id: str, *, door_enabled: bool) -> dict[str, str] | None:
+    """Return cached standing pod data-door grants if within TTL, else None."""
+    key = (user_id, door_enabled)
+    entry = _STANDING_DOOR_GRANT_CACHE.get(key)
+    if not entry:
+        return None
+    expires_at, grants = entry
+    if time.monotonic() >= expires_at:
+        _STANDING_DOOR_GRANT_CACHE.pop(key, None)
+        return None
+    return dict(grants)
+
+
+def set_cached_standing_door_grants(
+    user_id: str, *, door_enabled: bool, grants: dict[str, str]
+) -> None:
+    """Store standing pod data-door grants in bounded monotonic cache."""
+    if not user_id or not grants:
+        return
+    if len(_STANDING_DOOR_GRANT_CACHE) >= _STANDING_DOOR_GRANT_CACHE_MAX_ENTRIES:
+        now = time.monotonic()
+        expired = [k for k, (exp, _) in _STANDING_DOOR_GRANT_CACHE.items() if now >= exp]
+        for k in expired:
+            _STANDING_DOOR_GRANT_CACHE.pop(k, None)
+        if len(_STANDING_DOOR_GRANT_CACHE) >= _STANDING_DOOR_GRANT_CACHE_MAX_ENTRIES:
+            oldest = next(iter(_STANDING_DOOR_GRANT_CACHE))
+            _STANDING_DOOR_GRANT_CACHE.pop(oldest, None)
+    _STANDING_DOOR_GRANT_CACHE[(user_id, door_enabled)] = (
+        time.monotonic() + _STANDING_DOOR_GRANT_CACHE_TTL_SECONDS,
+        dict(grants),
+    )
+
+
+def invalidate_standing_door_grant_cache(user_id: str | None = None) -> None:
+    """Drop cached standing door grants for one user (or all users on teardown/reset)."""
+    if user_id is None:
+        _STANDING_DOOR_GRANT_CACHE.clear()
+        return
+    _STANDING_DOOR_GRANT_CACHE.pop((user_id, False), None)
+    _STANDING_DOOR_GRANT_CACHE.pop((user_id, True), None)
+
 
 class PersonalAgentDisabledError(RuntimeError):
     """Raised when a standing read is requested while the feature is off."""

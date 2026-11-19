@@ -33,11 +33,11 @@ class PodChatMemory(BaseMemoryService):
         await self.context.require_access()
         return result
 
-    async def add_session_to_memory(self, session):
+    async def _add_session_to_memory_with_status(self, session) -> bool:
         if session.user_id != self.context.owner:
             raise PermissionError("Pod memory owner mismatch.")
         if self.service is None:
-            return
+            return False
         from hushh_mcp.one_adk.consent_redaction import tagged_bundles
 
         await self.context.require_access()
@@ -52,10 +52,14 @@ class PodChatMemory(BaseMemoryService):
             if event.invocation_id not in tagged and (not tagged or event.invocation_id)
         ]
         if not events:
-            return
+            return False
         await self.service.add_session_to_memory(
             session.model_copy(update={"user_id": self.context.hushh_id, "events": events})
         )
+        return True
+
+    async def add_session_to_memory(self, session) -> None:
+        await self._add_session_to_memory_with_status(session)
 
     async def prepare(self, input, *, model: Any, provider: str, model_id: str) -> None:
         from api.routes.one.pod_memory import review_policy_for_session
@@ -108,7 +112,7 @@ class PodChatMemory(BaseMemoryService):
         if wiki_hot:
             input.state[STATE_WIKI_HOT_DIGEST] = wiki_hot
 
-    async def commit(self, input) -> None:
+    async def commit(self, input) -> bool:
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
 
         await self.context.require_access()
@@ -127,9 +131,10 @@ class PodChatMemory(BaseMemoryService):
         # The existing memory service owns extraction and provider consent.
         # No second memory store or synthetic owner capability is introduced.
         try:
-            await self.add_session_to_memory(session)
+            return await self._add_session_to_memory_with_status(session)
         except Exception as exc:
             logger.warning("pod_chat.memory_write_failed kind=%s", type(exc).__name__)
+            return False
 
 
 async def build_memory_hooks(

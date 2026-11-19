@@ -647,6 +647,52 @@ def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
         raise MigrationAuthorityError(str(exc)) from None
 
 
+def _replay_pwm_lifecycle_sql(entry: MigrationManifestEntryV2) -> str:
+    """Keep the exact validated Calendar Feed successor during historical replay."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    legacy = """ALTER TABLE feed_events DROP CONSTRAINT IF EXISTS feed_events_source_domain_check;
+ALTER TABLE feed_events ADD CONSTRAINT feed_events_source_domain_check CHECK (
+    source_domain IN ('consent','location','kai','kyc','connected_systems','connections','pwm')
+);"""
+    if (
+        checksum != "cdf051074c2ed61437d54c79d0211177af284ca4b5c1e60b9abe330074afba43"
+        or entry.checksum_sha256 != checksum
+        or entry.sql.count(legacy) != 1
+    ):
+        raise MigrationAuthorityError("PWM lifecycle replay source checksum changed")
+    successor = (
+        "CHECK ((source_domain = ANY (ARRAY['consent'::text, 'location'::text, "
+        "'kai'::text, 'kyc'::text, 'connected_systems'::text, 'connections'::text, "
+        "'pwm'::text, 'calendar_email_followup'::text])))"
+    ).replace("'", "''")
+    # A compatible lock keeps the catalog proof stable without blocking ordinary
+    # Feed writers. Only the historical repair path needs an exclusive DDL lock.
+    guard = f"""DO $pwm_feed_replay$
+DECLARE
+ calendar_successor BOOLEAN := FALSE;
+BEGIN
+ LOCK TABLE public.feed_events IN ROW SHARE MODE;
+ IF to_regclass('public.calendar_email_followup_monitors') IS NOT NULL THEN
+  calendar_successor := to_regprocedure(
+    'public.calendar_email_followup_grant_current(public.calendar_email_followup_monitors)'
+  ) IS NOT NULL;
+ END IF;
+ IF calendar_successor THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint c
+    WHERE c.conrelid='public.feed_events'::regclass
+     AND c.conname='feed_events_source_domain_check'
+     AND c.contype='c' AND c.convalidated AND NOT c.connoinherit
+     AND pg_get_constraintdef(c.oid)='{successor}') THEN
+   RAISE EXCEPTION 'Calendar Feed domain successor changed; refusing PWM replay'
+     USING ERRCODE='23514';
+  END IF;
+ ELSE
+  {legacy}
+ END IF;
+END $pwm_feed_replay$;"""
+    return entry.sql.replace(legacy, guard, 1)
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     from db.account_cleanup_replay import SOURCES as ACCOUNT_SOURCES
     from db.account_cleanup_replay import account_cleanup_replay_sql
@@ -681,6 +727,8 @@ def _replay_sql(entry: MigrationManifestEntryV2) -> str:
             raise MigrationAuthorityError(str(exc)) from None
     if entry.migration_id == "329" and entry.filename == "329_drive_request_cent_prices.sql":
         return _replay_drive_cent_prices_sql(entry)
+    if entry.migration_id == "341" and entry.filename == "341_pwm_research_lifecycle.sql":
+        return _replay_pwm_lifecycle_sql(entry)
     if entry.migration_id == "360" and entry.filename == "360_uat_drive_collection_retirement.sql":
         from db.drive_packet_replay import retirement_replay_sql
 

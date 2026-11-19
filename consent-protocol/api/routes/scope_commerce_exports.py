@@ -38,12 +38,14 @@ class ExportSourceRevisions(StrictBody):
 class PrepareExportBody(StrictBody):
     source_revisions: ExportSourceRevisions
     negative_net_acknowledgement: NegativeNetAcknowledgement | None = None
+    activate_immediately: bool = False
 
 
 class StageExportBody(StrictBody):
     preparation_id: UUID
     envelope: dict[str, Any]
     negative_net_acknowledgement: NegativeNetAcknowledgement | None = None
+    activate_on_stage: bool = False
 
 
 def _export_binding_projection(binding: dict) -> dict:
@@ -101,6 +103,7 @@ async def prepare_owner_export(
                 negative_net_acknowledgement=body.negative_net_acknowledgement.model_dump()
                 if body.negative_net_acknowledgement
                 else None,
+                activate_immediately=body.activate_immediately,
             )
             await record_cost_acknowledgement_on_conn(
                 conn, binding, purchase_id, body.negative_net_acknowledgement, "prepare"
@@ -140,6 +143,7 @@ async def stage_owner_export(
                 negative_net_acknowledgement=body.negative_net_acknowledgement.model_dump()
                 if body.negative_net_acknowledgement
                 else None,
+                activate_on_stage=body.activate_on_stage,
             )
         return _purchase(result)
     except HTTPException:
