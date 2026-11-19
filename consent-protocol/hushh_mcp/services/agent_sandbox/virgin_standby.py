@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import signal
 import sys
 import threading
@@ -206,6 +207,13 @@ class VirginStandbyRuntime:
                     os.environ["HUSSH_LEASE_ID"] = lease_id
                     os.environ["HUSSH_POD_PRIVATE_KEY_FILE"] = str(key_file)
                     os.environ["HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD"] = "1"
+                    if not (os.environ.get("APP_SIGNING_KEY") or "").strip():
+                        # Sandbox containers never receive the Hub's shared HMAC key in
+                        # SandboxTemplate; mint an isolated per-sandbox key on lease bind
+                        # so pod_server consent/rate-limit middleware imports safely.
+                        os.environ["APP_SIGNING_KEY"] = secrets.token_hex(32)
+                    if not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
+                        os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
                     for opt_field, env_name in (
                         ("pod_url", "POD_URL"),
                         ("hub_url", "HUSSH_HUB_URL"),
