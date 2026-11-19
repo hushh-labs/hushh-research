@@ -208,11 +208,44 @@ function privateDomainData(
   selectedCapabilities?: TaskCapability[],
 ): Record<string, unknown> {
   const privateData = privateTodoData(current);
+  if (selectedCapabilities !== undefined) {
+    return { ...current, _private: { ...privateData, selectedCapabilities, updatedAt } };
+  }
+  if (privateData.tasks != null && !Array.isArray(privateData.tasks)) {
+    throw new Error("unsupported_task_records");
+  }
+  // Display normalization must not erase unknown fields or future saved records.
+  const originalById = new Map<string, { raw: Record<string, unknown>; normalized: TodoItem }>();
+  const identities = new Set<string>();
+  const opaque: unknown[] = [];
+  for (const raw of Array.isArray(privateData.tasks) ? privateData.tasks : []) {
+    const id = isRecord(raw) ? text(raw.id, 240) : "";
+    if (id && identities.has(id)) throw new Error("ambiguous_task_identity");
+    if (id) identities.add(id);
+    const normalized = normalizeItem(raw);
+    if (!normalized || !isRecord(raw)) {
+      opaque.push(raw);
+      continue;
+    }
+    originalById.set(normalized.id, { raw, normalized });
+  }
+  const written = new Set<string>();
+  const storedTasks = tasks.map(task => {
+    if (written.has(task.id)) throw new Error("ambiguous_task_identity");
+    written.add(task.id);
+    const original = originalById.get(task.id);
+    if (!original) {
+      if (identities.has(task.id)) throw new Error("unsupported_task_identity");
+      return task;
+    }
+    return JSON.stringify(original.normalized) === JSON.stringify(task)
+      ? original.raw : { ...original.raw, ...task };
+  });
   return {
     ...current,
     _private: {
       ...privateData,
-      ...(selectedCapabilities === undefined ? { tasks } : { selectedCapabilities }),
+      tasks: [...storedTasks, ...opaque],
       updatedAt,
     },
   };
