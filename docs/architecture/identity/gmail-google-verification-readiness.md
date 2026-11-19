@@ -64,6 +64,8 @@ scopes. Reconcile those enabled purposes separately before claiming submission
 coverage. A listed scope and a completed minimum-scope review do not themselves
 prove final verification.
 
+The Calendar connection now requests `gmail.readonly` and `gmail.send` in its single Google consent (first and added accounts alike), together with the Calendar, Meet and `drive.metadata.readonly` scopes it already asked for. Nothing new is requested overall: these are the scopes the former separate Mail step asked for. Re-read the Data Access page for Calendar, `meetings.space.readonly`, `drive.meet.readonly`, `drive.metadata.readonly` and `gmail.send` before claiming submission coverage; the 3 November 2026 change could not read the Console (the Chrome connection was unavailable), so those entries remain unverified.
+
 Drive selected-file access requests `drive.file`; optional live access requests
 full `drive`. The owner elected to retain full Drive in the verification plan.
 Demonstrate an enabled function that needs access beyond selected files; do not

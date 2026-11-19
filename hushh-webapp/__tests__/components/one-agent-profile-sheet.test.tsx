@@ -5,7 +5,6 @@ import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { reduceChatOnboarding, type ChatOnboardingState } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import type { ChatOnboardingChipId } from "@/lib/agent/chat-onboarding/chat-onboarding-script";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorClaim, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import {
   applyLiveMirrorReadTime,
@@ -474,7 +473,7 @@ describe("One agent profile feed preview", () => {
     const binding = pane.dataset.context;
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "Tasks", "Profile"]);
     await screen.findByText("Mail connected");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
@@ -498,12 +497,11 @@ describe("One agent profile feed preview", () => {
     expect(await screen.findByRole("heading", { name: "Live memory" })).toBeInTheDocument();
     expect(mirrorStatus().getByRole("status")).toHaveTextContent("Up to date");
     expect(mirrorStatus().getByText("Checked just now")).toBeInTheDocument();
-    expect(screen.getByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeNull();
     expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
     expect(within(factRow("Email")).getByText("a@example.test")).toBeInTheDocument();
     const seeAll = screen.getByRole("link", { name: "See all" });
-    expect(seeAll).toHaveAttribute("href", buildProfileRoute({ panel: "my-data" }));
-    expect(seeAll).toHaveAttribute("href", "/one/profile/my-data");
+    expect(seeAll).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
     expect(screen.queryByLabelText("soul.md preview")).toBeNull();
     expect(screen.queryByText("Soul preview")).toBeNull();
@@ -684,13 +682,13 @@ describe("One agent profile feed preview", () => {
     expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
     expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
-  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
+  it("loads the shared Tasks preview only when selected without a duplicate workspace link", async () => {
     const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "Tasks", "Profile"]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
     expect(await screen.findByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
     expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });

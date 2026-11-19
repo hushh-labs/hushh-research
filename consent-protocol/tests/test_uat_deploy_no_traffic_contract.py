@@ -1001,11 +1001,11 @@ def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
     assert "steps.rollback-targets.outputs.frontend_revision" in rollback_block
 
 
-def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
+def test_uat_deploy_pins_the_isolated_firebase_authority() -> None:
     workflow_source = _read(".github/workflows/deploy-uat-implementation.yml")
     workflow = yaml.safe_load(workflow_source)
 
-    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
+    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda-uat"
     assert (
         workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
         == 2
@@ -1151,14 +1151,20 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         )
 
     uat = load_profile("uat")["project"]
-    deferred = run_case("uat", "true", "true", uat, deny_project_discovery=True)
+    assert uat == "hushh-pda-uat"
+    same_project = run_case("uat", "true", "true", uat, deny_project_discovery=False)
+    assert same_project.returncode == 0, same_project.stderr
+    assert same_project.stderr.count("CALL:projects get-iam-policy") == 1
+
+    cross_project = "hushh-gemini-bridge"
+    deferred = run_case("uat", "true", "true", cross_project, deny_project_discovery=True)
     assert deferred.returncode == 0, deferred.stderr
     assert deferred.stderr.count("CALL:") == 1
     assert "CALL:iam service-accounts describe" in deferred.stderr
 
     for deploy_env, no_traffic, probe_enabled, project in (
-        ("dev", "true", "true", uat),
-        ("production", "true", "true", uat),
+        ("dev", "true", "true", cross_project),
+        ("production", "true", "true", cross_project),
         ("uat", "true", "true", "hushh-pda-uat"),
     ):
         denied = run_case(
@@ -1186,7 +1192,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
                 "deploy_env": "uat",
                 "no_traffic": "true",
                 "probe_enabled": "true",
-                "genai_project": uat,
+                "genai_project": cross_project,
                 "deny_project_discovery": False,
                 **overrides,
             }
@@ -1194,7 +1200,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         assert rejected.returncode != 0, overrides
         assert "CALL:services list" not in rejected.stderr
 
-    static = run_case("production", "true", "true", uat, deny_project_discovery=False)
+    static = run_case("production", "true", "true", cross_project, deny_project_discovery=False)
     assert static.returncode == 0, static.stderr
     assert static.stderr.count("CALL:projects get-iam-policy") == 2
 
@@ -1383,7 +1389,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict(m
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
-    project = load_profile("uat")["project"]
+    assert load_profile("uat")["project"] == "hushh-pda-uat"
+    project = "hushh-gemini-bridge"
     healthy = _healthy_vertex_verdict(project)
     if mode == "core":
         healthy.update(
@@ -1586,9 +1593,9 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
-        "dev": "hushh-gemini-bridge",
-        "uat": "hushh-gemini-bridge",
-        "production": "hushh-gemini-bridge",
+        "dev": "hushh-pda-dev",
+        "uat": "hushh-pda-uat",
+        "production": "hushh-pda",
     }
     for env in ("dev", "uat", "production"):
         assert f"scripts/ops/managed_ai_config.py --environment {env}" in _read(
@@ -1888,14 +1895,23 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
             and 'echo "status=$STATUS" >> "$GITHUB_OUTPUT"' in status[0].get("run", "")
             and "steps.release-status.outputs.status || 'unknown'" in summary[0].get("run", "")
             and "|| 'unknown'" in summary[0].get("run", "")
-            and failure[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and failure[0].get("if")
+            == (
+                "always() && (inputs.frontend_auth_domain_refresh || "
+                "env.PHONE_DEPLOY_PHASE != 'cold')"
+            )
             and 'if [ "$STATUS" = pending_activation ]; then' in failure[0].get("run", "")
             and 'if [ "$STATUS" != "healthy" ]; then' in failure[0].get("run", "")
             and 'echo "Production release did not end healthy."' in failure[0].get("run", "")
         )
 
     assert is_fail_closed(yaml.safe_load(workflow))
-    for mutation in ("inverted_classification", "healthy_default", "inverted_guard"):
+    for mutation in (
+        "inverted_classification",
+        "healthy_default",
+        "inverted_guard",
+        "missing_auth_repair",
+    ):
         changed = yaml.safe_load(workflow)
         status = next(
             step
@@ -1914,11 +1930,13 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
             )
         elif mutation == "healthy_default":
             status["run"] = status["run"].replace('STATUS="blocked"', 'STATUS="healthy"', 1)
-        else:
+        elif mutation == "inverted_guard":
             guard["run"] = guard["run"].replace(
                 'if [ "$STATUS" != "healthy" ]; then',
                 'if [ "$STATUS" = "healthy" ]; then',
             )
+        else:
+            guard["if"] = "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
         assert not is_fail_closed(changed)
     misleading = yaml.safe_load(workflow)
     summary = next(
@@ -2050,10 +2068,61 @@ def _managed_provider_gate():
     return module
 
 
-def test_core_provider_preserves_unscoped_runtime_and_refuses_unsupported_policy():
+@pytest.mark.parametrize("defect", [None, "image", "scope_binding", "failed_scope"])
+def test_scoped_core_qualifies_actual_models_without_changing_fleet(defect):
     gate = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
-    assert gate.qualification_provider(document, "uat", "core") == "azure_openai"
+    document["managed_provider_selection"]["uat"] = "azure_openai"
+    expected, vertex = _provider_fixture(gate, "vertex", document=document)
+    expected["qualification_mode"] = "core"
+    vertex["core"]["activity_planner"] = None
+    vertex.pop("capability_proof")
+    if defect == "image":
+        vertex["execution_image"] = "foreign-image"
+    elif defect == "scope_binding":
+        vertex["core"]["scopes"]["one_text_chat"]["binding_fingerprint"] = "0" * 64
+    elif defect == "failed_scope":
+        vertex["core"]["scopes"]["drive_document_requests"]["ready"] = False
+    result = gate.evaluate({"vertex": vertex}, expected, document=document)
+    assert result["ready"] is (defect is None)
+    assert result["selected_provider"] == ("azure_openai" if defect is None else None)
+    assert result["core_provider"] == "vertex"
+    assert result["providers"]["azure_openai"]["ready"] is False
+    assert result["pwm_trust"] == "unverified"
+
+
+def test_core_provider_requires_complete_scoped_policies_and_preserves_full_mode():
+    gate = _managed_provider_gate()
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    assert gate.qualification_provider(document, "uat", "core") == "vertex"
+    assert gate.qualification_provider(document, "uat", "full") == "vertex"
+    assert gate.qualification_provider(document, "dev", "core") == "vertex"
+    azure_doc = {**document, "managed_provider_selection": {"uat": "azure_openai"}}
+    assert gate.qualification_provider(azure_doc, "uat", "core") == "vertex"
+    assert gate.qualification_provider(azure_doc, "uat", "full") == "azure_openai"
+    malformed = {**document, "one_chat_text_uat": None, "drive_text_uat": None}
+    with pytest.raises(ValueError, match="complete scoped"):
+        gate.qualification_provider(malformed, "uat", "core")
+    del document["one_chat_text_uat"]
+    with pytest.raises(ValueError, match="complete scoped"):
+        gate.qualification_provider(document, "uat", "core")
+    del document["drive_text_uat"]
+    assert gate.qualification_provider(document, "uat", "core") == "vertex"
+    azure_unscoped = {**document, "managed_provider_selection": {"uat": "azure_openai"}}
+    assert gate.qualification_provider(azure_unscoped, "uat", "core") == "azure_openai"
+
+
+def test_core_provider_preserves_historical_unscoped_runtime(monkeypatch):
+    gate = _managed_provider_gate()
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    contract = gate._runtime_contract()
+    monkeypatch.delattr(contract, "load_scoped_text_policy")
+    monkeypatch.setattr(gate, "_runtime_contract", lambda: contract)
+    for key in ("one_chat_text_uat", "drive_text_uat"):
+        document.pop(key)
+    assert gate.qualification_provider(document, "uat", "core") == "vertex"
+    azure_doc = {**document, "managed_provider_selection": {"uat": "azure_openai"}}
+    assert gate.qualification_provider(azure_doc, "uat", "core") == "azure_openai"
     document["one_chat_text_uat"] = {"provider": "vertex"}
     with pytest.raises(ValueError, match="does not support declared scoped"):
         gate.qualification_provider(document, "uat", "core")
@@ -2091,24 +2160,35 @@ def test_probe_dispatch_uses_scoped_core_policy(provider, mode):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "azure_openai")
+    assert ("required-probe" in result.stdout) is (mode == "full" or provider == "vertex")
 
 
 @pytest.mark.parametrize("defect", [None, "carrier", "fleet"])
-def test_unscoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, monkeypatch, defect):
+def test_scoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, monkeypatch, defect):
     gate = _managed_provider_gate()
-    expected, azure = _provider_fixture(gate, "azure_openai")
+    expected, vertex = _provider_fixture(gate, "vertex")
     expected["qualification_mode"] = "core"
-    azure.pop("capability_proof")
-    result = gate.evaluate({"azure_openai": azure}, expected)
+    vertex["core"]["activity_planner"] = None
+    native_result = gate.evaluate({"vertex": vertex}, expected)
+    assert (
+        native_result["selected_provider"] == "vertex"
+        and native_result.get("core_provider") is None
+    )
+    azure_doc = {
+        **json.loads(_read("consent-protocol/config/managed-ai-runtime.json")),
+        "managed_provider_selection": {"uat": "azure_openai"},
+    }
+    monkeypatch.setattr(gate, "configured_provider", lambda _doc, _env="uat": "azure_openai")
+    result = gate.evaluate({"vertex": vertex}, expected, document=azure_doc)
     if defect == "carrier":
-        result["core_provider"] = "vertex"
+        result["core_provider"] = "azure_openai"
     elif defect == "fleet":
         result["selected_provider"] = "vertex"
     monkeypatch.setenv("READINESS_SERVICE", "consent-protocol")
     monkeypatch.setenv("READINESS_TAG", "account-deletion-12345")
     calls = []
     monkeypatch.setattr(gate, "run_json", lambda args: calls.append(args) or {})
+    # Exact candidate identity/traffic checks have independent boundary coverage.
     monkeypatch.setattr(
         gate, "candidate", lambda *_: ("consent-protocol-candidate", "azure_openai")
     )
@@ -2118,6 +2198,7 @@ def test_unscoped_selection_preserves_fleet_and_refuses_forged_route(tmp_path, m
         assert calls == []
     else:
         gate.select(result, expected, tmp_path)
+        assert all(args[:3] == ["run", "services", "describe"] for args in calls)
         assert result["selection"]["provider"] == "azure_openai"
 
 
@@ -2207,6 +2288,39 @@ def _provider_fixture(module, provider, *, document=None):
             for scope in module.PROVIDER_SCOPES[provider]
         },
     }
+    if "one_chat_text_uat" in document and "drive_text_uat" in document:
+        from hushh_mcp.managed_ai_config import load_scoped_text_policy, text_policy_generation
+        from scripts.readiness_exam_manifest import load_manifest, planner_cases
+
+        profile = document["environments"]["uat"]
+        core["schema"] = "managed_text_probe.v2"
+        core.pop("policy_generation")
+        for scope in core["scopes"]:
+            policy = load_scoped_text_policy(scope, environment="uat", document=document)
+            core["scopes"][scope] = {
+                "ready": True,
+                "provider": policy["provider"],
+                "model": policy["model"],
+                "location": profile["text_locations"][0],
+                "policy_generation": text_policy_generation(
+                    document["private_drive_text_uat"], policy["provider"], policy
+                ),
+                "binding_fingerprint": module.fingerprint(
+                    {
+                        "policy": policy,
+                        "project": profile["project"],
+                        "locations": profile["text_locations"],
+                    }
+                ),
+            }
+        core["activity_planner"] = {
+            "schema": "drive.activity_planner.probe.v1",
+            "provider": core["scopes"]["drive_document_requests"]["provider"],
+            "passed": True,
+            "cases": [{"case": case, "passed": True} for case, _ in planner_cases(load_manifest())],
+            "drive_calls": 0,
+            "per_item_model_calls": 0,
+        }
     job = ("azure-pwm-" if provider == "azure_openai" else "genai-ready-") + expected["build_id"]
     receipt = {
         "schema": "managed_provider_execution.v1",
@@ -2286,7 +2400,11 @@ def test_provider_release_admission_qualifies_the_configured_provider(
         expected,
         document=document,
     )
-    selected = configured if (azure if configured == "azure_openai" else vertex) else None
+    selected = (
+        (configured if vertex else None)
+        if mode == "core"
+        else (configured if (azure if configured == "azure_openai" else vertex) else None)
+    )
     assert result["ready"] is (selected is not None)
     assert result["selected_provider"] == selected
 
@@ -2367,15 +2485,31 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     module = _managed_provider_gate()
     expected, receipt = _provider_fixture(module, "vertex")
     policy = managed_text_policy()
-    receipt["core"]["policy_generation"] = policy["generation"]
+    receipt["core"]["scopes"]["one_text_chat"]["policy_generation"] = policy["generation"]
     result = module.evaluate({"vertex": receipt}, expected)
-    assert result["ready"] is False
+    assert result["ready"] is True
+    assert result["selected_provider"] == "vertex"
     assert result["providers"]["vertex"]["ready"] is True
+    azure_doc = {
+        **json.loads(_read("consent-protocol/config/managed-ai-runtime.json")),
+        "managed_provider_selection": {"uat": "azure_openai"},
+    }
+    assert module.evaluate({"vertex": receipt}, expected, document=azure_doc)["ready"] is False
 
 
 @pytest.mark.parametrize(
     "defect",
-    ["image", "context", "scope", "model", "generation", "duplicate_trust", "failed_trust"],
+    [
+        "image",
+        "context",
+        "scope",
+        "model",
+        "generation",
+        "scope_provider",
+        "planner",
+        "duplicate_trust",
+        "failed_trust",
+    ],
 )
 @pytest.mark.parametrize("mode", ["full", "core"])
 def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
@@ -2393,7 +2527,11 @@ def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect, mode):
     elif defect == "model":
         value["core"]["scopes"]["one_text_chat"]["model"] = "another-model"
     elif defect == "generation":
-        value["core"]["policy_generation"] = "old"
+        value["core"]["scopes"]["one_text_chat"]["policy_generation"] = "old"
+    elif defect == "scope_provider":
+        value["core"]["scopes"]["one_text_chat"]["provider"] = "azure_openai"
+    elif defect == "planner":
+        value["core"]["activity_planner"]["cases"].pop()
     elif defect == "duplicate_trust":
         value["pwm_proof"] = [value["pwm_proof"]] * 2
     else:
@@ -2672,6 +2810,9 @@ def test_legacy_provider_receipt_is_accepted_only_in_governed_exception():
     }
     assert not module.valid_core(legacy, "azure_openai", expected, document)
     expected["legacy_exception"] = True
+    assert not module.valid_core(legacy, "azure_openai", expected, document)
+    document.pop("drive_text_uat")
+    document.pop("one_chat_text_uat")
     assert module.valid_core(legacy, "azure_openai", expected, document)
     assert not module.valid_core(legacy, "vertex", expected, document)
 
@@ -2755,14 +2896,14 @@ def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeyp
             }
         }
         actual = module.expected_policy_generation(job)
-        assert actual == managed_text_policy()["generation"]
+        assert actual == managed_text_policy(scope="drive_document_requests")["generation"]
         generations.append(actual)
         job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"][1]["value"] = (
             "invalid"
         )
         with pytest.raises(ValueError, match="bindings disagree"):
             module.expected_policy_generation(job)
-    assert generations[0] != generations[1]
+    assert generations[0] == generations[1]
 
 
 def test_vertex_drive_evidence_cannot_qualify_one_chat():
@@ -2770,9 +2911,40 @@ def test_vertex_drive_evidence_cannot_qualify_one_chat():
     expected, vertex = _provider_fixture(module, "vertex")
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     assert module.valid_core(vertex["core"], "vertex", expected, document)
-    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
+    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] == "vertex"
+    azure_doc = {**document, "managed_provider_selection": {"uat": "azure_openai"}}
+    assert (
+        module.evaluate({"vertex": vertex}, expected, document=azure_doc)["selected_provider"]
+        is None
+    )
     vertex["core"]["scopes"].pop("one_text_chat")
     assert not module.valid_core(vertex["core"], "vertex", expected, document)
+    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
+
+
+def test_scoped_core_skips_only_explicitly_unrun_planner_diagnostics():
+    module = _managed_provider_gate()
+    expected, vertex = _provider_fixture(module, "vertex")
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    core = vertex["core"]
+    expected["qualification_mode"] = "core"
+    # Historical core images that ran the full planner remain compatible.
+    assert module.valid_core(core, "vertex", expected, document)
+    core["activity_planner"]["passed"] = False
+    assert not module.valid_core(core, "vertex", expected, document)
+    core["activity_planner"] = None
+    assert module.valid_core(core, "vertex", expected, document)
+    expected["qualification_mode"] = "full"
+    assert not module.valid_core(core, "vertex", expected, document)
+    expected["qualification_mode"] = "core"
+    row = core["scopes"]["one_text_chat"]
+    for field in ("provider", "model", "location", "policy_generation", "binding_fingerprint"):
+        original = row[field]
+        row[field] = "wrong-binding"
+        assert not module.valid_core(core, "vertex", expected, document)
+        row[field] = original
+    del core["activity_planner"]
+    assert not module.valid_core(core, "vertex", expected, document)
 
 
 def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monkeypatch):
@@ -2783,3 +2955,46 @@ def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monke
     with pytest.raises(ValueError, match="qualified configured"):
         module.select({"ready": True, "selected_provider": "vertex"}, expected, tmp_path)
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "failure", ["provider_unavailable", "candidate_misconfigured", "application_broken", None]
+)
+@pytest.mark.parametrize(
+    "defect",
+    [None, "both_down", "image", "context", "runtime", "job", "execution", "unverified", "trust"],
+)
+def test_complete_vertex_bundle_qualifies_only_a_bound_azure_outage(failure, defect):
+    module = _managed_provider_gate()
+    expected, azure = _provider_fixture(module, "azure_openai")
+    _, vertex = _provider_fixture(module, "vertex")
+    azure.update(core_ready=False, execution_terminal="False", step_exit=1, pwm_trust="unverified")
+    if failure is not None:
+        azure["failure_classification"] = failure
+    if defect == "both_down":
+        vertex["core_ready"] = False
+    elif defect == "image":
+        azure["execution_image"] += "other"
+    elif defect == "context":
+        azure["context"] = {**expected, "github_run": "other"}
+    elif defect == "runtime":
+        azure["runtime_account"] = "other"
+    elif defect == "job":
+        azure["job"] = "other"
+    elif defect == "execution":
+        azure["execution"] = "other"
+    elif defect == "unverified":
+        azure["verified"] = False
+    elif defect == "trust":
+        azure["pwm_trust"] = "failed"
+    azure_doc = {
+        **json.loads(_read("consent-protocol/config/managed-ai-runtime.json")),
+        "managed_provider_selection": {"uat": "azure_openai"},
+    }
+    result = module.evaluate(
+        {"azure_openai": azure, "vertex": vertex}, expected, document=azure_doc
+    )
+    allowed = failure == "provider_unavailable" and defect is None
+    assert result["ready"] is allowed
+    assert result["selected_provider"] == ("vertex" if allowed else None)
+    assert result["status"] == ("degraded_fallback" if allowed else "blocked")

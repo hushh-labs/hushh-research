@@ -30,7 +30,11 @@ import type { FeedItem } from "@/lib/services/feed-service";
 const SWIPE_LIMIT_PX = 132;
 const SWIPE_COMMIT_PX = 84;
 const SWIPE_AXIS_LOCK_PX = 10;
+const WHEEL_IDLE_MS = 140;
 const HOLD_TO_CONFIRM_MS = 600;
+// Momentum can continue after a removed row leaves the list. The next row must
+// not inherit the tail of the same trackpad gesture.
+let wheelCommitCooldownUntil = 0;
 
 type Gesture = {
   pointerId: number;
@@ -132,6 +136,7 @@ export const FeedRow = memo(function FeedRow({
   const canRemove = Boolean(onRemove);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mutating, setMutating] = useState(false);
+  const rowRef = useRef<HTMLDivElement | null>(null);
   const surfaceRef = useRef<HTMLButtonElement | null>(null);
   const paintedSurfaceRef = useRef<HTMLDivElement | null>(null);
   const keepRevealRef = useRef<HTMLDivElement | null>(null);
@@ -140,6 +145,7 @@ export const FeedRow = memo(function FeedRow({
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClickRef = useRef(false);
   const removingRef = useRef(false);
+  const cancelWheelRef = useRef<() => void>(() => undefined);
   const hintId = useId();
   const descriptionId = useId();
   const busy = removing || mutating;
@@ -191,9 +197,54 @@ export const FeedRow = memo(function FeedRow({
     }
   };
 
+  const wheelActionsRef = useRef({ paint: paintSwipe, remove: runRemove, keep: () => onKeep?.(item) });
+  wheelActionsRef.current = { paint: paintSwipe, remove: runRemove, keep: () => onKeep?.(item) };
+
+  useEffect(() => {
+    const node = rowRef.current;
+    if (!node || !canRemove || busy) return;
+    let offset = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cancel = () => {
+      clearTimeout(timer);
+      timer = undefined;
+      offset = 0;
+      if (paintedSurfaceRef.current) paintedSurfaceRef.current.style.transition = "";
+      wheelActionsRef.current.paint(0);
+    };
+    cancelWheelRef.current = cancel;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || gestureRef.current || !event.deltaX || Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.15) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (Date.now() < wheelCommitCooldownUntil) return;
+      const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientWidth : 1;
+      offset = Math.max(-SWIPE_LIMIT_PX, Math.min(SWIPE_LIMIT_PX, offset - event.deltaX * units));
+      if (paintedSurfaceRef.current) paintedSurfaceRef.current.style.transition = "none";
+      wheelActionsRef.current.paint(offset);
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const settled = offset;
+        cancel();
+        // Another row may have committed while this trackpad gesture settled.
+        if (Math.abs(settled) < SWIPE_COMMIT_PX || Date.now() < wheelCommitCooldownUntil) return;
+        wheelCommitCooldownUntil = Date.now() + 450;
+        if (settled * removeSign > 0) void wheelActionsRef.current.remove();
+        else wheelActionsRef.current.keep();
+      }, WHEEL_IDLE_MS);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      node.removeEventListener("wheel", onWheel);
+      cancel();
+      cancelWheelRef.current = () => undefined;
+    };
+  }, [busy, canRemove, removeSign]);
+
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!canRemove || busy || event.isPrimary === false) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    cancelWheelRef.current();
     // A new press is distinct from any cancelled gesture's possible click.
     suppressClickRef.current = false;
     // The native iOS edge gesture owns the first 28px of the viewport.
@@ -272,6 +323,7 @@ export const FeedRow = memo(function FeedRow({
 
   return (
     <div
+      ref={rowRef}
       data-testid="feed-row"
       data-no-route-swipe
       data-swipe-direction={removeDirection}

@@ -11,6 +11,7 @@ GET /api/connectors/google_drive/sharing/calendar-requests/{request_id}
 GET /api/connectors/google_drive/sharing/calendar-requests/{request_id}/linked-files
 POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/files
 POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/review
+POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/unavailable
 GET /api/connectors/google_drive/sharing/requests/{request_id}/one-copy/files/{file_ref}/content
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-selection
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/approve
@@ -246,6 +247,7 @@ POST /api/one/feed/read
 POST /api/one/feed/sos-cards/clear
 GET /api/one/feed/unread-count
 POST /api/one/information-requests
+POST /api/one/information-requests/price-preview
 GET /api/one/information-requests/shared-with-me
 GET /api/one/information-requests/{bundle_id}
 POST /api/one/information-requests/{bundle_id}/cancel

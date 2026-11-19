@@ -114,7 +114,7 @@ describe("ApiService.apiFetch", () => {
 
     expect(await request).toBeUndefined();
   });
-  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+  it("sends explicit phone finalization in the authenticated body and omits it for ordinary refresh", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ success: true }));
     await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
     const [url, init] = mockFetch.mock.calls.at(-1)!;
@@ -123,6 +123,17 @@ describe("ApiService.apiFetch", () => {
     expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
     await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
     expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
+  it("reads committed identity through GET even when refresh and phone-finalization options are supplied", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true, identity: null }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", {
+      readOnly: true, force: true, requireSuccess: true, verifiedPhoneNumber: "+12025550101",
+    });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).toMatch(/\/api\/account\/identity$/);
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
   });
   it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
     let active = true;
@@ -323,6 +334,25 @@ describe("ApiService.apiFetch", () => {
   it.each([undefined, "unknown", "drive"])("refuses unverifiable Google callback service %s", async (service) => {
     publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
     mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service }));
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    })).rejects.toThrow("could not be verified");
+  });
+
+  it.each(["granted", "declined", "unavailable", "not_requested", undefined])("accepts Google callback Mail outcome %s", async (mail_access) => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar", mail_access }));
+    const result = await GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    });
+    expect(result.mail_access).toBe(mail_access);
+  });
+
+  it.each(["all", "", true, null])("refuses an unrecognised Google callback Mail outcome %j", async (mail_access) => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar", mail_access }));
     await expect(GoogleConnectionService.completeConnect({
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,

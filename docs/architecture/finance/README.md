@@ -35,6 +35,10 @@ flowchart TD
 ```
 
 Kai-specific architecture, runtime, rollout, and audit references live here.
+Finance access controls and replacement semantics are documented in
+[Finance sharing and access updates](./finance-sharing.md).
+[Finance advisor introductions](./advisor-handshake.md) documents the combined
+request, connection, Calendar and test-subscription boundary.
 One-owned product-surface contracts live in [../one/README.md](../one/README.md).
 
 Kai is the finance specialist under One, connecting approved financial inputs to analysis and product actions.

@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). This page is the migration-plan
+Canonical visual owner: [Operations Index](../README.md). This page is the migration-plan
 record required by [Hussh Rebrand Classification](../hussh-rebrand-classification.md)'s
 `copy-sensitive runtime string` bucket ("bundle IDs and app IDs: preserve unless there is
 a dedicated alias or migration plan"), written retroactively after the rename landed

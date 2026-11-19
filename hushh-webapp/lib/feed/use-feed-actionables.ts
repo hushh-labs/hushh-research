@@ -9,6 +9,7 @@ import {
   documentRequestEntrySetup,
   documentRequestSetupHref,
   documentRequestSetupLabel,
+  documentRequestTaskTitle,
   GOOGLE_DRIVE_CONNECTOR_ID,
   isDocumentRequestSetupStep,
   type DocumentRequestSetupStep,
@@ -1536,9 +1537,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     const items: FeedActionable[] = [];
 
     if (agentUpdateCard) items.push({ ...agentUpdateCard, sortAt: firstSeenAt(agentUpdateCard.id) });
-    // One current setup action per request. SSE refreshes this same projection
-    // after bank setup or price save; no independent account-state cache can
-    // keep an obsolete CTA alive.
+    // One current prerequisite per request, refreshed by SSE. Stable keys keep
+    // completed or dismissed tasks settled when their presentation changes.
     const setupEntryIds = new Set<string>();
     const setupCandidates = new Map(
       [...(receivedOverflowItems ?? []), ...(consentItems ?? [])].map(
@@ -1555,8 +1555,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         id: `consent:${entry.id}`,
         ...(isDocumentRequestSetupStep(setup) ? { todo: {
           key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,
-          title: documentRequestSetupLabel(setup, true),
-          href: documentRequestSetupHref(setup, "/one/todos"),
+          title: documentRequestTaskTitle(setup, entry.counterpart_label),
+          href: documentRequestSetupHref(setup, "/one/tasks"),
         } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
@@ -1652,7 +1652,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         id: `drive-payment:${payment.requestId}`,
         ...(!paymentIsNonActionable ? { todo: {
           source: "drive" as const, title: displayPayment.title,
-          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/todos" }),
+          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/tasks" }),
         } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
@@ -1864,7 +1864,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
             key: `consent:${entry.id}:review`,
             source: isDriveSharingEntry(entry) ? "drive" : "consent",
             title: `Review request from ${requesterLabel}`,
-            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/todos" }),
+            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/tasks" }),
           },
           icon: ConsentAgentIcon,
           iconTone: "capability",

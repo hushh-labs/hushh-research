@@ -169,15 +169,24 @@ async def test_phone_claim_retains_current_binding_until_commit(request, monkeyp
         max_size=2,
     )
     monkeypatch.setattr(actor_identity_service, "get_pool", AsyncMock(return_value=pool))
-    record = SimpleNamespace(
-        display_name="Example Owner", email_verified=False, phone_number="+15555550999"
-    )
+    record = SimpleNamespace(email_verified=False, phone_number="+15555550999")
     try:
         await pool.execute("""CREATE TABLE actor_identity_cache (
             user_id text PRIMARY KEY, display_name text, email text, phone_number text,
             photo_url text, custom_photo_url text, email_verified bool, phone_verified bool,
             source text, last_synced_at timestamptz, created_at timestamptz, updated_at timestamptz);
-            INSERT INTO actor_identity_cache(user_id) VALUES ('recipient'), ('new-owner');""")
+            INSERT INTO actor_identity_cache(user_id) VALUES ('recipient');""")
+
+        async def replace_current_phone(writer):
+            async with writer.transaction():
+                await writer.execute("SET LOCAL lock_timeout='100ms'")
+                assert await actor_identity_service.ActorIdentityService._lock_and_clear_verified_phone_binding(
+                    writer, user_id="recipient", phone_number="+15555550456"
+                )
+                await writer.execute(
+                    "UPDATE actor_identity_cache SET phone_number='+15555550456' WHERE user_id='recipient'"
+                )
+
         for retain_authority in (True, False):
             await pool.execute("""UPDATE actor_identity_cache
                 SET phone_number='+15555550123', phone_verified=true WHERE user_id='recipient'""")
@@ -187,26 +196,16 @@ async def test_phone_claim_retains_current_binding_until_commit(request, monkeyp
                 )
                 assert identity["phone_number"] == "+15555550123"
                 async with pool.acquire() as writer:
-
-                    async def transfer():
-                        async with writer.transaction():
-                            await writer.execute("SET LOCAL lock_timeout='100ms'")
-                            await actor_identity_service.ActorIdentityService._lock_and_clear_verified_phone_binding(
-                                writer, user_id="new-owner", phone_number="+15555550123"
-                            )
-
                     if retain_authority:
                         with pytest.raises(asyncpg.LockNotAvailableError):
-                            await transfer()
+                            await replace_current_phone(writer)
                     else:
                         # Negative control: an ordinary read cannot protect a claim.
-                        await transfer()
-            async with pool.acquire() as writer, writer.transaction():
-                await actor_identity_service.ActorIdentityService._lock_and_clear_verified_phone_binding(
-                    writer, user_id="new-owner", phone_number="+15555550123"
-                )
+                        await replace_current_phone(writer)
+            async with pool.acquire() as writer:
+                await replace_current_phone(writer)
             identity = await resolve_profile_research_identity("recipient", record)
-            assert identity["phone_number"] is None
+            assert identity["phone_number"] == "+15555550456"
     finally:
         await pool.close()
 

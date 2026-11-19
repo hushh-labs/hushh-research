@@ -28,8 +28,10 @@ from api.routes.scope_commerce_contracts import (
 )
 from api.routes.scope_commerce_exports import router as owner_export_router
 from api.routes.scope_commerce_reads import router as read_router
-from db.connection import get_pool
 from hushh_mcp.services.scope_commerce_requests import (
+    fetch_quote_request_id,
+    fetch_seller_account_and_withdrawals,
+    get_pool,
     resolve_commerce_request,
     validate_tariff_scope,
 )
@@ -97,19 +99,10 @@ async def account(response: Response, user_id: Payer):
         earnings = _snake(await service.earnings(owner_user_id=user_id))
         # Reading obligations must work during rollback or a provider outage.
         # The onboarding/withdrawal paths refresh provider eligibility again.
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT account_id,country,eligible FROM scope_commerce_seller_accounts WHERE user_id=$1",
-                user_id,
-            )
-            withdrawals = await conn.fetch(
-                """SELECT withdrawal_id,status,net_cents,fee_micro_usd,settled_micro_usd,created_at
-                   FROM scope_commerce_withdrawals WHERE user_id=$1
-                   ORDER BY created_at DESC LIMIT 20""",
-                user_id,
-            )
-        seller = dict(row) if row else {}
+        seller, withdrawals = await fetch_seller_account_and_withdrawals(
+            user_id,
+            pool_getter=get_pool,
+        )
         return {
             "enabled": _enabled(),
             "readiness": await service.readiness(viewer_user_id=user_id),
@@ -241,16 +234,14 @@ async def purchase(body: PurchaseBody, response: Response, user_id: Payer):
     if body.confirmed is not True:
         raise HTTPException(422, detail={"code": "human_confirmation_required"}, headers=NO_STORE)
     try:
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT request_id FROM scope_commerce_quotes WHERE quote_id=$1 AND payer_user_id=$2",
-                body.quote_id,
-                user_id,
-            )
-        if not row:
+        request_id = await fetch_quote_request_id(
+            body.quote_id,
+            user_id,
+            pool_getter=get_pool,
+        )
+        if not request_id:
             raise HTTPException(404, detail={"code": "quote_unavailable"}, headers=NO_STORE)
-        await resolve_commerce_request(str(row["request_id"]), user_id, require_payer=True)
+        await resolve_commerce_request(request_id, user_id, require_payer=True)
         return _purchase(
             await _service().reserve_purchase(
                 payer_user_id=user_id,

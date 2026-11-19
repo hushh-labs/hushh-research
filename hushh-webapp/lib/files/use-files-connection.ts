@@ -90,3 +90,58 @@ export function useFilesConnection(
   }, [userId, vaultKey, vaultOwnerToken]);
   return { hosting, connectionError };
 }
+
+/**
+ * Bind an unlocked Files session on demand for one bounded operation (such as
+ * onboarding archive upload + Personal Wiki import outside `FilesWorkspace`)
+ * and release it cleanly in `finally`.
+ */
+export async function withUnlockedFilesConnection<T>(
+  params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    signal: AbortSignal;
+  },
+  run: (hosting: "shared" | "pod") => Promise<T>,
+): Promise<T> {
+  const identity = snapshotValidatedAuthSessionOwner();
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const check = () => {
+    params.signal.throwIfAborted();
+    if (
+      !isVaultSessionEpochCurrent(vaultEpoch) ||
+      !identity ||
+      identity.userId !== params.userId ||
+      !isValidatedAuthSessionOwnerCurrent(identity)
+    ) {
+      throw new DOMException("Files access changed", "AbortError");
+    }
+  };
+  check();
+  const status = await ApiService.getPersonalAgentStatus({
+    signal: params.signal,
+  });
+  check();
+  if (
+    status.hostingMode !== "shared" &&
+    status.hostingMode !== "byoc" &&
+    status.hostingMode !== "hussh_pods"
+  ) {
+    throw new Error("FILES_HOSTING_REQUIRED");
+  }
+  const release = bindFilesConnection(
+    {
+      owner: params.userId,
+      vaultKey: params.vaultKey,
+      ownerToken: params.vaultOwnerToken,
+      check,
+    },
+    status.hostingMode === "shared",
+  );
+  try {
+    return await run(status.hostingMode === "shared" ? "shared" : "pod");
+  } finally {
+    release();
+  }
+}

@@ -8,6 +8,7 @@ import importlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Literal, NotRequired, TypedDict
 from zipfile import ZipFile
@@ -56,6 +57,7 @@ class ContinuationContext(TypedDict):
     backend: Document
     cold_rollback: Document
     frontend: NotRequired[Document]
+    publication_reconciliation: NotRequired[Document]
 
 
 @dataclass(frozen=True)
@@ -261,6 +263,86 @@ def validate_activated(
         ) from error
 
 
+def publication_ref(tag: Document) -> str:
+    healthy, operational = proof.reference.split(tag["message"], tag["commit"])
+    fields = proof.reference.healthy_fields(healthy, tag["commit"])
+    stamp = fields["tagged_at"]
+    _require(
+        operational is None and re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", stamp),
+        "activation publication annotation is invalid",
+    )
+    ref = f"refs/tags/deployed/production/{tag['commit'][:8]}-{stamp}"
+    _require(
+        tag["tag_object"].splitlines().count("tag " + ref.removeprefix("refs/tags/"))
+        == 1,
+        "activation publication tag name differs from annotation",
+    )
+    return ref
+
+
+def publication_tag(sha: str, revision: str, *, run_id=None, job=None) -> Document:
+    """Bound immutable publication discovery; never use the moving latest tag."""
+    _require(
+        re.fullmatch(r"[0-9a-f]{40}", sha), "activation publication source is invalid"
+    )
+    prefix = f"refs/tags/deployed/production/{sha[:8]}-"
+    raw = proof.reference.git(["ls-remote", "--refs", "origin", prefix + "*"])
+    rows = raw.splitlines()
+    _require(
+        len(raw.encode()) <= 65536 and len(rows) <= 100,
+        "activation publication inventory exceeds its bound",
+    )
+    window = None
+    if job is not None:
+        steps = [x for x in job["steps"] if x.get("name") == pending.HEALTHY_TAG]
+        _require(len(steps) == 1, "activation publication step is ambiguous")
+        window = tuple(
+            datetime.fromisoformat(str(steps[0].get(k)).replace("Z", "+00:00"))
+            for k in ("started_at", "completed_at")
+        )
+        _require(
+            all(at.tzinfo is not None for at in window) and window[0] <= window[1],
+            "activation publication time window is invalid",
+        )
+    matches = []
+    for row in rows:
+        parts = row.split("\t")
+        _require(
+            len(parts) == 2 and re.fullmatch(r"[0-9a-f]{40}", parts[0]),
+            "activation publication reference is invalid",
+        )
+        oid, ref = parts
+        stamp = ref.removeprefix(prefix)
+        _require(
+            ref.startswith(prefix) and re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", stamp),
+            "activation publication reference name is invalid",
+        )
+        at = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        if window and not (
+            window[0].timestamp() <= at.timestamp() + 1 and at <= window[1]
+        ):
+            continue
+        tag = proof.read_tag(ref)
+        _require(
+            tag["tag_oid"] == oid and publication_ref(tag) == ref,
+            "activation publication changed during discovery",
+        )
+        fields = proof.reference.healthy_fields(tag["message"], tag["commit"])
+        if tag["commit"] != sha or fields["backend_revision"] != revision:
+            continue
+        if (
+            run_id is not None
+            and fields["run"]
+            != f"https://github.com/{proof.REPOSITORY}/actions/runs/{run_id}"
+        ):
+            continue
+        matches.append(tag)
+    _require(
+        len(matches) == 1, "activation immutable publication is missing or ambiguous"
+    )
+    return matches[0]
+
+
 def required_steps(scope: str) -> set[str]:
     return (pending.required_steps(scope) - MUTATION_STEPS) | {
         "Require exact-SHA UAT acceptance",
@@ -269,7 +351,7 @@ def required_steps(scope: str) -> set[str]:
     }
 
 
-def _gates(job: Document, release: Document) -> None:
+def _gates(job: Document, release: Document, *, publication_failed=False) -> None:
     steps = job.get("steps")
     _require(
         isinstance(steps, list) and all(isinstance(step, dict) for step in steps),
@@ -277,11 +359,25 @@ def _gates(job: Document, release: Document) -> None:
     )
     indexed = {step.get("name"): step for step in steps}
     _require(
-        job.get("conclusion") == "success"
+        job.get("conclusion") == ("failure" if publication_failed else "success")
         and len(indexed) == len(steps)
+        and (
+            not publication_failed
+            or [
+                step.get("name")
+                for step in steps
+                if step.get("conclusion") == "failure"
+            ]
+            == [pending.HEALTHY_TAG]
+        )
         and all(
             indexed.get(name, {}).get("status") == "completed"
-            and indexed[name].get("conclusion") == "success"
+            and indexed[name].get("conclusion")
+            == (
+                "failure"
+                if publication_failed and name == pending.HEALTHY_TAG
+                else "success"
+            )
             for name in required_steps(release["scope"])
         )
         and all(
@@ -367,9 +463,10 @@ def _archive_context(
     job: Document,
     archive: bytes,
 ) -> ContinuationContext:
+    publication_failed = run.get("conclusion") == "failure"
     _require(
         run.get("status") == "completed"
-        and run.get("conclusion") == "success"
+        and run.get("conclusion") in {"success", "failure"}
         and ports.governed(run, ports.repository, "production")
         and (run.get("actor") or {}).get("login") != "github-actions[bot]"
         and release.get("status") == "healthy"
@@ -377,7 +474,7 @@ def _archive_context(
         and lane == _lane(),
         "activation continuation current origin is unqualified",
     )
-    _gates(job, release)
+    _gates(job, release, publication_failed=publication_failed)
     _require(
         phone._document(archive, "prod-release-status.json") == release,
         "activation continuation status and immutable archive differ",
@@ -415,6 +512,66 @@ def _archive_context(
     }
     if origin["scope"] == "all":
         context["frontend"] = copy.deepcopy(origin["frontend"])
+    if publication_failed:
+        inventory = ports.api(
+            ports.repository,
+            f"runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100",
+        )
+        jobs = inventory.get("jobs")
+        _require(
+            isinstance(jobs, list)
+            and 1 <= len(jobs) <= 100
+            and inventory.get("total_count") == len(jobs)
+            and all(isinstance(item, dict) for item in jobs),
+            "activation publication job inventory is incomplete",
+        )
+        _require(
+            sum(item == job for item in jobs) == 1
+            and all(
+                item.get("status") == "completed"
+                and item.get("conclusion") in {"success", "skipped"}
+                for item in jobs
+                if item != job
+            ),
+            "activation publication includes another job failure",
+        )
+        for name in (
+            "Validate Production dispatch mode",
+            "Deployment security / Verify repository secret clearance",
+        ):
+            matches = [item for item in jobs if item.get("name") == name]
+            _require(
+                len(matches) == 1 and matches[0].get("conclusion") == "success",
+                "activation publication mandatory preflight did not succeed",
+            )
+        tag = publication_tag(
+            release["sha"],
+            release["final"]["backend_revision"],
+            run_id=run["id"],
+            job=job,
+        )
+        fields = proof.reference.healthy_fields(tag["message"], tag["commit"])
+        _require(
+            fields["frontend_revision"] == release["final"]["frontend_revision"],
+            "activation publication frontend differs from its receipt",
+        )
+        fresh = ports.api(
+            ports.repository, f"runs/{run['id']}?exclude_pull_requests=true"
+        )
+        _require(
+            all(
+                fresh.get(k) == run.get(k)
+                for k in ("id", "run_attempt", "head_sha", "status", "conclusion")
+            ),
+            "activation publication attempt changed",
+        )
+        context["publication_reconciliation"] = {
+            "run_id": run["id"],
+            "attempt": run["run_attempt"],
+            "ref": publication_ref(tag),
+            "tag_oid": tag["tag_oid"],
+            "classification": "activated_with_verified_publication",
+        }
     return context
 
 
@@ -439,7 +596,9 @@ def archive_context(
             "activation continuation status and immutable archive differ",
         )
         with ZipFile(BytesIO(archive)) as bundle:
-            if ORIGIN not in bundle.namelist():
+            if not receipts._member_names(
+                ORIGIN, allow_legacy_production=True
+            ).intersection(bundle.namelist()):
                 return None
         return _archive_context(
             copy.deepcopy(run),

@@ -1,6 +1,6 @@
 # Finance market provider migration
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Context
 

@@ -22,6 +22,20 @@ class HostedPodJournal:
     ) -> bool:
         if purpose not in {None, "bootstrap", "provision"}:
             raise ValueError("Unsupported managed execution purpose")
+        from hushh_mcp.services.hosted_dev_pilot_extension import (
+            extension_current,
+            is_extension_admission,
+        )
+
+        if is_extension_admission(admission):
+            return await extension_current(
+                self._database,
+                owner_id=owner_id,
+                attempt_id=attempt_id,
+                admission=admission,
+                project_observation=project_observation,
+                purpose=purpose,
+            )
         query = (
             "SELECT public.hosted_pod_pilot_admission_current(:owner,:attempt,"
             "CAST(:admission AS jsonb),CAST(:project_observation AS jsonb)) AS current"
@@ -52,6 +66,16 @@ class HostedPodJournal:
     ) -> bool:
         if kind not in {"bootstrap", "preparation"}:
             raise ValueError("Unsupported managed checkpoint kind")
+        from hushh_mcp.services.hosted_dev_pilot_extension import extension_publish
+
+        if await extension_publish(
+            self._database,
+            kind=kind,
+            owner_id=owner_id,
+            attempt_id=attempt_id,
+            checkpoint=checkpoint,
+        ):
+            return True
         result = await asyncio.to_thread(
             self._database.execute_raw,
             "SELECT public.publish_hosted_pod_step_checkpoint(:owner,:attempt,"
@@ -66,6 +90,12 @@ class HostedPodJournal:
         return bool(result.data and result.data[0].get("admitted") is True)
 
     async def retain_project(self, *, owner_id: str, attempt_id: str, observation: dict) -> bool:
+        from hushh_mcp.services.hosted_dev_pilot_extension import extension_retain_project
+
+        if await extension_retain_project(
+            self._database, owner_id=owner_id, attempt_id=attempt_id, observation=observation
+        ):
+            return True
         result = await asyncio.to_thread(
             self._database.execute_raw,
             "SELECT public.retain_hosted_pod_project_observation(:owner,:attempt,"
@@ -92,6 +122,12 @@ class HostedPodJournal:
         return bool(result.data and result.data[0].get("admitted") is True)
 
     async def retain_authorization(self, *, owner_id: str, attempt_id: str) -> bool:
+        from hushh_mcp.services.hosted_dev_pilot_extension import extension_retain_authorization
+
+        if await extension_retain_authorization(
+            self._database, owner_id=owner_id, attempt_id=attempt_id
+        ):
+            return True
         result = await asyncio.to_thread(
             self._database.execute_raw,
             "SELECT public.retain_hosted_pod_project_authorization(:owner,:attempt) AS admitted",
@@ -108,6 +144,15 @@ class HostedPodJournal:
         work: bool = True,
         join_on_cancel: bool = False,
     ) -> bool:
+        from hushh_mcp.services.hosted_dev_pilot_extension import (
+            extension_upgrade_current,
+            is_extension_row,
+        )
+
+        if is_extension_row(observed):
+            return await extension_upgrade_current(
+                self._database, owner_id=owner_id, lease=lease, observed=observed, work=work
+            )
         from hushh_mcp.services.pod_files.managed_worker import database_thread
 
         result = await database_thread(
@@ -124,6 +169,15 @@ class HostedPodJournal:
         return bool(result.data and result.data[0].get("current") is True)
 
     async def cleanup_current(self, *, owner_id: str, reservation: dict) -> bool:
+        from hushh_mcp.services.hosted_dev_pilot_extension import (
+            extension_cleanup_current,
+            is_extension_row,
+        )
+
+        if isinstance(reservation, dict) and is_extension_row(reservation.get("registrySnapshot")):
+            return await extension_cleanup_current(
+                self._database, owner_id=owner_id, reservation=reservation
+            )
         result = await asyncio.to_thread(
             self._database.execute_raw,
             "SELECT public.hosted_pod_cleanup_admitted(:owner,:attempt,CAST(:expected AS jsonb)) AS current",
@@ -136,6 +190,15 @@ class HostedPodJournal:
         return bool(result.data and result.data[0].get("current") is True)
 
     async def retained_current(self, *, owner_id: str, observed: dict) -> bool:
+        from hushh_mcp.services.hosted_dev_pilot_extension import (
+            extension_retained_current,
+            is_extension_row,
+        )
+
+        if is_extension_row(observed):
+            return await extension_retained_current(
+                self._database, owner_id=owner_id, observed=observed
+            )
         result = await asyncio.to_thread(
             self._database.execute_raw,
             "SELECT public.hosted_pod_retained_admitted(:owner,CAST(:observed AS jsonb)) AS current",

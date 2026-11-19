@@ -1,0 +1,147 @@
+"use client";
+
+import { useCallback, useRef, useState, type FormEvent } from "react";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import {
+  detailedPersonaQuestions,
+  type DetailedPersonaAnswer,
+  type DetailedPersonaAnswers,
+} from "@/lib/kai/detailed-persona";
+import type { PersonaPreferences } from "@/lib/kai/investing-persona";
+import { FinancePersonaReveal } from "./finance-persona-form";
+import styles from "./finance-persona.module.css";
+
+export function DetailedPersonaForm({
+  initial,
+  onSave,
+  onDone,
+  onSavingChange,
+}: {
+  initial: PersonaPreferences;
+  onSave: (answers: DetailedPersonaAnswers) => Promise<void>;
+  onDone: () => void;
+  onSavingChange: (saving: boolean) => void;
+}) {
+  const [answers, setAnswers] = useState<(DetailedPersonaAnswer | undefined)[]>(
+    () =>
+      initial.detailed_assessment_v1 ??
+      detailedPersonaQuestions.map(() => undefined),
+  );
+  const [step, setStep] = useState(0);
+  const [saved, setSaved] = useState<DetailedPersonaAnswers | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const saving = useRef(false);
+  const total = detailedPersonaQuestions.length;
+  const question = detailedPersonaQuestions[step]!;
+  const final = step === total - 1;
+  const focusQuestion = useCallback(
+    (node: HTMLLegendElement | null) => {
+      if (step > 0) node?.focus();
+    },
+    [step],
+  );
+
+  const proceed = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving.current || answers[step] === undefined) return;
+    if (!final) {
+      setStep(step + 1);
+      return;
+    }
+    const completed = answers.map((value) => value ?? null);
+    saving.current = true;
+    setBusy(true);
+    onSavingChange(true);
+    setError(false);
+    try {
+      await onSave(completed);
+      setSaved(completed);
+    } catch {
+      setError(true);
+    } finally {
+      saving.current = false;
+      setBusy(false);
+      onSavingChange(false);
+    }
+  };
+  if (saved)
+    return (
+      <FinancePersonaReveal
+        preferences={{ ...initial, detailed_assessment_v1: saved }}
+        actionLabel="Back to analysis"
+        onDone={onDone}
+      />
+    );
+
+  return (
+    <form
+      className={styles.form}
+      onSubmit={(event) => void proceed(event)}
+      aria-busy={busy}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="ui-text-helper-text">
+          Question {step + 1} of {total}
+        </p>
+        <progress
+          value={step + 1}
+          max={total}
+          aria-label="Assessment progress"
+        />
+      </div>
+      <div className={styles.detailedQuestion}>
+        <fieldset key={step} disabled={busy}>
+          <legend tabIndex={-1} ref={focusQuestion}>
+            {question.prompt}
+          </legend>
+          {[...question.choices, "I’m not sure yet"].map((label, index) => {
+            const value = ([0, 1, 2, null] as const)[index]!;
+            return (
+              <label key={label}>
+                <input
+                  type="radio"
+                  name="answer"
+                  checked={answers[step] === value}
+                  onChange={() =>
+                    setAnswers((previous) =>
+                      previous.map((current, item) =>
+                        item === step ? value : current,
+                      ),
+                    )
+                  }
+                />
+                <span>{label}</span>
+              </label>
+            );
+          })}
+        </fieldset>
+      </div>
+      {error ? (
+        <p role="alert" className={styles.error}>
+          Couldn’t save your assessment. Try again.
+        </p>
+      ) : null}
+      <footer className={styles.actions}>
+        {step > 0 ? (
+          <ShellActionSurface
+            variant="pill"
+            disabled={busy}
+            onClick={() => setStep(step - 1)}
+          >
+            Back
+          </ShellActionSurface>
+        ) : null}
+        <ShellActionSurface
+          type="submit"
+          variant="pill"
+          className={styles.primary}
+          rippleEffect="fill"
+          disabled={busy || answers[step] === undefined}
+        >
+          {busy ? "Saving…" : final ? "Save assessment" : "Continue"}
+        </ShellActionSurface>
+      </footer>
+    </form>
+  );
+}

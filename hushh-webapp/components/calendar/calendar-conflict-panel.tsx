@@ -71,6 +71,7 @@ export function CalendarConflictPanel({ board, keep, getIdToken, initialDraft, o
     const decline = choices.filter(choice => selected.includes(key(choice.ref))).map(choice => ({
       ...choice.ref,
       message: calendarDeclineMessage(choice.event, board.time_zone, notes[key(choice.ref)]?.trim() || ""),
+      reason: notes[key(choice.ref)]?.trim() || "",
     }));
     const next = await GoogleCalendarService.reviewWorkspaceConflict({
       firebaseIdToken, date: board.date, timeZone: board.time_zone,
@@ -169,11 +170,11 @@ export function CalendarConflictPanel({ board, keep, getIdToken, initialDraft, o
     </> : <>
       <h3>Choose which meeting to keep</h3>
       <div className={styles.keptCard}><CheckCircle aria-hidden className="size-4" /><div><strong>{keptEvent?.title || "Meeting"}</strong><p>{keptAccount?.google_email} · {keptEvent ? eventTime(keptEvent, board.time_zone) : "Time unavailable"}</p></div></div>
-      <p>Keep this meeting or choose another below. Select one or two invitations to decline; owned or read-only events stay unchanged.</p>
+      <p>Keep this meeting or choose another below. Select one or two invitations to decline. Meetings you organised or can only view stay unchanged.</p>
       <div className={styles.choiceList}>{choices.map(choice => {
         const checked = selected.includes(key(choice.ref));
         return <div key={key(choice.ref)} className={styles.choice}>
-          <label><input type="checkbox" disabled={busy || !choice.canDecline || (!checked && selected.length >= 2)} checked={checked} onChange={event => { resetReview(); const next = event.target.checked ? [...selected, key(choice.ref)] : selected.filter(value => value !== key(choice.ref)); setSelected(next); onDraftChange({ selected: next, notes }); }} /><span><strong>{choice.event.title}</strong><small>{choice.email} · {eventTime(choice.event, board.time_zone)}</small>{!choice.canDecline ? <small>This meeting cannot be declined here.</small> : null}</span></label>
+          <label><input type="checkbox" disabled={busy || !choice.canDecline || (!checked && selected.length >= 2)} checked={checked} onChange={event => { resetReview(); const next = event.target.checked ? [...selected, key(choice.ref)] : selected.filter(value => value !== key(choice.ref)); setSelected(next); onDraftChange({ selected: next, notes }); }} /><span><strong>{choice.event.title}</strong><small>{choice.email} · {eventTime(choice.event, board.time_zone)}</small>{!choice.canDecline ? <small>{choice.event.organizer?.self ? "You organised this meeting, so there is no invitation to decline. Move or cancel it in Google Calendar." : "This invitation cannot be declined from here. Change it in Google Calendar."}</small> : null}</span></label>
           <CalendarCompactAction disabled={busy} onClick={() => onChooseKeep(choice.ref)}>Keep this instead</CalendarCompactAction>
           {checked ? <label className={styles.noteLabel}>Note to this organizer<Textarea disabled={busy} value={notes[key(choice.ref)] || ""} maxLength={MAX_CALENDAR_DECLINE_REASON_LENGTH} onChange={event => { resetReview(); const next = { ...notes, [key(choice.ref)]: event.target.value }; setNotes(next); onDraftChange({ selected, notes: next }); }} placeholder="Explain why you cannot attend" /></label> : null}
         </div>;

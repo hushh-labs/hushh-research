@@ -150,7 +150,7 @@ RiskSnapshot.load(str(manifest))
            "python", "-m", "pytest", "-q", "consent-protocol/tests/test_route_orchestration_index.py"),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
-    _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
+    _check("skill-lint", "python3", ".agents/skills/skill-authoring/scripts/skill_lint.py", diagnostic=True),
     _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
     _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
     _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
@@ -241,11 +241,15 @@ RiskSnapshot.load(str(manifest))
     _check("main-sync", "python3", "scripts/ci/test_check_main_sync.py"),
     _check("ui-contract-gate", "python3", "scripts/ci/test_ui_contract_gate.py"),
     _check("web-lane-partition", "python3", "scripts/ci/test_web_ci_lane_partition.py"),
+    _check("affected-tests-selector-contract", "node", "--test", "hushh-webapp/scripts/testing/affected-tests.test.mjs", groups=("controller", "operations")),
     _check(
-        "affected-tests-selector-contract",
-        "node",
-        "--test",
-        "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+        "local-runtime-contracts",
+        "python3",
+        "-m",
+        "unittest",
+        "scripts/runtime/test_run_backend_local_proxy_handoff.py",
+        "scripts/runtime/test_run_local_fast.py",
+        "scripts/env/test_local_bootstrap_and_proxy_parity.py",
         groups=("controller", "operations"),
     ),
     _check("pkm-upgrade-gate-scope", "python3", "scripts/ci/test_pkm_upgrade_gate_scope.py"),
@@ -264,9 +268,9 @@ RiskSnapshot.load(str(manifest))
     _check("runtime-config-contract", "python3", "scripts/ci/verify-runtime-config-contract.py", groups=("operations",)),
     _check("agent-fleet-audit", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py", "--text", diagnostic=True),
     _check("agent-router-smoke", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py", diagnostic=True),
-    _check("trigger-evals", "python3", ".agents/skills/codex-skill-authoring/scripts/trigger_evals.py", diagnostic=True),
-    _check("trigger-eval-tests", "python3", ".agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py", diagnostic=True),
-    _check("compact-kernel-smoke", "python3", ".agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py", diagnostic=True),
+    _check("trigger-evals", "python3", ".agents/skills/skill-authoring/scripts/trigger_evals.py", diagnostic=True),
+    _check("trigger-eval-tests", "python3", ".agents/skills/skill-authoring/scripts/test_trigger_evals.py", diagnostic=True),
+    _check("compact-kernel-smoke", "python3", ".agents/skills/skill-authoring/scripts/compact_kernel_smoke.py", diagnostic=True),
     _check("route-check", "python3", ".agents/routing/scripts/route.py", "--check", diagnostic=True),
     _check("route-request-tests", "python3", ".agents/routing/scripts/test_route_requests.py", groups=("agent",)),
     _check("client-env-parity", "bash", ".agents/skills/client-env-parity/check.sh", groups=("operations",)),
@@ -403,7 +407,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         # Authored CI filenames use both hyphens and underscores. Treat the
         # same owner token consistently instead of rejecting registered tools.
         lower = path.lower().replace("-", "_")
-        if parts[1] == "release":
+        if parts[1] in {"release", "env", "runtime"}:
             return frozenset({"controller"}), None
         if parts[1] == "ops" and "runtime_topology" in lower:
             return frozenset(), None
@@ -430,6 +434,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/provision_wallet_pass_certificate.py",
             "scripts/ci/verify-runtime-config-contract.py",
             "scripts/ops/data_model_audit.py",
+            "scripts/ops/report_prod_contract_posture.py",
+            "scripts/verify-doc-brand.cjs",
             "scripts/verify-doc-links.cjs",
             "scripts/verify-doc-runtime-parity.cjs",
             "scripts/ci/test_secret_scan_ranges.py",
@@ -454,7 +460,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "deploy", "release", "uat", "production", "environment", "identity",
             "security", "governance", "scope", "artifact", "passkey", "places",
             "readiness", "protocol", "queue", "protected", "branch", "main_sync",
-            "live_memory", "verification", "rollback", "secret",
+            "live_memory", "verification", "rollback", "secret", "managed", "license",
         )
         if any(token in lower for token in controller_tokens):
             return frozenset({"controller"}), None

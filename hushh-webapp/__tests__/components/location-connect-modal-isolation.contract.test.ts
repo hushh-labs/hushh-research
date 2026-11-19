@@ -55,7 +55,7 @@ const BLOCKING_SURFACES = [
   ],
   ["components/one-location/contact-sync-results-sheet.tsx", "Sheet"],
   ["components/connections/contact-invitation-sheet.tsx", "Sheet"],
-  ["components/connections/person-profile-page.tsx", "Dialog"],
+  ["components/connections/person-information-request-dialog.tsx", "Dialog"],
   ["app/connect/page-client.tsx", "Dialog"],
 ] as const;
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { SettingsGroup, SettingsRow } from '@/components/app-ui/settings-ui';
+import { ConnectorVectorGlyph } from '@/components/agent/connector-brand-mark';
 import { useAuth } from '@/hooks/use-auth';
 import { useVault } from '@/lib/vault/vault-context';
 import { ApiService } from '@/lib/services/api-service';
@@ -113,7 +114,7 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup>
       {entries.map(({ connector, status, connected, allowChanges }) => {
-        return <SettingsRow key={connector} title={LABELS[connector]}
+        return <SettingsRow key={connector} leading={<ConnectorVectorGlyph id={connector} variant="profile" />} title={LABELS[connector]}
         description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
         trailing={<div className="flex gap-2">
           {allowChanges && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}

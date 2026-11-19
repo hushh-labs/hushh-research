@@ -20,7 +20,7 @@ from functools import cached_property
 from typing import Any, Iterator, Literal
 
 from google.auth.credentials import Credentials
-from google.genai.types import HttpOptions, HttpOptionsDict
+from google.genai.types import HttpOptions, HttpOptionsDict, HttpRetryOptions
 
 from .gemini_config import resolve_fleet_model_name
 from .local_credentials import local_cli_credentials
@@ -320,12 +320,18 @@ class ManagedGeminiRuntimeBinding:
             if client is None:
                 from google import genai
 
+                # Single-attempt per region so a transient stall or 504 immediately
+                # fails over across regions inside VertexRegionalClient instead of
+                # burning inner SDK retries against the same unhealthy region.
+                client_kwargs: dict[str, Any] = {
+                    "http_options": HttpOptions(retry_options=HttpRetryOptions(attempts=1)),
+                }
+                if credentials:
+                    client_kwargs["credentials"] = credentials
                 client = VertexRegionalClient(
                     project=self.project,
                     locations=locations,
-                    client_factory=functools.partial(genai.Client, credentials=credentials)
-                    if credentials
-                    else genai.Client,
+                    client_factory=functools.partial(genai.Client, **client_kwargs),
                     cooldown_seconds=_vertex_location_cooldown_seconds(),
                 )
                 _REGIONAL_ADK_CLIENTS[key] = client
@@ -591,9 +597,18 @@ def build_managed_gemini_adk_model(
 
 
 def build_managed_regional_gemini_adk_model(
-    model: str, *, vertex_project: str | None = None
+    model: str, *, vertex_project: str | None = None, processing_scope: str | None = None
 ) -> Any:
     """Build a tool-less single-turn ADK model with bounded regional failover."""
+
+    if processing_scope is not None:
+        from hushh_mcp.managed_ai_config import load_scoped_text_policy
+
+        policy = load_scoped_text_policy(processing_scope)
+        if policy is not None:
+            return ManagedGeminiRuntimeBinding.from_environment(
+                vertex_project=vertex_project
+            ).build_regional_adk_model(policy["model"])
 
     from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
 

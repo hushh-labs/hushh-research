@@ -338,9 +338,9 @@ def _state_from_row(row: Any) -> DurableRunState:
 
 
 async def _pool() -> Any:
-    from db.connection import get_pool
+    from hushh_mcp.services.runtime_health_service import get_shared_pool
 
-    return await get_pool()
+    return await get_shared_pool()
 
 
 class KaiRunStore:

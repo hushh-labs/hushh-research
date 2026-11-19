@@ -267,7 +267,11 @@ describe("commerce session and review authority", () => {
     const { rerender } = render(view(0));
     const checkout = await screen.findByRole("button", { name: "Continue to secure checkout" });
     await waitFor(() => expect(checkout).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Add to balance (USD)"), { target: { value: "0.50" } });
+    fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "0.001" } });
+    expect(checkout).toBeDisabled();
+    expect(mocks.checkout).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "0.50" } });
+    expect(screen.getByText("You'll add 50 Hussh coins ($0.50).")).toBeInTheDocument();
     fireEvent.click(checkout);
     fireEvent.click(checkout);
     await waitFor(() => expect(mocks.checkout).toHaveBeenCalledOnce());
@@ -698,12 +702,26 @@ describe("answer payout hosted continuity", () => {
     expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
   });
-  it("opens existing payouts without mounting information-access controls or loading their accounts", async () => {
+  it("offers purchase coins beside payouts without opening request or payout flows", async () => {
     render(<PaymentsAndEarnings />);
     await act(async () => {});
     expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
-    for (const request of [mocks.account, mocks.readiness, mocks.sandboxVerified, mocks.activity, mocks.answerGates, mocks.answerAccount]) {
+    expect(mocks.account).toHaveBeenCalledWith("owner-token");
+    expect(screen.getByRole("button", { name: "Add coins" })).toBeInTheDocument();
+    for (const request of [mocks.activity, mocks.answerGates, mocks.answerAccount, mocks.onboarding, mocks.checkout]) {
       expect(request).not.toHaveBeenCalled();
     }
+  });
+  it("enables $30.00 coin checkout when widened sandbox allowance permits it", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), sandboxRemainingCents: 498850 });
+    render(<PaymentsAndEarnings />);
+    const addCoins = await screen.findByRole("button", { name: "Add coins" });
+    await waitFor(() => expect(addCoins).toBeEnabled());
+    fireEvent.click(addCoins);
+    const input = await screen.findByLabelText("Amount (USD)");
+    fireEvent.change(input, { target: { value: "30" } });
+    expect(screen.getByText("You'll add 3,000 Hussh coins ($30.00).")).toBeInTheDocument();
+    expect(screen.queryByText(/remaining in sandbox test allowance/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue to secure checkout" })).toBeEnabled();
   });
 });

@@ -8,6 +8,7 @@ import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 // boundaries are isolated; no real owner, Calendar or Gmail records are changed.
 let script: string;
 let css: string;
+let fixtureDir: string | undefined;
 test.beforeAll(async () => {
   const root = process.cwd();
   const { build } = await import("vite");
@@ -15,6 +16,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "todo-agent-flow-"));
+  fixtureDir = outDir;
   const boundary = path.join(
     root,
     "e2e/fixtures/todo-agent-feed-boundaries.tsx",
@@ -111,6 +113,16 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
+test.afterAll(() => {
+  if (!fixtureDir) return;
+  const target = fs.realpathSync(fixtureDir);
+  if (path.dirname(target) !== fs.realpathSync(os.tmpdir()) || !path.basename(target).startsWith("todo-agent-flow-")) {
+    throw new Error("Unexpected To-do fixture cleanup path");
+  }
+  fs.rmSync(target, { recursive: true, force: true });
+  fixtureDir = undefined;
+});
+
 for (const [width, dark] of [
   [320, false],
   [393, true],
@@ -134,13 +146,15 @@ for (const [width, dark] of [
       [preview.getByRole("heading", { name: "To-do list", exact: true }), "20px", "600"],
       [title, "13px", "400"],
       [preview.getByRole("heading", { name: "Any time", exact: true }), "10px", "600"],
-      [preview.getByText("Up to 100 loaded summaries; no message content, card details or Memory content. Review before adding."), "12px", "400"],
       [preview.getByRole("link", { name: "Open Review Alex's connection request", exact: true }), "12px", "500"],
     ] as const) {
       await expect(locator).toHaveCSS("font-size", size);
       await expect(locator).toHaveCSS("font-weight", weight);
       await expect(locator).toHaveCSS("font-family", /Plus Jakarta Sans/);
     }
+    await expect(preview.getByText("Task sources", { exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Suggest tasks", exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Refresh sources", exact: true })).toHaveCount(0);
     for (const control of await preview.locator('button, a, summary, label').all()) {
       const box = (await control.boundingBox())!;
       expect(box.height).toBeGreaterThanOrEqual(44);
@@ -287,4 +301,44 @@ test("empty To-do stays truthful and readable through phone widths and enlargeme
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   expect(errors).toEqual([]);
   await page.screenshot({ path: test.info().outputPath("todo-empty-200-percent.png"), animations: "disabled" });
+});
+
+test.describe("Calendar and email task list", () => {
+  test.use({ timezoneId: "Asia/Kolkata" });
+  test("shows source/requester context and local meeting time without the source panel", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+    await page.setViewportSize({ width: 393, height: 900 });
+    await page.route("http://localhost/todo-fixture", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/todo-fixture");
+    await page.addScriptTag({ content: script });
+    await page.getByRole("button", { name: "Open agent Todo" }).click();
+    await page.getByRole("button", { name: "Load Calendar and email" }).click();
+    const preview = page.locator('[data-profile-type-scale="todo"]');
+    await expect(preview.getByRole("heading", { name: "Planning meeting", exact: true })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Any time", exact: true })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: /Jan 2/ })).toBeVisible();
+    await expect(preview.getByText(/5:00\s*AM/)).toBeVisible();
+    await expect(preview.getByText("Calendar", { exact: true })).toBeVisible();
+    await expect(preview.getByText("Gmail", { exact: true })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Connect Google Drive — Request from Saru", exact: true })).toBeVisible();
+    await expect(preview.getByRole("link", { name: "Open Reply to Saru: Meeting details", exact: true })).toHaveAttribute("href", "/one/gmail");
+    await expect(preview.getByText("Task sources", { exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Suggest tasks", exact: true })).toHaveCount(0);
+    await expect(preview.getByText("Some tasks could not refresh.", { exact: true })).toHaveCount(0);
+    await preview.getByRole("checkbox", { name: "Mark Reply to Saru: Meeting details as completed", exact: true }).click();
+    await expect(preview.getByRole("heading", { name: "Reply to Saru: Meeting details", exact: true })).toHaveCount(0);
+    await expect(preview).toHaveAttribute("aria-busy", "false");
+    await page.getByRole("button", { name: "Toggle lock" }).click();
+    await expect(preview.getByText("Unlock your vault to view your to-do list.")).toBeVisible();
+    await page.getByRole("button", { name: "Toggle lock" }).click();
+    await expect(preview.getByRole("heading", { name: "Planning meeting", exact: true })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Reply to Saru: Meeting details", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath("todo-clean-calendar-email.png") });
+  });
 });

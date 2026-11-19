@@ -37,6 +37,9 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { clearActiveAgentTurnSession } from "@/lib/agent/active-agent-turn-session";
+import { clearCoreAgentMarkdownCache } from "@/lib/pkm/agent-core-markdown-files";
+import { clearFilesCache } from "@/lib/files/files-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { clearAgentChatHistoryCache, warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
@@ -197,24 +200,30 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   useEffect(() => {
     if (!authReady || !currentUserId || !vaultKey || !vaultOwnerToken) return;
-    const retryReceivingSetup = () => {
+    let lastAttemptAt = 0;
+    const triggerReceivingSetup = (forceNow: boolean) => {
       if (document.visibilityState !== "visible" || navigator.onLine === false) return;
+      const now = Date.now();
+      if (!forceNow && now - lastAttemptAt < 15_000) return;
+      lastAttemptAt = now;
       UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({
         userId: currentUserId,
         vaultOwnerToken,
         vaultKey,
       });
     };
+    const retryReceivingSetup = () => triggerReceivingSetup(false);
+    const retryOnOnline = () => triggerReceivingSetup(true);
     // New/renewed credentials rearm recovery immediately. A transient backend
     // outage can outlast fast retries while Chat stays visible and online.
-    retryReceivingSetup();
-    const retryTimer = window.setInterval(retryReceivingSetup, 60_000);
-    window.addEventListener("online", retryReceivingSetup);
+    triggerReceivingSetup(true);
+    const retryTimer = window.setInterval(retryOnOnline, 60_000);
+    window.addEventListener("online", retryOnOnline);
     window.addEventListener("focus", retryReceivingSetup);
     document.addEventListener("visibilitychange", retryReceivingSetup);
     return () => {
       window.clearInterval(retryTimer);
-      window.removeEventListener("online", retryReceivingSetup);
+      window.removeEventListener("online", retryOnOnline);
       window.removeEventListener("focus", retryReceivingSetup);
       document.removeEventListener("visibilitychange", retryReceivingSetup);
     };
@@ -274,12 +283,18 @@ export function VaultProvider({ children }: VaultProviderProps) {
     }
     // Live activity captures only while unlocked; drop it and its key for every owner.
     clearLiveActivity();
+    if (!lockedUserId) {
+      clearActiveAgentTurnSession();
+    }
     if (lockedUserId) {
       // The Agent's decrypted working set is strictly session-memory-only.
       // Clear it synchronously with the vault credentials, rather than waiting
       // for an Agent workspace to remain mounted and notice the lock.
       clearCachedGmailReceipts(lockedUserId);
       clearMemoryDocument(lockedUserId);
+      clearCoreAgentMarkdownCache(lockedUserId);
+      clearActiveAgentTurnSession(lockedUserId);
+      clearFilesCache(lockedUserId);
       clearAgentPkmContext(lockedUserId);
       clearAgentChatHistoryCache(lockedUserId);
       clearGeminiRuntimeConnectionCache(lockedUserId);
@@ -300,6 +315,15 @@ export function VaultProvider({ children }: VaultProviderProps) {
     clearNativeSession();
 
     if (lockedUserId) {
+      const cache = CacheService.getInstance();
+      cache.invalidatePattern(`pkm_domain_resource_${lockedUserId}_`);
+      cache.invalidatePattern(`domain_data_${lockedUserId}_`);
+      cache.invalidatePattern(`domain_manifest_${lockedUserId}_`);
+      cache.invalidatePattern(`domain_blob_${lockedUserId}_`);
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(lockedUserId));
+      cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId));
+      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(lockedUserId));
+      cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(lockedUserId));
       CacheSyncService.onVaultStateChanged(lockedUserId);
       void import("@/lib/kai/kai-financial-resource")
         .then(({ KaiFinancialResourceService }) => {
@@ -310,7 +334,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
         .catch(() => undefined);
       void import("@/lib/pkm/pkm-domain-resource")
         .then(({ PkmDomainResourceService }) => {
-          PkmDomainResourceService.invalidateDomain(lockedUserId, "financial");
+          if (typeof PkmDomainResourceService.invalidateAllForUser === "function") {
+            PkmDomainResourceService.invalidateAllForUser(lockedUserId, {
+              includeDevice: false,
+              includeBackingCaches: true,
+            });
+          } else {
+            PkmDomainResourceService.invalidateDomain(lockedUserId, "financial");
+          }
         })
         .catch(() => undefined);
     }

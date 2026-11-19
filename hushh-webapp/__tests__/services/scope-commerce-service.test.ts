@@ -117,6 +117,13 @@ describe("scope commerce review boundary", () => {
       expect(() => verifyCommerceSandbox({ ...proof, ...change }, origin)).toThrow();
     }
     expect(() => verifyCommerceSandbox(proof, "http://preview.example.com")).toThrow();
+    const localOrigin = "http://localhost:3000";
+    expect(verifyCommerceSandbox({ ...proof, app_origin: localOrigin }, localOrigin)).toBe(true);
+    for (const restrictedEnv of ["uat", "production"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", restrictedEnv);
+      expect(() => verifyCommerceSandbox({ ...proof, app_origin: localOrigin }, localOrigin)).toThrow();
+    }
+    vi.unstubAllEnvs();
   });
   beforeEach(() => vi.resetAllMocks());
   const quote = () => ({ id: requestId, request_id: documentId, scope_handle: "scope_food", machine_scope: "attr.food.preferences.*",
@@ -293,9 +300,22 @@ describe("server-authored sharing readiness", () => {
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer firebase");
     expect(fetcher.mock.calls[0][1].cache).toBe("no-store");
   });
+  it("keeps held approvals and earnings setup available while refusing unqualified new liabilities", () => {
+    const historical = { ...freeOnly(), enabled: true,
+      platform: { status: "ready", reason_code: "provider_residual_resolution_unqualified", verification_scope: "configured_and_persisted" },
+      seller: { status: "eligible", reason_code: null },
+      capabilities: { ...freeOnly().capabilities, approve_paid_request: true, start_onboarding: true } };
+    expect(parseCommerceReadiness(historical).capabilities.approve_paid_request).toBe(true);
+    for (const capability of ["set_paid_tariff", "reserve_paid_purchase", "start_funding"]) {
+      expect(() => parseCommerceReadiness({ ...historical, capabilities: { ...historical.capabilities, [capability]: true } })).toThrow();
+    }
+  });
   it("uses allowlisted setup guidance while suppressing unknown server diagnostics", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "seller_onboarding_required", message: "private account secret" } }, { status: 409 }));
     await expect(ScopeCommerceService.readiness("firebase")).rejects.toMatchObject({ name: "CommerceActionError", code: "seller_onboarding_required", message: "Open Payments and earnings → Set up information-access payouts before charging for information." });
+    fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "request_price_changed" } }, { status: 409 }));
+    await expect(ScopeCommerceService.approveInactive("owner", requestId, 86400, documentId))
+      .rejects.toMatchObject({ code: "request_price_changed", message: "The price changed. Ask for a new request with the current price." });
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "private account secret", message: "private account secret" } }, { status: 500 }));
     try { await ScopeCommerceService.readiness("firebase"); throw new Error("expected rejection"); } catch (error) {
       expect(error).toBeInstanceOf(CommerceActionError);

@@ -41,7 +41,7 @@ export function ScopeCommerceRequestPanel({ requestId }: { requestId: string }) 
   const activeAccess = purchase?.status === "active" && !accessPeriodEnded;
   const free = Boolean(request && !purchase && (!request.tariff || request.tariff.price_cents === 0));
   const beforeActivation = !purchase?.activation_at || Date.parse(purchase.activation_at) > now;
-  const pending = Boolean(purchase && ["awaiting_payment", "reserved", "preparing", "staged", "armed"].includes(purchase.status));
+  const pending = Boolean(purchase && ["awaiting_owner", "awaiting_payment", "reserved", "preparing", "staged", "armed"].includes(purchase.status));
   const canEnd = !ended && Boolean(purchase && (
     request?.role === "owner" ? pending || purchase.status === "active" : pending && beforeActivation
   ));
@@ -66,7 +66,7 @@ export function ScopeCommerceRequestPanel({ requestId }: { requestId: string }) 
         {!ended ? <ScopeCommerceTimeline request={request} showProgress={!accessPeriodEnded} /> : null}
         <p data-consent-role="status" role="status" className="text-sm">{ended ? "Sharing ended. Check payment history for any refund." : accessPeriodEnded ? "Access period ended. Check again for current status." : purchase ? scopeCommerceStatusCopy(purchase.status, request.role) : free ? "Free access follows the owner's approval. Check Consent for its status." : "Waiting for owner approval."}</p>
         {!ended && request.role === "payer" && activeAccess && request.counterpart_person_ref ? <Button data-consent-role="primary-action" className="w-full sm:w-auto" asChild><Link href={`/people/${request.counterpart_person_ref}`}>Open shared information<ArrowRight aria-hidden="true" className="h-4 w-4" /></Link></Button> : null}
-        {!purchase && request.role === "owner" ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={`/one/consent?requestId=${encodeURIComponent(requestId)}`}>Review request</Link> : null}
+        {(!purchase || purchase.status === "awaiting_owner") && request.role === "owner" ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={`/one/consent?requestId=${encodeURIComponent(requestId)}`}>Review request</Link> : null}
         {!free && !enabled ? <div className="space-y-2 text-sm"><p data-consent-role="body">{commerceReadinessCopy(state.readiness)}</p><ProfilePaymentsLink className="inline-flex min-h-11 items-center underline">Payments and earnings</ProfilePaymentsLink></div> : null}
         {request.tariff && !purchase ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Rate: {money(request.tariff.price_cents)} per {request.tariff.base_duration_seconds / 3600} hours. Review the total before confirming.</p> : null}
         {request.role === "owner" && purchase?.expires_at ? <p data-consent-role="helper" className="text-xs text-muted-foreground">{!ended && !accessPeriodEnded && (pending || activeAccess) ? "Earnings are pending until access ends. Bank payout is separate." : "Check payment history for the latest earnings."}</p> : null}

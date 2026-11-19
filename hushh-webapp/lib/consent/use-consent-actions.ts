@@ -750,7 +750,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (failures.length === 0) {
           if (!options.quiet) {
             toast.success(
-              (requestIds.some(id => paidApprovals.current.has(id)) ? "Terms saved. Paid requests still require payment and encrypted preparation." : options.successMessage) ||
+              (requestIds.some(id => paidApprovals.current.has(id)) ? "Approved. Open sharing details to finish sharing." : options.successMessage) ||
                 (kind === "approve"
                   ? "Allowed. They can open it now."
                   : kind === "deny"

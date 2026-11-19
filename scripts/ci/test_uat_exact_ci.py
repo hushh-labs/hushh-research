@@ -219,47 +219,31 @@ class ExactUatCiTest(unittest.TestCase):
             with self.assertRaises(subject.Refused):
                 subject.verify_invocation_authority("candidate", "main")
 
-    def test_branch_test_inventory_is_preserved_without_relaxing_privileged_inputs(self):
+    def test_ordinary_uat_manifest_is_branch_owned_but_must_be_well_formed(self):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
         state = {"manifest": b"tests/test_main.py\ntests/services/test_uat_only.py\n",
-                 "mode": "100644", "privileged_changed": False}
+                 "mode": "100644"}
 
         def observed(*args):
-            if args[0] == "diff":
-                return b"deploy/backend.cloudbuild.yaml\n" if state["privileged_changed"] else b""
             if args[0] == "ls-tree":
-                if args[1] != "-r":
-                    return f"{state['mode']} blob {'d' * 40}\t{subject.BACKEND_TEST_MANIFEST}\n".encode()
-                revision = args[3]
-                code = "e"
-                manifest = "1" if revision == authority else "2"
-                return (f"100644 blob {code * 40}\t.github/workflows/ci.yml\n"
-                        f"100644 blob {manifest * 40}\t{subject.BACKEND_TEST_MANIFEST}\n").encode()
+                self.assertEqual(args, ("ls-tree", candidate, "--", subject.BACKEND_TEST_MANIFEST))
+                return f"{state['mode']} blob {'d' * 40}\t{subject.BACKEND_TEST_MANIFEST}\n".encode()
             if args[0] == "show":
-                if args[1].endswith(subject.BACKEND_TEST_MANIFEST):
-                    return state["manifest"] if args[1].startswith(candidate + ":") else b"tests/test_main.py\n"
-                if args[1].endswith("pyproject.toml"):
-                    return b"[tool.pytest.ini_options]\naddopts = '-q'\n"
-                return b'{"scripts": {"test": "vitest"}}'
+                self.assertEqual(args, ("show", f"{candidate}:{subject.BACKEND_TEST_MANIFEST}"))
+                return state["manifest"]
             if args[0] == "rev-parse":
                 return ("9" * 40).encode()
             return b""
 
         with patch.object(subject, "git", side_effect=observed):
             self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "9" * 40)
-            state["privileged_changed"] = True
-            with self.assertRaisesRegex(subject.Refused, "Privileged build or migration"):
-                subject.verify_git_authority(candidate, base, authority, current=False)
-            state["privileged_changed"] = False
-            for invalid in (b"--override-ini=addopts=\n", b"tests/../outside.py\n",
+            for invalid in (b"", b"# comments only\n", b"--override-ini=addopts=\n", b"tests/../outside.py\n",
                             b"tests/test_main.py\ntests/test_main.py\n", b"\xff"):
                 state["manifest"] = invalid
                 with self.subTest(manifest=invalid), self.assertRaisesRegex(subject.Refused, "invalid test identities"):
                     subject.verify_git_authority(candidate, base, authority, current=False)
             state["manifest"] = b"tests/test_other.py\n"
             self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "9" * 40)
-            with self.assertRaisesRegex(subject.Refused, "omits required Main test identities"):
-                subject.verify_invocation_authority(candidate, authority)
             state["manifest"] = b"tests/test_main.py\n"
             state["mode"] = "120000"
             with self.assertRaisesRegex(subject.Refused, "regular tracked file"):
@@ -278,7 +262,10 @@ class ExactUatCiTest(unittest.TestCase):
                 script = textwrap.dedent(block.split("run: |\n", 1)[1]).replace(
                     "${{ inputs.skip_managed_vertex_probe_once }}", "false"
                 )
-                script = script.replace("${{ needs.wait-capacity.outputs.scope }}", "backend")
+                # This contract tests copied verifier dependencies. Frontend
+                # scope copies the profile without the unrelated GNU timeout
+                # used by backend capacity admission (covered by capacity tests).
+                script = script.replace("${{ needs.wait-capacity.outputs.scope }}", "frontend")
                 script = script.replace(
                     "${{ steps.resolve-sha.outputs.sha }}",
                     subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
@@ -322,7 +309,7 @@ class ExactUatCiTest(unittest.TestCase):
             if args[:1] == ("rev-parse",):
                 return ("e" * 40).encode()
             return b""
-        with patch.object(subject, "git", side_effect=observed), patch.object(subject, "verify_privileged_release_inputs"), patch.object(subject, "backend_test_inventory"):
+        with patch.object(subject, "git", side_effect=observed), patch.object(subject, "backend_test_inventory"):
             self.assertEqual(subject.verify_git_authority(candidate, base, authority), "e" * 40)
             self.assertEqual(calls[0], ("fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/uat:refs/remotes/origin/uat"))
             self.assertIn(("merge-base", "--is-ancestor", candidate, "origin/uat"), calls)
@@ -333,7 +320,7 @@ class ExactUatCiTest(unittest.TestCase):
             self.assertNotIn(("rev-parse", "origin/uat"), calls)
             self.assertFalse(any(call[0] == "fetch" for call in calls))
 
-    def test_changed_release_recipe_or_migration_controller_is_not_reviewed_main_authority(
+    def test_isolated_uat_still_rejects_changed_release_recipe_or_migration_controller(
         self,
     ):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
@@ -350,21 +337,13 @@ class ExactUatCiTest(unittest.TestCase):
 
                 def observed(*args):
                     calls.append(args)
-                    if args[0] == "diff":
-                        return (changed_path + "\n").encode() if changed_path in args[5:] else b""
-                    if args[:1] == ("ls-tree",):
+                    if args[:1] == ("diff",):
                         covers_path = any(
                             changed_path == path
                             or changed_path.startswith(path.rstrip("/") + "/")
                             for path in args[5:]
                         )
-                        entries = [b"100644 blob stable\t.github/workflows/ci.yml\n"]
-                        if covers_path:
-                            blob = "1" * 40 if args[3] == authority else "2" * 40
-                            entries.append(
-                                f"100644 blob {blob}\t{changed_path}\n".encode()
-                            )
-                        return b"".join(entries)
+                        return (changed_path + "\n").encode() if covers_path else b""
                     if args[:1] == ("rev-parse",):
                         return ("e" * 40).encode()
                     return b""
@@ -373,11 +352,11 @@ class ExactUatCiTest(unittest.TestCase):
                     patch.object(subject, "git", side_effect=observed),
                     patch.object(subject, "verify_invocation_authority"),
                     self.assertRaisesRegex(
-                        subject.Refused, "Privileged build or migration"
+                        subject.Refused, "Isolated UAT build or migration authority differs from Main"
                     ),
                 ):
                     subject.verify_git_authority(
-                        candidate, base, authority, current=False
+                        candidate, base, authority, current=False, branch="uat-isolated"
                     )
 
                 tree_reads = [call for call in calls if call[0] == "diff"]

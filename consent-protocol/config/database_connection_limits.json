@@ -165,5 +165,12 @@
   "dedicated_connection_ceiling": {
     "connections": 3,
     "source": "db.connection._DEDICATED_CONNECTION_LIMIT is a process-wide fail-fast admission ceiling shared by all dedicated_connection callers. Per-caller limits remain below; saturation defers work rather than borrowing request-pool capacity."
+  },
+  "bounded_extra_pools_per_worker": {
+    "hushh_mcp/services/metrics_uat_authority.py": {
+      "lane": "uat",
+      "connections": 2,
+      "why": "One admitted Metrics pool per worker; at most two UAT connections, closed before admission is released."
+    }
   }
 }

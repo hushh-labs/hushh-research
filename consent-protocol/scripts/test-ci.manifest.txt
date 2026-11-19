@@ -80,6 +80,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_sharing_unavailable_route.py
 tests/test_drive_sharing_diagnostics.py
 tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
@@ -225,6 +226,7 @@ tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
 tests/test_mcp_log_redaction.py
 
+tests/quality/test_architecture_compliance.py
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_developer_oauth.py
@@ -264,6 +266,11 @@ tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
 tests/test_finance_sharing_contract.py
+tests/test_finance_recipient_hub_authority.py
+tests/test_advisor_review_contract.py
+tests/test_advisor_review_authority.py
+tests/test_advisor_review_postgres.py
+tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
 tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
@@ -1372,6 +1379,7 @@ tests/test_pod_gmail_local.py
 tests/test_pod_gmail_push_config.py
 tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
+tests/test_pod_todo_sources.py
 
 tests/test_personal_agent_notification_checkpoint.py
 tests/test_personal_agent_notification_account_limit.py
@@ -1572,8 +1580,13 @@ tests/services/test_calendar_meeting_artifacts.py
 tests/services/test_calendar_meeting_grant_access.py
 tests/services/test_calendar_meeting_library_paging.py
 tests/services/test_calendar_meeting_organizer_resolution.py
+tests/services/test_calendar_meeting_request_readiness.py
 tests/services/test_google_provider_errors.py
 tests/services/test_calendar_meeting_request_flow_postgres.py
+tests/services/test_calendar_meeting_unavailable_postgres.py
+tests/services/test_feed_calendar_request_context.py
+tests/services/test_google_calendar_verified_alias.py
+tests/services/test_calendar_meeting_attendee_discovery.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1626,6 +1639,7 @@ tests/test_phone_transfer_postgres.py
 tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
+tests/test_phone_binding_policy.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
@@ -1689,3 +1703,47 @@ tests/services/test_direct_message_route_cipher.py
 tests/services/test_calendar_email_followup_temporal_postgres.py
 tests/test_secret_metadata_inventory.py
 tests/test_managed_provider_collection.py
+
+# Wave 1 atomic ledger execution, forward >=459 SQL governance, and parked lane freeze.
+tests/test_forward_migration_governance.py
+tests/test_migration_ledger_atomicity_postgres.py
+
+# Wave 3 pod process dumpable/core hardening, SSRF browser guardrails, and ACE custody port.
+tests/test_pod_browser_ssrf_and_dumpable_hardening.py
+tests/test_pod_custody_port_and_ace.py
+
+# Personal Wiki Memory (#9370 Phase 0, Phase 1 / #8814, Phase 2, Phase 3, Phase 4, Phase 5, & Phase 6 / #8242): reserved scope guards, eval baseline, archive import, versioned wiki foundation, capture/recall, PKM projections, cohort migration/Forget, Floci wire conformance, and classic-writer retirement.
+tests/test_source_library_scope_policy.py
+tests/eval_wiki_memory/test_phase0_baseline.py
+tests/eval_wiki_memory/test_archive_import_9429.py
+tests/services/test_wiki_memory_foundation.py
+tests/services/test_wiki_capture_and_recall.py
+tests/services/test_wiki_pkm_projections.py
+tests/services/test_wiki_phase4_migration_and_forget.py
+tests/services/test_wiki_phase5_floci_conformance.py
+tests/services/test_wiki_pkm_unification_and_shared_recall.py
+tests/services/test_pkm_scope_exposure_preserves_vault_owner.py
+
+# Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
+tests/test_provider_capability_registry_and_aws_parity.py
+
+# Wave 5 active control-plane TTL runner, enforced retention parity, and Floci wire conformance.
+tests/test_control_plane_retention_runner.py
+tests/test_floci_aws_wire_conformance.py
+# Wave 6 Hub Zero-Role Capability & Custody Broker and Tri-Cloud Floci (GCP + Azure) wire conformance.
+tests/test_floci_gcp_azure_wire_conformance.py
+tests/test_pod_capability_broker.py
+
+# Wave 17 Dev Horizontal Umbrella Cell scale-out and 14-day two-key source-pod retirement policy.
+tests/services/test_umbrella_scaleout_and_source_retirement.py
+tests/test_source_pod_retirement_postgres.py
+
+# Calendar email follow-ups: relevance gate, incremental sync, retry/backoff,
+# Calendar reconciliation, account isolation and durable reminders. The model,
+# Gmail and Calendar are synthetic doubles; no live mailbox or model is called.
+tests/services/test_calendar_email_followup_account.py
+tests/services/test_calendar_email_followup_notifications.py
+tests/services/test_calendar_email_followup_reader.py
+tests/test_calendar_followup_scheduler_contract.py
+tests/test_calendar_followup_deploy_gate.py
+tests/scripts/test_db_data_health.py

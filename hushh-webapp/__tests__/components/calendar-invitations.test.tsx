@@ -80,6 +80,20 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(screen.getByText("2 yes, 2 awaiting")).toBeInTheDocument();
   });
 
+  it("marks declined guests with a red cross on the avatar, as accepted guests get a tick", async () => {
+    invitations[0]!.attendees = [
+      { email: "priya@example.test", display_name: "Organizer", response_status: "accepted" },
+      { email: "manish@example.test", display_name: "Manish", response_status: "declined" },
+      { email: "waiting@example.test", response_status: "needsAction" },
+    ];
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    const declined = guests.filter(guest => guest.querySelector("[data-guest-avatar] > [data-declined-indicator]"));
+    expect(declined.map(guest => guest.textContent)).toEqual([expect.stringContaining("Declined")]);
+    expect(declined[0].querySelector("[data-accepted-indicator]")).not.toBeInTheDocument();
+  });
+
   it("uses the same HUSSH photo for organizer, verified self and guests without a Google photo read", async () => {
     const photo = "data:image/png;base64,aGVsbG8=";
     visiblePeople = { "priya@example.test": { userId: "priya", photoUrl: photo } };

@@ -19,6 +19,9 @@ class PkmPacketOrderWorker:
     async def run(self, *, max_jobs: int, deadline_seconds: int) -> dict:
         if not 1 <= max_jobs <= 20 or not 20 <= deadline_seconds <= 35:
             raise ValueError("invalid packet order worker bounds")
+        from hushh_mcp.services.advisor_review_billing_events import cleanup_async
+
+        await cleanup_async(limit=1)
         if not os.getenv("STRIPE_SECRET_KEY") or not os.getenv("STRIPE_WEBHOOK_SECRET"):
             return {"outcomes": {"disabled": 1}}
         from hushh_mcp.services.pkm_credit_service import PkmCreditService

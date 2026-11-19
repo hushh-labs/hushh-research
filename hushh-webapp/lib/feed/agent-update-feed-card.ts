@@ -89,7 +89,7 @@ function offerCardBody(
     title: activity,
     description:
       update.failed || update.presentationState === "blocked"
-        ? update.error || "Open Software updates to check recovery."
+        ? update.error || "Open Agent updates to check recovery."
         : "Keep using Settings to follow this update. Completion will be verified.",
     updateProgress: update,
     href: ROUTES.PROFILE_SOFTWARE_UPDATES,
@@ -98,7 +98,7 @@ function offerCardBody(
 }
 
 /**
- * Software updates are owner-approved mutations. Keep one calm card in the
+ * Agent updates are owner-approved mutations. Keep one calm card in the
  * existing Feed queue; the API binds approval to this pod incarnation and
  * exact release, so a stale tab cannot choose an arbitrary image. An Azure
  * approval signs in to Microsoft in a popup and is followed on this card, so

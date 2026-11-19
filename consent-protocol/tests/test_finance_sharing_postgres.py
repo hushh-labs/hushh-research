@@ -1,6 +1,7 @@
 """Actual PostgreSQL proof of encrypted Finance grant authority and recovery."""
 
 import base64
+import json
 import uuid
 
 import pytest
@@ -42,7 +43,38 @@ def finance_db(projection_db, monkeypatch):  # noqa: F811
         )
     db.apply_migrations(["435_finance_connection_sharing.sql"])
     db.apply_migrations(["435_finance_connection_sharing.sql"])
+    db.apply_migrations(["446_finance_advisor_share_options.sql"])
+    db.apply_migrations(["446_finance_advisor_share_options.sql"])
     return db, FinanceSharingService(db=db)
+
+
+@pytest.mark.parametrize(
+    "policy,expires",
+    [
+        ({"version": 1, "mode": "snapshot"}, None),
+        ({"version": 3, "mode": "snapshot"}, None),
+        ({"version": 2, "mode": "snapshot"}, None),
+        ({"version": 3, "purpose": "verified_ria_share", "mode": "invalid"}, "2030-01-01"),
+    ],
+)
+def test_advisor_expiry_migration_retains_other_snapshot_and_mode_guards(
+    finance_db, policy, expires
+):
+    db, _service = finance_db
+    with pytest.raises(DBAPIError):
+        with db.engine.begin() as conn:
+            conn.execute(
+                text("""INSERT INTO finance_share_requests
+                  (owner_user_id,id,fingerprint,policy,expires_at)
+                  VALUES ('alice',CAST(:id AS uuid),:fingerprint,CAST(:policy AS jsonb),
+                    CAST(:expires AS timestamptz))"""),
+                {
+                    "id": str(uuid.uuid4()),
+                    "fingerprint": "a" * 64,
+                    "policy": json.dumps(policy),
+                    "expires": expires,
+                },
+            )
 
 
 def body(db, mode="ongoing"):
@@ -112,7 +144,8 @@ def test_recipient_binding_transactional_delivery_and_exact_idempotent_retry(fin
         assert conn.execute(text("SELECT count(*) FROM finance_access_grants")).scalar_one() == 2
 
 
-def test_advisor_access_requires_current_verified_status_and_owner_can_revoke(finance_db):
+@pytest.mark.parametrize("version", [2, 3])
+def test_advisor_access_requires_current_verified_status_and_owner_can_revoke(finance_db, version):
     db, service = finance_db
     from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES
 
@@ -141,6 +174,15 @@ def test_advisor_access_requires_current_verified_status_and_owner_can_revoke(fi
         "model_processing": {"version": 1, "allowed": False},
         "durationSeconds": 3600,
     }
+    if version == 3:
+        request["policy"].update(
+            version=3,
+            purpose="verified_ria_share",
+            sections=["allocation"],
+            showAmounts=False,
+            model_processing={"version": 1, "allowed": True},
+            durationSeconds=None,
+        )
     approved = CreateFinanceShare.model_validate(request)
     with db.engine.begin() as conn:
         conn.execute(text("UPDATE ria_profiles SET advisory_status='draft' WHERE user_id='bob'"))
@@ -298,3 +340,38 @@ def test_explicit_account_cleanup_erases_both_participants(finance_db, erased):
     else:
         carol = next(g for g in created if g["recipientUserId"] == "carol")
         assert service.view("carol", carol["id"])["status"] == "active"
+
+
+def test_resharing_replaces_only_the_selected_person_and_stale_retry_cannot_revive(finance_db):
+    db, service = finance_db
+    original = body(db)
+    first = service.create("alice", original)["items"]
+    assert len(service.active_recipients("alice")["personRefs"]) == 2
+    assert service.active_recipients("bob")["personRefs"] == []
+    bob = next(g for g in first if g["recipientUserId"] == "bob")
+    carol = next(g for g in first if g["recipientUserId"] == "carol")
+    replacement = body(db, "snapshot").model_dump(mode="json")
+    replacement["recipients"] = [
+        r for r in replacement["recipients"] if r["personRef"] == bob["recipientPersonRef"]
+    ]
+    replacement["policy"]["sections"] = ["performance"]
+    replacement["policy"]["durationSeconds"] = 10800
+    latest = service.create("alice", CreateFinanceShare.model_validate(replacement))["items"][0]
+    assert latest["policy"]["sections"] == ["performance"]
+    assert latest["policy"]["durationSeconds"] == 10800
+    assert service.view("bob", bob["id"])["status"] == "stopped"
+    assert "envelope" not in service.view("bob", bob["id"])
+    assert service.view("carol", carol["id"])["status"] == "active"
+    assert service.create("alice", original)["items"][0]["requestId"] == str(original.requestId)
+    assert service.view("bob", latest["id"])["status"] == "active"
+    with pytest.raises(FinanceSharingError, match="ENDED"):
+        service.refresh(
+            "alice",
+            bob["id"],
+            RefreshFinanceShare(
+                expectedRevision=1,
+                envelope=envelope("bob-key"),
+                ownerEnvelope=envelope("alice-key"),
+                contentHash="c" * 64,
+            ),
+        )

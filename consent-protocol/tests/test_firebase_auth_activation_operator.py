@@ -120,6 +120,71 @@ def test_workos_attribution_absence_active_binding_and_offboarding_are_pinned(da
         activation.workos_snapshot(conn, selected, manifest)
 
 
+@pytest.mark.parametrize(
+    "change", ["none", "membership", "other_profile", "deprovisioned", "no_google", "dev"]
+)
+def test_uat_replacement_preserves_google_without_reenrolling_workos(database, change):
+    from hushh_mcp.services.enterprise_sso.errors import EnterpriseSsoError
+    from hushh_mcp.services.enterprise_sso.membership import (
+        _capture_generation_zero,
+        membership_hash,
+    )
+
+    provider = Provider()
+    claims = {"workosOrgId": "org", "workosUserId": "person", "workosOrigin": "created"}
+    provider.source[0]["customAttributes"] = json.dumps(claims)
+    manifest = snapshot(database, provider)
+    manifest.update(schema="hussh.uat-auth-import.v2", targetProject=migration.UAT_TARGET)
+    manifest["owners"][0]["generation"] = 1
+    digest = migration.identity_hash("owner-a")
+    with database.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE account_generations ADD COLUMN identity_hash text")
+        conn.exec_driver_sql("""CREATE TABLE account_workos_memberships(
+            profile_hash text,owner_hash text,identity_hash text,generation integer,
+            origin text,offboarded_at timestamptz)""")
+        conn.execute(
+            text("""INSERT INTO account_generations(owner_hash,identity_hash,
+            identity_uid,owner_id,generation) VALUES(:digest,:digest,'owner-a','owner-a',1)"""),
+            {"digest": digest},
+        )
+    selected = {"owner-a": migration.record(provider.source[0])}
+    with database.connect() as conn:
+        before = activation.workos_snapshot(conn, selected, manifest, lock=True)
+        assert before[digest]["membershipSha256"] == migration.sha(None)
+        assert before[digest]["preservedReplacementGeneration"] == 1
+        with pytest.raises(EnterpriseSsoError):
+            _capture_generation_zero(conn, "owner-a", digest)
+        manifest["owners"][0]["generation"] = 2
+        assert activation.workos_snapshot(conn, selected, manifest) != before
+        manifest["owners"][0]["generation"] = 1
+    if change in {"membership", "other_profile"}:
+        with database.begin() as conn:
+            conn.execute(
+                text("""INSERT INTO account_workos_memberships VALUES(
+                :profile,:digest,:digest,0,'created',now())"""),
+                {
+                    "profile": membership_hash(
+                        "org", "other" if change == "other_profile" else "person"
+                    ),
+                    "digest": digest,
+                },
+            )
+    elif change == "deprovisioned":
+        claims["workosDeprovisionedAt"] = 1
+        selected["owner-a"]["customAttributes"] = json.dumps(claims)
+    elif change == "no_google":
+        selected["owner-a"]["providerUserInfo"] = []
+    elif change == "dev":
+        manifest.update(schema="hussh.dev-auth-import.v1", targetProject=migration.TARGET)
+    with database.connect() as conn:
+        if change == "none":
+            assert activation.workos_snapshot(conn, selected, manifest) == before
+        else:
+            with pytest.raises(migration.Refused, match="WORKOS_ATTRIBUTION_CHANGED"):
+                activation.workos_snapshot(conn, selected, manifest)
+    assert provider.posts == []
+
+
 def test_owner_deleted_before_activation_fence_never_enables_identity(
     database, tmp_path, monkeypatch
 ):

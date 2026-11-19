@@ -55,7 +55,7 @@ def resolve_hosting_mode(
 
     if is_owner_cloud_target(deployment_target):
         return "byoc"
-    if deployment_target == "gcp":
+    if deployment_target in {"gcp", "azure"}:
         return "hussh_pods"
     if status in {"provisioned", "needs_reinit", "suspended"}:
         return "unknown"

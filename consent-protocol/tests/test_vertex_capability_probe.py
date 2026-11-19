@@ -290,3 +290,120 @@ async def test_vertex_capability_deadline_emits_all_undispatched_failures(monkey
         for value in report["capabilities"].values()
     )
     assert "managed_capabilities_probe" in capsys.readouterr().out
+
+
+def _structured_probe_client(defect, nonce, calls):
+    from types import SimpleNamespace
+
+    from google.genai import types
+
+    async def unary(**kwargs):
+        calls.append(("unary", kwargs["config"]))
+        return SimpleNamespace(
+            text=json.dumps(nonce if defect == "unary_scalar" else {"code": nonce}),
+            candidates=[SimpleNamespace(finish_reason=types.FinishReason.STOP)],
+        )
+
+    async def streaming(**kwargs):
+        calls.append(("stream", kwargs["config"]))
+        payload = {
+            "scalar": nonce,
+            "array": [nonce],
+            "null": None,
+            "wrong_nonce": {"code": "different"},
+            "extra_key": {"code": nonce, "extra": True},
+        }.get(defect, {"code": nonce})
+        answer = json.dumps(payload)
+        if defect == "duplicate":
+            answer += answer
+        elif defect == "non_json":
+            answer = "not JSON"
+
+        async def chunks():
+            if defect != "no_chunks":
+                yield SimpleNamespace(text=answer[:5], candidates=[])
+                yield SimpleNamespace(
+                    text=answer[5:],
+                    candidates=[
+                        SimpleNamespace(
+                            finish_reason=(
+                                types.FinishReason.MAX_TOKENS
+                                if defect == "incomplete"
+                                else types.FinishReason.STOP
+                            )
+                        )
+                    ],
+                )
+
+        return chunks()
+
+    return SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=unary,
+                generate_content_stream=streaming,
+            )
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "scalar",
+        "array",
+        "null",
+        "wrong_nonce",
+        "incomplete",
+        "duplicate",
+        "non_json",
+        "extra_key",
+        "no_chunks",
+        "unary_scalar",
+    ],
+)
+async def test_structured_probe_requires_closed_object_and_complete_received_stream(
+    monkeypatch, defect
+):
+    from hushh_mcp import runtime_providers
+    from scripts import probe_managed_capabilities as probe
+    from scripts.capability_check import run_capability
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
+    nonce = "0123456789abcdef"
+    monkeypatch.setattr(probe.secrets, "token_hex", lambda _: nonce)
+    calls = []
+
+    async def only_structured(report, name, operation, *, deadline):
+        if name == "structured_text":
+            await run_capability(report, name, operation, deadline=deadline)
+
+    client = _structured_probe_client(defect, nonce, calls)
+    monkeypatch.setattr(runtime_providers, "build_managed_runtime_client", lambda *_: client)
+    monkeypatch.setattr(probe, "run_capability", only_structured)
+    report = await probe.probe_managed_capabilities("vertex")
+    row = report["capabilities"]["structured_text"]
+    assert row["ready"] is (defect is None)
+    assert [name for name, _ in calls] == (
+        ["unary"] if defect == "unary_scalar" else ["unary", "stream"]
+    )
+    for _, config in calls:
+        assert config.response_json_schema == {
+            "type": "object",
+            "properties": {"code": {"type": "string", "enum": [nonce]}},
+            "required": ["code"],
+            "additionalProperties": False,
+        }
+    if defect:
+        assert row["classification"] == "candidate_misconfigured"
+        assert row["error_type"] == "ValueError"
+        assert row["failure_reason"] == (
+            "structured.unary" if defect == "unary_scalar" else "structured.stream"
+        )
+        assert "transport_retries" not in row
+    else:
+        assert row["synthetic_content_verified"] and row["streaming_observed"]

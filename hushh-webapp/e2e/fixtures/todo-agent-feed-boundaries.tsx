@@ -1,6 +1,7 @@
 // Isolated browser-test boundaries. Never imported by an application route.
 import React, { useSyncExternalStore, type ReactNode } from "react";
 import type { FeedActionable } from "../../lib/feed/use-feed-actionables";
+import { documentRequestTaskTitle } from "../../lib/consent/document-request-setup";
 
 let state = {
   unlocked: true,
@@ -8,6 +9,7 @@ let state = {
   failSave: false,
   hideAgent: false,
   preview: false,
+  providerTasks: false,
   revision: 0,
   message: "",
   href: "",
@@ -67,7 +69,10 @@ const previewItems: FeedActionable[] = [items[0], {
 export function useFeedActionables({ enabled }: { enabled: boolean }) {
   const value = useFixture();
   return {
-    actionables: enabled && !value.hideAgent ? (value.preview ? previewItems : items) : [],
+    actionables: enabled && !value.hideAgent ? [...(value.preview ? previewItems : items), ...(value.providerTasks ? [{
+      id: "consent:fixture-document:setup:drive", todo: { source: "drive" as const,
+        title: documentRequestTaskTitle("drive", "Saru"), href: "/one/profile?profile_panel=connectors" },
+    }] : [])] : [],
     loading: false,
     progressLoading: false,
     progressError: null,
@@ -84,11 +89,13 @@ export function useFeedBriefing() {
   };
 }
 export function useCalendarConnectionStatus() {
-  return { connected: false, loaded: true, loading: false, error: null, refresh: () => {} };
+  const { providerTasks } = useFixture();
+  return { connected: providerTasks, loaded: true, loading: false, error: null, refresh: () => {} };
 }
 // This persistence/lifecycle fixture has no linked Gmail account.
 export function useGmailConnectorStatus() {
-  return { status: null };
+  const { providerTasks } = useFixture();
+  return { status: providerTasks ? { connected: true } : null, loadingStatus: false, statusError: null };
 }
 export function getCachedGmailReceipts() {
   return null;
@@ -100,7 +107,10 @@ export function cachedGmailReceiptDisplayItems() {
 export function clearCachedGmailReceipts() {}
 // Only the synthetic Feed task participates in this lifecycle fixture.
 export async function readTodoCapabilities() {
-  return [];
+  return state.providerTasks ? [{ coverage: { capability: "gmail", count: 1, status: "incomplete" }, evidence: [{
+    capability: "gmail", key: "mail:fixture-metadata", summary: "Meeting details",
+    pendingTitle: "Reply to Saru: Meeting details", href: "/one/gmail",
+  }] }] : [];
 }
 export async function todoSuggestionsAvailable() {
   return false;
@@ -109,7 +119,10 @@ export async function suggestTodoTasks() {
   throw new Error("This lifecycle fixture must never request model suggestions");
 }
 export function useCalendarUpcomingEvents() {
-  return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
+  const { providerTasks } = useFixture();
+  return { events: providerTasks ? [{ id: "fixture-event", title: "Planning meeting",
+    start: { dateTime: "2099-01-01T23:30:00Z" }, end: { dateTime: "2099-01-02T00:00:00Z" } }] : [],
+    loaded: true, loading: false, error: null, refresh: () => {} };
 }
 let domain: Record<string, unknown> = { _private: { tasks: [] } };
 export const PersonalKnowledgeModelService = {

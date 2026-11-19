@@ -1546,7 +1546,8 @@ describe("supported connector catalog", () => {
       expect(state.calendarStartConnect).toHaveBeenCalledExactlyOnceWith({
         idToken: "synthetic-firebase-token",
         userId: "owner-a",
-        accessLevel: "read",
+        accessLevel: "manage",
+        includeMeetingFiles: true,
       });
       expect(await screen.findByText("Finish signing in with Google in the window that opened.")).toBeInTheDocument();
       const attempt = attemptOf(popup);
@@ -1563,7 +1564,7 @@ describe("supported connector catalog", () => {
       expect(state.calendarStatus).not.toHaveBeenCalled();
       expect(popup.close).not.toHaveBeenCalled();
 
-      state.calendarStatus.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "read" });
+      state.calendarStatus.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "manage", calendar_list_access: true });
       await post(settlement(attempt!.attemptId), popup);
       expect(await screen.findByText("Calendar connected.")).toBeInTheDocument();
       expect(state.calendarStatus).toHaveBeenCalledOnce();
@@ -1599,7 +1600,7 @@ describe("supported connector catalog", () => {
       expect(open).toHaveBeenLastCalledWith("about:blank", "_blank", undefined);
       await waitFor(() => expect(tab.location.replace).toHaveBeenCalled());
       const attempt = attemptOf(tab)!;
-      state.calendarStatus.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "read" });
+      state.calendarStatus.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "manage", calendar_list_access: true });
       // Google's opener policy can null window.opener; the callback's
       // same-origin storage write is then the only signal.
       await act(async () => {
@@ -1652,18 +1653,18 @@ describe("supported connector catalog", () => {
     it("uses the native Google sheet on device without opening a window", async () => {
       vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
       const open = vi.spyOn(window, "open");
-      state.calendarStartNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", service: "calendar", access_level: "read", state: "signed-state" });
+      state.calendarStartNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", service: "calendar", access_level: "manage", include_calendar_list: true, include_meeting_files: true, state: "signed-state" });
       state.connectCalendar.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
-      state.calendarCompleteNativeConnect.mockResolvedValue({ connected: true, status: "connected" });
-      state.calendarStatus.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "read" });
+      state.calendarCompleteNativeConnect.mockResolvedValue({ connected: true, status: "connected", access_level: "manage", calendar_list_access: true });
+      state.calendarStatus.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "manage", calendar_list_access: true });
       await openCalendar();
       expect(await screen.findByText("Calendar connected.")).toBeInTheDocument();
       expect(open).not.toHaveBeenCalled();
-      expect(state.connectCalendar).toHaveBeenCalledExactlyOnceWith({ serverClientId: "native-client", accessLevel: "read" });
+      expect(state.connectCalendar).toHaveBeenCalledExactlyOnceWith({ serverClientId: "native-client", accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true });
       expect(state.calendarCompleteNativeConnect).toHaveBeenCalledExactlyOnceWith({
         idToken: "synthetic-firebase-token",
         userId: "owner-a",
-        accessLevel: "read",
+        accessLevel: "manage",
         serverAuthCode: "synthetic-auth-code",
         state: "signed-state",
       });

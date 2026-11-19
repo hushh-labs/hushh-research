@@ -269,6 +269,15 @@ def test_workflow_deploys_v1_only_after_paused_legacy_attestation() -> None:
     )
     steps = {row["id"]: row for row in workflow["jobs"]["deploy"]["steps"] if "id" in row}
     v1 = steps["deploy-drive-v1-worker"]
+    for name in (
+        "deploy-drive-v1-worker",
+        "rollback-backend-after-drive-worker",
+        "rollback-frontend-after-drive-worker",
+        "verify-drive-v1-worker-rollback",
+    ):
+        assert "vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED == 'true'" in steps[name]["if"]
+        assert "vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED == 'false'" in steps[name]["if"]
+        assert "steps.scope.outputs.deploy_backend == 'true'" in steps[name]["if"]
     assert "inputs.preserve_paused_drive_worker == true" in v1["if"]
     assert "steps.verify-paused-drive-maintenance.outcome == 'success'" in v1["if"]
     assert "deploy/drive/deploy_v1_worker_service.sh" in v1["run"]
@@ -494,16 +503,26 @@ else:
 
 
 @pytest.mark.parametrize(
-    "mode,paused,http200,expected",
+    "preserve,mode,paused,http200,outcome,matching_sha,expected",
     [
-        ("false", "true", "false", "true"),
-        ("false", "false", "true", "false"),
-        ("false", "true", "true", "false"),
-        ("true", "false", "true", "true"),
-        ("true", "true", "false", "false"),
+        ("true", "false", "true", "false", "success", True, "true"),
+        ("true", "false", "false", "true", "success", True, "false"),
+        ("true", "false", "true", "true", "success", True, "false"),
+        ("true", "true", "false", "true", "success", True, "true"),
+        ("true", "true", "true", "false", "success", True, "false"),
+        ("false", "false", "true", "false", "success", True, "true"),
+        ("false", "false", "true", "false", "failure", True, "false"),
+        ("false", "false", "false", "false", "success", True, "false"),
+        ("false", "false", "true", "true", "success", True, "false"),
+        ("false", "false", "true", "false", "success", False, "false"),
+        ("false", "true", "false", "true", "success", True, "true"),
+        ("false", "true", "false", "false", "success", True, "false"),
+        ("false", "", "false", "false", "skipped", True, "true"),
     ],
 )
-def test_release_gate_requires_mode_specific_evidence(mode, paused, http200, expected):
+def test_release_gate_requires_mode_specific_evidence(
+    preserve, mode, paused, http200, outcome, matching_sha, expected
+):
     import re
     import subprocess
 
@@ -515,25 +534,27 @@ def test_release_gate_requires_mode_specific_evidence(mode, paused, http200, exp
         for row in workflow["jobs"]["deploy"]["steps"]
         if row.get("name") == "Write UAT release status artifact"
     )
-    gate = (
-        step["run"]
-        .split("DRIVE_WORKER_GATE_SUCCESS=false", 1)[1]
-        .split('\nif [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]', 1)[0]
-    )
+    # Include the normal-mode V1 checks, before the separate rollback/status logic.
+    gate = step["run"].split("DRIVE_WORKER_GATE_SUCCESS=false", 1)[1]
+    gate = gate[: gate.index("# A skipped/cancelled worker")].rsplit("\nif [", 1)[0]
     values = {
-        "inputs.preserve_paused_drive_worker": "true",
+        "inputs.preserve_paused_drive_worker": preserve,
         "steps.scope.outputs.deploy_backend": "true",
         "steps.resolve-sha.outputs.sha": SHA,
-        "steps.deploy-drive-v1-worker.outputs.sha": SHA,
+        "steps.deploy-drive-v1-worker.outcome": outcome,
+        "steps.deploy-drive-v1-worker.outputs.sha": SHA if matching_sha else "different",
         "steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged": paused,
         "steps.deploy-drive-v1-worker.outputs.scheduler_http_200": http200,
-        "vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true'": mode,
+        "vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true'": mode or "true",
+        "vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false'": "false",
     }
 
     def replace(match):
         expression = match[1].strip()
         if expression in values:
             return values[expression]
+        if "vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED == 'false'" in expression:
+            return "true" if preserve == "true" or mode in {"true", "false"} else "false"
         if expression.endswith(".outcome"):
             return "success"
         if expression.endswith(".outputs.paused_drive_baseline_captured") or expression.endswith(

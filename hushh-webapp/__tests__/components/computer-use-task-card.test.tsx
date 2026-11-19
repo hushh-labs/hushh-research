@@ -10,7 +10,7 @@ import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
+import { areScheduledTasksAvailable, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerPodRequest: vi.fn(), apiFetch: vi.fn(), owner: "owner" }));
@@ -101,7 +101,7 @@ beforeEach(() => {
   api.ownerPodRequest.mockReset();
   api.apiFetch.mockReset();
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("private browser control", () => {
   it("confirms only metadata at the hub and retries a lost pod reply with the same owner receipt", async () => {
@@ -215,6 +215,30 @@ describe("private browser control", () => {
     expect(unwindBackLayer("/")).toBe(false);
   });
 
+  it("refuses every production schedule operation before admission or transport", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    const client = new PodScheduledTasksClient("owner");
+    const task = { id: "schedule_" + "a".repeat(32), revision: 1 } as Parameters<typeof client.control>[0];
+    for (const result of [client.status(), client.control(task, "pause"),
+      client.control(task, "resume"), client.control(task, "cancel"),
+      client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id")]) {
+      await expect(result).rejects.toThrow("SCHEDULE_UNAVAILABLE");
+    }
+    expect(api.getComputerUseAdmission).not.toHaveBeenCalled();
+    expect(api.ownerPodRequest).not.toHaveBeenCalled();
+  });
+
+  it.each(["dev", "development", "uat", "staging"])("preserves %s scheduling in optimized builds", async (environment) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
+    api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });
+    api.ownerPodRequest.mockResolvedValue(Response.json({ available: false, code: "SCHEDULE_AUTHORITY_UNAVAILABLE",
+      authorization_limit_at: null, templates: [], tasks: [] }));
+    expect(areScheduledTasksAvailable()).toBe(true);
+    await expect(new PodScheduledTasksClient("owner").status()).resolves.toMatchObject({ available: false });
+    expect(api.ownerPodRequest).toHaveBeenCalledOnce();
+  });
+
   it("keeps only schedule metadata and refuses a changed owner's late result", async () => {
     api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });
     const row = { id: "schedule_" + "a".repeat(32), title: "Organize test", capability: "agent_files.organize_file.v1",
@@ -239,6 +263,18 @@ describe("private browser control", () => {
       expect(api.ownerPodRequest).toHaveBeenCalledOnce();
       expect(api.ownerPodRequest.mock.calls[0][1].signal.aborted).toBe(true);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("refuses to submit a schedule reviewed on a different Pod", async () => {
+    api.getComputerUseAdmission.mockResolvedValueOnce({ ownerId: "owner", podId: "pod-first" })
+      .mockResolvedValueOnce({ ownerId: "owner", podId: "pod-second" });
+    api.ownerPodRequest.mockResolvedValue(Response.json({ available: true, code: null,
+      authorization_limit_at: 1000000, templates: ["agent_files.organize_file.v1"], tasks: [] }));
+    const client = new PodScheduledTasksClient("owner");
+    await client.status();
+    await expect(client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id"))
+      .rejects.toThrow("SCHEDULE_OWNER_POD_CHANGED");
+    expect(api.ownerPodRequest).toHaveBeenCalledOnce();
   });
 
   it("rediscovers current tasks but never admits recovered work from an old incarnation", async () => {

@@ -10,9 +10,10 @@ import { useNativeWorkspace, useNativeWorkspacePresentation } from "@/lib/capaci
 import type { NativeWorkspaceChoice, NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 import type { NativeDrawerRow, NativeDrawerSection } from "@/lib/capacitor/native-drawers";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
+import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate, type DueReceiptItem } from "./todo-list-presentation";
+import { preferredScheduledTasks, scheduledRunSummary, scheduledTaskLabels, type useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 
 export type NativeTodoModel = {
   owner: string | null; current: () => boolean; ready: boolean; loading: boolean;
@@ -21,7 +22,7 @@ export type NativeTodoModel = {
   draft: NativeWorkspaceTaskDraft; readDraft: () => NativeWorkspaceTaskDraft; inputRevision: () => number;
   changeDraft: (draft: NativeWorkspaceTaskDraft, expected?: number) => boolean;
   openEditor: () => void; closeEditor: () => void;
-  saving: string | null; doneToday: number; totalToday: number;
+  busy: boolean; savingTaskIds: ReadonlySet<string>; doneToday: number; totalToday: number;
   errors: readonly { label: string; retry: () => void }[];
   overflowHref: string | null;
   save: (draft: { title: string; date: string | null; time: string | null; notes: string | null }) => Promise<boolean>;
@@ -31,14 +32,16 @@ export type NativeTodoModel = {
 
 /** Feature values and callbacks only. Admission, retirement, feedback and draft
  * ordering belong to the same workspace boundary as Memory and Wallet. */
-export function NativeTodoWorkspace({ model, fallback }: { model: NativeTodoModel; fallback: ReactNode }) {
+type ScheduledRuns = { schedules?: ReturnType<typeof useScheduledTasksModel>; selectedSchedule?: string | null };
+
+export function NativeTodoWorkspace({ model, fallback, schedules, selectedSchedule }: ScheduledRuns & { model: NativeTodoModel; fallback: ReactNode }) {
   const presentation = useNativeWorkspacePresentation();
   const failed = presentation.status.phase === "web" && (presentation.status.reason === "unsupported" || presentation.status.reason === "failure");
   if (!customNativePresentationEnabled() || !model.owner || !model.ready || failed) return presentation.status.held ? <div aria-busy="true" /> : fallback;
-  return <NativeTodoBody model={model} presentation={presentation} />;
+  return <NativeTodoBody model={model} presentation={presentation} schedules={schedules} selectedSchedule={selectedSchedule} />;
 }
 
-function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; presentation: ReturnType<typeof useNativeWorkspacePresentation> }) {
+function NativeTodoBody({ model, presentation, schedules, selectedSchedule }: ScheduledRuns & { model: NativeTodoModel; presentation: ReturnType<typeof useNativeWorkspacePresentation> }) {
   const router = useRouter();
   const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const contentFrame = useRef<HTMLDivElement>(null);
@@ -51,21 +54,22 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const latest = useRef({ model, pathname });
   useLayoutEffect(() => { latest.current = { model, pathname }; });
-  const current = () => mounted.current && latest.current.pathname === "/one/todos" && latest.current.model.current();
+  const current = () => mounted.current && latest.current.pathname === ROUTES.ONE_TASKS && latest.current.model.current();
   const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const closeEditor = () => { if (!saving.current) latest.current.model.closeEditor(); };
   const back = () => {
-    if (saving.current || latest.current.model.saving) return true;
+    if (saving.current || latest.current.model.busy) return true;
+    if (schedules?.open) return schedules.close();
     if (confirmDelete) { setConfirmDelete(false); return true; }
     if (editing) { closeEditor(); return true; }
     if (selection) { setSelection(null); return true; }
     return false;
   };
-  useBackLayer("/one/todos", confirmDelete ? 3 : editing || selection ? 2 : 0, back);
+  useBackLayer(ROUTES.ONE_TASKS, confirmDelete ? 3 : editing || selection ? 2 : 0, back);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
   const action = (key: string, label: string, callback: () => unknown, extra: Partial<NativeDrawerRow> = {}): NativeDrawerRow => {
     const id = handles(key); actions.set(id, () => { if (current()) return callback() as void | Promise<unknown>; });
-    return { id, label, enabled: model.saving === null, ...extra };
+    return { id, label, enabled: !model.busy, ...extra };
   };
   const read = (key: string, label: string, detail?: string): NativeDrawerRow => ({ id: handles(key), label, ...(detail ? { detail } : {}), enabled: true, readOnly: true });
   const sections: NativeDrawerSection[] = [];
@@ -73,7 +77,25 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
   const selected = [...model.pending, ...model.completed].find(task => task.id === selection);
   const open = (href: string) => { if (href.startsWith("/")) router.push(href); else window.open(href, "_blank", "noopener,noreferrer"); };
   let title = "Your tasks";
-  if (editing) title = "Add item";
+  if (schedules?.open) {
+    title = "Scheduled runs";
+    const { status, checking, placementMessage, message } = schedules;
+    const rows = preferredScheduledTasks(status?.tasks ?? [], selectedSchedule);
+    if (placementMessage || message) section("schedule-message", [read("schedule-message", placementMessage || message)]);
+    else if (checking) section("schedule-loading", [read("schedule-loading", "Checking your private agent…")]);
+    else if (status && !status.available) section("schedule-unavailable", [read("schedule-unavailable", "Scheduling is unavailable on this Pod.")]);
+    else if (status && rows.length === 0) section("schedule-empty", [read("schedule-empty", "No scheduled tasks")]);
+    if (selectedSchedule && status && !rows.some(task => task.id === selectedSchedule)) {
+      section("schedule-not-found", [read("schedule-not-found", "This schedule wasn’t found on your current Pod.")]);
+    }
+    section("scheduled-runs", rows.map(task => read(`schedule:${task.id}`, task.title,
+      `${scheduledTaskLabels[task.state]} · ${scheduledRunSummary(task)}`)));
+    section("schedule-actions", [
+      action("schedule-refresh", "Refresh", schedules.refresh, { enabled: !checking }),
+      action("schedule-files", "Open Files", () => open(ROUTES.ONE_FILES), { chevron: true }),
+      action("schedule-close", "Close", schedules.close),
+    ]);
+  } else if (editing) title = "Add item";
   else if (selected) {
     title = confirmDelete ? "Delete item?" : "Task";
     section("detail", [read("title", selected.title, [selected.date, selected.time, selected.sourceAgent && TODO_SOURCE_LABELS[selected.sourceAgent]].filter(Boolean).join(" · ")),
@@ -85,7 +107,8 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
       ...(selected.link ? [action("open", selected.sourceAgent === "calendar" && !selected.link.startsWith("/") ? "Join" : "Open", () => open(selected.link!), { chevron: true })] : []),
       action("delete", "Delete item", () => setConfirmDelete(true), { destructive: true, symbol: "trash" })]);
   } else {
-    section("summary", [action("add", "Add item", model.openEditor, { enabled: !model.loading && model.saving === null, symbol: "plus" }),
+    section("summary", [action("add", "Add item", model.openEditor, { enabled: !model.loading && !model.busy, symbol: "plus" }),
+      ...(schedules ? [action("scheduled", "Scheduled runs", () => schedules.changeOpen(true), { chevron: true })] : []),
       ...(model.totalToday > 0 ? [read("today", `${model.doneToday} of ${model.totalToday} done today`)] : [])]);
     section("errors", model.errors.flatMap((error, i) => [read(`error-${i}`, error.label), action(`retry-${i}`, "Retry", error.retry)]));
     if (model.loading) section("loading", [read("loading", "Loading your list…")]);
@@ -95,7 +118,7 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
       // One bounded window, including receipts; no record is silently truncated.
       const index = Math.min(page, Math.max(0, Math.ceil(visible.length / 24) - 1));
       for (const [i, group] of groupByDate(visible.slice(index * 24, (index + 1) * 24)).entries()) section(`group-${i}`, group.tasks.map(task => action(`task-${task.id}`, task.title,
-        () => { setConfirmDelete(false); setSelection(task.id); }, { detail: [task.time, task.sourceAgent && TODO_SOURCE_LABELS[task.sourceAgent], task.notes].filter(Boolean).join(" · ") || undefined, chevron: true, pending: model.saving === task.id })), `${group.label}${group.overdue ? " · Overdue" : ""}`);
+        () => { setConfirmDelete(false); setSelection(task.id); }, { detail: [task.time, task.sourceAgent && TODO_SOURCE_LABELS[task.sourceAgent], task.notes].filter(Boolean).join(" · ") || undefined, chevron: true, pending: model.savingTaskIds.has(task.id) })), `${group.label}${group.overdue ? " · Overdue" : ""}`);
       if (!visible.length && !model.receipts.length && !model.errors.length) section("empty", [read("empty", completedOpen ? "No completed tasks" : model.completed.length ? "No pending tasks" : "No tasks yet", "Add an item to get started.")]);
       section("paging", [
         ...(index > 0 ? [action("previous", "Previous tasks", () => setPage(index - 1))] : []),
@@ -107,8 +130,8 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
     }
   }
   const editor = editing ? {
-    destinationId: editing, draft: model.draft, current: () => latest.current.model.editorCurrent(editing), inputRevision: model.inputRevision, mutationPending: () => saving.current || latest.current.model.saving !== null,
-    changeDraft: model.changeDraft, busy: model.saving !== null, canSave: !!model.draft.title.trim(), error: null,
+    destinationId: editing, draft: model.draft, current: () => latest.current.model.editorCurrent(editing), inputRevision: model.inputRevision, mutationPending: () => saving.current || latest.current.model.busy,
+    changeDraft: model.changeDraft, busy: model.busy, canSave: !!model.draft.title.trim(), error: null,
     save: async () => {
       if (!current() || saving.current) return false;
       saving.current = true;
@@ -118,10 +141,10 @@ function NativeTodoBody({ model, presentation }: { model: NativeTodoModel; prese
     },
     onSaved: closeEditor, onCancel: closeEditor,
   } : undefined;
-  const active = pathname === "/one/todos";
+  const active = pathname === ROUTES.ONE_TASKS;
   const phase = useNativeWorkspace({ owner: model.owner!, content: { workspace: "tasks", page: "overview", title, enabled: active, backEnabled: false, sections }, actions, current,
     editor, editorKind: "task", presentationOwner: presentation.owner, contentFrame, active, back });
   return <AppPageShell as="main" ref={contentFrame} width="reading" aria-busy={phase !== "native"} data-native-todo-workspace={phase}
-    nativeTest={{ routeId: "/one/todos", marker: phase === "native" ? "native-route-one-todos" : "native-todo-admission", authState: "authenticated",
+    nativeTest={{ routeId: ROUTES.ONE_TASKS, marker: phase === "native" ? "native-route-one-tasks" : "native-todo-admission", authState: "authenticated",
       dataState: phase === "blocked" ? "error" : phase !== "native" ? "booting" : model.loading ? "loading" : model.pending.length || model.completed.length ? "loaded" : "empty-valid" }} />;
 }

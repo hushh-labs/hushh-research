@@ -9,8 +9,9 @@ from urllib.parse import urlencode
 from release_cadence import UnsafeRelease, require, trusted_run
 
 UPLOAD_FIELDS = ("source_sha", "build_number", "marketing_version", "bundle_id")
-RESUME = "resume-ios-testflight.yml"
+RESUME = "resume-ios-testflight.yml"  # Historical receipts remain readable.
 RECOVERY_WORKFLOWS = ("ship-ios-testflight.yml", RESUME)
+# Repository-local ID observed before retiring the standalone entrypoint.
 RETIRED_RECOVERY = ("hushh-labs/hushh-research", "355112139")
 
 
@@ -57,8 +58,9 @@ def completion(repository: str, run: dict, sha: str) -> dict:
         distribution = artifact_json(repository, run["id"], f"one-voice-testflight-evidence-{sha}", "testflight-distribution.json", optional=True)
         if isinstance(distribution, dict) and distribution.get("internal") == "active" and distribution.get("build_id"):
             return {}
-    # Recovery is uncommon: cap the single read instead of walking arbitrary
-    # history in the short controller. A truncated inventory never proves delivery.
+    # Search a bounded newest window for positive, exact-bound recovery evidence.
+    # Ordinary builds cannot prove recovery; older candidates may require an
+    # explicit new recovery run rather than an unbounded history walk.
     query = urlencode({"branch": "main", "event": "workflow_dispatch", "created": ">=" + run["created_at"], "per_page": 20})
     recoveries = []
     for workflow in RECOVERY_WORKFLOWS:

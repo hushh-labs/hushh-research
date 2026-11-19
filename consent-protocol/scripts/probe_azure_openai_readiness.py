@@ -54,6 +54,8 @@ def valid_failure_reason(capability: str, reason: object) -> bool:
         and reason in FAILURE_REASONS
         and (
             reason == "unlisted"
+            or capability == "structured_text"
+            and reason.startswith("structured.")
             or capability == "live_audio"
             and reason.startswith("live.")
             or capability == "one_text_root"

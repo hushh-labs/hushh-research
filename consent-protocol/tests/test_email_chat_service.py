@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from google.genai import types
 
 from hushh_mcp.services.email_chat_service import (
@@ -342,3 +343,116 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
             query="invoice",
         )
     assert len(reads) == 3
+
+
+@pytest.mark.parametrize(
+    ("row", "expected_status"),
+    [
+        (None, "connect_required"),
+        ({"status": "disconnected", "revoked": False, "scope_csv": ""}, "connect_required"),
+        (
+            {
+                "status": "error",
+                "revoked": False,
+                "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+            },
+            "reconnect_required",
+        ),
+        (
+            {
+                "status": "connected",
+                "revoked": True,
+                "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+            },
+            "reconnect_required",
+        ),
+        (
+            {
+                "status": "connected",
+                "revoked": False,
+                "scope_csv": "https://www.googleapis.com/auth/gmail.send",
+            },
+            "reconnect_required",
+        ),
+    ],
+)
+async def test_delegated_mail_preflight_short_circuits_before_planner_llm(
+    monkeypatch, row, expected_status
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
+
+    class _StubGmail(GmailReceiptsService):
+        def __init__(self) -> None:
+            pass
+
+        def _fetch_connection_row(self, *, user_id: str):
+            assert user_id == "u1"
+            return row
+
+    async def _fail_if_llm_called(**_kwargs):
+        raise AssertionError("planner/interpreter LLM must never run when Gmail is not ready")
+
+    monkeypatch.setattr("hushh_mcp.agents.email.runtime.run_email_gene", _fail_if_llm_called)
+    svc = EmailChatService(
+        chat_store=object(),
+        gmail_service=_StubGmail(),
+        model=object(),
+        genai_types=types,
+        ready=lambda: True,
+    )
+    result = await svc.handle_delegated_turn(
+        user_id="u1",
+        consent_token=_TOKEN,
+        conversation_id="conv-1",
+        message="Which emails need a reply?",
+        require_access=AsyncMock(),
+    )
+    assert result["structured"]["status"] == expected_status
+    assert result["failure_stage"] == "planning"
+    assert result["failure_reason"] == expected_status
+    assert "connection_state" not in result["response"]
+
+
+async def test_delegated_mail_preflight_proceeds_to_planner_when_connected(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
+
+    class _ConnectedGmail(GmailReceiptsService):
+        def __init__(self) -> None:
+            pass
+
+        def _fetch_connection_row(self, *, user_id: str):
+            return {
+                "status": "connected",
+                "revoked": False,
+                "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+            }
+
+    called = []
+
+    async def _mock_run_delegated(**kwargs):
+        called.append(kwargs["message"])
+        return {"structured": {"status": "ok"}, "response": "Checked."}
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.email_delegated_read.run_delegated_mail_read", _mock_run_delegated
+    )
+    svc = EmailChatService(
+        chat_store=object(),
+        gmail_service=_ConnectedGmail(),
+        model=object(),
+        genai_types=types,
+        ready=lambda: True,
+    )
+    result = await svc.handle_delegated_turn(
+        user_id="u1",
+        consent_token=_TOKEN,
+        conversation_id="conv-1",
+        message="Which emails need a reply?",
+        require_access=AsyncMock(),
+    )
+    assert called == ["Which emails need a reply?"]
+    assert result["structured"]["status"] == "ok"

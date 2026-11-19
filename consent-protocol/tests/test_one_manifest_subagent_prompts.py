@@ -7,6 +7,21 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from hushh_mcp.one_adk import agent_tree
+from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
+
+
+def test_goal_plan_proposal_returns_review_fields_and_refuses_malformed_steps():
+    assert propose_goal_plan("Plan launch", "Approval recorded", [" Draft agenda "]) == {
+        "status": "proposal_ready",
+        "type": "goals.plan",
+        "title": "Plan launch",
+        "outcome": "Approval recorded",
+        "category": None,
+        "steps": ["Draft agenda"],
+    }
+    assert (
+        propose_goal_plan("Plan launch", "Approval recorded", [""])["status"] == "invalid_proposal"
+    )
 
 
 def test_chat_connection_guidance_is_authored_and_not_limited_to_voice():

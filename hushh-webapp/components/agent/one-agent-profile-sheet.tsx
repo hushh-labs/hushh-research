@@ -242,7 +242,7 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
             <TabsTrigger value="feed">
               <Newspaper aria-hidden /> Feed
             </TabsTrigger>
-            <TabsTrigger value="todo"><ClipboardList aria-hidden /> To-do</TabsTrigger>
+            <TabsTrigger value="todo"><ClipboardList aria-hidden /> Tasks</TabsTrigger>
             <TabsTrigger value="profile">
               <Fingerprint aria-hidden /> Profile
             </TabsTrigger>

@@ -61,7 +61,7 @@ test("owner AI identifies its provider in the header and a sheet-sized frame", a
     }
     return route.fulfill({ contentType: "application/json", body: "{}" });
   });
-  const label = "One's AI: Azure AI · a-long-private-deployment-name · Not verified";
+  const label = "One's AI: Azure AI · a-long-private-deployment-name";
   await page.setViewportSize({ width: 768, height: 844 });
   await page.goto("http://localhost/new-chat-fixture?model=1");
   const headerModel = page.getByRole("group", { name: label });
@@ -74,7 +74,6 @@ test("owner AI identifies its provider in the header and a sheet-sized frame", a
   await expect(sheetModel).toBeVisible();
   const modelText = sheetModel.getByText("Azure AI · a-long-private-deployment-name");
   expect(await modelText.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-  await expect(sheetModel.getByText("Not verified")).toBeVisible();
 });
 
 for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, true, "Start new chat"], [1440, false, "Start new chat"]] as const) {

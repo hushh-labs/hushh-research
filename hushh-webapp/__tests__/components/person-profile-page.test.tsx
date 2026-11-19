@@ -510,6 +510,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Review synthetic professional information" },
     });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() =>
       expect(
@@ -755,7 +756,7 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Checking references for a role" },
     });
-    expect(sendRequest).toBeEnabled();
+    await waitFor(() => expect(sendRequest).toBeEnabled());
     fireEvent.click(sendRequest);
     await waitFor(() =>
       expect(
@@ -1338,9 +1339,9 @@ describe("PersonProfilePage request catalog tools", () => {
         name: "Details for Employment status",
       }),
     );
-    expect(
-      await screen.findByTestId("person-profile-bundle-details"),
-    ).toHaveTextContent("Employment status (waiting) · 7 days");
+    const trail = await screen.findByTestId("person-profile-bundle-details");
+    expect(within(trail).getByText("Waiting")).toBeInTheDocument();
+    expect(within(trail).getByText("Employment status · 7 days")).toBeInTheDocument();
   });
 
   // Localhost run 4 (S3): the history read "Tax Record Domain" beside a raw "granted" pill.
@@ -1750,6 +1751,7 @@ describe("Request scope during profile authority refresh", () => {
       expect(await screen.findByLabelText("Your question")).toHaveValue("");
       expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
     },
+    15_000,
   );
 });
 

@@ -442,6 +442,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         "drive-work-suggestions-uat",
         "drive-work-sharing-uat",
     ]
+    assert state["first_log_triggered"] == state["triggered"]
     assert state["log_reads"] == {
         "drive-work-drain-uat": 1,
         "drive-work-suggestions-uat": 1,

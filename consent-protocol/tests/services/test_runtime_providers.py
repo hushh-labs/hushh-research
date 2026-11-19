@@ -940,7 +940,7 @@ def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):
 
 @pytest.mark.parametrize(
     "environment,project",
-    [("uat", "hushh-gemini-bridge"), ("production", "hushh-gemini-bridge")],
+    [("uat", "hushh-pda-uat"), ("production", "hushh-pda")],
 )
 def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
     monkeypatch, environment, project
@@ -950,18 +950,23 @@ def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
     monkeypatch.setenv("GOOGLE_API_KEY", "HOSTED_KEY_MUST_NOT_BE_USED")
     monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_AI_PROVIDER", raising=False)
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
     monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "stale-project")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "stale-region")
     monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
     monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
-    client = build_managed_runtime_client("gemini")
+    assert build_managed_runtime_client("gemini") is not None
+    assert calls == [{"vertexai": True, "project": project, "location": "global"}]
     if environment == "uat":
         from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
 
-        assert isinstance(client, ManagedAzureTextClient)
+        calls.clear()
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+        azure_client = build_managed_runtime_client("gemini")
+        assert isinstance(azure_client, ManagedAzureTextClient)
         assert calls == []  # Hosted API keys and stale Vertex configuration cannot capture UAT.
-    else:
-        assert calls == [{"vertexai": True, "project": project, "location": "global"}]
 
 
 def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):
@@ -1645,3 +1650,68 @@ def test_adk_adapter_preserves_owner_vertex_key_transport(monkeypatch):
             },
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "status_name"),
+    [(504, "DEADLINE_EXCEEDED"), (503, "UNAVAILABLE")],
+)
+async def test_vertex_failover_handles_504_deadline_exceeded_and_cooldowns_region(
+    status_code, status_name
+):
+    from hushh_mcp.runtime_providers.vertex_failover import VertexRegionalClient
+
+    class GatewayTimeoutError(Exception):
+        def __init__(self) -> None:
+            super().__init__(f"{status_code} {status_name}")
+            self.status_code = status_code
+            self.status = status_name
+
+    global_generate = AsyncMock(side_effect=GatewayTimeoutError())
+    regional_generate = AsyncMock(return_value=types.SimpleNamespace(text="OK"))
+
+    def fake_client(**kwargs: Any) -> Any:
+        generate = global_generate if kwargs["location"] == "global" else regional_generate
+        return types.SimpleNamespace(
+            aio=types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
+        )
+
+    client = VertexRegionalClient(
+        project="hushh-test",
+        locations=("global", "asia-southeast1"),
+        client_factory=fake_client,
+        cooldown_seconds=300,
+    )
+
+    first = await client.aio.models.generate_content(model="gemini-3.5-flash", contents="one")
+    second = await client.aio.models.generate_content(model="gemini-3.5-flash", contents="two")
+
+    assert first.text == second.text == "OK"
+    assert global_generate.await_count == 1
+    assert regional_generate.await_count == 2
+
+
+def test_regional_adk_model_disables_inner_single_region_sdk_retries(monkeypatch):
+    from google.genai.types import HttpOptions
+
+    from hushh_mcp.runtime_providers import factory
+
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global,us")
+    monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
+    monkeypatch.setattr(
+        ManagedGeminiRuntimeBinding, "locations_for_model", lambda *_: ("global", "us")
+    )
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
+
+    binding = ManagedGeminiRuntimeBinding.from_environment()
+    adk_model = binding.build_regional_adk_model("gemini-4-hydrogen")
+    assert adk_model.api_client._locations == ("global", "us")
+    assert len(calls) == 1
+    http_options = calls[0].get("http_options")
+    assert isinstance(http_options, HttpOptions)
+    assert http_options.retry_options is not None
+    assert http_options.retry_options.attempts == 1

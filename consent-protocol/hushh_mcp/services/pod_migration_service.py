@@ -39,8 +39,10 @@ comparison, which needs no key at all.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 
@@ -83,6 +85,20 @@ class MigrationRefused(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+_BUSY_RETRY_DELAYS: tuple[float, ...] = (0.15, 0.35, 0.75)
+
+
+async def _run_db_with_busy_retry(fn: Callable[[], Any]) -> Any:
+    """Retry transient owner advisory-lock contention in PostgreSQL guards."""
+    for delay in (*_BUSY_RETRY_DELAYS, None):
+        try:
+            return fn()
+        except Exception as exc:
+            if "VM placement is busy" not in str(exc) or delay is None:
+                raise
+            await asyncio.sleep(delay)
 
 
 def _now() -> str:
@@ -162,20 +178,22 @@ class PodMigrationJobRepo:
                     "MIGRATION_RECONCILIATION_REQUIRED",
                     "The existing move needs routing or cleanup reconciliation before another move.",
                 )
-            updated = (
-                self._db()
-                .table(_JOBS)
-                .update(row)
-                .eq("user_id", user_id)
-                .eq("job_id", previous["job_id"])
-                .eq("status", previous["status"])
-                .eq("updated_at", previous["updated_at"])
-                .execute()
+            updated = await _run_db_with_busy_retry(
+                lambda: (
+                    self._db()
+                    .table(_JOBS)
+                    .update(row)
+                    .eq("user_id", user_id)
+                    .eq("job_id", previous["job_id"])
+                    .eq("status", previous["status"])
+                    .eq("updated_at", previous["updated_at"])
+                    .execute()
+                )
             )
             if not updated.data:
                 raise MigrationJobSuperseded(job_id)
         else:
-            self._db().table(_JOBS).insert(row).execute()
+            await _run_db_with_busy_retry(lambda: self._db().table(_JOBS).insert(row).execute())
 
     async def _current(self, user_id: str) -> Optional[dict]:
         response = self._db().table(_JOBS).select("*").eq("user_id", user_id).limit(1).execute()
@@ -185,13 +203,15 @@ class PodMigrationJobRepo:
     async def _guarded_update(self, *, user_id: str, job_id: str, data: dict) -> None:
         # Ownership must hold in the UPDATE itself: a replacement can commit
         # after a pre-read. RETURNING distinguishes a refusal from publication.
-        response = (
-            self._db()
-            .table(_JOBS)
-            .update({**data, "updated_at": _now()})
-            .eq("user_id", user_id)
-            .eq("job_id", job_id)
-            .execute()
+        response = await _run_db_with_busy_retry(
+            lambda: (
+                self._db()
+                .table(_JOBS)
+                .update({**data, "updated_at": _now()})
+                .eq("user_id", user_id)
+                .eq("job_id", job_id)
+                .execute()
+            )
         )
         if not response.data:
             raise MigrationJobSuperseded(f"job {job_id} no longer owns the row")

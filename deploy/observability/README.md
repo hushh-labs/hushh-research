@@ -9,9 +9,9 @@ python3 deploy/observability/reconcile_capacity.py \
   --project PROJECT_ID --sql-instance INSTANCE_NAME
 ```
 
-Review the plan, then repeat with `--apply`. The default recipients are
-`manish@hushh.ai`, `ankit@hushh.ai`, and `kushal@hushh.ai`, because the Cloud
-Identity operator cannot create `eng@hush1one.com`. Use a repeated `--email`
+Review the plan, then repeat with `--apply`. The default recipient is the
+`dev-ops@hushh.ai` Cloud Identity group (`manish@hushh.ai`, `ankit@hushh.ai`,
+and `kushal@hushh.ai`). Use a repeated `--email`
 for each recipient when overriding this list. Reconcile one project at a
 time and verify the channel and policy names afterward. Existing duplicate
 channels or policy display names cause a hard failure instead of deletion.
@@ -59,7 +59,7 @@ Removing email alone would still create incidents and is insufficient. Both the
 broad setup script and the narrow command use this same reconciler, including
 severity, delivery strategy and enabled-state drift detection. `OBS_ALERT_EMAIL`
 in the broad setup overrides recipients with one address; leaving it unset uses
-the three defaults above. Unmanaged security/consent policies are not altered.
+the `dev-ops@hushh.ai` default above. Unmanaged security/consent policies are not altered.
 
 Before applying, capture the current policy JSON for rollback and verify backend
 5xx coverage against request-summary server errors. Read back policies after the
@@ -213,8 +213,7 @@ unverified channel. It does not create another channel.
 
 ```bash
 python3 deploy/observability/reconcile_capacity.py \
-  --project hushh-pda-uat --auth-only --enable-auth-alerts \
-  --email ankit@hushh.ai --email kushal@hushh.ai
+  --project hushh-pda-uat --auth-only --enable-auth-alerts --enable-auth-heartbeat
 ```
 
 Capture current policy JSON for rollback. Review this plan, append `--apply`,
@@ -315,9 +314,13 @@ dispatch control, scheduled workflow or notification channel is introduced.
 
 The protected check is moving to the `protected-configuration-health` Cloud Run
 Job and an authenticated hourly Cloud Scheduler target in each monitored project.
-The existing GitHub schedule remains the fallback until consecutive cloud-scheduled
-executions publish healthy count/status events. Retire that schedule only after
-recording the live image, identities, execution names and delivery timestamps.
+Keep the GitHub schedule as fallback until both UAT and Production have each
+recorded two distinct, genuine healthy Cloud Scheduler executions for the exact
+qualified image and identities, with each native timer read back at `17 * * * *`
+UTC. A manual execution or image build does not count. Preserve the execution,
+health-event, identity and timer receipts. Only then may a reviewed Main source
+change remove the GitHub `schedule` trigger; preserve `workflow_dispatch` and
+its protected-list checks and manual monitoring actions.
 
 Use the existing checker, pinned SDK image and non-root container. The task has
 one worker, no retries, a 600-second hard timeout and a 450-second checker deadline.

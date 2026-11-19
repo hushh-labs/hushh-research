@@ -1,13 +1,32 @@
 import { ApiService } from "@/lib/services/api-service";
 
+/**
+ * What the owner may be told about how completely their email was checked.
+ * Only `needs_attention` asks the owner to do anything; `catching_up` is
+ * background work that retries on its own and is shown quietly.
+ */
+export type FollowupCoverage = {
+  coverage: "complete" | "catching_up" | "needs_attention";
+  attention: "reconnect_mail" | "retry_needed" | "provider_unavailable" | null;
+  waiting_source_count: number;
+  exhausted_source_count: number;
+  unreadable_count: number;
+};
+
 export type FollowupStatus = {
   account_id: string;
   mail_connected: boolean;
   monitoring_enabled: boolean;
+  /** True when the stored monitor matches the live Mail grant. */
+  monitor_current?: boolean;
   background_available: boolean;
   scan_state: "off" | "pending" | "partial" | "complete";
   incomplete_source_count: number;
+  coverage?: FollowupCoverage | null;
+  last_complete_at?: string | null;
   notifications_enabled: boolean;
+  reminder_lead_days?: number | null;
+  reminder_hour?: number | null;
   historical_start_at: string | null;
   time_zone: string | null;
 };
@@ -17,13 +36,20 @@ export type FollowupView = "upcoming" | "overdue" | "snoozed" | "history";
 /** The full view pages 15 conversations at a time; the server owns the size. */
 export const FOLLOWUP_PAGE_SIZE = 15;
 
+export type FollowupCategory =
+  | "meeting_request" | "schedule_change" | "document_or_information"
+  | "deliverable_deadline" | "response_needed" | "assigned_task";
+
 export type FollowupPreviewRequest = {
   id: string; kind: "action" | "deadline" | "meeting"; state: string;
   title: string; original_due_wording: string | null;
   due_date: string | null; proposed_date: string | null; ambiguities: string[];
-  category?: string | null;
+  due_relation?: string | null; proposed_at?: string | null;
+  category?: FollowupCategory | string | null;
   /** `asap` is the sender's stated urgency; it never implies a due date. */
   urgency?: "asap" | "time_bound" | "none";
+  /** `proposed` means the email suggests a meeting that is not on the Calendar. */
+  meeting_state?: "proposed" | "confirmed" | "none";
   responsibility?: string;
   /** What passing the date means: still owed, a chance that lapses, or undecided. */
   after_date?: "owed" | "lapses" | "unspecified";
@@ -40,9 +66,13 @@ export type FollowupList = {
   /** Absent when an older server answers; the card then shows Upcoming only. */
   view?: FollowupView;
   view_counts?: Record<FollowupView, number>;
+  coverage?: FollowupCoverage | null;
   next_offset: number | null;
   conversations: FollowupConversation[];
 };
+export type FollowupReminderStatus = "none" | "scheduled" | "sent" | "closed";
+/** A real Calendar event this email is about: [event id, title, start]. */
+export type FollowupLinkedEvent = [string, string, string];
 export type FollowupRequest = FollowupPreviewRequest & {
   source_excerpt: string; due_relation: string | null; proposed_at: string | null;
   time_zone: string | null; responsibility: string; reminder_at: string | null;
@@ -50,14 +80,19 @@ export type FollowupRequest = FollowupPreviewRequest & {
   booking_state: "not_booked" | "booked" | null;
   /** How many other emails restated this request; their sources stay stored. */
   repeat_count?: number;
+  reminder_status?: FollowupReminderStatus;
+  linked_event?: FollowupLinkedEvent | null;
 };
 export type FollowupDetail = Omit<FollowupConversation, "request_count" | "active_count" | "preview_requests"> & {
   account_id: string; requests: FollowupRequest[];
 };
 export type FollowupSource = {
   request_id: string; account_id: string; subject: string; sender: string;
-  body: string; internal_date_ms: number;
+  body: string; internal_date_ms: number; gmail_message_id?: string;
 };
+/** `pending` means one bounded step finished and the scan has more to do now. */
+export type FollowupScanResult = { state?: "pending" | "partial" | "complete" | "not_due" } | undefined;
+export type FollowupSourceLink = { request_id: string; account_id: string; gmail_message_id: string };
 
 export class FollowupRequestError extends Error {
   constructor(readonly code: string, readonly status: number) { super(code); }
@@ -126,6 +161,25 @@ export class CalendarFollowupsService {
     validateAccount(value, accountId);
     if (value.request_id !== requestId || typeof value.body !== "string" || typeof value.subject !== "string") throw new Error("Source email was incomplete.");
     return value;
+  }
+
+  /** The Gmail reference for one request; the message itself is not read. */
+  static async sourceLink(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<FollowupSourceLink> {
+    if (!validUuid(requestId)) throw new Error("Choose a valid request.");
+    const value = await this.post<FollowupSourceLink>("source/link", { user_id: userId, account_id: accountId, request_id: requestId }, idToken, ownerToken, signal);
+    validateAccount(value, accountId);
+    if (value.request_id !== requestId || typeof value.gmail_message_id !== "string" || !value.gmail_message_id) throw new Error("Original email link was unavailable.");
+    return value;
+  }
+
+  /**
+   * Ask the server to continue the scan. It is bounded and rate-limited there:
+   * a call that is not due yet returns without reading mail, so opening Insights
+   * repeatedly never causes repeated full scans. `retry` is the owner's explicit
+   * "check again" and clears exhausted retries.
+   */
+  static async scan(userId: string, accountId: string, idToken: string, ownerToken: string, options: { retry?: boolean } = {}, signal?: AbortSignal): Promise<FollowupScanResult> {
+    return await this.post<FollowupScanResult>("scan", { user_id: userId, account_id: accountId, ...(options.retry ? { retry: true } : {}) }, idToken, ownerToken, signal);
   }
 
   static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<{ conversationId: string; requestId: string }> {

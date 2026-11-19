@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). Use that map for the top-down operations view; this page points to the live repo-wide branding rule.
+Canonical visual owner: [Operations Index](../README.md). Use that map for the top-down operations view; this page points to the live repo-wide branding rule.
 
 ## Status
 

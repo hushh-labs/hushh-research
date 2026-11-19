@@ -17,6 +17,7 @@ Options:
   --uat-project <project-id>         UAT project id (default: hushh-pda-uat)
   --dev-project <project-id>         Dev project id (default: hushh-pda-dev)
   --prod-project <project-id>        Prod project id (default: hushh-pda)
+  --local-project <project-id>       Project backing local mode (default: preserved or hushh-pda-uat)
   --force                            Re-copy templates before hydration
   --strict                           Exit non-zero if required cloud values are missing
   -h, --help                         Show this help
@@ -51,6 +52,7 @@ UAT_PROJECT_ID="${UAT_PROJECT_ID:-hushh-pda-uat}"
 UAT_GENAI_PROJECT_ID="$(python3 "$REPO_ROOT/scripts/ops/managed_ai_config.py" --environment uat --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])')"
 DEV_PROJECT_ID="${DEV_PROJECT_ID:-hushh-pda-dev}"
 PROD_PROJECT_ID="${PROD_PROJECT_ID:-hushh-pda}"
+LOCAL_PROJECT_ID="${LOCAL_PROJECT_ID:-}"
 FORCE=false
 STRICT=false
 LOCAL_UATDB_PROXY_PORT="${LOCAL_UATDB_PROXY_PORT:-6543}"
@@ -87,6 +89,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --prod-project)
       PROD_PROJECT_ID="${2:-}"
+      shift 2
+      ;;
+    --local-project)
+      LOCAL_PROJECT_ID="${2:-}"
       shift 2
       ;;
     --force)
@@ -139,64 +145,7 @@ trap 'rm -rf "$CACHE_DIR"' EXIT
 normalize_env_json_values() {
   local file="$1"
   [ -f "$file" ] || return 0
-  python3 - "$file" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-path = pathlib.Path(sys.argv[1])
-lines = path.read_text(encoding="utf-8").splitlines()
-keys = {
-    "FIREBASE_ADMIN_CREDENTIALS_JSON",
-    "FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON",
-    "BACKEND_RUNTIME_CONFIG_JSON",
-}
-assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-decoder = json.JSONDecoder()
-
-out = []
-i = 0
-while i < len(lines):
-    line = lines[i]
-    matched = next((key for key in keys if line.startswith(f"{key}=")), None)
-    if not matched:
-        out.append(line)
-        i += 1
-        continue
-
-    prefix = f"{matched}="
-    buf = line[len(prefix):]
-    j = i
-    normalized = None
-
-    while True:
-        try:
-            parsed, end = decoder.raw_decode(buf)
-            if isinstance(parsed, dict):
-                normalized = json.dumps(parsed, separators=(",", ":"))
-            break
-        except json.JSONDecodeError:
-            j += 1
-            if j >= len(lines):
-                break
-            buf += "\n" + lines[j]
-
-    if normalized is None:
-        out.append(line)
-        i += 1
-        continue
-
-    out.append(prefix + normalized)
-    i = j + 1
-    while i < len(lines):
-        nxt = lines[i]
-        if assign_re.match(nxt) or nxt.startswith("#") or not nxt.strip():
-            break
-        i += 1
-
-path.write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
+  python3 "$SCRIPT_DIR/local_runtime_parity.py" normalize-json "$file"
 }
 
 run_with_timeout() {
@@ -872,8 +821,17 @@ hydrate_backend_cloud_reference() {
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
-  # Bootstrap the same checked-in profile used by hosted clients.
-  local managed_vertex_project="$UAT_GENAI_PROJECT_ID"
+  # Bootstrap the same checked-in profile used by hosted clients, preferring the
+  # live Cloud Run service's Vertex project when present.
+  local managed_vertex_project=""
+  managed_vertex_project="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "GENAI_GOOGLE_CLOUD_PROJECT" "$cache_file")"
+  if [ -z "$managed_vertex_project" ]; then
+    if [ "$project" = "$DEV_PROJECT_ID" ]; then
+      managed_vertex_project="$DEV_PROJECT_ID"
+    else
+      managed_vertex_project="$UAT_GENAI_PROJECT_ID"
+    fi
+  fi
   set_if_non_empty "$file" "GENAI_GOOGLE_CLOUD_PROJECT" "$managed_vertex_project"
 
   if [ -z "$(read_env_value "$file" "CORS_ALLOWED_ORIGINS")" ] && [ -n "$front_secret" ]; then
@@ -902,9 +860,26 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_REDIRECT_URI" "false" "$cache_file"
   for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
     GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT \
-    OWNER_FEED_SIGNING_ALG OWNER_FEED_ED25519_KID OWNER_FEED_ED25519_PUBLIC_KEYS; do
+    OWNER_FEED_ED25519_PRIVATE_KEY OWNER_FEED_ED25519_PUBLIC_KEYS \
+    CONSENT_ED25519_PRIVATE_KEY CONSENT_ED25519_PUBLIC_KEYS \
+    CONSENT_AUDIT_ED25519_PRIVATE_KEY CONSENT_AUDIT_ED25519_PUBLIC_KEYS; do
     set_secret_key_or_cached "$file" "$profile" "$project" "$connector_pin" "false" "$cache_file"
   done
+  for parity_key in \
+    OWNER_FEED_SIGNING_ALG OWNER_FEED_ED25519_KID \
+    CONSENT_TOKEN_SIGNING_ALG CONSENT_ED25519_KID \
+    CONSENT_AUDIT_CHAIN_ENABLED CONSENT_AUDIT_SIGNING_ALG CONSENT_AUDIT_ED25519_KID \
+    HUSSH_GEMINI_TEXT_MODEL HUSSH_TRUSTED_DEVICE_ENABLED \
+    PERSONAL_AGENT_ENABLED PERSONAL_AGENT_BACKEND PERSONAL_AGENT_AUTOPROVISION_ENABLED PERSONAL_AGENT_REACHABILITY_GATE \
+    HUSSH_HOSTED_POD_TIER_ENABLED HUSSH_GCP_BACKEND_LIVE HUSSH_POD_PROJECT HUSSH_POD_INGRESS \
+    HUSSH_POD_TURN_ENABLED HUSSH_POD_FILES_ENABLED HUSSH_POD_BROWSER_ENABLED HUSSH_POD_MIGRATION_ENABLED HUSSH_POD_SIGNING_KEY_SECRET \
+    POD_DATA_DOOR_ENABLED POD_DIRECTIVE_TRANSPORT_ENABLED POD_DURABLE_IDENTITY_ENABLED POD_LOCAL_PKM_ENABLED \
+    POD_HUB_IDENTITY_AUTH_ENABLED POD_HUB_ALLOWED_SERVICE_ACCOUNT POD_LIFECYCLE_LOG_ENABLED POD_STORAGE_GCS_BUCKET \
+    ONE_VOICE_LIVE_ENABLED DRIVE_REQUEST_ACTIVITY_UNION_ENABLED \
+    PKM_ANSWER_COMPOSER_ENABLED PKM_ANSWER_REQUESTS_ENABLED PKM_ANSWER_PAYMENTS_ENABLED; do
+    set_if_non_empty "$file" "$parity_key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$parity_key" "$cache_file")"
+  done
+  python3 "$SCRIPT_DIR/local_runtime_parity.py" enforce-ed25519-pairings "$file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_TOKEN_KEY" "false" "$cache_file" GOOGLE_OAUTH_TOKEN_KEY GMAIL_OAUTH_TOKEN_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
   # Managed Omni Gateway credentials are only materialized into the ignored,
@@ -933,9 +908,15 @@ hydrate_backend_local_uatdb() {
   local file="$1"
   local profile="local"
   local project="$2"
-  local existing_local_plaid_webhook=""
+  local existing_local_plaid_webhook="${EXISTING_LOCAL_PLAID_WEBHOOK:-}"
+  local existing_local_proxy_creds="${EXISTING_LOCAL_PROXY_CREDS:-}"
 
-  existing_local_plaid_webhook="$(read_env_value "$file" "PLAID_WEBHOOK_URL")"
+  if [ -z "$existing_local_plaid_webhook" ]; then
+    existing_local_plaid_webhook="$(read_env_value "$file" "PLAID_WEBHOOK_URL")"
+  fi
+  if [ -z "$existing_local_proxy_creds" ]; then
+    existing_local_proxy_creds="$(read_env_value "$file" "CLOUDSQL_PROXY_CREDENTIALS_FILE")"
+  fi
 
   hydrate_backend_cloud_reference "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
@@ -944,8 +925,14 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "GOOGLE_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/google/oauth/return"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
+  if [ "$project" = "$DEV_PROJECT_ID" ]; then
+    upsert_env_value "$file" "HUSHH_DEPLOY_ENV" "dev"
+  else
+    upsert_env_value "$file" "HUSHH_DEPLOY_ENV" ""
+  fi
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
+  upsert_env_value "$file" "CLOUDSQL_PROXY_CREDENTIALS_FILE" "$existing_local_proxy_creds"
 
   # Founder decision 2026-09-26: Drive runs on the Hussh PDA Google projects, not
   # a dedicated Drive project. Localhost uses the dev/localhost OAuth client
@@ -1172,6 +1159,20 @@ sync_active_frontend_profile_if_present() {
   SUMMARY+=("synced hushh-webapp/.env.local from ${source_file#$REPO_ROOT/}")
 }
 
+EXISTING_LOCAL_PLAID_WEBHOOK=""
+EXISTING_LOCAL_PROXY_CREDS=""
+if [ -f "$BACKEND_DIR/.env" ]; then
+  EXISTING_LOCAL_PLAID_WEBHOOK="$(read_env_value "$BACKEND_DIR/.env" "PLAID_WEBHOOK_URL")"
+  EXISTING_LOCAL_PROXY_CREDS="$(read_env_value "$BACKEND_DIR/.env" "CLOUDSQL_PROXY_CREDENTIALS_FILE")"
+  if [ -z "$LOCAL_PROJECT_ID" ]; then
+    existing_backend_project="$(read_env_value "$BACKEND_DIR/.env" "GOOGLE_CLOUD_PROJECT")"
+    if [ "$existing_backend_project" = "$DEV_PROJECT_ID" ]; then
+      LOCAL_PROJECT_ID="$DEV_PROJECT_ID"
+    fi
+  fi
+fi
+LOCAL_PROJECT_ID="${LOCAL_PROJECT_ID:-$UAT_PROJECT_ID}"
+
 profiles=(local uat dev prod)
 
 copy_template_if_needed "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
@@ -1180,8 +1181,8 @@ for profile in "${profiles[@]}"; do
 done
 
 if profile_is_in_focus "local"; then
-  hydrate_backend_local_uatdb "$BACKEND_DIR/.env" "$UAT_PROJECT_ID"
-  hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local.local" "$UAT_PROJECT_ID"
+  hydrate_backend_local_uatdb "$BACKEND_DIR/.env" "$LOCAL_PROJECT_ID"
+  hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local.local" "$LOCAL_PROJECT_ID"
   HYDRATED_FILES+=("$BACKEND_DIR/.env" "$FRONTEND_DIR/.env.local.local")
 fi
 if profile_is_in_focus "uat"; then

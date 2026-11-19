@@ -1,6 +1,6 @@
 # Environment Model
 
-[Operations](../development/guides/README.md)
+[Operations](README.md)
 
 
 ## Visual Context

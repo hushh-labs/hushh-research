@@ -8,7 +8,7 @@ import { ScopeCommerceService, type NegativeNetAcknowledgement, type ScopeQuote 
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { useCommerceAction } from "@/components/consent/use-commerce-action";
 
-const PENDING = new Set(["awaiting_payment", "reserved", "preparing", "staged", "armed", "active"]);
+const PENDING = new Set(["awaiting_owner", "awaiting_payment", "reserved", "preparing", "staged", "armed", "active"]);
 
 export function useScopeCommerceRequest(requestId: string) {
   const { vaultKey, getVaultOwnerToken } = useVault();

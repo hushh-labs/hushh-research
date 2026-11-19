@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,128 @@ TAG = "dev-0123abcd-77-1"
 DIGEST = "sha256:" + "c" * 64
 POD_IMAGE = f"gcr.io/{PROJECT}/consent-protocol-pod@{DIGEST}"
 RELEASE = f"us-central1-docker.pkg.dev/{PROJECT}/one-pod-release/consent-protocol-pod"
+
+
+@pytest.fixture
+def publication_capacity(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/deploy"))
+    spec = importlib.util.spec_from_file_location(
+        "publication_capacity_writer", REPO_ROOT / "scripts/deploy/publish-pod-catalog.py"
+    )
+    writer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(writer)
+    capacity_spec = importlib.util.spec_from_file_location(
+        "publication_capacity_budget", REPO_ROOT / "scripts/ci/runtime-capacity-budget.py"
+    )
+    capacity = importlib.util.module_from_spec(capacity_spec)
+    capacity_spec.loader.exec_module(capacity)
+    profile = json.loads((REPO_ROOT / "config/runtime-capacity.json").read_text())
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/runtime-capacity.json").write_text(json.dumps(profile))
+    monkeypatch.setattr(writer, "ROOT", tmp_path)
+    revision = "consent-protocol-old"
+    service = {
+        "name": writer.SERVICE,
+        "uid": "original",
+        "etag": "original",
+        "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+        "latestReadyRevision": writer.SERVICE + "/revisions/" + revision,
+        "latestCreatedRevision": writer.SERVICE + "/revisions/" + revision,
+        "traffic": [
+            {
+                "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+                "revision": revision,
+                "percent": 100,
+            }
+        ],
+        "trafficStatuses": [{"revision": revision, "percent": 100}],
+        "template": {
+            "revision": revision,
+            "serviceAccount": "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com",
+            "containers": [
+                {
+                    "image": f"gcr.io/{PROJECT}/consent-protocol@{DIGEST}",
+                    "env": [
+                        {"name": "HUSHH_DEPLOY_ENV", "value": "dev"},
+                        {"name": "HUSHH_DEPLOY_SHA", "value": "a" * 40},
+                        {"name": "DB_POOL_MAX_SIZE", "value": "4"},
+                    ],
+                }
+            ],
+        },
+    }
+    monkeypatch.setattr(writer, "api", lambda *a, **k: deepcopy(service))
+    calls = []
+
+    def command(*args, timeout=60):
+        assert timeout == 300  # Native full inventory measured 172 seconds.
+        with monkeypatch.context() as local:
+            local.setattr(writer.sys, "argv", list(args[1:]))
+            parsed = capacity._cli.parse_args(
+                None, capacity.CAPACITY_PHASES, tmp_path / "config/runtime-capacity.json"
+            )
+        selected = (
+            frozenset() if parsed.no_candidates else frozenset(parsed.candidate_service or ())
+        )
+        candidates, _ = capacity.candidate_reservations(
+            profile["environments"]["dev"], "dev", "pre-deploy", (), selected, frozenset(), None
+        )
+        assert not candidates
+        calls.append(args)
+        return b"{}"
+
+    monkeypatch.setattr(writer, "command", command)
+    return writer, service, profile, calls
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_catalog_capacity_audits_real_fixed_scope_without_a_false_plg_candidate(
+    publication_capacity, active
+):
+    writer, service, _profile, calls = publication_capacity
+    pin, release = {"baseline": writer.baseline(service)}, {"image": POD_IMAGE}
+    if active:
+        patch = writer.candidate_patch(service, release, sha="b" * 40, run="76")
+        revision = patch["template"]["revision"]
+        service.update(
+            template=patch["template"],
+            latestReadyRevision=writer.SERVICE + "/revisions/" + revision,
+            latestCreatedRevision=writer.SERVICE + "/revisions/" + revision,
+            traffic=[
+                {
+                    "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
+                    "revision": revision,
+                    "percent": 100,
+                }
+            ],
+            trafficStatuses=[{"revision": revision, "percent": 100}],
+        )
+    writer.require_publication_capacity(None, pin, release, sha="b" * 40, run="77")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("fault", ["scope", "project", "database", "region", "target", "pool"])
+def test_catalog_capacity_scope_and_configuration_drift_refuse_before_admission(
+    publication_capacity, fault
+):
+    writer, service, profile, calls = publication_capacity
+    pin = {"baseline": writer.baseline(service)}
+    if fault == "pool":
+        service["template"]["containers"][0]["env"][-1]["value"] = "40"
+    elif fault == "region":
+        profile["region"] = "europe-west1"
+    elif fault == "target":
+        profile["environments"]["dev"]["services"]["consent-protocol"] = {}
+    else:
+        key = {"scope": "capacity_scope", "project": "project", "database": "database_instance"}[
+            fault
+        ]
+        profile["environments"]["dev"][key] = "different"
+    (writer.ROOT / "config/runtime-capacity.json").write_text(json.dumps(profile))
+    with pytest.raises(ValueError):
+        writer.require_publication_capacity(None, pin, {"image": POD_IMAGE}, sha="b" * 40, run="77")
+    assert not calls
+
 
 # Records every call, and keeps the release repository's digests in $FAKE_REGISTRY.
 # FAKE_ADD_TAG: copy (the digest lands), lost (claims success, nothing lands), fail.

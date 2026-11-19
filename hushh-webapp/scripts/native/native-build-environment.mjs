@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseEnvFile } from "../testing/reviewer-test-identity.mjs";
+import { installedIosFirebaseField, SHARED_IOS_FIREBASE_RESOURCE, verifyBundledIosUatFirebase } from "./ios-firebase-config.mjs";
 
 const profileLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/env/runtime_profile_lib.sh");
 const buildKeys = new Set(["APP_RUNTIME_PROFILE", "NEXT_DIST_DIR", "NODE_OPTIONS"]);
@@ -85,15 +86,11 @@ export function verifyPrebuiltNativeEnvironment({ appPath, env }) {
     const backends = Object.values(config.plugins || {}).flatMap((plugin) =>
       plugin && typeof plugin.backendUrl === "string" ? [plugin.backendUrl] : []);
     const expected = String(env.NEXT_PUBLIC_BACKEND_URL || "").replace(/\/$/, "");
-    const plistPath = path.join(appPath, "GoogleService-Info.plist");
-    const plist = fs.readFileSync(plistPath);
-    // Xcode packages binary plists; source XML fixtures alone do not verify an
-    // installed app. Extract only the required identity field, never the plist.
-    const project = plist.subarray(0, 8).toString("ascii") === "bplist00"
-      ? execFileSync("/usr/bin/plutil", ["-extract", "PROJECT_ID", "raw", "-o", "-", plistPath], {
-        encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000,
-      }).trim()
-      : plist.toString("utf8").match(/<key>PROJECT_ID<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+    const defaultPlist = path.join(appPath, "GoogleService-Info.plist");
+    const uat = env.APP_RUNTIME_PROFILE === "uat";
+    const identityPlist = uat ? path.join(appPath, SHARED_IOS_FIREBASE_RESOURCE) : defaultPlist;
+    const project = installedIosFirebaseField(identityPlist, "PROJECT_ID");
+    if (uat) verifyBundledIosUatFirebase(appPath);
     if (!expected || backends.length === 0 || backends.some((url) => url.replace(/\/$/, "") !== expected)
       || !project || project !== env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) throw new Error("mismatch");
   } catch {

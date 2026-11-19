@@ -54,6 +54,8 @@ const SHEET_CONSUMERS = [
   "components/computer-use/computer-use-task-card.tsx",
   "components/connect/circles/circle-photo-editor.tsx",
   "components/connections/contact-invitation-sheet.tsx",
+  "components/files/files-markdown-document-sheet.tsx",
+  "components/kai/advisor/portfolio-persona.tsx",
   "components/kai/onboarding/KaiPreferencesSheet.tsx",
   "components/kai/share/portfolio-share-sheet.tsx",
   "components/kai/views/analysis-history-dashboard.tsx",
@@ -64,7 +66,7 @@ const SHEET_CONSUMERS = [
   "components/one-location/redesign/circles/circle-grow-actions.tsx",
   "components/one-location/redesign/circles/named-circle-flows.tsx",
   "components/profile/profile-avatar-editor.tsx",
-  "components/todos/todo-list-page.tsx",
+  "components/todos/todo-add-item-sheet.tsx",
   "components/ui/sidebar.tsx",
   "lib/morphy-ux/ui/task-surfaces.tsx",
 ] as const;
@@ -73,6 +75,7 @@ describe("the shared bottom sheet stays shared", () => {
   it("still has exactly the consumers this change was checked against", () => {
     const discovered = ["app", "components", "lib"].flatMap(root =>
       readdirSync(path.join(REPO_ROOT, root), { recursive: true, encoding: "utf8" })
+        .map(file => file.split(path.sep).join("/"))
         .filter(file => file.endsWith(".tsx") && !file.includes("__tests__/") && !file.endsWith(".test.tsx"))
         .map(file => `${root}/${file}`)
         .filter(file => /from\s+["']@\/components\/ui\/sheet["']/.test(sourceOf(file))),
@@ -107,6 +110,7 @@ describe("the shared bottom sheet stays shared", () => {
       "components/app-ui/profile-pane.tsx",
       "components/app-ui/settings-ui.tsx",
       "components/computer-use/computer-use-task-card.tsx",
+      "components/files/files-markdown-document-sheet.tsx",
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/onboarding-option-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
@@ -136,7 +140,7 @@ describe("the shared bottom sheet stays shared", () => {
           // The complete inventory exposes one pre-existing Todo cap. Keep
           // that measured legacy baseline while blocking narrower/new caps;
           // its phone/desktop transport is outside this task migration.
-          const legacyMinimum = consumer === "components/todos/todo-list-page.tsx" ? 576 : 640;
+          const legacyMinimum = consumer === "components/todos/todo-add-item-sheet.tsx" ? 576 : 640;
           if (px !== null && px < legacyMinimum) {
             offenders.push(`${consumer} → ${match[0]} (${px}px)`);
           }

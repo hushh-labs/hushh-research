@@ -521,6 +521,46 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("keeps the Calendar connect card beside its source across two Mail turns", async () => {
+    const mailReply = (messageId: string, text: string) => new Response(
+      [
+        { type: "RUN_STARTED", threadId: "same-conversation", runId: messageId },
+        { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+        { type: "TEXT_MESSAGE_CONTENT", messageId, delta: text },
+        { type: "TEXT_MESSAGE_END", messageId },
+        { type: "RUN_FINISHED", threadId: "same-conversation", runId: messageId },
+      ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+    vi.spyOn(ApiService, "apiFetchStream")
+      .mockImplementationOnce(async () => sse("tool", {
+        status: "connection_required", directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
+          type: "calendar.connect", accessLevel: "read", summary: "Connect Calendar to read events.", confirmLabel: "Connect Calendar",
+        } },
+      }))
+      .mockImplementationOnce(async () => mailReply("mail-account", "Mail is connected to linked@example.test."))
+      .mockImplementationOnce(async () => mailReply("mail-list", "Your latest email is Weekly update."));
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    async function send(question: string) {
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Stop One" })).toBeNull());
+      fireEvent.change(composer, { target: { value: question } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    }
+    await send("What is on my Calendar?");
+    const initialCard = await screen.findByRole("button", { name: "Connect Calendar" });
+    const calendarQuestion = screen.getByText("What is on my Calendar?");
+    expect(calendarQuestion.compareDocumentPosition(initialCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await send("Which account is connected to Mail?");
+    await screen.findByText(/Mail is connected to/);
+    await send("Show my recent Mail.");
+    await screen.findByText("Your latest email is Weekly update.");
+    const card = screen.getByRole("button", { name: "Connect Calendar" });
+    const mailQuestion = screen.getByText("Which account is connected to Mail?");
+    expect(card).toBeEnabled();
+    expect(card.compareDocumentPosition(mailQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("denied consent retains one actionable authorization card without continuing or executing", async () => {
     const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool", {
       status: "connection_required", directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {

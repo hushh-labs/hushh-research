@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Stage the reviewed Dev owner cohort without changing live sign-in.
+"""Stage the reviewed owner cohort without changing live sign-in.
 
 One explicit, non-retrying provider request. Unknown outcomes are observed, never
 replayed. Existing deletion fences and two temporary INSERT fences survive process
@@ -24,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "consent-protocol")
 from scripts.ops.firebase_identity_migration_policy import (
     SOURCE,
     TARGET,
+    UAT_TARGET,
+    manifest_target,
+    retained_preimages,
     MARKER as MARKER,
     Refused,
     canonical,
@@ -39,6 +42,7 @@ from scripts.ops.firebase_identity_migration_policy import (
 from scripts.ops.firebase_identity_migration_fence import (
     RELEASE_KEY,
     FENCES,
+    operation_fences,
     owner_snapshot,
     fence_sql as fence_sql,
     trigger_comments as trigger_comments,
@@ -132,6 +136,250 @@ def reconcile(receipt, wanted, actual):
     )
     require(not changed, "TARGET_RECORD_CHANGED:" + ",".join(changed))
     return states
+
+
+def snapshot_for_manifest(conn, session, manifest):
+    return owner_snapshot(
+        conn,
+        export_users(session, SOURCE),
+        target_project=manifest_target(manifest),
+        retained=manifest.get("retainedTargets"),
+    )
+
+
+def operation_descriptor(receipt, history=None):
+    operation = {
+        "operation": receipt["operation"],
+        "manifestSha256": receipt["manifestSha256"],
+    }
+    if receipt.get("version") == 2:
+        operation.update(version=2, targetProject=UAT_TARGET)
+    if history:
+        operation["requestSha256"] = sha(history)
+    validate_operation(operation)
+    return operation
+
+
+def reconcile_batches(receipt, manifest, selected, actual):
+    by_hash = {identity_hash(user["localId"]): user for user in actual}
+    expected = {identity_hash(uid): user for uid, user in selected.items()}
+    require(
+        len(by_hash) == len(actual) and by_hash.keys() <= expected.keys(),
+        "FOREIGN_TARGET_IDENTITY",
+    )
+    states = {}
+    for digest, user in expected.items():
+        native = by_hash.get(digest)
+        if digest in manifest["retainedTargets"]:
+            require(
+                native is not None
+                and sha(record(native))
+                == manifest["retainedTargets"][digest]["recordSha256"],
+                "RETAINED_TARGET_CHANGED",
+            )
+            states[digest] = "retained"
+        else:
+            states[digest] = (
+                "absent"
+                if native is None
+                else "verified"
+                if matches_staged(native, user, receipt["operation"])
+                else "foreign"
+            )
+            require(states[digest] != "foreign", "TARGET_RECORD_CHANGED")
+    return states
+
+
+def stage_batches(conn, session, manifest, path, *, resume, observe_only=False):
+    """Extend the original stage port with ordered, non-replaying UAT batches."""
+    from sqlalchemy import text
+    from scripts.ops.firebase_identity_activation import (
+        private_receipt,
+        publish_checkpoint,
+    )
+
+    require(manifest_target(manifest) == UAT_TARGET, "MIGRATION_REALM_UNQUALIFIED")
+    if resume:
+        receipt = private_receipt(path)
+        require(
+            type(receipt.get("version")) is int
+            and receipt["version"] == 2
+            and receipt["manifestSha256"] == sha(manifest),
+            "RECEIPT_MANIFEST_CHANGED",
+        )
+    else:
+        require(not path.exists(), "RECEIPT_ALREADY_EXISTS")
+        receipt = {
+            "version": 2,
+            "operation": str(uuid4()),
+            "manifestSha256": sha(manifest),
+            "phase": "fence_intent",
+            "history": [],
+        }
+        save_receipt(path, receipt)
+    history = receipt["history"]
+    require(
+        isinstance(history, list) and len(history) <= len(manifest["batches"]),
+        "BATCH_HISTORY_INVALID",
+    )
+    require(
+        all(
+            set(row) == {"index", "requestSha256"}
+            and row["index"] == i
+            and re.fullmatch(r"[a-f0-9]{64}", row["requestSha256"])
+            for i, row in enumerate(history)
+        ),
+        "BATCH_HISTORY_INVALID",
+    )
+    response = session.get(
+        f"https://identitytoolkit.googleapis.com/admin/v2/projects/{SOURCE}/config",
+        timeout=25,
+        allow_redirects=False,
+    )
+    require(response.status_code == 200, "SOURCE_HASH_CONFIG_UNAVAILABLE")
+    config = response.json()["signIn"]["hashConfig"]
+    # Reconstruct every submitted request before a local tail can gain native custody.
+    fresh, selected = snapshot_for_manifest(conn, session, manifest)
+    require(fresh == manifest, "OWNER_OR_SOURCE_CHANGED")
+    by_hash = {identity_hash(uid): user for uid, user in selected.items()}
+
+    def payload_for(index):
+        return {
+            **hash_parameters(config),
+            "hashAlgorithm": "SCRYPT",
+            "allowOverwrite": False,
+            "sanityCheck": True,
+            "users": [
+                staged_record(by_hash[key], receipt["operation"])
+                for key in manifest["batches"][index]
+            ],
+        }
+
+    if history:
+        require(
+            receipt.get("passwordConfigSha256") == sha(config),
+            "SOURCE_PASSWORD_CONFIG_CHANGED",
+        )
+        require(
+            all(
+                row["requestSha256"] == sha(payload_for(i))
+                for i, row in enumerate(history)
+            ),
+            "BATCH_REQUEST_CHANGED",
+        )
+    require(
+        conn.execute(
+            text("SELECT pg_try_advisory_lock(hashtextextended(:key,0))"),
+            {"key": RELEASE_KEY},
+        ).scalar_one()
+        is True,
+        "RELEASE_OPERATOR_ACTIVE",
+    )
+    conn.commit()
+    try:
+        operation = operation_descriptor(receipt, history)
+        fresh, selected = snapshot_for_manifest(conn, session, manifest)
+        require(fresh == manifest, "OWNER_OR_SOURCE_CHANGED")
+        states = reconcile_batches(
+            receipt, manifest, selected, export_users(session, UAT_TARGET)
+        )
+        conn.commit()
+        if receipt["phase"] == "staged_disabled_verified" and fences_absent(
+            conn, target_project=UAT_TARGET
+        ):
+            require(
+                len(history) == len(manifest["batches"])
+                and "absent" not in states.values(),
+                "IMPORT_INCOMPLETE_OBSERVE_ONLY",
+            )
+            receipt["fencesRemoved"] = True
+            save_receipt(path, receipt)
+            return receipt
+        comments = trigger_comments(conn, operation)
+        if history and comments != dict.fromkeys(
+            operation_fences(operation).values(), canonical(operation)
+        ):
+            previous = operation_descriptor(receipt, history[:-1])
+            publish_checkpoint(conn, previous, operation)
+        else:
+            install_fences(conn, operation)
+            conn.commit()
+        verify_fences(conn, operation)
+        conn.commit()
+        # A submitted batch must be completely observed before any next batch.
+        for i, batch in enumerate(manifest["batches"]):
+            allowed = "verified" if i < len(history) else "absent"
+            require(
+                all(states[key] == allowed for key in batch),
+                "IMPORT_INCOMPLETE_OBSERVE_ONLY"
+                if i < len(history)
+                else "TARGET_CHANGED_BEFORE_DISPATCH",
+            )
+        if not observe_only:
+            for i in range(len(history), len(manifest["batches"])):
+                fresh, _ = snapshot_for_manifest(conn, session, manifest)
+                require(fresh == manifest, "OWNER_OR_SOURCE_CHANGED")
+                states = reconcile_batches(
+                    receipt, manifest, selected, export_users(session, UAT_TARGET)
+                )
+                require(
+                    all(states[key] == "absent" for key in manifest["batches"][i]),
+                    "TARGET_CHANGED_BEFORE_DISPATCH",
+                )
+                payload = payload_for(i)
+                receipt["passwordConfigSha256"] = sha(config)
+                history.append({"index": i, "requestSha256": sha(payload)})
+                receipt["phase"] = "dispatched_or_uncertain"
+                save_receipt(path, receipt)
+                current = operation_descriptor(receipt, history)
+                publish_checkpoint(conn, operation, current)
+                operation = current
+                response = session.post(
+                    f"https://identitytoolkit.googleapis.com/v1/projects/{UAT_TARGET}/accounts:batchCreate",
+                    json=payload,
+                    timeout=30,
+                    allow_redirects=False,
+                )
+                receipt["lastHttpStatus"] = response.status_code
+                save_receipt(path, receipt)
+                states = reconcile_batches(
+                    receipt, manifest, selected, export_users(session, UAT_TARGET)
+                )
+                require(
+                    all(
+                        states[key] == "verified"
+                        for batch in manifest["batches"][: i + 1]
+                        for key in batch
+                    ),
+                    "IMPORT_INCOMPLETE_OBSERVE_ONLY",
+                )
+                conn.commit()
+        receipt["identities"] = states
+        receipt["phase"] = "observed"
+        save_receipt(path, receipt)
+        if len(history) != len(manifest["batches"]):
+            return receipt
+        fresh, _ = snapshot_for_manifest(conn, session, manifest)
+        require(
+            fresh == manifest and "absent" not in states.values(),
+            "SOURCE_CHANGED_AFTER_IMPORT",
+        )
+        verify_fences(conn, operation)
+        conn.commit()
+        receipt["phase"] = "staged_disabled_verified"
+        save_receipt(path, receipt)
+        with conn.begin():
+            remove_fences(conn, operation)
+        receipt["fencesRemoved"] = True
+        save_receipt(path, receipt)
+        return receipt
+    finally:
+        conn.rollback()
+        conn.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"),
+            {"key": RELEASE_KEY},
+        )
+        conn.commit()
 
 
 def prepare_stage(conn, session, manifest, path, *, resume):
@@ -261,7 +509,11 @@ def settle_stage(conn, session, manifest, selected, path, receipt, operation):
     return receipt
 
 
-def stage(conn, session, manifest, path, *, resume):
+def stage(conn, session, manifest, path, *, resume, observe_only=False):
+    if manifest_target(manifest) == UAT_TARGET:
+        return stage_batches(
+            conn, session, manifest, path, resume=resume, observe_only=observe_only
+        )
     from sqlalchemy import text
 
     receipt, operation, completed = prepare_stage(
@@ -307,14 +559,17 @@ def arguments():
             "plan",
             "stage",
             "observe",
+            "continue-stage",
+            "continue-activation",
             "activation-plan",
             "activate",
             "observe-activation",
+            "preflight",
         ),
         nargs="?",
         default="plan",
     )
-    parser.add_argument("--environment", choices=("dev",), required=True)
+    parser.add_argument("--environment", choices=("dev", "uat"), required=True)
     parser.add_argument("--database-port", type=int, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--receipt", type=Path)
@@ -322,7 +577,32 @@ def arguments():
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--staging-receipt", type=Path)
     parser.add_argument("--activation-manifest", type=Path)
-    return parser.parse_args()
+    args = parser.parse_args()
+    require(
+        args.environment == "uat" or args.action != "preflight",
+        "PREFLIGHT_REQUIRES_UAT",
+    )
+    if args.action == "preflight":
+        require(
+            not args.apply
+            and not any(
+                (
+                    args.receipt,
+                    args.staging_receipt,
+                    args.activation_manifest,
+                    args.manifest_sha256,
+                )
+            ),
+            "PREFLIGHT_IS_READ_ONLY",
+        )
+    elif args.action not in {"plan", "activation-plan"}:
+        require(
+            args.apply
+            and args.receipt is not None
+            and args.manifest_sha256 is not None,
+            "EXPLICIT_APPLY_REQUIRED",
+        )
+    return args
 
 
 def plan_staging(conn, session, source, args, manifest, selected):
@@ -332,8 +612,9 @@ def plan_staging(conn, session, source, args, manifest, selected):
     )
 
     require(not args.apply, "PLAN_IS_READ_ONLY")
-    actual = export_users(session, TARGET)
-    if actual:
+    target = manifest_target(manifest)
+    actual = export_users(session, target)
+    if actual and target == TARGET:
         require(
             args.staging_receipt and fences_absent(conn),
             "QUALIFIED_STAGING_REQUIRED",
@@ -364,12 +645,15 @@ def plan_activation(conn, session, source, args, manifest, selected):
         not args.apply and args.staging_receipt and args.activation_manifest,
         "ACTIVATION_PLAN_PATHS_REQUIRED",
     )
-    require(fences_absent(conn), "STAGING_FENCES_PRESENT")
+    require(
+        fences_absent(conn, target_project=manifest_target(manifest)),
+        "STAGING_FENCES_PRESENT",
+    )
     plan = activation_plan(
         private_receipt(args.staging_receipt),
         manifest,
         selected,
-        export_users(session, TARGET),
+        export_users(session, manifest_target(manifest)),
         workos=workos_snapshot(conn, selected, manifest),
     )
     plan["liveSource"] = source
@@ -399,7 +683,21 @@ def operate(conn, session, source, args):
         "EVIDENCE_PATHS_MUST_DIFFER",
     )
     drain(conn)
-    manifest, selected = owner_snapshot(conn, export_users(session, SOURCE))
+    target = UAT_TARGET if getattr(args, "environment", "dev") == "uat" else TARGET
+    if target == UAT_TARGET:
+        if args.action == "plan":
+            source_users = export_users(session, SOURCE)
+            _, selected = owner_snapshot(conn, source_users, target_project=target)
+            retained = retained_preimages(selected, export_users(session, target))
+            manifest, selected = owner_snapshot(
+                conn, source_users, target_project=target, retained=retained
+            )
+        else:
+            bound = private_receipt(args.manifest)
+            require(manifest_target(bound) == target, "MANIFEST_ENVIRONMENT_CHANGED")
+            manifest, selected = snapshot_for_manifest(conn, session, bound)
+    else:
+        manifest, selected = owner_snapshot(conn, export_users(session, SOURCE))
     conn.rollback()
     if args.action == "plan":
         return plan_staging(conn, session, source, args, manifest, selected)
@@ -410,7 +708,7 @@ def operate(conn, session, source, args):
         return plan_activation(conn, session, source, args, manifest, selected)
     require(args.apply and args.receipt is not None, "EXPLICIT_APPLY_REQUIRED")
     plan = {**reviewed, "liveSource": source}
-    if args.action in {"activate", "observe-activation"}:
+    if args.action in {"activate", "observe-activation", "continue-activation"}:
         require(
             args.activation_manifest and args.staging_receipt,
             "ACTIVATION_PLAN_PATHS_REQUIRED",
@@ -426,17 +724,23 @@ def operate(conn, session, source, args):
         )
     require(args.manifest_sha256 == sha(plan), "REVIEWED_MANIFEST_REQUIRED")
     with receipt_lock(args.receipt):
-        if args.action in {"activate", "observe-activation"}:
+        if args.action in {"activate", "observe-activation", "continue-activation"}:
             result = activate(
                 conn,
                 session,
                 plan,
                 args.receipt,
-                resume=args.action == "observe-activation",
+                resume=args.action != "activate",
+                observe_only=args.action == "observe-activation",
             )
         else:
             result = stage(
-                conn, session, manifest, args.receipt, resume=args.action == "observe"
+                conn,
+                session,
+                manifest,
+                args.receipt,
+                resume=args.action != "stage",
+                observe_only=args.action == "observe",
             )
     return {
         "owners": len(selected),
@@ -447,6 +751,11 @@ def operate(conn, session, source, args):
 
 def main():
     args = arguments()
+    if args.action == "preflight":
+        from scripts.ops.firebase_identity_preflight import run_uat_preflight
+
+        print(canonical(run_uat_preflight(args)))
+        return
     import google.auth
     from google.auth.transport.requests import AuthorizedSession
     from requests.adapters import HTTPAdapter
@@ -454,24 +763,32 @@ def main():
 
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
-        quota_project_id=TARGET,
+        quota_project_id=UAT_TARGET if args.environment == "uat" else TARGET,
     )
     with AuthorizedSession(credentials, max_refresh_attempts=0) as session:
         session.trust_env = False
         session.mount("https://", HTTPAdapter(max_retries=0))
-        with dev_database(
-            args.database_port, readonly=args.action in {"plan", "activation-plan"}
-        ) as (
-            engine,
-            source,
-        ):
-            with engine.connect() as conn:
-                from db.firebase_erasure_adoption import qualification_sql
-                from sqlalchemy import text
+        readonly = args.action in {"plan", "activation-plan"}
+        if args.environment == "uat":
+            from scripts.ops.firebase_identity_preflight import uat_database
 
-                conn.execute(text(qualification_sql(required=True)))
-                conn.rollback()
-                print(canonical(operate(conn, session, source, args)))
+            with uat_database(session, args.database_port, readonly=readonly) as (
+                conn,
+                installed,
+            ):
+                print(canonical(operate(conn, session, installed["source"], args)))
+        else:
+            with dev_database(args.database_port, readonly=readonly) as (
+                engine,
+                source,
+            ):
+                with engine.connect() as conn:
+                    from db.firebase_erasure_adoption import qualification_sql
+                    from sqlalchemy import text
+
+                    conn.execute(text(qualification_sql(required=True)))
+                    conn.rollback()
+                    print(canonical(operate(conn, session, source, args)))
 
 
 if __name__ == "__main__":

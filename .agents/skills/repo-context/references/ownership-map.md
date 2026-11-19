@@ -18,7 +18,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 12. `planning-board`: GitHub board workflows.
 13. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 14. `comms-community`: public/community explanation workflows.
-15. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
+15. `skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
 16. `agent-orchestration-governance`: custom agents, subagent limits, delegation authority, and handoff verification.
 17. `autonomous-rca-governance`: resume-safe RCA for runtime, UAT, and CI failures.
 18. `one-voice-governance`: One Voice contracts, Kai compatibility runtime, planner/executor flow, and generated gateway parity.

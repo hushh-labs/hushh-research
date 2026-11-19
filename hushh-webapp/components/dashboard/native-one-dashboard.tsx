@@ -6,6 +6,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObj
 import { usePathname, useRouter } from "next/navigation";
 import { OneAgentRosterBody, useOneAgentRosterModel, type OneAgentMode, type OneAgentRosterProps } from "./one-agent-roster";
 import { PublicProfileDiscoveryEntryBody, usePublicProfileDiscoveryEntry } from "@/components/profile/public-profile-discovery-card";
+import { areScheduledTasksAvailable } from "@/lib/services/pod-scheduled-tasks";
 import { ScheduledTasksPanelBody, scheduledTaskLabels, useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { WalletEntryWarmup } from "@/components/wallet/wallet-entry-warmup";
@@ -76,7 +77,7 @@ export function nativeLauncherAgent(mode: OneAgentMode, id: string, accentHex: s
   return { id, label: mode.title, description: mode.description, metricValue: mode.primaryMetric.value,
     metricLabel: mode.primaryMetric.label, artworkId: `roster-${Object.hasOwn(AGENT_ICON_MAP, mode.id) ? mode.id : "default"}`,
     // Fixed glyph colors are generated from the authored SVG, not app tones.
-    iconHex: mode.id === "location" ? nativeColorTokenHex("--agent-location-blue") ?? "#007AFF" : accentHex };
+    iconHex: mode.id === "location" ? nativeColorTokenHex("--agent-location-blue") ?? resolvedAccentHex().toUpperCase() : accentHex };
 }
 function LauncherBody({ roster, discovery, tasks, frame, presentation, openDiscovery, activationRevision }: LauncherModel & {
   presentation: ReturnType<typeof useNativeWorkspacePresentation>; openDiscovery: () => Promise<void>; activationRevision: number;
@@ -137,7 +138,9 @@ function LauncherBody({ roster, discovery, tasks, frame, presentation, openDisco
     ]);
   } else {
     section("utilities", [
-      row("scheduled", "Scheduled tasks", () => tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true }),
+      row("goals", "Goals", () => router.push(ROUTES.ONE_GOALS), { symbol: "target", chevron: true }),
+      row("tasks", "Tasks", () => router.push(ROUTES.ONE_TASKS), { symbol: "checklist", chevron: true }),
+      ...(areScheduledTasksAvailable() ? [row("scheduled", "Scheduled tasks", () => tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true })] : []),
       ...(discovery.visible ? [row("discovery", discovery.ready ? "Review your profile" : "Claim your profile",
         () => discovery.ready ? router.push(ROUTES.ONE_PROFILE_DISCOVERY) : openDiscovery(), { chevron: true })] : []),
     ]);

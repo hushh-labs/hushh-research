@@ -91,8 +91,8 @@ DEVELOPER_OVERRIDE_FILES = {
 
 # What a lane actually deploys.
 LANE_WORKFLOWS = {
-    "dev": REPO / ".github/workflows/deploy-dev.yml",
-    "uat": REPO / ".github/workflows/deploy-uat.yml",
+    "dev": REPO / ".github/workflows/deploy-dev-implementation.yml",
+    "uat": REPO / ".github/workflows/deploy-uat-implementation.yml",
     "prod": REPO / ".github/workflows/deploy-production.yml",
 }
 CLOUDBUILD_DEFAULTS = [

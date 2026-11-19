@@ -53,7 +53,14 @@ def test_live_entry_is_realtime_regional_and_alias_free():
 
 @pytest.mark.parametrize(
     "model_id",
-    ["", "gemini-3.1-flash-live-preview", "gemini-3.8-flash", "gemini-default", "default"],
+    [
+        "",
+        "gemini-3.1-flash-live-preview",
+        "gemini-4-hydrogen",
+        "gemini-3.8-flash",
+        "gemini-default",
+        "default",
+    ],
 )
 def test_live_resolver_fails_closed_on_pass_through_aliases_and_text_models(model_id):
     with pytest.raises(LiveModelNotRegisteredError):
@@ -116,7 +123,7 @@ def test_hosted_environment_cannot_select_developer_key_for_live(monkeypatch, fa
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
     factory.build_managed_live_client(model=LIVE_MODEL, location="us-central1")
     assert fake_genai_client[0]["vertexai"] is True
-    assert fake_genai_client[0]["project"] == "hushh-gemini-bridge"
+    assert fake_genai_client[0]["project"] == "hushh-pda-uat"
     assert "api_key" not in fake_genai_client[0]
 
 

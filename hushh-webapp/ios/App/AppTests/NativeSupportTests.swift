@@ -1925,7 +1925,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
-            "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
+            "connector-calendar", "connector-contacts", "connector-stripe", "connector-hubspot",
+            "connector-instagram", "connector-linkedin", "connector-slack"]
         let accentedArtwork: Set<String> = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model",
             "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
             "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",
@@ -3321,7 +3322,7 @@ final class NativeSupportTests: XCTestCase {
                menu.accessibilityIdentifier == "native-profile-row-theme-selector" { return menu }
             return view.subviews.lazy.compactMap { choiceMenu(in: $0) }.first
         }
-        let themeMenu = try XCTUnwrap(choiceMenu(in: preferencesPage.view))
+        var themeMenu = try XCTUnwrap(choiceMenu(in: preferencesPage.view))
         // Force a real representable update while UIKit quarantines its page.
         // didShow must restore touch without another settings projection.
         navigation.navigationController(navigation, willShow: preferencesPage, animated: true)
@@ -3335,8 +3336,13 @@ final class NativeSupportTests: XCTestCase {
             NativeDrawerSection(id: "appearance-settings", title: nil, rows: [updatedRow]),
         ])]
         controller.update(duringTransition)
+        // SwiftUI may recreate the menu inside its retained page. Capture the
+        // updated attached control before didShow so restoration is still tested.
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            themeMenu.accessibilityValue == "Dark"
+            guard let current = choiceMenu(in: preferencesPage.view), current.window === window,
+                  current.accessibilityValue == "Dark" else { return false }
+            themeMenu = current
+            return true
         }, object: nil)], timeout: 3)
         XCTAssertFalse(preferencesPage.view.isUserInteractionEnabled)
         navigation.navigationController(navigation, didShow: preferencesPage, animated: true)

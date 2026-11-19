@@ -114,8 +114,12 @@ def finalize_reward_round(cutoff_at: datetime, program_timezone: str) -> Finaliz
             text(
                 """
                 SELECT user_id, SUM(points) AS total
-                  FROM one_referral_score_events
+                  FROM one_referral_score_events e
                  WHERE created_at < :cutoff_at
+                   AND NOT EXISTS (
+                     SELECT 1 FROM account_deletion_tombstones t
+                      WHERE t.user_id_hash = 'sha256:' || encode(sha256(convert_to(e.user_id, 'UTF8')), 'hex')
+                   )
                  GROUP BY user_id
                 HAVING SUM(points) > 0
                  ORDER BY total DESC, MIN(created_at) FILTER (WHERE points>0), user_id ASC

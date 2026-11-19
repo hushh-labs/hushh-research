@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from hushh_mcp.services.pod_commit_log import GcsObjectStore, LocalObjectStore, object_key_segments
+from hushh_mcp.services.pod_emulator_endpoints import resolve_gcp_storage_origin
 
 
 class FilesGcsStore(GcsObjectStore):
@@ -21,8 +22,9 @@ class FilesGcsStore(GcsObjectStore):
             raise FilesRefused("FILES_BUCKET_CUSTODY_UNVERIFIED", 503)
         if self._retention is not None and time.monotonic() - self._security_checked_at < 60:
             return self._retention
+        origin, _ = resolve_gcp_storage_origin()
         response = await asyncio.to_thread(
-            self._object_get, f"https://storage.googleapis.com/storage/v1/b/{self._bucket}", {}, 30
+            self._object_get, f"{origin}/storage/v1/b/{self._bucket}", {}, 30
         )
         if response.status_code != 200:
             raise FilesRefused("FILES_BUCKET_CUSTODY_UNVERIFIED", 503)
@@ -54,9 +56,10 @@ class FilesGcsStore(GcsObjectStore):
         params = {"prefix": root, "maxResults": str(limit), "fields": "items(name),nextPageToken"}
         if cursor:
             params["pageToken"] = cursor
+        origin, _ = resolve_gcp_storage_origin()
         response = await asyncio.to_thread(
             self._object_get,
-            f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o",
+            f"{origin}/storage/v1/b/{self._bucket}/o",
             params,
             30,
         )

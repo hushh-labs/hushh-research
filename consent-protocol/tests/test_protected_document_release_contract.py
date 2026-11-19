@@ -492,7 +492,10 @@ def test_every_manual_rollback_job_installs_and_uses_the_reader_guard():
         rollbacks = [
             (i, step) for i, step in enumerate(steps) if step.get("id", "").startswith("rollback-")
         ]
-        assert {step["id"] for _, step in rollbacks} == {"rollback-backend", "rollback-frontend"}
+        expected_rollbacks = {"rollback-backend", "rollback-frontend"}
+        if name == "rollback-uat":
+            expected_rollbacks.add("rollback-drive-worker")
+        assert {step["id"] for _, step in rollbacks} == expected_rollbacks
         for index, step in rollbacks:
             assert index > setup
             assert "scripts/ci/cloudrun-rollback.sh" in step["run"]

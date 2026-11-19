@@ -6,7 +6,7 @@ import { OneTodoPreview } from "@/components/agent/one-todo-preview";
 import { agentTodoInput, buildTodo, calendarTodoInput, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 
 const mocks = vi.hoisted(() => ({
-  load: vi.fn(), save: vi.fn(), remove: vi.fn(), epoch: 0,
+  load: vi.fn(), save: vi.fn(), remove: vi.fn(), create: vi.fn(), epoch: 0,
   events: [] as { id: string; title: string; start: { date: string } }[],
   actionables: [] as FeedActionable[],
   kyc: null as { count: number; workflowId: string } | null,
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/services/todo-list-pkm-service", async original => {
   const actual = await original<typeof import("@/lib/services/todo-list-pkm-service")>();
-  return { ...actual, TodoListPkmService: { load: mocks.load, setStatus: mocks.save, remove: mocks.remove } };
+  return { ...actual, createTodo: mocks.create, TodoListPkmService: { load: mocks.load, setStatus: mocks.save, remove: mocks.remove } };
 });
 vi.mock("@/lib/feed/use-feed-actionables", () => ({ useFeedActionables: ({ enabled }: { enabled: boolean }) => ({ actionables: enabled ? mocks.actionables : [], loading: false, error: null, retry: mocks.retryFeed }) }));
 vi.mock("@/lib/feed/use-feed-briefing", () => ({ useFeedBriefing: ({ enabled }: { enabled: boolean }) => ({ pendingKyc: enabled ? mocks.kyc : null, kycLoading: false, kycError: false, retryKyc: mocks.retryKyc }) }));
@@ -54,6 +54,22 @@ describe("One profile To-do live-source parity", () => {
     mocks.remove.mockResolvedValue({ success: true });
   });
 
+  it("uses the shared task editor and retains the draft and identity after a failed save", async () => {
+    mocks.create.mockResolvedValueOnce({ result: { success: false } })
+      .mockImplementationOnce(async (input) => ({ task: buildTodo(input), result: { success: true } }));
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByText("All clear.");
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Arrange files" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Arrange files");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Arrange files")).toBeVisible();
+    expect(mocks.create.mock.calls[1]?.[0].id).toBe(mocks.create.mock.calls[0]?.[0].id);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("fetches Calendar, explicit agent tasks and KYC even when saved tasks are empty", async () => {
     mocks.events = [event];
     mocks.actionables = [actionable, actionable, { ...actionable, id: "history", todo: undefined }];
@@ -65,6 +81,10 @@ describe("One profile To-do live-source parity", () => {
     expect(screen.queryByText("All clear.")).not.toBeInTheDocument();
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.sourceAction).not.toHaveBeenCalled();
+    for (const text of ["Task sources", "Suggest tasks", "Refresh sources"]) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("checkbox", { name: "Let One suggest tasks from summaries." })).not.toBeInTheDocument();
   });
 
   it("reconciles saved completion and deletion before showing live sources", async () => {

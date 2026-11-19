@@ -70,10 +70,10 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
     # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
-    "tzdata==2026.1",
+    "tzdata==2026.6",
     "uvicorn>=0.34.0",
     # WorkOS enterprise SSO (behind an adapter; see docs/architecture/enterprise-sso-workos-adr.md).
-    "workos==10.5.0",
+    "workos==10.9.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
@@ -83,7 +83,7 @@ dependencies = [
     "cachetools==7.1.7",
     "stripe>=13,<20",
     "openpyxl>=3.1.5,<4",
-    "dnspython>=2.8,<3",
+    "dnspython>=2.9.2,<3",
     "idna>=3.10,<4",
     "certifi>=2026.10.19",
     "exchange-calendars>=4.11,<5",
@@ -247,6 +247,10 @@ module = [
     # A pure table plus one classifier. Cheap to check, and its return types are
     # what `google_maps_service` builds a response contract on.
     "hushh_mcp.services.place_taxonomy",
+    # Preserve typed return contracts for extracted route-to-service boundaries.
+    "hushh_mcp.services.pod_lifecycle_log",
+    "hushh_mcp.services.relay_nonce_store",
+    "hushh_mcp.services.scope_commerce_requests",
 ]
 follow_imports = "normal"
 
@@ -255,6 +259,7 @@ exclude_dirs = ["tests", "__pycache__"]
 skips = ["B101"]  # Skip assert warnings
 
 [tool.pytest.ini_options]
+collect_imported_tests = true
 pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

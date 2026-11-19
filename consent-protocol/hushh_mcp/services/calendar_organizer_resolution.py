@@ -10,17 +10,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any, NamedTuple
 
 import asyncpg
 
 from db.connection import get_pool
-from hushh_mcp.services.actor_identity_service import _IDENTITY_STALE_AFTER, ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    _IDENTITY_STALE_AFTER,
+    ActorIdentityPeerUnavailableError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.calendar_invitations import attendee_status
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
 logger = logging.getLogger(__name__)
 
+# One refresh round re-reads at most this many peers; a resolution makes at most
+# `_PEER_REFRESH_ROUNDS` rounds inside one shared time budget. Each round skips
+# every peer already tried in this resolution, so peers that cannot be re-read
+# never hold the window and starve the peers behind them.
 _PEER_REFRESH_LIMIT = 12
+_PEER_REFRESH_ROUNDS = 3
 _PEER_REFRESH_SECONDS = 8
 _LOOKUP_ERRORS = (asyncpg.PostgresError, OSError, TimeoutError)
 
@@ -68,67 +79,220 @@ _ORGANIZER_PEERS = """SELECT DISTINCT CASE WHEN c.user_a_id=$1 THEN c.user_b_id 
      LIMIT 3"""
 
 # Active peers whose cached identity cannot yet vouch for any email: no cache row,
-# no email, unverified, or older than the cache's own freshness window.
+# no email, unverified, or older than the cache's own freshness window. `$4` is
+# the peers already tried in this resolution. Peers with no proof at all come
+# first: only they can start matching after a refresh.
 _PEERS_NEEDING_REFRESH = """SELECT p.peer FROM (
        SELECT DISTINCT CASE WHEN c.user_a_id=$1 THEN c.user_b_id ELSE c.user_a_id END AS peer
          FROM connections c
          WHERE c.status='active' AND (c.user_a_id=$1 OR c.user_b_id=$1)) p
      LEFT JOIN actor_identity_cache i ON i.user_id=p.peer
-     WHERE i.user_id IS NULL OR i.email IS NULL OR NOT i.email_verified
-        OR i.last_synced_at < NOW() - make_interval(secs => $2)
-     ORDER BY i.last_synced_at ASC NULLS FIRST
+     WHERE (i.user_id IS NULL OR i.email IS NULL OR NOT i.email_verified
+        OR i.last_synced_at < NOW() - make_interval(secs => $2))
+       AND p.peer <> ALL($4::text[])
+     ORDER BY (i.email IS NOT NULL AND i.email_verified) ASC,
+              i.last_synced_at ASC NULLS FIRST
+     LIMIT $3"""
+
+# Count-only evidence for the operator log when no peer matches: how many active
+# peers the requester has, how many still have no verified email, and how many
+# verified one with the same mailbox name on a different domain. No address,
+# name or id leaves this query, and nothing here ever resolves an organizer.
+_PEER_EVIDENCE = """SELECT count(*) AS active_peers,
+       count(*) FILTER (WHERE i.user_id IS NULL OR i.email IS NULL
+                           OR NOT i.email_verified) AS unproven_peers,
+       count(*) FILTER (WHERE i.email_verified AND lower(i.email)<>$2
+                           AND split_part(lower(i.email),'@',1)=split_part($2,'@',1)
+                       ) AS same_mailbox_other_domain
+     FROM (SELECT DISTINCT CASE WHEN c.user_a_id=$1 THEN c.user_b_id ELSE c.user_a_id END AS peer
+             FROM connections c
+             WHERE c.status='active' AND (c.user_a_id=$1 OR c.user_b_id=$1)) p
+     LEFT JOIN actor_identity_cache i ON i.user_id=p.peer"""
+
+# The requester's own pending connection requests, in either direction. Both
+# sides already know about these, so reading them discloses nothing new. The SQL
+# is written out in full rather than assembled, so no query is ever built from
+# strings.
+_PENDING_ORGANIZER = """SELECT 1 FROM connection_requests r
+     WHERE r.status='pending' AND (r.requester_user_id=$1 OR r.addressee_user_id=$1)
+       AND (EXISTS (SELECT 1 FROM actor_identity_cache i
+           WHERE i.user_id=CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id ELSE r.requester_user_id END
+             AND i.email_verified AND lower(i.email)=$2)
+         OR EXISTS (SELECT 1 FROM actor_verified_email_aliases a
+           WHERE a.user_id=CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id ELSE r.requester_user_id END
+             AND a.email_normalized=$2 AND a.verification_status='verified'
+             AND a.revoked_at IS NULL))
+     LIMIT 1"""
+_PENDING_NEEDING_REFRESH = """SELECT p.peer FROM (
+       SELECT DISTINCT CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id ELSE r.requester_user_id END AS peer
+         FROM connection_requests r
+         WHERE r.status='pending'
+           AND (r.requester_user_id=$1 OR r.addressee_user_id=$1)) p
+     LEFT JOIN actor_identity_cache i ON i.user_id=p.peer
+     WHERE (i.user_id IS NULL OR i.email IS NULL OR NOT i.email_verified
+        OR i.last_synced_at < NOW() - make_interval(secs => $2))
+       AND p.peer <> ALL($4::text[])
+     ORDER BY (i.email IS NOT NULL AND i.email_verified) ASC,
+              i.last_synced_at ASC NULLS FIRST
      LIMIT $3"""
 
 
-async def _refresh_unproven_peers(pool, user_id: str) -> tuple[int, int]:
+class _Refresh(NamedTuple):
+    """What a refresh pass tried: peers attempted, peers that could not be re-read,
+    whether peers were left untried because the pass reached its round cap, and how
+    many failures were not final (an outage, not a deleted or disabled account)."""
+
+    attempted: int
+    failed: int
+    exhausted: bool
+    unsettled: int = 0
+
+
+async def _refresh_unproven_peers(
+    pool,
+    user_id: str,
+    query: str = _PEERS_NEEDING_REFRESH,
+    *,
+    resolved: Callable[[], Awaitable[Any]] | None = None,
+) -> _Refresh:
     """Re-read Firebase for this requester's own active peers with unproven cached email.
 
     A missing or stale cache row is not evidence that an organizer has no One
     account, so it must not decide the outcome. This is scoped to the requester's
-    existing relationships, bounded in count and time, and only runs when the
-    cached lookup found nobody. Returns (attempted, failed).
+    existing relationships, bounded in rounds, peers and time, and only runs when
+    the cached lookup found nobody.
 
-    A peer that cannot be re-read (deleted, disabled, provider error) raises the
-    same error as an outage, so per-peer failure is counted, never treated as a
-    reason to retry: that would trap a requester behind one dead peer. Only an
-    overall timeout or database error is retryable, and both propagate.
+    Each round skips every peer already tried in this pass. A peer that cannot be
+    re-read keeps an old cache timestamp, so without that exclusion it would head
+    the queue every time and the peers behind it would never be reached. A peer the
+    provider reports as deleted or disabled is final: it is counted and never a
+    reason to trap the requester. Any other failure (an outage, a permission or
+    network error) is counted as `unsettled`: that peer might be the organizer, so
+    the caller reports the answer as unknown. A timeout or database error also
+    propagates as retryable.
+
+    `resolved`, when given, is checked after each round so the pass stops as soon
+    as the lookup it serves can answer.
     """
-    async with pool.acquire() as connection:
-        rows = await connection.fetch(
-            _PEERS_NEEDING_REFRESH,
-            user_id,
-            _IDENTITY_STALE_AFTER.total_seconds(),
-            _PEER_REFRESH_LIMIT,
-            timeout=5,
-        )
-    peers = [str(row["peer"]) for row in rows]
-    if not peers:
-        return 0, 0
+    tried: list[str] = []
+    failed = 0
+    unsettled = 0
+    exhausted = False
     service = ActorIdentityService()
     async with asyncio.timeout(_PEER_REFRESH_SECONDS):
-        results = await asyncio.gather(
-            *(service.sync_from_firebase(p, force=True, require_success=True) for p in peers),
-            return_exceptions=True,
-        )
-    return len(peers), sum(isinstance(result, BaseException) for result in results)
+        for round_number in range(_PEER_REFRESH_ROUNDS):
+            async with pool.acquire() as connection:
+                rows = await connection.fetch(
+                    query,
+                    user_id,
+                    _IDENTITY_STALE_AFTER.total_seconds(),
+                    _PEER_REFRESH_LIMIT,
+                    tried,
+                    timeout=5,
+                )
+            peers = [str(row["peer"]) for row in rows]
+            if not peers:
+                break
+            results = await asyncio.gather(
+                *(service.sync_from_firebase(p, force=True, require_success=True) for p in peers),
+                return_exceptions=True,
+            )
+            tried.extend(peers)
+            failed += sum(isinstance(result, BaseException) for result in results)
+            unsettled += sum(
+                isinstance(result, BaseException)
+                and not isinstance(result, ActorIdentityPeerUnavailableError)
+                for result in results
+            )
+            if len(peers) < _PEER_REFRESH_LIMIT:
+                break
+            if resolved is not None and await resolved():
+                break
+            exhausted = round_number == _PEER_REFRESH_ROUNDS - 1
+    return _Refresh(len(tried), failed, exhausted, unsettled)
 
 
-async def connected_organizer(user_id: str, email: str) -> str:
-    """Resolve only the requester's active One peers, without directory disclosure.
+class _Resolution(NamedTuple):
+    """Where the requester stands with an organizer, and the count-only evidence."""
 
-    Refusals carry a closed reason; the finer cause is a count-only operator log.
-    A lookup that could not finish is retryable and never reads as "no organizer".
-    """
-    pool = await get_pool()
-    attempted = failed = 0
+    state: str  # ready | pending | not_connected | ambiguous | changed
+    peer: str | None
+    outcome: str
+    counts: dict[str, Any]
+
+
+async def _pending_organizer(pool, user_id: str, email: str) -> bool:
+    """Does the requester have a pending connection request with this verified email?"""
+
+    async def found() -> bool:
+        async with pool.acquire() as connection:
+            return bool(await connection.fetchval(_PENDING_ORGANIZER, user_id, email, timeout=5))
+
+    if await found():
+        return True
+    refresh = await _refresh_unproven_peers(pool, user_id, _PENDING_NEEDING_REFRESH, resolved=found)
+    if refresh.attempted <= refresh.failed:
+        return False
+    return await found()
+
+
+async def _peer_evidence(pool, user_id: str, email: str) -> dict[str, int]:
+    """Count-only evidence for the operator log; never a reason to resolve anyone."""
     try:
         async with pool.acquire() as connection:
-            rows = await connection.fetch(_ORGANIZER_PEERS, user_id, email, timeout=5)
+            rows = await connection.fetch(_PEER_EVIDENCE, user_id, email, timeout=5)
+    except _LOOKUP_ERRORS:
+        return {}
+    row = rows[0] if rows else {}
+    return {
+        key: int(row[key] or 0)
+        for key in ("active_peers", "unproven_peers", "same_mailbox_other_domain")
+        if key in row
+    }
+
+
+def _incomplete(refresh: _Refresh) -> DriveSharingError:
+    """The lookup could not rule the organizer out: retry, never "not connected"."""
+    return refuse(
+        "recipient_verification_unavailable",
+        "organizer_lookup_incomplete",
+        outcome="refresh_window_exhausted" if refresh.exhausted else "refresh_unavailable",
+        retryable=True,
+        refreshed=refresh.attempted - refresh.failed,
+        refresh_failed=refresh.failed,
+        refresh_unsettled=refresh.unsettled,
+    )
+
+
+async def _resolve(user_id: str, email: str, *, include_pending: bool) -> _Resolution:
+    """Resolve only the requester's active One peers, without directory disclosure.
+
+    A lookup that could not finish is retryable and never reads as "no organizer",
+    including when more peers needed a refresh than one pass may read, or when a
+    peer could not be re-read for a reason that may pass: the answer is then unknown,
+    and the progress already made means the next try gets further.
+    ``include_pending`` also looks at the requester's own pending connection
+    requests; the request path leaves it off.
+    """
+    pool = await get_pool()
+    refresh = _Refresh(0, 0, False)
+    pending = False
+
+    async def organizer_rows():
+        async with pool.acquire() as connection:
+            return await connection.fetch(_ORGANIZER_PEERS, user_id, email, timeout=5)
+
+    try:
+        rows = await organizer_rows()
         if not rows:
-            attempted, failed = await _refresh_unproven_peers(pool, user_id)
-            if attempted > failed:
-                async with pool.acquire() as connection:
-                    rows = await connection.fetch(_ORGANIZER_PEERS, user_id, email, timeout=5)
+            refresh = await _refresh_unproven_peers(pool, user_id, resolved=organizer_rows)
+            if refresh.attempted > refresh.failed:
+                rows = await organizer_rows()
+        if not rows and (refresh.exhausted or refresh.unsettled):
+            raise _incomplete(refresh)
+        if not rows and include_pending:
+            pending = await _pending_organizer(pool, user_id, email)
+        evidence = {} if rows else await _peer_evidence(pool, user_id, email)
     except _LOOKUP_ERRORS:
         raise refuse(
             "recipient_verification_unavailable",
@@ -137,20 +301,18 @@ async def connected_organizer(user_id: str, email: str) -> str:
             retryable=True,
         ) from None
     if not rows:
-        raise refuse(
-            "calendar_organizer_unavailable",
-            "organizer_unresolved",
-            outcome="no_active_peer_with_verified_email",
-            refreshed=attempted - failed,
-            refresh_failed=failed,
+        return _Resolution(
+            "pending" if pending else "not_connected",
+            None,
+            "no_active_peer_with_verified_email",
+            {
+                "refreshed": refresh.attempted - refresh.failed,
+                "refresh_failed": refresh.failed,
+                **evidence,
+            },
         )
     if len(rows) != 1:
-        raise refuse(
-            "calendar_organizer_unavailable",
-            "organizer_unresolved",
-            outcome="ambiguous_peers",
-            matches=len(rows),
-        )
+        return _Resolution("ambiguous", None, "ambiguous_peers", {"matches": len(rows)})
     peer = str(rows[0]["peer"])
     try:
         fresh = await ActorIdentityService().sync_from_firebase(
@@ -174,12 +336,44 @@ async def connected_organizer(user_id: str, email: str) -> str:
         )
         and not alias_verified
     ):
+        return _Resolution("changed", None, "identity_changed_on_fresh_read", {})
+    return _Resolution("ready", peer, "", {})
+
+
+async def connected_organizer(user_id: str, email: str) -> str:
+    """The organizer's user id, only when an active, uniquely verified peer.
+
+    Refusals carry a closed reason; the finer cause is a count-only operator log.
+    This is the authoritative check, run again whenever a request is created.
+    """
+    resolution = await _resolve(user_id, email, include_pending=False)
+    if resolution.state != "ready" or resolution.peer is None:
         raise refuse(
             "calendar_organizer_unavailable",
             "organizer_unresolved",
-            outcome="identity_changed_on_fresh_read",
+            outcome=resolution.outcome,
+            **resolution.counts,
         )
-    return peer
+    return resolution.peer
+
+
+async def organizer_readiness(user_id: str, email: str) -> str:
+    """ready | pending | not_connected | unavailable, for a requester who has not sent yet.
+
+    Read-only and advisory: the request path decides again with
+    ``connected_organizer``. Only the requester's own active peers and pending
+    requests are read, so an organizer who is not connected looks the same as one
+    who has no One account.
+    """
+    resolution = await _resolve(user_id, email, include_pending=True)
+    state = "unavailable" if resolution.state in {"ambiguous", "changed"} else resolution.state
+    logger.info(
+        "calendar_request_readiness state=%s outcome=%s %s",
+        _log_token(state),
+        _log_token(resolution.outcome or "verified"),
+        " ".join(f"{key}={int(value)}" for key, value in sorted(resolution.counts.items())),
+    )
+    return state
 
 
 def require_attending(event: dict, email: str) -> None:

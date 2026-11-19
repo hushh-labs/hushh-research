@@ -105,8 +105,6 @@ import { WorldModelResearchService } from "@/lib/services/world-model-research-s
 import { WorldModelDecisionService } from "@/lib/services/world-model-decision-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ReferralService } from "@/lib/services/referral-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -148,35 +146,52 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
-  it("keeps both native Close paths locked until uncertain phone transfer settles", async () => {
+  it("keeps an occupied phone linked to its existing account in native Profile", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);
     const close = vi.fn();
-    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(Object.assign(new ApiError("Review transfer", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }), { phoneProofAvailable: true }));
-    vi.spyOn(auth, "confirmPhoneTransfer").mockRejectedValueOnce(new ApiError("Check progress", 409, { code: "PHONE_TRANSFER_IN_PROGRESS" })).mockResolvedValueOnce(auth.user);
+    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(new ApiError("Occupied", 409, { code: "PHONE_ALREADY_VERIFIED" }));
+    const transfer = vi.spyOn(auth, "confirmPhoneTransfer");
     render(<StepProgressProvider><ProfilePage presentation="native-page" nativeMenuOpen
       onNativeMenuClose={close} paneLocation={{ panel: "account", detail: "phone" }} /></StepProgressProvider>);
     const input = await screen.findByRole("textbox", { name: "Phone number" });
-    fireEvent.change(input, { target: { value: "6505550101" } });
-    fireEvent.submit(input.closest("form")!);
+    fireEvent.change(input, { target: { value: "6505550101" } }); fireEvent.submit(input.closest("form")!);
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm phone transfer" }));
-    const progress = await screen.findByRole("button", { name: "Check transfer progress" });
-    fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
-    fireEvent.click(screen.getByRole("button", { name: "Menu Close Profile" }));
-    expect(close).not.toHaveBeenCalled();
-    expect(auth.startPhoneVerification).toHaveBeenCalledOnce();
-    fireEvent.click(progress);
-    await waitFor(() => expect(auth.confirmPhoneTransfer).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Check transfer progress" })).toBeNull());
+    await screen.findByRole("button", { name: "Delete my previous account" });
+    expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Recover my previous account" })).toBeNull();
+    expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("reverifies an app-only phone in native Profile without taking it from its Firebase owner", async () => {
+  it.each([
+    { appPhone: "+16505550101", providerPhone: null, description: "0101", action: "Manage" },
+    { appPhone: "+16505550101", providerPhone: "+16505550999", description: "0101", action: "Manage" },
+    { appPhone: "+16505550101", providerPhone: "+16505550101", description: "0101", action: "Change" },
+    { appPhone: null, providerPhone: "+16505550999", description: "Finish phone verification", action: "Verify" },
+  ])("shows the Account phone summary and $action for its binding state", async ({
+    appPhone, providerPhone, description, action,
+  }) => {
+    nav.query = "profile_pane=1&profile_panel=account";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    auth.phoneNumber = appPhone;
+    auth.phoneNumberStatus = appPhone ? "verified" : "missing";
+    vi.mocked(AuthService.reloadPhoneVerificationUser).mockResolvedValue({
+      ...auth.user, phoneNumber: providerPhone,
+    } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
+    render(<StepProgressProvider><ProfilePage presentation="pane"
+      paneLocation={{ panel: "account", detail: null }} /></StepProgressProvider>);
+    const row = await screen.findByRole("button", { name: new RegExp(`^Phone number.*${action}`) });
+    expect(row).toHaveTextContent(description);
+    expect(row).not.toHaveTextContent("5550101");
+    expect(row).not.toHaveTextContent("0999");
+    expect(auth.startPhoneVerification).not.toHaveBeenCalled();
+  });
+
+  it("asks for fresh provider proof when the owner chooses to link an app-only phone", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);
@@ -197,10 +212,8 @@ describe("Profile pane: Personal World Model", () => {
     expect(start).toHaveBeenCalledWith("+16505550101", expect.objectContaining({ transport: "sms" }));
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     await screen.findByRole("button", { name: "Delete my previous account" });
-    const transferReview = screen.getByRole("button", { name: "Use this number on this account" });
-    expect(transferReview).toBeDisabled();
-    fireEvent.click(transferReview);
-    expect(screen.getByRole("button", { name: "Recover my previous account" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Recover my previous account" })).toBeNull();
     expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();
@@ -247,27 +260,12 @@ describe("Profile pane: Personal World Model", () => {
     expect(within(activeScreen()!).getByRole("button", { name: "Share" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Referrals" })).not.toBeInTheDocument();
   });
-  it("does not replace an explicit Memory refresh with a late initialization response", async () => {
+  it("redirects legacy my-data panel requests to canonical /one/pkm instead of embedding a second Memory surface in Profile", async () => {
     nav.query = "profile_pane=1&profile_panel=my-data";
     window.history.replaceState(null, "", `/one?${nav.query}`);
-    const metadata = (label: string) => ({ ...PersonalKnowledgeModelService.emptyMetadata(auth.user.uid),
-      domains: [{ key: "synthetic", displayName: label, attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }] });
-    let resolveInitial!: (value: ReturnType<typeof metadata>) => void;
-    const initial = new Promise<ReturnType<typeof metadata>>(resolve => { resolveInitial = resolve; });
-    const read = vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockImplementation((_id, force) =>
-      force ? Promise.resolve(metadata("Fresh category")) : initial);
-    vi.spyOn(ConsentCenterService, "getCenter").mockResolvedValue({ active_grants: [] } as never);
     render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "my-data", detail: null }} /></StepProgressProvider>);
-    await waitFor(() => expect(read).toHaveBeenCalled());
-    act(() => { window.dispatchEvent(new CustomEvent("pkm-domain-changed", { detail: { userId: auth.user.uid } })); });
-    await waitFor(() => expect(within(activeScreen()!).getByText("Fresh category")).toBeInTheDocument());
-    act(() => { resolveInitial(metadata("Stale category")); });
-    // Let the intentionally deferred initialization settle without awaiting
-    // unrelated live-resource effects in one global async React act scope.
-    await initial;
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(within(activeScreen()!).getByText("Fresh category")).toBeInTheDocument();
-    expect(within(activeScreen()!).queryByText("Stale category")).not.toBeInTheDocument();
+    expect(within(activeScreen()!).getByRole("status")).toHaveTextContent("Opening Memory…");
+    await waitFor(() => expect(nav.router.replace).toHaveBeenCalledWith("/one/pkm"));
   });
   it.each(["domain:missing", "connection:missing"] as const)("retains a destination body when %s cannot resolve", detail => {
     nav.query = `profile_pane=1&profile_panel=my-data&profile_detail=${encodeURIComponent(detail)}`;

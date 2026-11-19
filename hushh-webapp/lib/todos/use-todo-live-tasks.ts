@@ -5,7 +5,7 @@ import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connect
 import { useCalendarUpcomingEvents, type RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 import { useFeedActionables, type FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing, type FeedKycBriefing } from "@/lib/feed/use-feed-briefing";
-import { agentTodoInput, buildTodo, calendarTodoInput, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { agentTodoInput, buildTodo, calendarTodoInput, calendarTodoSourceId, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 import { taskSort } from "@/lib/todos/todo-list-model";
 import { useTodoCapabilitySources } from "./use-todo-capability-sources";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -47,15 +47,22 @@ function mergeAutomaticTasks(
   events: RedactedCalendarEvent[],
   saved: TodoItem[],
 ): TodoItem[] {
+  // Cancellation tombstones can omit their start/title. Reconcile by provider
+  // identity before calendarTask drops them as non-displayable events.
+  const cancelledIds = new Set(
+    events.filter(event => event.status?.toLowerCase() === "cancelled" && event.id)
+      .map(event => calendarTodoSourceId(event.id)),
+  );
   const savedAutomatic = new Map(
     saved
       .filter((task) => task.type === "automatic" && !isLiveAgentTodo(task))
+      .filter((task) => !(task.sourceAgent === "calendar" && task.sourceId && cancelledIds.has(task.sourceId)))
       .map((task) => [task.sourceId ?? task.id, task]),
   );
   const seen = new Set<string>();
   const projected = events.flatMap((event, index) => {
     const fromCalendar = calendarTask(event, index);
-    if (!fromCalendar) return [];
+    if (!fromCalendar || cancelledIds.has(fromCalendar.sourceId)) return [];
     const key = fromCalendar.sourceId ?? fromCalendar.id;
     seen.add(key);
     const stored = savedAutomatic.get(key);
@@ -77,7 +84,7 @@ function mergeAutomaticTasks(
   });
 
   // The Calendar read may lag briefly after a successful booking. Keep the
-  // encrypted automatic snapshot visible until the provider projection catches up.
+  // encrypted automatic snapshot visible unless the provider explicitly cancelled it.
   for (const task of savedAutomatic.values()) {
     const key = task.sourceId ?? task.id;
     if (task.status === "pending" && !seen.has(key)) projected.push(task);
@@ -93,6 +100,7 @@ function projectTodoTasks(
   extra: TaskEvidence[],
 ): TodoItem[] {
     const saved = new Map(tasks.map((task) => [task.id, task]));
+    const reviewedSources = new Set(tasks.filter(task => task.type === "manual" && task.sourceId).map(task => task.sourceId));
     const live = new Map<string, TodoItem>();
     for (const item of actionables) {
       if (!item.todo) continue;
@@ -103,7 +111,7 @@ function projectTodoTasks(
       if (status !== "done" && status !== "deleted") live.set(task.id, task);
     }
     for (const item of extra) {
-      if (!item.pendingTitle) continue;
+      if (!item.pendingTitle || reviewedSources.has(item.key)) continue;
       const input = agentTodoInput(item.key, { source: item.capability === "finance" ? "kai" : item.capability, title: item.pendingTitle, href: item.href });
       if (!input) continue;
       const task = buildTodo(input);
@@ -154,6 +162,9 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
   const agentLoading = agentFeed.loading || agentFeed.progressLoading || kycLoading;
   const calendarReadLoading = enabled && (!calendar.loaded || calendar.loading || (calendar.connected && (!upcoming.loaded || upcoming.loading)));
   const calendarReadError = Boolean(calendar.error || upcoming.error);
+  const emailReadLoading = enabled && (gmail.loadingStatus || extra.loading);
+  const emailReadError = enabled && !emailReadLoading && Boolean(gmail.statusError || extra.error ||
+    extra.reads.some(read => read.coverage.capability === "gmail" && read.coverage.status === "unavailable"));
   const pending = useMemo(
     () => projectTodoTasks(tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence),
     [tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence],
@@ -169,13 +180,13 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     if (existing && suggested) existing.pendingTitle = task.title;
     if (capability && !existing) suggestionEvidence.push({
       capability, key, summary: task.title, pendingTitle: task.title,
-      href: task.link || "/one/todos",
+      href: task.link || "/one/tasks",
     });
   }
   return {
     pending: enabled ? pending : [], agentFeed, retryKyc, calendar, upcoming,
-    agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError,
+    agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading,
     evidence: suggestionEvidence, coverage: allCoverage, sourceLoading: extra.loading || agentLoading || calendarReadLoading,
-    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable" || source.status === "incomplete"), refreshSources: extra.refresh,
+    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable"), refreshSources: extra.refresh,
   };
 }

@@ -9,6 +9,8 @@ import { getOneCapability } from "@/lib/onboarding/one-capabilities";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import type { TaskCapability, TaskCoverage, TaskEvidence } from "@/lib/todos/task-suggestion-model";
 import { walletCardRequestHref } from "@/lib/wallet/card-request";
+import { ownerContentIsPrivate } from "./private-agent-specialist-chat";
+import { privateMailTasks } from "./private-google-task-sources";
 
 export type CapabilityRead = { coverage: TaskCoverage; evidence: TaskEvidence[] };
 export type TaskReadContext = {
@@ -61,9 +63,15 @@ async function readAdvisor(context: TaskReadContext, idToken: string): Promise<C
 async function readMail(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   if (!context.mailStatusKnown) return result("gmail", 0, [], "unavailable");
   if (!context.mailConnected) return result("gmail", 0, [], "not_connected");
+  if (await ownerContentIsPrivate()) {
+    const mail = await privateMailTasks(context);
+    const rows = mail.items.map(item => evidence("gmail", `mail:${item.key}`, item.title, item.title));
+    return result("gmail", rows.length, rows, mail.complete ? "ready" : "incomplete");
+  }
   const mail = await GmailReceiptsService.listNudges({ idToken, userId: context.userId, vaultOwnerToken: context.vaultOwnerToken, limit: 50 });
   const rows = await Promise.all(mail.nudges.filter(row => row.type === "needs_reply").map(async row =>
-    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title)));
+    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title,
+      `${row.sender?.trim() ? `Reply to ${row.sender.trim()}` : "Reply"}: ${row.title}`)));
   // This publisher scans recent threads, not the entire mailbox.
   return result("gmail", rows.length, rows, "incomplete");
 }
@@ -71,6 +79,7 @@ async function readMail(context: TaskReadContext, idToken: string): Promise<Capa
 async function readInvitations(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   if (!context.calendarStatusKnown) return result("calendar", 0, [], "unavailable");
   if (!context.calendarConnected) return result("calendar", 0, [], "not_connected");
+  if (await ownerContentIsPrivate()) return result("calendar", 0, [], "incomplete");
   const data = await GoogleCalendarService.invitations({ firebaseIdToken: idToken, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, signal: context.signal, isEffectCurrent: context.isCurrent });
   const rows = await Promise.all(data.events.filter(row => row.response_status === "needsAction" && row.can_respond).map(async row =>
     evidence("calendar", `rsvp:${await sourceKey(context.userId, `${row.calendar_id}:${row.id}`)}`, row.title, `Respond to ${row.title}`)));

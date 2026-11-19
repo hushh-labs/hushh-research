@@ -84,7 +84,7 @@ def facts_policy_version() -> str:
     manifest = Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml"
     contract = Path(__file__).with_name("drive_packet_contract.py")
     references = Path(__file__).with_name("drive_citation_references.py")
-    model = resolve_fleet_model_name("gemini-default")
+    model = resolve_fleet_model_name("gemini-default", processing_scope="drive_document_requests")
     return (
         FACTS_SCHEMA_VERSION
         + ":"

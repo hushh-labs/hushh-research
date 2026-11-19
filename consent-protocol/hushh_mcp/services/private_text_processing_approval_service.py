@@ -39,15 +39,18 @@ class PrivateAzureTextApproval:
     generation: str
     disclosure_version: str = PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION
     authorization_basis: str = "owner_approval"
+    scope: str | None = None
 
 
-def private_drive_text_policy() -> dict[str, Any] | None:
+def private_drive_text_policy(
+    *, scope: str = DRIVE_DOCUMENT_REQUESTS_SCOPE
+) -> dict[str, Any] | None:
     """The checked-in default grants processor use only, never file access."""
     _require_uat()
     from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
     try:
-        return managed_text_policy()
+        return managed_text_policy(scope=scope)
     except Exception:
         raise _unavailable() from None
 
@@ -59,10 +62,10 @@ def resolve_private_text_authority(
     _require_uat()
     owner = _owner(user_id)
     if scope in {DRIVE_DOCUMENT_REQUESTS_SCOPE, "one_text_chat"}:
-        policy = private_drive_text_policy()
+        policy = private_drive_text_policy(scope=scope)
         if policy is not None:
             return PrivateAzureTextApproval(
-                owner, policy["generation"], policy["version"], "uat_policy"
+                owner, policy["generation"], policy["version"], "uat_policy", scope
             )
     if row is not None and _approved(row):
         return PrivateAzureTextApproval(owner, str(row["generation"]))
@@ -113,6 +116,7 @@ def _public(
     user_id: str,
     include_policy: bool = False,
     include_processing_provider: bool = False,
+    include_scope_providers: bool = False,
 ) -> dict[str, Any]:
     result = {
         "provider": PRIVATE_AZURE_TEXT_PROVIDER,
@@ -140,7 +144,21 @@ def _public(
                 if policy is None or policy["generation"] != grant.generation:
                     raise _unavailable()
                 provider = "gemini" if policy["selected_provider"] == "vertex" else "azure_openai"
+                chat_policy = private_drive_text_policy(scope="one_text_chat")
+                if (
+                    chat_policy is None
+                    or chat_policy["selected_provider"] != policy["selected_provider"]
+                ):
+                    provider = None  # A combined legacy descriptor cannot name a split processor.
             result["processing_policy"]["provider"] = provider
+        if include_scope_providers:
+            scopes = {
+                scope: "gemini" if policy["selected_provider"] == "vertex" else "azure_openai"
+                for scope in ("one_text_chat", DRIVE_DOCUMENT_REQUESTS_SCOPE)
+                if (policy := private_drive_text_policy(scope=scope)) is not None
+            }
+            if len(scopes) == 2:
+                result["processing_policy"]["scope_providers"] = scopes
     return result
 
 
@@ -162,7 +180,11 @@ async def _read(user_id: str) -> Mapping[str, Any] | None:
 
 
 async def get_private_text_approval(
-    *, user_id: str, include_policy: bool = False, include_processing_provider: bool = False
+    *,
+    user_id: str,
+    include_policy: bool = False,
+    include_processing_provider: bool = False,
+    include_scope_providers: bool = False,
 ) -> dict[str, Any]:
     _require_uat()
     return _public(
@@ -170,6 +192,7 @@ async def get_private_text_approval(
         user_id=user_id,
         include_policy=include_policy,
         include_processing_provider=include_processing_provider,
+        include_scope_providers=include_scope_providers,
     )
 
 
@@ -181,6 +204,7 @@ async def set_private_text_approval(
     disclosure_version: str | None = None,
     include_policy: bool = False,
     include_processing_provider: bool = False,
+    include_scope_providers: bool = False,
 ) -> dict[str, Any]:
     _require_uat()
     owner = _owner(user_id)
@@ -254,6 +278,7 @@ async def set_private_text_approval(
         user_id=user_id,
         include_policy=include_policy,
         include_processing_provider=include_processing_provider,
+        include_scope_providers=include_scope_providers,
     )
 
 
@@ -296,7 +321,7 @@ def private_azure_text_require_current(
         current = await require_private_azure_text_approval(
             approval.user_id,
             expected_generation=approval.generation,
-            **({"scope": DRIVE_DOCUMENT_REQUESTS_SCOPE} if policy_grant else {}),
+            **({"scope": approval.scope or DRIVE_DOCUMENT_REQUESTS_SCOPE} if policy_grant else {}),
         )
         if current.authorization_basis != approval.authorization_basis:
             raise PrivateTextApprovalError(

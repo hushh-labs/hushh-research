@@ -65,8 +65,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @objc func getPendingEmergencySmsAlarms(_ call: CAPPluginCall) {
-        guard let user = call.getString("userId"), FirebaseApp.app() != nil,
-              Auth.auth().currentUser != nil, ChatPreviewKeys.recipientKey(["user_id": user]) != nil
+        guard let user = call.getString("userId"), HushhFirebaseIdentity.app != nil,
+              HushhFirebaseIdentity.auth.currentUser != nil, ChatPreviewKeys.recipientKey(["user_id": user]) != nil
         else { call.resolve(["grantIds": [], "acknowledgedGrantIds": []]); return }
         let requested = Array((call.getArray("grantIds", String.self) ?? []).prefix(512))
         call.resolve(["grantIds": SmsAlarmLedger.pending(user: user),
@@ -124,8 +124,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             self.resumeEmergencyCue()
             self.retireHandoffIfSettled()
         })
-        if FirebaseApp.app() != nil {
-            emergencyAuthObserver = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        if HushhFirebaseIdentity.app != nil {
+            emergencyAuthObserver = HushhFirebaseIdentity.auth.addStateDidChangeListener { [weak self] _, user in
                 Task { @MainActor in
                     guard let self else { return }
                     if #available(iOS 26.0, *) {
@@ -148,8 +148,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     deinit {
         emergencyObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        if let observer = emergencyAuthObserver, FirebaseApp.app() != nil {
-            Auth.auth().removeStateDidChangeListener(observer)
+        if let observer = emergencyAuthObserver, HushhFirebaseIdentity.app != nil {
+            HushhFirebaseIdentity.auth.removeStateDidChangeListener(observer)
         }
         emergencyPlayer?.stop()
         emergencyPulse?.invalidate()
@@ -181,8 +181,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     private func resumeEmergencyCue() {
         guard !emergencyInterrupted, !emergencyGrants.isEmpty,
               UIApplication.shared.applicationState == .active,
-              FirebaseApp.app() != nil,
-              Auth.auth().currentUser?.uid == emergencyFirebaseUid,
+              HushhFirebaseIdentity.app != nil,
+              HushhFirebaseIdentity.auth.currentUser?.uid == emergencyFirebaseUid,
               let owner = emergencyOwner,
               ChatPreviewKeys.recipientKey(["user_id": owner]) != nil else { return }
         for grant in emergencyGrants where SmsAlarmLedger.acknowledged(user: owner, grant: grant) {
@@ -205,7 +205,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     /// ringing alarm continues as bounded notification sound until acknowledged.
     private func handOffEmergencyCue() {
         guard !emergencyGrants.isEmpty, let owner = emergencyOwner,
-              FirebaseApp.app() != nil, Auth.auth().currentUser?.uid == emergencyFirebaseUid,
+              HushhFirebaseIdentity.app != nil, HushhFirebaseIdentity.auth.currentUser?.uid == emergencyFirebaseUid,
               ChatPreviewKeys.recipientKey(["user_id": owner]) != nil else { return }
         emergencyPlayer?.pause()
         guard emergencyGrants.contains(where: { !SmsAlarmLedger.acknowledged(user: owner, grant: $0) }) else { return }
@@ -255,8 +255,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func playEmergencySmsCue(_ call: CAPPluginCall) {
         Task { @MainActor [weak self] in
             let now = Date().timeIntervalSince1970 * 1000
-            guard let self, FirebaseApp.app() != nil,
-                  let uid = Auth.auth().currentUser?.uid,
+            guard let self, HushhFirebaseIdentity.app != nil,
+                  let uid = HushhFirebaseIdentity.auth.currentUser?.uid,
                   let user = call.getString("userId"), let grant = call.getString("grantId"),
                   let key = ChatPreviewKeys.recipientKey(["user_id": user]),
                   let deadline = call.getDouble("expiresAt"), deadline.isFinite,
@@ -267,7 +267,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             if SmsAlarmLedger.endedBeforeAdmission(user: user, grant: grant) { call.resolve(["played": false]); return }
             if #available(iOS 26.0, *), EmergencySmsSystemAlarm.authorized {
                 let scheduled = await EmergencySmsSystemAlarm.schedule(user: user, grant: grant)
-                guard Auth.auth().currentUser?.uid == uid,
+                guard HushhFirebaseIdentity.auth.currentUser?.uid == uid,
                       ChatPreviewKeys.recipientKey(["user_id": user]) == key else {
                     EmergencySmsSystemAlarm.cancel(user: user, grant: grant)
                     call.resolve(["played": false]); return
@@ -283,8 +283,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     private func playForegroundEmergencySmsCue(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self,
-                  FirebaseApp.app() != nil,
-                  let firebaseUid = Auth.auth().currentUser?.uid,
+                  HushhFirebaseIdentity.app != nil,
+                  let firebaseUid = HushhFirebaseIdentity.auth.currentUser?.uid,
                   let userId = call.getString("userId"), !userId.isEmpty,
                   ChatPreviewKeys.recipientKey(["user_id": userId]) != nil,
                   let grantId = call.getString("grantId"), !grantId.isEmpty,
@@ -318,7 +318,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                 let pulse = Timer(timeInterval: 1.5, repeats: true) { [weak self] timer in
                     guard let self else { timer.invalidate(); return }
                     guard self.emergencyGeneration == generation else { timer.invalidate(); return }
-                    guard Auth.auth().currentUser?.uid == firebaseUid,
+                    guard HushhFirebaseIdentity.auth.currentUser?.uid == firebaseUid,
                           ChatPreviewKeys.recipientKey(["user_id": userId]) != nil
                     else { self.stopEmergencyCue(); return }
                     if !self.emergencyInterrupted, UIApplication.shared.applicationState == .active {
@@ -354,7 +354,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         if let key = info["recipient_key_id"] as? String {
             if !ChatPreviewKeys.matches(keyId: key) { return false }
         } else {
-            guard FirebaseApp.app() != nil, let user = Auth.auth().currentUser?.uid,
+            guard HushhFirebaseIdentity.app != nil, let user = HushhFirebaseIdentity.auth.currentUser?.uid,
                   info["user_id"] as? String == user else { return false }
         }
         if ChatPreviewKeys.isRead(info) { return false }
@@ -385,9 +385,14 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     }()
 
     @objc func deletePushToken(_ call: CAPPluginCall) {
-        Messaging.messaging().deleteToken { error in
+        let completion: (Error?) -> Void = { error in
             if error != nil { call.reject("Push token deletion failed") }
             else { call.resolve() }
+        }
+        if let shared = HushhFirebaseIdentity.shared {
+            Messaging.messaging().deleteFCMToken(forSenderID: shared.options.gcmSenderID, completion: completion)
+        } else {
+            Messaging.messaging().deleteToken(completion: completion)
         }
     }
 

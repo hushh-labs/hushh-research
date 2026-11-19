@@ -20,6 +20,8 @@ DRIVE_PRODUCTION_TOOLS = (
 
 
 CI_PRODUCTION_TOOLS = (
+    "github_team_authority.py",
+    "github_security_receipt.py",
     "capture_managed_provider_receipt.py",
     "production_auth_domain_refresh.py",
     "uat-retention-maintenance.py",
@@ -43,6 +45,7 @@ CI_PRODUCTION_TOOLS = (
     "production_activation_continuation.py",
     "production_staged_worker.py",
     "production_worker_basis.py",
+    "production_worker_emergency.py",
     "production_backend_inheritance.py",
     "production_retention_context.py",
     "production_restoration_receipt.py",
@@ -65,6 +68,8 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
     """Pinned current tools must survive checkout of a historical application."""
     return [
         *old_paths,
+        "deploy/frontend-image.cloudbuild.yaml",
+        "deploy/frontend.cloudbuild.yaml",
         *(f"scripts/ci/{name}" for name in CI_PRODUCTION_TOOLS),
         "config/ci-governance.json",
         "config/release-cadence.json",

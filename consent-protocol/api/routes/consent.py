@@ -29,7 +29,6 @@ from api.routes.consent_commerce_support import (
     paid_owner_approval,
 )
 from api.utils.firebase_auth import verify_firebase_bearer
-from db.db_client import get_db
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
     get_connector_crypto_profile,
@@ -1118,59 +1117,22 @@ async def approve_consent(
 
     # Notify requester via feed and push notification if this was a person-to-person request
     bundle_id = str(metadata.get("bundle_id") or "").strip() if isinstance(metadata, dict) else ""
-    requester_user_id = None
-    if bundle_id:
-        try:
-            bundle_rows = (
-                get_db()
-                .execute_raw(
-                    "SELECT requester_user_id FROM one_information_request_bundles WHERE bundle_id = CAST(:bundle AS UUID) LIMIT 1",
-                    {"bundle": bundle_id},
-                )
-                .data
-            )
-            if bundle_rows:
-                requester_user_id = str(bundle_rows[0].get("requester_user_id") or "").strip()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("consent.approve.bundle_lookup_failed error=%s", exc)
+    try:
+        from hushh_mcp.services.consent_db import (
+            resolve_approval_requester_notification_target_sync,
+        )
 
-    if (
-        not requester_user_id
-        and isinstance(metadata, dict)
-        and metadata.get("requester_actor_type") == "person"
-    ):
-        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
-        if requester_entity_id:
-            try:
-                requester_rows = (
-                    get_db()
-                    .execute_raw(
-                        "SELECT user_id FROM actor_profiles WHERE public_person_ref = CAST(:ref AS UUID) LIMIT 1",
-                        {"ref": requester_entity_id},
-                    )
-                    .data
-                )
-                if requester_rows:
-                    requester_user_id = str(requester_rows[0].get("user_id") or "").strip()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("consent.approve.requester_lookup_failed error=%s", exc)
-
-    if requester_user_id:
-        try:
-            subject_profile_rows = (
-                get_db()
-                .execute_raw(
-                    "SELECT public_person_ref, display_name, photo_url FROM actor_profiles WHERE user_id = :subject_user_id LIMIT 1",
-                    {"subject_user_id": userId},
-                )
-                .data
-            )
-            subject_row = subject_profile_rows[0] if subject_profile_rows else {}
-            subject_display_name = (
-                str(subject_row.get("display_name") or "Someone").strip() or "Someone"
-            )
-            subject_person_ref = str(subject_row.get("public_person_ref") or "").strip()
-            subject_photo_url = str(subject_row.get("photo_url") or "").strip() or None
+        notification_target = await run_in_threadpool(
+            resolve_approval_requester_notification_target_sync,
+            bundle_id=bundle_id,
+            metadata=metadata,
+            subject_user_id=userId,
+        )
+        if notification_target:
+            requester_user_id = notification_target["requester_user_id"]
+            subject_display_name = notification_target["subject_display_name"]
+            subject_person_ref = notification_target["subject_person_ref"]
+            subject_photo_url = notification_target["subject_photo_url"]
             scope_desc = get_dynamic_scope_description(requested_scope) or requested_scope
 
             from hushh_mcp.services.feed_service import FeedService
@@ -1205,8 +1167,8 @@ async def approve_consent(
                     data={"person_ref": subject_person_ref, "request_id": requestId},
                     show_alert=True,
                 )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("consent.approve.notification_dispatch_failed error=%s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("consent.approve.notification_dispatch_failed error=%s", exc)
 
     return {
         "status": "approved",

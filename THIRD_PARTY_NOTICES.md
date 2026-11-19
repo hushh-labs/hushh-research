@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1298
+Package count: 1241
 
 ### License summary
 
@@ -15,10 +15,10 @@ Package count: 1298
 - `(MIT AND Zlib)`: 4
 - `(MPL-2.0 OR Apache-2.0)`: 1
 - `0BSD`: 3
-- `Apache-2.0`: 196
+- `Apache-2.0`: 141
 - `Apache-2.0 AND LGPL-3.0-or-later`: 3
 - `Apache-2.0 AND LGPL-3.0-or-later AND MIT`: 1
-- `BlueOak-1.0.0`: 11
+- `BlueOak-1.0.0`: 12
 - `BSD-2-Clause`: 12
 - `BSD-3-Clause`: 26
 - `CC-BY-4.0`: 1
@@ -26,7 +26,7 @@ Package count: 1298
 - `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 932
+- `MIT`: 929
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
@@ -38,12 +38,10 @@ Package count: 1298
 ### Package inventory
 
 - `@adobe/css-tools` `4.5.0` — MIT
-- `@ag-ui/client` `0.0.59` — MIT
-- `@ag-ui/client/zod` `3.25.76` — MIT
-- `@ag-ui/core` `0.0.59` — MIT
-- `@ag-ui/core/zod` `3.25.76` — MIT
-- `@ag-ui/encoder` `0.0.59` — MIT
-- `@ag-ui/proto` `0.0.59` — MIT
+- `@ag-ui/client` `1.0.4` — MIT
+- `@ag-ui/core` `1.0.4` — MIT
+- `@ag-ui/encoder` `1.0.4` — MIT
+- `@ag-ui/proto` `1.0.4` — MIT
 - `@alloc/quick-lru` `5.2.0` — MIT
 - `@antfu/install-pkg` `1.1.0` — MIT
 - `@asamuzakjp/css-color` `3.2.0` — MIT
@@ -70,7 +68,7 @@ Package count: 1298
 - `@base-ui/react` `1.4.1` — MIT
 - `@base-ui/utils` `0.2.8` — MIT
 - `@braintree/sanitize-url` `7.1.2` — MIT
-- `@bufbuild/protobuf` `2.14.0` — (Apache-2.0 AND BSD-3-Clause)
+- `@bufbuild/protobuf` `2.17.0` — (Apache-2.0 AND BSD-3-Clause)
 - `@capacitor-firebase/analytics` `8.2.0` — Apache-2.0
 - `@capacitor-firebase/authentication` `8.2.0` — Apache-2.0
 - `@capacitor-firebase/messaging` `8.2.0` — Apache-2.0
@@ -107,104 +105,56 @@ Package count: 1298
 - `@eslint/config-array` `0.21.2` — Apache-2.0
 - `@eslint/config-helpers` `0.4.2` — Apache-2.0
 - `@eslint/core` `0.17.0` — Apache-2.0
-- `@eslint/eslintrc` `3.3.5` — MIT
+- `@eslint/eslintrc` `3.3.7` — MIT
 - `@eslint/eslintrc/globals` `14.0.0` — MIT
-- `@eslint/js` `9.39.4` — MIT
+- `@eslint/js` `9.39.5` — MIT
 - `@eslint/object-schema` `2.1.7` — Apache-2.0
 - `@eslint/plugin-kit` `0.4.1` — Apache-2.0
 - `@fastify/busboy` `3.2.2` — MIT
-- `@firebase/ai` `2.11.1` — Apache-2.0
-- `@firebase/ai/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/ai/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/analytics` `0.10.21` — Apache-2.0
-- `@firebase/analytics-compat` `0.2.27` — Apache-2.0
-- `@firebase/analytics-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/analytics-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/analytics-types` `0.8.3` — Apache-2.0
-- `@firebase/analytics/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/analytics/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/app` `0.14.11` — Apache-2.0
-- `@firebase/app-check` `0.11.2` — Apache-2.0
-- `@firebase/app-check-compat` `0.4.2` — Apache-2.0
-- `@firebase/app-check-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/app-check-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/app-check-interop-types` `0.3.3` — Apache-2.0
-- `@firebase/app-check-types` `0.5.3` — Apache-2.0
-- `@firebase/app-check/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/app-check/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/app-compat` `0.5.11` — Apache-2.0
-- `@firebase/app-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/app-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/app-types` `0.9.3` — Apache-2.0
-- `@firebase/app/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/app/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/auth` `1.13.0` — Apache-2.0
-- `@firebase/auth-compat` `0.6.5` — Apache-2.0
-- `@firebase/auth-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/auth-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/auth-interop-types` `0.2.4` — Apache-2.0
-- `@firebase/auth-types` `0.13.0` — Apache-2.0
-- `@firebase/auth/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/auth/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/component` `0.7.0` — Apache-2.0
-- `@firebase/data-connect` `0.6.0` — Apache-2.0
-- `@firebase/data-connect/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/data-connect/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/database` `1.1.0` — Apache-2.0
-- `@firebase/database-compat` `2.1.0` — Apache-2.0
-- `@firebase/database-types` `1.0.16` — Apache-2.0
-- `@firebase/firestore` `4.14.0` — Apache-2.0
-- `@firebase/firestore-compat` `0.4.8` — Apache-2.0
-- `@firebase/firestore-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/firestore-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/firestore-types` `3.0.3` — Apache-2.0
-- `@firebase/firestore/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/firestore/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/functions` `0.13.3` — Apache-2.0
-- `@firebase/functions-compat` `0.4.3` — Apache-2.0
-- `@firebase/functions-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/functions-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/functions-types` `0.6.3` — Apache-2.0
-- `@firebase/functions/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/functions/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/installations` `0.6.21` — Apache-2.0
-- `@firebase/installations-compat` `0.2.21` — Apache-2.0
-- `@firebase/installations-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/installations-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/installations-types` `0.5.3` — Apache-2.0
-- `@firebase/installations/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/installations/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/logger` `0.5.0` — Apache-2.0
-- `@firebase/messaging` `0.12.25` — Apache-2.0
-- `@firebase/messaging-compat` `0.2.25` — Apache-2.0
-- `@firebase/messaging-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/messaging-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/messaging-interop-types` `0.2.3` — Apache-2.0
-- `@firebase/messaging/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/messaging/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/performance` `0.7.11` — Apache-2.0
-- `@firebase/performance-compat` `0.2.24` — Apache-2.0
-- `@firebase/performance-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/performance-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/performance-types` `0.2.3` — Apache-2.0
-- `@firebase/performance/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/performance/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/remote-config` `0.8.2` — Apache-2.0
-- `@firebase/remote-config-compat` `0.2.23` — Apache-2.0
-- `@firebase/remote-config-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/remote-config-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/remote-config-types` `0.5.0` — Apache-2.0
-- `@firebase/remote-config/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/remote-config/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/storage` `0.14.2` — Apache-2.0
-- `@firebase/storage-compat` `0.4.2` — Apache-2.0
-- `@firebase/storage-compat/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/storage-compat/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/storage-types` `0.8.3` — Apache-2.0
-- `@firebase/storage/@firebase/component` `0.7.2` — Apache-2.0
-- `@firebase/storage/@firebase/util` `1.15.0` — Apache-2.0
-- `@firebase/util` `1.13.0` — Apache-2.0
-- `@firebase/webchannel-wrapper` `1.0.5` — Apache-2.0
+- `@firebase/ai` `2.16.0` — Apache-2.0
+- `@firebase/analytics` `0.10.25` — Apache-2.0
+- `@firebase/analytics-compat` `0.2.31` — Apache-2.0
+- `@firebase/analytics-types` `0.8.5` — Apache-2.0
+- `@firebase/app` `0.16.2` — Apache-2.0
+- `@firebase/app-check` `0.13.1` — Apache-2.0
+- `@firebase/app-check-compat` `0.4.7` — Apache-2.0
+- `@firebase/app-check-interop-types` `0.3.5` — Apache-2.0
+- `@firebase/app-check-types` `0.5.5` — Apache-2.0
+- `@firebase/app-compat` `0.5.18` — Apache-2.0
+- `@firebase/app-types` `0.9.6` — Apache-2.0
+- `@firebase/auth` `1.13.6` — Apache-2.0
+- `@firebase/auth-compat` `0.6.11` — Apache-2.0
+- `@firebase/auth-interop-types` `0.2.6` — Apache-2.0
+- `@firebase/auth-types` `0.13.2` — Apache-2.0
+- `@firebase/component` `0.7.5` — Apache-2.0
+- `@firebase/data-connect` `0.7.4` — Apache-2.0
+- `@firebase/database` `1.1.5` — Apache-2.0
+- `@firebase/database-compat` `2.1.7` — Apache-2.0
+- `@firebase/database-types` `1.0.22` — Apache-2.0
+- `@firebase/firestore` `4.17.2` — Apache-2.0
+- `@firebase/firestore-compat` `0.4.14` — Apache-2.0
+- `@firebase/firestore-types` `3.0.5` — Apache-2.0
+- `@firebase/functions` `0.14.0` — Apache-2.0
+- `@firebase/functions-compat` `0.5.0` — Apache-2.0
+- `@firebase/functions-types` `0.6.5` — Apache-2.0
+- `@firebase/installations` `0.6.24` — Apache-2.0
+- `@firebase/installations-compat` `0.2.24` — Apache-2.0
+- `@firebase/installations-types` `0.5.5` — Apache-2.0
+- `@firebase/logger` `0.5.2` — Apache-2.0
+- `@firebase/messaging` `0.13.3` — Apache-2.0
+- `@firebase/messaging-compat` `0.2.30` — Apache-2.0
+- `@firebase/messaging-interop-types` `0.2.6` — Apache-2.0
+- `@firebase/performance` `0.7.14` — Apache-2.0
+- `@firebase/performance-compat` `0.2.27` — Apache-2.0
+- `@firebase/performance-types` `0.2.5` — Apache-2.0
+- `@firebase/remote-config` `0.9.2` — Apache-2.0
+- `@firebase/remote-config-compat` `0.2.29` — Apache-2.0
+- `@firebase/remote-config-types` `0.5.2` — Apache-2.0
+- `@firebase/storage` `0.14.5` — Apache-2.0
+- `@firebase/storage-compat` `0.4.5` — Apache-2.0
+- `@firebase/storage-types` `0.8.5` — Apache-2.0
+- `@firebase/util` `1.15.3` — Apache-2.0
+- `@firebase/webchannel-wrapper` `1.0.7` — Apache-2.0
 - `@floating-ui/core` `1.7.5` — MIT
 - `@floating-ui/dom` `1.7.6` — MIT
 - `@floating-ui/react-dom` `2.1.8` — MIT
@@ -268,6 +218,7 @@ Package count: 1298
 - `@ionic/utils-subprocess` `3.0.1` — MIT
 - `@ionic/utils-terminal` `2.3.5` — MIT
 - `@isaacs/fs-minipass` `4.0.1` — ISC
+- `@isaacs/nonrecursive-glob-match` `1.1.0` — BlueOak-1.0.0
 - `@jridgewell/gen-mapping` `0.3.13` — MIT
 - `@jridgewell/remapping` `2.3.5` — MIT
 - `@jridgewell/resolve-uri` `3.1.2` — MIT
@@ -291,17 +242,17 @@ Package count: 1298
 - `@napi-rs/canvas-win32-arm64-msvc` `1.0.13` — MIT
 - `@napi-rs/canvas-win32-x64-msvc` `1.0.13` — MIT
 - `@napi-rs/wasm-runtime` `0.2.12` — MIT
-- `@next/env` `16.4.2` — MIT
-- `@next/eslint-plugin-next` `16.2.4` — MIT
-- `@next/swc-darwin-arm64` `16.4.2` — MIT
-- `@next/swc-darwin-x64` `16.4.2` — MIT
-- `@next/swc-linux-arm64-gnu` `16.4.2` — MIT
-- `@next/swc-linux-arm64-musl` `16.4.2` — MIT
-- `@next/swc-linux-x64-gnu` `16.4.2` — MIT
-- `@next/swc-linux-x64-musl` `16.4.2` — MIT
-- `@next/swc-win32-arm64-msvc` `16.4.2` — MIT
-- `@next/swc-win32-x64-msvc` `16.4.2` — MIT
-- `@nodable/entities` `3.0.0` — MIT
+- `@next/env` `16.4.6` — MIT
+- `@next/eslint-plugin-next` `16.4.6` — MIT
+- `@next/swc-darwin-arm64` `16.4.6` — MIT
+- `@next/swc-darwin-x64` `16.4.6` — MIT
+- `@next/swc-linux-arm64-gnu` `16.4.6` — MIT
+- `@next/swc-linux-arm64-musl` `16.4.6` — MIT
+- `@next/swc-linux-x64-gnu` `16.4.6` — MIT
+- `@next/swc-linux-x64-musl` `16.4.6` — MIT
+- `@next/swc-win32-arm64-msvc` `16.4.6` — MIT
+- `@next/swc-win32-x64-msvc` `16.4.6` — MIT
+- `@nodable/entities` `3.1.0` — MIT
 - `@nodelib/fs.scandir` `2.1.5` — MIT
 - `@nodelib/fs.stat` `2.0.5` — MIT
 - `@nodelib/fs.walk` `1.2.8` — MIT
@@ -390,11 +341,11 @@ Package count: 1298
 - `@radix-ui/react-use-size` `1.1.1` — MIT
 - `@radix-ui/react-visually-hidden` `1.2.3` — MIT
 - `@radix-ui/rect` `1.1.1` — MIT
-- `@redis/bloom` `6.2.1` — MIT
-- `@redis/client` `6.2.1` — MIT
-- `@redis/json` `6.2.1` — MIT
-- `@redis/search` `6.2.1` — MIT
-- `@redis/time-series` `6.2.1` — MIT
+- `@redis/bloom` `6.3.1` — MIT
+- `@redis/client` `6.3.1` — MIT
+- `@redis/json` `6.3.1` — MIT
+- `@redis/search` `6.3.1` — MIT
+- `@redis/time-series` `6.3.1` — MIT
 - `@rive-app/canvas` `2.44.2` — MIT
 - `@rolldown/binding-android-arm64` `1.1.5` — MIT
 - `@rolldown/binding-darwin-arm64` `1.1.5` — MIT
@@ -415,7 +366,7 @@ Package count: 1298
 - `@rolldown/binding-wasm32-wasi/@napi-rs/wasm-runtime` `1.2.5` — MIT
 - `@rolldown/binding-win32-arm64-msvc` `1.1.5` — MIT
 - `@rolldown/binding-win32-x64-msvc` `1.1.5` — MIT
-- `@rolldown/pluginutils` `1.0.0-rc.7` — MIT
+- `@rolldown/pluginutils` `1.1.1` — MIT
 - `@rtsao/scc` `1.1.0` — MIT
 - `@standard-schema/spec` `1.1.0` — MIT
 - `@swc/helpers` `0.5.23` — Apache-2.0
@@ -441,9 +392,9 @@ Package count: 1298
 - `@tailwindcss/oxide-win32-x64-msvc` `4.2.4` — MIT
 - `@tailwindcss/postcss` `4.2.4` — MIT
 - `@tanstack/react-table` `8.21.3` — MIT
-- `@tanstack/react-virtual` `3.13.24` — MIT
+- `@tanstack/react-virtual` `3.14.26` — MIT
 - `@tanstack/table-core` `8.21.3` — MIT
-- `@tanstack/virtual-core` `3.14.0` — MIT
+- `@tanstack/virtual-core` `3.19.11` — MIT
 - `@tesseract.js-data/eng` `1.0.0` — MIT
 - `@testing-library/dom` `10.4.1` — MIT
 - `@testing-library/dom/aria-query` `5.3.0` — Apache-2.0
@@ -494,7 +445,7 @@ Package count: 1298
 - `@types/express-serve-static-core` `4.19.8` — MIT
 - `@types/fs-extra` `8.1.5` — MIT
 - `@types/geojson` `7946.0.16` — MIT
-- `@types/google.maps` `3.65.2` — MIT
+- `@types/google.maps` `3.66.10` — MIT
 - `@types/hast` `3.0.4` — MIT
 - `@types/http-errors` `2.0.5` — MIT
 - `@types/json-schema` `7.0.15` — MIT
@@ -504,7 +455,7 @@ Package count: 1298
 - `@types/mdast` `4.0.4` — MIT
 - `@types/mime` `1.3.5` — MIT
 - `@types/ms` `2.1.0` — MIT
-- `@types/node` `24.12.4` — MIT
+- `@types/node` `24.19.2` — MIT
 - `@types/pako` `2.0.4` — MIT
 - `@types/qs` `6.14.0` — MIT
 - `@types/raf` `3.4.3` — MIT
@@ -528,8 +479,7 @@ Package count: 1298
 - `@typescript-eslint/type-utils` `8.57.0` — MIT
 - `@typescript-eslint/types` `8.57.0` — MIT
 - `@typescript-eslint/typescript-estree` `8.57.0` — MIT
-- `@typescript-eslint/typescript-estree/brace-expansion` `5.0.12` — MIT
-- `@typescript-eslint/typescript-estree/minimatch` `10.2.4` — BlueOak-1.0.0
+- `@typescript-eslint/typescript-estree/minimatch` `11.0.7` — BlueOak-1.0.0
 - `@typescript-eslint/utils` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys/eslint-visitor-keys` `5.0.1` — Apache-2.0
@@ -554,7 +504,7 @@ Package count: 1298
 - `@unrs/resolver-binding-win32-ia32-msvc` `1.11.1` — MIT
 - `@unrs/resolver-binding-win32-x64-msvc` `1.11.1` — MIT
 - `@upsetjs/venn.js` `2.0.0` — MIT
-- `@vitejs/plugin-react` `6.0.1` — MIT
+- `@vitejs/plugin-react` `6.3.0` — MIT
 - `@vitest/expect` `4.1.12` — MIT
 - `@vitest/mocker` `4.1.12` — MIT
 - `@vitest/pretty-format` `4.1.12` — MIT
@@ -602,6 +552,7 @@ Package count: 1298
 - `bignumber.js` `9.3.1` — MIT
 - `bmp-js` `0.1.0` — MIT
 - `bplist-parser` `0.3.2` — MIT
+- `brace-expansion` `5.0.12` — MIT
 - `braces` `3.0.3` — MIT
 - `browserslist` `4.28.7` — MIT
 - `buffer-crc32` `0.2.13` — MIT
@@ -625,7 +576,6 @@ Package count: 1298
 - `client-only` `0.0.1` — MIT
 - `cliui` `8.0.1` — ISC
 - `clsx` `2.1.1` — MIT
-- `cluster-key-slot` `1.1.2` — Apache-2.0
 - `cmdk` `1.1.1` — MIT
 - `color-convert` `2.0.1` — MIT
 - `color-name` `1.1.4` — MIT
@@ -696,7 +646,7 @@ Package count: 1298
 - `data-view-buffer` `1.0.2` — MIT
 - `data-view-byte-length` `1.0.2` — MIT
 - `data-view-byte-offset` `1.0.1` — MIT
-- `date-fns` `4.1.0` — MIT
+- `date-fns` `4.4.0` — MIT
 - `dayjs` `1.11.21` — MIT
 - `debug` `4.4.3` — MIT
 - `decimal.js` `10.6.0` — MIT
@@ -743,8 +693,8 @@ Package count: 1298
 - `es-toolkit` `1.50.0` — MIT
 - `escalade` `3.2.0` — MIT
 - `escape-string-regexp` `4.0.0` — MIT
-- `eslint` `9.39.4` — MIT
-- `eslint-config-next` `16.2.4` — MIT
+- `eslint` `9.39.5` — MIT
+- `eslint-config-next` `16.4.6` — MIT
 - `eslint-import-resolver-node` `0.3.9` — MIT
 - `eslint-import-resolver-node/debug` `3.2.7` — MIT
 - `eslint-import-resolver-typescript` `3.10.1` — ISC
@@ -773,7 +723,7 @@ Package count: 1298
 - `eventemitter3` `4.0.7` — MIT
 - `expect-type` `1.3.0` — Apache-2.0
 - `extend` `3.0.2` — MIT
-- `fake-indexeddb` `6.2.5` — Apache-2.0
+- `fake-indexeddb` `6.2.8` — Apache-2.0
 - `farmhash-modern` `1.1.0` — MIT
 - `fast-deep-equal` `3.1.3` — MIT
 - `fast-equals` `5.4.0` — MIT
@@ -783,8 +733,8 @@ Package count: 1298
 - `fast-json-stable-stringify` `2.1.0` — MIT
 - `fast-levenshtein` `2.0.6` — MIT
 - `fast-png` `6.4.0` — MIT
-- `fast-xml-builder` `1.3.0` — MIT
-- `fast-xml-parser` `5.10.1` — MIT
+- `fast-xml-builder` `1.3.1` — MIT
+- `fast-xml-parser` `5.12.0` — MIT
 - `fastq` `1.20.3` — ISC
 - `faye-websocket` `0.11.4` — Apache-2.0
 - `fetch-blob` `3.2.0` — MIT
@@ -792,17 +742,11 @@ Package count: 1298
 - `file-entry-cache` `8.0.0` — MIT
 - `fill-range` `7.1.1` — MIT
 - `find-up` `5.0.0` — MIT
-- `firebase` `12.12.1` — Apache-2.0
+- `firebase` `12.19.0` — Apache-2.0
 - `firebase-admin` `13.10.0` — Apache-2.0
 - `firebase-admin/gaxios` `7.1.4` — Apache-2.0
 - `firebase-admin/google-auth-library` `10.6.2` — Apache-2.0
 - `firebase-admin/node-fetch` `3.3.2` — MIT
-- `firebase/@firebase/app-types` `0.9.4` — Apache-2.0
-- `firebase/@firebase/component` `0.7.2` — Apache-2.0
-- `firebase/@firebase/database` `1.1.2` — Apache-2.0
-- `firebase/@firebase/database-compat` `2.1.3` — Apache-2.0
-- `firebase/@firebase/database-types` `1.0.19` — Apache-2.0
-- `firebase/@firebase/util` `1.15.0` — Apache-2.0
 - `flat-cache` `4.0.1` — MIT
 - `flatted` `3.4.2` — ISC
 - `for-each` `0.3.5` — MIT
@@ -827,7 +771,9 @@ Package count: 1298
 - `get-proto` `1.0.1` — MIT
 - `get-symbol-description` `1.1.0` — MIT
 - `get-tsconfig` `4.13.0` — MIT
+- `glob` `14.0.4` — BlueOak-1.0.0
 - `glob-parent` `6.0.2` — ISC
+- `glob/minimatch` `11.0.7` — BlueOak-1.0.0
 - `globals` `16.4.0` — MIT
 - `globalthis` `1.0.4` — MIT
 - `google-auth-library` `10.9.1` — Apache-2.0
@@ -840,7 +786,7 @@ Package count: 1298
 - `google-logging-utils` `1.1.3` — Apache-2.0
 - `gopd` `1.2.0` — MIT
 - `graceful-fs` `4.2.11` — ISC
-- `gsap` `3.15.0` — Standard 'no charge' license: https://gsap.com/standard-license.
+- `gsap` `3.15.1` — Standard 'no charge' license: https://gsap.com/standard-license.
 - `gtoken` `7.1.0` — MIT
 - `hachure-fill` `0.5.2` — MIT
 - `has-bigints` `1.1.0` — MIT
@@ -907,7 +853,7 @@ Package count: 1298
 - `is-string` `1.1.1` — MIT
 - `is-symbol` `1.1.1` — MIT
 - `is-typed-array` `1.1.15` — MIT
-- `is-unsafe` `2.0.0` — MIT
+- `is-unsafe` `2.0.3` — MIT
 - `is-url` `1.2.4` — MIT
 - `is-weakmap` `2.0.2` — MIT
 - `is-weakref` `1.1.1` — MIT
@@ -917,7 +863,7 @@ Package count: 1298
 - `isexe` `2.0.0` — ISC
 - `iterator.prototype` `1.1.5` — MIT
 - `jiti` `2.6.1` — MIT
-- `jose` `6.2.3` — MIT
+- `jose` `6.2.17` — MIT
 - `js-tokens` `4.0.0` — MIT
 - `js-yaml` `4.3.2` — MIT
 - `jsdom` `25.0.1` — MIT
@@ -948,7 +894,7 @@ Package count: 1298
 - `language-tags` `1.0.9` — MIT
 - `layout-base` `1.0.2` — MIT
 - `levn` `0.4.1` — MIT
-- `libphonenumber-js` `1.13.10` — MIT
+- `libphonenumber-js` `1.13.16` — MIT
 - `lightningcss` `1.32.0` — MPL-2.0
 - `lightningcss-android-arm64` `1.32.0` — MPL-2.0
 - `lightningcss-darwin-arm64` `1.32.0` — MPL-2.0
@@ -1053,7 +999,7 @@ Package count: 1298
 - `napi-postinstall` `0.3.4` — MIT
 - `native-run` `2.0.3` — MIT
 - `natural-compare` `1.4.0` — MIT
-- `next` `16.4.2` — MIT
+- `next` `16.4.6` — MIT
 - `next-themes` `0.4.6` — MIT
 - `node-domexception` `1.0.0` — MIT
 - `node-fetch` `2.7.0` — MIT
@@ -1088,8 +1034,8 @@ Package count: 1298
 - `path-expression-matcher` `1.6.2` — MIT
 - `path-key` `3.1.1` — MIT
 - `path-parse` `1.0.7` — MIT
-- `path-scurry` `2.0.2` — BlueOak-1.0.0
-- `path-scurry/lru-cache` `11.2.4` — BlueOak-1.0.0
+- `path-scurry` `3.0.0` — BlueOak-1.0.0
+- `path-scurry/lru-cache` `11.5.3` — BlueOak-1.0.0
 - `pathe` `2.0.3` — MIT
 - `pdf-lib` `1.17.1` — MIT
 - `pdf-lib/pako` `1.0.11` — (MIT AND Zlib)
@@ -1126,6 +1072,7 @@ Package count: 1298
 - `radix-ui/@radix-ui/react-separator` `1.1.7` — MIT
 - `radix-ui/@radix-ui/react-slot` `1.2.3` — MIT
 - `raf` `3.4.1` — MIT
+- `re2js` `2.10.0` — MIT
 - `react` `19.2.5` — MIT
 - `react-dom` `19.2.5` — MIT
 - `react-is` `16.13.1` — MIT
@@ -1140,7 +1087,7 @@ Package count: 1298
 - `recharts-scale` `0.4.5` — MIT
 - `recharts/react-is` `18.3.1` — MIT
 - `redent` `3.0.0` — MIT
-- `redis` `6.2.1` — MIT
+- `redis` `6.3.1` — MIT
 - `reflect.getprototypeof` `1.0.10` — MIT
 - `regenerator-runtime` `0.13.11` — MIT
 - `regexp.prototype.flags` `1.5.4` — MIT
@@ -1157,13 +1104,9 @@ Package count: 1298
 - `retry-request` `8.0.2` — MIT
 - `reusify` `1.1.0` — MIT
 - `rgbcolor` `1.0.1` — MIT OR SEE LICENSE IN FEEL-FREE.md
-- `rimraf` `6.1.2` — BlueOak-1.0.0
-- `rimraf/brace-expansion` `5.0.12` — MIT
-- `rimraf/glob` `13.0.6` — BlueOak-1.0.0
-- `rimraf/minimatch` `10.2.4` — BlueOak-1.0.0
+- `rimraf` `6.1.4` — BlueOak-1.0.0
 - `robust-predicates` `3.0.3` — Unlicense
 - `rolldown` `1.1.5` — MIT
-- `rolldown/@rolldown/pluginutils` `1.0.1` — MIT
 - `roughjs` `4.6.6` — MIT
 - `rrweb-cssom` `0.7.1` — MIT
 - `run-parallel` `1.2.0` — MIT
@@ -1192,7 +1135,7 @@ Package count: 1298
 - `signal-exit` `3.0.7` — ISC
 - `sisteransi` `1.0.5` — MIT
 - `slice-ansi` `4.0.0` — MIT
-- `sonner` `2.0.7` — MIT
+- `sonner` `2.0.8` — MIT
 - `source-map-js` `1.2.2` — BSD-3-Clause
 - `space-separated-tokens` `2.0.2` — MIT
 - `split2` `4.2.0` — ISC
@@ -1217,7 +1160,7 @@ Package count: 1298
 - `strip-bom` `3.0.0` — MIT
 - `strip-indent` `3.0.0` — MIT
 - `strip-json-comments` `3.1.1` — MIT
-- `strnum` `2.4.1` — MIT
+- `strnum` `2.5.1` — MIT
 - `stubs` `3.0.0` — MIT
 - `style-to-js` `1.1.21` — MIT
 - `style-to-object` `1.0.14` — MIT
@@ -1228,7 +1171,7 @@ Package count: 1298
 - `supports-preserve-symlinks-flag` `1.0.0` — MIT
 - `svg-pathdata` `6.0.3` — MIT
 - `symbol-tree` `3.2.4` — MIT
-- `tailwind-merge` `3.5.0` — MIT
+- `tailwind-merge` `3.7.0` — MIT
 - `tailwindcss` `4.2.4` — MIT
 - `tailwindcss-animate` `1.0.7` — MIT
 - `tapable` `2.3.3` — MIT
@@ -1271,7 +1214,7 @@ Package count: 1298
 - `typescript` `5.9.3` — Apache-2.0
 - `typescript-eslint` `8.57.0` — MIT
 - `unbox-primitive` `1.1.0` — MIT
-- `undici-types` `7.16.0` — MIT
+- `undici-types` `7.24.6` — MIT
 - `unified` `11.0.5` — MIT
 - `unist-util-is` `6.0.1` — MIT
 - `unist-util-position` `5.0.0` — MIT
@@ -1333,12 +1276,12 @@ Package count: 1298
 - `zlibjs` `0.3.1` — MIT
 - `zod` `4.6.7` — MIT
 - `zod-validation-error` `4.0.2` — MIT
-- `zustand` `5.0.12` — MIT
+- `zustand` `5.1.0` — MIT
 - `zwitch` `2.0.4` — MIT
 
 ## Backend Python packages
 
-Package count: 222
+Package count: 219
 
 ### License summary
 
@@ -1355,7 +1298,7 @@ Package count: 222
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 19
+- `BSD License`: 18
 - `BSD-2-Clause`: 2
 - `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
@@ -1366,14 +1309,13 @@ Package count: 222
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
 - `MIT`: 56
-- `MIT AND PSF-2.0`: 1
 - `MIT License`: 32
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
-- `Python Software Foundation License`: 3
+- `Python Software Foundation License`: 2
 
 ### Package inventory
 
@@ -1410,14 +1352,13 @@ Package count: 222
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
 - `cloudpickle` `3.1.2` — BSD License
-- `colorama` `0.4.6` — BSD License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
 - `defusedxml` `0.7.1` — Python Software Foundation License
 - `Deprecated` `1.3.1` — MIT License
 - `distro` `1.9.0` — Apache Software License
-- `dnspython` `2.9.0` — ISC
+- `dnspython` `2.9.2` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
 - `exchange_calendars` `4.13.2` — Apache-2.0
@@ -1429,7 +1370,7 @@ Package count: 222
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
-- `google-adk` `2.9.0` — Apache Software License
+- `google-adk` `2.14.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
 - `google-auth` `2.58.0` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
@@ -1438,11 +1379,10 @@ Package count: 222
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
 - `google-crc32c` `1.8.0` — Apache-2.0
-- `google-genai` `2.23.0` — Apache-2.0
+- `google-genai` `2.34.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
-- `greenlet` `3.4.0` — MIT AND PSF-2.0
 - `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
@@ -1465,7 +1405,7 @@ Package count: 222
 - `jiter` `0.14.0` — MIT
 - `jmespath` `1.1.0` — MIT License
 - `joblib` `1.6.0` — BSD-3-Clause
-- `joserfc` `1.7.3` — BSD License
+- `joserfc` `1.7.6` — BSD License
 - `jsonpatch` `1.33` — BSD License
 - `jsonpointer` `3.1.1` — BSD License
 - `jsonschema` `4.26.0` — MIT
@@ -1498,16 +1438,16 @@ Package count: 222
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
 - `openai` `2.32.0` — Apache Software License
 - `openpyxl` `3.1.5` — MIT License
-- `opentelemetry-api` `1.42.1` — Apache-2.0
+- `opentelemetry-api` `1.45.2` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
-- `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-asgi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-fastapi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-httpx` `0.63b1` — Apache-2.0
+- `opentelemetry-instrumentation` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-asgi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-fastapi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-httpx` `0.66b2` — Apache-2.0
 - `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
-- `opentelemetry-sdk` `1.42.1` — Apache-2.0
-- `opentelemetry-semantic-conventions` `0.63b1` — Apache-2.0
-- `opentelemetry-util-http` `0.63b1` — Apache-2.0
+- `opentelemetry-sdk` `1.45.2` — Apache-2.0
+- `opentelemetry-semantic-conventions` `0.66b2` — Apache-2.0
+- `opentelemetry-util-http` `0.66b2` — Apache-2.0
 - `orjson` `3.11.8` — MPL-2.0 AND (Apache-2.0 OR MIT)
 - `ormsgpack` `1.12.2` — Apache-2.0 OR MIT
 - `packaging` `26.1` — Apache-2.0 OR BSD-2-Clause
@@ -1523,8 +1463,8 @@ Package count: 222
 - `propcache` `0.4.1` — Apache Software License
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
-- `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
-- `pyasn1` `0.6.4` — BSD-2-Clause
+- `psycopg2-binary` `2.9.13` — GNU Library or Lesser General Public License (LGPL)
+- `pyasn1` `0.6.5` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
 - `pycparser` `3.0` — BSD-3-Clause
@@ -1544,14 +1484,13 @@ Package count: 222
 - `python-a2a` `0.5.10` — MIT License
 - `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
 - `python-dotenv` `1.2.2` — BSD-3-Clause
-- `python-multipart` `0.0.32` — Apache-2.0
+- `python-multipart` `0.0.34` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
-- `pywin32` `311` — Python Software Foundation License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
 - `regex` `2026.9.3` — Apache-2.0 AND CNRI-Python
-- `requests` `2.33.1` — Apache Software License
+- `requests` `2.34.2` — Apache Software License
 - `requests-toolbelt` `1.0.0` — Apache Software License
 - `rich` `15.0.0` — MIT License
 - `rpds-py` `0.30.0` — MIT
@@ -1564,7 +1503,7 @@ Package count: 222
 - `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
-- `slowapi` `0.1.9` — MIT License
+- `slowapi` `0.1.10` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
 - `soupsieve` `4.1` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
@@ -1577,23 +1516,23 @@ Package count: 222
 - `threadpoolctl` `3.6.0` — BSD License
 - `tokenizers` `0.22.2` — Apache Software License
 - `toolz` `1.2.0` — BSD-3-Clause
-- `torch` `2.14.0+cpu` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+- `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
-- `typing-inspection` `0.4.2` — MIT
-- `typing_extensions` `4.15.0` — PSF-2.0
-- `tzdata` `2026.1` — Apache-2.0
+- `typing-inspection` `0.4.5` — MIT
+- `typing_extensions` `4.16.0` — PSF-2.0
+- `tzdata` `2026.6` — Apache-2.0
 - `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
 - `watchdog` `6.0.0` — Apache Software License
-- `watchfiles` `1.2.0` — MIT License
-- `webauthn` `3.0.0` — BSD-3-Clause
+- `watchfiles` `1.3.0` — MIT License
+- `webauthn` `3.0.1` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
 - `Werkzeug` `3.1.9` — BSD-3-Clause
-- `workos` `10.5.0` — MIT
+- `workos` `10.9.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
 - `yarl` `1.25.1` — Apache-2.0

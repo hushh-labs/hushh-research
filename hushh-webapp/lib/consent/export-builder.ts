@@ -147,8 +147,15 @@ export interface ConsentExportReadSession {
  * and exposure posture have been checked. Drive's ordinary export path stays separate.
  */
 export function createConsentExportReadSession(params: {
-  userId: string; scopes: readonly string[]; vaultKey: string; vaultOwnerToken: string;
+  userId: string;
+  scopes: readonly string[];
+  vaultKey: string;
+  vaultOwnerToken: string;
+  approvedPathsCeiling?: readonly string[];
 }): ConsentExportReadSession {
+  const ceiling = params.approvedPathsCeiling
+    ? new Set(params.approvedPathsCeiling)
+    : null;
   const epoch = snapshotVaultSessionEpoch();
   const sourceEpoch = currentPkmInvalidationEpoch(params.userId);
   const valid = () => {
@@ -175,7 +182,11 @@ export function createConsentExportReadSession(params: {
     if (!snapshot) return Object.fromEntries(selected.map(scope => [scope, { payload: {} }]));
     if (snapshot.userId !== params.userId || snapshot.domain !== domain || !snapshot.manifest)
       throw new Error("Scope manifest could not be verified");
-    const paths = selected.map(scope => resolveApprovedPaths(scope, snapshot.manifest).filter(path => !isRedactedExportPath(path)));
+    const paths = selected.map(scope =>
+      resolveApprovedPaths(scope, snapshot.manifest).filter(
+        path => !isRedactedExportPath(path) && (!ceiling || ceiling.has(path)),
+      ),
+    );
     if (paths.some(entries => !entries.length)) throw new Error("Approved scope changed; review required");
     const legacy = snapshot.encryptedBlob.storageMode === "legacy_full_blob";
     const segments = legacy ? ["root"] : full ? [] : [...new Set(paths.flatMap(entries => entries.flatMap(path => {
@@ -228,6 +239,7 @@ export async function buildConsentExportForScope(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   readSession?: ConsentExportReadSession;
+  approvedPathsCeiling?: readonly string[];
 }): Promise<BuiltConsentExport> {
   if (params.readSession) return params.readSession.build(params.scope);
   if (isPrivatePkmExportScope(params.scope)) {
@@ -285,8 +297,11 @@ export async function buildConsentExportForScope(params: {
   // Consent authorizes an exact path, never a semantically similar field. A
   // missing or stale projection requires fresh review, not path substitution.
   const parsedScope = requestedScope;
+  const ceiling = params.approvedPathsCeiling
+    ? new Set(params.approvedPathsCeiling)
+    : null;
   const approvedPaths = resolveApprovedPaths(params.scope, manifest).filter(
-    (path) => !isRedactedExportPath(path),
+    (path) => !isRedactedExportPath(path) && (!ceiling || ceiling.has(path)),
   );
   if (approvedPaths.length === 0) {
     throw new ConsentExportNoDataError(

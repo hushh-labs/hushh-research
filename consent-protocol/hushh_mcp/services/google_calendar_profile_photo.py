@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from cachetools import TTLCache
 
+from hushh_mcp.services.google_calendar_verified_alias import record_google_verified_alias
 from hushh_mcp.services.google_oauth_attempt import connection_generation
 
 _GOOGLE_PICTURE_HOST = re.compile(r"lh[3-6](?:-tt|-d[a-gz])?\.(?:google|googleusercontent)\.com")
@@ -120,6 +121,10 @@ class CalendarProfilePhotos:
                 "hosted_domain": hosted_domain,
                 "verified_email": verified_email,
             }
+            if verified_email:
+                # Google just vouched for this address for this exact connected account,
+                # so it also identifies the owner to the people connected with them.
+                await record_google_verified_alias(user_id=user_id, email=verified_email)
         except Exception:
             # A photo lookup cannot make Calendar status unavailable. Cache the
             # fallback briefly so a provider failure does not flood polling.

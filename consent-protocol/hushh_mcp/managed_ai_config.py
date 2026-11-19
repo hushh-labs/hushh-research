@@ -89,6 +89,71 @@ def profile_hash(value: dict) -> str:
     ).hexdigest()
 
 
+TEXT_POLICY_KEYS = {
+    "drive_document_requests": "drive_text_uat",
+    "one_text_chat": "one_chat_text_uat",
+}
+
+
+def load_scoped_text_policy(
+    scope: str,
+    path: Path = PROFILE_PATH,
+    *,
+    environment: str | None = None,
+    document: dict | None = None,
+) -> dict | None:
+    """Resolve a packaged UAT text scope independently of the fleet provider."""
+    if scope not in TEXT_POLICY_KEYS:
+        raise ValueError("Unsupported managed text processing scope")
+    document = json.loads(path.read_text()) if document is None else document
+    thinking_levels = ("low", "high") if scope == "drive_document_requests" else ("low",)
+    value = document.get(TEXT_POLICY_KEYS[scope])
+    if value is None:
+        return None
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {
+            "version",
+            "provider",
+            "model",
+            "thinking_level",
+            "max_output_tokens",
+            "allow_cross_provider_fallback",
+        }
+        or not re.fullmatch(r"[a-z0-9-]{1,64}", str(value["version"]))
+        or value["provider"] != "vertex"
+        or not re.fullmatch(r"gemini-[a-z0-9.-]{1,100}", str(value["model"]))
+        or value["thinking_level"] not in thinking_levels
+        or type(value["max_output_tokens"]) is not int
+        or not 8192 <= value["max_output_tokens"] <= 32768
+        or value["allow_cross_provider_fallback"] is not False
+    ):
+        raise ValueError("Invalid scoped text processing policy")
+    env = (
+        (environment or os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local")
+        .strip()
+        .lower()
+    )
+    return dict(value) if env == "uat" else None
+
+
+def load_drive_text_policy(
+    path: Path = PROFILE_PATH, *, environment: str | None = None
+) -> dict | None:
+    return load_scoped_text_policy("drive_document_requests", path, environment=environment)
+
+
+def text_policy_generation(policy: dict, provider: str, scoped: dict | None) -> str:
+    """Share the exact policy identity with the release and recovery verifiers."""
+    version = (
+        scoped["version"] + profile_hash(scoped)
+        if scoped is not None
+        else policy["version"] + (":vertex" if provider == "vertex" else "")
+    )
+    return str(uuid5(UUID(policy["policy_id"]), version))
+
+
 def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     """Versioned administrator rollout; never an owner's acceptance receipt."""
     value = json.loads(path.read_text())["private_drive_text_uat"]
@@ -161,6 +226,8 @@ def validate_runtime_config(path: Path = PROFILE_PATH) -> dict:
         load_profile(environment, path)
         providers[environment] = configured_managed_provider(environment, path)
     load_private_drive_text_policy(path)
+    for scope in TEXT_POLICY_KEYS:
+        load_scoped_text_policy(scope, path, environment="uat", document=document)
     load_pwm_policy(path, environment="production", provider="vertex")
     load_pwm_policy(path, environment="uat", provider="azure_openai")
     _validate_standby_azure_accounts(document)

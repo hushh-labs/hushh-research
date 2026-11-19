@@ -194,7 +194,9 @@ jobs:
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/verify-signed-in-routes.mjs' || {
+              ':(exclude)hushh-webapp/scripts/testing/verify-signed-in-routes.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/benchmark-advisor-matching.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/build-advisor-preview.mjs' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }

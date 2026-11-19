@@ -1011,6 +1011,24 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         if callable(state_getter)
         else ""
     )
+    if callable(state_getter):
+        from hushh_mcp.one_adk.wiki_recall_tools import (
+            STATE_WIKI_CLIENT_READY,
+            STATE_WIKI_HOT_DIGEST,
+            wiki_recall_instruction,
+        )
+
+        wiki_tools_enabled = bool(
+            state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and (
+                (pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"})
+                or state_getter(STATE_WIKI_CLIENT_READY) is True
+            )
+        )
+        memory_instruction += wiki_recall_instruction(
+            state_getter(STATE_WIKI_HOT_DIGEST),
+            tools_available=wiki_tools_enabled,
+        )
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
     style_instruction = owner_style_instruction(state_getter) + focus_instruction(state_getter)
@@ -2073,7 +2091,9 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
     security notices and meetings. Spending, receipts, invoices and bills use
     One's receipt functions, never this tool. Never sends mail or syncs receipts.
     """
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
     if tool_context.state.get(
         STATE_EXECUTION_SURFACE
@@ -2081,6 +2101,26 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
         "gmail_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
+    if private_pod_runtime() and not owner_cloud_agent():
+        grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
+        email_grant = (
+            resolve_request_secret(grants.get("email")) if isinstance(grants, dict) else ""
+        )
+        if not email_grant:
+            message = (
+                "Gmail isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
+                "an owner-cloud pod to connect Gmail."
+            )
+            return {
+                "status": "unavailable",
+                "reason": "hosted_pod_unavailable",
+                "structured": SpecialistReadResult(
+                    connector="mail", status="unavailable"
+                ).model_dump(mode="json"),
+                "text": message,
+                "message": message,
+                "is_complete": True,
+            }
     return await _specialist_turn("agent_email", request, tool_context)
 
 
@@ -2091,7 +2131,9 @@ async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[st
 
 async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Answer about the owner's authorized Drive files; never share or mutate them."""
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
     if tool_context.state.get(
         STATE_EXECUTION_SURFACE
@@ -2099,6 +2141,21 @@ async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[s
         "google_drive_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Drive chat reads are not available here."}
+    if private_pod_runtime() and not owner_cloud_agent():
+        message = (
+            "Google Drive isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
+            "an owner-cloud pod to connect Google Drive."
+        )
+        return {
+            "status": "unavailable",
+            "reason": "hosted_pod_unavailable",
+            "structured": SpecialistReadResult(connector="drive", status="unavailable").model_dump(
+                mode="json"
+            ),
+            "text": message,
+            "message": message,
+            "is_complete": True,
+        }
     return await _specialist_turn("agent_documents", request, tool_context)
 
 
@@ -2316,7 +2373,7 @@ def build_one_intro_text_agent(
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(include_thoughts=False),
+            thinking_config=_one_chat_thinking_config(model, include_summaries=False),
         ),
     )
 
@@ -2507,6 +2564,7 @@ def _one_roster_tools(
     allow_private_mcp: bool = False,
     allow_receipt_tools: bool = False,
     memory_available: bool | None = None,
+    allow_planning_review: bool = False,
 ) -> list:
     """The /one specialist roster, shared by every One head.
 
@@ -2625,11 +2683,24 @@ def _one_roster_tools(
                 RegisteredMcpToolset(authorize_call=review_private_call),
             ]
         )
+    if allow_planning_review:
+        from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
+
+        tools.append(propose_goal_plan)
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.one_adk.files_agent import build_files_agent
+        from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
 
         files_manifest = _load_product_agent_manifest("agent_files")
         tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+        tools.extend(pod_wiki_recall_tools())
+        from hushh_mcp.services.pod_session_authority import active_session_authority
+
+        authority = active_session_authority() if allow_planning_review else None
+        if authority is not None and authority.environment in {"dev", "development"}:
+            from hushh_mcp.one_adk.file_schedule_proposal import propose_file_schedule
+
+            tools.append(propose_file_schedule)
     if pod_mode():
         from hushh_mcp.one_adk.computer_use_agent import (
             browser_task_hand_available,
@@ -2642,8 +2713,14 @@ def _one_roster_tools(
         from ag_ui_adk import AGUIToolset
 
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
 
-        tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
+        client_tool_names = (
+            set(RECEIPT_TOOL_NAMES)
+            if pod_mode()
+            else (set(RECEIPT_TOOL_NAMES) | set(WIKI_TOOL_NAMES))
+        )
+        tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
     return tools
 
 
@@ -2684,7 +2761,14 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
         return boundary
     from hushh_mcp.one_adk.receipt_client_tools import before_receipt_tool
 
-    return before_receipt_tool(tool, args, tool_context)
+    receipt_guard = before_receipt_tool(tool, args, tool_context)
+    if receipt_guard:
+        return receipt_guard
+    if not pod_mode():
+        from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool
+
+        return before_wiki_recall_tool(tool, args, tool_context)
+    return None
 
 
 async def _requester_bundle(owner_id: str, bundle_id: str) -> dict[str, Any] | None:
@@ -2738,6 +2822,7 @@ def build_one_text_agent(
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
 
     track_current_consent, finance_before_model, finance_after_model = finance_model_callbacks(
         lookup=consent_bundle_lookup or _requester_bundle, before_model=_one_consent_before_model
@@ -2769,6 +2854,7 @@ def build_one_text_agent(
             allow_private_mcp=allow_private_mcp,
             allow_receipt_tools=execution_mode == "chat" and include_client_receipt_tools,
             memory_available=memory_available,
+            allow_planning_review=execution_mode == "chat",
         ),
         # Consent is checked per turn and redacted per model call (C3).
         before_agent_callback=[timed_one_before_agent, track_current_consent],
@@ -2779,6 +2865,7 @@ def build_one_text_agent(
         before_model_callback=[
             finance_before_model,
             receipt_before_model,
+            wiki_before_model,
             document_period_before_model,
             timed_one_before_model,
             club_queued_input,
@@ -2788,6 +2875,7 @@ def build_one_text_agent(
             finance_after_model,
             timed_one_after_model,
             receipt_after_model,
+            wiki_after_model,
             chat_memory_after_model,
         ],
         # Preserve the configured Chat thinking level for measured comparison.

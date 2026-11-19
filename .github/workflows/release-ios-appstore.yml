@@ -256,7 +256,7 @@ jobs:
       - name: Resolve App Store marketing version
         shell: bash
         env:
-          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version || needs.preflight.outputs.marketing_version }}
+          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version }}
         run: |
           set -euo pipefail
           version="$(python3 - <<'PY'

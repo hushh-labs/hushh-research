@@ -14626,7 +14626,8 @@ export function OneLocationAgentPageContent({
     return (
       <AppPageShell
         ref={locationNativeFrame}
-        width="agent"
+        width="reading"
+        data-location-page
         data-location-type-scale="connect"
         headerContentSpacing="compact"
         fitContent

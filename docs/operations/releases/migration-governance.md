@@ -6,7 +6,7 @@
 
 Promotion is separate release work, not part of a private-pod dev rollout. Inspect the current release and dev manifests, migration authority and environment contracts before choosing migration identifiers. Reconcile already-applied dev migrations and checksums; do not assume renumbered SQL is safe to replay. Update affected dev-manifest entries in the same change so moved files cannot break dev deployment; retain the lane while other dev-only migrations remain. Update table-family lifecycle declarations and regenerate their projections. Rehearse against a disposable restoration and run the existing release-migration contract gates before an authorized rollout. Historical migration numbers and blanket idempotence claims are not instructions.
 
-Canonical visual owner: [Operations Index](../../README.md). Use that map for the top-down operations view; this page defines the database migration authority and the environment contract model.
+Canonical visual owner: [Operations Index](../README.md). Use that map for the top-down operations view; this page defines the database migration authority and the environment contract model.
 
 ## Visual Map
 
@@ -283,7 +283,11 @@ to avoid that refusal.
   migration bodies.
 - `ledger` requires a verified baseline marker and executes only pending
   migrations. It fails closed when the baseline is absent or an accepted
-  checksum changes.
+  checksum changes. For transactional entries (`transactional=true`),
+  `migration_sql_envelope.py` strips a symmetric outer `BEGIN; ... COMMIT;`
+  envelope in memory after adaptation so `conn.transaction()` commits DDL and
+  the `schema_migrations` receipt atomically without altering on-disk SQL or
+  SHA-256 checksums.
 
 UAT mode is controlled independently from production. Turning on `ledger` is
 not a normal deploy flag change: it requires the zero-loss baseline procedure
@@ -294,6 +298,11 @@ the ledger transaction wrapper. Use this only for a single statement that requir
 top-level execution, such as `CREATE INDEX CONCURRENTLY`; include no `BEGIN` or
 `COMMIT`. The header is part of the immutable checksum. Replay already runs each
 file without an explicit wrapper, and observe still executes no migration bodies.
+Canonical migrations `>= 459` omit outer `BEGIN;` / `COMMIT;` wrappers and
+anchor application actor foreign keys to `actor_profiles` rather than expanding
+`vault_keys`. Meanwhile `db/migrations/parked/` and `dev_migration_manifest.json`
+are frozen to the existing 82-entry burn-down set (`900`–`989`): parked entries
+may only graduate out, never grow.
 Concurrent builds may leave an invalid index after interruption, so dependent
 migrations must check index validity and document explicit rebuild instructions.
 The Feed 203–204 sequence and its recovery are documented in

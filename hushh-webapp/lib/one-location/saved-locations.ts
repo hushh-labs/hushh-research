@@ -184,6 +184,18 @@ function isValidLocation(value: unknown): value is SavedLocation {
   );
 }
 
+/** A tolerant reader must never silently remove unreadable records on a write. */
+function savedLocationsForWrite(domainData: Record<string, unknown>): SavedLocation[] {
+  const stored = asRecord(domainData[SAVED_PLACES_KEY]).locations;
+  if (stored === undefined) return [];
+  if (!Array.isArray(stored) || !stored.every(isValidLocation)) {
+    throw new Error(
+      "Review your existing saved places before saving changes. Your records have been preserved.",
+    );
+  }
+  return stored;
+}
+
 function locationsFromDomain(
   domainData: Record<string, unknown> | null | undefined,
 ): SavedLocation[] {
@@ -269,6 +281,7 @@ async function mutateSavedLocations(params: {
     beforeEffect: params.context.beforeEffect,
     build: (writeContext) => {
       const updatedAt = new Date().toISOString();
+      savedLocationsForWrite(writeContext.currentDomainData);
       previousLocations = locationsFromDomain(writeContext.currentDomainData);
       persistedLocations = params.mutate(previousLocations);
       return savedPlacesWrite(
@@ -366,20 +379,9 @@ export async function saveRequestedLocationWorkflowPlace(params: {
     beforeEffect: params.beforeEffect,
     idempotencyScope: `one.location.pre_vault_finalize.v1:${runId}:${params.finalize.draftDigest}`,
     build: (context) => {
-      const stored = asRecord(
-        context.currentDomainData[SAVED_PLACES_KEY],
-      ).locations;
-      if (
-        stored !== undefined &&
-        (!Array.isArray(stored) || !stored.every(isValidLocation))
-      ) {
-        throw new Error(
-          "Review your existing saved places before this setup can save. Your records have been preserved.",
-        );
-      }
       // This setup appends one private place. It does not normalize, migrate or
       // silently filter records the owner already saved.
-      const existing: SavedLocation[] = stored ?? [];
+      const existing = savedLocationsForWrite(context.currentDomainData);
       // A stable run identity never overwrites Home, Work or an unrelated place.
       const locations = existing.some((location) => location.id === entry.id)
         ? existing

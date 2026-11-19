@@ -73,6 +73,19 @@ def app_client_id() -> str:
     return value
 
 
+def hosted_app_client_id() -> str:
+    """Return the HushOne Inc. hosted Azure cell controller Entra application ID."""
+    value = (
+        os.getenv("HUSSH_HOSTED_AZURE_CLIENT_ID") or os.getenv("HUSSH_AZURE_APP_CLIENT_ID") or ""
+    ).strip()
+    if not _GUID.match(value):
+        raise AzureFederationError(
+            "Hussh-hosted Azure cell federation is not configured on this deployment",
+            code="NOT_CONFIGURED",
+        )
+    return value
+
+
 def broker_service_account() -> str:
     value = (os.getenv("HUSSH_AZURE_BROKER_SA") or "").strip().removeprefix("serviceAccount:")
     if not value.endswith(".iam.gserviceaccount.com"):
@@ -173,17 +186,26 @@ def _token_request(
     authority: str,
     form: dict[str, str],
     *,
+    client_id: Optional[str] = None,
     assertion: Callable[[], str],
     session: Any,
     sleep: Callable[[float], None],
 ) -> dict[str, Any]:
     """POST the token endpoint, retrying only the federation-propagation refusal."""
+    resolved_client_id = str(client_id or "").strip()
+    if resolved_client_id:
+        if not _GUID.match(resolved_client_id):
+            raise AzureFederationError(
+                "invalid Microsoft application identifier", code="NOT_CONFIGURED"
+            )
+    else:
+        resolved_client_id = app_client_id()
     url = f"{ENTRA_AUTHORITY}/{require_authority(authority)}/oauth2/v2.0/token"
     http = _session(session)
     for attempt, delay in enumerate((*FEDERATION_SETTLE_DELAYS, None)):
         payload = {
             **form,
-            "client_id": app_client_id(),
+            "client_id": resolved_client_id,
             "client_assertion_type": CLIENT_ASSERTION_TYPE,
             "client_assertion": assertion(),
         }
@@ -207,6 +229,7 @@ def app_token(
     tenant_id: str,
     *,
     scope: str = ARM_APP_SCOPE,
+    client_id: Optional[str] = None,
     session: Any = None,
     sleep: Callable[[float], None] = time.sleep,
     assertion: Optional[Callable[[], str]] = None,
@@ -217,6 +240,7 @@ def app_token(
     body = _token_request(
         tenant_id,
         {"grant_type": "client_credentials", "scope": scope},
+        client_id=client_id,
         assertion=assertion or (lambda: google_assertion(session=session)),
         session=session,
         sleep=sleep,
@@ -268,6 +292,7 @@ __all__ = [
     "app_token",
     "broker_service_account",
     "google_assertion",
+    "hosted_app_client_id",
     "redeem_authorization_code",
     "require_authority",
     "token_claims",

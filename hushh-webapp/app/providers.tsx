@@ -1,6 +1,5 @@
 "use client";
 
-import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
 import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 /**
@@ -847,7 +846,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                   must work from Home, not only with Profile mounted. */}
               <AccountLifecycleStepBridge />
               <NativePrivateGoogleConnectorHandoff />
-              <LivingMemoryBridge />
               <LiveActivityBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>

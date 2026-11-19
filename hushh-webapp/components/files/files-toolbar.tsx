@@ -24,6 +24,7 @@ type FilesToolbarProps = {
   onTrash: () => void;
   onSettings: () => void;
   onActivity: () => void;
+  onWiki: () => void;
   onRefresh: () => void;
   onUpload: () => void;
   onNewFolder: () => void;
@@ -41,6 +42,7 @@ export function FilesToolbar({
   onTrash,
   onSettings,
   onActivity,
+  onWiki,
   onRefresh,
   onUpload,
   onNewFolder,
@@ -113,6 +115,12 @@ export function FilesToolbar({
                 label: "Activity",
                 onSelect: onActivity,
                 disabled: locked,
+              },
+              {
+                id: "wiki",
+                label: "Personal wiki",
+                onSelect: onWiki,
+                disabled: loading || locked || blocked,
               },
               {
                 id: "trash",

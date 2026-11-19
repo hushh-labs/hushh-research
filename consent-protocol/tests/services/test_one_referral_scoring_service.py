@@ -172,6 +172,8 @@ class _ProcessJobConnection:
                     )
                 ]
             )
+        if "FROM account_deletion_tombstones" in sql:
+            return _Result([])
         if "INSERT INTO one_referral_score_events" in sql:
             if self.raise_on_score_insert:
                 raise RuntimeError("simulated insert failure")
@@ -460,6 +462,54 @@ def test_publish_leaderboard_snapshot_ranks_by_points_then_earliest_event(monkey
     assert result.snapshot_id == "snap-1"
     assert result.entry_count == 2
     assert len(writes) == 1 and "SUM(points)" in writes[0] and "ROW_NUMBER()" in writes[0]
+    assert "account_deletion_tombstones" in writes[0]
+
+
+def test_process_one_job_skips_tombstoned_referrer_without_inserting_score(monkeypatch):
+    _patch_settings(monkeypatch, _settings_row())
+    conn = MagicMock()
+    job_updates: list[tuple[str, dict]] = []
+
+    def execute(query, params=None):
+        sql = str(query)
+        params = params or {}
+        if "SELECT lease_id" in sql:
+            return _Result([SimpleNamespace(lease_id="lease-1")])
+        if "SELECT id, referrer_user_id, status, qualified_at" in sql:
+            return _Result(
+                [
+                    SimpleNamespace(
+                        id=RELATIONSHIP_ID,
+                        referrer_user_id=REFERRER,
+                        status="qualified",
+                        qualified_at=datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc),
+                    )
+                ]
+            )
+        if "account_deletion_tombstones" in sql:
+            return _Result([SimpleNamespace(deleted=1)])
+        if "INSERT INTO one_referral_score_events" in sql:
+            raise AssertionError(
+                "Tombstoned referrer must never insert into one_referral_score_events"
+            )
+        if "UPDATE one_referral_scoring_jobs" in sql:
+            job_updates.append((sql, dict(params)))
+            return _Result([])
+        return _Result([])
+
+    conn.execute.side_effect = execute
+    with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        outcome = scoring_service.process_one_job(
+            {
+                "job_id": RELATIONSHIP_ID,
+                "relationship_id": RELATIONSHIP_ID,
+                "user_id": REFERRER,
+                "lease_id": "lease-1",
+                "retry_count": 0,
+            }
+        )
+    assert outcome == {"status": "skipped", "reason": "account_deleted"}
+    assert any("account_deleted" in sql for sql, _ in job_updates)
 
 
 def test_backfill_import_defers_environment_loading_and_requires_apply(monkeypatch, capsys):

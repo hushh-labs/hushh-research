@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, type ReactNode } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import * as idleScheduler from "@/lib/perf/idle-scheduler";
 
 const mapHarness = vi.hoisted(() => {
   type CameraListener = (data: unknown) => void;
@@ -3422,6 +3423,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     { native: false, count: 1 }, { native: false, count: 2 },
     { native: true, count: 1 }, { native: true, count: 2 },
   ])("frames owner and $count incoming people on entry (native=$native), once, with manual fitting retained", async ({ native, count }) => {
+    // Drive visibility directly so the exact read count measures that event.
+    const registerPeriodicTask = idleScheduler.registerPeriodicTask;
+    vi.spyOn(idleScheduler, "registerPeriodicTask").mockImplementation(task =>
+      task.id === "location-map:markers" ? () => undefined : registerPeriodicTask(task));
     platformHarness.native = native;
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({

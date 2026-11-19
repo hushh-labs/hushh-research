@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Python packages
 
-Package count: 222
+Package count: 219
 
 ### License summary
 
@@ -24,7 +24,7 @@ Package count: 222
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 19
+- `BSD License`: 18
 - `BSD-2-Clause`: 2
 - `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
@@ -35,14 +35,13 @@ Package count: 222
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
 - `MIT`: 56
-- `MIT AND PSF-2.0`: 1
 - `MIT License`: 32
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
-- `Python Software Foundation License`: 3
+- `Python Software Foundation License`: 2
 
 ### Package inventory
 
@@ -79,14 +78,13 @@ Package count: 222
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
 - `cloudpickle` `3.1.2` — BSD License
-- `colorama` `0.4.6` — BSD License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
 - `defusedxml` `0.7.1` — Python Software Foundation License
 - `Deprecated` `1.3.1` — MIT License
 - `distro` `1.9.0` — Apache Software License
-- `dnspython` `2.9.0` — ISC
+- `dnspython` `2.9.2` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
 - `exchange_calendars` `4.13.2` — Apache-2.0
@@ -98,7 +96,7 @@ Package count: 222
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
-- `google-adk` `2.9.0` — Apache Software License
+- `google-adk` `2.14.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
 - `google-auth` `2.58.0` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
@@ -107,11 +105,10 @@ Package count: 222
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
 - `google-crc32c` `1.8.0` — Apache-2.0
-- `google-genai` `2.23.0` — Apache-2.0
+- `google-genai` `2.34.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
-- `greenlet` `3.4.0` — MIT AND PSF-2.0
 - `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
@@ -134,7 +131,7 @@ Package count: 222
 - `jiter` `0.14.0` — MIT
 - `jmespath` `1.1.0` — MIT License
 - `joblib` `1.6.0` — BSD-3-Clause
-- `joserfc` `1.7.3` — BSD License
+- `joserfc` `1.7.6` — BSD License
 - `jsonpatch` `1.33` — BSD License
 - `jsonpointer` `3.1.1` — BSD License
 - `jsonschema` `4.26.0` — MIT
@@ -167,16 +164,16 @@ Package count: 222
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
 - `openai` `2.32.0` — Apache Software License
 - `openpyxl` `3.1.5` — MIT License
-- `opentelemetry-api` `1.42.1` — Apache-2.0
+- `opentelemetry-api` `1.45.2` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
-- `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-asgi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-fastapi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-httpx` `0.63b1` — Apache-2.0
+- `opentelemetry-instrumentation` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-asgi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-fastapi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-httpx` `0.66b2` — Apache-2.0
 - `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
-- `opentelemetry-sdk` `1.42.1` — Apache-2.0
-- `opentelemetry-semantic-conventions` `0.63b1` — Apache-2.0
-- `opentelemetry-util-http` `0.63b1` — Apache-2.0
+- `opentelemetry-sdk` `1.45.2` — Apache-2.0
+- `opentelemetry-semantic-conventions` `0.66b2` — Apache-2.0
+- `opentelemetry-util-http` `0.66b2` — Apache-2.0
 - `orjson` `3.11.8` — MPL-2.0 AND (Apache-2.0 OR MIT)
 - `ormsgpack` `1.12.2` — Apache-2.0 OR MIT
 - `packaging` `26.1` — Apache-2.0 OR BSD-2-Clause
@@ -192,8 +189,8 @@ Package count: 222
 - `propcache` `0.4.1` — Apache Software License
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
-- `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
-- `pyasn1` `0.6.4` — BSD-2-Clause
+- `psycopg2-binary` `2.9.13` — GNU Library or Lesser General Public License (LGPL)
+- `pyasn1` `0.6.5` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
 - `pycparser` `3.0` — BSD-3-Clause
@@ -213,14 +210,13 @@ Package count: 222
 - `python-a2a` `0.5.10` — MIT License
 - `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
 - `python-dotenv` `1.2.2` — BSD-3-Clause
-- `python-multipart` `0.0.32` — Apache-2.0
+- `python-multipart` `0.0.34` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
-- `pywin32` `311` — Python Software Foundation License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
 - `regex` `2026.9.3` — Apache-2.0 AND CNRI-Python
-- `requests` `2.33.1` — Apache Software License
+- `requests` `2.34.2` — Apache Software License
 - `requests-toolbelt` `1.0.0` — Apache Software License
 - `rich` `15.0.0` — MIT License
 - `rpds-py` `0.30.0` — MIT
@@ -233,7 +229,7 @@ Package count: 222
 - `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
-- `slowapi` `0.1.9` — MIT License
+- `slowapi` `0.1.10` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
 - `soupsieve` `4.1` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
@@ -246,23 +242,23 @@ Package count: 222
 - `threadpoolctl` `3.6.0` — BSD License
 - `tokenizers` `0.22.2` — Apache Software License
 - `toolz` `1.2.0` — BSD-3-Clause
-- `torch` `2.14.0+cpu` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+- `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
-- `typing-inspection` `0.4.2` — MIT
-- `typing_extensions` `4.15.0` — PSF-2.0
-- `tzdata` `2026.1` — Apache-2.0
+- `typing-inspection` `0.4.5` — MIT
+- `typing_extensions` `4.16.0` — PSF-2.0
+- `tzdata` `2026.6` — Apache-2.0
 - `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
 - `watchdog` `6.0.0` — Apache Software License
-- `watchfiles` `1.2.0` — MIT License
-- `webauthn` `3.0.0` — BSD-3-Clause
+- `watchfiles` `1.3.0` — MIT License
+- `webauthn` `3.0.1` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
 - `Werkzeug` `3.1.9` — BSD-3-Clause
-- `workos` `10.5.0` — MIT
+- `workos` `10.9.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
 - `yarl` `1.25.1` — Apache-2.0
@@ -279,4 +275,4 @@ Package count: 1
 
 ### Package inventory
 
-- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](browser_runtime/azure_host/LICENSE.moby); [Upstream notice](browser_runtime/azure_host/NOTICE.moby)
+- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)

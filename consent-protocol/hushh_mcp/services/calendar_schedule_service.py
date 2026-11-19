@@ -31,6 +31,7 @@ from hushh_mcp.services.calendar_attendance_confirmation import (
     require_rsvp_review,
     send_reviewed_organizer_mail,
 )
+from hushh_mcp.services.calendar_decline_comment import clean_decline_reason, patch_with_comment
 from hushh_mcp.services.gmail_delivery_service import get_gmail_delivery_service
 from hushh_mcp.services.google_calendar_service import (
     GoogleCalendarService,
@@ -841,6 +842,7 @@ class CalendarScheduleService:
         mail_only_retry: bool = False,
         exact_time: bool = False,
         message: str = "",
+        decline_reason: str = "",
         date: str = "",
         time_zone: str = "UTC",
         start_time: str = "09:00",
@@ -904,6 +906,7 @@ class CalendarScheduleService:
             "time_zone": time_zone,
             "etag": event["etag"],
             "patch": patch,
+            "decline_reason": clean_decline_reason(decline_reason, response_status),
             "binding": list(binding),
         }
         mail_review, link, draft, alternatives = None, None, None, []
@@ -1135,7 +1138,7 @@ class CalendarScheduleService:
                     access="manage",
                     headers={"If-Match": current["etag"]},
                     params={"sendUpdates": "all"},
-                    payload=patch,
+                    payload=patch_with_comment(patch, plan.get("decline_reason")),
                     expected_binding=tuple(plan["binding"]),
                 )
                 own = next(

@@ -11,6 +11,8 @@ import fs from "node:fs";
 import { execFileSync, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseEnvFile } from "../testing/reviewer-test-identity.mjs";
+import { resolveIosFirebasePlist } from "./sync-native-firebase-configs.mjs";
+import { ensureUatIosAnalyticsPlist, verifySharedIosFirebasePlist } from "./ios-firebase-config.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const uatEnvPath = path.join(repoRoot, ".env.uat.local");
@@ -220,7 +222,11 @@ export function ensureUatEnv() {
   return backendUrl;
 }
 
-function main() {
+async function main() {
+  const sharedPlist = resolveIosFirebasePlist(repoRoot);
+  if (!sharedPlist) throw new Error("UAT iOS archive requires the shared Firebase identity plist.");
+  verifySharedIosFirebasePlist(sharedPlist);
+  await ensureUatIosAnalyticsPlist(repoRoot);
   const backendUrl = ensureUatEnv();
   execSync("npm run cap:build", { cwd: repoRoot, stdio: "inherit", env: process.env });
   execSync("npm run cap:sync:ios", { cwd: repoRoot, stdio: "inherit", env: process.env });
@@ -237,6 +243,6 @@ function main() {
   console.log("==> iOS project is ready for a UAT Xcode Archive");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }

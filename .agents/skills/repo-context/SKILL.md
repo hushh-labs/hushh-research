@@ -70,7 +70,7 @@ Non-owned surfaces:
 2. Route licensing and notice-governance work to `oss-license-governance`.
 3. Route bootstrap, devcontainer, doctor, and contributor-first-run work to `contributor-onboarding`.
 4. Route optional-mirror sync and subtree-governance work to `subtree-upstream-governance`.
-5. Route skill-system work to `codex-skill-authoring`.
+5. Route skill-system work to `skill-authoring`.
 6. Route board workflows to `planning-board` and public/community reply work to `comms-community`.
 
 ## Required Checks

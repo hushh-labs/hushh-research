@@ -92,7 +92,7 @@ const softwareUpdatesLink = (
     className="min-h-11 self-start text-sm underline underline-offset-4"
     href={ROUTES.PROFILE_SOFTWARE_UPDATES}
   >
-    Open Software updates
+    Open Agent updates
   </Link>
 );
 
@@ -194,7 +194,7 @@ export function AzureUpgradeProgress({
     return (
       <div className="flex flex-col gap-2" data-testid="azure-upgrade-unreadable">
         <p className="text-sm text-[var(--app-text-secondary)]">
-          We couldn&rsquo;t read the update&rsquo;s progress. Check Software updates in
+          We couldn&rsquo;t read the update&rsquo;s progress. Check Agent updates in
           a moment.
         </p>
         {softwareUpdatesLink}
@@ -210,7 +210,7 @@ export function AzureUpgradeProgress({
       title="In your Azure subscription"
       stages={azureChecklistStages(job, AZURE_UPGRADE_FIRST_STAGE)}
       job={job}
-      footnote="This runs on its own. You can leave this page and check Software updates later."
+      footnote="This runs on its own. You can leave this page and check Agent updates later."
     />
   );
 }

@@ -32,7 +32,8 @@ flowchart LR
 
 Current memory remains encrypted Markdown inside PKM. An independent wiki/blob
 memory model requires its own design, custody and migration acceptance before it
-can replace that implementation. See [current memory](../architecture/modules/memory.md).
+can replace that implementation. See [current memory](../architecture/modules/memory.md)
+and the [Personal Wiki Memory plan](personal-wiki-memory-plan.md).
 
 ## Promotion rule
 
@@ -54,6 +55,7 @@ Do not remove active peer work based on its date.
 - [One/Kai/Nav/KYC Runtime Plan](one-nav-runtime-plan.md)
 - [One Product Surface Evolution Plan](one-product-surface-evolution-plan.md)
 - [Agent One Voice — Siri Handshake and Voice Handoff PRD](one-voice-siri-handshake-prd.md)
+- [Personal Wiki Memory, Consent-Safe PKM Projections, and ADK Recall Plan](personal-wiki-memory-plan.md)
 - [PKM Data-Slice Marketplace Plan](pkm-slice-marketplace-plan.md)
 - [Proposals](proposals/README.md)
 - [Repository organization and unified development agents](repository-organization-plan.md)

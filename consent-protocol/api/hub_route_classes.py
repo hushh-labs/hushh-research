@@ -20,7 +20,10 @@ Classes:
 * ``NETWORK``: person-to-person and directory features the hub brokers between
   accounts (connections, messages, Location sharing, marketplace, referrals).
 * ``CIPHERTEXT``: sealed records the hub stores and indexes but does not open.
-* ``CONNECTOR_ADMIN``: connect, disconnect and status of a provider link.
+* ``CONNECTOR_ADMIN``: connect, disconnect, status, and stateless zero-persistence
+  vendor-secret passthrough (such as ``/api/kai/plaid/vault/*``, where every provider
+  call requires Hussh's corporate secret while the owner's device holds and seals all
+  tokens and records).
 * ``SUPPORT``: public reference information, settings and retired responders.
 * ``OPS``: placement, provisioning, setup, heartbeat and lifecycle.
 
@@ -58,6 +61,8 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/finance/advisor-reviews/portfolio-analysis
+POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
 POST /api/one/todos/suggestions
 POST /api/one/calendar/board/day
@@ -115,7 +120,6 @@ POST /api/kai/gmail/sync
 GET /api/kai/gmail/sync/{run_id}
 GET /api/kai/market/insights/{user_id}
 GET /api/kai/market/news/{user_id}
-POST /api/kai/plaid/vault/snapshot
 POST /api/kai/portfolio/analyze-losers
 POST /api/kai/portfolio/analyze-losers/stream
 POST /api/kai/portfolio/import
@@ -166,6 +170,7 @@ POST /api/one/calendar/guest-photo-token
 POST /api/one/calendar/insights
 POST /api/one/calendar/meetings
 POST /api/one/calendar/meetings/requests
+POST /api/one/calendar/meetings/request-readiness
 POST /api/one/calendar/meetings/request-statuses
 POST /api/one/calendar/meetings/approved-detail
 POST /api/one/calendar/meetings/approved-open
@@ -214,6 +219,7 @@ POST /api/pkm/memory/rewrite
 [AUTHORITY]
 GET /api/one/answer-requests/runtime
 POST /api/one/answer-requests/{request_id}/pod-composition-receipt
+GET /api/one/finance/shares/active-recipients
 GET,PUT /api/one/plg/preferences
 GET,PUT /api/one/plg/attempt-email/preferences
 GET,POST /api/one/plg/attempt-email/unsubscribe
@@ -251,6 +257,9 @@ POST /api/one/agent-chat/runs/{conversation_id}/stop
 POST /api/one/agent-chat/proposals/prepare
 GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
+GET /api/one/pod/custody/broker-key
+POST /api/one/pod/custody/storage-token
+POST /api/one/pod/custody/dek
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
@@ -266,11 +275,20 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+POST /api/one/finance/advisor-reviews/candidates
+POST /api/one/finance/advisor-reviews/{request_id}/decision
+POST /api/one/finance/advisor-reviews/{request_id}/meeting
+POST /api/one/finance/advisor-reviews/{request_id}/meeting/decision
+POST /api/one/finance/advisor-reviews/{request_id}/plan
+POST /api/one/finance/advisor-reviews/{request_id}/checkout
+DELETE,GET /api/one/finance/advisor-reviews/{request_id}/billing
 GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+GET,POST /api/one/finance/advisor-reviews
+GET /api/one/finance/advisor-reviews/{request_id}
 GET,POST /api/one/finance/shares
 DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export
@@ -322,6 +340,7 @@ GET /api/kai/gmail/status/{user_id}
 POST /api/kai/plaid/vault/exchange
 POST /api/kai/plaid/vault/link-token
 POST /api/kai/plaid/vault/remove
+POST /api/kai/plaid/vault/snapshot
 POST /api/one/calendar/connect/complete
 POST /api/one/calendar/connect/native/complete
 POST /api/one/calendar/connect/native/start
@@ -368,6 +387,7 @@ GET /api/one/voice/readiness
 GET /api/pkm/domain-registry
 POST /api/pkm/slice-price
 [OPS]
+POST /api/one/metrics/adoption
 POST /api/one/plg/subscriptions/pull
 POST /api/one/plg/subscriptions/ack
 GET,POST /api/one/plg/activity
@@ -419,7 +439,12 @@ POST /api/one/runtime/byoc/azure/authorize/complete
 GET /api/one/runtime/byoc/azure/hosting
 POST /api/one/runtime/byoc/azure/rebuild/begin
 POST /api/one/runtime/byoc/azure/upgrade/begin
+GET /api/one/runtime/byoc/hosted/azure/migrate/status
+POST /api/one/runtime/byoc/hosted/azure/migrate
 POST /api/one/runtime/byoc/hosted/select
+GET /api/one/runtime/byoc/hosted/cells/status
+GET /api/one/runtime/byoc/hosted/source-retirement/status
+POST /api/one/runtime/byoc/hosted/source-retirement/confirm
 POST /api/one/runtime/byoc/project/check
 POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save

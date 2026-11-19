@@ -1,0 +1,39 @@
+import { CalendarFollowupsService, type FollowupStatus } from "@/lib/services/calendar-followups-service";
+
+/**
+ * Re-point one account's monitor at the live Mail grant. It keeps the owner's
+ * period, reminder timing, decisions and scan progress; only the grant changes.
+ */
+export async function rebindFollowupMonitor(
+  userId: string, accountId: string, current: FollowupStatus, zone: string,
+  idToken: string, ownerToken: string, signal?: AbortSignal,
+): Promise<void> {
+  await CalendarFollowupsService.post("preferences", {
+    user_id: userId, account_id: accountId, enabled: true,
+    notifications_enabled: current.notifications_enabled,
+    historical_start_at: current.historical_start_at,
+    time_zone: current.time_zone || zone,
+    reminder_lead_days: current.reminder_lead_days ?? 1,
+    reminder_hour: current.reminder_hour ?? 9,
+  }, idToken, ownerToken, signal);
+}
+
+/**
+ * Each scan call is one bounded step on the server. Keep asking while it reports
+ * more work, refreshing between calls so results appear as they land. Returns
+ * false when the caller went away before the work finished.
+ */
+export async function scanWhilePending(options: {
+  userId: string; accountId: string; ownerToken: string; maxCalls: number;
+  getIdToken: () => Promise<string>; refresh: () => Promise<void>; signal?: AbortSignal;
+}): Promise<boolean> {
+  for (let call = 0; call < options.maxCalls; call += 1) {
+    if (options.signal?.aborted) return false;
+    const result = await CalendarFollowupsService.scan(
+      options.userId, options.accountId, await options.getIdToken(), options.ownerToken, {}, options.signal,
+    );
+    await options.refresh();
+    if (result?.state !== "pending") return true;
+  }
+  return true;
+}

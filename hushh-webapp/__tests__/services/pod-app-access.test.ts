@@ -115,6 +115,29 @@ it("requires owner app authority for scheduled work and permits only exact read/
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("admits typed Calendar/Mail reads only with app pkm.read authority and exact methods", async () => {
+  const fetch = vi.fn(async () => Response.json({ items: [] }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic", role: "device", scopes: ["pkm.read", "pod.status"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  for (const [path, method] of [["calendar/events", "POST"], ["gmail/todos", "GET"]]) {
+    await expect(ownerPodRequest(path!, { method }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  }
+  connection.session.role = "app";
+  connection.session.scopes = ["pod.status"];
+  await expect(ownerPodRequest("gmail/todos", { method: "GET" }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+  connection.session.scopes = ["pkm.read"];
+  await ownerPodRequest("calendar/events", { method: "POST", body: "{}" }, ports);
+  await ownerPodRequest("gmail/todos", { method: "GET" }, ports);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockClear();
+  await expect(ownerPodRequest("gmail/todos", { method: "POST" }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  await expect(ownerPodRequest("calendar/events", { method: "GET" }, ports)).rejects.toThrow("POD_TASK_SOURCE_READ_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("refuses a retired Stop before hosting dispatch and after deferred pod admission", async () => {
   let current = true;
   const fetch = vi.fn(async () => Response.json({ stopped: true }));
@@ -285,4 +308,53 @@ it("routes unpinned managed chat directly and never retries the hub on failure",
   })).rejects.toThrow("POD_UNAVAILABLE");
   expect(direct).toHaveBeenCalledOnce();
   expect(hub).not.toHaveBeenCalled();
+});
+
+it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  pod.currentPodConnection.mockResolvedValue({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["files.read", "files.manage"] },
+  });
+  for (const route of [
+    "files/wiki/overview",
+    "files/wiki/page?page_id=work%2Fcareer.md",
+    "files/wiki/opt-in",
+    "files/wiki/confirm",
+    "files/wiki/projection/derive",
+    "files/wiki/forget",
+    "files/wiki/migrate",
+    "files/wiki/rollback",
+    "files/wiki/import",
+    "files/workspaces/status",
+    "files/workspaces/execute",
+    "files/workspaces/control",
+    "files/workspaces/forget",
+  ]) {
+    const response = await ownerPodRequest(route, { method: route.startsWith("files/wiki/overview") || route.startsWith("files/workspaces/status") || route.includes("?") ? "GET" : "POST" }, ports);
+    expect(response.ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(13);
+  await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});
+
+it("admits owner pod browser download save route only when browser.control and files scopes are held", async () => {
+  const fetch = vi.fn(async () => Response.json({ verified: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const downloadRoute = `browser/tasks/browser_${"a".repeat(32)}/downloads/${"b".repeat(32)}`;
+
+  pod.currentPodConnection.mockResolvedValueOnce({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control"] },
+  });
+  await expect(ownerPodRequest(downloadRoute, { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+
+  pod.currentPodConnection.mockResolvedValueOnce({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control", "files.read", "files.manage"] },
+  });
+  const ok = await ownerPodRequest(downloadRoute, { method: "POST", body: "{}" }, ports);
+  expect(ok.ok).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
 });

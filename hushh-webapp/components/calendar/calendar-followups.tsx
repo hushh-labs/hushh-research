@@ -1,14 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mail, MoreHorizontal } from "@/components/icons";
+import { ExternalLink, Mail, MoreHorizontal } from "@/components/icons";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
-import { bookingInstant, bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
-import { CalendarFollowupsService, FOLLOWUP_PAGE_SIZE, type FollowupConversation, type FollowupPreviewRequest, type FollowupView, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
+import {
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
+} from "@/lib/calendar/calendar-followup-presentation";
+import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
+import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
+import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
+import { CalendarFollowupsService, FOLLOWUP_PAGE_SIZE, type FollowupView, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
 
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
@@ -20,39 +26,9 @@ type Props = {
   onDeepLinkHandled?: () => void;
 };
 
-function shortSender(value: string): string {
-  const name = (value.split("<")[0] ?? "").trim().replace(/^"|"$/g, "");
-  return name && !name.includes("@") ? name : value.match(/<([^>]+)>/)?.[1]?.split("@")[0] || value.split("@")[0] || value;
-}
-function dateLabel(value: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(`${value}T12:00:00Z`);
-  if (!Number.isFinite(date.getTime())) return null;
-  // A short date names the year only when it is not this year, so "12 Nov" stays short.
-  const otherYear = date.getUTCFullYear() !== new Date().getUTCFullYear();
-  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(otherYear ? { year: "numeric" } : {}), timeZone: "UTC" });
-}
-/** The one date phrase for a request: what is true about its date, not only the sender's words. */
-function requestDate(item: FollowupPreviewRequest | undefined): string | null {
-  if (!item) return null;
-  const day = item.due_date || item.proposed_date;
-  if (item.bucket === "overdue" && day) return `Overdue · was due ${dateLabel(day)}`;
-  if (item.bucket === "history" && day && item.after_date === "lapses") return `Ended ${dateLabel(day)}`;
-  if (item.category === "scheduled_event" && day) return `On ${dateLabel(day)}`;
-  if (item.original_due_wording) return item.original_due_wording;
-  if (day) return `Due ${dateLabel(day)}`;
-  return item.urgency === "asap" ? "ASAP" : null;
-}
-function previewLine(entry: FollowupConversation): string {
-  const requests = entry.preview_requests;
-  const next = requests.find(item => item.kind !== "meeting") || requests[0];
-  const meeting = requests.find(item => item.kind === "meeting" && item.id !== next?.id);
-  const call = meeting?.proposed_date ? `Call proposed for ${dateLabel(meeting.proposed_date)}` : null;
-  return [requestDate(next), call].filter(Boolean).join(" · ") || "Needs review";
-}
 const VIEW_LABELS: Record<FollowupView, string> = { upcoming: "Upcoming", overdue: "Overdue", snoozed: "Snoozed", history: "History" };
 const EMPTY_LABELS: Record<FollowupView, string> = {
-  upcoming: "No upcoming follow-ups.", overdue: "Nothing overdue.", snoozed: "Nothing snoozed.", history: "No earlier follow-ups.",
+  upcoming: "No pending follow-ups.", overdue: "Nothing overdue.", snoozed: "Nothing snoozed.", history: "No earlier follow-ups.",
 };
 function statusNote(request: FollowupRequest): string | null {
   const repeats = request.repeat_count ?? 0;
@@ -61,78 +37,66 @@ function statusNote(request: FollowupRequest): string | null {
   if (request.bucket === "history" && request.state !== "done" && request.state !== "dismissed" && request.state !== "cancelled") return `Ended${also}`;
   return also ? also.slice(3) : null;
 }
-function displayError(error: unknown): string {
-  if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
-  if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";
-  return "Follow-ups could not be checked. Try again.";
-}
-
-function MeetingReview({ request, zone, busy, onReview }: {
-  request: FollowupRequest; zone: string; busy: boolean;
-  onReview: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
-}) {
-  const local = request.proposed_at ? bookingLocalFields(request.proposed_at, request.time_zone || zone) : null;
-  const [date, setDate] = useState(local?.date || request.proposed_date || "");
-  const [time, setTime] = useState(local?.time || "");
-  const [duration, setDuration] = useState<"" | "15" | "30" | "60">(request.ambiguities.includes("duration") ? "" : "30");
-  const [timeZone, setTimeZone] = useState(request.ambiguities.includes("time_zone") ? "" : request.time_zone || zone);
-  const [error, setError] = useState("");
-  if (request.state === "cancelled" || request.state === "dismissed" || request.booking_state === "booked") return null;
-  return <>
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <label>Date<Input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
-      <label>Time<Input type="time" value={time} onChange={event => setTime(event.target.value)} /></label>
-      <label>Duration<select className="h-10 w-full rounded-md border bg-background px-2" value={duration} onChange={event => setDuration(event.target.value as typeof duration)}><option value="">Choose</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></label>
-      <label>Time zone<select className="h-10 w-full rounded-md border bg-background px-2" value={timeZone} onChange={event => setTimeZone(event.target.value)}><option value="">Choose</option><option value={zone}>{zone}</option>{request.time_zone && request.time_zone !== zone ? <option value={request.time_zone}>{request.time_zone}</option> : null}{zone !== "UTC" && request.time_zone !== "UTC" ? <option value="UTC">UTC</option> : null}</select></label>
-    </div>
-    {error ? <p role="alert" className="text-red-600">{error}</p> : null}
-    <Button size="compact" disabled={busy} onClick={() => {
-      if (!date || !time || !duration || !timeZone) { setError("Choose the meeting date, time, duration and time zone first."); return; }
-      try {
-        const startAt = bookingInstant(date, time, timeZone);
-        if (Date.parse(startAt) <= Date.now()) { setError("Choose a future meeting time."); return; }
-        onReview(request, startAt, new Date(Date.parse(startAt) + Number(duration) * 60_000).toISOString(), timeZone);
-      } catch { setError("Choose a valid meeting time."); }
-    }}>Review meeting</Button>
-  </>;
-}
+// Opening Insights again soon must not repeat work. The server also refuses a
+// scan that is not due, so this only avoids pointless round trips.
+const CATCH_UP_INTERVAL_MS = 5 * 60_000;
+const lastCatchUp = new Map<string, number>();
+// A quiet progress check while the first scan is still running; bounded so a
+// stuck account never polls forever.
+const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
+// Each scan call does one bounded step on the server. While it reports more work
+// the card keeps asking, so the first results arrive in seconds, not scheduler
+// ticks. Capped, and it stops the moment the card goes away.
+const CATCH_UP_MAX_CALLS = 20;
 
 export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
   const [list, setList] = useState<FollowupList | null>(null);
   const [detail, setDetail] = useState<FollowupDetail | null>(null);
   const [source, setSource] = useState<FollowupSource | null>(null);
+  const [emailLinks, setEmailLinks] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<FollowupView>("upcoming");
+  const [loadingPage, setLoadingPage] = useState(false);
   const [pageOffset, setPageOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [historyDays, setHistoryDays] = useState(30);
-  const [notify, setNotify] = useState(false);
+  const [notify, setNotify] = useState<boolean | null>(null);
   const [reminderInput, setReminderInput] = useState("");
+  const [reminderOpen, setReminderOpen] = useState<string | null>(null);
   const detailSeq = useRef(0);
   const sourceSeq = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
+  const pageOffsetRef = useRef(0);
+  const firstPageRef = useRef<FollowupList | null>(null);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   const tokenGetter = useRef(getIdToken); tokenGetter.current = getIdToken;
   const ownerTokenGetter = useRef(getVaultOwnerToken); ownerTokenGetter.current = getVaultOwnerToken;
   const trigger = useRef<HTMLButtonElement | null>(null);
   const handledIntent = useRef<string | null>(null);
   const focusedCard = useRef<HTMLDivElement | null>(null);
+  const rebound = useRef(false);
+  const progressChecks = useRef(0);
   const vaultAvailable = Boolean(getVaultOwnerToken());
   // The compact card is always the first of Upcoming; only the full view filters and pages.
   const activeView: FollowupView = expanded ? view : "upcoming";
-  const activeOffset = expanded ? pageOffset : 0;
+  const remind = notify ?? Boolean(status?.background_available);
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
+  const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
     const seq = ++requestSeq.current;
+    // A refresh supersedes a pending page request, including its loading state.
+    setLoadingPage(false);
     const alive = () => !signal?.aborted && requestSeq.current === seq;
-    setLoading(true); setError("");
+    if (!quiet) { setLoading(true); setError(""); }
     try {
       const idToken = await tokenGetter.current();
       if (!alive()) return;
@@ -143,16 +107,35 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         setList(null); setLoading(false); return;
       }
       const ownerToken = ownerTokenGetter.current();
-      if (!ownerToken) { setError("Unlock One to view follow-ups."); setLoading(false); return; }
-      const nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, activeOffset, activeView);
+      if (!ownerToken) { if (!quiet) setError("Unlock One to view follow-ups."); setLoading(false); return; }
+      let offset = expanded ? pageOffsetRef.current : 0;
+      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, activeView);
       if (!alive()) return;
-      // The last item of a later page was finished: step back instead of showing an empty page.
-      if (nextList.conversations.length === 0 && activeOffset > 0) { setPageOffset(Math.max(0, activeOffset - FOLLOWUP_PAGE_SIZE)); return; }
-      setList(nextList); setLoading(false);
+      if (offset > 0 && (offset >= nextList.total_conversations || nextList.conversations.length === 0)) {
+        offset = Math.max(0, Math.ceil(nextList.total_conversations / FOLLOWUP_PAGE_SIZE) - 1) * FOLLOWUP_PAGE_SIZE;
+        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset, activeView);
+      }
+      if (alive()) {
+        if (offset === 0 && activeView === "upcoming") firstPageRef.current = nextList;
+        if (expanded) { pageOffsetRef.current = offset; setPageOffset(offset); }
+        setList(nextList); setLoading(false); setError("");
+      }
     } catch (failure) {
-      if (alive()) { setError(displayError(failure)); setLoading(false); }
+      // A background refresh never replaces verified items with an error.
+      if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
     }
-  }, [userId, accountId, activeView, activeOffset]);
+  }, [userId, accountId, expanded, activeView]);
+
+  useEffect(() => {
+    if (expanded) return;
+    // Collapse also cancels a first Next request that has not applied its offset.
+    if (loadingPage) { requestSeq.current += 1; setLoadingPage(false); }
+    if (pageOffsetRef.current === 0) return;
+    pageOffsetRef.current = 0;
+    setPageOffset(0);
+    setList(firstPageRef.current);
+    void refresh(lifetime.current?.signal, true);
+  }, [expanded, loadingPage, refresh]);
 
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
@@ -160,11 +143,94 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     return () => { controller.abort(); requestSeq.current += 1; };
   }, [refresh, refreshRevision, vaultAvailable]);
 
+  const rebindMonitor = useCallback(async (current: FollowupStatus, ownerToken: string, signal?: AbortSignal) => {
+    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), ownerToken, signal);
+  }, [userId, accountId, zone]);
+
+  /** The previous scan call reported more work: keep going, showing results as they land. */
+  const continueScan = useCallback(async (ownerToken: string, signal?: AbortSignal) => {
+    const finished = await scanWhilePending({
+      userId, accountId, ownerToken, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
+      getIdToken: () => tokenGetter.current(), refresh: () => refresh(signal, true),
+    });
+    if (!finished) lastCatchUp.delete(`${userId}:${accountId}`);
+  }, [userId, accountId, refresh]);
+
+  // Opening Insights shows what is already verified at once, then lets the
+  // server continue in the background. It never blocks the card and never
+  // repeats within the interval, so navigating around cannot trigger rescans.
+  useEffect(() => {
+    if (!status?.monitoring_enabled || !status.mail_connected) return;
+    const ownerToken = ownerTokenGetter.current();
+    const signal = lifetime.current?.signal;
+    if (!ownerToken || signal?.aborted) return;
+    if (status.monitor_current === false) {
+      // The Mail grant was renewed elsewhere: rebind this account's monitor to
+      // it without asking again, keeping every decision and the scan progress.
+      if (rebound.current) return;
+      rebound.current = true;
+      void (async () => {
+        try {
+          await rebindMonitor(status, ownerToken, signal);
+          await refresh(signal, true);
+        } catch {
+          // Nothing is shown for a background rebind, but a failure must not
+          // block the next attempt: the owner may reconnect Mail in the meantime.
+          rebound.current = false;
+        }
+      })();
+      return;
+    }
+    if (status.coverage?.attention === "reconnect_mail") return;
+    const key = `${userId}:${accountId}`;
+    const last = lastCatchUp.get(key) ?? 0;
+    if (Date.now() - last < CATCH_UP_INTERVAL_MS) return;
+    lastCatchUp.set(key, Date.now());
+    void (async () => {
+      try {
+        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
+        await refresh(signal, true);
+        if (result?.state === "pending") await continueScan(ownerToken, signal);
+      } catch { /* the scheduler continues without the page */ }
+    })();
+  }, [status, userId, accountId, zone, refresh, rebindMonitor, continueScan]);
+
+  // While the first pass is still catching up, check back a few times so new
+  // items appear without a manual refresh. Bounded; the scheduler does the work.
+  const catchingUp = status?.monitoring_enabled && (status.coverage?.coverage === "catching_up" || status.scan_state === "pending");
+  useEffect(() => {
+    if (!catchingUp || progressChecks.current >= PROGRESS_CHECKS_MS.length) return;
+    const timer = window.setTimeout(() => {
+      progressChecks.current += 1;
+      void refresh(lifetime.current?.signal, true);
+    }, PROGRESS_CHECKS_MS[progressChecks.current]);
+    return () => window.clearTimeout(timer);
+  }, [catchingUp, status, list, refresh]);
+
   useEffect(() => {
     if (!focusedRequestId || !detail || !focusedCard.current) return;
     focusedCard.current.focus();
     focusedCard.current.scrollIntoView?.({ block: "nearest" });
   }, [detail, focusedRequestId]);
+
+  // Links to the original Gmail message. The server returns only the message
+  // reference, so this never reads mail; it just lets "Open original email" be
+  // a normal link that browsers allow to open.
+  useEffect(() => {
+    if (!detail) return;
+    const ownerToken = ownerTokenGetter.current();
+    if (!ownerToken) return;
+    let current = true;
+    void Promise.all(detail.requests.map(async request => {
+      try {
+        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), ownerToken);
+        return [request.id, gmailMessageUrl(accountEmail, link.gmail_message_id)] as const;
+      } catch { return null; }
+    })).then(entries => {
+      if (current) setEmailLinks(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
+    });
+    return () => { current = false; };
+  }, [detail, userId, accountId, accountEmail]);
 
   const selected = list?.conversations.find(entry => entry.id === selectedId) || null;
   const openDetail = async (conversationId: string, from?: HTMLButtonElement | null, focusRequestId?: string): Promise<boolean> => {
@@ -172,7 +238,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     sourceSeq.current += 1;
     selectedIdRef.current = conversationId;
     if (from) trigger.current = from;
-    setSelectedId(conversationId); setDetail(null); setSource(null); setActionError("");
+    setSelectedId(conversationId); setDetail(null); setSource(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
       const ownerToken = getVaultOwnerToken();
@@ -181,7 +247,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (lifetime.current?.signal.aborted || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
       setDetail(value);
       return true;
-    } catch (failure) { if (detailSeq.current === seq) setActionError(displayError(failure)); return false; }
+    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
   };
 
   const act = async (request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null = null) => {
@@ -196,38 +262,100 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await getIdToken(), ownerToken);
         if (detailSeq.current === seq && selectedIdRef.current === currentSelection) setDetail(next);
       }
-      await refresh(lifetime.current?.signal);
-      setReminderInput("");
-    } catch (failure) { if (detailSeq.current === seq) setActionError(displayError(failure)); }
+      await refresh(lifetime.current?.signal, true);
+      setReminderInput(""); setReminderOpen(null);
+    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
-  const enable = async () => {
+  /**
+   * One step for the owner. If Mail is not yet allowed for this exact account
+   * it asks for that permission once; if it already is, nothing is asked again.
+   */
+  const turnOn = async () => {
     setBusy(true); setError("");
     try {
+      // Asking Google first would waste the owner's consent on a step that cannot finish.
+      if (!getVaultOwnerToken()) throw new Error("Unlock One before turning on email follow-ups.");
+      let mailReady = Boolean(status?.mail_connected);
+      if (!mailReady) {
+        if (!onConnectMail) return;
+        mailReady = await onConnectMail(accountId);
+        if (!mailReady) { setError("Email access was not allowed. Calendar works as before."); return; }
+      }
       const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One before enabling Mail monitoring.");
-      const historical = new Date(Date.now() - historyDays * 86_400_000).toISOString();
+      if (!ownerToken) throw new Error("Unlock One before turning on email follow-ups.");
+      // Renewing access for an account that is already monitored keeps its
+      // approved period, timing and reminders; only a first opt-in chooses them.
+      const existing = status?.monitoring_enabled ? status : null;
+      const historical = existing?.historical_start_at || new Date(Date.now() - historyDays * 86_400_000).toISOString();
       await CalendarFollowupsService.post("preferences", {
         user_id: userId, account_id: accountId, enabled: true,
-        notifications_enabled: notify, historical_start_at: historical,
-        time_zone: zone, reminder_lead_days: 1, reminder_hour: 9,
+        notifications_enabled: existing ? existing.notifications_enabled : remind && Boolean(status?.background_available),
+        historical_start_at: historical,
+        time_zone: existing?.time_zone || zone,
+        reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
       }, await getIdToken(), ownerToken);
-      await CalendarFollowupsService.post("scan", { user_id: userId, account_id: accountId }, await getIdToken(), ownerToken);
+      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
+      lastCatchUp.set(`${userId}:${accountId}`, Date.now());
+      progressChecks.current = 0;
       await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(displayError(failure)); }
+      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
-  const retryScan = async () => {
+  /** The owner's explicit "check again": clears exhausted retries and runs now. */
+  const checkAgain = async () => {
     setBusy(true); setError("");
     try {
       const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to retry Mail scanning.");
-      await CalendarFollowupsService.post("scan", { user_id: userId, account_id: accountId }, await getIdToken(), ownerToken);
-      await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(displayError(failure)); }
+      if (!ownerToken) throw new Error("Unlock One to check your email again.");
+      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
+      progressChecks.current = 0;
+      await refresh(lifetime.current?.signal, true);
+      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
+  };
+
+  const reconnect = async () => {
+    if (!onConnectMail) return;
+    setBusy(true); setError("");
+    try {
+      if (!getVaultOwnerToken()) throw new Error("Unlock One to renew email access.");
+      const connected = await onConnectMail(accountId);
+      if (connected) {
+        // Reconnecting changes the Mail grant, so point the monitor at it first;
+        // otherwise this scan would still see the old one and ask to reconnect again.
+        const ownerToken = getVaultOwnerToken();
+        if (ownerToken && status?.monitoring_enabled) {
+          try { await rebindMonitor(status, ownerToken); } catch { /* the scan below reports what is still wrong */ }
+        }
+        await checkAgain();
+      }
+      else setError("Email access was not renewed. Your follow-ups stay as they are.");
+    } catch (failure) { setError(followupErrorText(failure)); }
+    finally { setBusy(false); }
+  };
+
+  const changePage = async (offset: number) => {
+    if (!expanded || loadingPage || offset < 0 || offset === pageOffset) return;
+    const seq = ++requestSeq.current;
+    setLoadingPage(true); setError("");
+    try {
+      const ownerToken = getVaultOwnerToken();
+      if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
+      const page = await CalendarFollowupsService.list(
+        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset, activeView,
+      );
+      if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
+      if (offset === 0 && activeView === "upcoming") firstPageRef.current = page;
+      pageOffsetRef.current = offset;
+      setPageOffset(offset);
+      setList(page);
+    } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
+    finally { if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
   const disable = async () => {
@@ -240,18 +368,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }, await getIdToken(), ownerToken);
       setSelectedId(null); setDetail(null); setSource(null);
       await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(displayError(failure)); }
-    finally { setBusy(false); }
-  };
-
-  const connect = async () => {
-    if (!onConnectMail) return;
-    setBusy(true); setError("");
-    try {
-      const connected = await onConnectMail(accountId);
-      if (connected) await refresh(lifetime.current?.signal);
-      else setError("Mail was not connected for this Calendar account.");
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -264,7 +381,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (!ownerToken) throw new Error("Unlock One to open this email.");
       const value = await CalendarFollowupsService.source(userId, accountId, request.id, await getIdToken(), ownerToken);
       if (!lifetime.current?.signal.aborted && sourceSeq.current === seq && selectedIdRef.current === currentSelection) setSource(value);
-    } catch (failure) { if (sourceSeq.current === seq) setActionError(displayError(failure)); }
+    } catch (failure) { if (sourceSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -295,63 +412,84 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         if (lifetime.current?.signal.aborted) return;
         if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
         finishDeepLink(deepLinkRequestId);
-      } catch (failure) { setError(displayError(failure)); }
+      } catch (failure) { setError(followupErrorText(failure)); }
     })();
   // openDetail is intentionally bound to this account; the component remounts on account switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
-  const rows = expanded ? list?.conversations || [] : (list?.conversations || []).slice(0, 2);
-  const card = <SectionCard title={expanded ? "Follow-ups" : "Follow-ups"} description="From your email">
+  const rows = expanded ? list?.conversations || [] : pageOffset === 0 ? (list?.conversations || []).slice(0, 2) : [];
+  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
+  const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
+  // Monitored before, access since removed: ask only to renew, never to choose again.
+  const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
+  const card = <SectionCard title="Follow-ups" description="Meeting requests, documents, and deadlines from email">
     <div className="space-y-2" aria-busy={loading}>
-      {!status && loading ? <p className="text-sm text-muted-foreground" role="status">Checking this Mail account…</p> : null}
-      {status && !status.mail_connected ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span>Mail is not connected for {accountEmail}.</span>
-        <Button size="compact" variant="outline" disabled={busy} onClick={() => void connect()}>Connect Mail</Button>
+      {!status && loading ? <p className="text-sm text-muted-foreground" role="status">Checking this account…</p> : null}
+      {needsMailChoice && renewing ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span>Email access for {accountEmail} was removed. Your follow-ups stay as they are.</span>
+        <Button size="compact" disabled={busy || !onConnectMail} onClick={() => void turnOn()}>Allow email access</Button>
       </div> : null}
-      {status?.mail_connected && !status.monitoring_enabled ? <div className="space-y-2 text-sm">
-        <p>Check this account’s email for requests and proposed meetings.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2">Scan<select className="min-h-10 rounded-md border bg-background px-2" value={historyDays} onChange={event => setHistoryDays(Number(event.target.value))} disabled={busy}>
-            <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={365}>Last year</option>
-          </select></label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={notify} onChange={event => setNotify(event.target.checked)} disabled={busy || !status.background_available} />Remind me</label>
-          <Button size="compact" disabled={busy} onClick={() => void enable()}>Enable</Button>
+      {needsMailChoice && !renewing ? <div className="space-y-3 text-sm">
+        <div className="space-y-1">
+          <p className="font-medium">Find meeting requests and reminders in my email.</p>
+          <p className="text-muted-foreground">
+            {status?.mail_connected
+              ? `Your private agent already has read access to ${accountEmail}. Choose how far back to look.`
+              : `This asks Google for one extra permission to read ${accountEmail}. Your private agent uses it only to find requests and proposed times. Calendar works the same without it.`}
+          </p>
         </div>
-        {!status.background_available ? <p className="text-muted-foreground">Background reminders are unavailable right now.</p> : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2">Look back<select className="min-h-10 rounded-md border bg-background px-2" value={historyDays} onChange={event => setHistoryDays(Number(event.target.value))} disabled={busy}>
+            <option value={30}>30 days</option><option value={90}>90 days</option>
+          </select></label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={remind && Boolean(status?.background_available)} onChange={event => setNotify(event.target.checked)} disabled={busy || !status?.background_available} />Remind me</label>
+          <Button size="compact" disabled={busy || (!status?.mail_connected && !onConnectMail)} onClick={() => void turnOn()}>{status?.mail_connected ? "Turn on" : "Allow email access"}</Button>
+        </div>
+        {status && !status.background_available ? <p className="text-muted-foreground">Background reminders are unavailable right now.</p> : null}
       </div> : null}
       {status?.monitoring_enabled && expanded && list?.view_counts ? <div role="group" aria-label="Follow-up lists" className="flex flex-wrap gap-1">
         {(Object.keys(VIEW_LABELS) as FollowupView[]).filter(name => name === "upcoming" || name === view || (list.view_counts?.[name] ?? 0) > 0).map(name =>
           <Button key={name} size="compact" variant={name === view ? "default" : "ghost"} aria-pressed={name === view} disabled={loading}
-            onClick={() => { if (name !== view) { setView(name); setPageOffset(0); } }}>{VIEW_LABELS[name]}{list.view_counts?.[name] ? ` · ${list.view_counts[name]}` : ""}</Button>)}
+            onClick={() => { if (name !== view) { pageOffsetRef.current = 0; setPageOffset(0); setView(name); } }}>{VIEW_LABELS[name]}{list.view_counts?.[name] ? ` · ${list.view_counts[name]}` : ""}</Button>)}
       </div> : null}
       {status?.monitoring_enabled && rows.map(entry => {
-        const next = entry.preview_requests.find(item => item.kind !== "meeting") || entry.preview_requests[0];
+        const summary = rowSummary(entry, zone);
+        const firstPreview = entry.preview_requests[0];
+        const overduePrefix = firstPreview?.bucket === "overdue" && (firstPreview.due_date || firstPreview.proposed_date)
+          ? `Overdue · was due ${shortDate(firstPreview.due_date || firstPreview.proposed_date)}`
+          : null;
+        const detailLine = overduePrefix && !summary.detail.includes("Overdue") ? `${overduePrefix} · ${summary.detail}` : summary.detail;
         return <div key={entry.id} className="flex min-w-0 items-center gap-3 border-t py-2 first:border-t-0">
           <Mail className="size-4 shrink-0 text-blue-600" aria-hidden />
-          <div className="min-w-0 flex-1"><strong className="block truncate text-sm">{next?.title || entry.subject}</strong>
-            <span className="block truncate text-xs text-muted-foreground">{previewLine(entry)} · {shortSender(entry.sender)}</span>
-            {entry.source_completeness === "partial" ? <span className="text-xs text-amber-700">Source check incomplete</span> : null}
+          <div className="min-w-0 flex-1"><strong className="block line-clamp-2 break-words text-sm">{summary.title}</strong>
+            <span className="block line-clamp-2 break-words text-xs text-muted-foreground">{detailLine}</span>
+            {summary.more ? <span className="block text-xs text-muted-foreground">{summary.more === 1 ? "1 more in this email" : `${summary.more} more in this email`}</span> : null}
           </div>
-          <Button size="compact" variant="text" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${next?.title || entry.subject}`}>Review</Button>
+          <Button size="compact" variant="text" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${summary.title}`}>Review</Button>
         </div>;
       })}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">{EMPTY_LABELS[activeView]}</p> : null}
-      {status?.monitoring_enabled && (status.scan_state === "partial" || list?.incomplete_source_count) ? <p className="text-xs text-amber-700">Some email could not be checked completely. Retry to continue.</p> : null}
-      {status?.monitoring_enabled && status.scan_state === "pending" && !rows.length ? <p className="text-sm text-muted-foreground">Checking your email…</p> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">{EMPTY_LABELS[activeView]}</p> : null}
+      {notice ? <div className={notice.tone === "action" ? "flex flex-wrap items-center justify-between gap-2 text-sm" : "text-xs text-muted-foreground"} role="status">
+        <span>{notice.text}</span>
+        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void (notice.action === "reconnect" ? reconnect() : checkAgain())}>{notice.action === "reconnect" ? "Reconnect email" : "Check again"}</Button> : null}
+      </div> : null}
       {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
         {!expanded && (list?.total_conversations || 0) > 2 ? <Button size="compact" variant="text" onClick={onViewAll}>View all</Button> : <span />}
-        {status?.monitoring_enabled ? <div className="flex items-center gap-1"><Button size="compact" variant="text" disabled={loading || busy} onClick={() => void retryScan()}>Retry</Button>
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon-touch" className="text-[color:var(--app-accent)]" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div> : null}
+        {status?.monitoring_enabled ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon-touch" className="text-[color:var(--app-accent)]" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
       </div>
-      {expanded && (list?.total_conversations || 0) > FOLLOWUP_PAGE_SIZE ? <div className="flex items-center justify-between gap-2 text-sm">
-        <span className="text-muted-foreground">Page {Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1} of {Math.ceil((list?.total_conversations || 0) / FOLLOWUP_PAGE_SIZE)}</span>
-        <div className="flex items-center gap-1">
-          <Button size="compact" variant="text" disabled={loading || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}>Previous</Button>
-          <Button size="compact" variant="text" disabled={loading || list?.next_offset == null} onClick={() => { if (list?.next_offset != null) setPageOffset(list.next_offset); }}>Next</Button>
-        </div>
-      </div> : null}
+      {expanded && list ? <PaginatedListFooter
+        page={Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1}
+        limit={FOLLOWUP_PAGE_SIZE}
+        total={list.total_conversations}
+        hasMore={list.next_offset != null}
+        pending={loadingPage || loading}
+        onPrevious={() => void changePage(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}
+        onNext={() => { if (list.next_offset != null) void changePage(list.next_offset); }}
+        className="px-0"
+      /> : null}
     </div>
   </SectionCard>;
 
@@ -360,41 +498,52 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     <AdaptiveDetailSurface open={Boolean(selectedId)} onOpenChange={open => { if (!open) { detailSeq.current += 1; sourceSeq.current += 1; selectedIdRef.current = null; setSelectedId(null); setDetail(null); setSource(null); setFocusedRequestId(null); } }}
       onCloseAutoFocus={event => { if (trigger.current?.isConnected) { event.preventDefault(); trigger.current.focus(); } }}
       mobilePresentation="sheet" title={source?.subject || detail?.subject || selected?.subject || "Follow-up"}
-      description={source ? `${source.sender} · ${new Date(source.internal_date_ms).toLocaleDateString()}` : detail ? `${detail.sender} · ${new Date(detail.latest_internal_date_ms).toLocaleDateString()}` : "Checking conversation…"}
+      description={source ? `${senderName(source.sender)} · ${new Date(source.internal_date_ms).toLocaleDateString()}` : detail ? `${senderName(detail.sender)} · ${new Date(detail.latest_internal_date_ms).toLocaleDateString()}` : "Checking conversation…"}
       headerTextOverflow="wrap">
       <div className="space-y-4 text-sm">
         {actionError ? <div><p role="alert" className="text-red-600">{actionError}</p>{!detail && selectedId ? <Button size="compact" variant="outline" onClick={() => void retryDetail()}>Retry</Button> : null}</div> : null}
         {source ? <><Button variant="text" size="compact" onClick={() => setSource(null)}>Back to follow-up</Button>
-          <p className="text-xs text-muted-foreground">Source email in {accountEmail}</p>
+          <p className="text-xs text-muted-foreground">Text of the email in {accountEmail}. Links and images are hidden here; use Open original email for the full message.</p>
           <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border p-3">{source.body}</div></> : detail ? <>
-          {detail.source_completeness === "partial" ? <p className="text-amber-700">Some messages in this conversation could not be checked completely.</p> : null}
-          {detail.requests.map(request => <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="space-y-2 rounded-lg border p-3">
-            <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="break-words">{request.title}</strong>
-              <p className="text-muted-foreground">{request.original_due_wording || (request.proposed_date ? `Proposed for ${dateLabel(request.proposed_date)}` : "Date needs review")}</p>
-              {statusNote(request) ? <p className="text-xs text-muted-foreground">{statusNote(request)}</p> : null}</div>
-              {request.kind !== "meeting" && request.state !== "done" && request.state !== "cancelled" ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon-touch" className="text-[color:var(--app-accent)]" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
-            </div>
-            <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p>
-            <Button variant="text" size="compact" disabled={busy} onClick={() => void openSource(request)}>Open email</Button>
-            {request.kind === "meeting" ? <>
-              <p className="font-medium">{request.booking_state === "booked" ? "Booked" : "Not booked"}</p>
-              <MeetingReview key={request.id} request={request} zone={zone} busy={busy} onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
-            </> : <>
-              <p>{request.state === "done" ? "Completed" : request.reminder_at ? `Reminder: ${new Date(request.reminder_at).toLocaleString(undefined, { timeZone: zone, dateStyle: "medium", timeStyle: "short" })}` : "No reminder set"}</p>
-              {request.state !== "done" && request.state !== "cancelled" && request.state !== "dismissed" ? <div className="flex flex-wrap items-end gap-2"><Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
-                <label>Reminder<Input type="datetime-local" value={reminderInput} onChange={event => setReminderInput(event.target.value)} /></label>
-                <Button variant="outline" size="compact" disabled={busy || !reminderInput} onClick={() => {
-                  try {
-                    const [date, time] = reminderInput.split("T");
-                    if (!date || !time) throw new Error("invalid reminder");
-                    const reminder = bookingInstant(date, time, zone);
-                    if (Date.parse(reminder) <= Date.now()) throw new Error("past reminder");
-                    void act(request, "set_reminder", reminder);
-                  } catch { setActionError("Choose a future reminder."); }
-                }}>Set reminder</Button>
-                <Button variant="text" size="compact" disabled={busy} onClick={() => void act(request, "snooze", new Date(Date.now() + 86_400_000).toISOString())}>Snooze 1 day</Button></div> : null}
-            </>}
-          </div>)}
+          {detail.source_completeness === "partial" ? <p className="text-xs text-muted-foreground">Still checking the rest of this conversation.</p> : null}
+          {detail.requests.map((request, index) => {
+            const closed = !isActive(request);
+            // Several requests often come from one email: link it once, on the first.
+            const link = detail.requests.findIndex(item => emailLinks[item.id] === emailLinks[request.id]) === index ? emailLinks[request.id] : undefined;
+            return <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="break-words">{request.title}</strong>
+                <p className="text-muted-foreground">{request.kind === "meeting" ? meetingStatus(request, zone) : dueText(request, zone)}</p>
+                {statusNote(request) ? <p className="text-xs text-muted-foreground">{statusNote(request)}</p> : null}
+                {request.kind !== "meeting" && request.linked_event ? <p className="text-muted-foreground">About: {request.linked_event[1]}{shortDate(request.linked_event[2]) ? ` · ${shortDate(request.linked_event[2])}` : ""}</p> : null}
+              </div>
+                {request.kind !== "meeting" && !closed ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="plain" size="icon-touch" className="text-[color:var(--app-accent)]" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+              </div>
+              {request.source_excerpt ? <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p> : null}
+              <div className="flex flex-wrap items-center gap-1">
+                {link ? <Button asChild variant="text" size="compact"><a href={link} target="_blank" rel="noopener noreferrer">Open original email<ExternalLink className="ml-1 size-3" aria-hidden /></a></Button> : null}
+                <Button variant="text" size="compact" disabled={busy} onClick={() => void openSource(request)}>View email text</Button>
+              </div>
+              {request.kind === "meeting" ? <>
+                <MeetingReview key={request.id} request={request} zone={zone} busy={busy} onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
+              </> : <>
+                <p>{reminderText(request, zone)}</p>
+                {!closed ? <div className="flex flex-wrap items-end gap-2"><Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
+                  <Button variant="text" size="compact" disabled={busy} onClick={() => void act(request, "snooze", new Date(Date.now() + 86_400_000).toISOString())}>Snooze 1 day</Button>
+                  <Button variant="text" size="compact" aria-expanded={reminderOpen === request.id} onClick={() => setReminderOpen(reminderOpen === request.id ? null : request.id)}>Change reminder</Button>
+                  {reminderOpen === request.id ? <><label>Reminder<Input type="datetime-local" value={reminderInput} onChange={event => setReminderInput(event.target.value)} /></label>
+                    <Button variant="outline" size="compact" disabled={busy || !reminderInput} onClick={() => {
+                      try {
+                        const [date, time] = reminderInput.split("T");
+                        if (!date || !time) throw new Error("invalid reminder");
+                        const reminder = bookingInstant(date, time, zone);
+                        if (Date.parse(reminder) <= Date.now()) throw new Error("past reminder");
+                        void act(request, "set_reminder", reminder);
+                      } catch { setActionError("Choose a future reminder."); }
+                    }}>Set reminder</Button></> : null}
+                </div> : null}
+              </>}
+            </div>;
+          })}
         </> : <p role="status">Checking follow-up…</p>}
       </div>
     </AdaptiveDetailSurface>

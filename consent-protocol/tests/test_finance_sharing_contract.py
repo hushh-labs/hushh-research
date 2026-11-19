@@ -226,3 +226,32 @@ async def test_model_review_requires_explicit_intent_and_stores_only_a_transient
     assert state[STATE_CONSENT_CONTINUATION]["kind"] == "finance"
     assert json.dumps(PROJECTION) not in json.dumps(state)
     assert finance_lifecycle(authority(status="expired"))["progress"]["outcome"] == "expired"
+
+
+def test_custom_duration_and_curated_advisor_always_keep_strict_boundaries():
+    from hushh_mcp.services.finance_sharing_contract import FinanceAdvisorSharePolicy
+
+    assert FinanceSharePolicy(**policy(durationSeconds=10800)).durationSeconds == 10800
+    for value in (0, 59, 604801, True, "3600", 3600.5):
+        with pytest.raises(ValidationError):
+            FinanceSharePolicy(**policy(durationSeconds=value))
+    for mode in ("snapshot", "ongoing"):
+        value = FinanceAdvisorSharePolicy(
+            **policy(
+                version=3,
+                purpose="verified_ria_share",
+                mode=mode,
+                durationSeconds=None,
+                showAmounts=False,
+                sections=["allocation"],
+                model_processing={"version": 1, "allowed": True},
+            )
+        )
+        assert value.sections == ["allocation"]
+        assert value.model_processing.allowed is True
+        assert value.durationSeconds is None
+    for change in ({"sections": ["allocation", "allocation"]}, {"purpose": "other"}):
+        with pytest.raises(ValidationError):
+            FinanceAdvisorSharePolicy(
+                **{**policy(version=3, purpose="verified_ria_share"), **change}
+            )

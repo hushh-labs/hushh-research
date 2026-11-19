@@ -234,6 +234,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_voice_mail_narration_enabled": "ONE_VOICE_MAIL_NARRATION_ENABLED",
     # Connect Azure hub settings (public identifiers); absent, the routes refuse.
     "hussh_azure_app_client_id": "HUSSH_AZURE_APP_CLIENT_ID",
+    "hussh_hosted_azure_client_id": "HUSSH_HOSTED_AZURE_CLIENT_ID",
     "hussh_azure_broker_sa": "HUSSH_AZURE_BROKER_SA",
     "hussh_azure_oauth_redirect_uri": "HUSSH_AZURE_OAUTH_REDIRECT_URI",
     "hussh_pod_image_reader_sa": "HUSSH_POD_IMAGE_READER_SA",
@@ -777,6 +778,40 @@ def personal_agent_reconcile_enabled() -> bool:
     a destructive-to-hosts action that must be turned on deliberately, separately
     from turning the personal-agent surface on."""
     return _bool_from_value(_clean_env("PERSONAL_AGENT_RECONCILE_ENABLED"), default=False)
+
+
+def umbrella_cell_replenisher_enabled() -> bool:
+    """Enable autonomous warm-skeleton replenishment in ``dev`` Umbrella Compute Cells.
+
+    Hard-fenced off outside ``deploy_lane() == "dev"`` so ``uat``, ``production``,
+    and local/test harnesses never mutate cloud cell inventory unless explicitly
+    running under Dev lane control alongside ``PERSONAL_AGENT_ENABLED``.
+    """
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
+
+    if deploy_lane() != "dev":
+        return False
+    if not personal_agent_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_UMBRELLA_REPLENISHER_ENABLED"), default=True)
+
+
+def umbrella_cell_auto_scaleout_enabled() -> bool:
+    """Enable automatic horizontal cell scale-out above the 80% soft watermark in ``dev``."""
+    if not umbrella_cell_replenisher_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_UMBRELLA_CELL_AUTOSCALEOUT_ENABLED"), default=True)
+
+
+def source_pod_retirement_sweep_enabled() -> bool:
+    """Enable the 14-day two-key source-pod retirement sweep in ``dev`` only."""
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
+
+    if deploy_lane() != "dev":
+        return False
+    if not personal_agent_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED"), default=True)
 
 
 def personal_agent_upgrade_sweep_enabled() -> bool:

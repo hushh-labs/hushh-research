@@ -7,6 +7,7 @@ Endpoints for account lifecycle management.
 
 Routes:
     POST /api/account/welcome - One-time first-account welcome to verified email
+    GET /api/account/identity - Read the current owner's saved account identity
     POST /api/account/identity/refresh - Refresh backend identity shadow from Firebase Auth
     POST /api/account/phone/claim - Claim a Firebase-verified phone for the signed-in actor
     GET /api/account/email-aliases - List verified/pending account email aliases
@@ -1404,6 +1405,28 @@ class IdentityRefreshRequest(BaseModel):
     verified_phone_number: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{6,14}$")
 
 
+@router.get("/identity")
+async def read_account_identity(
+    response: Response,
+    owner_id: str = Depends(require_firebase_auth_read_only),
+):
+    """Read the admitted owner's committed identity without provider sync or writes."""
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        identities = await ActorIdentityService().get_many([owner_id])
+    except Exception as exc:
+        logger.warning("account.identity.read_unavailable error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ACCOUNT_IDENTITY_UNAVAILABLE",
+                "message": "Account details are temporarily unavailable. Please retry.",
+            },
+            headers={"Cache-Control": "private, no-store"},
+        ) from None
+    return {"success": True, "user_id": owner_id, "identity": identities.get(owner_id)}
+
+
 @router.post("/identity/refresh")
 async def refresh_account_identity(
     firebase_uid: str = Depends(require_firebase_auth),
@@ -1415,7 +1438,7 @@ async def refresh_account_identity(
 
     When ``force`` is false the cached identity shadow is returned if it is
     fresh, avoiding a synchronous Firebase Auth round-trip and DB upsert. This
-    keeps read-only callers (such as the phone-mandate guard) fast while
+    keeps cached callers (such as the phone-mandate guard) fast while
     callers that need guaranteed freshness keep the default forced refresh.
     """
     if request and request.verified_phone_number is not None:
@@ -1686,41 +1709,20 @@ async def _verify_phone_claim_id_token(
 async def prepare_phone_transfer(
     payload: PhoneTransferPrepareRequest, firebase_uid: str = Depends(require_firebase_auth)
 ):
-    from hushh_mcp.services.phone_transfer_service import prepare
+    from hushh_mcp.services.phone_transfer_authority import refuse
 
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
-    proof: dict = {}
-    phone, uid = await _verify_phone_claim_id_token(
-        payload.phone_id_token, transfer=True, proof_metadata=proof
-    )
-    if not uid:
-        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
-    return await prepare(
-        firebase_uid,
-        phone,
-        proof["event"],
-        uid,
-        get_firebase_auth_app(),
-        proof_valid_until=proof["valid_until"],
-    )
+    raise refuse("PHONE_ALREADY_VERIFIED")
 
 
 @router.post("/phone/transfer/confirm")
 async def confirm_phone_transfer(
     payload: PhoneTransferConfirmRequest, firebase_uid: str = Depends(require_firebase_auth)
 ):
-    from hushh_mcp.services.phone_transfer_service import confirm
+    from hushh_mcp.services.phone_transfer_authority import refuse
 
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
-    proof: dict = {}
-    phone, uid = await _verify_phone_claim_id_token(
-        payload.phone_id_token, transfer=True, proof_metadata=proof
-    )
-    if not uid:
-        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
-    return await confirm(
-        firebase_uid, phone, proof["event"], uid, str(payload.transfer_id), get_firebase_auth_app()
-    )
+    raise refuse("PHONE_ALREADY_VERIFIED")
 
 
 @router.get("/phone/transfer/{transfer_id}")
@@ -1948,7 +1950,7 @@ async def claim_account_phone(
             firebase_uid, phone_number
         )
     except ActorIdentityPhoneClaimConflictError:
-        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED") from None
+        raise refuse("PHONE_ALREADY_VERIFIED") from None
     except ValueError:
         raise HTTPException(
             status_code=409,

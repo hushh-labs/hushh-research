@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from .a2a import router as a2a_router
 from .a2a import well_known_router as a2a_well_known_router
+from .advisor_reviews import router as advisor_reviews_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
@@ -47,6 +48,7 @@ from .location_settings import router as location_settings_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .messages import router as messages_router
+from .metrics import router as metrics_router
 from .models import router as models_router
 from .opportunity_signals import router as opportunity_signals_router
 from .packet_orders import router as packet_orders_router
@@ -60,6 +62,7 @@ from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
 from .plg import router as plg_router
 from .pod_browser_approval import router as pod_browser_approval_router
+from .pod_capability_broker import router as pod_capability_broker_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
 from .pod_lifecycle import router as pod_lifecycle_router
@@ -88,10 +91,12 @@ from .world_model import router as world_model_router
 from .world_model_stream import router as world_model_stream_router
 
 router = APIRouter()
+router.include_router(metrics_router)
 router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
 router.include_router(retired_voice_router)
 router.include_router(advisors_router)
+router.include_router(advisor_reviews_router)
 router.include_router(agent_chat_router)
 router.include_router(agent_prompt_router)
 router.include_router(connections_router)
@@ -154,6 +159,7 @@ router.include_router(people_router)
 # NEVER mount this -- a pod serving the relay could proxy to other pods. The
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_consent_router)
+router.include_router(pod_capability_broker_router)
 router.include_router(pod_mcp_approval_router)
 router.include_router(pod_browser_approval_router)
 router.include_router(pod_owner_feed_router)

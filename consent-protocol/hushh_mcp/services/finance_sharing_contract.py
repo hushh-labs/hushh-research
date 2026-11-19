@@ -24,7 +24,7 @@ class FinanceSharePolicy(StrictObject):
     selectionHash: str = Field(pattern=r"^[a-f0-9]{64}$")
     showAmounts: StrictBool = False
     model_processing: ProcessingPermission = Field(default_factory=ProcessingPermission)
-    durationSeconds: Literal[3600, 86400, 604800] | None
+    durationSeconds: StrictInt | None = Field(ge=60, le=604800)
 
     @model_validator(mode="after")
     def validate_selection(self):
@@ -57,6 +57,19 @@ class FinanceAdvisorPolicy(StrictObject):
             raise ValueError("advisor review requires portfolio amounts")
         if self.model_processing.allowed:
             raise ValueError("advisor review does not grant model processing")
+        return self
+
+
+class FinanceAdvisorSharePolicy(FinanceSharePolicy):
+    """The same curated choices as connections, with advisor-verified Always access."""
+
+    version: Literal[3]
+    purpose: Literal["verified_ria_share"]
+
+    @model_validator(mode="after")
+    def validate_selection(self):
+        if len(set(self.sections)) != len(self.sections):
+            raise ValueError("duplicate sections")
         return self
 
 
@@ -93,7 +106,7 @@ class FinanceRecipient(StrictObject):
 
 class CreateFinanceShare(StrictObject):
     requestId: UUID
-    policy: FinanceSharePolicy | FinanceAdvisorPolicy
+    policy: FinanceSharePolicy | FinanceAdvisorPolicy | FinanceAdvisorSharePolicy
     ownerConfig: RecipientEnvelope
     recipients: list[FinanceRecipient] = Field(min_length=1, max_length=20)
 
@@ -119,7 +132,9 @@ def finance_envelope_context(*, request_id, grant_id, owner, recipient, policy, 
 
     return json.dumps(
         [
-            "finance-share-v2:verified_ria_review"
+            "finance-share-v3:verified_ria_share"
+            if policy.get("version", 1) == 3
+            else "finance-share-v2:verified_ria_review"
             if policy.get("version", 1) == 2
             else "finance-share-v1",
             str(request_id),

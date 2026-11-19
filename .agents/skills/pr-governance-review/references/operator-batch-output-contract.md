@@ -49,7 +49,7 @@ live report. Use these sections:
     PR links, maintainer record links, action explanation, refreshed artifacts,
     and recommended next async train in chat.
 
-Each dossier also includes `Reasoned Review Steps`: the ordered checks Codex
+Each dossier also includes `Reasoned Review Steps`: the ordered checks the reviewer
 performed and how each check affected the decision.
 
 ## Hyperlink Rule
@@ -157,7 +157,7 @@ receipt ignored; administrative closure requires no application rebuild/test.
 
 The operator should understand what the batch is, why each PR is present, what
 changed, how each PR will be tackled, what will be tested, what would stop
-Codex, how reports refresh, which next train can start while checks run, and
+progress, how reports refresh, which next train can start while checks run, and
 what GitHub write will exist after action.
 
 Do not say "patch then merge" without naming the expected patch and post-merge
@@ -176,7 +176,7 @@ For UI-visible PRs, include one of:
 ## Comment Simulation
 
 Before GitHub writes, inspect existing maintainer-authored comments and reviews.
-State whether Codex edits an existing maintainer record or posts a new one, and
+State whether the reviewer edits an existing maintainer record or posts a new one, and
 which heading from `comment-and-report-contract.md` applies. Repass/correction
 waves must prefer edited maintainer records over new comments.
 

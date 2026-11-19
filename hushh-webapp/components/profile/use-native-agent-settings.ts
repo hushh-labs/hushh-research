@@ -3,9 +3,18 @@
 import { useMemo, useState } from "react";
 import type { NativeDrawerRow, NativeDrawerSection, NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { canInstallUpdate, releaseLabel, updateProgressStage } from "@/lib/feed/agent-update-status";
-import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import {
+  HOSTED_POD_PROVIDER_LABELS,
+  hostedPodDisplayLabel,
+  hostedPodProvider,
+  isHostedAzureMigrationAvailable,
+  isHostedPodTierUnderMaintenance,
+  isOwnerCloudTarget,
+  ownerCloudProvider,
+} from "@/lib/one/owner-cloud";
 import { AZURE_UPDATE_COPY, azureUpdatedLabel } from "@/lib/one/azure-update-outcome";
 import { agentSettingsSummary, HOST_LABELS, type AgentSettingsController } from "./use-agent-settings-controller";
+import { cloudHostingHealthSentence } from "./cloud-hosting-health";
 import { HOSTING_RECLAIMED_SENTENCE, HOSTING_UNCONFIRMED_SENTENCE, REBUILDING_SENTENCE, REBUILD_FAILED_FALLBACK } from "./azure-hosting-notice";
 
 /** Presentation only. All network reads, approvals and retries belong to the
@@ -26,14 +35,22 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
   const pages: NativeProfilePage[] = [];
   const website = "Continue on the Hussh website with your vault unlocked.";
   if (model.kind === "hosting") {
-    const current: NativeDrawerRow[] = [read("hosting-current", "Current hosting", status ? HOST_LABELS[mode] : "Checking hosting…")];
+    const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
+    const activeHostedProvider = hostedPodProvider(status?.deploymentTarget);
+    const currentLabel = !status
+      ? "Checking hosting…"
+      : mode === "hussh_pods"
+        ? hostedPodDisplayLabel(status.deploymentTarget)
+        : HOST_LABELS[mode];
+    const current: NativeDrawerRow[] = [read("hosting-current", "Current hosting", currentLabel)];
     if (mode === "byoc" && status?.cloudProject) current.push(read("hosting-project", "Your cloud project", [status.cloudProject, status.cloudRegion].filter(Boolean).join(" · ")));
     if (model.inspection) {
       const health = model.inspection;
-      current.push(read("hosting-health", "Cloud health", health.status === "connected" ? "Your agent’s cloud resources are available." :
-        health.status === "starting" ? "Your agent is starting." : health.status === "absent" ? "Your cloud reports this agent is missing. Review Hosting recovery before creating another." :
-        health.status === "cleanup_pending" ? "Cloud removal is paused or in progress. Resume its reviewed request." : "Your cloud could not be verified. Nothing was changed."));
+      current.push(read("hosting-health", "Cloud health", cloudHostingHealthSentence(health.status)));
       if (health.needsPreviousReview) current.push(read("hosting-previous", "Previous cloud homes", "An earlier cloud may still hold resources. Review those resources before removing hosting; this check never deletes them automatically."));
+    }
+    if (isHostedAzureMigrationAvailable() && status?.state === "active" && (mode === "byoc" || (mode === "hussh_pods" && activeHostedProvider === "gcp"))) {
+      current.push(read("hosting-move-azure", "Move to Hussh Pods · Microsoft Azure", website));
     }
     const azure = model.azureHosting;
     if (azure.running) current.push(read("hosting-rebuild", "Rebuilding", REBUILDING_SENTENCE));
@@ -44,11 +61,20 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
       if (hosting.rebuildable && hosting.rebuild?.retryable !== false) current.push(read("hosting-rebuild-website", "Rebuild hosting", website));
     }
     sections.push({ id: "hosting-status-section", rows: current });
-    const canChoose = ["shared", "pending", "byoc", "unplaced"].includes(mode);
+    const canChoose = status?.featureEnabled === true && ["shared", "pending", "byoc", "unplaced"].includes(mode);
+    const canChooseHosted = !hostedUnderMaintenance && status?.featureEnabled === true && ["shared", "pending", "unplaced"].includes(mode);
     sections.push({ id: "hosting-choices-section", title: "Hosting choices", rows: [
       { ...action("hosting-shared", "Hussh Shared", model.chooseHosting, mode !== "unplaced"), detail: mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically.", ...(mode === "shared" ? { trailing: "Current" } : {}) },
-      { ...action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting, !canChoose), detail: "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : mode === "pending" ? { trailing: "Continue" } : {}) },
-      { ...read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? "Your dedicated Hussh-hosted pod. You approve updates." : "Dedicated hosting is unavailable for new setups."), trailing: mode === "hussh_pods" ? "Current" : "Unavailable" },
+      { ...(canChoose ? action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting) : read("hosting-own-cloud", "Bring your own cloud")), detail: status && !status.featureEnabled ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged." : "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : status && !status.featureEnabled ? { trailing: "Unavailable" } : mode === "pending" ? { trailing: "Continue" } : {}) },
+      {
+        ...(canChooseHosted ? action("hosting-pods", "Hussh Pods", model.chooseHosting) : read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? (activeHostedProvider ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.` : "Your dedicated Hussh-hosted pod. You approve updates.") : hostedUnderMaintenance ? "Dedicated hosting is unavailable for new setups." : "Dedicated pod on Google Cloud or Microsoft Azure.")),
+        detail: mode === "hussh_pods"
+          ? (activeHostedProvider ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.` : "Your dedicated Hussh-hosted pod. You approve updates.")
+          : hostedUnderMaintenance
+            ? "Dedicated hosting is unavailable for new setups."
+            : "Dedicated pod on Google Cloud or Microsoft Azure.",
+        trailing: mode === "hussh_pods" ? "Current" : hostedUnderMaintenance ? "Unavailable" : "Available",
+      },
     ] });
     const actions = [action("hosting-check", "Check hosting", model.checkStatus, busy)];
     if (mode === "byoc") actions.push(action("hosting-reconnect", model.needsLinkRecovery ? "Link existing pod" : "Reconnect your pod", model.needsLinkRecovery ? model.recoverExistingPod : model.reconnectDirectPod, busy));
@@ -59,7 +85,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
   } else {
     const summary = agentSettingsSummary(model);
     const current = [read("updates-status", "Status", summary.stateLabel)];
-    if (mode === "shared" || isPod) current.push(read("updates-version", isPod && !status?.installedReleaseVerified ? "Reported version" : "Current version", summary.versionLabel ?? "Not verified"));
+    if (mode === "shared" || isPod) current.push(read("updates-version", "Current version", summary.versionLabel ?? "Unavailable"));
     if (summary.release && update.available) current.push(read("updates-new-version", "New version", releaseLabel(summary.release.version, summary.release.releasedAt)));
     const stage = updateProgressStage(update);
     if (isPod && stage !== null) current.push({ ...read("updates-progress", "Update progress", summary.stateLabel), progress: { value: stage, total: 4 } });
@@ -70,6 +96,12 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
     sections.push({ id: "updates-status-section", rows: current });
     const actions: NativeDrawerRow[] = [];
     if (model.needsLinkRecovery) actions.push(action("updates-link", "Link existing pod", model.recoverExistingPod, busy));
+    if (mode === "byoc" && !model.needsLinkRecovery && status?.updateAvailable === true && !canInstallUpdate(status) && !working && status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED") {
+      actions.push(action("updates-reconnect", "Reconnect your pod", model.reconnectDirectPod, busy));
+    }
+    if (mode === "byoc" && status?.updateAvailable === true && !canInstallUpdate(status) && !working && (status.updateBlockedReason === "PREDECESSOR_NOT_QUALIFIED" || status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED")) {
+      actions.push(action("updates-hosting", "Review cloud hosting", model.chooseHosting, busy));
+    }
     if (isPod && canInstallUpdate(status) && update.releaseId && !working) {
       actions.push(ownerCloudProvider(status?.deploymentTarget) === "azure" ? read("updates-approve", "Update now", website) : action("updates-approve", "Update now", () => model.act("approve"), busy), action("updates-later", "Later", () => model.act("defer"), busy));
     }
@@ -84,7 +116,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
       { ...action("updates-browser-review", "Review Browser setup", browser.inspect, browser.busy || busy || working), detail: "Research public pages with Agent One. Review access before enabling." },
       ...(!browser.review && browser.notice ? [read("updates-browser-outcome", browser.notice)] : []),
     ] });
-    pages.push({ id: "software-updates", title: "Software updates", sections });
+    pages.push({ id: "software-updates", title: "Agent updates", sections });
     if (browser.review) {
       const offer = browser.review.offer;
       pages.push({ id: "browser-review", title: "Browser setup", sections: [

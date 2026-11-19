@@ -1,15 +1,22 @@
+"use client";
+
 import Image from "next/image";
-import type { CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
+import { startCalendarEntrance } from "./calendar-connect-entrance";
+import { WEEKDAY_LABELS } from "./calendar-week";
 import { GoogleCalendarMark } from "./google-calendar-mark";
+import { useCalendarWeek } from "./use-calendar-week";
 
 /**
  * Decorative collage for the Calendar connect screen: a sample schedule card
  * flanked by four calendar app tiles.
  *
  * Purely presentational and `aria-hidden`; the screen's heading and button
- * carry the meaning. The copy inside the card is sample artwork, not owner
- * information, and is fixed so the illustration renders identically on the
- * server, the client and the native shell.
+ * carry the meaning. The agenda inside the card is sample artwork, not owner
+ * information. Only the week header is live: it shows the device's current
+ * local date (see `useCalendarWeek`), and the four tiles slide out from behind
+ * the card once when the illustration first appears
+ * (see `startCalendarEntrance`).
  *
  * Responsive without any layout code: the wrapper is a size container and
  * every length inside is in `em`, with 1em = 1/42 of the container width. The
@@ -17,8 +24,13 @@ import { GoogleCalendarMark } from "./google-calendar-mark";
  * 420px on mobile and 480px on desktop.
  */
 
+/** Entrance wrapper: position and stacking only; it carries the slide-out. */
+const TILE_SLOT =
+  "absolute z-10 size-[7.6em] data-[entrance=pending]:invisible";
+
+/** The tile itself keeps its own rotation, separate from the slide-out. */
 const TILE_BASE =
-  "absolute z-10 flex size-[7.6em] items-center justify-center rounded-[2.2em] border border-black/5 bg-white shadow-[0_1.4em_3em_-0.6em_rgba(0,0,0,0.09),0_0.2em_0.6em_-0.1em_rgba(0,0,0,0.04)] dark:border-white/10 dark:shadow-none";
+  "flex size-[7.6em] items-center justify-center rounded-[2.2em] border border-black/5 bg-white shadow-[0_1.4em_3em_-0.6em_rgba(0,0,0,0.09),0_0.2em_0.6em_-0.1em_rgba(0,0,0,0.04)] dark:border-white/10 dark:shadow-none";
 
 const SCALE_STYLE: CSSProperties = { fontSize: "calc(100cqw / 42)" };
 
@@ -45,10 +57,6 @@ const AGENDA = [
     bar: "bg-[#F43F5E]",
   },
 ] as const;
-
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"] as const;
-const DATES = [5, 6, 7, 8, 9, 10, 11] as const;
-const TODAY = 8;
 
 const DOT_COLORS = [
   "bg-emerald-500",
@@ -83,43 +91,49 @@ function Chevron({ direction }: { direction: "left" | "right" }) {
 
 function GoogleCalendarTile() {
   return (
-    <div className={`${TILE_BASE} left-0 top-[8.8em] rotate-[-10deg]`}>
-      <GoogleCalendarMark className="size-[4.5em]" />
+    <div data-entrance-tile className={`${TILE_SLOT} left-0 top-[8.8em]`}>
+      <div className={`${TILE_BASE} rotate-[-10deg]`}>
+        <GoogleCalendarMark className="size-[4.5em]" />
+      </div>
     </div>
   );
 }
 
 function OutlookTile() {
   return (
-    <div className={`${TILE_BASE} left-[1.1em] top-[19.8em] rotate-[-8deg]`}>
-      {/* The logo is a flat-white-background raster; multiply lets the white
-          disappear into the tile instead of showing a faint square. */}
-      <Image
-        src="/brand/calendar-apps/outlook.png"
-        alt=""
-        width={256}
-        height={256}
-        unoptimized
-        className="size-[5em] object-contain mix-blend-multiply"
-      />
+    <div data-entrance-tile className={`${TILE_SLOT} left-[1.1em] top-[19.8em]`}>
+      <div className={`${TILE_BASE} rotate-[-8deg]`}>
+        {/* The logo is a flat-white-background raster; multiply lets the white
+            disappear into the tile instead of showing a faint square. */}
+        <Image
+          src="/brand/calendar-apps/outlook.png"
+          alt=""
+          width={256}
+          height={256}
+          unoptimized
+          className="size-[5em] object-contain mix-blend-multiply"
+        />
+      </div>
     </div>
   );
 }
 
 function AppleCalendarTile() {
   return (
-    <div
-      className={`${TILE_BASE} right-0 top-[9.4em] rotate-[10deg] flex-col justify-between overflow-hidden p-[0.9em]`}
-    >
-      <div className="w-full rounded-t-[1.1em] bg-[#FF3B30] py-[0.2em] text-center">
-        <span className="block text-[0.95em] font-bold leading-none tracking-widest text-white">
-          JUL
-        </span>
-      </div>
-      <div className="-mt-[0.2em] flex flex-1 items-center justify-center pb-[0.2em]">
-        <span className="text-[2.9em] font-light leading-none tracking-tight text-slate-900">
-          17
-        </span>
+    <div data-entrance-tile className={`${TILE_SLOT} right-0 top-[9.4em]`}>
+      <div
+        className={`${TILE_BASE} rotate-[10deg] flex-col justify-between overflow-hidden p-[0.9em]`}
+      >
+        <div className="w-full rounded-t-[1.1em] bg-[#FF3B30] py-[0.2em] text-center">
+          <span className="block text-[0.95em] font-bold leading-none tracking-widest text-white">
+            JUL
+          </span>
+        </div>
+        <div className="-mt-[0.2em] flex flex-1 items-center justify-center pb-[0.2em]">
+          <span className="text-[2.9em] font-light leading-none tracking-tight text-slate-900">
+            17
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -127,28 +141,40 @@ function AppleCalendarTile() {
 
 function DotsCalendarTile() {
   return (
-    <div
-      className={`${TILE_BASE} right-[0.7em] top-[20.9em] rotate-[9deg] flex-col justify-start overflow-hidden p-[0.9em]`}
-    >
-      <div className="mb-[0.8em] h-[1.3em] w-full rounded-t-[1em] bg-[#FF3B30]" />
-      <div className="grid grid-cols-4 gap-[0.6em] pt-[0.2em]">
-        {DOT_COLORS.map((color, index) => (
-          <span
-            key={index}
-            className={`size-[0.6em] rounded-full ${color}`}
-          />
-        ))}
+    <div data-entrance-tile className={`${TILE_SLOT} right-[0.7em] top-[20.9em]`}>
+      <div
+        className={`${TILE_BASE} rotate-[9deg] flex-col justify-start overflow-hidden p-[0.9em]`}
+      >
+        <div className="mb-[0.8em] h-[1.3em] w-full rounded-t-[1em] bg-[#FF3B30]" />
+        <div className="grid grid-cols-4 gap-[0.6em] pt-[0.2em]">
+          {DOT_COLORS.map((color, index) => (
+            <span
+              key={index}
+              className={`size-[0.6em] rounded-full ${color}`}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 function ScheduleCard() {
+  // `null` until the first client layout pass; the cells then render empty so
+  // the card keeps its size and no date is ever invented on the server.
+  const week = useCalendarWeek();
+
   return (
-    <div className="relative z-20 mx-auto w-[23em] rotate-[-2.5deg] rounded-[2.8em] border border-black/5 bg-[color:var(--app-primary-surface)] px-[1.9em] py-[1.8em] shadow-[0_2.2em_4.8em_-1.2em_rgba(25,42,70,0.12),0_0.6em_1.6em_-0.4em_rgba(25,42,70,0.04)] dark:border-[color:var(--app-separator)] dark:shadow-none">
+    <div
+      data-entrance-card
+      className="relative z-20 mx-auto w-[23em] rotate-[-2.5deg] rounded-[2.8em] border border-black/5 bg-[color:var(--app-primary-surface)] px-[1.9em] py-[1.8em] shadow-[0_2.2em_4.8em_-1.2em_rgba(25,42,70,0.12),0_0.6em_1.6em_-0.4em_rgba(25,42,70,0.04)] dark:border-[color:var(--app-separator)] dark:shadow-none"
+    >
       <div className="mb-[1.8em] flex items-center justify-between">
-        <p className="text-[1.5em] font-bold leading-none tracking-tight text-[color:var(--app-label)]">
-          October 2026
+        <p
+          data-testid="calendar-connect-month"
+          className="text-[1.5em] font-bold leading-none tracking-tight text-[color:var(--app-label)]"
+        >
+          {week?.heading ?? "\u00A0"}
         </p>
         <div className="flex items-center gap-[1em] text-[color:var(--app-secondary-label)]">
           <Chevron direction="left" />
@@ -157,25 +183,37 @@ function ScheduleCard() {
       </div>
 
       <div className="mb-[0.6em] grid grid-cols-7 text-center text-[1em] font-medium leading-[1.5] text-[color:var(--app-tertiary-label)]">
-        {WEEKDAYS.map((day, index) => (
+        {WEEKDAY_LABELS.map((day, index) => (
           <span key={`${day}-${index}`}>{day}</span>
         ))}
       </div>
 
-      <div className="mb-[2em] grid grid-cols-7 items-center text-center text-[1.15em] font-medium leading-none text-[color:var(--app-secondary-label)]">
-        {DATES.map((date) =>
-          date === TODAY ? (
-            <span key={date} className="flex justify-center">
-              <span className="flex size-[2.2em] items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[1em] font-bold text-white">
-                {date}
+      <div
+        data-testid="calendar-connect-week"
+        className="mb-[2em] grid grid-cols-7 items-center text-center text-[1.15em] font-medium leading-none text-[color:var(--app-secondary-label)]"
+      >
+        {week
+          ? week.days.map((day) =>
+              day.isToday ? (
+                <span key={day.id} className="flex justify-center">
+                  <span
+                    data-today="true"
+                    className="flex size-[2.2em] items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[1em] font-bold text-white"
+                  >
+                    {day.date}
+                  </span>
+                </span>
+              ) : (
+                <span key={day.id} className="py-[0.4em]">
+                  {day.date}
+                </span>
+              ),
+            )
+          : WEEKDAY_LABELS.map((_, column) => (
+              <span key={column} className="py-[0.4em]">
+                {"\u00A0"}
               </span>
-            </span>
-          ) : (
-            <span key={date} className="py-[0.4em]">
-              {date}
-            </span>
-          ),
-        )}
+            ))}
       </div>
 
       <div className="space-y-[1em]">
@@ -204,14 +242,33 @@ function ScheduleCard() {
   );
 }
 
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 export function CalendarConnectIllustration() {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Once per mount (that is, per screen entry): the tiles are put behind the
+  // card before the first paint and released when the illustration is
+  // visible. Date refreshes re-render only the card, never this effect.
+  useIsomorphicLayoutEffect(() => {
+    const root = rootRef.current;
+    const card = root?.querySelector<HTMLElement>("[data-entrance-card]");
+    if (!root || !card) return;
+    const tiles = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-entrance-tile]"),
+    );
+    return startCalendarEntrance({ root, card, tiles });
+  }, []);
+
   return (
     <div
+      ref={rootRef}
       aria-hidden="true"
       data-testid="calendar-connect-illustration"
       className="pointer-events-none mx-auto w-full max-w-[420px] select-none [container-type:inline-size] md:max-w-[480px]"
     >
-      <div className="relative w-full py-[2.4em]" style={SCALE_STYLE}>
+      <div className="relative isolate w-full py-[2.4em]" style={SCALE_STYLE}>
         <GoogleCalendarTile />
         <OutlookTile />
         <AppleCalendarTile />

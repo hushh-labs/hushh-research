@@ -65,6 +65,16 @@ if [ -z "$APP_PATH" ]; then
   exit 1
 fi
 
+if [ "${APP_RUNTIME_PROFILE:-}" = "uat" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  node --input-type=module - "$SCRIPT_DIR/ios-firebase-config.mjs" "$APP_PATH" <<'JS'
+import { pathToFileURL } from "node:url";
+const { verifyBundledIosUatFirebase } = await import(pathToFileURL(process.argv[2]));
+verifyBundledIosUatFirebase(process.argv[3]);
+console.log("Archived UAT Analytics app and shared Firebase Auth/FCM sender verified.");
+JS
+fi
+
 DSYM_DIR="$ARCHIVE_PATH/dSYMs"
 APP_NAME="$(basename "$APP_PATH")"
 APP_DSYM="$DSYM_DIR/${APP_NAME}.dSYM"

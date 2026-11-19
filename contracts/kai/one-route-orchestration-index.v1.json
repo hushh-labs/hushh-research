@@ -2074,6 +2074,49 @@
       "native_surface_id": "native-route-gmail"
     },
     {
+      "route_pattern": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.goals",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.goals",
+        "purpose": "Review saved goals, describe the intended outcome, and link saved tasks in the owner's unlocked vault.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep goal information unavailable until the owner unlocks the vault.",
+          "cancelled": "Close the editor without saving the draft.",
+          "failed": "Keep the draft and report that the save could not be confirmed.",
+          "timeout": "Ask the owner to check the saved goal before trying again.",
+          "callback_error": "Return to the verified recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "The owner confirms each save and explicitly marks goal completion. Linked task status comes from Tasks. A plan grants no background execution permission.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Never invent a control or infer execution permission from a saved goal."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-goals"
+    },
+    {
       "route_pattern": "/one/kai",
       "page_file": "app/one/kai/page.tsx",
       "route_mode": "standard",
@@ -2897,7 +2940,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.kai.portfolio.analysis",
-        "purpose": "Review source-backed portfolio analysis.",
+        "purpose": "Review saved portfolio facts, request an Agent One analysis, or explicitly introduce a verified human advisor.",
         "screen": "kai_portfolio_analysis",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -2912,7 +2955,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The route displays available saved portfolio facts and labels missing information.",
+        "completion_boundary": "Source coverage is input coverage, not model accuracy. Advisor contact, full Finance snapshot, connection, Calendar and recurring payment each retain their explicit approval and provider-evidence boundary; opening a workspace completes none of them.",
         "next_route": "/one/kai?tab=portfolio",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4516,7 +4559,7 @@
       "route_pattern": "/one/profile/my-data",
       "page_file": "app/one/profile/my-data/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.my.data",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4546,22 +4589,20 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_my_data"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/my-data/domain",
       "page_file": "app/one/profile/my-data/domain/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.my.data.domain",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4591,9 +4632,7 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_my_data"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6127,21 +6166,16 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.finance",
-        "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
+        "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
         "screen": "one_setup_finance",
-        "entry_cue": "Answer the visible Finance question to continue.",
+        "entry_cue": "Explore the introduction, then answer or skip investing preferences.",
         "proactivity": "on_entry",
-        "primary_action_id": "kai.setup.answer_horizon",
+        "primary_action_id": "setup.finish_finance",
         "happy_path_action_ids": [
-          "kai.setup.answer_horizon",
-          "kai.setup.answer_drawdown",
-          "kai.setup.answer_volatility",
-          "kai.setup.launch_dashboard",
+          "setup.finish_finance",
           "setup.skip_finance"
         ],
-        "required_inputs": [
-          "investment_horizon"
-        ],
+        "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
           "cancelled": "Keep Finance setup open and preserve the active goal.",
@@ -6150,9 +6184,9 @@
           "callback_error": "Return to Finance setup without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
-        "next_route": "/one/setup/finance/import",
-        "return_policy": "navigate",
+        "completion_boundary": "The introduction never completes setup. A verified source result or explicit later choice enables the existing terminal finish.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -6161,10 +6195,7 @@
       "canonical_screen": "one_setup_finance",
       "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
       "action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard",
+        "setup.finish_finance",
         "setup.skip_finance"
       ],
       "action_coverage": "inherited",
@@ -6423,15 +6454,15 @@
       "native_surface_id": "native-route-ria-onboarding"
     },
     {
-      "route_pattern": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route_pattern": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "route_mode": "standard",
       "orchestration_class": "context_only",
-      "instruction_id": "route.one.todos",
+      "instruction_id": "route.one.tasks",
       "context_policy": "minimal",
       "voice_playbook": {
-        "playbook_id": "route.one.todos",
-        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
+        "playbook_id": "route.one.tasks",
+        "purpose": "Review private tasks, the read-only Calendar agenda, and the recorded outcome of approved scheduled Files runs on the owner's private Pod.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -6446,7 +6477,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+        "completion_boundary": "Ordinary task saves require owner confirmation. Scheduled results reflect the current Pod's last-run receipt, including uncertain outcomes. Back closes the scheduled-runs view before leaving Tasks.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6463,7 +6494,50 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-one-todos"
+      "native_surface_id": "native-route-one-tasks"
+    },
+    {
+      "route_pattern": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.todos",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.todos",
+        "purpose": "Open the Tasks workspace from an older To-do link.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep the Tasks destination behind its existing access check.",
+          "cancelled": "Retain the current screen.",
+          "failed": "Offer the canonical Tasks destination.",
+          "timeout": "Retain the canonical Tasks destination.",
+          "callback_error": "Offer the canonical Tasks destination.",
+          "route_mismatch": "Use the verified Tasks route."
+        },
+        "completion_boundary": "Both web and native clients open the same Tasks workspace.",
+        "next_route": "/one/tasks",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Retain the destination's access checks."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "block_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/wallet",
@@ -6953,7 +7027,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
+        "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
         "next_route": "/one/setup",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7164,7 +7238,7 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.ria.clients",
-        "purpose": "Help the person understand and use the clients screen through its generated controls.",
+        "purpose": "Review advisor introduction requests and existing approved clients; public nearby prospects remain a separate discovery view.",
         "screen": "ria_clients",
         "entry_cue": "You can say “Open RIA Clients” to use the primary control on this screen.",
         "proactivity": "on_entry",
@@ -7181,7 +7255,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Pending snapshots stay sealed. Accepting connects and unlocks the approved snapshot atomically; scheduling and subscribing require separate explicit confirmation and provider readback.",
         "next_route": "/ria/clients",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

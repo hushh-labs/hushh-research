@@ -1035,10 +1035,12 @@ html.native-keyboard-inset.kb-open
   --motion-shortcut-icon-cycle-duration: 850ms;
   --motion-duration-xxl: 150ms;
 
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
-  --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: var(--ease-out);
 
   /* Press physics: a press is FLAT. The pressed state is a colour/opacity
      change plus the md-ripple, never a scale, spring, or bounce. The scale
@@ -1057,7 +1059,7 @@ html.native-keyboard-inset.kb-open
    * Tuned for a uniform 60-120fps frame rate without layout thrashing. */
   --motion-overlay-enter-duration: 150ms;
   --motion-overlay-exit-duration: 100ms;
-  --motion-overlay-enter-ease: var(--motion-ease-decelerate);
+  --motion-overlay-enter-ease: var(--ease-out);
   --motion-overlay-exit-ease: var(--motion-ease-accelerate);
 
   /* Sheets travel most of the screen, so they get their own shared tier: the
@@ -3710,10 +3712,10 @@ body:has([data-direct-message-page="true"])
   --app-top-content-offset: var(--top-shell-reserved-height);
 }
 
-/* Location owns a compact module header rather than a large route hero. Keep
+/* Location's hub and task screens share a compact module header. Keep
  * the shared shell reservation, but give this route the 24px breathing room
  * the actual utility row needs instead of an empty band below it. */
-body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="true"] {
+body:has([data-location-page], [data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="true"] {
   height: calc(var(--app-top-content-offset) - 24px);
 }
 
@@ -8175,7 +8177,9 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
 [data-slot="sheet-scrim"][data-state="closed"],
 [data-slot="drawer-scrim"][data-state="closed"],
 [data-slot="alert-dialog-scrim"][data-state="closed"],
-[data-slot="popover-scrim"][data-state="closed"] {
+[data-slot="popover-scrim"][data-state="closed"],
+[data-slot="popover-scrim"]:has(+ [data-slot="popover-content"][data-state="closed"]),
+[data-slot="popover-scrim"]:has(~ [data-radix-popper-content-wrapper] [data-slot="popover-content"][data-state="closed"]) {
   animation: overlay-scrim-out var(--motion-overlay-exit-duration)
     var(--motion-overlay-exit-ease) both;
 }
@@ -8610,6 +8614,96 @@ html.native-android [data-app-pane-material="profile"] {
 
   .motion-step-enter {
     animation: none !important;
+  }
+}
+
+/* ==========================================================================
+ * TACTILE DISCLOSURE & MICRO-PRESENCE CONTINUITY
+ * Smooth Radix collapsible disclosure + zero-JS @starting-style bridges for
+ * streaming events, composer action morphs, follow-up prompts, and One status.
+ * ========================================================================== */
+.app-collapsible-content {
+  overflow: hidden;
+}
+
+.app-collapsible-content[data-state="open"] {
+  animation: app-collapsible-down var(--motion-duration-lg) var(--ease-out);
+}
+
+.app-collapsible-content[data-state="closed"] {
+  animation: app-collapsible-up var(--motion-duration-sm) var(--motion-ease-accelerate);
+}
+
+@keyframes app-collapsible-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes app-collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+[data-slot="stream-event-list"] > li,
+[data-slot="stream-response"],
+.agent-suggestion-item,
+.one-presence-enter,
+.one-presence-label-enter {
+  transition:
+    opacity var(--motion-duration-md) var(--ease-out),
+    transform var(--motion-duration-md) var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+[data-agent-composer-action] svg {
+  transition:
+    opacity var(--motion-duration-sm) var(--ease-out),
+    transform var(--motion-duration-sm) var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+}
+
+.hosting-check-enter {
+  transition:
+    opacity var(--motion-duration-md) var(--ease-out),
+    transform var(--motion-duration-md) var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-collapsible-content[data-state="open"],
+  .app-collapsible-content[data-state="closed"] {
+    animation: none !important;
+  }
+
+  [data-slot="stream-event-list"] > li,
+  [data-slot="stream-response"],
+  .agent-suggestion-item,
+  .one-presence-enter,
+  .one-presence-label-enter,
+  [data-agent-composer-action] svg,
+  .hosting-check-enter {
+    transition: none !important;
   }
 }
 

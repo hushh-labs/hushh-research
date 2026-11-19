@@ -26,7 +26,16 @@ def historical_restoration_source(canonical):
         "94db30af3be1742efd4f2105f43aa2508d74fbceb58a2d3cc26c92795ea24d62"
     ), "Historical restoration fixture changed"
     current = lease.nonproducer._job_block(canonical.decode(), lease.RESTORATION_JOB)
-    return canonical.replace(current.encode(), historical.encode())
+    result = canonical.replace(current.encode(), historical.encode())
+    for name, condition in recorded["producer_conditions"].items():
+        block = lease.nonproducer._job_block(result.decode(), name)
+        lines = block.splitlines(keepends=True)
+        replaced = "".join(
+            f"    if: {condition}\n" if line.startswith("    if: ") else line
+            for line in lines
+        )
+        result = result.replace(block.encode(), replaced.encode())
+    return result
 
 
 def _qualified_phone():
@@ -140,6 +149,14 @@ def archive(fixture, documents):
         digest="sha256:" + hashlib.sha256(payload).hexdigest(),
     )
     return payload
+
+
+def mixed_root_archive(fixture, documents):
+    """The standard upload combines /tmp receipts and runner.temp worker files."""
+    return archive(fixture, {
+        **{f"tmp/{name}": value for name, value in documents.items()},
+        "home/runner/work/_temp/qualified-worker-stage/context.json": {},
+    })
 
 
 def cold_revision(qualified):

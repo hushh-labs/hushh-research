@@ -27,6 +27,7 @@ export async function loadNativeProfileFormArtwork(profileLoader) {
     { id: "account-wallet", icon: PROFILE_ICONS.wallet },
     { id: "account-reset", icon: PROFILE_ICONS.reset },
     { id: "account-delete", icon: PROFILE_ICONS.delete },
+    { id: "my-data", icon: PROFILE_ICONS.memory },
     { id: "appearance", icon: PROFILE_ICONS.appearance },
     { id: "accent", icon: PROFILE_ICONS.accent },
     { id: "voice", icon: PROFILE_ICONS.voice },

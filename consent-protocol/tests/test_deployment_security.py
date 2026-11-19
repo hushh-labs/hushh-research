@@ -513,11 +513,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                             )
                             self.assertEqual(
                                 step["env"]["RELEASE_AUTHORIZATION"],
-                                (
-                                    "${{ inputs.security_authorization || needs.deployment-security.outputs.authorization }}"
-                                    if name == "ios-voice-device.yml"
-                                    else "${{ needs." + issuer + ".outputs.authorization }}"
-                                ),
+                                "${{ needs." + issuer + ".outputs.authorization }}",
                             )
                     self.assertEqual(
                         job["steps"][0]["name"], "Require current-attempt deployment security"
@@ -555,7 +551,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                 "write" if name in ("deploy-dev.yml", "deploy-uat.yml") else "read",
                 name,
             )
-        for name in ("deployment-security.yml",):
+        for name in ("deployment-security.yml", "ios-voice-device.yml"):
             internal = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 set(internal.get("on", internal.get(True))),
@@ -565,12 +561,9 @@ class DeploymentSecurityTest(unittest.TestCase):
             )
             self.assertNotIn(name, gate.CALLERS)
         hardware = yaml.safe_load((root / ".github/workflows/ios-voice-device.yml").read_text())
-        self.assertEqual(set(hardware["jobs"]), {"deployment-security", "hardware-capture"})
+        self.assertEqual(set(hardware["jobs"]), {"hardware-capture"})
         check = hardware["jobs"]["hardware-capture"]["steps"][0]
-        self.assertEqual(
-            check["env"]["SECURITY_ATTEMPT"],
-            "${{ inputs.security_attempt || needs.deployment-security.outputs.attempt }}",
-        )
+        self.assertEqual(check["env"]["SECURITY_ATTEMPT"], "${{ inputs.security_attempt }}")
         self.assertIn('"$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT"', check["run"])
         actor = next(
             step
@@ -578,8 +571,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             if "assert-governed-actor.py" in step.get("run", "")
         )
         self.assertEqual(
-            actor["env"]["RELEASE_AUTHORIZATION"],
-            "${{ inputs.security_authorization || needs.deployment-security.outputs.authorization }}",
+            actor["env"]["RELEASE_AUTHORIZATION"], "${{ inputs.security_authorization }}"
         )
         self.assertIn("environment: ci-security", reusable)
         self.assertIn("ref: ${{ github.sha }}", reusable)
@@ -811,6 +803,32 @@ class DeploymentBrokerTest(unittest.TestCase):
             os.environ["RELEASE_AUTHORIZATION"] = ""
             with self.assertRaises(SystemExit):
                 guard.main()
+
+    def test_uat_broker_separates_protected_application_from_caller(self):
+        _, request, source, _, responses, _ = self.fixture()
+        prefix = f"repos/{gate.REPOSITORY}"
+        request.update(environment="uat", application_branch="uat-isolated")
+        source.update(head_branch="uat", path=".github/workflows/deploy-uat.yml")
+        source["referenced_workflows"][0]["path"] = (
+            f"{gate.REPOSITORY}/{gate.IMPLEMENTATIONS['uat']}@{SHA}"
+        )
+        responses[f"{prefix}/actions/workflows/deploy-uat.yml"] = {
+            "id": 30,
+            "path": source["path"],
+        }
+        branch = {"protected": True, "commit": {"sha": APP}}
+        responses[f"{prefix}/branches/uat-isolated"] = branch
+        responses[f"{prefix}/compare/{APP}...uat-isolated?per_page=1&page=2"] = {
+            "status": "identical",
+            "merge_base_commit": {"sha": APP},
+        }
+        policy = {"uat": {"manual_dispatch_users": ["operator"]}}
+        admitted = gate.verify_deployment(responses.__getitem__, request, policy)
+        self.assertEqual(admitted["caller_branch"], "uat")
+        self.assertEqual(admitted["application_branch"], "uat-isolated")
+        branch["commit"] = {"sha": SHA}
+        with self.assertRaisesRegex(gate.Refused, "protected isolated UAT tip"):
+            gate.verify_deployment(responses.__getitem__, request, policy)
 
     def test_wrong_branch_operator_source_and_implementation_refuse_before_alert_access(self):
         for key, value in [

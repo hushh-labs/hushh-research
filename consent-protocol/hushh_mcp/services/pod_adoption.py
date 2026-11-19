@@ -20,6 +20,19 @@ class PodAdoptionRefused(RuntimeError):
     """Retained deployment identity does not authorize adopting an observed host."""
 
 
+def has_hosted_evidence(row: object) -> bool:
+    """Classify managed custody before selecting any owner-cloud adapter."""
+    if not isinstance(row, dict):
+        return False
+    metadata = row.get("backend_metadata") or {}
+    if not isinstance(metadata, dict):
+        return False
+    attempt = metadata.get("provisionAttempt")
+    return metadata.get("tenancy") == "hussh-hosted" or (
+        isinstance(attempt, dict) and "hostedAdmission" in attempt
+    )
+
+
 def adoption_expectations(metadata: object) -> PodAdoptionExpectations:
     """Malformed or unknown explicit host bindings refuse rather than selecting ACA."""
     recorded = metadata if isinstance(metadata, dict) else {}

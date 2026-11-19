@@ -1,7 +1,7 @@
 <!-- pdf:omit-start -->
 ## Visual Context
 
-Canonical visual owner: [Operations index](../../README.md).
+Canonical visual owner: [Operations index](../README.md).
 <!-- pdf:omit-end -->
 
 ## Integration contract at a glance

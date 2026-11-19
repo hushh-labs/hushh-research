@@ -35,18 +35,44 @@ RESOURCE_TIER_ECONOMY = "economy"  # minScale 0: scales to zero, silence is heal
 RESOURCE_TIER_WARM = "warm"  # minScale 1: a paid instance is held, silence is a fault
 RESOURCE_TIERS = (RESOURCE_TIER_ECONOMY, RESOURCE_TIER_WARM)
 
+# Cloud-neutral key custody modes (the fifth PodSpec axis). Never spell a cloud
+# vendor name here so Layer 1 stays provider-agnostic (test_deployment_boundary_holds).
+CUSTODY_EPHEMERAL = "ephemeral"
+CUSTODY_FLEET_HKDF = "fleet_hkdf"
+CUSTODY_OWNER_KMS = "owner_kms"
+CUSTODY_OWNER_VAULT = "owner_vault"
+CUSTODY_ACE_ENVELOPE = "ace_envelope"
+CUSTODY_HUB_BROKER = "hub_broker"
+CUSTODY_MODES = (
+    CUSTODY_EPHEMERAL,
+    CUSTODY_FLEET_HKDF,
+    CUSTODY_OWNER_KMS,
+    CUSTODY_OWNER_VAULT,
+    CUSTODY_ACE_ENVELOPE,
+    CUSTODY_HUB_BROKER,
+)
+
 # Canonical backend ids (the ``PERSONAL_AGENT_BACKEND`` values).
 BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
+BACKEND_AZURE = "azure"  # Hussh-hosted Azure Container Apps Umbrella Cell tier.
+BACKEND_ACE = "ace"  # Hussh-hosted Google Agent Compute Engine sandbox tier.
 BACKEND_USER_GCP = "user_gcp"  # BYOC: the pod runs in the USER's own GCP project.
 BACKEND_USER_AZURE = "user_azure"  # BYOC: the pod runs in the USER's own Azure subscription.
+BACKEND_USER_AWS = "user_aws"  # BYOC: the pod runs in the USER's own AWS account.
+
+HOSTED_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_GCP, BACKEND_AZURE, BACKEND_ACE)
 
 # Targets whose pod runs in the PERSON's own cloud account (BYOC), on any provider.
 # Callers outside this module ask "is this the owner's own cloud?" through
 # `is_owner_cloud_target` instead of spelling a provider id, so adding a provider
 # is one entry here rather than a new branch at every call site. Ordered, so the
 # SQL fragment and its bind names are deterministic.
-OWNER_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_USER_GCP, BACKEND_USER_AZURE)
+OWNER_CLOUD_TARGETS: tuple[str, ...] = (
+    BACKEND_USER_GCP,
+    BACKEND_USER_AZURE,
+    BACKEND_USER_AWS,
+)
 
 # WHICH coordinates make an owner cloud reachable, per target. Read through
 # `owner_cloud_coordinates_complete` so the readiness gate in user_cloud_service
@@ -54,6 +80,7 @@ OWNER_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_USER_GCP, BACKEND_USER_AZURE)
 _OWNER_CLOUD_REQUIRED_COORDINATES: dict[str, tuple[str, ...]] = {
     BACKEND_USER_GCP: ("project",),
     BACKEND_USER_AZURE: ("tenant_id", "subscription_id", "resource_group", "region"),
+    BACKEND_USER_AWS: ("account_id", "region", "role_arn"),
 }
 
 
@@ -75,8 +102,8 @@ def owner_cloud_coordinates_complete(target: object, coordinates: Mapping[str, o
 
 
 def is_known_pod_target(target: object) -> bool:
-    """True for any placement a pod may run on: the hosted tier or an owner cloud."""
-    return str(target or "").strip() in (BACKEND_GCP, *OWNER_CLOUD_TARGETS)
+    """True for any placement a pod may run on: a hosted tier or an owner cloud."""
+    return str(target or "").strip() in (*HOSTED_CLOUD_TARGETS, *OWNER_CLOUD_TARGETS)
 
 
 def owner_cloud_bind() -> dict[str, list[str]]:
@@ -222,6 +249,9 @@ class PodSpec:
     user_cloud_tenant_id: Optional[str] = None
     user_cloud_subscription_id: Optional[str] = None
     user_cloud_resource_group: Optional[str] = None
+    # Owner AWS account coordinates (`account_id`, `role_arn`, plus `user_cloud_region`).
+    user_cloud_account_id: Optional[str] = None
+    user_cloud_role_arn: Optional[str] = None
     # Frozen owner setup selection; a fleet flag cannot grant this capability.
     files_library_enabled: bool = False
     # Reviewed managed-project assignment. This is internal deployment input,
@@ -259,6 +289,38 @@ class PodSpec:
     #
     # `None` means `hub`. `direct` is refused by the renderer outside the dev lane.
     ingress: Optional[str] = None
+
+    # -- the fifth axis: how THIS person's pod seals durable log & memory keys ----
+    #
+    # Cloud-neutral capability names (`ephemeral`, `fleet_hkdf`, `owner_kms`,
+    # `owner_vault`, `ace_envelope`). `None` preserves existing target inference;
+    # owner-cloud targets always refuse shared `fleet_hkdf` custody.
+    custody_mode: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.custody_mode is None:
+            return
+        mode = str(self.custody_mode).strip()
+        if mode not in CUSTODY_MODES:
+            raise ValueError(
+                f"unrecognized custody_mode '{self.custody_mode}' (expected one of {CUSTODY_MODES})"
+            )
+        target = (self.deployment_target or "").strip()
+        if is_owner_cloud_target(target) and mode == CUSTODY_FLEET_HKDF:
+            raise ValueError("owner-cloud pods cannot use shared fleet_hkdf key custody")
+        from hushh_mcp.services.provider_capability_registry import validate_target_custody_mode
+
+        validate_target_custody_mode(target=target, custody_mode=mode)
+
+    @property
+    def compute_target(self) -> Optional[str]:
+        """North-star triad alias for ``deployment_target``."""
+        return self.deployment_target
+
+    @property
+    def credential_mode(self) -> Optional[str]:
+        """North-star triad alias for ``model_credential_mode``."""
+        return self.model_credential_mode
 
     # -- narrative callbacks: how a stage says it happened ------------------------
     #
@@ -449,6 +511,25 @@ def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
     from hushh_mcp.services.compute_backend_resolution import owner_azure_backend
 
     return owner_azure_backend(spec)
+
+
+def effective_custody_mode(spec: PodSpec) -> str:
+    """Resolve explicit or target-inferred cloud-neutral key custody mode."""
+    if spec.custody_mode is not None:
+        return str(spec.custody_mode).strip()
+    if spec.private_gcp_deployment is not None:
+        return CUSTODY_OWNER_KMS
+    target = (spec.deployment_target or "").strip()
+    from hushh_mcp.services.provider_capability_registry import get_provider_target_spec
+
+    target_spec = get_provider_target_spec(target)
+    if target_spec is None:
+        return CUSTODY_EPHEMERAL
+    if target_spec.default_custody_mode == CUSTODY_FLEET_HKDF:
+        from hushh_mcp.services.pod_key_custody import custody_configured
+
+        return CUSTODY_FLEET_HKDF if custody_configured() else CUSTODY_EPHEMERAL
+    return target_spec.default_custody_mode
 
 
 def is_private_pod_row(row: Any) -> bool:

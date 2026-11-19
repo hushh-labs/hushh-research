@@ -724,7 +724,7 @@ enum NativeTestResetter {
 
     private static func clearFirebaseAuth() {
         do {
-            try Auth.auth().signOut()
+            try HushhFirebaseIdentity.auth.signOut()
         } catch {
             print("⚠️ [NativeTestResetter] Failed to sign out Firebase auth: \(error)")
         }

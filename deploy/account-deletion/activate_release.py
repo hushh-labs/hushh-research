@@ -27,6 +27,27 @@ CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
  THEN public.account_provider_cleanup_contract_version() ELSE 0 END"""
 
 
+def connection_failure_reason(diagnostic):
+    """Return authored categories only; provider text can contain credentials."""
+    message = diagnostic.lower()
+    for reason, markers in (
+        (
+            "postgres_authentication_refused",
+            ("password authentication failed", "no pg_hba.conf entry"),
+        ),
+        ("postgres_authority_refused", ("permission denied",)),
+        ("connection_refused", ("connection refused",)),
+        ("connection_timeout", ("timed out", "timeout expired")),
+        (
+            "connection_closed",
+            ("server closed the connection", "connection reset", "unexpected eof"),
+        ),
+    ):
+        if any(marker in message for marker in markers):
+            return reason
+    return "unclassified"
+
+
 def run(argv, *, env=None, timeout=120):
     if not argv or argv[0] not in {"git", "gcloud", "psql", "bash"}:
         raise ValueError("unsupported_release_tool")
@@ -35,7 +56,10 @@ def run(argv, *, env=None, timeout=120):
     )
     if result.returncode:
         # Provider diagnostics and secret-read stdout never enter artifacts.
-        raise RuntimeError(f"{Path(argv[0]).name}_failed_{result.returncode}")
+        failure = RuntimeError(f"{Path(argv[0]).name}_failed_{result.returncode}")
+        if argv[0] == "psql":
+            failure.sql_connection_reason = connection_failure_reason(result.stderr)
+        raise failure
     return result.stdout.strip()
 
 
@@ -469,6 +493,8 @@ def main():
         activate(args, evidence)
     except Exception as exc:
         evidence["failure_type"] = type(exc).__name__
+        if hasattr(exc, "sql_connection_reason"):
+            evidence["sql_connection_reason"] = exc.sql_connection_reason
         if re.fullmatch(r"[a-z0-9_]+", str(exc)):
             evidence["failure_code"] = str(exc)
         print("Account lifecycle activation failed; release remains blocked.")

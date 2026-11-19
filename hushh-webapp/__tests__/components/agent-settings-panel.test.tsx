@@ -1,6 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useAgentSettingsController } from "@/components/profile/use-agent-settings-controller";
+import { useNativeAgentSettings } from "@/components/profile/use-native-agent-settings";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -23,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   assign: vi.fn(),
   azureHosting: vi.fn(),
   browserPlan: vi.fn(),
+  inspectHosting: vi.fn(),
+  hostedMigrationStatus: vi.fn(),
+  migrateToHostedAzure: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -48,6 +53,9 @@ vi.mock("@/lib/services/api-service", () => ({
     getByocSetupStatus: mocks.setupStatus,
     getAzureHosting: mocks.azureHosting,
     getPersonalAgentBrowserPlan: mocks.browserPlan,
+    inspectPersonalAgentHosting: mocks.inspectHosting,
+    getHostedAzureMigrationStatus: mocks.hostedMigrationStatus,
+    migrateToHostedAzure: mocks.migrateToHostedAzure,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -152,10 +160,15 @@ describe("owner hosting and software settings", () => {
     expect(mocks.azureHosting).not.toHaveBeenCalled();
   });
 
-  it.each(["hosting", "software-updates"] as const)(
-    "repairs a failed BYOC link from %s without claiming direct readiness",
-    async (kind) => {
-      status("byoc", { state: "failed" });
+  it.each([
+    ["byoc", "hosting"],
+    ["byoc", "software-updates"],
+    ["hussh_pods", "hosting"],
+    ["hussh_pods", "software-updates"],
+  ] as const)(
+    "repairs a failed %s link from %s without claiming direct readiness",
+    async (mode, kind) => {
+      status(mode, { state: "failed" });
       let resolve!: (value: { adopted: boolean }) => void;
       mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
       render(<AgentSettingsPanel userId="owner" kind={kind} />);
@@ -173,8 +186,8 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("discards recovery completion after an owner changes away and back", async () => {
-    status("byoc", { state: "failed" });
+  it.each(["byoc", "hussh_pods"])("discards %s recovery completion after an owner changes away and back", async (mode) => {
+    status(mode, { state: "failed" });
     let resolve!: (value: { adopted: boolean }) => void;
     mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
@@ -207,8 +220,8 @@ describe("owner hosting and software settings", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
-  it("keeps a refused recovery failed without falling through to direct access", async () => {
-    status("byoc", { state: "failed" });
+  it.each(["byoc", "hussh_pods"])("keeps a refused %s recovery failed without falling through to direct access", async (mode) => {
+    status(mode, { state: "failed" });
     mocks.adopt.mockResolvedValue({ adopted: false });
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
     fireEvent.click(screen.getByRole("button", { name: "Link existing pod" }));
@@ -221,6 +234,7 @@ describe("owner hosting and software settings", () => {
 
   it("keeps a confirmed BYOC pod selected and presents the three hosting choices", () => {
     status("byoc", {
+      featureEnabled: true,
       cloudProject: "owner-project",
       cloudRegion: "us-central1",
     });
@@ -328,7 +342,7 @@ describe("owner hosting and software settings", () => {
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
 
     expect(await screen.findByText("Approved. Waiting for your Microsoft sign-in")).toBeTruthy();
-    expect(screen.queryByRole("status", { name: /Software update/ })).toBeNull();
+    expect(screen.queryByRole("status", { name: /Agent update/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
     // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
     const open = vi.spyOn(window, "open").mockReturnValue(null);
@@ -506,5 +520,160 @@ describe("owner hosting and software settings", () => {
     expect(mocks.promiseToast.mock.calls[0][1].success(response)).toBe(
       "Update needs attention. Its outcome has not been verified.",
     );
+  });
+
+  it.each([
+    ["unverified", "Your cloud could not be verified. Nothing was changed."],
+    ["connected", "Your agent’s cloud resources are available."],
+    ["absent", "Your cloud reports this agent is missing. Review Hosting recovery before creating another."],
+  ] as const)(
+    "reports the exact %s cloud inspection verdict in the Check hosting toast and row",
+    async (inspectionStatus, expectedSentence) => {
+      const response = { hostingMode: "byoc", deploymentTarget: "user_azure", state: "active" };
+      mocks.getStatus.mockResolvedValue(response);
+      mocks.inspectHosting.mockResolvedValue({
+        status: inspectionStatus,
+        previousHomes: 0,
+        needsPreviousReview: false,
+      });
+      mocks.azureHosting.mockResolvedValue({ state: "healthy", rebuildable: false, rebuild: null });
+      status("byoc", { deploymentTarget: "user_azure", state: "active" });
+      render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Check hosting" }));
+      await waitFor(() => expect(mocks.inspectHosting).toHaveBeenCalledOnce());
+      const [request, copy] = mocks.promiseToast.mock.calls[0];
+      expect(await request).toEqual(response);
+      expect(copy.success(response)).toBe(expectedSentence);
+      expect(await screen.findByText(expectedSentence)).toBeTruthy();
+    },
+  );
+
+  it("offers Review cloud hosting when a BYOC pod update is blocked by PREDECESSOR_NOT_QUALIFIED", () => {
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_azure",
+        updateAvailable: true,
+        updateInstallable: false,
+        updateBlockedReason: "PREDECESSOR_NOT_QUALIFIED",
+        installedRelease: { version: "2026.10-dev.19" },
+        availableRelease: {
+          version: "2026.11-dev.38",
+          releasedAt: "2026-11-12T00:00:00Z",
+          summary: "Current verified build.",
+          notes: { improvements: [], fixes: [], security: [] },
+        },
+      },
+      { ...NO_UPDATE, available: true, offerable: false },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(
+      screen.getByText(
+        "This version needs a verified upgrade path. Your current agent is kept; retrying will not change compatibility.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review cloud hosting" }));
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting",
+    );
+  });
+
+  it("offers Reconnect your pod and Review cloud hosting when INSTALLED_RELEASE_UNVERIFIED blocks a BYOC update", async () => {
+    mocks.reconnect.mockResolvedValue({});
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_gcp",
+        updateAvailable: true,
+        updateInstallable: false,
+        updateBlockedReason: "INSTALLED_RELEASE_UNVERIFIED",
+        availableRelease: {
+          version: "2026.11-dev.38",
+          releasedAt: "2026-11-12T00:00:00Z",
+          summary: "Current verified build.",
+          notes: { improvements: [], fixes: [], security: [] },
+        },
+      },
+      { ...NO_UPDATE, available: true, offerable: false },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(screen.getByRole("button", { name: "Review cloud hosting" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect your pod" }));
+    await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ["gcp", "Hussh Pods · Google Cloud", "Google Cloud"],
+    ["azure", "Hussh Pods · Microsoft Azure", "Microsoft Azure"],
+  ] as const)(
+    "identifies %s hosting provider cleanly on Profile Hosting and native settings",
+    async (deploymentTarget, expectedDisplay, expectedBadge) => {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+      mocks.hostedMigrationStatus.mockResolvedValue({
+        job: null,
+        deploymentTarget,
+        registryStatus: "provisioned",
+        cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+        cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+      });
+      status("hussh_pods", { state: "active", deploymentTarget, featureEnabled: true });
+
+      const { unmount } = render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+      expect((await screen.findAllByText(expectedDisplay)).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent(expectedBadge);
+      expect(screen.getByTestId("hussh-pods-connected")).toHaveAttribute("data-provider", deploymentTarget);
+
+      const { result } = renderHook(() =>
+        useNativeAgentSettings(
+          useAgentSettingsController({ kind: "hosting", userId: "owner" }),
+          true,
+          "owner",
+        ),
+      );
+      const statusRows = result.current.pages[0].sections.find((s) => s.id === "hosting-status-section")!.rows;
+      expect(statusRows.find((r) => r.id === "hosting-current")?.detail).toBe(expectedDisplay);
+      expect(Boolean(statusRows.find((r) => r.id === "hosting-move-azure"))).toBe(deploymentTarget === "gcp");
+      unmount();
+      vi.unstubAllEnvs();
+    },
+  );
+
+  it("renders the graphical Azure migration card in Dev and submits only after confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    mocks.hostedMigrationStatus.mockResolvedValue({
+      job: null,
+      deploymentTarget: "gcp",
+      registryStatus: "provisioned",
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+      cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+    });
+    mocks.migrateToHostedAzure.mockResolvedValue({
+      jobId: "mig_1",
+      status: "succeeded",
+      cellId: "cell-az-eastus2-dev-01",
+      slotId: "slot02",
+      claimLatencyMs: 18500,
+      migrationMode: "lossless_commit_log",
+      directPromoted: true,
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+    });
+    status("hussh_pods", { state: "active", deploymentTarget: "gcp", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(await screen.findByTestId("hussh-pods-migration-route")).toBeTruthy();
+    expect(screen.getByTestId("hussh-pods-warm-capacity")).toHaveTextContent("2 warm pods ready");
+
+    fireEvent.click(screen.getByTestId("hussh-pods-migrate-trigger"));
+    expect(mocks.migrateToHostedAzure).not.toHaveBeenCalled();
+
+    const confirm = await screen.findByTestId("hussh-pods-migrate-confirm");
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.migrateToHostedAzure).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    vi.unstubAllEnvs();
   });
 });

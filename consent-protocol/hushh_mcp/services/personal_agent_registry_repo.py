@@ -247,13 +247,33 @@ class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
         retained = ((observed or {}).get("backend_metadata") or {}).get("provisionAttempt") or {}
         resuming = bool(retained.get("hostedAdmission"))
         attempt = str(retained.get("attemptId")) if resuming else uuid.uuid4().hex
+        managed_target = is_known_pod_target(
+            intent.get("deployment_target")
+        ) and not is_owner_cloud_target(intent.get("deployment_target"))
         claim_function = (
             "claim_hosted_pod_pilot_provision"
-            if is_known_pod_target(intent.get("deployment_target"))
-            and not is_owner_cloud_target(intent.get("deployment_target"))
+            if managed_target
             else "claim_personal_agent_provision"
         )
         try:
+            if managed_target:
+                from hushh_mcp.services.hosted_dev_pilot_extension import (
+                    claim_extension_provision,
+                    matches_extension_intent,
+                )
+
+                if matches_extension_intent(intent, observed=observed):
+                    ext_reservation = await claim_extension_provision(
+                        self._db(), observed=observed, intent=intent, attempt_id=attempt
+                    )
+                    if (
+                        not isinstance(ext_reservation, dict)
+                        or ext_reservation.get("ownerId") != owner
+                        or ext_reservation.get("attemptId") != attempt
+                        or ext_reservation.get("intent") != intent
+                    ):
+                        raise ValueError("unacknowledged provision reservation")
+                    return ext_reservation
             result = await asyncio.to_thread(
                 self._db().execute_raw,
                 f"SELECT public.{claim_function}(:owner,:attempt,"
@@ -1769,6 +1789,10 @@ class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
         lifecycle transition wins; this writer never replaces it with an old verdict.
         In-progress and suspended lifecycle states cannot be reinitialized here.
         """
+        from hushh_mcp.services.pod_adoption import has_hosted_evidence
+
+        if has_hosted_evidence(observed):
+            return False
         normalized = str(user_id or "").strip()
         snapshot = registry_host_snapshot(observed)
         if (
@@ -1796,6 +1820,14 @@ class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
             query = query.is_(key, None) if value is None else query.eq(key, value)
         response = query.execute()
         return bool(response.data or [])
+
+    async def restore_confirmed_managed_host(self, *, owner: str, observed: dict) -> bool:
+        """Restore only a previously admitted, independently verified same host."""
+        from hushh_mcp.services.hosted_pod_adoption import restore_retained_host
+
+        return await asyncio.to_thread(
+            restore_retained_host, self._db(), owner=owner, observed=observed
+        )
 
     async def mark_provisioning_failed(
         self, *, user_id: str, reason: str, detail: str = ""

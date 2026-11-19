@@ -8,6 +8,7 @@ transaction connection when preparing an export so key checks share its fence.
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -296,3 +297,207 @@ async def _marketplace_request(
         agent_id=str(metadata.get("requester_principal") or ""),
         handle=await authoritative_scope_handle(owner, scope, connection=conn),
     )
+
+
+async def fetch_active_buyer_connector_and_person_ref(
+    buyer_user_id: str,
+    connector_key_id: str,
+    *,
+    pool_getter: Any = None,
+) -> tuple[Any, Any]:
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn:
+        key = await conn.fetchrow(
+            "SELECT connector_key_id,connector_public_key,connector_wrapping_alg "
+            "FROM one_kyc_client_connectors "
+            "WHERE user_id=$1 AND connector_key_id=$2 AND status='active'",
+            buyer_user_id,
+            connector_key_id,
+        )
+        person_ref = await conn.fetchval(
+            "SELECT public_person_ref FROM actor_profiles "
+            "WHERE user_id=$1 AND public_profile_status='active'",
+            buyer_user_id,
+        )
+    return key, person_ref
+
+
+async def fetch_seller_account_and_withdrawals(
+    user_id: str,
+    *,
+    pool_getter: Any = None,
+) -> tuple[dict[str, Any], list[Any]]:
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT account_id,country,eligible "
+            "FROM scope_commerce_seller_accounts WHERE user_id=$1",
+            user_id,
+        )
+        withdrawals = await conn.fetch(
+            """SELECT withdrawal_id,status,net_cents,fee_micro_usd,settled_micro_usd,created_at
+               FROM scope_commerce_withdrawals WHERE user_id=$1
+               ORDER BY created_at DESC LIMIT 20""",
+            user_id,
+        )
+    return (dict(row) if row else {}, list(withdrawals))
+
+
+async def fetch_quote_request_id(
+    quote_id: UUID,
+    payer_user_id: str,
+    *,
+    pool_getter: Any = None,
+) -> str | None:
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT request_id FROM scope_commerce_quotes WHERE quote_id=$1 AND payer_user_id=$2",
+            quote_id,
+            payer_user_id,
+        )
+    return str(row["request_id"]) if row else None
+
+
+_CONNECTED_COUNTERPART_SQL = """SELECT p.user_id,p.public_person_ref,i.display_name
+    FROM connections c JOIN actor_profiles p ON p.user_id=$2
+    LEFT JOIN actor_identity_cache i ON i.user_id=p.user_id
+    WHERE c.user_a_id=LEAST($1::text,$2::text)
+      AND c.user_b_id=GREATEST($1::text,$2::text) AND c.status='active'
+      AND p.public_profile_status='active'
+      AND NOT EXISTS (SELECT 1 FROM account_deletion_tombstones t
+        WHERE t.user_id_hash='sha256:' || encode(sha256(convert_to(p.user_id,'UTF8')),'hex'))
+    LIMIT 1"""
+
+
+async def fetch_connected_counterpart_row(
+    viewer: str,
+    counterpart: str,
+    *,
+    check_tables: bool = False,
+    pool_getter: Any = None,
+) -> Any:
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn:
+        if check_tables:
+            available = await conn.fetchval(
+                """SELECT to_regclass('connections') IS NOT NULL
+                AND to_regclass('actor_profiles') IS NOT NULL
+                AND to_regclass('actor_identity_cache') IS NOT NULL
+                AND to_regclass('account_deletion_tombstones') IS NOT NULL"""
+            )
+            if not available:
+                return None
+        return await conn.fetchrow(_CONNECTED_COUNTERPART_SQL, viewer, counterpart)
+
+
+async def inspect_request_financial_history(
+    request_id: str,
+    user_id: str,
+    *,
+    service: Any,
+    legacy_fallback: Any,
+    pool_getter: Any = None,
+) -> tuple[Any, dict[str, Any] | None]:
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn:
+        financial_schema = await conn.fetchval(
+            "SELECT to_regclass('scope_commerce_purchases') IS NOT NULL"
+        )
+        if not financial_schema:
+            return None, await legacy_fallback(conn, service, request_id, user_id)
+        historical = await conn.fetchrow(
+            """SELECT purchase_id,owner_user_id,payer_user_id FROM scope_commerce_purchases
+               WHERE request_id=$1 AND (owner_user_id=$2 OR payer_user_id=$2)""",
+            request_id,
+            user_id,
+        )
+    return historical, None
+
+
+async def resolve_owner_export_binding_on_conn(
+    purchase_id: UUID,
+    owner_user_id: str,
+    conn: Any,
+) -> dict[str, Any]:
+    row = await conn.fetchrow(
+        "SELECT request_id FROM scope_commerce_purchases WHERE purchase_id=$1 AND owner_user_id=$2",
+        purchase_id,
+        owner_user_id,
+    )
+    if not row:
+        raise ValueError("purchase_unavailable")
+    return dict(
+        await resolve_commerce_request(str(row["request_id"]), owner_user_id, connection=conn)
+    )
+
+
+async def fetch_owner_export_binding(
+    purchase_id: UUID,
+    owner_user_id: str,
+    *,
+    pool_getter: Any = None,
+) -> dict[str, Any]:
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn:
+        return await resolve_owner_export_binding_on_conn(purchase_id, owner_user_id, conn)
+
+
+async def record_cost_acknowledgement_on_conn(
+    conn: Any,
+    binding: dict[str, Any],
+    purchase_id: UUID,
+    acknowledgement: Any,
+    phase: str,
+) -> None:
+    if acknowledgement is None:
+        return
+    negative = await conn.fetchval(
+        "SELECT fee_micro_usd>price_cents*10000 FROM scope_commerce_purchases WHERE purchase_id=$1",
+        purchase_id,
+    )
+    if not negative:
+        return
+    metadata = {
+        "commercial_required": True,
+        "commerce_purchase_id": str(purchase_id),
+        "version": acknowledgement.version,
+        "binding": acknowledgement.binding,
+        "phase": phase,
+    }
+    exists = await conn.fetchval(
+        """SELECT EXISTS(SELECT 1 FROM consent_audit WHERE request_id=$1
+        AND action='CONSENT_PAID_COST_ACKNOWLEDGED' AND metadata->>'binding'=$2
+        AND metadata->>'phase'=$3 AND metadata->>'commerce_purchase_id'=$4)""",
+        binding["request_id"],
+        acknowledgement.binding,
+        phase,
+        str(purchase_id),
+    )
+    if not exists:
+        from hushh_mcp.services.consent_db import ConsentDBService
+
+        await ConsentDBService().insert_event(
+            user_id=binding["owner_user_id"],
+            agent_id=binding["agent_id"],
+            scope=binding["machine_scope"],
+            action="CONSENT_PAID_COST_ACKNOWLEDGED",
+            request_id=binding["request_id"],
+            metadata=metadata,
+            connection=conn,
+        )
+
+
+@asynccontextmanager
+async def locked_commerce_transaction(*, gate: int, pool_getter: Any = None):
+    getter = pool_getter or get_pool
+    pool = await getter()
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock($1)", gate)
+        yield conn

@@ -156,11 +156,17 @@ def _binding_matches_locked_owner(
     owner: Any, device: Any, binding: dict, record: dict, *, user_id: str, device_id: str
 ) -> bool:
     """Recheck retained placement with the exact rows locked for publication."""
-    from hushh_mcp.services.pod_binding_contract import hosting_mode_for_row
+    from hushh_mcp.services.pod_binding_contract import (
+        hosting_mode_for_row,
+        wire_deployment_target_for_row,
+        wire_hosting_mode_for_row,
+    )
 
     metadata = owner["backend_metadata"] or {}
     marker = hosting_mode_for_row(owner)
-    if not is_private_pod_row(dict(owner)) or binding.get("hosting_mode") != marker:
+    wire_target = wire_deployment_target_for_row(owner)
+    wire_mode = wire_hosting_mode_for_row(owner)
+    if not is_private_pod_row(dict(owner)) or binding.get("hosting_mode") != wire_mode:
         return False
     if marker is not None and binding.get("environment") != "dev":
         return False
@@ -174,7 +180,7 @@ def _binding_matches_locked_owner(
         or binding.get("subject_public_key") != str(device["device_public_key"] or "").strip()
         or binding.get("platform") != str(device["platform"] or "").strip().lower()
         or binding.get("hushh_id") != str(owner["hushh_id"] or "").strip()
-        or binding.get("deployment_target") != owner["deployment_target"]
+        or binding.get("deployment_target") != wire_target
         or binding.get("pod_key_id") != str(owner["pod_key_id"] or "").strip()
         or binding.get("pod_public_key") != str(owner["pod_pubkey"] or "").strip()
         or binding.get("url") != str(metadata.get("url") or "").strip().rstrip("/")
@@ -339,14 +345,16 @@ async def promote_external_ingress(
     same owner, key, service and address the checks ran against
     (``pod_external_ingress_admission``); an erasure or a replaced pod refuses it.
     """
+    from hushh_mcp.services.hosted_azure_placement import direct_azure_admission_snapshot
     from hushh_mcp.services.hosted_gcp_placement import direct_admission_snapshot
 
-    hosted_snapshot = direct_admission_snapshot(observed_row)
-    if (
-        observed_row is not None
-        and observed_row.get("deployment_target") == "gcp"
-        and hosted_snapshot is None
-    ):
+    target_kind = (observed_row or {}).get("deployment_target")
+    hosted_snapshot = (
+        direct_azure_admission_snapshot(observed_row)
+        if target_kind == "azure"
+        else direct_admission_snapshot(observed_row)
+    )
+    if observed_row is not None and target_kind in {"gcp", "azure"} and hosted_snapshot is None:
         return False
     readiness = {
         "verified": True,
@@ -365,7 +373,7 @@ async def promote_external_ingress(
         )
         WHERE user_id = :user_id AND hushh_id = :hushh_id
           AND (deployment_target = ANY(:owner_cloud_targets) OR (
-              deployment_target = 'gcp' AND :hosted_snapshot IS NOT NULL
+              deployment_target IN ('gcp', 'azure') AND :hosted_snapshot IS NOT NULL
               AND to_jsonb(personal_agent_registry) @> CAST(:hosted_snapshot AS jsonb)
               AND backend_metadata = CAST(:hosted_metadata AS jsonb)
           )) AND status = 'provisioned'

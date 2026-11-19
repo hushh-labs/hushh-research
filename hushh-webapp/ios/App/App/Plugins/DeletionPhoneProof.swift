@@ -70,8 +70,8 @@ final class DeletionPhoneProof {
         dispatchPrecondition(condition: .onQueue(.main))
         self.primary = primary
         let name = "hushh-deletion-phone-proof"
-        guard let main = FirebaseApp.app() else { throw NSError(domain: "DeletionPhoneProof", code: 1) }
-        if FirebaseApp.app(name: name) == nil { FirebaseApp.configure(name: name, options: main.options) }
+        guard let identity = HushhFirebaseIdentity.app else { throw NSError(domain: "DeletionPhoneProof", code: 1) }
+        if FirebaseApp.app(name: name) == nil { FirebaseApp.configure(name: name, options: identity.options) }
         guard let app = FirebaseApp.app(name: name) else { throw NSError(domain: "DeletionPhoneProof", code: 1) }
         proof = Auth.auth(app: app)
         // Recreate the SDK namespace, then remove crash residue before any proof can be used.

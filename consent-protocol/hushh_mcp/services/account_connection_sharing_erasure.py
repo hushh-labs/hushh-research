@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.sql.elements import TextClause
 
 CONNECTION_SHARING_ERASURE_TABLES = (
+    "advisor_review_requests",
     "finance_access_grants",
     "finance_share_requests",
     "wallet_card_access_audit",
@@ -18,6 +19,9 @@ CONNECTION_SHARING_ERASURE_TABLES = (
 
 def connection_sharing_erasure_queries() -> dict[str, TextClause]:
     return {
+        "advisor_review_requests": text(
+            "DELETE FROM advisor_review_requests WHERE owner_user_id = :user_id OR advisor_user_id = :user_id"
+        ),
         "finance_access_grants": text(
             "DELETE FROM finance_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
         ),

@@ -4,7 +4,7 @@ How to exercise enterprise SSO end to end against a WorkOS **staging** environme
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). This diagram shows only the local sandbox path.
+Canonical visual owner: [Operations Index](../README.md). This diagram shows only the local sandbox path.
 
 ```mermaid
 flowchart LR

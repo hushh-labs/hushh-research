@@ -65,6 +65,7 @@
     "agent_chat_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
 
     "gmail_receipt_memory_save_button": {"feature": "gmail_receipts", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_goals_owner_confirmed": {"feature": "goals", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "$comment_pwm_owner_review": "The owner's Yes, No, Edit and Remove taps on the Personal World Model page (hushh-webapp/lib/services/world-model-decision-service.ts). Each tap commits the Soul.md (one_memory) bullet change and its private _pwm_claims decision together; No writes only the decision.",
     "pwm_owner_review": {"feature": "personal_world_model", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
@@ -119,6 +120,10 @@
     "business_profile_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "profile_research_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "pkm_structure_agent": {"feature": "memory", "class": "memory_agent", "surfaces": [], "authorization_modes": []},
+
+    "one_wiki_opt_in_auto_save": {"feature": "one_wiki", "class": "memory_agent", "surfaces": ["chat", "web"], "authorization_modes": ["owner_auto_save_policy"]},
+    "one_wiki_candidate_confirm": {"feature": "one_wiki", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wiki_claim_forget": {"feature": "one_wiki", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "pkm_upgrade_orchestrator": {"feature": "pkm_upgrade", "class": "migration", "surfaces": ["system_upgrade"], "authorization_modes": ["upgrade_claim"]}
   },
@@ -319,6 +324,30 @@
         "profile_openai_api_key", "profile_openai_api_key_remove", "profile_ai_selection", "profile_ai_selection_clear",
         "connector_settings", "connector_oauth_return", "chat_connector_card"
       ],
+      "agent_memory_sibling": null,
+      "offer_action": null,
+      "shareable": "never",
+      "send_to_model": "never"
+    },
+    {
+      "$comment": "Owner-selected private source library catalog, locators, policies and audit receipts. Never requestable or exported through attr.* scopes.",
+      "domain": "source_library",
+      "branch_prefix": "*",
+      "except": [],
+      "owner_feature": "source_library",
+      "writer_ids": [],
+      "agent_memory_sibling": null,
+      "offer_action": null,
+      "shareable": "never",
+      "send_to_model": "never"
+    },
+    {
+      "$comment": "Personal wiki memory workspace (pages, claim ledgers, sources and indexes). Never directly shareable through attr.* scopes; outward sharing occurs only through explicit owner-approved PKM projections.",
+      "domain": "one_wiki",
+      "branch_prefix": "*",
+      "except": [],
+      "owner_feature": "one_wiki",
+      "writer_ids": [],
       "agent_memory_sibling": null,
       "offer_action": null,
       "shareable": "never",

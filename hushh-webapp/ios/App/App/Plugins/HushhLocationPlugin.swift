@@ -52,13 +52,13 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
-        authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        authListener = HushhFirebaseIdentity.auth.addStateDidChangeListener { [weak self] _, user in
             guard let self, let owner = self.backgroundOwnerUid, user?.uid != owner else { return }
             self.backgroundPublisher.stop()
         }
     }
 
-    deinit { if let authListener { Auth.auth().removeStateDidChangeListener(authListener) } }
+    deinit { if let authListener { HushhFirebaseIdentity.auth.removeStateDidChangeListener(authListener) } }
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
         call.resolve(permissionPayload())
@@ -276,7 +276,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             guard
                 let token = call.getString("vaultOwnerToken"),
                 !token.isEmpty,
-                let ownerUid = Auth.auth().currentUser?.uid,
+                let ownerUid = HushhFirebaseIdentity.auth.currentUser?.uid,
                 let base = call.getString("backendBaseUrl"),
                 let destination = URLComponents(string: base),
                 destination.scheme == "https", destination.user == nil, destination.password == nil,

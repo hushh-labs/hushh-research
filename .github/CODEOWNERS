@@ -39,6 +39,7 @@
 /.agents/skills/iam-consent-governance/ @hushh-labs/pipeline-editors
 /.agents/skills/agent-orchestration-governance/ @hushh-labs/pipeline-editors
 /.agents/skills/codex-skill-authoring/ @hushh-labs/pipeline-editors
+/.agents/skills/skill-authoring/ @hushh-labs/pipeline-editors
 /.agents/skills/verify-before-claim/ @hushh-labs/pipeline-editors
 /.agents/skills/docs-governance/ @hushh-labs/pipeline-editors
 /docs/product/principles/agent-ontology.md @hushh-labs/pipeline-editors
@@ -64,3 +65,4 @@
 /consent-protocol/db/private_agent_adoption_successors.py @hushh-labs/pipeline-editors
 /consent-protocol/db/firebase_erasure_adoption.py @hushh-labs/pipeline-editors
 /consent-protocol/db/legacy_cloud_removal_adoption.py @hushh-labs/pipeline-editors
+/.agents/skills/ @hushh-labs/pipeline-editors

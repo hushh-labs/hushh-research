@@ -193,7 +193,11 @@ def test_status_reference_resolution_keeps_claim_and_counterevidence_together():
 def test_facts_policy_inputs_are_pinned(monkeypatch, model, expected):
     import yaml
 
-    monkeypatch.setattr(drive_packet_intelligence, "resolve_fleet_model_name", lambda _: model)
+    def drive_model(_model, *, processing_scope):
+        assert processing_scope == "drive_document_requests"
+        return model
+
+    monkeypatch.setattr(drive_packet_intelligence, "resolve_fleet_model_name", drive_model)
     previous = drive_packet_intelligence.facts_policy_version()
     assert previous == "document-facts-v6-record-status:" + expected
     root = Path(drive_packet_intelligence.__file__).resolve().parents[2]

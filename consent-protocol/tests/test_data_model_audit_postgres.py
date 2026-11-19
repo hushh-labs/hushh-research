@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import os
 import shutil
@@ -14,6 +15,11 @@ import pytest
 from psycopg2 import sql
 from psycopg2.extensions import make_dsn
 
+from tests.pkm_conformance.postgres_harness import (
+    clone_cluster_data_dir,
+    template_cache_enabled,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "data_model_audit_pg", ROOT / "scripts/ops/data_model_audit.py"
@@ -21,6 +27,46 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 audit = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(audit)
+
+_AUDIT_TEMPLATE_CACHE: dict[tuple[int, str], Path] = {}
+
+
+def _audit_template_data(bindir: Path, env: dict[str, str]) -> Path:
+    key = (os.getpid(), str(bindir))
+    cached = _AUDIT_TEMPLATE_CACHE.get(key)
+    if cached is not None and (cached / "PG_VERSION").is_file():
+        return cached
+
+    holder = Path(tempfile.mkdtemp(prefix=f"hussh-pkm-audit-tpl-{os.getpid()}-"))
+    owner_pid = os.getpid()
+
+    def _cleanup(target: Path = holder, pid: int = owner_pid) -> None:
+        if os.getpid() == pid:
+            shutil.rmtree(target, ignore_errors=True)
+
+    atexit.register(_cleanup)
+    tpl_data = holder / "data"
+    subprocess.run(  # noqa: S603 - discovered server toolchain, authored fixture arguments
+        [
+            str(bindir / "initdb"),
+            "-D",
+            str(tpl_data),
+            "-A",
+            "trust",
+            "-U",
+            "audit_fixture_owner",
+            "--no-sync",
+            "--no-locale",
+            "--encoding=UTF8",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+        env=env,
+    )
+    _AUDIT_TEMPLATE_CACHE[key] = tpl_data
+    return tpl_data
 
 
 @pytest.fixture
@@ -38,6 +84,8 @@ def isolated_postgres():
     data_directory = Path(tempfile.mkdtemp(prefix="hussh-pkm-audit-data-"))
     data = data_directory / "data"
     started = False
+    pg_env = os.environ.copy()
+    pg_env.setdefault("LC_ALL", "C")
 
     def run(command, *arguments, check=True):
         return subprocess.run(  # noqa: S603 - discovered server toolchain, authored fixture arguments
@@ -46,20 +94,24 @@ def isolated_postgres():
             text=True,
             check=check,
             timeout=30,
+            env=pg_env,
         )
 
     try:
-        run(
-            "initdb",
-            "-D",
-            data,
-            "-A",
-            "trust",
-            "-U",
-            "audit_fixture_owner",
-            "--no-locale",
-            "--encoding=UTF8",
-        )
+        if template_cache_enabled():
+            clone_cluster_data_dir(_audit_template_data(bindir, pg_env), data)
+        else:
+            run(
+                "initdb",
+                "-D",
+                data,
+                "-A",
+                "trust",
+                "-U",
+                "audit_fixture_owner",
+                "--no-locale",
+                "--encoding=UTF8",
+            )
         run(
             "pg_ctl",
             "-D",
@@ -67,7 +119,7 @@ def isolated_postgres():
             "-l",
             directory / "server.log",
             "-o",
-            f"-k {directory} -h '' -p 16579",
+            f"-k {directory} -h '' -p 16579 -c fsync=off",
             "-w",
             "-t",
             "20",

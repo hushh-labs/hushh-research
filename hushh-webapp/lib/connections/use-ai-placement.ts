@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiService } from "@/lib/services/api-service";
-import { ownerCloudProvider } from "@/lib/one/owner-cloud";
+import { ownerCloudProvider, podCloudProvider } from "@/lib/one/owner-cloud";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
@@ -35,13 +35,18 @@ export function useAiPlacement(
     void ApiService.getPersonalAgentStatus()
       .then((status) => {
         if (cancelled || !ownerIsCurrent()) return;
-        const provider = ownerCloudProvider(status.deploymentTarget);
-        const nextPlacement: AiPlacement = status.hostingMode === "shared"
+        const provider = podCloudProvider(status.deploymentTarget);
+        const isPodMode =
+          status.hostingMode === "byoc" || status.hostingMode === "hussh_pods";
+        const nextPlacement: AiPlacement =
+          status.hostingMode === "shared"
             ? "shared"
-            : status.hostingMode === "byoc" && provider
+            : isPodMode && provider
               ? status.state === "active"
                 ? provider
-                : "pending"
+                : status.state === "failed"
+                  ? "unknown"
+                  : "pending"
               : status.hostingMode === "pending"
                 ? "pending"
                 : "unknown";
@@ -49,9 +54,10 @@ export function useAiPlacement(
           visit: captureOwnerGuard,
           revision: refreshRevision,
           placement: nextPlacement,
-          ownCloudProject: status.hostingMode === "byoc" && provider
-            ? (status.cloudProject ?? null)
-            : null,
+          ownCloudProject:
+            status.hostingMode === "byoc" && ownerCloudProvider(status.deploymentTarget)
+              ? (status.cloudProject ?? null)
+              : null,
         });
       })
       .catch(() => {

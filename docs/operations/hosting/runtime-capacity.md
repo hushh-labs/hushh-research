@@ -1,6 +1,6 @@
 # Runtime Capacity and Qualification
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Visual Map
 

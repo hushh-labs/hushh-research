@@ -6,7 +6,7 @@ import type { PkmNaturalModel } from "@/components/profile/use-pkm-natural-model
 
 type WorkspaceOptions = {
   owner: string; active: boolean; presentationOwner: NativeWorkspacePresentationOwner;
-  content: { workspace: string; tabs?: { options: readonly { id: string; label: string; selected: boolean }[] } };
+  content: { workspace: string; sections: readonly { id?: string; title?: string; rows: readonly { id: string; label: string }[] }[] };
   actions: ReadonlyMap<string, (choice: never) => void | Promise<unknown>>;
   editorKind?: string; editor?: unknown; activationRevision?: number;
 };
@@ -14,7 +14,7 @@ const harness = vi.hoisted(() => ({
   enabled: true, pathname: "/one/pkm", epoch: 1, sessionCurrent: true,
   privacy: { generation: 1, appIsActive: true, shielded: false },
   options: null as WorkspaceOptions | null, registrations: 0,
-  retire: vi.fn<() => Promise<boolean>>(), savedProjection: vi.fn(), markdownSupported: true, savedAvailable: true, captureAvailable: true,
+  retire: vi.fn<() => Promise<boolean>>(), savedProjection: vi.fn(), savedAvailable: true,
 }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => harness.pathname }));
@@ -29,24 +29,23 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => harness.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === harness.epoch,
 }));
-vi.mock("@/lib/pkm/use-live-mirror-view", () => ({ useLiveMirrorView: () => ({ status: "loading", view: null }) }));
 vi.mock("@/components/profile/memory-commerce-summary", () => ({ useMemoryCommerceSummary: () => ({ user: null, data: null, loading: false, error: null }) }));
 vi.mock("@/components/profile/pkm-saved-sharing", () => ({ usePkmSharingExpansion: () => ({ section: "", setSection: vi.fn() }) }));
-vi.mock("@/components/profile/native-memory-markdown", () => ({ nativeMemoryMarkdown: () => harness.markdownSupported ? [] : null }));
 vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: () => <div data-testid="native-owner" /> }));
-vi.mock("@/components/profile/native-memory-capture", () => ({
-  nativeMemoryCapture: () => harness.captureAvailable ? ({ sections: [], actions: new Map(), draft: { text: "", identifierApproved: false }, busy: false, reviewing: false, canReview: false, canToggleIdentifier: true }) : null,
-  nativeMemoryCaptureEditor: () => ({ destinationId: "synthetic-editor" }),
-}));
 vi.mock("@/components/profile/native-memory-saved", () => ({
-  nativeMemorySaved: (input: { model: PkmNaturalModel; handoff: (kind: string, action: () => void) => Promise<boolean> }) => {
+  nativeMemorySaved: (input: { model: PkmNaturalModel; handoff: (kind: string, action: () => void) => Promise<boolean>; openSharing: () => void }) => {
     harness.savedProjection(input);
-    if (!harness.savedAvailable || !harness.markdownSupported) return null;
-    return { sections: [], search: { id: "synthetic-search", label: "Search Memory", query: "", afterSection: 0 },
+    if (!harness.savedAvailable) return null;
+    return {
+      sections: [
+        { id: "wiki", title: "Wiki", rows: [{ id: "synthetic-wiki", label: "Personal wiki" }] },
+      ],
       actions: new Map([
         ["synthetic-edit", () => input.handoff("soul-editor", input.model.soul.beginEdit)],
-        ["synthetic-navigation", () => input.handoff("navigation", () => input.model.navigate("/one/pkm/recent"))],
-      ]) };
+        ["synthetic-sharing", () => input.handoff("sharing", input.openSharing)],
+        ["synthetic-navigation", () => input.handoff("navigation", () => input.model.navigate("/one/files?folder=personal-wiki"))],
+      ]),
+    };
   },
 }));
 vi.mock("@/lib/capacitor/use-native-workspace", async () => {
@@ -81,21 +80,20 @@ vi.mock("@/lib/capacitor/use-native-workspace", async () => {
 import { NativeMemoryWorkspace } from "@/components/profile/native-memory-workspace";
 
 const defaultSession = Symbol("synthetic-session");
-function Fixture({ owner = "synthetic-owner", session = defaultSession, version = 1, onEdit = vi.fn(), onNavigate = vi.fn(), pendingDocument = false, pendingDuringEdit = false }: { owner?: string; session?: symbol; version?: number; onEdit?: () => void; onNavigate?: (href: string) => void; pendingDocument?: boolean; pendingDuringEdit?: boolean }) {
-  const [tab, setTab] = useState<"browse" | "add">("browse");
+function Fixture({ owner = "synthetic-owner", session = defaultSession, version = 1, canOpen = true, onEdit = vi.fn(), onNavigate = vi.fn() }: { owner?: string; session?: symbol; version?: number; canOpen?: boolean; onEdit?: () => void; onNavigate?: (href: string) => void }) {
   const [editing, setEditing] = useState(false);
   const stable = useMemo(() => ({ owner, document: { markdown: `synthetic ${version}`, persisted: true }, memoryCards: [], metadata: {}, sharingManifests: {} }), [owner, version]);
   const model = {
-    ownerId: owner, presentationIdentity: session, workspaceTab: tab, setWorkspaceTab: setTab, authLoading: false, canOpen: true, signedIn: true,
+    ownerId: owner, presentationIdentity: session, authLoading: false, canOpen, signedIn: true,
     nativeDataState: "loaded", selectedCard: null, selectedMetadataDomain: null, homeSearchQuery: "",
     memoryCards: stable.memoryCards, metadata: stable.metadata, sharingManifests: stable.sharingManifests,
     navigate: onNavigate,
     captureSessionCurrent: () => harness.sessionCurrent,
-    soul: { active: tab === "browse" && !editing, editing, current: pendingDocument || (editing && pendingDuringEdit) ? null : { document: stable.document, draft: "synthetic" }, verified: true, failed: false,
+    soul: { active: !editing, editing, current: { document: stable.document, draft: "synthetic" }, verified: true, failed: false,
       beginEdit: () => { onEdit(); setEditing(true); } },
   } as unknown as PkmNaturalModel;
   return <div className="app-page-shell"><NativeMemoryWorkspace model={model} renderFallback={owners => <div data-testid="react-fallback">
-    <span>{owners.mirror.status}</span><input aria-label="Memory note" /><button onClick={() => setEditing(false)}>Close editor</button>
+    <span>{owners.commerce.loading ? "loading" : "ready"}</span><input aria-label="Memory note" /><button onClick={() => setEditing(false)}>Close editor</button>
   </div>} /></div>;
 }
 
@@ -109,7 +107,7 @@ beforeEach(() => {
   harness.enabled = true; harness.pathname = "/one/pkm"; harness.epoch = 1; harness.sessionCurrent = true;
   harness.privacy = { generation: 1, appIsActive: true, shielded: false };
   harness.options = null; harness.registrations = 0; harness.retire.mockReset().mockResolvedValue(true); harness.savedProjection.mockClear();
-  harness.markdownSupported = true; harness.savedAvailable = true; harness.captureAvailable = true;
+  harness.savedAvailable = true;
 });
 afterEach(() => { cleanup(); delete window.__HUSHH_NATIVE_TEST__; });
 
@@ -117,9 +115,7 @@ describe("native Memory workspace ownership", () => {
   it.each([
     ["policy", () => { harness.enabled = false; }],
     ["session", () => { harness.sessionCurrent = false; }],
-    ["markdown-unsupported", () => { harness.markdownSupported = false; }],
     ["saved-projection-bounds", () => { harness.savedAvailable = false; }],
-    ["capture-unrepresentable", () => { harness.captureAvailable = false; }],
   ])("exposes only a fixed %s diagnostic in the opt-in test bridge", (reason, arrange) => {
     window.__HUSHH_NATIVE_TEST__ = { enabled: true };
     arrange();
@@ -138,25 +134,19 @@ describe("native Memory workspace ownership", () => {
     expect(window.__HUSHH_NATIVE_TEST__).toEqual({ enabled: false });
     expect(screen.queryByRole("progressbar", { name: "native-memory-admission" })).toBeNull();
   });
-  it("retains one workspace owner while switching Saved and Add", () => {
+
+  it("retains one workspace owner and exposes Wiki without legacy tabs", () => {
     render(<Fixture />);
     expect(screen.getByTestId("native-owner")).toBeInTheDocument();
     const owner = harness.options!.presentationOwner;
-    const add = harness.options!.content.tabs!.options.find(option => option.label === "Add")!;
-    act(() => { void invoke(add.id); });
-    expect(harness.options!.presentationOwner).toBe(owner);
-    expect(harness.options!.content.tabs!.options.find(option => option.label === "Add")?.selected).toBe(true);
-    expect(harness.options!.editorKind).toBe("memory");
-    expect(harness.registrations).toBe(1);
-    const saved = harness.options!.content.tabs!.options.find(option => option.label === "Saved")!;
-    act(() => { void invoke(saved.id); });
+    expect(harness.options!.content.sections.map(section => section.title)).toEqual(["Wiki"]);
     expect(harness.options!.presentationOwner).toBe(owner);
     expect(harness.registrations).toBe(1);
   });
 
   it("renders the supplied interactive React fallback when the native flag is off", () => {
     harness.enabled = false;
-    render(<Fixture pendingDocument />);
+    render(<Fixture />);
     expect(screen.getByTestId("react-fallback")).toBeVisible();
     fireEvent.change(screen.getByRole("textbox", { name: "Memory note" }), { target: { value: "synthetic" } });
     expect(screen.getByRole("textbox", { name: "Memory note" })).toHaveValue("synthetic");
@@ -165,15 +155,14 @@ describe("native Memory workspace ownership", () => {
     expect(harness.savedProjection).not.toHaveBeenCalled();
   });
 
-  it("waits for the document before choosing the native presentation", () => {
-    const view = render(<Fixture pendingDocument />);
-    expect(screen.queryByTestId("react-fallback")).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent("Opening Memory");
+  it("withholds native admission until vault unlock canOpen is true", () => {
+    const view = render(<Fixture canOpen={false} />);
+    expect(screen.getByTestId("react-fallback")).toBeVisible();
     expect(harness.options!.active).toBe(false);
-    view.rerender(<Fixture />);
-    expect(screen.queryByRole("status")).toBeNull();
+    view.rerender(<Fixture canOpen />);
+    expect(screen.queryByTestId("react-fallback")).toBeNull();
     expect(screen.getByTestId("native-owner")).toBeInTheDocument();
-    expect(harness.registrations).toBe(1);
+    expect(harness.options!.active).toBe(true);
   });
 
   it("waits for exact native retirement before opening a rich child, then re-admits after it closes", async () => {
@@ -182,7 +171,7 @@ describe("native Memory workspace ownership", () => {
     const retirement = new Promise<boolean>(done => { resolve = done; });
     harness.retire.mockReturnValueOnce(retirement);
     const onEdit = vi.fn();
-    render(<Fixture onEdit={onEdit} pendingDuringEdit />);
+    render(<Fixture onEdit={onEdit} />);
     const owner = harness.options!.presentationOwner;
     let pending!: Promise<unknown>;
     act(() => { pending = Promise.resolve(invoke("synthetic-edit")); });
@@ -218,9 +207,9 @@ describe("native Memory workspace ownership", () => {
     const onNavigate = vi.fn(); const view = render(<Fixture onNavigate={onNavigate} />);
     const owner = harness.options!.presentationOwner;
     await act(async () => { await invoke("synthetic-navigation"); });
-    expect(onNavigate).toHaveBeenCalledWith("/one/pkm/recent");
+    expect(onNavigate).toHaveBeenCalledWith("/one/files?folder=personal-wiki");
     expect(screen.getByTestId("react-fallback")).toBeVisible();
-    harness.pathname = "/one/pkm/recent"; view.rerender(<Fixture onNavigate={onNavigate} />);
+    harness.pathname = "/one/files"; view.rerender(<Fixture onNavigate={onNavigate} />);
     harness.pathname = "/one/pkm"; view.rerender(<Fixture onNavigate={onNavigate} />);
     expect(screen.getByTestId("native-owner")).toBeInTheDocument();
     expect(harness.options!.presentationOwner).toBe(owner);

@@ -21,6 +21,12 @@ class PostgresEmailAuthStore:
     def __init__(self, pool):
         self.pool = pool
 
+    @classmethod
+    async def from_shared_pool(cls) -> PostgresEmailAuthStore:
+        from db.connection import get_pool
+
+        return cls(await get_pool())
+
     @staticmethod
     async def _active_policy(conn, risk_version: str) -> None:
         policy = await conn.fetchrow(

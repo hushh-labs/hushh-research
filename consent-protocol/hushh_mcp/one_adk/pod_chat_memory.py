@@ -14,14 +14,19 @@ _memory_replay: tuple[Any, Any] | None = None
 
 
 class PodChatMemory(BaseMemoryService):
-    def __init__(self, context: Any, service: Any) -> None:
+    def __init__(self, context: Any, service: Any, *, wiki_library: Any = None) -> None:
         self.context, self.service = context, service
+        self.wiki_library = wiki_library
         self._prior_event_ids: set[str] = set()
 
     async def search_memory(self, *, app_name: str, user_id: str, query: str):
         if user_id != self.context.owner:
             raise PermissionError("Pod memory owner mismatch.")
         await self.context.require_access()
+        if self.service is None:
+            from google.adk.memory.base_memory_service import SearchMemoryResponse
+
+            return SearchMemoryResponse(memories=[])
         result = await self.service.search_memory(
             app_name=app_name, user_id=self.context.hushh_id, query=query
         )
@@ -31,6 +36,8 @@ class PodChatMemory(BaseMemoryService):
     async def add_session_to_memory(self, session):
         if session.user_id != self.context.owner:
             raise PermissionError("Pod memory owner mismatch.")
+        if self.service is None:
+            return
         from hushh_mcp.one_adk.consent_redaction import tagged_bundles
 
         await self.context.require_access()
@@ -58,23 +65,48 @@ class PodChatMemory(BaseMemoryService):
             STATE_MEMORY_DIGEST,
         )
         from hushh_mcp.one_adk.text_runtime import _catch_up_memory_review, _memory_digest
+        from hushh_mcp.one_adk.wiki_recall_tools import (
+            STATE_WIKI_HOT_DIGEST,
+            build_wiki_hot_digest_context,
+            is_wiki_serving_primary,
+            read_fenced_pod_wiki_hot_digest,
+            read_pod_wiki_migration_state,
+        )
 
         await self.context.require_access()
         previous = await self.context.sessions.get_session(
             app_name=ONE_APP_NAME, user_id=self.context.owner, session_id=input.thread_id
         )
         self._prior_event_ids = {event.id for event in previous.events} if previous else set()
-        await _catch_up_memory_review(
-            memory_service=self.service,
-            model=model,
-            runtime_provider=provider,
-            runtime_model=model_id,
-            session_owner_id=self.context.hushh_id,
-            review_policy=review_policy_for_session(self.context.claims),
-        )
-        await self.context.require_access()
-        input.state[STATE_MEMORY_AVAILABLE] = True
-        input.state[STATE_MEMORY_DIGEST] = await _memory_digest(self.service)
+        if self.service is not None:
+            await _catch_up_memory_review(
+                memory_service=self.service,
+                model=model,
+                runtime_provider=provider,
+                runtime_model=model_id,
+                session_owner_id=self.context.hushh_id,
+                review_policy=review_policy_for_session(self.context.claims),
+            )
+            await self.context.require_access()
+
+        wiki_hot = await read_fenced_pod_wiki_hot_digest()
+        if not wiki_hot and self.wiki_library is not None:
+            try:
+                wiki_hot = await build_wiki_hot_digest_context(self.wiki_library)
+            except Exception as exc:
+                logger.warning("pod_chat.wiki_digest_failed kind=%s", type(exc).__name__)
+        migration_state = await read_pod_wiki_migration_state(self.wiki_library)
+        suppress_classic = bool(wiki_hot) and is_wiki_serving_primary(migration_state)
+
+        if self.service is not None and not suppress_classic:
+            input.state[STATE_MEMORY_AVAILABLE] = True
+            input.state[STATE_MEMORY_DIGEST] = await _memory_digest(self.service)
+        else:
+            input.state[STATE_MEMORY_AVAILABLE] = False
+            input.state[STATE_MEMORY_DIGEST] = ""
+
+        if wiki_hot:
+            input.state[STATE_WIKI_HOT_DIGEST] = wiki_hot
 
     async def commit(self, input) -> None:
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
@@ -116,7 +148,14 @@ async def build_memory_hooks(
     service = await asyncio.to_thread(
         _resolve_pod_memory_service, replay_projection=_memory_replay[1]
     )
-    memory = PodChatMemory(context, service) if service is not None else None
+    from hushh_mcp.one_adk.wiki_recall_tools import optional_pod_wiki_library
+
+    wiki_lib = optional_pod_wiki_library()
+    memory = (
+        PodChatMemory(context, service, wiki_library=wiki_lib)
+        if (service is not None or wiki_lib is not None)
+        else None
+    )
 
     async def prepare(input):
         if memory is not None:

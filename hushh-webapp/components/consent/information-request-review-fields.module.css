@@ -1,0 +1,2 @@
+.duration.duration { width: 100%; border-radius: 16px; box-shadow: none; }
+.duration [role="radio"] { color: var(--app-label); }

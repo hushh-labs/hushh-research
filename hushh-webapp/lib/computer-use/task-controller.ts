@@ -97,15 +97,26 @@ export class ComputerUseTaskController {
 
   refresh = (): Promise<void> => this.perform((signal) => this.transport.read(this.binding, signal), false, true);
 
-  saveDownload = (id: string): Promise<void> => {
+  saveDownload = async (
+    id: string,
+  ): Promise<{ fileId: string; name: string; bytes: number; sha256: string }> => {
     const offer = this.state.snapshot?.downloads?.find(item => item.id === id);
     const save = this.transport.saveDownload;
-    if (!this.state.verified || !offer || !save) return Promise.reject(new Error("BROWSER_DOWNLOAD_REFUSED"));
-    return this.perform(async signal => {
+    if (!this.state.verified || !offer || !save) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+    let savedReceipt: { fileId: string; name: string; bytes: number; sha256: string } | null = null;
+    await this.perform(async signal => {
       const receipt = await save(this.binding, id, offer.name, "root", signal);
       if (receipt.sha256 !== offer.sha256 || receipt.bytes !== offer.size) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+      savedReceipt = {
+        fileId: receipt.fileId,
+        name: offer.name,
+        bytes: receipt.bytes,
+        sha256: receipt.sha256,
+      };
       return this.transport.read(this.binding, signal);
     });
+    if (!savedReceipt) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+    return savedReceipt;
   };
 
   control = (action: "takeover" | "resume" | "cancel"): Promise<void> => {

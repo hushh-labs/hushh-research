@@ -1,6 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
-import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
+import { extractSandboxRemainingCents, resolveCommerceSandboxOrigin, verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 import { parseCommerceHostedSession } from "@/lib/services/scope-commerce-return";
 import { validateCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
 import { parseCommerceReadiness, commerceActionError, type CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
@@ -26,6 +26,7 @@ export type CommerceAccount = {
   enabled: boolean; managed_balances?: boolean; currency: "USD";
   readiness?: CommerceReadiness;
   sandboxVerified?: boolean;
+  sandboxRemainingCents?: number | null;
   balance: { available_cents: number; reserved_cents: number; frozen_cents?: number };
   earnings: { pending_cents: number; available_cents: number; debt_cents?: number; withdrawing_cents?: number };
   seller: { onboarded: boolean; eligible: boolean; country: string | null };
@@ -187,10 +188,18 @@ async function request(token: string, path: string, body?: unknown): Promise<Rec
 }
 
 export const ScopeCommerceService = {
-  async sandboxVerified(token: string) {
-    const origin = resolveShareableAppOrigin();
+  async sandboxStatus(token: string) {
+    const origin = resolveCommerceSandboxOrigin(resolveShareableAppOrigin());
     if (!origin) throw new Error("Sandbox identity could not be verified.");
-    return verifyCommerceSandbox(await request(token, `sandbox-readiness?${new URLSearchParams({ app_origin: origin })}`), origin);
+    const raw = await request(token, `sandbox-readiness?${new URLSearchParams({ app_origin: origin })}`);
+    return {
+      verified: verifyCommerceSandbox(raw, origin),
+      remainingFundingCents: extractSandboxRemainingCents(raw),
+    };
+  },
+  async sandboxVerified(token: string) {
+    const status = await this.sandboxStatus(token);
+    return status.verified;
   },
   async readiness(token: string) { return parseCommerceReadiness(await request(token, "readiness")); },
   async account(token: string) { return parseCommerceAccount(await request(token, "account")); },
@@ -360,6 +369,8 @@ const COMMERCE_STATUS_COPY: Record<string, string> = {
   cancelled: "Sharing cancelled. Reserved funds return to the buyer's balance.",
   expired: "Access has ended.",
   approved_awaiting_payment: "Approved. Payment and sharing are still pending.",
+  awaiting_owner: "Coins reserved. Waiting for approval.",
+  approved_funded: "Approved. Ready to share.",
 };
 export function scopeCommerceStatusCopy(status: unknown, role?: ScopeCommerceRequest["role"]): string {
   if (role && status === "awaiting_payment") return role === "owner" ? "Waiting for them to confirm the price." : "Review the price to continue.";

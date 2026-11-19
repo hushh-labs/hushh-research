@@ -9,10 +9,9 @@ def warm_semantic_request_planner() -> None:
     """Build the request planner once on a new worker instance, without using it.
 
     In UAT the first plan on an instance otherwise loads the managed Azure
-    transport. Its workload identity imports the One agent package and the action
-    contract, compiled from source on a cold instance. On 2026-10-30, after a
-    deploy, that took 45-80 s per instance under drain load, inside the search
-    budget; the budget cancelled it twice and the first allowed request waited
+    transport. Before the auth leaf became import-safe, its workload identity
+    eagerly imported the full One action tree. On 2026-10-30 that cold load took
+    45-80 s per instance under drain load, inside the search budget; the budget cancelled it twice and the first allowed request waited
     five minutes for its search to start. This builds the same agent with no model
     call, owner or request, and fetches no credential, so that one-time load is
     done before the first plan. Each plan still builds its own agent and model and

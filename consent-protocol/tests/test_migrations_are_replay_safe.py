@@ -423,7 +423,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         migrate,
         "release_migration_files",
         lambda _environment: tuple(
-            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) <= 417
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name.split("_", 1)[0]) <= 417
         ),
     )
     for name, value in {
@@ -468,7 +468,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         if rich_dev:
             manifest = json.loads((cp / "db/dev_migration_manifest.json").read_text())
             for filename in manifest["ordered_migrations"]:
-                if int(filename[:3]) in {900, 944, 955, 958, 965}:
+                if int(filename.split("_", 1)[0]) in {900, 944, 955, 958, 965}:
                     continue
                 # Recovery/identity erasure succeed their canonical release
                 # contracts, not this deliberately retained <=417 predecessor.

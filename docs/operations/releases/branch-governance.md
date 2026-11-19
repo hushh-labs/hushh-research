@@ -1,6 +1,6 @@
 # Branch Governance
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 ## Main-owned release control
 
@@ -105,7 +105,7 @@ after image builds. A later failed required CI attempt or changed serving baseli
 A descendant UAT merge does not retarget or invalidate the selected application;
 a branch reset that removes it from protected history refuses. Legacy isolated
 UAT retains its exact-tip requirement.
-Reviewed application tests and dependencies may evolve; this follows the existing
+Reviewed application tests, tooling and dependencies may evolve; this follows the existing
 protected-branch trust model, not malicious-code containment.
 
 Historical acceptance and no-op receipts retain their original checks. Unknown

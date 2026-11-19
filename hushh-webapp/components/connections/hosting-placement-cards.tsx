@@ -5,6 +5,8 @@ import { useEffect } from "react";
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import type { HostingChoiceOption } from "@/components/connections/hosting-choice-cards";
+import { HostedPodDualCloudMarks, PodCloudBadge } from "@/components/connections/hussh-pods-cloud-card";
+import { hostedPodProvider } from "@/lib/one/owner-cloud";
 import {
   DedicatedHostingRowIcon,
   OwnCloudRowIcon,
@@ -76,7 +78,10 @@ export function hostingOptionsFor({
           <PauseRowIcon size={14} color="currentColor" aria-hidden="true" />
           Paused for maintenance
         </>
-      ) : undefined,
+      ) : (
+        <HostedPodDualCloudMarks />
+      ),
+      supportingDecorative: !hostedUnderMaintenance,
       unavailable: hostedUnderMaintenance,
       testId: "cloud-tier-hosted",
     },
@@ -184,12 +189,20 @@ export function DirectIngressBlockedCard({
 }
 
 /** Hussh Pods is paused: the two ways forward. Neither changes anything until chosen. */
-export function HusshPodsPausedCard() {
+export function HusshPodsPausedCard({
+  deploymentTarget,
+}: {
+  deploymentTarget?: string | null;
+} = {}) {
   // No move buttons: the hub refuses both moves while a Hussh Pods place is held
   // (POD_ASSIGNMENT_PRESERVED). Offering them would be a button that always fails.
+  const provider = hostedPodProvider(deploymentTarget);
   return (
     <div className={CARD} data-testid="hussh-pods-paused">
-      <p className="text-sm font-semibold">Hussh Pods is paused</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Hussh Pods is paused</p>
+        {provider ? <PodCloudBadge provider={provider} testId="hussh-pods-paused-cloud" /> : null}
+      </div>
       <p className={BODY}>
         Your Hussh Pods agent and its information stay where they are. Moving it to your own
         cloud or to Hussh Shared needs the Hussh team to release your Hussh Pods place first.

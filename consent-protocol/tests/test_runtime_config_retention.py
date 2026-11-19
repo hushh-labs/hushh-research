@@ -287,7 +287,7 @@ def test_plg_activation_rejects_ambiguous_values(plg_runtime_sync, key, value):
 def test_plg_activation_cannot_cross_environment_or_project(
     plg_runtime_sync, project, environment, stored_environment, stored_project, key
 ):
-    with pytest.raises(ValueError, match="production environment and project"):
+    with pytest.raises(ValueError, match="environment and project"):
         plg_runtime_sync._retained_plg_config(
             {
                 key: True,
@@ -312,7 +312,7 @@ def test_owner_activity_settings_survive_writer_and_hydration(
     stored = {
         **dict.fromkeys(keys, enabled),
         "one_plg_activity_enabled": enabled,
-        "one_plg_attempt_email_enabled": enabled,
+        **({} if environment == "production" else {"one_plg_attempt_email_enabled": enabled}),
     }
     writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
     actual = json.loads(writes[target])
@@ -344,6 +344,46 @@ def test_owner_activation_rejects_other_lane_and_retains_no_cohort(plg_runtime_s
                 project=project,
                 environment=environment,
             )
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_uat_plg_flags_default_off_and_survive_the_deployment_writer(
+    monkeypatch, plg_runtime_sync, enabled
+):
+    keys = (
+        "one_plg_activity_enabled",
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_attempt_email_enabled",
+    )
+    stored = dict.fromkeys(keys, True) if enabled else {}
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, "uat", False, stored)
+    actual = json.loads(writes[target])
+    assert {key: actual[key] for key in keys} == dict.fromkeys(keys, enabled)
+    assert not actual["one_plg_activity_all_registered"]
+
+
+@pytest.mark.parametrize(
+    ("environment", "project", "flags"),
+    [
+        ("uat", "hushh-pda-uat", {"one_plg_activity_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_dev_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_activity_dev_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_owner_export_enabled": True}),
+        ("production", "hushh-pda", {"one_plg_attempt_email_enabled": True}),
+        ("dev", "hushh-pda-dev", {"one_plg_uat_export_enabled": True}),
+    ],
+)
+def test_uat_plg_rejects_foreign_flags_and_activity_without_its_lane(
+    plg_runtime_sync, environment, project, flags
+):
+    with pytest.raises(ValueError, match="environment and project"):
+        plg_runtime_sync._retained_plg_config(
+            {"environment": environment, "google_cloud_project": project, **flags},
+            project=project,
+            environment=environment,
+        )
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):

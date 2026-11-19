@@ -23,7 +23,7 @@ export function ScopeCommerceTimeline({ request, showProgress = true }: { reques
       })}
     </ol> : null}
     <dl data-consent-facts className="grid gap-3 text-sm sm:grid-cols-2">
-    {!purchase ? <CommerceTime label="Respond by" value={request.request_deadline} /> : null}
+    {!purchase || purchase.status === "awaiting_owner" ? <CommerceTime label="Respond by" value={purchase?.fulfillment_deadline || request.request_deadline} /> : null}
     {purchase?.status === "reserved" ? <CommerceTime label="Share by" value={purchase.fulfillment_deadline} /> : null}
     {purchase?.status === "preparing" ? <CommerceTime label="Complete sharing by" value={purchase.activation_at} /> : null}
     <CommerceTime label="Access starts" value={purchase?.activation_at} />

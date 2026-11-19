@@ -12,6 +12,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,11 +66,13 @@ def _run(tmp_path: Path, empty_reads: int, rows: list[dict]) -> tuple[int, list[
     )
 
 
-def test_verdict_rows_that_index_late_still_reach_validation(tmp_path):
+@pytest.mark.parametrize("marker", ["azure_managed_text_contract", "managed_text_scopes_contract"])
+def test_verdict_rows_that_index_late_still_reach_validation(tmp_path, marker):
     # Seven unsearchable reads exceeded the former six-read window.
-    calls, sleeps, collected = _run(tmp_path, empty_reads=7, rows=PASSING_ROWS)
+    rows = [*PASSING_ROWS[:-1], {"jsonPayload": {marker: "ok", "scopes": 2}}]
+    calls, sleeps, collected = _run(tmp_path, empty_reads=7, rows=rows)
     assert calls == 8
-    assert json.loads(collected) == PASSING_ROWS
+    assert json.loads(collected) == rows
     assert sleeps[:4] == [2, 4, 8, 10]
 
 

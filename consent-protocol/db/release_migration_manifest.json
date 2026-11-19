@@ -381,13 +381,18 @@
     "443_calendar_email_followups.sql",
     "444_calendar_email_followup_delivery.sql",
     "445_calendar_email_followup_relevance.sql",
+    "446_finance_advisor_share_options.sql",
+    "447_finance_advisor_handshake.sql",
     "448_connection_network_visibility.sql",
     "449_gcp_notification_account_id_limit.sql",
     "450_one_attempt_email_outbox.sql",
     "451_one_attempt_email_feedback.sql",
     "452_direct_calls.sql",
     "454_calendar_email_followup_temporal.sql",
-    "458_location_feed_confirmed_incidents.sql"
+    "458_location_feed_confirmed_incidents.sql",
+    "459_control_plane_kyc_redaction_and_call_indexes.sql",
+    "460_information_request_upfront_reservation.sql",
+    "461_hosted_azure_deployment_target.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -821,6 +826,10 @@
     "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
     "452_direct_calls.sql": "rollback/452_direct_calls.rollback.sql",
     "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql",
-    "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql"
-  }
+    "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql",
+    "459_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/459_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
+    "460_information_request_upfront_reservation.sql": "rollback/460_information_request_upfront_reservation.rollback.sql",
+    "461_hosted_azure_deployment_target.sql": "rollback/461_hosted_azure_deployment_target.rollback.sql"
+  },
+  "rollback_map": {}
 }

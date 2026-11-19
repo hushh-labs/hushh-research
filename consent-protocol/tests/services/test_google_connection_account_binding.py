@@ -167,6 +167,7 @@ async def test_explicitly_disconnected_account_can_connect_a_new_subject(monkeyp
         "accounts": [{"account_id": "default", "connected": True}],
         "account_limit": 3,
         "completed_account_id": "default",
+        "mail_access": "not_requested",
     }
     service._decrypt.assert_not_called()
     writes = [(sql, params) for sql, params in db.calls if "INSERT" in sql]
@@ -239,6 +240,7 @@ async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch
         "accounts": [{"account_id": "default", "connected": True}],
         "account_limit": 3,
         "completed_account_id": "default",
+        "mail_access": "not_requested",
     }
 
 

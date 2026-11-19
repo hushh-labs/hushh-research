@@ -22,6 +22,12 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
 import { FilesMoveDialog, FilesDetailsDialog } from "./files-workspace-dialogs";
 import {
+  FilesMarkdownDocumentSheet,
+  type FilesMarkdownDocumentTarget,
+} from "./files-markdown-document-sheet";
+import { PersonalWikiPanel } from "./personal-wiki-panel";
+import { FolderLock } from "@/components/icons";
+import {
   FilesEntryRow,
   FilesFolderDraft,
   type FileEdit,
@@ -31,23 +37,61 @@ import {
   type FileEntry,
   type FilesSettings,
 } from "@/lib/files/service";
+import {
+  isPreviewableTextFilename,
+  peekFilesListCache,
+  peekFilesSettingsCache,
+} from "@/lib/files/files-cache";
 
+const PERSONAL_WIKI_FOLDER_ID = "__personal_wiki__";
 
-export function FilesWorkspace() {
+const ROOT_FOLDERS = [{ id: "root", name: "Files" }];
+const WIKI_FOLDERS = [
+  { id: "root", name: "Files" },
+  { id: PERSONAL_WIKI_FOLDER_ID, name: "Personal wiki" },
+];
+
+export function FilesWorkspace({
+  initialFolder,
+  initialDoc,
+  initialPage,
+  onInitialSelectionConsumed,
+}: {
+  initialFolder?: string | null;
+  initialDoc?: string | null;
+  initialPage?: string | null;
+  onInitialSelectionConsumed?: () => void;
+} = {}) {
+  const routeFolder = initialFolder ?? null;
+  const routeDoc = initialDoc ?? null;
+  const routePage = initialPage ?? null;
+
   const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { hosting, connectionError } = useFilesConnection(userId ?? undefined, vaultKey, vaultOwnerToken);
-  const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [folders, setFolders] = useState([{ id: "root", name: "Files" }]);
+  const [entries, setEntries] = useState<FileEntry[]>(() => {
+    if (!userId || routeFolder === "personal-wiki") return [];
+    return peekFilesListCache(userId, "root", "", false)?.entries ?? [];
+  });
+  const [folders, setFolders] = useState(() =>
+    routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS,
+  );
   const [cursor, setCursor] = useState("");
   const [trash, setTrash] = useState(false);
   const [query, setQuery] = useState("");
   const [panel, setPanel] = useState<"activity" | "settings" | null>(null);
-  const [settings, setSettings] = useState<FilesSettings | null>(null);
+  const [previewTarget, setPreviewTarget] =
+    useState<FilesMarkdownDocumentTarget | null>(null);
+  const [settings, setSettings] = useState<FilesSettings | null>(() =>
+    userId ? peekFilesSettingsCache(userId) : null,
+  );
   const [filesActivationAvailable, setFilesActivationAvailable] =
     useState(false);
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (!userId || routeFolder === "personal-wiki") return false;
+    return !peekFilesListCache(userId, "root", "", false);
+  });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [resume, setResume] = useState<FileEntry | undefined>();
@@ -57,9 +101,13 @@ export function FilesWorkspace() {
   const work = useRef(new AbortController());
   const actionPending = useRef(false);
   const parent = folders[folders.length - 1]?.id ?? "root";
-  const available = Boolean(
-    userId && vaultKey && vaultOwnerToken && hosting,
-  );
+  const inWikiFolder = parent === PERSONAL_WIKI_FOLDER_ID && !trash;
+  const showRootWikiFolder =
+    parent === "root" &&
+    !trash &&
+    (!query || "personal wiki".includes(query.toLocaleLowerCase()));
+  const vaultUnlocked = Boolean(userId && vaultKey && vaultOwnerToken);
+  const available = Boolean(vaultUnlocked && hosting);
   const visibleEntries = entries.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   );
@@ -67,6 +115,12 @@ export function FilesWorkspace() {
   const load = useCallback(
     async (next = "") => {
       if (!available) return;
+      if (parent === PERSONAL_WIKI_FOLDER_ID) {
+        setEntries([]);
+        setCursor("");
+        setMessage("");
+        return;
+      }
       const signal = work.current.signal;
       // Existing owner pods may admit one request at a time. Finish the
       // library read before asking that same pod for settings.
@@ -87,10 +141,15 @@ export function FilesWorkspace() {
   useEffect(() => {
     work.current.abort();
     work.current = new AbortController();
-    setLoading(true);
+    const warmList =
+      available && userId && parent !== PERSONAL_WIKI_FOLDER_ID
+        ? peekFilesListCache(userId, parent, "", trash)
+        : null;
+    const warmSettings = available && userId ? peekFilesSettingsCache(userId) : null;
+    setLoading(parent !== PERSONAL_WIKI_FOLDER_ID && !warmList);
     setMessage("");
-    setEntries([]);
-    setSettings(null);
+    setEntries(warmList?.entries ?? []);
+    setSettings(warmSettings);
     setEdit(null);
     setResume(undefined);
     setProgress(null);
@@ -114,26 +173,27 @@ export function FilesWorkspace() {
         }
       })()
         .catch((error: unknown) => {
-          if (!signal.aborted)
+          if (!signal.aborted && !warmList)
             setMessage(
               error instanceof Error && error.message === "FILES_NOT_ENABLED"
                 ? "Files is not enabled on this pod. Review setup below."
                 : hosting === "shared"
                   ? "Files storage is temporarily unavailable. Try again later."
-                  : "Your private Files library is not connected. Check Hosting and Software updates.",
+                  : "Your private Files library is not connected. Check Hosting and Agent updates.",
             );
         })
         .finally(() => {
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, userId, load, hosting]);
+  }, [available, userId, load, hosting, parent, trash]);
 
   useEffect(() => {
-    setFolders([{ id: "root", name: "Files" }]);
+    setFolders(routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS);
     setTrash(false);
     setPanel(null);
-  }, [userId, available]);
+    setPreviewTarget(null);
+  }, [userId, available, routeFolder]);
 
   useEffect(() => {
     if (!userId) return;
@@ -249,7 +309,7 @@ export function FilesWorkspace() {
         <PageHeader title="Files" titleVisuallyHidden className="sr-only" />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
-        {!available ? (
+        {!available && !(vaultUnlocked && inWikiFolder) ? (
           <p className="text-sm text-muted-foreground">
             {connectionError ||
               (vaultKey && vaultOwnerToken
@@ -294,7 +354,7 @@ export function FilesWorkspace() {
                 query={query}
                 loading={loading}
                 locked={busy || Boolean(edit)}
-                blocked={Boolean(message)}
+                blocked={Boolean(message) || inWikiFolder}
                 onUp={goUp}
                 onFolder={(index) => {
                   setTrash(false);
@@ -303,6 +363,10 @@ export function FilesWorkspace() {
                 onTrash={() => setTrash(!trash)}
                 onSettings={() => setPanel("settings")}
                 onActivity={() => setPanel("activity")}
+                onWiki={() => {
+                  setTrash(false);
+                  setFolders(WIKI_FOLDERS);
+                }}
                 onQuery={setQuery}
                 onRefresh={() =>
                   void act(() => load(), "Files refreshed", false)
@@ -384,6 +448,29 @@ export function FilesWorkspace() {
                   Opening Files…
                 </p>
               ) : null}
+              {inWikiFolder ? (
+                <div
+                  className="rounded-2xl border p-4 sm:p-5"
+                  aria-label="Personal wiki folder"
+                  data-testid="files-personal-wiki-view"
+                >
+                  <PersonalWikiPanel
+                    key={`wiki-inline:${userId}`}
+                    ownerId={userId ?? undefined}
+                    signal={work.current.signal}
+                    busy={busy || Boolean(edit)}
+                    unavailable={!available || Boolean(message)}
+                    act={act}
+                    initialDocId={routeDoc}
+                    initialPageId={routePage}
+                    onInitialSelectionConsumed={() => {
+                      if (routeDoc || routePage) {
+                        onInitialSelectionConsumed?.();
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
               <div
                 className="divide-y rounded-2xl border"
                 aria-label={trash ? "Trash" : "Files and folders"}
@@ -396,6 +483,36 @@ export function FilesWorkspace() {
                     onSave={saveEdit}
                     onCancel={() => setEdit(null)}
                   />
+                ) : null}
+                {showRootWikiFolder && !message && !loading ? (
+                  <div
+                    data-testid="files-personal-wiki-folder"
+                    className="flex min-w-0 items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4"
+                  >
+                    <FolderLock
+                      className="size-5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-[1_1_6rem]">
+                      <button
+                        type="button"
+                        className="block max-w-full truncate text-left font-medium"
+                        disabled={busy || Boolean(edit)}
+                        onClick={() => {
+                          setTrash(false);
+                          setFolders([
+                            { id: "root", name: "Files" },
+                            { id: PERSONAL_WIKI_FOLDER_ID, name: "Personal wiki" },
+                          ]);
+                        }}
+                      >
+                        Personal wiki
+                      </button>
+                      <p className="truncate text-xs text-muted-foreground">
+                        Markdown memory pages, citations, and imports
+                      </p>
+                    </div>
+                  </div>
                 ) : null}
                 {visibleEntries.map((entry) => (
                   <FilesEntryRow
@@ -435,19 +552,46 @@ export function FilesWorkspace() {
                       if (next.operation === "move") setMovePickerLoading(true);
                       setEdit(next);
                     }}
-                    onOpen={(folder) =>
-                      setFolders([
-                        ...folders,
-                        { id: folder.id, name: folder.name },
-                      ])
-                    }
+                    onOpen={(entryItem) => {
+                      if (entryItem.kind === "folder") {
+                        setFolders([
+                          ...folders,
+                          { id: entryItem.id, name: entryItem.name },
+                        ]);
+                        return;
+                      }
+                      if (
+                        entryItem.kind === "file" &&
+                        entryItem.state === "ready" &&
+                        isPreviewableTextFilename(entryItem.name) &&
+                        FilesService.readText
+                      ) {
+                        const activeSignal = work.current.signal;
+                        void act(
+                          async () => {
+                            const text = await FilesService.readText(
+                              entryItem,
+                              activeSignal,
+                            );
+                            activeSignal.throwIfAborted();
+                            setPreviewTarget({
+                              kind: "file",
+                              entry: entryItem,
+                              text,
+                            });
+                          },
+                          "Document opened",
+                          false,
+                        );
+                      }
+                    }}
                     onResume={(file) => {
                       setResume(file);
                       input.current?.click();
                     }}
                   />
                 ))}
-                {!visibleEntries.length && !message && !loading ? (
+                {!visibleEntries.length && !showRootWikiFolder && !message && !loading ? (
                   <p className="p-6 text-sm text-muted-foreground">
                     {query
                       ? "No matches on this page. Load more files to search another page."
@@ -457,6 +601,7 @@ export function FilesWorkspace() {
                   </p>
                 ) : null}
               </div>
+              )}
               {cursor ? (
                 <Button
                   variant="outline"
@@ -498,6 +643,13 @@ export function FilesWorkspace() {
           unavailable={!available || Boolean(message)}
           act={act}
           onClose={() => setPanel(null)}
+        />
+        <FilesMarkdownDocumentSheet
+          open={available && previewTarget !== null}
+          target={previewTarget}
+          busy={busy}
+          initialMode="preview"
+          onClose={() => setPreviewTarget(null)}
         />
       </AppPageContentRegion>
     </AppPageShell>

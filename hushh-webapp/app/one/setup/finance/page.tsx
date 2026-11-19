@@ -1,6 +1,6 @@
-import KaiOnboardingPage from "@/app/one/setup/kai/page";
+import { FinanceImportOnboardingSetupClient } from "./import/finance-import-onboarding-setup-client";
 
-/** The Finance preferences body is shared; this is the canonical setup route. */
+/** Finance begins with an illustrative tour and the existing source workflow. */
 export default function FinanceOnboardingSetupPage() {
-  return <KaiOnboardingPage voicePublisherRole="chrome" />;
+  return <FinanceImportOnboardingSetupClient showIntroduction />;
 }

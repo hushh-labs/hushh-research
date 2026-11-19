@@ -129,68 +129,23 @@ is_placeholder_value() {
 normalize_env_json_values() {
   local file="$1"
   [ -f "$file" ] || return 0
-  python3 - "$file" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-path = pathlib.Path(sys.argv[1])
-lines = path.read_text(encoding="utf-8").splitlines()
-keys = {
-    "FIREBASE_ADMIN_CREDENTIALS_JSON",
-    "BACKEND_RUNTIME_CONFIG_JSON",
-}
-assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-decoder = json.JSONDecoder()
-
-out = []
-i = 0
-while i < len(lines):
-    line = lines[i]
-    matched = next((key for key in keys if line.startswith(f"{key}=")), None)
-    if not matched:
-        out.append(line)
-        i += 1
-        continue
-
-    prefix = f"{matched}="
-    buf = line[len(prefix):]
-    j = i
-    normalized = None
-
-    while True:
-        try:
-            parsed, end = decoder.raw_decode(buf)
-            if isinstance(parsed, dict):
-                normalized = json.dumps(parsed, separators=(",", ":"))
-            break
-        except json.JSONDecodeError:
-            j += 1
-            if j >= len(lines):
-                break
-            buf += "\n" + lines[j]
-
-    if normalized is None:
-        out.append(line)
-        i += 1
-        continue
-
-    out.append(prefix + normalized)
-    i = j + 1
-    while i < len(lines):
-        nxt = lines[i]
-        if assign_re.match(nxt) or nxt.startswith("#") or not nxt.strip():
-            break
-        i += 1
-
-path.write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
+  if [ -f "$SCRIPT_DIR/local_runtime_parity.py" ]; then
+    python3 "$SCRIPT_DIR/local_runtime_parity.py" normalize-json "$file"
+  fi
 }
 
 gcp_project_for_profile() {
   case "$1" in
-    local|uat)
+    local)
+      local existing_project=""
+      existing_project="$(read_env_value "$BACKEND_TARGET" "GOOGLE_CLOUD_PROJECT")"
+      if [ "$existing_project" = "${DEV_PROJECT_ID:-hushh-pda-dev}" ]; then
+        printf '%s' "$existing_project"
+      else
+        printf '%s' "${LOCAL_PROJECT_ID:-hushh-pda-uat}"
+      fi
+      ;;
+    uat)
       printf 'hushh-pda-uat'
       ;;
     dev)

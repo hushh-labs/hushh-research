@@ -22,12 +22,14 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, Search, SlidersHorizontal } from "@/components/icons";
+import { ChevronLeft, SlidersHorizontal } from "@/components/icons";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { Input } from "@/components/ui/input";
+import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import {
   SCOPE_SEARCH_THRESHOLD,
@@ -36,6 +38,7 @@ import {
 } from "@/lib/consent/consent-scope-items";
 import {
   consentScopeItemsUnder,
+  formatContextualScopeLeafLabel,
   resolveConsentScopeLevel,
 } from "@/lib/consent/consent-scope-level";
 import { cn } from "@/lib/utils";
@@ -66,6 +69,8 @@ export type ConsentScopeNestedListProps = {
   showDomainFilter?: boolean;
   /** Keep overview rows quiet while retaining bulk selection inside the category. */
   categorySelectionInDetail?: boolean;
+  /** Optional explicit route pathname for Back-layer scoping; defaults to client location pathname. */
+  pathname?: string;
 };
 
 export function ConsentScopeNestedList({
@@ -82,6 +87,7 @@ export function ConsentScopeNestedList({
   searchPlaceholder = "Search",
   showDomainFilter = false,
   categorySelectionInDetail = false,
+  pathname,
 }: ConsentScopeNestedListProps) {
   const [pathStack, setPathStack] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -110,6 +116,13 @@ export function ConsentScopeNestedList({
   );
 
   const atRoot = pathStack.length === 0;
+  const backPathname = normalizeStaticExportPathname(
+    pathname || (typeof window !== "undefined" ? window.location.pathname : "/") || "/",
+  );
+  useBackLayer(backPathname, atRoot ? 0 : 10, () => {
+    setPathStack((stack) => stack.slice(0, -1));
+    return true;
+  });
   const showSearch = items.length > searchThreshold;
 
   const branchIds = (segment: string) =>
@@ -125,10 +138,13 @@ export function ConsentScopeNestedList({
     ids.filter((id) => isSelected(id)).length;
   const currentBranchIds = consentScopeItemsUnder(items, pathStack).map((item) => item.id);
 
-  const renderLeafRow = (item: ConsentScopeItem, key: string) => {
+  const renderLeafRow = (item: ConsentScopeItem, key: string, contextual = false) => {
     const isGranted = Boolean(selection?.grantedIds?.has(item.id));
     const selected = isGranted || Boolean(selection?.selectedIds.has(item.id));
     const disabled = item.disabled || isGranted;
+    const displayLabel = contextual
+      ? formatContextualScopeLeafLabel(item, level.title, pathStack.length)
+      : item.label;
     // Selecting an authored wildcard marks its visible descendants. A later
     // child removal can then retire the broad selection safely.
     const toggleIds = item.wildcard
@@ -137,11 +153,12 @@ export function ConsentScopeNestedList({
     return (
       <SettingsRow
         key={key}
-        title={item.label}
+        title={displayLabel}
         leading={renderDomainLeading?.(item.domainKey)}
         density="compact"
         description={item.description || undefined}
         disabled={disabled}
+        stackTrailingOnMobile={Boolean(renderTrailing)}
         chevron={Boolean(onOpenItem)}
         onClick={
           isGranted
@@ -234,21 +251,15 @@ export function ConsentScopeNestedList({
 
       {showSearch ? (
         <div className="flex items-start gap-3">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
+          <SheetSearch
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onValueChange={setQuery}
             placeholder={searchPlaceholder}
-            aria-label="Search this list"
-            className="pl-9"
+            label="Search this list"
+            className="min-w-0 flex-1"
             data-consent-input="true"
             data-testid={`${testIdPrefix}-search`}
           />
-        </div>
         {showDomainFilter ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -289,7 +300,7 @@ export function ConsentScopeNestedList({
       ) : level.entries.length ? (
         <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-level`}>
           {level.entries.map((entry) => {
-            if (entry.kind === "leaf") return renderLeafRow(entry.item, entry.key);
+            if (entry.kind === "leaf") return renderLeafRow(entry.item, entry.key, !atRoot);
 
             const ids = branchIds(entry.segment);
             const everything = allSelected(ids);

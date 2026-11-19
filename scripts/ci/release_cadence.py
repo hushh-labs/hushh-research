@@ -31,9 +31,17 @@ def require(condition: Any, message: str) -> None:
 
 
 def trusted_run(run: dict, repository: str, workflow: str) -> bool:
+    branch_admitted = run.get("head_branch") == "main"
+    if not branch_admitted and workflow == "deploy-uat.yml":
+        from release_acceptance_provenance import deployment_authority
+        try:
+            deployment_authority(run, "uat")
+            branch_admitted = True
+        except ValueError:
+            return False
     return (
         run.get("path") == f".github/workflows/{workflow}"
-        and run.get("head_branch") == "main"
+        and branch_admitted
         and (run.get("repository") or {}).get("full_name") == repository
         and (run.get("head_repository") or {}).get("full_name") == repository
     )

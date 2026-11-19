@@ -227,6 +227,26 @@ class CalendarShareOrigin(BaseModel):
         return self
 
 
+def calendar_open_types(calendar: dict) -> list[str]:
+    """Requested meeting file types the organizer has not said they lack."""
+    missing = set(calendar.get("not_available_types") or ())
+    return [kind for kind in calendar["requested_types"] if kind not in missing]
+
+
+def calendar_lacking(calendar: dict) -> list[str]:
+    """Requested meeting file types the organizer has said they do not have."""
+    missing = set(calendar.get("not_available_types") or ())
+    return [kind for kind in calendar.get("requested_types") or () if kind in missing]
+
+
+def calendar_kinds(calendar: dict) -> dict[str, list[str]]:
+    """The request's file types as the requester reads them: asked for, and not available."""
+    return {
+        "requestedTypes": list(calendar["requested_types"]),
+        "notAvailableTypes": calendar_lacking(calendar),
+    }
+
+
 class ReviewedSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     document_id: UUID

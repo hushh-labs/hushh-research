@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { formatAgentChatErrorMessage } from "@/lib/services/agent-chat-client";
+import { ownerPodTurnRecoveryPanel } from "@/lib/agent/owner-pod-turn-errors";
 
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
 
@@ -49,7 +50,7 @@ describe("direct-path turn errors", () => {
     expect(formatAgentChatErrorMessage("ENDPOINT_VERSION_REGRESSION")).toMatch(/could not be established/);
     expect(formatAgentChatErrorMessage("x", "POD_CHAT_BUSY")).toMatch(/finishing active work/);
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_UPDATING"))
-      .toBe("Agent One is updating. Check Software updates in Settings before trying again.");
+      .toBe("Agent One is updating. Check Agent updates in Settings before trying again.");
     expect(formatAgentChatErrorMessage("private provider details", "POD_RECEIPT_UPDATE_REQUIRED"))
       .toBe("Update Agent One in Settings before resuming this receipt request.");
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_CAPABILITIES_INVALID"))
@@ -66,6 +67,33 @@ describe("direct-path turn errors", () => {
     for (const text of ["POD_ASSIGNMENT_CHANGED", "POD_WAKE_TIMEOUT", "POD_NOT_REACHED", "Failed to fetch", "POD_OWNER_CHANGED",
       "POD_SEND_UNCONFIRMED", "POD_DEVICE_OFFLINE", "POD_CHAT_AUTHORITY_UNAVAILABLE:409:AGENT_NOT_READY"]) {
       expect(formatAgentChatErrorMessage(text)).not.toMatch(/[–—]/);
+    }
+  });
+
+  it("maps recoverable pod reachability and update turn errors to their exact Profile panel", () => {
+    for (const code of [
+      "POD_WAKE_TIMEOUT",
+      "POD_NOT_REACHED",
+      "POD_ASSIGNMENT_CHANGED",
+      "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY",
+      "POD_CHALLENGE_REFUSED:revoked",
+      "POD_CHAT_AUTHORITY_UNAVAILABLE:409:AGENT_NOT_READY",
+      "POD_CHAT_CAPABILITIES_UNAVAILABLE",
+    ]) {
+      expect(ownerPodTurnRecoveryPanel(formatAgentChatErrorMessage(code, code)), code).toBe("hosting");
+    }
+    for (const code of ["POD_CHAT_UPDATING", "POD_RECEIPT_UPDATE_REQUIRED"]) {
+      expect(ownerPodTurnRecoveryPanel(formatAgentChatErrorMessage("x", code)), code).toBe("software-updates");
+    }
+    for (const nonSettings of [
+      GENERIC,
+      formatAgentChatErrorMessage("Failed to fetch"),
+      formatAgentChatErrorMessage("POD_DEVICE_OFFLINE", "POD_DEVICE_OFFLINE"),
+      formatAgentChatErrorMessage("POD_SEND_UNCONFIRMED", "POD_SEND_UNCONFIRMED"),
+      "",
+      null,
+    ]) {
+      expect(ownerPodTurnRecoveryPanel(nonSettings)).toBeNull();
     }
   });
 });

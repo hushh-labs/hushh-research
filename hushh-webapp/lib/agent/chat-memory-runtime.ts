@@ -53,6 +53,19 @@ function sourceParts(message: ChatMemoryMessage, content: string): ChatMemoryMes
 export function createChatMemoryRuntime(deps: {
   getSession: () => ChatMemorySession | null;
   rewrite: (input: ChatMemoryRewriteInput) => Promise<{ markdown: string }>;
+  /** When an owner has graduated to wiki_primary, consolidates directly to Personal Wiki and retires classic rewrite. */
+  consolidateDirect?: (input: {
+    messages: readonly ChatMemoryMessage[];
+    reason: ChatMemoryTrigger;
+    signal?: AbortSignal;
+  }) => Promise<boolean>;
+  onConsolidated?: (input: {
+    messages: readonly ChatMemoryMessage[];
+    markdown: string;
+    previousMarkdown: string;
+    reason: ChatMemoryTrigger;
+  }) => Promise<void>;
+  onWithdrawn?: (input: { conversationId: string }) => Promise<void>;
   tokenThreshold?: number; idleMs?: number; maxTokens?: number;
 }) {
   let pending = emptyPending();
@@ -64,15 +77,27 @@ export function createChatMemoryRuntime(deps: {
   let running: Promise<boolean> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let rerun = false;
+  let pendingReason: ChatMemoryTrigger = "idle";
   let disposed = false;
   let rewriteAbort: AbortController | null = null;
+  let inFlightConversations = new Set<string>();
+  const withdrawnConversations = new Set<string>();
 
-  const current = () => Boolean(!disposed && bound && bound.generation === generation &&
-    snapshotValidatedAuthSessionOwner()?.userId === bound.session.userId &&
-    isVaultSessionEpochCurrent(bound.epoch) && deps.getSession()?.userId === bound.session.userId &&
-    deps.getSession()?.vaultKey === bound.session.vaultKey &&
-    deps.getSession()?.vaultOwnerToken === bound.session.vaultOwnerToken &&
-    (bound.session.isCurrent?.() ?? true));
+  const mergeReason = (currentReason: ChatMemoryTrigger, incoming: ChatMemoryTrigger): ChatMemoryTrigger =>
+    currentReason === "remember" || incoming === "remember" ? "remember" : incoming;
+
+  const activeSession = (): ChatMemorySession | null => {
+    if (disposed || !bound || bound.generation !== generation) return null;
+    if (snapshotValidatedAuthSessionOwner()?.userId !== bound.session.userId) return null;
+    if (!isVaultSessionEpochCurrent(bound.epoch)) return null;
+    const live = deps.getSession();
+    if (!live || live.userId !== bound.session.userId || live.vaultKey !== bound.session.vaultKey || !live.vaultOwnerToken) {
+      return null;
+    }
+    if (!(live.isCurrent?.() ?? bound.session.isCurrent?.() ?? true)) return null;
+    return live;
+  };
+  const current = () => activeSession() !== null;
   const assertCurrent = async () => {
     if (!current()) throw new DOMException("Memory session changed.", "AbortError");
   };
@@ -91,8 +116,8 @@ export function createChatMemoryRuntime(deps: {
     return next;
   };
   const writePending = async () => {
-    await assertCurrent();
-    const session = bound!.session;
+    const session = activeSession();
+    if (!session) throw new DOMException("Memory session changed.", "AbortError");
     // Snapshot before encryption; concurrent arrivals are serialized separately.
     version = await SecureDurableResourceService.write({ ...session, resourceKey: RESOURCE,
       value: structuredClone(pending), expected: version, isCurrent: current });
@@ -105,9 +130,9 @@ export function createChatMemoryRuntime(deps: {
       if (!session) throw new DOMException("Unlock memory first.", "AbortError");
       bound = { session, epoch: snapshotVaultSessionEpoch(), generation };
     }
-    await assertCurrent();
+    const session = activeSession();
+    if (!session) throw new DOMException("Memory session changed.", "AbortError");
     if (loaded) return;
-    const session = bound!.session;
     const stored = await SecureDurableResourceService.read<Pending>(session.userId, RESOURCE, session.vaultKey, current);
     await assertCurrent();
     if (stored) {
@@ -116,13 +141,24 @@ export function createChatMemoryRuntime(deps: {
         !Array.isArray(value.withdrawn) || !Number.isSafeInteger(value.editGeneration))
         throw new Error("Encrypted memory checkpoint is invalid.");
       pending = value;
+      if (withdrawnConversations.size > 0) {
+        const removed = pending.messages.filter(m => withdrawnConversations.has(m.conversationId));
+        if (removed.length > 0) {
+          pending.withdrawn = [...new Set([...pending.withdrawn, ...removed.map(key)])];
+          pending.messages = pending.messages.filter(m => !withdrawnConversations.has(m.conversationId));
+        }
+      }
       version = { generation: stored.generation, revision: stored.revision };
     } else version = await SecureDurableResourceService.version(session.userId, RESOURCE);
     loaded = true;
+    if (pending.messages.length > 0 && !timer && !running) {
+      scheduleIdle();
+    }
   };
   const loadMemory = async (forceRefresh = false) => {
-    await assertCurrent();
-    const memory = await loadMarkdownMemory({ ...bound!.session, forceRefresh });
+    const session = activeSession();
+    if (!session) throw new DOMException("Memory session changed.", "AbortError");
+    const memory = await loadMarkdownMemory({ ...session, forceRefresh });
     await assertCurrent();
     if (!memory) throw new Error("Private memory is unavailable.");
     return memory;
@@ -148,8 +184,10 @@ export function createChatMemoryRuntime(deps: {
   };
 
   async function registerSnapshot(input: { conversationId: string; messages: readonly ChatMemoryMessage[] }): Promise<void> {
+    if (!input.conversationId || withdrawnConversations.has(input.conversationId)) return;
     const added = await enqueue(async () => {
       await initialize();
+      if (withdrawnConversations.has(input.conversationId)) return false;
       const memory = await loadMemory();
       const checkpoint = memory.chatMemoryCheckpoint ?? emptyCheckpoint();
       const reconciled = reconcile(checkpoint);
@@ -157,7 +195,8 @@ export function createChatMemoryRuntime(deps: {
       const messages = [...pending.messages];
       const previousCount = messages.length;
       for (const message of input.messages) {
-        if (message.conversationId !== input.conversationId || !message.id || message.consentDerived ||
+        if (message.conversationId !== input.conversationId || withdrawnConversations.has(message.conversationId) ||
+          !message.id || message.consentDerived ||
           (message.role !== "user" && message.role !== "assistant") ||
           checkpoint.conversations[message.conversationId]?.includes(message.id) || seen.has(key(message))) continue;
         const content = omitCredentialsFromMemory(message.content).trim();
@@ -179,6 +218,50 @@ export function createChatMemoryRuntime(deps: {
     }
   }
 
+  async function withdrawConversation(conversationId: string): Promise<void> {
+    if (!conversationId || disposed) return;
+    withdrawnConversations.add(conversationId);
+    const immediateRemoved = pending.messages.filter(message => message.conversationId === conversationId);
+    if (immediateRemoved.length > 0) {
+      pending.withdrawn = [...new Set([...pending.withdrawn, ...immediateRemoved.map(key)])];
+      pending.messages = pending.messages.filter(message => message.conversationId !== conversationId);
+      if (pending.messages.length === 0 && timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    }
+    if (inFlightConversations.has(conversationId)) {
+      rerun = pending.messages.length > 0;
+      rewriteAbort?.abort();
+    }
+    await enqueue(async () => {
+      await initialize();
+      const hydratedRemoved = pending.messages.filter(message => message.conversationId === conversationId);
+      if (hydratedRemoved.length > 0) {
+        pending.withdrawn = [...new Set([...pending.withdrawn, ...hydratedRemoved.map(key)])];
+        pending.messages = pending.messages.filter(message => message.conversationId !== conversationId);
+      }
+      if (immediateRemoved.length > 0 || hydratedRemoved.length > 0) {
+        await writePending();
+      }
+      if (pending.messages.length === 0 && timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      if (deps.onWithdrawn && current()) {
+        await deps.onWithdrawn({ conversationId }).catch(() => undefined);
+      }
+    });
+  }
+
+  function peekPendingMessages(excludeConversationId?: string): readonly ChatMemoryMessage[] {
+    if (!current()) return [];
+    return pending.messages.filter(message =>
+      !withdrawnConversations.has(message.conversationId) &&
+      (!excludeConversationId || message.conversationId !== excludeConversationId),
+    );
+  }
+
   async function recordUsage(input: { requestId: string; inputTokens: number }): Promise<void> {
     if (!input.requestId || !Number.isSafeInteger(input.inputTokens) || input.inputTokens < 0) return;
     await enqueue(async () => {
@@ -196,7 +279,7 @@ export function createChatMemoryRuntime(deps: {
     if (tokenCount() >= (deps.tokenThreshold ?? 12_000)) void trigger("tokens").catch(() => undefined);
   }
 
-  async function consolidate(): Promise<boolean> {
+  async function consolidate(reason: ChatMemoryTrigger): Promise<boolean> {
     // Each retry runs the model against the latest exact document. No stale append.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const snapshot = await enqueue(async () => {
@@ -214,13 +297,53 @@ export function createChatMemoryRuntime(deps: {
           requests: structuredClone(pending.requests), coversWindow: messages.length === pending.messages.length };
       });
       if (!snapshot.messages.length) return false;
-      rewriteAbort = new AbortController();
+      const currentAbort = new AbortController();
+      rewriteAbort = currentAbort;
+      inFlightConversations = new Set(snapshot.messages.map(message => message.conversationId));
+      if (deps.consolidateDirect) {
+        let handledDirect = false;
+        try {
+          handledDirect = await deps.consolidateDirect({
+            messages: snapshot.messages,
+            reason,
+            signal: currentAbort.signal,
+          });
+        } finally {
+          if (handledDirect) {
+            rewriteAbort = null;
+            inFlightConversations = new Set();
+          }
+        }
+        if (handledDirect) {
+          await assertCurrent();
+          if (snapshot.messages.some(message => withdrawnConversations.has(message.conversationId))) {
+            continue;
+          }
+          await enqueue(async () => {
+            const consumedIds = new Set(snapshot.messages.map(key));
+            pending.messages = pending.messages.filter(m => !consumedIds.has(key(m)));
+            if (snapshot.coversWindow) {
+              const consumedReqs = new Set(snapshot.requests.map(r => r.requestId));
+              pending.requests = pending.requests.filter(r => !consumedReqs.has(r.requestId));
+            }
+            await writePending();
+          });
+          rerun ||= !snapshot.coversWindow;
+          return true;
+        }
+      }
       let proposed: { markdown: string };
       try {
         proposed = await deps.rewrite({ currentMarkdown: snapshot.memory.markdown,
-          messages: snapshot.messages, maxTokens: deps.maxTokens ?? 24_000, signal: rewriteAbort.signal });
-      } finally { rewriteAbort = null; }
+          messages: snapshot.messages, maxTokens: deps.maxTokens ?? 24_000, signal: currentAbort.signal });
+      } finally {
+        rewriteAbort = null;
+        inFlightConversations = new Set();
+      }
       await assertCurrent();
+      if (snapshot.messages.some(message => withdrawnConversations.has(message.conversationId))) {
+        continue;
+      }
       if (!proposed || typeof proposed.markdown !== "string" || !proposed.markdown.trim())
         throw new Error("Memory preparation returned no document.");
       const checkpoint = structuredClone(snapshot.checkpoint);
@@ -229,7 +352,9 @@ export function createChatMemoryRuntime(deps: {
       // Token progress covers only this successful source batch. If another
       // source batch remains, retain its accounting until it is processed too.
       if (snapshot.coversWindow) checkpoint.requests = [...new Set([...checkpoint.requests, ...snapshot.requests.map(request => request.requestId)])];
-      const result = await replaceChatMarkdownMemory({ ...bound!.session, markdown: proposed.markdown,
+      const session = activeSession();
+      if (!session) throw new DOMException("Memory session changed.", "AbortError");
+      const result = await replaceChatMarkdownMemory({ ...session, markdown: proposed.markdown,
         expectedMarkdown: snapshot.memory.markdown, expectedPersisted: snapshot.memory.persisted,
         expectedCheckpoint: snapshot.checkpoint, checkpoint,
         confirmation: { authorizationMode: "product_default_auto_save_policy", surface: "chat",
@@ -239,6 +364,18 @@ export function createChatMemoryRuntime(deps: {
       await assertCurrent();
       if (result.conflict) continue;
       if (!result.success) return false;
+      if (deps.onConsolidated) {
+        try {
+          await deps.onConsolidated({
+            messages: snapshot.messages,
+            markdown: proposed.markdown,
+            previousMarkdown: snapshot.memory.markdown,
+            reason,
+          });
+        } catch {
+          // Optional Personal Wiki mirror must never fail classic chat memory consolidation.
+        }
+      }
       await enqueue(async () => {
         const latest = await loadMemory(true);
         reconcile(latest.chatMemoryCheckpoint ?? emptyCheckpoint());
@@ -251,13 +388,27 @@ export function createChatMemoryRuntime(deps: {
     return false;
   }
 
-  function trigger(_reason: ChatMemoryTrigger): Promise<boolean> {
+  function trigger(reason: ChatMemoryTrigger): Promise<boolean> {
     if (timer) clearTimeout(timer);
     timer = undefined;
+    pendingReason = running ? mergeReason(pendingReason, reason) : reason;
     if (running) { rerun = true; return running; }
     running = (async () => {
       let wrote = false;
-      do { rerun = false; wrote = await consolidate() || wrote; } while (rerun && current());
+      do {
+        rerun = false;
+        const activeReason = pendingReason;
+        pendingReason = "idle";
+        try {
+          const cycleWrote = await consolidate(activeReason);
+          wrote = cycleWrote || wrote;
+        } catch (error) {
+          if (activeReason === "remember") {
+            pendingReason = mergeReason(pendingReason, "remember");
+          }
+          throw error;
+        }
+      } while (rerun && current());
       return wrote;
     })().catch((error: unknown) => {
       if (current()) console.warn("[ChatMemory] rewrite_not_committed");
@@ -273,9 +424,11 @@ export function createChatMemoryRuntime(deps: {
   function clear(): void {
     disposed = true;
     rewriteAbort?.abort(); rewriteAbort = null;
+    inFlightConversations = new Set();
+    withdrawnConversations.clear();
     generation += 1;
     if (timer) clearTimeout(timer);
-    timer = undefined; bound = null; loaded = false; pending = emptyPending(); rerun = false;
+    timer = undefined; bound = null; loaded = false; pending = emptyPending(); rerun = false; pendingReason = "idle";
   }
-  return { registerSnapshot, recordUsage, trigger, activity: scheduleIdle, clear };
+  return { registerSnapshot, withdrawConversation, peekPendingMessages, recordUsage, trigger, activity: scheduleIdle, clear };
 }

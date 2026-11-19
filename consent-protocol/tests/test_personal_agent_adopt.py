@@ -426,3 +426,159 @@ async def test_adopt_restores_only_an_unstarted_erasure_reservation(monkeypatch)
     assert restore["evidence"]["url"] == "https://one-pod.run.app"
     assert restore["evidence"]["observedAt"]
     assert registry.upserts == []
+
+
+def _managed_recovery_row():
+    import base64
+
+    from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
+    from hushh_mcp.services.pod_request_signing import signing_key_id
+    from tests.hosted_pod_support import hosted_registry_row
+
+    row = hosted_registry_row()
+    public = base64.b64encode(bytes(range(32))).decode()
+    row.update(
+        status="needs_reinit",
+        phone_e164_hash="synthetic-phone-hash",
+        pod_pubkey=public,
+        pod_key_id="fixture-id",
+        pod_key_wrapping_alg=WRAPPING_ALG,
+        pod_signing_pubkey=public,
+        pod_signing_key_id=signing_key_id(public),
+    )
+    metadata = row["backend_metadata"]
+    metadata.update(
+        image=metadata["provisionAttempt"]["evidence"]["host_requested"]["creationAcknowledgement"][
+            "initialImage"
+        ],
+        url="https://retained.run.app",
+    )
+    metadata["provisionAttempt"]["hostedAdmission"]["assignment"]["bootstrapContract"]["plan"][
+        "federation"
+    ]["impersonation"]["granted_to"] = "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
+    return row
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "foreign-owner",
+        "erasure",
+        "upgrade",
+        "active-operation",
+        "unfinished-provision",
+        "changed-uid",
+        "missing-key",
+        "wrong-env",
+    ],
+)
+def test_managed_recovery_qualifies_only_the_same_idle_retained_placement(monkeypatch, change):
+    from copy import deepcopy
+
+    from hushh_mcp.services.hosted_pod_adoption import recovery_placement
+    from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    row = _managed_recovery_row()
+    owner = row["user_id"]
+    if change == "foreign-owner":
+        owner = "different-owner"
+    elif change == "erasure":
+        row["backend_metadata"]["erasure"] = {}
+    elif change == "upgrade":
+        row["backend_metadata"]["upgradeLease"] = "active"
+    elif change == "active-operation":
+        row["operation_lease"] = "active"
+    elif change == "unfinished-provision":
+        row["backend_metadata"]["provisionAttempt"]["phase"] = "host_requested"
+    elif change == "changed-uid":
+        row["backend_metadata"]["serviceUid"] = "replacement"
+    elif change == "missing-key":
+        row["pod_signing_key_id"] = None
+    elif change == "wrong-env":
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    original = deepcopy(row)
+    if change == "none":
+        projected, placement = recovery_placement(row, owner)
+        assert projected["status"] == "provisioned"
+        assert placement.project == row["backend_metadata"]["project"]
+    else:
+        with pytest.raises(PodAdoptionRefused):
+            recovery_placement(row, owner)
+    assert row == original
+
+
+@pytest.mark.parametrize("changed", ["none", "keys", "native-generation", "registry", "commit"])
+async def test_managed_adoption_reads_existing_host_and_keys_before_status_only_cas(
+    monkeypatch, changed
+):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock, Mock
+
+    from hushh_mcp.services import hosted_pod_adoption as adoption
+    from hushh_mcp.services import pod_key_collector, pod_lifecycle_log
+    from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+    from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    row = _managed_recovery_row()
+    current = deepcopy(row)
+    observations = [{"podUrl": row["backend_metadata"]["url"], "generation": 1}] * 2
+    if changed == "native-generation":
+        observations[1] = {**observations[0], "generation": 2}
+    if changed == "registry":
+        current["pod_key_id"] = "different-key"
+    registry = SimpleNamespace(
+        get=AsyncMock(return_value=current),
+        restore_confirmed_managed_host=AsyncMock(return_value=changed != "commit"),
+    )
+    client = SimpleNamespace(
+        _headers=lambda: {},
+        get_service=Mock(return_value={}),
+        observe_erasure_runtime=Mock(side_effect=observations),
+    )
+    backend = SimpleNamespace(_client=lambda: client, verify_adoption=AsyncMock())
+    specs = []
+    service = PersonalAgentProvisioningService(registry=registry)
+    monkeypatch.setattr(pa_svc, "resolve_user_cloud", AsyncMock(return_value=None))
+    monkeypatch.setattr(service, "_backend_for", lambda spec: specs.append(spec) or backend)
+    monkeypatch.setattr(PrivateGcpDeployment, "verify_observation", Mock())
+    keys = {
+        "podPublicKey": row["pod_pubkey"],
+        "podKeyId": row["pod_key_id"],
+        "podKeyWrappingAlg": row["pod_key_wrapping_alg"],
+        "podSigningKey": row["pod_signing_pubkey"],
+        "podSigningKeyId": row["pod_signing_key_id"],
+    }
+    if changed == "keys":
+        keys["podKeyId"] = "replacement"
+    monkeypatch.setattr(pod_key_collector, "fetch_pod_public_key", AsyncMock(return_value=keys))
+    monkeypatch.setattr(pod_lifecycle_log, "append", AsyncMock())
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *a, **kw: SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "projectId": "hussh-pilot-owner-a",
+                "projectNumber": "100000000001",
+                "lifecycleState": "ACTIVE",
+            },
+        ),
+    )
+    if changed == "none":
+        result = await service.adopt_orphan(user_id=row["user_id"])
+        assert result["recovered"] is True
+        registry.restore_confirmed_managed_host.assert_awaited_once_with(
+            owner=row["user_id"], observed=row
+        )
+        assert specs[0].hosted_admission_guard.operation == "inspect"
+        assert row["status"] == "needs_reinit"
+    else:
+        with pytest.raises(PodAdoptionRefused):
+            await adoption.adopt_retained_host(service, row=row, owner=row["user_id"])
+        if changed != "commit":
+            registry.restore_confirmed_managed_host.assert_not_awaited()

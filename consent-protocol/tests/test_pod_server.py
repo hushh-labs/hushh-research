@@ -69,6 +69,8 @@ def test_pod_readiness_does_not_require_the_hub_database(monkeypatch):
         # The data-door broker READS a DB-backed specialist for a pod. A pod
         # holds no DB credential and must never proxy this to other pods.
         "/api/one/pod/specialist",
+        # The Hub custody/capability broker holds regional KEK & STS minting authority.
+        "/api/one/pod/custody",
     ],
 )
 def test_pod_does_not_mount_central_or_unrelated_surface(forbidden_prefix):
@@ -126,12 +128,9 @@ def test_pod_info_reports_pod_role():
 
 
 def test_a_hub_outage_is_a_clean_503_not_a_raw_500():
-    """A pod reads the data plane THROUGH the hub, so a hub outage is a dependency
-    outage and must answer like one -- the same shape as the DB handlers beside it.
+    """A hub-backed dependency outage stays 503 without upstream error details.
 
-    This was observed for real in hushh-pda-dev on 2026-08-04: a hub that refused the
-    pod surfaced as an unhandled 500 with a traceback, which both leaks internals and
-    invites a caller to read a transient refusal as a permanent answer.
+    Owner-local reads do not use this dependency or its exception path.
     """
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -389,6 +388,10 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/browser/tasks/{task_id}/session",
         "/api/one/pod/browser/tasks/{task_id}/downloads/{download_id}",
         "/api/one/pod/connectors/{connector_id}",
+        # Bounded To-do metadata; the routes still require an owner app session,
+        # pkm.read and the current local Google grant (test_pod_todo_sources.py).
+        "/api/one/pod/calendar/events",
+        "/api/one/pod/gmail/todos",
         "/health",
         "/health/ready",
         # Capabilities remain private; only liveness is public. Each command/Files route
@@ -415,6 +418,19 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/files/chunk",
         "/api/one/pod/files/complete",
         "/api/one/pod/files/mutate",
+        "/api/one/pod/files/wiki/overview",
+        "/api/one/pod/files/wiki/page",
+        "/api/one/pod/files/wiki/opt-in",
+        "/api/one/pod/files/wiki/confirm",
+        "/api/one/pod/files/wiki/projection/derive",
+        "/api/one/pod/files/wiki/forget",
+        "/api/one/pod/files/wiki/migrate",
+        "/api/one/pod/files/wiki/rollback",
+        "/api/one/pod/files/wiki/import",
+        "/api/one/pod/files/workspaces/status",
+        "/api/one/pod/files/workspaces/execute",
+        "/api/one/pod/files/workspaces/control",
+        "/api/one/pod/files/workspaces/forget",
         "/api/one/pod/tasks",
         "/api/one/pod/tasks/control",
         "/api/one/pod/tasks/review",

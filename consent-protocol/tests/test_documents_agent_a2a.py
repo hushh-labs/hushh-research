@@ -263,7 +263,12 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
             ]
         ]
     )
-    monkeypatch.setattr(single_turn, "build_managed_regional_gemini_adk_model", lambda _: gene)
+
+    def documents_model(_model, *, processing_scope):
+        assert processing_scope == "drive_document_requests"
+        return gene
+
+    monkeypatch.setattr(single_turn, "build_managed_regional_gemini_adk_model", documents_model)
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
     selected = Mock(side_effect=AssertionError("Live root must not use the selected index"))
     monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)

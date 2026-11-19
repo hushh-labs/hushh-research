@@ -1,6 +1,6 @@
 # Private Files library
 
-[Operations](../../README.md)
+[Operations](../README.md)
 
 **Dev status — 2026-10-12:** the personal Azure owner completed the exact Settings-approved
 Dev 17 update during active chat, with authenticated drain, encrypted recovery and
@@ -72,7 +72,6 @@ uniform bucket access, public-access prevention and actual retention before use.
 Do not modify recovery/PKM prefixes or broad lifecycle rules. SQL stores only the
 owner resource inventory, library generation, mutation lease and opaque write
 receipts; large encrypted objects remain in object storage.
-
 
 Enrollment records the immutable bucket generation, project number and creation
 time in the existing inventory before accepting a write. A same-name replacement
@@ -200,7 +199,6 @@ flowchart LR
   G["Disabled until dev privacy and lifecycle acceptance"] -.-> H
 ```
 
-
 ## Upload, download and retention
 
 Uploads resume against the same immutable file identity after the browser verifies
@@ -265,9 +263,20 @@ pending-delivery record with an explicit retry; no autonomous outbox sweep is cl
 
 ### Scheduled tasks — local source, not deployed acceptance
 
-One's **Scheduled tasks** view exposes approved work without keeping a pod awake.
-The first customer action is **Schedule organization** on a ready file. It reviews
-a one-time run in the owner's timezone against the existing Files analysis opt-in.
+Production does not offer Scheduled tasks or Schedule organization. The app uses
+its existing build environment to hide these controls and refuse scheduling
+requests before pod admission; source synchronization does not disable Dev/UAT
+controls. Pod execution remains separately qualified for Dev, so visible UAT
+controls do not establish UAT scheduling acceptance. Operational cloud jobs are
+not affected by this product availability rule.
+
+**Tasks → Scheduled runs** reads approved work and the latest run receipt on
+request. Its completion label reports the scheduler outcome. Use Files to
+inspect any rename or move. **Schedule organization** on a ready file and the
+private agent's Chat proposal both use the same confirmation form. In Chat the
+owner picks an exact private-library upload and confirms the time. An uncertain
+response offers Check Tasks or a retry of the exact same request. The one-time
+run uses the owner's timezone and the existing Files analysis permission.
 The existing `agent_files` task specialist remains the semantic decision-maker.
 General goals and scheduled browser tasks are not registered execution templates.
 
@@ -412,11 +421,11 @@ versions, orphan chunks and other pod prefixes are additional. The UI lets the o
 adjust active-hour assumptions and a warning threshold for that view; it is not a
 cloud billing alert or a quota. Crossing it never stops service.
 
-| Partial monthly subtotal | 25 GiB | 50 GiB |
-|---|---:|---:|
-| Regional Standard storage | $0.50 | $1.00 |
-| Storage + 10 active hours + one software KMS key version | $1.60 | $2.10 |
-| Storage + 60 active hours + one software KMS key version | $6.82 | $7.32 |
+| Partial monthly subtotal                                 | 25 GiB | 50 GiB |
+| -------------------------------------------------------- | -----: | -----: |
+| Regional Standard storage                                |  $0.50 |  $1.00 |
+| Storage + 10 active hours + one software KMS key version |  $1.60 |  $2.10 |
+| Storage + 60 active hours + one software KMS key version |  $6.82 |  $7.32 |
 
 Illustration: $0.02/GiB-month; request-based compute at 1 vCPU/2 GiB costs
 `3600 × (0.000024 + 2 × 0.0000025) = $0.1044` per active hour; one software KMS key
@@ -439,11 +448,11 @@ Google request-based active hour or $0.108 per Azure Consumption running-replica
 (Iowa / East US, before allowances). At 50 GiB, modeled storage, keys/secrets and image
 custody produce these partial monthly subtotals:
 
-| Billable hours / month | Google | Azure |
-| --- | ---: | ---: |
-| 10 | $2.52 | $7.30 |
-| 30 | $4.61 | $9.46 |
-| 60 | $7.74 | $12.70 |
+| Billable hours / month | Google |  Azure |
+| ---------------------- | -----: | -----: |
+| 10                     |  $2.52 |  $7.30 |
+| 30                     |  $4.61 |  $9.46 |
+| 60                     |  $7.74 | $12.70 |
 
 Google assumes a 2 GiB image, one key/secret version, 10k operations in each modeled
 category and one schedule. Azure assumes Basic image registry (about $5 per 30 days),
@@ -500,11 +509,11 @@ are illustrative, not completed tasks or a quota. Current Gemini 3.8 Flash
 introductory credits and Azure GPT-6 Luna Global Standard prices are used;
 equivalent task quality and owner-pod model access remain unqualified.
 
-| Monthly use | GCP request-based + Flash | Azure Consumption + Luna |
-| --- | ---: | ---: |
-| 10 billable hours, 25 GiB, 300 model calls | $13.60 | $13.05 |
-| 30 billable hours, 50 GiB, 1,500 model calls | $38.69 | $18.74 |
-| 60 billable hours, 50 GiB, 3,000 model calls | $69.96 | $25.73 |
+| Monthly use                                  | GCP request-based + Flash | Azure Consumption + Luna |
+| -------------------------------------------- | ------------------------: | -----------------------: |
+| 10 billable hours, 25 GiB, 300 model calls   |                    $13.60 |                   $13.05 |
+| 30 billable hours, 50 GiB, 1,500 model calls |                    $38.69 |                   $18.74 |
+| 60 billable hours, 50 GiB, 3,000 model calls |                    $69.96 |                   $25.73 |
 
 Each package adds 5 GiB internet egress, ten HTTP requests per model call,
 10,000 object reads and writes each, and a **$5 planning reserve**, alongside
@@ -564,11 +573,21 @@ recovery, normal owner installation, and dated queue/model results. Fresh setup,
 production schema and release-channel qualification remain separate gates.
 Do not activate Files with a manual flag.
 
+## Personal Wiki storage and direct-pod routes (dev)
+
+On `dev`, Personal Wiki objects live in an isolated `<prefix>/wiki/v1/` namespace beside `files/v1` and recovery logs. Object keys and SQL metadata rows store opaque identifiers (`wpg_*`, `wcl_*`, `wsr_*`, `wpr_*`, `wtb_*`), revision counters, byte sizes, and mutation leases without plaintext titles or claims. Writes append immutable encrypted blobs under `revisions/` and advance compare-and-swap pointers under `heads/`.
+
+Shared mode encrypts wiki objects in the unlocked owner browser under a random 256-bit key wrapped by `vaultKey`; the hub transports opaque ciphertext without holding the unwrapped key. Pod mode binds encryption to the pod's configured KMS or Key Vault custody through `PodObjectStore`. Owner **Forget** records a durable tombstone, rotates the content encryption key on rewritten objects, and removes matching entries from the encrypted lexical index; physical deletion of historical object generations remains governed by bucket retention and account-erasure verification.
+
+Admitted owner-pod sessions expose nine wiki app-role endpoints (`/api/one/pod/files/wiki/overview`, `/api/one/pod/files/wiki/page`, `/api/one/pod/files/wiki/opt-in`, `/api/one/pod/files/wiki/confirm`, `/api/one/pod/files/wiki/projection/derive`, `/api/one/pod/files/wiki/forget`, `/api/one/pod/files/wiki/migrate`, `/api/one/pod/files/wiki/rollback`, and `/api/one/pod/files/wiki/import`) alongside four workspace checkpoint and CLI supervision endpoints (`/api/one/pod/files/workspaces/status`, `/api/one/pod/files/workspaces/execute`, `/api/one/pod/files/workspaces/control`, and `/api/one/pod/files/workspaces/forget`) registered in `pod_ingress.py` (`APP_SURFACE_EXACT`) and `pod-app-access.ts` (`OWNER_POD_ROUTES`). When active on `dev`, `/one/files` renders the owner Personal Wiki inspection, ChatGPT/Claude archive import, projection confirmation, per-owner migration/cutover (`compile_and_verify`, `cutover_rollback_safe`, `graduate_wiki_primary`), Forget, and lossless V1 rollback controls without background keepalive timers.
+
+Local Tier-1.5 Floci HTTP wire tests verify encrypted put/get, compare-and-swap conflict rejection, key-rotating Forget, and prefix/subprefix isolation (`workspaces/v1/<workspace_id>`) across GCS, Azure Blob, AWS S3, and `PrefixTokenObjectStore`. Local wire checks do not establish installed owner-cloud acceptance; UAT and production remain disabled. See the [Memory workspace boundary](../../architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
+
 ## Implementation owners
 
-- Backend: `consent-protocol/hushh_mcp/services/pod_files/` and exact pod Files routes.
+- Backend: `consent-protocol/hushh_mcp/services/pod_files/`, `consent-protocol/hushh_mcp/services/wiki_memory/`, `consent-protocol/hushh_mcp/services/pod_workspace/`, `consent-protocol/hushh_mcp/operons/pod_workspace/`, and exact pod Files routes.
 - Agent: `consent-protocol/hushh_mcp/agents/files/agent.yaml` and bounded ADK tools.
-- Browser: `hushh-webapp/lib/files/`, `components/files/`, and `/one/files`.
+- Browser: `hushh-webapp/lib/files/` (including `lib/files/wiki/`), `components/files/`, and `/one/files`.
 - Device: companion Hermes direct-pod client; release its compatible changes together.
 - Verification: encrypted storage, transfer, setup/erasure, consent, relay and command
   suites; canonical CI; then governed dev deployment and owner-approved pod update.

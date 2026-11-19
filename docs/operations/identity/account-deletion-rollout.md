@@ -1,6 +1,16 @@
 # Account deletion rollout and rollback
 
-[Operations](../../README.md)
+[Operations](../README.md)
+
+## UAT native identity
+
+The UAT iOS build keeps its existing default Analytics registration and named
+identity routing, but both must belong to UAT. Source, runtime and bundled-plist
+checks reject a production identity. Production packaging retains its production
+Firebase configuration. Existing Google OAuth identifiers may be explicitly
+allowed by UAT without sharing its Firebase user store. Installed clients require
+an update and fresh sign-in; source validation does not qualify physical-device
+Google sign-in, SMS or push delivery.
 
 ## Visual Map
 
@@ -273,6 +283,38 @@ journals. Email alone must not merge or replace an owner. Firebase documents
 imports can overwrite existing identifiers, so target collision checks and exact
 readback are required before importing a retained cohort.
 
+### UAT isolation completion — 14 November 2026
+
+UAT still serves the shared production Firebase realm; its isolated cutover is
+not yet accepted. `uat.id.hussh.ai` and `dev.id.hussh.ai` both pass strict HTTPS
+handler checks. UAT's existing SDK service identity now has a staged UAT-only
+credential; tested Auth permissions in production and Dev are empty. Staging a
+credential does not select it in any live service.
+
+The reported historical Parth phone-cleanup UID is natively absent in its original
+shared realm. Its exact provisional UAT job settled through the unchanged guarded
+lifecycle producer as `completed/not_found`, with UID, proof and claim scrubbed.
+No production identity was deleted. Seven additional provisional intents settled under that original realm: two
+confirmed absent and five existing production identities protected and retained.
+No legacy phone intent remains pending at this observation; the migration fence
+rechecks this before dispatch. Protected identities are never reported erased.
+
+The existing Auth operator now has an explicit UAT v2 manifest and operation
+context. It preserves the two reviewed, credential-free target identities without
+updates. Absent identities import in ordered batches of at most 1,000 with
+`allowOverwrite=false`. Every request is hashed and persisted before dispatch in
+both the private receipt and existing native trigger comments. Observation never
+replays a provider request; `continue-stage` and `continue-activation` explicitly
+continue only after exact readback settles prior requests. UAT adds a temporary
+INSERT fence on cleanup tombstones and requires zero unresolved legacy phone
+intents before provider dispatch. It preserves unresolved app owners and their
+identity/generation bindings; email does not confer migration authority.
+
+UAT login isolation qualifies its existing release/journal guards and attested SQL
+session. It does not apply Dev-only physical-erasure migrations 987/988 or certify
+UAT physical erasure. Exact-source checks, reviewed import and activation receipts,
+client/admin selection and normal owner sign-in remain release acceptance gates.
+
 ### Environment-specific sign-in domains
 
 | Environment | Intended callback domain | Firebase Auth status |
@@ -411,6 +453,10 @@ owner retirement and foreign records refuse. Unknown outcomes retain fences. The
 WorkOS attribution or explicit absence. Active membership rows are locked across
 the native update and readback; retirement and offboarding refuse. No membership
 is created or inferred from email.
+UAT replacement generations may preserve frozen WorkOS provenance only with an
+independent Google credential, no deprovisioning marker and no captured profile,
+identity or owner membership. The activation plan pins that absence and generation;
+each update rechecks it. Replacement-generation SSO enrollment remains refused.
 These operations require exclusive target-Auth administrator custody; SQL fences
 do not constrain an unrelated Firebase administrator.
 
@@ -1820,3 +1866,20 @@ works. Operators identify legacy settlements as rows whose `cleanup_operation`
 equals `account_legacy_cleanup_reference(identity_hash, generation)`. Both
 rollbacks refuse (forward recovery). A replay of 419 restores its stricter guard
 until 437 runs again and leaves settled rows unchanged.
+
+## Cloud cleanup compatibility and exit
+
+Before a new GCP removal reservation, inspection qualifies the recorded owner,
+creation acknowledgement and fresh native runtime identity. A missing provenance
+record or changed runtime refuses before suspending the owner. Execution repeats
+that qualification before the pod fence and retains the independent Memory
+receipt, durable readback and fresh runtime check afterward. This ordering does
+not repair an existing fenced operation or authorize legacy recovery.
+
+Pending cleanup offers the existing sign-out action without cancelling or
+replaying the approved operation. Provider retention remains pending; progress
+counts verified cleanup checks rather than claiming every check is a resource.
+A background Profile pane can mount after normal admission without waiting for
+an animation frame that a hidden tab may never receive. Visibility does not
+bypass authentication, vault admission or owner fencing. Native/provider
+acceptance and each environment release remain separate from source tests.

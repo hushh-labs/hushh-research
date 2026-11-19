@@ -32,7 +32,7 @@ const CHAT_GRANTS_REFUSAL = /^POD_CHAT_AUTHORITY_UNAVAILABLE:\d{3}(?::([A-Z][A-Z
 const FIXED_MESSAGES: Readonly<Record<string, string>> = {
   "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY": NOT_READY,
   POD_CHAT_BUSY: "Agent One is finishing active work. Try again shortly.",
-  POD_CHAT_UPDATING: "Agent One is updating. Check Software updates in Settings before trying again.",
+  POD_CHAT_UPDATING: "Agent One is updating. Check Agent updates in Settings before trying again.",
   POD_CHAT_RECOVERY_FAILED: "This answer could not be saved safely. Reconnect to Agent One before continuing.",
   POD_CHAT_AUTHORITY_UNAVAILABLE: "This action is not available through Agent One yet.",
   POD_RECEIPT_UPDATE_REQUIRED: "Update Agent One in Settings before resuming this receipt request.",
@@ -112,6 +112,42 @@ function chatGrantsRefusalMessage(code: string, message: string): string | null 
   if (hubCode === "AGENT_NOT_READY") return NOT_READY_TO_CHAT;
   if (hubCode === "POD_ASSIGNMENT_CHANGED") return MOVED;
   return NOT_CONFIRMED;
+}
+
+const SOFTWARE_UPDATE_RECOVERY_MESSAGES = new Set<string>([
+  FIXED_MESSAGES.POD_CHAT_UPDATING!,
+  FIXED_MESSAGES.POD_RECEIPT_UPDATE_REQUIRED!,
+]);
+
+const HOSTING_RECOVERY_MESSAGES = new Set<string>([
+  NOT_READY,
+  NOT_ESTABLISHED,
+  MOVED,
+  NOT_READY_TO_CHAT,
+  FIXED_MESSAGES[POD_WAKE_TIMEOUT]!,
+  FIXED_MESSAGES[POD_NOT_REACHED]!,
+  FIXED_MESSAGES.POD_CHAT_RECOVERY_FAILED!,
+  FIXED_MESSAGES.POD_CHAT_CAPABILITIES_INVALID!,
+  FIXED_MESSAGES.POD_CHAT_CAPABILITIES_UNAVAILABLE!,
+  PLACEMENT_MESSAGES.byoc!,
+  PLACEMENT_MESSAGES.hussh_pods!,
+  PLACEMENT_MESSAGES.unplaced!,
+  PRIVATE_RUNTIME_GENERIC,
+  HOSTING_UNVERIFIED,
+]);
+
+/**
+ * Closed-set Settings destination for a direct-path turn failure that the owner
+ * can inspect or resolve in Profile, or null when no Settings action applies.
+ */
+export function ownerPodTurnRecoveryPanel(
+  message: string | null | undefined,
+): "hosting" | "software-updates" | null {
+  const normalized = typeof message === "string" ? message.trim() : "";
+  if (!normalized) return null;
+  if (SOFTWARE_UPDATE_RECOVERY_MESSAGES.has(normalized)) return "software-updates";
+  if (HOSTING_RECOVERY_MESSAGES.has(normalized)) return "hosting";
+  return null;
 }
 
 /**

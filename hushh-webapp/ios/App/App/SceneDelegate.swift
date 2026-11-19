@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import GoogleSignIn
+import FirebaseAuth
 
 /// UIScene lifecycle for the single-window shell.
 ///
@@ -136,6 +137,9 @@ enum AppLifecycleHandlers {
         // Google Sign-In URL callback first; then Capacitor's proxy, which
         // posts capacitorOpenURL so the App plugin can report the open.
         if GIDSignIn.sharedInstance.handle(url) {
+            return true
+        }
+        if let shared = HushhFirebaseIdentity.shared, Auth.auth(app: shared).canHandle(url) {
             return true
         }
         return ApplicationDelegateProxy.shared.application(UIApplication.shared, open: url, options: legacyOptions)

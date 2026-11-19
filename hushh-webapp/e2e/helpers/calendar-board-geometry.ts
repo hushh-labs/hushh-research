@@ -14,7 +14,8 @@ export async function assertCalendarBoardGeometry(page: Page, width: number) {
 export async function assertCalendarAccountLabel(label: Locator, width: number) {
   const name = label.locator("div").first();
   const domain = label.locator("span").first();
-  await expect(name).toHaveCSS("font-size", "14px");
+  // Profile row label.
+  await expect(name).toHaveCSS("font-size", "13px");
   await expect(domain).toHaveCSS("font-size", "12px");
   expect(`${await name.textContent()}${await domain.textContent()}`).toBe(await label.getAttribute("title"));
   if (width < 901) return;

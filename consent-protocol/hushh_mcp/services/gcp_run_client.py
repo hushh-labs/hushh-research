@@ -20,6 +20,7 @@ import time
 from typing import Any, Callable, Optional
 
 from hushh_mcp.services.gcp_run_hosted_files import HostedFilesRunClientMixin
+from hushh_mcp.services.gcp_run_jobs_client import GcpRunJobsClientMixin
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ def resolve_admin_project(sa_key_b64: Optional[str] = None) -> Optional[str]:
     return attached_project or None
 
 
-class GcpRunClient(HostedFilesRunClientMixin):
+class GcpRunClient(HostedFilesRunClientMixin, GcpRunJobsClientMixin):
     """Create / get / delete Cloud Run services via the v1 knative regional API."""
 
     def __init__(self, *, project: str, region: str, credentials: Any = None) -> None:

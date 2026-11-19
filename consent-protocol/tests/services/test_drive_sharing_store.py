@@ -2045,7 +2045,11 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
     identity = created["requestId"]
     _, private = stored_request(sharing, identity)
     assert private["semantic_search_policy_version"] == 4
-    assert private["semantic_model_binding"]["provider"] == "azure_openai"
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
+
+    assert private["semantic_model_binding"] == managed_text_binding()
+    assert private["semantic_model_binding"]["provider"] == "gemini"
+    assert private["semantic_model_binding"]["deployment"] == "gemini-4-hydrogen"
     assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
     with sharing.db.engine.connect() as connection:
         assert (
@@ -2086,3 +2090,18 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
                 connection, request_id=identity, requester_user_id="recipient"
             )
     stripe_api.checkout.Session.create.assert_not_called()
+
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": identity},
+        )
+    assert (await owner_allow(sharing, created, 50))["_checkout_after_plan"] is True
+    assert (await owner_allow(sharing, created, 50))["_checkout_after_plan"] is True
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp()
+              WHERE request_id=:id"""),
+            {"id": identity},
+        )
+    assert "_checkout_after_plan" not in await owner_allow(sharing, created, 50)

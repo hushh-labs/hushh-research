@@ -4,7 +4,7 @@ The `hushh` root CLI is the only supported repo-level command surface.
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md). Use that map for the full operations surface; this page is the command contract for repo-level work.
+Canonical visual owner: [Operations Index](../README.md). Use that map for the full operations surface; this page is the command contract for repo-level work.
 
 Use package-local commands only when you are working inside a package on purpose:
 

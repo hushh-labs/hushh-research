@@ -5,8 +5,8 @@
 
 This read-only verifier grants no deployment authority by itself. The caller
 must recheck the selected source and release state under the mutation lock.
-Reviewed application and test code use the existing protected-branch trust model.
-Privileged release execution and credential clearance remain Main-owned. This
+Ordinary UAT application, tests and tooling use the protected-branch trust model.
+Release orchestration and credential clearance remain Main-owned. This
 verifier does not claim to sandbox malicious reviewed application code.
 """
 
@@ -186,6 +186,7 @@ def backend_test_inventory(source: str) -> set[str]:
     require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
             "UAT backend test manifest must be a regular tracked file")
     return _backend_test_identities(git("show", f"{source}:{BACKEND_TEST_MANIFEST}"))
+
 
 def _backend_test_identities(raw: bytes) -> set[str]:
     parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]

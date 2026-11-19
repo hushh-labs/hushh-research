@@ -71,11 +71,10 @@ describe("Calendar Insights meeting library", () => {
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
     expect(await screen.findByText("Not available yet (5)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Meeting 1/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Request recording or notes" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Notes" }));
-    fireEvent.click(screen.getByRole("button", { name: "Review request" }));
-    expect(screen.getByText(account.google_email)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    // What would you like to request? Notes, then the one action: Ask organizer.
+    fireEvent.click(await screen.findByRole("tab", { name: "Notes" }));
+    expect(mocks.requestFiles).not.toHaveBeenCalled(); // choosing is not asking
+    fireEvent.click(await screen.findByRole("button", { name: "Ask organizer" }));
     await waitFor(() => expect(mocks.requestFiles).toHaveBeenCalledWith(
       expect.objectContaining({ account_id: accountId, event_id: "a", occurrence_id: rows[0]?.occurrence_id,
         expected_grant: meetingGrant }), ["notes"], "firebase-owner-token", "vault-owner-token",

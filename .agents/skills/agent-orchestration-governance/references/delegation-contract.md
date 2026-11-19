@@ -2,7 +2,7 @@
 
 Use this reference when changing repo-scoped custom agents or the orchestration rules that govern them.
 
-The shared truth-first reasoning contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
+The shared truth-first reasoning contract lives at `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
 
 Product-agent delegation (One delegating to Kai/Nav/KYC/email/location specialists at runtime) is governed by the Project-Wide Agent Architecture Doctrine in `.agents/instructions.md` (loaded by `AGENTS.md`). Shared-runtime context comes from owner-scoped, consented turn/session state, A2A task payloads, and scoped encrypted exports; the private pod has separate owner-isolated encrypted recovery and explicit recall. Delegation wraps the existing dispatch contract without breaking it. The doctrine specifies ADK modes within a runtime, official A2A Tasks across process or deployment boundaries, MCP for consented tools and resources, subsystem-owned shared state behind replaceable seams, and one routing authority per surface. This file governs ENGINEERING delegation lanes (coding-agent subagents); do not conflate them with product agents.
 

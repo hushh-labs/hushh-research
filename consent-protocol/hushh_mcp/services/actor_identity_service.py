@@ -115,6 +115,18 @@ class ActorIdentitySyncUnavailableError(RuntimeError):
         super().__init__(self.message)
 
 
+class ActorIdentityPeerUnavailableError(ActorIdentitySyncUnavailableError):
+    """The provider has no usable account for this id (deleted or disabled), not an outage."""
+
+
+def _sync_unavailable(exc: BaseException | None = None) -> ActorIdentitySyncUnavailableError:
+    """A deleted or disabled account is final; any other failure may pass."""
+    from firebase_admin import auth as firebase_auth
+
+    gone = exc is None or isinstance(exc, getattr(firebase_auth, "UserNotFoundError", ()))
+    return (ActorIdentityPeerUnavailableError if gone else ActorIdentitySyncUnavailableError)()
+
+
 class ActorIdentityService:
     @staticmethod
     async def _ensure_actor_spine(conn: asyncpg.Connection, user_id: str) -> None:
@@ -193,10 +205,10 @@ class ActorIdentityService:
         *,
         user_id: str,
         phone_number: str,
-        allow_owner_transfer: bool = True,
+        allow_owner_transfer: bool = False,
         release_deleted_holders: bool = True,
     ) -> bool:
-        """Serialize one verified-phone owner transfer inside its transaction.
+        """Serialize a phone claim without displacing another active account.
 
         The advisory lock closes the empty-set race where two first claims can
         both observe no prior owner. The ordered row lock also prevents two
@@ -204,6 +216,9 @@ class ActorIdentityService:
         rows in opposite order. Every verified-phone writer in this service
         must use this seam before its identity upsert.
         """
+
+        if allow_owner_transfer:
+            raise ActorIdentityPhoneClaimConflictError()
 
         await conn.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
@@ -1763,13 +1778,13 @@ class ActorIdentityService:
                 type(exc).__name__,
             )
             if require_success:
-                raise ActorIdentitySyncUnavailableError() from None
+                raise _sync_unavailable(exc) from None
             return None
 
         # Quarantined or unavailable users cannot create fresh identity proof.
         if user_record is None or getattr(user_record, "disabled", False) is True:
             if require_success:
-                raise ActorIdentitySyncUnavailableError()
+                raise _sync_unavailable()
             return None
 
         return user_record

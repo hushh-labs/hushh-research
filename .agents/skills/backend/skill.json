@@ -25,14 +25,16 @@
     "product-agent-development",
     "hushh-consent-mcp-ops",
     "ria-api-reference",
-    "puppy-one-harness"
+    "puppy-one-harness",
+    "model-provider-rollout"
   ],
   "required_reads": [
     "consent-protocol/README.md",
     "consent-protocol/docs/README.md",
     "docs/architecture/system.md",
     "docs/development/repository-map.md",
-    "docs/architecture/pod-data-door.md"
+    "docs/architecture/pod-data-door.md",
+    "docs/development/quality/floci-multicloud-wire-verification.md"
   ],
   "required_commands": [
     "./bin/hushh protocol --help",
@@ -54,6 +56,7 @@
     "backend-runtime-governance",
     "backend-api-contracts",
     "backend-agents-operons",
+    "model-provider-governance",
     "mcp-developer-surface",
     "repo-context"
   ],
@@ -61,6 +64,7 @@
     "backend-runtime-governance",
     "backend-api-contracts",
     "backend-agents-operons",
+    "model-provider-governance",
     "mcp-developer-surface",
     "security-audit"
   ],

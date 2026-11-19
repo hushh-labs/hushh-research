@@ -7,7 +7,10 @@ import { RetainedAgentBar } from "./agent-bar-surface";
 import { useAgentDockSurface } from "./agent-dock";
 import { CommandAgentBar } from "@/components/agent/command-agent-bar";
 import { OneVoiceControl } from "@/components/one-voice/one-voice-control";
+import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { useOneVoiceLiveEnabled, useOneVoiceReadiness, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
+
+const VOICE_HOSTING_UNAVAILABLE_LABEL = "Voice unavailable — check Hosting settings";
 
 /**
  * The persistent agent launcher. One stable entry point, two owners: the
@@ -26,7 +29,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       !command?.active && !command?.recording && (command?.view.phase ?? "idle") === "idle") return null;
 
   const unavailableLabel = commands ? undefined : readiness.status === "unknown" && readiness.microphoneOwner !== "none"
-    ? "Checking voice connection…" : "Voice unavailable — check Hosting settings";
-  const control = live ? <OneVoiceControl layout={layout} /> : <CommandAgentBar layout={layout} unavailableLabel={unavailableLabel} />;
+    ? "Checking voice connection…" : VOICE_HOSTING_UNAVAILABLE_LABEL;
+  const openHosting = unavailableLabel === VOICE_HOSTING_UNAVAILABLE_LABEL
+    ? () => {
+        if (typeof window === "undefined") return;
+        openProfilePane(window.location.pathname, window.location.search, { panel: "hosting", detail: null }, { returnsToOrigin: true });
+      }
+    : undefined;
+  const control = live ? <OneVoiceControl layout={layout} /> : <CommandAgentBar layout={layout} unavailableLabel={unavailableLabel} onOpenHosting={openHosting} />;
   return layout === "slot" && dock ? <RetainedAgentBar>{control}</RetainedAgentBar> : control;
 }

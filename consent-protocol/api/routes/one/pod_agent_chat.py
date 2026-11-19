@@ -94,10 +94,15 @@ async def context(request: Request) -> PodChatContext:
 @router.get("/capabilities")
 async def capabilities(owner: PodChatContext = Depends(context)):
     # Discovery performs no model construction, turn admission or history write.
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
     return {
         **_authenticated_capabilities,
         "podCommandCheckpointVersion": 1,
         "receiptToolVersion": 1,
+        "admittedActionIds": sorted(
+            {"pkm.add", *(entry["action_id"] for entry in list_action_gateway_actions())}
+        ),
     }
 
 

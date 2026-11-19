@@ -6,8 +6,7 @@ The merge queue verifies the actual combined result before landing.
 
 ## Preserve and reconcile
 
-1. Record the current branch, dirty files and peer work. Do not switch the root
-   checkout or discard edits to synchronize.
+1. Record the current root branch, active worktrees, dirty files, and peer work. Keep the root checkout clean on the active base (`dev`, or `uat` when explicitly working UAT) without discarding uncommitted work; perform synchronization and merges inside a registered task worktree branched from fresh `origin/<base>`.
 2. Fetch the actual destination (`main`, `uat`, `dev` or `integration/pr-train`).
    Inspect its new commits, the merge base and the change's dependency boundaries.
 3. Reconcile relevant Main fixes into UAT/Dev and UAT fixes into Dev when starting

@@ -168,6 +168,8 @@ class PathDescriptor:
     segment_id: str = "root"
     scope_handle: Optional[str] = None
     source_agent: Optional[str] = None
+    projection_state: Optional[str] = None
+    projection_receipt_id: Optional[str] = None
 
 
 @dataclass
@@ -553,17 +555,46 @@ class PersonalKnowledgeModelService:
             raw_payload.get("source_agent"),
             default=source_agent,
         )
+        raw_proj_state = cls._clean_text(
+            raw_payload.get("projection_state"),
+            allow_none=True,
+        )
+        projection_state = (
+            raw_proj_state.lower()
+            if raw_proj_state
+            and raw_proj_state.lower()
+            in {
+                "materialized",
+                "private_candidate",
+                "empty",
+                "unknown",
+                "failed",
+                "pending",
+                "stale",
+                "conflicted",
+            }
+            else None
+        )
+        projection_receipt_id = cls._clean_text(
+            raw_payload.get("projection_receipt_id"),
+            allow_none=True,
+        )
+        exposure_eligibility = bool(raw_payload.get("exposure_eligibility", True))
+        if projection_state and projection_state not in {"materialized", "unknown"}:
+            exposure_eligibility = False
 
         return PathDescriptor(
             json_path=json_path,
             parent_path=parent_path or None,
             path_type=path_type,
-            exposure_eligibility=bool(raw_payload.get("exposure_eligibility", True)),
+            exposure_eligibility=exposure_eligibility,
             consent_label=consent_label or None,
             sensitivity_label=sensitivity_label or None,
             segment_id=segment_id,
             scope_handle=scope_handle or None,
             source_agent=descriptor_source_agent or None,
+            projection_state=projection_state,
+            projection_receipt_id=projection_receipt_id or None,
         )
 
     @classmethod
@@ -622,7 +653,16 @@ class PersonalKnowledgeModelService:
                     if not scope or "." in scope or not isinstance(raw_entry, dict):
                         continue
                     state = str(raw_entry.get("state") or "").strip().lower()
-                    if state not in {"materialized", "empty", "unknown"}:
+                    if state not in {
+                        "materialized",
+                        "private_candidate",
+                        "empty",
+                        "unknown",
+                        "failed",
+                        "pending",
+                        "stale",
+                        "conflicted",
+                    }:
                         continue
                     count = cls._to_non_negative_int(raw_entry.get("materialized_leaf_count"))
                     if count is None:
@@ -1223,17 +1263,101 @@ class PersonalKnowledgeModelService:
             if descriptor.exposure_eligibility and descriptor.json_path
         }
 
-        for scope_path in top_level_scope_paths:
+        non_requestable_states = {
+            "private_candidate",
+            "conflicted",
+            "stale",
+            "pending",
+            "failed",
+        }
+        ordered_scopes: list[str] = list(top_level_scope_paths)
+        if isinstance(scope_materialization, dict):
+            for extra_scope in scope_materialization:
+                if extra_scope not in ordered_scopes:
+                    ordered_scopes.append(str(extra_scope))
+
+        seen_scopes: set[str] = set()
+        for scope_path in ordered_scopes:
             normalized_path = self._normalize_manifest_path(scope_path)
-            if not normalized_path:
+            if (
+                not normalized_path
+                or normalized_path.startswith("_")
+                or normalized_path in seen_scopes
+            ):
                 continue
+            seen_scopes.add(normalized_path)
             matching = [
                 descriptor
                 for descriptor in path_map.values()
                 if descriptor.json_path == normalized_path
                 or descriptor.json_path.startswith(f"{normalized_path}.")
             ]
+            materialization = (
+                (scope_materialization or {}).get(normalized_path)
+                if isinstance(scope_materialization, dict)
+                else None
+            )
+            materialization_state = (
+                str((materialization or {}).get("state") or "unknown").strip().lower()
+            )
+            if materialization_state not in {
+                "materialized",
+                "private_candidate",
+                "empty",
+                "unknown",
+                "failed",
+                "pending",
+                "stale",
+                "conflicted",
+            }:
+                materialization_state = "unknown"
             if not matching:
+                if materialization_state not in non_requestable_states:
+                    continue
+                all_scope_descriptors = [
+                    descriptor
+                    for descriptor in paths
+                    if descriptor.json_path
+                    and (
+                        descriptor.json_path == normalized_path
+                        or descriptor.json_path.startswith(f"{normalized_path}.")
+                    )
+                ]
+                segment_ids = sorted(
+                    {descriptor.segment_id or "root" for descriptor in all_scope_descriptors}
+                ) or ["root"]
+                sensitivity_tier = "confidential"
+                if any(
+                    (descriptor.sensitivity_label or "").lower() == "restricted"
+                    for descriptor in all_scope_descriptors
+                ):
+                    sensitivity_tier = "restricted"
+                handle = self._scope_handle_for_path(user_id, domain, normalized_path)
+                for descriptor in all_scope_descriptors:
+                    descriptor.scope_handle = handle
+                entries.append(
+                    ScopeRegistryEntry(
+                        scope_handle=handle,
+                        scope_label=normalized_path.replace(".", " ").replace("_", " ").title(),
+                        segment_ids=segment_ids,
+                        sensitivity_tier=sensitivity_tier,
+                        scope_kind="subtree",
+                        scope_origin="dynamic",
+                        scope_origin_code="d",
+                        source_kind="manifest_branch",
+                        exposure_enabled=False,
+                        visibility_posture="consent_required",
+                        default_projection_ready=False,
+                        summary_projection={
+                            **self._scope_visibility_projection(normalized_path),
+                            "manifest_version": manifest_version,
+                            "source_manifest_revision": manifest_version,
+                            "materialization_state": materialization_state,
+                            "materialized_leaf_count": 0,
+                            "storage_mode": "manifest",
+                        },
+                    )
+                )
                 continue
             segment_ids = sorted({descriptor.segment_id or "root" for descriptor in matching}) or [
                 "root"
@@ -1245,16 +1369,6 @@ class PersonalKnowledgeModelService:
             ):
                 sensitivity_tier = "restricted"
             handle = self._scope_handle_for_path(user_id, domain, normalized_path)
-            materialization = (
-                (scope_materialization or {}).get(normalized_path)
-                if isinstance(scope_materialization, dict)
-                else None
-            )
-            materialization_state = (
-                str((materialization or {}).get("state") or "unknown").strip().lower()
-            )
-            if materialization_state not in {"materialized", "empty", "unknown"}:
-                materialization_state = "unknown"
             materialized_leaf_count = self._to_non_negative_int(
                 (materialization or {}).get("materialized_leaf_count")
             )
@@ -1272,7 +1386,7 @@ class PersonalKnowledgeModelService:
                     scope_origin="dynamic",
                     scope_origin_code="d",
                     source_kind="manifest_branch",
-                    exposure_enabled=True,
+                    exposure_enabled=materialization_state not in non_requestable_states,
                     visibility_posture="consent_required",
                     default_projection_ready=False,
                     summary_projection={
@@ -1319,12 +1433,27 @@ class PersonalKnowledgeModelService:
             for row in prior_rows
             if isinstance(row.get("summary_projection"), dict)
         }
+        non_requestable_states = {
+            "private_candidate",
+            "conflicted",
+            "stale",
+            "pending",
+            "failed",
+        }
         for entry in manifest.scope_registry:
+            entry_state = (
+                str((entry.summary_projection or {}).get("materialization_state") or "")
+                .strip()
+                .lower()
+            )
             top_level_path = cls._top_level_scope_path_for_registry_entry(entry)
             prior = by_handle.get(entry.scope_handle) or by_path.get(top_level_path)
             if not prior:
                 continue
-            entry.exposure_enabled = prior.get("exposure_enabled") is not False
+            if entry_state in non_requestable_states:
+                entry.exposure_enabled = False
+            else:
+                entry.exposure_enabled = prior.get("exposure_enabled") is not False
             entry.visibility_posture = str(
                 prior.get("visibility_posture") or entry.visibility_posture
             )
@@ -2944,7 +3073,9 @@ class PersonalKnowledgeModelService:
                 "affected_export_ids": [],
             }
 
+        from hushh_mcp.consent.paid_admission import is_paid_grant
         from hushh_mcp.services.consent_db import ConsentDBService
+        from hushh_mcp.services.personal_agent_grant_service import PERSONAL_AGENT_ID
 
         consent_service = ConsentDBService()
         active_tokens = await consent_service.get_active_tokens(user_id)
@@ -2953,6 +3084,17 @@ class PersonalKnowledgeModelService:
         affected_export_ids: set[str] = set()
         for token in active_tokens:
             granted_scope = str(token.get("scope") or "").strip()
+            metadata = token.get("metadata") if isinstance(token.get("metadata"), dict) else {}
+            # The owner's standing read stays visible and revocable in Consent;
+            # it is not an external recipient of a new Memory export.
+            if (
+                token.get("user_id") == user_id
+                and token.get("agent_id") == PERSONAL_AGENT_ID
+                and granted_scope == "pkm.read"
+                and metadata.get("grant_kind") == "personal_agent_standing_read"
+                and not is_paid_grant(metadata)
+            ):
+                continue
             if granted_scope == "vault.owner":
                 continue
             if granted_scope != "pkm.read" and not granted_scope.startswith("attr."):
@@ -2963,7 +3105,6 @@ class PersonalKnowledgeModelService:
             ):
                 continue
 
-            metadata = token.get("metadata") if isinstance(token.get("metadata"), dict) else {}
             agent_id = str(token.get("agent_id") or token.get("developer") or "").strip()
             label = str(
                 metadata.get("developer_app_display_name")
@@ -3039,65 +3180,15 @@ class PersonalKnowledgeModelService:
         user_id: str,
         disabled_scopes: list[str],
     ) -> list[str]:
-        if not disabled_scopes:
-            return []
+        from hushh_mcp.services.pkm_scope_token_revocation import (
+            revoke_scope_access_tokens,
+        )
 
-        try:
-            import time
-
-            from hushh_mcp.consent.token import revoke_token
-            from hushh_mcp.services.consent_db import ConsentDBService
-
-            consent_service = ConsentDBService()
-            external_tokens = await consent_service.get_active_tokens(user_id)
-            internal_tokens = await consent_service.get_active_internal_tokens(user_id)
-            revoked_ids: list[str] = []
-            seen_token_ids: set[str] = set()
-
-            for token in [*external_tokens, *internal_tokens]:
-                granted_scope = str(token.get("scope") or "").strip()
-                token_id = str(token.get("token_id") or "").strip()
-                if not granted_scope or not token_id or token_id in seen_token_ids:
-                    continue
-                overlaps = any(
-                    scope_matches(granted_scope, disabled_scope)
-                    or scope_matches(disabled_scope, granted_scope)
-                    for disabled_scope in disabled_scopes
-                )
-                if not overlaps:
-                    continue
-
-                seen_token_ids.add(token_id)
-                if not token_id.startswith("REVOKED_"):
-                    revoke_token(token_id)
-                await consent_service.delete_consent_export(token_id)
-
-                event_token_id = f"REVOKED_SCOPE_{int(time.time() * 1000)}_{len(revoked_ids)}"
-                agent_id = token.get("agent_id") or token.get("developer") or "Unknown"
-                request_id = token.get("request_id")
-                await consent_service.insert_event(
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    scope=granted_scope,
-                    action="REVOKED",
-                    token_id=event_token_id,
-                    request_id=request_id,
-                    metadata={
-                        "revoked_by": "pkm_scope_exposure",
-                        "disabled_scopes": disabled_scopes,
-                    },
-                )
-                revoked_ids.append(token_id)
-
-            return revoked_ids
-        except Exception as exc:
-            logger.warning(
-                "Failed to revoke overlapping scope grants for user=%s scopes=%s: %s",
-                user_id,
-                disabled_scopes,
-                exc,
-            )
-            return []
+        return await revoke_scope_access_tokens(
+            user_id=user_id,
+            disabled_scopes=disabled_scopes,
+            scope_matches_fn=scope_matches,
+        )
 
     async def update_scope_exposure(
         self,

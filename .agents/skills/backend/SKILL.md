@@ -50,6 +50,7 @@ Non-owned surfaces:
 3. `docs/architecture/system.md`
 4. `docs/development/repository-map.md`
 5. `docs/architecture/pod-data-door.md`
+6. `docs/development/quality/floci-multicloud-wire-verification.md`
 
 ## Workflow
 
@@ -58,14 +59,16 @@ Non-owned surfaces:
 3. Route IAM, consent, vault, PKM, and audit-heavy issues into `security-audit` when those are the real ownership surface.
 4. If the user explicitly wants a visible OS terminal window, prefer `./bin/hushh terminal backend --mode local --reload` as the primary backend path.
 5. Local runtime uses three separate terminals (no combined `stack` command): `./bin/hushh proxy --mode local`, `./bin/hushh backend --mode local --reload`, and `./bin/hushh web --mode local`. Use the `./bin/hushh terminal proxy|backend|web` wrappers only when a visible OS terminal window is explicitly preferred.
+6. When changing multi-cloud object storage, KMS/Key Vault custody, capability-prefix gateways, or BYOC control-plane adapters (`GCS`, `Azure Blob`, `AWS S3/ECS/KMS`, `PrefixTokenObjectStore`), exercise unmocked SDK/HTTP wire behavior via `consent-protocol/tests/floci_wire_harness.py` (`docs/development/quality/floci-multicloud-wire-verification.md`) rather than `MagicMock` cloud stubs; keep emulator overrides loopback-only outside `uat`/`staging`/`production`, and never treat Tier-1.5 wire passes as `execution_qualified` live-cloud proof.
 
 ## Handoff Rules
 
 1. Route route and service-boundary work to `backend-runtime-governance`.
 2. Route proxy/backend contract work to `backend-api-contracts`.
 3. Route agents, operons, and ADK surfaces to `backend-agents-operons`.
-4. Route `@hushh/mcp` and developer API/package work to `mcp-developer-surface`.
-5. If the task begins as a cross-domain scan, start with `repo-context`.
+4. Route AI model generation upgrades and runtime provider adapters to `model-provider-governance`.
+5. Route `@hushh/mcp` and developer API/package work to `mcp-developer-surface`.
+6. If the task begins as a cross-domain scan, start with `repo-context`.
 
 ## Required Checks
 

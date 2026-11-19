@@ -1562,7 +1562,10 @@ class PersonalAgentProvisioningService:
         )
         hushh_id = admission.hushh_id
         files_capability = admission.files_capability
-        from hushh_mcp.services.personal_agent_upgrade_claim import claim_upgrade
+        from hushh_mcp.services.personal_agent_upgrade_claim import (
+            _require_live_upgrader,
+            claim_upgrade,
+        )
 
         outcome = await claim_upgrade(self, admission)
         if outcome.result is not None:
@@ -1610,6 +1613,7 @@ class PersonalAgentProvisioningService:
 
             spec = await bind_private_upgrade(spec, row, registry=self._registry, lease=lease)
             backend = self._backend_for(spec)
+            upgrade = _require_live_upgrader(replace(admission, backend=backend))
             claimed_metadata = dict(row.get("backend_metadata") or {})
             claimed_row = row
             approval_metadata = claimed_metadata.get("upgradeApproval")
@@ -2073,6 +2077,12 @@ class PersonalAgentProvisioningService:
             return None
         if str(row.get("status") or "") == "provisioned":
             return None  # already whole; nothing to adopt
+        from hushh_mcp.services.pod_adoption import has_hosted_evidence
+
+        if has_hosted_evidence(row):
+            from hushh_mcp.services.hosted_pod_adoption import adopt_retained_host
+
+            return await adopt_retained_host(self, row=row, owner=user_id)
         hushh_id = str(row.get("hushh_id") or "").strip()
         phone_hash = str(row.get("phone_e164_hash") or "").strip()
         if not hushh_id or not phone_hash:

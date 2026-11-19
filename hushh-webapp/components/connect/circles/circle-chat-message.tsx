@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Smile, Trash2 } from "@/components/icons";
+import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Copy, Pencil, Smile, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
@@ -163,7 +163,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
                 <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
               </> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
-              {messagesLane && !deleted && !message.failed && message.content?.text?.trim() ? <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-circles-copy-text" onSelect={() => { void copyText(); }}>Copy text</DropdownMenuItem> : null}
+              {messagesLane && !deleted && !message.failed && message.content?.text?.trim() ? <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-circles-copy-text" onSelect={() => { void copyText(); }}><Copy aria-hidden="true" />Copy text</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
               <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 inheritColor aria-hidden="true" />Delete for me</DropdownMenuItem>
               {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 inheritColor aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}

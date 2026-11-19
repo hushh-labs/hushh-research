@@ -60,7 +60,27 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { readGoalPlanProposal } from "@/lib/goals/goal-plan-proposal";
+import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import {
+  WIKI_TOOL_DECLARATIONS,
+  WIKI_TOOL_NAMES,
+  buildSharedWikiHotDigestContext,
+  executeSharedWikiRecallTool,
+  normalizeWikiRecallRequest,
+  type WikiRecallEnvelope,
+  type WikiToolName,
+} from "@/lib/files/wiki/recall-client-tools";
+import {
+  clearActiveSharedWiki,
+  ensureActiveSharedWiki,
+  peekActiveSharedWiki,
+} from "@/lib/files/wiki/active-shared-wiki";
+import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
+import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
+import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity-agent-context";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
@@ -228,6 +248,7 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  onGoalPlanProposal?: (proposal: GoalPlanInput) => void;
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
@@ -648,6 +669,21 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Saving this to your memory.",
     activity: "Saving to your memory",
   },
+  search_wiki: {
+    label: "Personal wiki",
+    message: "Searching your personal notes.",
+    activity: "Searching your notes",
+  },
+  read_wiki_page: {
+    label: "Personal wiki",
+    message: "Reading your personal note.",
+    activity: "Reading a personal note",
+  },
+  trace_claim: {
+    label: "Personal wiki",
+    message: "Checking note sources and updates.",
+    activity: "Checking note sources",
+  },
   read_my_profile_status: {
     label: "Profile",
     message: "Checking your profile.",
@@ -777,6 +813,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Calendar",
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
+  },
+  propose_file_schedule: {
+    label: "Private Files",
+    message: "Preparing a file schedule for your review.",
+    activity: "Preparing a file schedule",
+  },
+  propose_goal_plan: {
+    label: "Goal plan",
+    message: "Preparing a goal plan for you to review.",
+    activity: "Preparing a goal plan",
   },
   open_gmail_email_draft: {
     label: "Gmail",
@@ -952,6 +998,11 @@ function specialistReadMessage(toolName: string, status: unknown, metadataOnly =
   const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
   if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
   if (status === "input_required") return `${source} needs more detail.`;
+  if (status === "connect_required") return `${source} isn't connected yet.`;
+  if (status === "reconnect_required") return `${source} needs to be reconnected.`;
+  if (status === "permission_denied" || status === "permission_required") {
+    return `${source} needs permission to continue.`;
+  }
   // The Email specialist read no mail and handed a receipts question back to One.
   if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
   return `${source} could not complete that read.`;
@@ -1337,16 +1388,108 @@ async function streamAgentChatAttempt(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
+  const wikiEligible = Boolean(
+    input.vaultKey &&
+      input.vaultOwnerToken &&
+      !input.consentContinuation &&
+      !input.financeShare &&
+      !input.feedAttention &&
+      !recovered,
+  );
+  const resolveTurnSharedWiki = async (): Promise<{
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  }> => {
+    if (!wikiEligible || !mcpSessionCurrent()) {
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+    }
+    try {
+      const access = await import("./pod-app-access");
+      if (
+        !(await access.introMayReachHub(() =>
+          ApiService.getPersonalAgentStatus(),
+        ))
+      ) {
+        clearActiveSharedWiki();
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      if (!mcpSessionCurrent()) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const bound = peekActiveSharedWiki();
+      if (bound) {
+        const initialized = await bound.store.readyIfInitialized(input.signal);
+        if (!initialized || !mcpSessionCurrent()) {
+          if (!initialized) clearActiveSharedWiki();
+          return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+        }
+        const [digest, mig] = await Promise.all([
+          buildSharedWikiHotDigestContext(bound, undefined, input.signal).catch(
+            () => "",
+          ),
+          new SharedWikiOwnerMigrator(bound)
+            .getMigrationStatus(input.signal)
+            .catch(() => null),
+        ]);
+        return {
+          wiki: bound,
+          wikiHotDigest: digest,
+          migrationState: mig?.state ?? "v1_markdown_only",
+        };
+      }
+      const ensured = ensureActiveSharedWiki({
+        userId: input.userId,
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        vaultEpoch: mcpVaultEpoch,
+        readToken: () => (mcpSessionCurrent() ? input.vaultOwnerToken : null),
+      });
+      if (!ensured) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const initialized = await ensured.store.readyIfInitialized(input.signal);
+      if (!initialized || !mcpSessionCurrent()) {
+        if (!initialized) clearActiveSharedWiki();
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const [digest, mig] = await Promise.all([
+        buildSharedWikiHotDigestContext(ensured, undefined, input.signal).catch(
+          () => "",
+        ),
+        new SharedWikiOwnerMigrator(ensured)
+          .getMigrationStatus(input.signal)
+          .catch(() => null),
+      ]);
+      return {
+        wiki: ensured,
+        wikiHotDigest: digest,
+        migrationState: mig?.state ?? "v1_markdown_only",
+      };
+    } catch {
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+    }
+  };
   // Chat history is sealed with a key derived from the vault key; the server
   // refuses the turn without it and holds it for this request only.
   // The coarse position is resolved beside the key so it adds no serial wait.
   let chatKeyHeaders: Record<string, string>;
   let turnLocation: Awaited<ReturnType<typeof resolveTurnLocation>>;
+  let turnWiki: {
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  } = {
+    wiki: null,
+    wikiHotDigest: "",
+    migrationState: "v1_markdown_only",
+  };
   try {
-    [chatKeyHeaders, turnLocation] = await Promise.all([
+    [chatKeyHeaders, turnLocation, , turnWiki] = await Promise.all([
       oneChatKeyHeaders(input.vaultKey),
       resolveTurnLocation(),
       initialConnectorProjection,
+      resolveTurnSharedWiki(),
     ]);
   } catch (error) {
     // A vault-owner token without a vault key is not an unlocked chat. Nothing
@@ -1356,6 +1499,40 @@ async function streamAgentChatAttempt(input: {
     }
     throw error;
   }
+  const sharedWikiSession = turnWiki.wiki;
+  if (sharedWikiSession) {
+    tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
+  }
+  const effectivePkmContext = (() => {
+    const raw = input.pkmContext;
+    const wikiPrimaryServing =
+      Boolean(turnWiki.wikiHotDigest) &&
+      (turnWiki.migrationState === "wiki_primary_with_v1_rollback" ||
+        turnWiki.migrationState === "wiki_primary");
+    if (!raw || !wikiPrimaryServing) return raw;
+    const soulMatch = /(?:^|\n\n)#\s*(?:memory\.md|one\.memory\.md\.v1)\b/i.exec(raw);
+    if (!soulMatch) return raw;
+    const soulStart =
+      soulMatch[0].startsWith("\n\n") ? soulMatch.index + 2 : soulMatch.index;
+    const prefix = raw.slice(0, soulStart).trim();
+    const afterSoulStart = raw.slice(soulStart);
+    const markers = [
+      `\n\n${PENDING_CHAT_TURNS_HEADER}`,
+      "\n\nRecent activity in One today (seen on this device, not saved memory):",
+      `\n\n${LIVE_MIRROR_PACKET_HEADER}`,
+    ];
+    let tailIndex = -1;
+    for (const marker of markers) {
+      const idx = afterSoulStart.indexOf(marker);
+      if (idx !== -1 && (tailIndex === -1 || idx < tailIndex)) {
+        tailIndex = idx;
+      }
+    }
+    const suffix =
+      tailIndex !== -1 ? afterSoulStart.slice(tailIndex + 2).trim() : "";
+    const kept = [prefix, suffix].filter(Boolean).join("\n\n");
+    return kept || undefined;
+  })();
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const onLostTransport = () => {
     if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
@@ -1482,6 +1659,16 @@ async function streamAgentChatAttempt(input: {
   };
   const toolNames = new Map<string, string>();
   const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReceiptAnalysisRequest; result: unknown }>>();
+  const wikiCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: WikiToolName;
+      request: Record<string, unknown>;
+      result: WikiRecallEnvelope;
+    }>
+  >();
+  const wikiArgs = new Map<string, string>();
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
@@ -1585,6 +1772,52 @@ async function streamAgentChatAttempt(input: {
     const { request } = admission;
     receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
+  const startWikiCall = (
+    toolCallId: string,
+    operation: WikiToolName,
+    args: unknown,
+  ) => {
+    if (wikiCalls.has(toolCallId)) return;
+    const buffered = wikiArgs.get(toolCallId);
+    wikiArgs.delete(toolCallId);
+    let parsedArgs: unknown = args;
+    if (buffered && buffered !== "!") {
+      try {
+        parsedArgs = JSON.parse(buffered);
+      } catch {
+        parsedArgs = args;
+      }
+    }
+    if (!receiptSessionCurrent() || wikiCalls.size >= 6 || buffered === "!") {
+      failure = new Error("Personal wiki recall doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    let request: Record<string, unknown>;
+    try {
+      request = normalizeWikiRecallRequest(operation, parsedArgs);
+    } catch {
+      failure = new Error("Personal wiki recall doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    wikiCalls.set(
+      toolCallId,
+      executeSharedWikiRecallTool(sharedWikiSession, operation, request, {
+        isUnlocked: receiptSessionCurrent,
+        signal: input.signal,
+      }).then((result) => ({
+        toolCallId,
+        toolName: operation,
+        request,
+        result,
+      })),
+    );
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
@@ -1600,6 +1833,10 @@ async function streamAgentChatAttempt(input: {
           // Native snapshots redact arguments and may replace streamed IDs.
           // Consume the bounded streamed call before the SDK's message lookup.
           startReceiptCall(id, name as ReceiptFunction, {});
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && WIKI_TOOL_NAMES.includes(name as WikiToolName)) {
+          startWikiCall(id, name as WikiToolName, {});
           return { stopPropagation: true };
         }
       }
@@ -1655,6 +1892,7 @@ async function streamAgentChatAttempt(input: {
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
       if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
@@ -1662,6 +1900,12 @@ async function streamAgentChatAttempt(input: {
       if (receiptBuffered !== undefined) {
         const next = receiptBuffered + (event.delta ?? "");
         receiptArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const wikiBuffered = wikiArgs.get(event.toolCallId);
+      if (wikiBuffered !== undefined) {
+        const next = wikiBuffered + (event.delta ?? "");
+        wikiArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
         return;
       }
       const buffered = confirmationArgs.get(event.toolCallId);
@@ -1674,6 +1918,10 @@ async function streamAgentChatAttempt(input: {
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
       if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
         startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolCallName as WikiToolName)) {
+        startWikiCall(event.toolCallId, toolCallName as WikiToolName, toolCallArgs);
         return;
       }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
@@ -1710,7 +1958,8 @@ async function streamAgentChatAttempt(input: {
           return;
         }
       }
-      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
+      const safeArgs = toolCallName === "propose_file_schedule" || toolCallName === "propose_goal_plan"
+        ? {} : privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -1718,6 +1967,12 @@ async function streamAgentChatAttempt(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "propose_goal_plan") {
+        const proposal = readGoalPlanProposal(event.content);
+        if (proposal) handlers.onGoalPlanProposal?.(proposal);
+        handlers.onToolResult?.(toolPayload(event.toolCallId, toolName));
+        return;
+      }
       if (toolName === "start_browser_task") {
         const result = browserTaskProgress(event.content, input.userId);
         if (result.accepted) handlers.onBrowserTaskCreated?.();
@@ -1728,6 +1983,13 @@ async function streamAgentChatAttempt(input: {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
         payload.message = "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolName as WikiToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Personal note checked for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2012,14 +2274,14 @@ async function streamAgentChatAttempt(input: {
       }
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
         finishTerminalRun();
         return;
       }
-      if (receiptCalls.size) {
+      if (receiptCalls.size || wikiCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
         finishTerminalRun();
@@ -2183,7 +2445,9 @@ async function streamAgentChatAttempt(input: {
         ...(nwsReport ? { nwsReport } : {}),
         timezone,
         turnLocation,
-        pkmContext: input.pkmContext,
+        pkmContext: effectivePkmContext,
+        ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+        ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
         communicationPreferences,
         personSelectionHandle: input.personSelectionHandle,
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
@@ -2222,6 +2486,56 @@ async function streamAgentChatAttempt(input: {
         timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
       } });
       if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
+    }
+    for (
+      let wikiRound = 0;
+      wikiRound < 3 && wikiCalls.size && !failure && !detached && !input.signal?.aborted;
+      wikiRound += 1
+    ) {
+      const wikiToolResults = await Promise.all(wikiCalls.values());
+      wikiCalls.clear();
+      if (mcpReviews.size) {
+        throw new Error(
+          "Personal wiki recall must complete in its own authorized turn. Ask again.",
+        );
+      }
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+      for (const item of wikiToolResults) {
+        const donePayload = toolPayload(item.toolCallId, item.toolName);
+        donePayload.raw = { protocol: "ag-ui", toolName: item.toolName };
+        donePayload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(donePayload);
+      }
+      agent.setMessages(
+        wikiToolResults.map((item) => ({
+          id: crypto.randomUUID(),
+          role: "tool" as const,
+          toolCallId: item.toolCallId,
+          content: JSON.stringify({
+            schema: "wiki_result.v1",
+            operation: item.toolName,
+            ephemeral_result: true,
+          }),
+        })),
+      );
+      await runUntilTerminal({
+        tools,
+        context: [],
+        forwardedProps: {
+          timezone,
+          screenContext: input.screenContext,
+          communicationPreferences,
+          ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+          ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          wikiToolResults,
+          emailDraftContract: 2,
+        },
+      });
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Ask again.");
+      }
     }
     await terminalRun;
   } catch (error) {
@@ -2307,11 +2621,12 @@ export async function streamAgentIntro(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
+      if (input.signal?.aborted) return;
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
@@ -2320,13 +2635,13 @@ export async function streamAgentIntro(input: {
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
@@ -2345,6 +2660,7 @@ export async function streamAgentIntro(input: {
     liveness.stop();
     input.signal?.removeEventListener("abort", abort);
   }
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
   if (!runTerminal) loseStream();
   if (failure) throw failure;
   return { conversationId: threadId, model: null, text };

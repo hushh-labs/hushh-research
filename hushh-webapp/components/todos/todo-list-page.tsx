@@ -6,10 +6,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
   type Ref,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { ScheduledTasksPanelBody, useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
+import { areScheduledTasksAvailable, isScheduledTaskId } from "@/lib/services/pod-scheduled-tasks";
 import { NativeTodoWorkspace } from "./native-todo-workspace";
 import { validWorkspaceTaskDraft, type NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 
@@ -42,19 +44,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { TodoAddItemSheet, emptyTaskDraft, type EditableTodoFields } from "./todo-add-item-sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
+import { ROUTES } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   TodoListPkmService,
@@ -88,157 +81,6 @@ export {
   taskSort,
 } from "./todo-list-presentation";
 export type { DueReceiptItem } from "./todo-list-presentation";
-
-type EditableTodoFields = {
-  title: string;
-  date: string | null;
-  time: string | null;
-  notes: string | null;
-};
-
-const emptyTaskDraft = (): NativeWorkspaceTaskDraft => ({ title: "", date: "", time: "", notes: "" });
-
-function TodoAddItemSheet({
-  draft, onDraftChange,
-  open,
-  saving,
-  onOpenChange,
-  onSave,
-}: {
-  draft: NativeWorkspaceTaskDraft;
-  onDraftChange: (draft: NativeWorkspaceTaskDraft) => unknown;
-  open: boolean;
-  saving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (input: EditableTodoFields) => Promise<unknown>;
-}) {
-  const { title, date, time, notes } = draft;
-  const [notesOpen, setNotesOpen] = useState(() => !!draft.notes);
-
-  useEffect(() => { if (!open) setNotesOpen(false); }, [open]);
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    await onSave({
-      title: title.trim(),
-      date: date || null,
-      time: time || null,
-      notes: notes.trim() || null,
-    });
-  };
-
-  return (
-    <Sheet
-      modal
-      open={open}
-      onOpenChange={(next) => {
-        if (!saving) onOpenChange(next);
-      }}
-    >
-      <SheetContent
-        side="bottom"
-        className="mx-auto max-w-xl gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
-        showCloseButton={!saving}
-      >
-        <form onSubmit={(event) => void submit(event)}>
-          <SheetHeader className="px-5 pb-3 pt-2 text-left">
-            <SheetTitle className="text-xl tracking-[-0.02em]">
-              Add item
-            </SheetTitle>
-            <SheetDescription className="sr-only">
-              This stays encrypted in Agent One.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 px-5 pb-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="todo-title" className="sr-only">
-                Title
-              </Label>
-              <Input
-                id="todo-title"
-                autoFocus
-                value={title}
-                onChange={(event) => onDraftChange({ ...draft, title: event.target.value })}
-                disabled={saving}
-                placeholder="What do you want to do?"
-                maxLength={240}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-date">Date</Label>
-                <Input
-                  id="todo-date"
-                  type="date"
-                  value={date}
-                  onChange={(event) => onDraftChange({ ...draft, date: event.target.value })}
-                  disabled={saving}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-time">Time</Label>
-                <Input
-                  id="todo-time"
-                  type="time"
-                  value={time}
-                  onChange={(event) => onDraftChange({ ...draft, time: event.target.value })}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-            {notesOpen ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-notes">Notes</Label>
-                <Textarea
-                  id="todo-notes"
-                  autoFocus
-                  value={notes}
-                  onChange={(event) => onDraftChange({ ...draft, notes: event.target.value })}
-                  disabled={saving}
-                  placeholder="Add a detail"
-                  maxLength={1200}
-                  className="min-h-22 resize-none"
-                />
-              </div>
-            ) : (
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="compact"
-                className="!px-0"
-                disabled={saving}
-                onClick={() => setNotesOpen(true)}
-              >
-                Add a note
-              </Button>
-            )}
-          </div>
-          <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
-            <Button
-              type="button"
-              variant="none"
-              effect="fill"
-              disabled={saving}
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              size="prominent"
-              disabled={saving || !title.trim()}
-              loading={saving}
-            >
-              Save
-            </Button>
-          </SheetFooter>
-        </form>
-      </SheetContent>
-    </Sheet>
-  );
-}
 
 function AddItemButton({
   disabled,
@@ -290,14 +132,18 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [itemsLoadError, setItemsLoadError] = useState(false);
   const itemsLoadRevision = useRef(0);
-  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [savingTaskIds, setSavingTaskIds] = useState<ReadonlySet<string>>(() => new Set());
+  const taskWrites = useRef(new Map<string, symbol>());
+  const [creatingTask, setCreatingTask] = useState(false);
+  const createPending = useRef(false);
+  const isSaving = creatingTask || savingTaskIds.size > 0;
   const [completedOpen, setCompletedOpen] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState<TodoItem | null>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const addItemRef = useRef<HTMLButtonElement | null>(null);
 
   const changeTaskDraft = (draft: NativeWorkspaceTaskDraft, expected = taskDraftRevision.current) => {
-    if (!isCurrent() || !editorIdRef.current || savingTaskId !== null || expected !== taskDraftRevision.current || !validWorkspaceTaskDraft(draft)) return false;
+    if (!isCurrent() || !editorIdRef.current || createPending.current || taskWrites.current.size > 0 || expected !== taskDraftRevision.current || !validWorkspaceTaskDraft(draft)) return false;
     taskDraftRef.current = draft; taskDraftRevision.current++; setTaskDraft(draft); return true;
   };
   const resetTaskDraft = () => { taskDraftRef.current = emptyTaskDraft(); taskDraftRevision.current++; setTaskDraft(taskDraftRef.current); };
@@ -306,6 +152,17 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
+  const requestedSchedule = useSearchParams()?.get("scheduled");
+  const selectedSchedule = isScheduledTaskId(requestedSchedule) ? requestedSchedule : null;
+  const schedules = useScheduledTasksModel(writeReady ? userId ?? "" : "", ROUTES.ONE_TASKS);
+  const seenScheduleLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedSchedule) { seenScheduleLink.current = null; return; }
+    if (writeReady && (requestedSchedule === "1" || selectedSchedule) && seenScheduleLink.current !== requestedSchedule) {
+      seenScheduleLink.current = requestedSchedule;
+      schedules.changeOpen(true);
+    }
+  }, [requestedSchedule, schedules, selectedSchedule, writeReady]);
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -319,7 +176,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const liveTasks = useTodoLiveTasks({
     userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
   });
-  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = liveTasks;
+  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading } = liveTasks;
   const gmail = useGmailConnectorStatus({
     userId,
     idTokenProvider: user ? idTokenProvider : null,
@@ -385,9 +242,27 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     return result;
   };
 
+  // Claim synchronously so retained callbacks cannot dispatch twice before
+  // React commits the disabled controls. Other tasks keep their own tokens.
+  const beginTaskWrite = (id: string) => {
+    if (!isCurrent() || taskWrites.current.has(id)) return null;
+    const token = Symbol(id);
+    taskWrites.current.set(id, token);
+    setSavingTaskIds(new Set(taskWrites.current.keys()));
+    return token;
+  };
+  const currentTaskWrite = (id: string, token: symbol) =>
+    isCurrent() && taskWrites.current.get(id) === token;
+  const finishTaskWrite = (id: string, token: symbol) => {
+    if (taskWrites.current.get(id) !== token) return;
+    taskWrites.current.delete(id);
+    if (isCurrent()) setSavingTaskIds(new Set(taskWrites.current.keys()));
+  };
+
   const saveTask = async (input: EditableTodoFields) => {
-    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return false;
-    setSavingTaskId("new-item");
+    if (!isCurrent() || !writeReady || !userId || !vaultKey || !vaultOwnerToken || createPending.current || taskWrites.current.size > 0) return false;
+    createPending.current = true;
+    setCreatingTask(true);
 
     const operation = createTodo(
       { ...input, type: "manual" },
@@ -408,12 +283,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       // The shared promise toast owns the failure state.
       return false;
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      createPending.current = false;
+      if (isCurrent()) setCreatingTask(false);
     }
   };
 
   const toggleTask = async (task: TodoItem, complete: boolean) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    const token = beginTaskWrite(task.id);
+    if (!token) return;
     const nextStatus: "pending" | "done" = complete ? "done" : "pending";
     const optimistic: TodoItem = {
       ...task,
@@ -422,7 +300,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       deletedAt: null,
       updatedAt: new Date().toISOString(),
     };
-    setSavingTaskId(task.id);
     setTasks((current) =>
       current.some((item) => item.id === task.id)
         ? current.map((item) => (item.id === task.id ? optimistic : item))
@@ -443,32 +320,29 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       await operation;
     } catch {
-      if (!isCurrent()) return;
+      if (!currentTaskWrite(task.id, token)) return;
       setTasks((current) =>
-        current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? task : item))
-          : current,
+        current.map((item) => (item === optimistic ? task : item)),
       );
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      finishTaskWrite(task.id, token);
     }
   };
 
   const deleteTask = async (task: TodoItem) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    const token = beginTaskWrite(task.id);
+    if (!token) return;
     const tombstone: TodoItem = {
       ...task,
       status: "deleted",
       deletedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    setSavingTaskId(task.id);
     setTasks((current) =>
-      task.type === "automatic"
-        ? current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? tombstone : item))
-          : [tombstone, ...current]
-        : current.filter((item) => item.id !== task.id),
+      current.some((item) => item.id === task.id)
+        ? current.map((item) => (item.id === task.id ? tombstone : item))
+        : [tombstone, ...current],
     );
     const operation = TodoListPkmService.remove({
       userId,
@@ -485,14 +359,12 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       await operation;
     } catch {
-      if (!isCurrent()) return;
+      if (!currentTaskWrite(task.id, token)) return;
       setTasks((current) =>
-        current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? task : item))
-          : [task, ...current],
+        current.map((item) => (item === tombstone ? task : item)),
       );
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      finishTaskWrite(task.id, token);
     }
   };
 
@@ -519,8 +391,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       fitContent
       className="bg-transparent"
       nativeTest={{
-        routeId: "/one/todos",
-        marker: "native-route-one-todos",
+        routeId: ROUTES.ONE_TASKS,
+        marker: "native-route-one-tasks",
         authState: user ? "authenticated" : "anonymous",
         dataState: itemsLoading
           ? "loading"
@@ -545,6 +417,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           actionsInlineMobile
           actions={
             <div className="flex items-center gap-2">
+              {writeReady ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks /> : null}
               {writeReady && agentLoadError ? (
                 <Button
                   variant="none"
@@ -589,6 +462,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             <HelperText as="p">Some Calendar tasks couldn’t load.</HelperText>
             <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
           </div>
+        ) : null}
+        {writeReady && emailReadError ? (
+          <div className="flex items-center gap-2" role="status">
+            <HelperText as="p">Email tasks couldn’t load.</HelperText>
+            <Button variant="none" effect="fade" size="compact" onClick={() => { void liveTasks.refreshSources(); }}>Retry</Button>
+          </div>
+        ) : null}
+        {writeReady && upcoming.incomplete ? (
+          <HelperText as="p" role="status">Some Calendar events aren’t shown. <Link href="/one/calendar">Open Calendar</Link></HelperText>
         ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
           <div className="mt-5 flex items-center gap-4" aria-live="polite">
@@ -639,19 +521,19 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           <TodoRows
             tasks={pending}
             dueReceipts={dueReceipts}
-            savingTaskId={savingTaskId}
+            savingTaskIds={savingTaskIds}
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               <MediumRowLabel as="h2" data-profile-role="name">
-                {tasks.length === 0 && completed.length === 0 ? "No tasks yet" : "No pending tasks"}
+                {tasks.every(task => task.status === "deleted") ? "No tasks yet" : "No pending tasks"}
               </MediumRowLabel>
               <HelperText as="p" data-profile-role="description" className="mt-1">
-                {tasks.length === 0 && completed.length === 0
+                {tasks.every(task => task.status === "deleted")
                   ? "Add an item to get started."
                   : "New tasks will appear here."}
               </HelperText>
@@ -710,7 +592,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
               {completedOpen ? (
                 <TodoRows
                   tasks={completed}
-                  savingTaskId={savingTaskId}
+                  savingTaskIds={savingTaskIds}
                   onToggle={toggleTask}
                   onDelete={requestDelete}
                 />
@@ -725,7 +607,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           draft={taskDraft}
           onDraftChange={changeTaskDraft}
           open={editorOpen}
-          saving={savingTaskId !== null}
+          saving={isSaving}
           onOpenChange={(open) => { if (open) openCreate(); else closeTaskEditor(); }}
           onSave={saveTask}
         />
@@ -776,9 +658,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     owner: userId, current: isCurrent, ready: writeReady,
     editorId, editorCurrent: id => isCurrent() && editorIdRef.current === id,
     draft: taskDraft, readDraft: () => taskDraftRef.current, inputRevision: () => taskDraftRevision.current, changeDraft: changeTaskDraft,
-    openEditor: openCreate, closeEditor: () => { if (savingTaskId === null) closeTaskEditor(); },
+    openEditor: openCreate, closeEditor: () => { if (!createPending.current && taskWrites.current.size === 0) closeTaskEditor(); },
     loading: !itemsLoaded || itemsLoading || ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0),
-    pending, completed, receipts: dueReceipts, saving: savingTaskId, doneToday, totalToday,
+    pending, completed, receipts: dueReceipts, busy: isSaving, savingTaskIds, doneToday, totalToday,
     errors: [
       ...(itemsLoadError ? [{ label: "Your saved items couldn’t load.", retry: () => { void loadItems(); } }] : []),
       ...(agentLoadError ? [{ label: "Some agent tasks couldn’t refresh. Your other items are still here.", retry: () => { void Promise.all([agentFeed.retry(), retryKyc()]).catch(() => morphyToast.error("Agent tasks couldn’t refresh. Try again.")); } }] : []),
@@ -787,5 +669,5 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     ],
     overflowHref: agentFeed.actionables.some(item => item.id === "consent:overflow") ? agentFeed.actionables.find(item => item.id === "consent:overflow")?.href || "/one/feed" : null,
     save: saveTask, toggle: toggleTask, remove: deleteTask,
-  }} fallback={fallback} />;
+  }} fallback={fallback} schedules={areScheduledTasksAvailable() ? schedules : undefined} selectedSchedule={selectedSchedule} />;
 }

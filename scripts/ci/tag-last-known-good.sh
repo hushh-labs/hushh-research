@@ -50,6 +50,24 @@ FRONTEND_REVISION="${FRONTEND_REVISION:-}"
 FRONTEND_SERVICE_URL="${FRONTEND_SERVICE_URL:-}"
 RUN_URL="${RUN_URL:-}"
 ACTOR="${ACTOR:-unknown}"
+AUTH_DOMAIN_REPAIR="${AUTH_DOMAIN_REPAIR:-false}"
+
+case "$AUTH_DOMAIN_REPAIR" in
+  true)
+    if [ "$ENVIRONMENT" != production ]; then
+      echo "Auth-domain repair tagging is production-only." >&2
+      exit 1
+    fi
+    python3 scripts/ci/production_backend_successor_control.py auth-publish \
+      --sha "$SHA" --status /tmp/prod-release-status.json
+    exit 0
+    ;;
+  false|"") ;;
+  *)
+    echo "Invalid auth-domain repair tag mode." >&2
+    exit 1
+    ;;
+esac
 
 # A qualified operational backend is distinct from historical release health.
 # Only the existing confirmed activation receipt can close that transition.

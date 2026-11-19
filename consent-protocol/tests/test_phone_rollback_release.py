@@ -40,7 +40,7 @@ def test_existing_plan_rechecks_actual_revision_and_propagates_identity(release_
     assert (result["revision"], result["source"], result["image"]) == (REVISION, FALLBACK, IMAGE)
     assert result["probe"] == prepared["probe"]
     assert _verify_args(state).github_output.read_text() == f"revision={REVISION}\n"
-    assert sum(command[:3] == ["gh", "run", "download"] for command in state.calls) == 2
+    assert sum(command[-1].endswith("/artifacts/4/zip") for command in state.calls) == 2
 
 
 @pytest.mark.parametrize(

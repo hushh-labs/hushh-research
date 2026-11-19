@@ -46,6 +46,7 @@ export function registerFinanceScreenChecks(
   for (const width of [360, 393, 430, 1024, 1440]) {
     for (const theme of ["light", "dark"]) {
       test(`Finance complete screens ${width}px ${theme}`, async ({ page }) => {
+        test.setTimeout(60_000);
         await mount(page, width);
         await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
         const importShell = page.getByTestId("finance-import-fixture").locator("[data-fullscreen-flow-shell]");

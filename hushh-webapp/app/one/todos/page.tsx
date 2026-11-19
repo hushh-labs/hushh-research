@@ -1,5 +1,8 @@
-import { TodoListPage } from "@/components/todos/todo-list-page";
+import { redirect } from "next/navigation";
+import { ROUTES } from "@/lib/navigation/routes";
+import { LegacyTasksRedirect } from "./legacy-tasks-redirect";
 
 export default function OneTodosPage() {
-  return <TodoListPage />;
+  if (process.env.CAPACITOR_BUILD === "true") return <LegacyTasksRedirect />;
+  redirect(ROUTES.ONE_TASKS);
 }

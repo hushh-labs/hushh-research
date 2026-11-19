@@ -19,7 +19,7 @@ const shellActionSurfaceVariants = cva(
   // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
   // top-bar back/close controls feel like they needed a second tap. Kept on the
   // base so every shell control (back, close, theme, profile) gets it.
-  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-[0.84] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {

@@ -175,7 +175,9 @@ export const ROUTES = {
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
   /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TASKS: "/one/tasks",
   ONE_TODOS: "/one/todos",
+  ONE_GOALS: "/one/goals",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   PKM_LOCATION: "/one/pkm/location",

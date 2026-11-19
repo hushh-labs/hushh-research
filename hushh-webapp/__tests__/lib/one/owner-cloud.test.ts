@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   OWNER_CLOUD_TARGETS,
   isAzureHomeSelectable,
+  isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
   isPrivatePodBinding,
   ownerCloudProvider,
@@ -15,9 +16,15 @@ describe("the owner-cloud question", () => {
 
   it("separates managed direct bindings from owner-cloud classification", () => {
     expect(isPrivatePodBinding({ deployment_target: "gcp", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
+    expect(isPrivatePodBinding({ deployment_target: "azure", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
+    expect(isPrivatePodBinding({ deployment_target: "ace", environment: "dev" })).toBe(true);
     for (const binding of [
       { deployment_target: "gcp", environment: "dev" },
+      { deployment_target: "azure", environment: "dev" },
+      { deployment_target: "ace", environment: "uat" },
+      { deployment_target: "ace", environment: "dev", hosting_mode: "hussh_hosted" },
       { deployment_target: "gcp", environment: "uat", hosting_mode: "hussh_hosted" },
+      { deployment_target: "azure", environment: "uat", hosting_mode: "hussh_hosted" },
       { deployment_target: "user_gcp", environment: "dev", hosting_mode: "hussh_hosted" },
       { deployment_target: "user_gcp", environment: "dev", hosting_mode: null },
     ]) expect(isPrivatePodBinding(binding)).toBe(false);
@@ -59,5 +66,24 @@ describe("the owner-cloud question", () => {
       vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
       expect(isAzureHomeSelectable()).toBe(false);
     }
+  });
+
+  it("opens Hussh Pods on hosted dev by default while keeping UAT, production, and explicit overrides fail-closed", () => {
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    expect(isHostedPodTierUnderMaintenance()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "1");
+    expect(isHostedPodTierUnderMaintenance()).toBe(true);
+
+    for (const env of ["uat", "production", "development", "staging", ""]) {
+      vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "");
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
+      expect(isHostedPodTierUnderMaintenance()).toBe(true);
+    }
+
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
+    expect(isHostedPodTierUnderMaintenance()).toBe(false);
   });
 });

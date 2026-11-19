@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBrowserActivationModel } from "@/components/computer-use/browser-activation-panel";
 import { useAzureHostingNoticeModel } from "./azure-hosting-notice";
+import { cloudHostingHealthSentence } from "./cloud-hosting-health";
 import { NO_UPDATE, useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { canInstallUpdate, updateCheckMessage, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
@@ -12,7 +13,7 @@ import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
-import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import { hostedPodDisplayLabel, isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
@@ -97,7 +98,7 @@ export function useAgentSettingsController({
     ? (status.hostingMode as HostingMode)
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
-  const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
+  const needsLinkRecovery = isPod && status?.state === "failed";
   // An approved Azure update starts only with the owner's Microsoft sign-in.
   const awaitingMicrosoft = useAzureUpdateAwaitingSignIn({
     deploymentTarget: kind === "software-updates" ? status?.deploymentTarget : null,
@@ -137,6 +138,7 @@ export function useAgentSettingsController({
     setBusy(true);
     const owner = snapshotValidatedAuthSessionOwner();
     const operationCurrent = () => current() && !!owner && isValidatedAuthSessionOwnerCurrent(owner);
+    let inspectedHealth: Awaited<ReturnType<typeof ApiService.inspectPersonalAgentHosting>> | null = null;
     const request = ApiService.getPersonalAgentStatus().then(async (next) => {
       if (!isHostingMode(next.hostingMode) || next.hostingMode === "unknown") {
         throw new Error("Hosting status unavailable");
@@ -145,6 +147,7 @@ export function useAgentSettingsController({
       if (kind === "hosting" && isOwnerCloudTarget(next.deploymentTarget)) {
         const checked = await ApiService.inspectPersonalAgentHosting();
         if (!operationCurrent()) throw new DOMException("Session changed", "AbortError");
+        inspectedHealth = checked;
         setInspection({ value: checked, current: operationCurrent });
       }
       return next;
@@ -155,7 +158,11 @@ export function useAgentSettingsController({
             kind === "hosting" ? "Checking hosting…" : "Checking for updates…",
           success: (next) =>
             kind === "hosting"
-              ? isOwnerCloudTarget(next.deploymentTarget) ? "Cloud resources checked." : `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
+              ? inspectedHealth
+                ? cloudHostingHealthSentence(inspectedHealth.status)
+                : isOwnerCloudTarget(next.deploymentTarget)
+                  ? "Cloud resources checked."
+                  : `Hosting confirmed: ${next.hostingMode === "hussh_pods" ? hostedPodDisplayLabel(next.deploymentTarget) : HOST_LABELS[next.hostingMode as HostingMode]}.`
               : updateCheckMessage(next),
           error:
             kind === "hosting"

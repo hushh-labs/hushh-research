@@ -116,14 +116,7 @@
 .categoryIcon[data-tone="purple"] { color: var(--app-purple); }
 .categoryIcon[data-tone="orange"] { color: var(--app-warning); }
 .history { --type-row-label-size: 13px; --type-row-label-line: 20px; }
-.historyGroup { border: 1px solid var(--border); border-radius: 17px; padding: 16px; }
-.historyRow { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 0; }
-.historyRow:first-child { padding-top: 0; }
-.historyRow:last-child { padding-bottom: 0; }
-.historyActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.historyTitle { margin: 0; }
-.historySupporting { margin: 4px 0 0; }
-.pagination { font-size: var(--type-helper-text-size); line-height: var(--type-helper-text-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.pagination { font-size: var(--type-helper-text-size); line-height: var(--type-helper-text-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .review { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
 .review button { min-height: 44px; max-width: 100%; }
 .review button:disabled { opacity: 1; }
@@ -161,6 +154,4 @@
   .section { gap: 10px; }
   .empty { --type-helper-text-size: 12px; min-height: 62px; padding: 13px; }
   .available { --type-input-value-size: 16px; }
-  .historyRow { flex-direction: column; align-items: stretch; }
-  .historyActions { align-items: flex-start; }
 }

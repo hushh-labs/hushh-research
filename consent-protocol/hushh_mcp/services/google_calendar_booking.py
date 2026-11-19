@@ -286,6 +286,9 @@ def validate_plan(
     booking_source = payload.get("booking_source")
     account_id = str(payload.get("account_id") or "default")
     provided_zone = str(payload.get("time_zone") or "")
+    # A board booking must name its zone; other callers default to UTC. Either
+    # way a zone that is not in the tz database is refused before anything is
+    # stored or sent, so no booking can silently fall back to the wrong clock.
     board_zone = normalize_time_zone(
         provided_zone, default="" if booking_source == "board" else "UTC"
     )
@@ -335,6 +338,9 @@ def validate_plan(
         )
         if booking_source == "board":
             plan.update(board_create_fields(payload, account_id, meeting_type, meeting_link))
+        from hushh_mcp.services.advisor_calendar_binding import bind_plan
+
+        bind_plan(plan, payload)
         return plan
     changes = {"title": title, "description": description, "location": location}
     plan.update(
@@ -523,4 +529,7 @@ def event_payload(plan: dict[str, Any]) -> dict[str, Any]:
                 "conferenceSolutionKey": {"type": "hangoutsMeet"},
             }
         }
+    from hushh_mcp.services.advisor_calendar_binding import bind_event
+
+    bind_event(body, plan)
     return body

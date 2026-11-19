@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](../../README.md).
+Canonical visual owner: [Operations Index](../README.md).
 
 ```text
 Cloud Run -- Streamable HTTP + gateway headers --> Omni Gateway -- Private Space --> CRM

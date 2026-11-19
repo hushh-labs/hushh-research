@@ -20,10 +20,23 @@ import {
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
+import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
+import { FILE_ORGANIZATION_TEMPLATE, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
+
+function deferredWrite() {
+  let resolve!: (result: Awaited<ReturnType<typeof TodoListPkmService.setStatus>>) => void;
+  const promise = new Promise<Awaited<ReturnType<typeof TodoListPkmService.setStatus>>>(done => { resolve = done; });
+  return { promise, resolve };
+}
 
 const mocks = vi.hoisted(() => ({
   native: false,
   nativeFailed: false,
+  search: "",
   workspace: null as Parameters<typeof import("@/lib/capacitor/use-native-workspace").useNativeWorkspace>[0] | null,
   user: { uid: "todo-owner", getIdToken: vi.fn() },
   unlocked: true,
@@ -31,14 +44,19 @@ const mocks = vi.hoisted(() => ({
   feedError: null as string | null,
   feedLoading: false,
   retryFeed: vi.fn(),
+  reads: [] as CapabilityRead[],
+  mailError: null as string | null,
+  retrySources: vi.fn(),
   pendingKyc: null as { count: number; workflowId: string } | null,
   events: [
     {
       id: "calendar-event-1",
       title: "Review the plan",
       start: { date: "2026-10-10" },
+      end: null,
+      status: null,
     },
-  ],
+  ] as RedactedCalendarEvent[],
 }));
 
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => mocks.native }));
@@ -46,9 +64,9 @@ vi.mock("@/lib/capacitor/use-native-workspace", () => ({
   useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
   useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/one/todos", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
-
-vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(mocks.search) }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
+vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: { connected: true }, loadingStatus: false, statusError: mocks.mailError }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: ({ enabled }: { enabled: boolean }) => ({
     actionables: enabled ? mocks.actionables : [],
@@ -114,12 +132,17 @@ describe("TodoListPage row actions", () => {
     vi.restoreAllMocks();
     mocks.native = false;
     mocks.nativeFailed = false;
+    mocks.search = "";
     mocks.workspace = null;
     mocks.unlocked = true;
     mocks.user.uid = "todo-owner";
+    publishValidatedAuthSessionOwner(mocks.user.uid);
     mocks.actionables = [];
     mocks.feedError = null;
     mocks.feedLoading = false;
+    mocks.reads = [];
+    mocks.mailError = null;
+    mocks.retrySources.mockReset().mockResolvedValue(undefined);
     mocks.pendingKyc = null;
     mocks.retryFeed.mockReset().mockResolvedValue(undefined);
     mocks.events = [
@@ -127,6 +150,8 @@ describe("TodoListPage row actions", () => {
         id: "calendar-event-1",
         title: "Review the plan",
         start: { date: "2026-10-10" },
+        end: null,
+        status: null,
       },
     ];
     vi.spyOn(TodoListPkmService, "load").mockResolvedValue({ tasks: [] });
@@ -135,6 +160,69 @@ describe("TodoListPage row actions", () => {
       saveState: "saved",
       fullBlob: {},
     });
+  });
+
+  it.each([false, true])("loads the recorded run in Tasks on a schedule link (native %s)", async native => {
+    mocks.native = native;
+    const id = `schedule_${"a".repeat(32)}`;
+    mocks.search = `scheduled=${id}`;
+    vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as unknown as ReturnType<typeof AuthService.getCurrentUser>);
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "byoc" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+    const status = vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
+      available: true, code: null, templates: [FILE_ORGANIZATION_TEMPLATE], authorization_limit_at: 10_000,
+      tasks: [{ id, title: "Organize Minutes.txt", capability: FILE_ORGANIZATION_TEMPLATE, revision: 4,
+        state: "completed", repeat: "once", timezone: "UTC", next_run_at: 1000, authorization_expires_at: 3000,
+        last_run: { state: "completed", started_at: 1000, finished_at: 1005 } }],
+    });
+    render(<TodoListPage />);
+    if (native) {
+      await waitFor(() => expect(mocks.workspace?.content.sections?.flatMap(section => section.rows)
+        .find(row => row.label === "Organize Minutes.txt")?.detail).toContain("Latest run: Completed"));
+    } else {
+      expect(await screen.findByText(/Latest run: Completed/)).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Scheduled runs" })).toBeVisible();
+    }
+    expect(status).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses Shared execution before reading an owner Pod schedule", async () => {
+    vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as unknown as ReturnType<typeof AuthService.getCurrentUser>);
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "shared" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+    const status = vi.spyOn(PodScheduledTasksClient.prototype, "status");
+    render(<TodoListPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled runs" }));
+    expect(await screen.findByText("Scheduling requires a private agent.")).toBeVisible();
+    expect(status).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+  });
+
+  it("refreshes scheduled runs from the current Pod after a hosting change", async () => {
+    vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as unknown as ReturnType<typeof AuthService.getCurrentUser>);
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "byoc" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+    const admission = vi.spyOn(ApiService, "getComputerUseAdmission")
+      .mockResolvedValueOnce({ ownerId: mocks.user.uid, podId: "old-pod", environment: "dev" })
+      .mockResolvedValueOnce({ ownerId: mocks.user.uid, podId: "new-pod", environment: "dev" });
+    const request = vi.spyOn(ApiService, "ownerPodRequest").mockImplementation(async (_path, _init, _largeUpload, _recovery, podId) => {
+      const previous = podId === "old-pod";
+      return Response.json({
+        available: true, code: null, templates: [FILE_ORGANIZATION_TEMPLATE], authorization_limit_at: 10_000,
+        tasks: [{
+          id: `schedule_${(previous ? "a" : "b").repeat(32)}`,
+          title: previous ? "Organize old file" : "Organize new file",
+          capability: FILE_ORGANIZATION_TEMPLATE, revision: 1, state: "scheduled", repeat: "once",
+          timezone: "UTC", next_run_at: 1000, authorization_expires_at: 3000, last_run: null,
+        }],
+      });
+    });
+
+    render(<TodoListPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled runs" }));
+    expect(await screen.findByText("Organize old file")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Organize new file")).toBeVisible();
+    expect(screen.queryByText("Organize old file")).not.toBeInTheDocument();
+    expect(admission).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls.map(call => call[4])).toEqual(["old-pod", "new-pod"]);
   });
 
   it("binds native task completion and confirmed deletion to the existing service and closes only a successful draft", async () => {
@@ -205,6 +293,27 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("heading", { name: "No pending tasks" })).toBeVisible();
     expect(screen.getByText("New tasks will appear here.")).toBeVisible();
   });
+  it("shows Calendar and email tasks in the list without source controls or false partial-read errors", async () => {
+    mocks.reads = [{ coverage: { capability: "gmail", count: 1, status: "incomplete" }, evidence: [{
+      capability: "gmail", key: "mail:opaque", summary: "Meeting details", pendingTitle: "Reply to Saru: Meeting details", href: "/one/gmail",
+    }] }];
+    render(<TodoListPage />);
+    expect(await screen.findByText("Reply to Saru: Meeting details")).toBeVisible();
+    expect(screen.getByText("Review the plan")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Reply to Saru: Meeting details" })).toHaveAttribute("href", "/one/gmail");
+    for (const text of ["Task sources", "Suggest tasks", "Refresh sources", "Email tasks couldn’t load."]) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+    }
+  });
+  it("keeps existing tasks visible when email fails and exposes a bounded retry", async () => {
+    mocks.mailError = "private provider diagnostic";
+    render(<TodoListPage />);
+    expect(await screen.findByText("Email tasks couldn’t load.")).toBeVisible();
+    expect(screen.getByText("Review the plan")).toBeVisible();
+    expect(screen.queryByText("private provider diagnostic")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    expect(mocks.retrySources).toHaveBeenCalledOnce();
+  });
 
   it("never presents an empty success when saved items fail to load", async () => {
     mocks.events = [];
@@ -218,10 +327,14 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
   });
 
-  it("keeps a saved suggestion tied to its offered source and marks it already pending", () => {
-    const saved = buildTodo({ id: "suggested_mail:opaque", title: "Review the meeting reply", type: "manual", source: "gmail", sourceId: "mail:opaque", link: "/one/gmail" });
+  it.each(["pending", "done"] as const)("keeps a %s reviewed email task tied to its source without duplicating it", status => {
+    const saved = { ...buildTodo({ id: "suggested_mail:opaque", title: "Review the meeting reply", type: "manual", source: "gmail", sourceId: "mail:opaque", link: "/one/gmail" }), status };
+    mocks.reads = [{ coverage: { capability: "gmail", count: 1, status: "incomplete" }, evidence: [{
+      capability: "gmail", key: "mail:opaque", summary: "Meeting reply", pendingTitle: "Reply: Meeting reply", href: "/one/gmail",
+    }] }];
     const { result } = renderHook(() => useTodoLiveTasks({ userId: "todo-owner", vaultOwnerToken: "fixture", idTokenProvider: async () => "fixture-id", enabled: true, tasks: [saved] }));
-    expect(result.current.evidence.find(item => item.key === "mail:opaque")).toMatchObject({ capability: "gmail", pendingTitle: saved.title });
+    expect(result.current.pending.filter(task => task.sourceAgent === "gmail")).toHaveLength(status === "pending" ? 1 : 0);
+    if (status === "pending") expect(result.current.evidence.find(item => item.key === "mail:opaque")).toMatchObject({ capability: "gmail", pendingTitle: saved.title });
   });
 
   it("never inserts a late create into another owner's list or suggestions", async () => {
@@ -316,6 +429,56 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("checkbox", { name: "Mark Review refresh as completed" })).toBeVisible();
   });
 
+  it.each([
+    { status: "cancelled", start: { date: "2026-10-10" } },
+    { status: "CANCELLED", start: null },
+    { status: "cancelled", start: null, id: `event-${"a".repeat(250)}` },
+  ])("honors explicit Calendar cancellation without hiding unrelated tasks: %j", (cancellation) => {
+    const event = { ...mocks.events[0]!, id: cancellation.id ?? "calendar-event-1" };
+    mocks.events = [event];
+    const cancelled = buildTodo(todoService.calendarTodoInput(event)!);
+    const unrelated = buildTodo(todoService.calendarTodoInput({ ...event, id: "calendar-event-2" })!);
+    const gmail = buildTodo(todoService.gmailTodoInput({ id: event.id!, title: "Email follow-up" })!);
+    const manual = buildTodo({ type: "manual", title: "Owner task", sourceId: event.id });
+    let tasks = [cancelled, unrelated, manual];
+    const { result, rerender } = renderHook(() => useTodoLiveTasks({
+      userId: mocks.user.uid, vaultOwnerToken: "test-owner-token",
+      idTokenProvider: mocks.user.getIdToken, enabled: true, tasks,
+    }));
+    expect(result.current.pending.some(task => task.id === cancelled.id)).toBe(true);
+
+    mocks.events = [{ ...event, ...cancellation, title: "" }];
+    rerender();
+
+    expect(result.current.pending.map(task => task.id).sort()).toEqual(
+      [unrelated.id, manual.id].sort(),
+    );
+    expect(cancelled.status).toBe("pending");
+
+    tasks = [...tasks, gmail];
+    mocks.events = [...mocks.events, event];
+    rerender();
+    expect(result.current.pending.map(task => task.id).sort()).toEqual(
+      [unrelated.id, gmail.id, manual.id].sort(),
+    );
+  });
+
+  it("keeps saved Calendar snapshots when a read omits events or cannot identify a cancellation", () => {
+    const saved = buildTodo(todoService.calendarTodoInput(mocks.events[0]!)!);
+    const done = { ...saved, id: "calendar-done", sourceId: "done", status: "done" as const };
+    const deleted = { ...saved, id: "calendar-deleted", sourceId: "deleted", status: "deleted" as const };
+    mocks.events = [];
+    const { result, rerender } = renderHook(() => useTodoLiveTasks({
+      userId: mocks.user.uid, vaultOwnerToken: "test-owner-token",
+      idTokenProvider: mocks.user.getIdToken, enabled: true, tasks: [saved, done, deleted],
+    }));
+    expect(result.current.pending).toEqual([saved]);
+
+    mocks.events = [{ id: null, title: saved.title, start: null, end: null, status: "cancelled" }];
+    rerender();
+    expect(result.current.pending).toEqual([saved]);
+  });
+
   it("hides a completed Calendar item immediately and keeps it hidden when saved state reloads", async () => {
     let finishSave!: (
       result: Awaited<ReturnType<typeof TodoListPkmService.setStatus>>,
@@ -354,6 +517,105 @@ describe("TodoListPage row actions", () => {
 
     await screen.findByText("Completed");
     expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])("keeps independent task writes busy until each settles (first fails: %s)", async firstFails => {
+    const other = buildTodo({ id: "parallel-task", title: "Parallel task" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [other] });
+    const first = deferredWrite(), second = deferredWrite();
+    vi.spyOn(TodoListPkmService, "setStatus")
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    render(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Mark Review the plan as completed" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Mark Parallel task as completed" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Completed/ }));
+
+    expect(screen.getByRole("button", { name: "Delete Review the plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
+    expect(TodoListPkmService.remove).not.toHaveBeenCalled();
+
+    await act(async () => { first.resolve({ success: !firstFails, saveState: firstFails ? "failed" : "saved", fullBlob: {} }); });
+    expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete Review the plan" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    await waitFor(() => expect(TodoListPkmService.remove).toHaveBeenCalledOnce());
+    await act(async () => { second.resolve({ success: firstFails, saveState: firstFails ? "saved" : "failed", fullBlob: {} }); });
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeEnabled();
+  });
+
+  it.each(["completion", "deletion"] as const)("does not roll a failed %s over a newer loaded deletion", async mutation => {
+    vi.mocked(TodoListPkmService.load).mockRejectedValueOnce(new Error("offline"));
+    const write = deferredWrite();
+    const save = vi.spyOn(TodoListPkmService, "setStatus").mockImplementation(() => write.promise);
+    const remove = vi.mocked(TodoListPkmService.remove).mockImplementation(() => write.promise);
+    render(<TodoListPage />);
+    await screen.findByText("Your saved items couldn’t load.");
+    if (mutation === "completion") {
+      fireEvent.click(screen.getByRole("checkbox", { name: "Mark Review the plan as completed" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
+      fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    }
+    const task = (mutation === "completion" ? save : remove).mock.calls[0]![0].task;
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [{ ...task, status: "deleted", deletedAt: "2026-11-16T10:00:00Z" }] });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true })); });
+    expect(screen.queryByText("Your saved items couldn’t load.")).not.toBeInTheDocument();
+    await act(async () => { write.resolve({ success: false, saveState: "failed", fullBlob: {} }); });
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+  });
+
+  it("rejects duplicate native mutations and holds Back until every task write settles", async () => {
+    mocks.native = true;
+    mocks.events = [];
+    const task = buildTodo({ id: "native-duplicate", title: "Native duplicate" });
+    const other = buildTodo({ id: "native-other", title: "Native other" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [task, other] });
+    const first = deferredWrite(), second = deferredWrite();
+    const save = vi.spyOn(TodoListPkmService, "setStatus").mockImplementation(({ task: item }) => item.id === task.id ? first.promise : second.promise);
+    render(<TodoListPage />);
+    const action = (label: string) => {
+      const state = mocks.workspace!;
+      const row = state.content.sections.flatMap(section => section.rows).find(row => row.label === label)!;
+      return state.actions.get(row.id)!;
+    };
+    await waitFor(() => expect(mocks.workspace!.content.sections.flatMap(section => section.rows).some(row => row.label === task.title)).toBe(true));
+    await act(async () => { await action(other.title)({} as never); });
+    const otherToggle = action("Mark as completed");
+    act(() => { mocks.workspace!.back!(); });
+    await act(async () => { await action(task.title)({} as never); });
+    const toggle = action("Mark as completed");
+    act(() => { void toggle({} as never); void toggle({} as never); void otherToggle({} as never); });
+    try {
+      expect(save).toHaveBeenCalledTimes(2);
+      await act(async () => { first.resolve({ success: true, saveState: "saved", fullBlob: {} }); });
+      act(() => { mocks.workspace!.back!(); });
+      expect(mocks.workspace!.content.title).toBe("Task");
+    } finally {
+      await act(async () => {
+        first.resolve({ success: true, saveState: "saved", fullBlob: {} });
+        second.resolve({ success: true, saveState: "saved", fullBlob: {} });
+      });
+    }
+    act(() => { mocks.workspace!.back!(); });
+    expect(mocks.workspace!.content.title).toBe("Your tasks");
+  });
+
+  it.each(["manual", "automatic"] as const)("restores a %s task when deletion fails", async type => {
+    mocks.events = [];
+    const task = buildTodo({ id: `delete-failure-${type}`, title: "Retain failed deletion", type });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [task] });
+    const write = deferredWrite();
+    vi.mocked(TodoListPkmService.remove).mockImplementation(() => write.promise);
+    render(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Retain failed deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    expect(screen.queryByText(task.title)).not.toBeInTheDocument();
+    await act(async () => { write.resolve({ success: false, saveState: "failed", fullBlob: {} }); });
+    expect(await screen.findByRole("checkbox", { name: "Mark Retain failed deletion as completed" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("restores an item when completion cannot be saved", async () => {

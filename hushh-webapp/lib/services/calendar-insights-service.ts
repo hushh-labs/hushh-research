@@ -17,10 +17,16 @@ export type Meeting = CalendarEventSummary & {
   availability: Partial<Record<"recording" | "notes", string>>;
   discovery: string; file_state: MeetingFileState;
 };
+export type MeetingFileKind = "recording" | "notes";
+export type MeetingRequestState = {
+  requestId: string; status: string; requestedTypes: MeetingFileKind[];
+  /** Types the organizer has said they do not have. Never a claim that a file does not exist. */
+  notAvailableTypes?: MeetingFileKind[]; identityStatus?: string;
+};
 export type MeetingRequestOutcome = {
   occurrence_id: string;
   status?: "unverified";
-  requests: { requestId: string; status: string; requestedTypes: ("recording" | "notes")[]; identityStatus?: string }[];
+  requests: MeetingRequestState[];
   artifacts: { kind: "recording" | "notes"; state: string }[];
 };
 export type MeetingLibrary = {
@@ -44,7 +50,12 @@ export type VerifiedMeetingSelection = {
   account_id: string; calendar_id: string; event_id: string;
   occurrence_id: string; expected_grant: string; date: string; time_zone: string;
 };
+/** Where the requester stands with the organizer, decided by the server before Send is offered. */
 export type MeetingContext = { title: string; sources: { title: string; url: string; text: string; truncated: boolean }[] };
+
+function fileKinds(value: unknown): MeetingFileKind[] {
+  return Array.isArray(value) ? value.filter((kind): kind is MeetingFileKind => kind === "recording" || kind === "notes") : [];
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -122,7 +133,9 @@ export class CalendarInsightsService {
     const value = await this.protectedPost<Record<string, unknown>>("meetings/requests", { ...selection, requested_types: requestedTypes }, idToken, vaultOwnerToken, signal);
     if (value.requestType !== "calendar_meeting" || typeof value.requestId !== "string" || typeof value.recipientEmail !== "string")
       throw new Error("Meeting request response was incomplete.");
-    return { requestId: value.requestId, recipientEmail: value.recipientEmail, status: String(value.status || "pending") };
+    return { requestId: value.requestId, recipientEmail: value.recipientEmail, status: String(value.status || "pending"),
+      requestedTypes: fileKinds(value.requestedTypes), notAvailableTypes: fileKinds(value.notAvailableTypes),
+      alreadyRequested: value.alreadyRequested === true };
   }
 
   static async requestStatuses(selections: VerifiedMeetingSelection[], idToken: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<MeetingRequestOutcome[]> {
@@ -136,7 +149,7 @@ export class CalendarInsightsService {
       return { occurrence_id: item.occurrence_id as string,
         ...(item.status === "unverified" ? { status: "unverified" as const } : {}),
         requests: requests.filter(record).map(request => ({ requestId: String(request.requestId || ""), status: String(request.status || "unknown"),
-          requestedTypes: Array.isArray(request.requestedTypes) ? request.requestedTypes.filter(kind => kind === "recording" || kind === "notes") : [],
+          requestedTypes: fileKinds(request.requestedTypes), notAvailableTypes: fileKinds(request.notAvailableTypes),
           ...(typeof request.identityStatus === "string" ? { identityStatus: request.identityStatus } : {}) })),
         artifacts: artifacts.filter(record).filter(artifact => artifact.kind === "recording" || artifact.kind === "notes")
           .map(artifact => ({ kind: artifact.kind as "recording" | "notes", state: String(artifact.state || "unknown") })) };
