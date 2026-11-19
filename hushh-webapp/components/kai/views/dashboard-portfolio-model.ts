@@ -1,12 +1,8 @@
 import type { PortfolioData } from "@/components/kai/types/portfolio";
+import { normalizeHoldingInstrumentKind, type HoldingInstrumentKind } from "@/lib/kai/brokerage/instrument-kind";
 import { groupHoldingPositions, type HoldingPosition } from "@/lib/kai/holding-positions";
 
-export type DashboardAssetBucket =
-  | "cash_equivalent"
-  | "equity"
-  | "fixed_income"
-  | "real_asset"
-  | "other";
+export type DashboardAssetBucket = HoldingInstrumentKind;
 
 export interface DashboardPosition {
   id: string;
@@ -172,92 +168,6 @@ function inferAliases(rawSymbol: string, name: string): string[] {
   return dedupeStrings(aliases);
 }
 
-function classifyAssetBucket({
-  symbol,
-  name,
-  sector,
-  assetType,
-  instrumentKind,
-  securityListingStatus,
-  symbolKind,
-  isSecCommonEquityTicker,
-  hasTickerAlias,
-  isCashEquivalent,
-}: {
-  symbol: string;
-  name: string;
-  sector: string;
-  assetType: string;
-  instrumentKind?: string;
-  securityListingStatus?: string;
-  symbolKind?: string;
-  isSecCommonEquityTicker?: boolean;
-  hasTickerAlias?: boolean;
-  isCashEquivalent?: boolean;
-}): DashboardAssetBucket {
-  if (isCashEquivalent) return "cash_equivalent";
-  const normalizedKind = String(instrumentKind || "").trim().toLowerCase();
-  const normalizedListingStatus = String(securityListingStatus || "")
-    .trim()
-    .toLowerCase();
-  const normalizedSymbolKind = String(symbolKind || "").trim().toLowerCase();
-  if (normalizedKind === "cash_equivalent") return "cash_equivalent";
-  if (normalizedKind === "fixed_income") return "fixed_income";
-  if (normalizedKind === "real_asset") return "real_asset";
-  if (normalizedKind === "equity") return "equity";
-  if (normalizedListingStatus === "cash_or_sweep") return "cash_equivalent";
-  if (normalizedListingStatus === "fixed_income") return "fixed_income";
-  if (normalizedListingStatus === "sec_common_equity") return "equity";
-  if (normalizedSymbolKind === "us_common_equity_ticker") return "equity";
-  if (isSecCommonEquityTicker) return "equity";
-
-  const hint = `${symbol} ${name} ${sector} ${assetType}`.toLowerCase();
-  if (
-    hint.includes("cash")
-    || hint.includes("money market")
-    || hint.includes("sweep")
-    || hint.includes("retail prime")
-    || hint.includes("first american")
-    || hint.includes("fxrxx")
-  ) {
-    return "cash_equivalent";
-  }
-  if (
-    hint.includes("fixed income")
-    || hint.includes("bond")
-    || hint.includes("treasury")
-    || hint.includes("municipal")
-    || hint.includes("tax free")
-    || hint.includes("income fund")
-  ) {
-    return "fixed_income";
-  }
-  if (
-    hint.includes("real asset")
-    || hint.includes("real estate")
-    || hint.includes("reit")
-    || hint.includes("commod")
-    || hint.includes("gold")
-  ) {
-    return "real_asset";
-  }
-  if (
-    hint.includes("equity")
-    || hint.includes("stock")
-    || hint.includes("etf")
-    || hint.includes("fund")
-    || hint.includes("growth")
-    || hint.includes("value")
-    || hint.includes("market")
-    || hint.includes("cap")
-  ) {
-    return "equity";
-  }
-  // Default ticker-like instruments to equity when no non-equity hints were found.
-  if (hasTickerAlias) return "equity";
-  return "other";
-}
-
 function toPosition(raw: HoldingPosition, index: number): DashboardPosition | null {
   const rawSymbol = toText(raw.symbol).toUpperCase();
   const name = toText(raw.name);
@@ -280,23 +190,11 @@ function toPosition(raw: HoldingPosition, index: number): DashboardPosition | nu
 
   const sector = toText(raw.sector) || null;
   const assetType = toText(raw.asset_type || raw.asset_class) || null;
-  const explicitCashEquivalent = Boolean(raw.is_cash_equivalent);
   const explicitInvestableRaw = raw.is_investable;
   const explicitInvestable =
     typeof explicitInvestableRaw === "boolean" ? explicitInvestableRaw : null;
-  const assetBucket = classifyAssetBucket({
-    symbol: rawSymbol,
-    name,
-    sector: sector || "",
-    assetType: assetType || "",
-    instrumentKind: toText(raw.instrument_kind),
-    securityListingStatus: toText(raw.security_listing_status),
-    symbolKind: toText(raw.symbol_kind),
-    isSecCommonEquityTicker: Boolean(raw.is_sec_common_equity_ticker),
-    hasTickerAlias: Boolean(tickerAlias),
-    isCashEquivalent: explicitCashEquivalent,
-  });
-  const isCashEquivalent = explicitCashEquivalent || assetBucket === "cash_equivalent";
+  const assetBucket = normalizeHoldingInstrumentKind(raw);
+  const isCashEquivalent = assetBucket === "cash_equivalent";
   const marketValue = toPositiveNumber(raw.market_value);
 
   const debateEligible =

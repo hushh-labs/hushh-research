@@ -5,6 +5,7 @@ import { buildPortfolioSharePayloadFromDashboardModel, generatePortfolioReportPd
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
+import demoPortfolio from "../../public/demo-mode/portfolio-template.json";
 
 const portfolioFixture: PortfolioData = {
   account_info: {
@@ -75,6 +76,49 @@ describe("mapPortfolioToDashboardViewModel history", () => {
       { date: "2026-06-30", value: 110_000 },
     ]);
     expect(model.quality.historyReady).toBe(true);
+  });
+});
+
+describe("imported instrument allocation", () => {
+  it("keeps stock metadata authoritative over CD and gold issuer fragments", () => {
+    const model = mapPortfolioToDashboardViewModel({
+      holdings: [
+        { symbol: "MCD", name: "McDonald's Corporation", asset_type: "stock", market_value: 22892.26 },
+        { symbol: "GS", name: "The Goldman Sachs Group, Inc.", asset_type: "stock", market_value: 8564.26 },
+      ],
+      total_value: 31456.52,
+    } as PortfolioData);
+    expect(model.canonicalModel.positions.every((row) => row.assetBucket === "equity")).toBe(true);
+    expect(model.allocation).toHaveLength(1);
+    expect(model.allocation[0].name).toBe("Equities");
+    expect(model.allocation[0].value).toBeCloseTo(31456.52, 2);
+  });
+
+  it("preserves declared fund categories and resolves other against exact asset types", () => {
+    const model = mapPortfolioToDashboardViewModel({
+      holdings: [
+        { symbol: "AGG", name: "Bond ETF", asset_type: "etf", instrument_kind: "fixed_income", market_value: 100 },
+        { symbol: "GLD", name: "Gold Shares ETF", asset_type: "etf", instrument_kind: "real_asset", market_value: 200 },
+        { symbol: "GS", name: "The Goldman Sachs Group, Inc.", asset_type: "stock", instrument_kind: "other", market_value: 300 },
+      ],
+      total_value: 600,
+    } as PortfolioData);
+    expect(Object.fromEntries(model.canonicalModel.positions.map((row) => [row.rawSymbol, row.assetBucket]))).toEqual({
+      AGG: "fixed_income", GLD: "real_asset", GS: "equity",
+    });
+  });
+
+  it("retains the Demo portfolio equity allocation for legacy other holdings", () => {
+    // Exercise the persisted shape, including legacy nulls in optional fields.
+    const model = mapPortfolioToDashboardViewModel(demoPortfolio as unknown as PortfolioData).canonicalModel;
+    const buckets = new Map(model.positions.map((position) => [position.rawSymbol, position.assetBucket]));
+    expect(buckets.get("AMZN")).toBe("equity");
+    expect(buckets.get("KO")).toBe("equity");
+    expect(buckets.get("POTX")).toBe("equity");
+    const equity = model.allocation.find(({ key }) => key === "equity");
+    expect(equity?.value).toBeCloseTo(755_837.61, 2);
+    expect(equity?.pct).toBeCloseTo(45.64, 2);
+    expect(model.allocation.map(({ key }) => key).sort()).toEqual(["cash_equivalent", "equity"]);
   });
 });
 

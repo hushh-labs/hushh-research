@@ -2,12 +2,142 @@
 
 from collections import Counter
 
+import pytest
+
 from api.routes.kai.portfolio import (
     _aggregate_holdings_by_symbol,
+    _normalize_import_holding_light,
     _normalize_raw_holding_row,
     _validate_holding_row,
 )
+from hushh_mcp.kai_import.normalize_v2 import _allocation_mix_from_holdings
 from hushh_mcp.kai_import.quality_v2 import build_holdings_quality_report_v2
+
+
+@pytest.mark.parametrize(
+    ("symbol", "name", "asset_type", "instrument_kind", "expected_kind"),
+    [
+        ("MCD", "McDonald's Corporation", "stock", None, "equity"),
+        ("GS", "The Goldman Sachs Group, Inc.", "stock", None, "equity"),
+        ("MCD", "McDonald's Corporation", "stock", "equity", "equity"),
+        ("GS", "The Goldman Sachs Group, Inc.", "stock", "equity", "equity"),
+        ("AGG", "Aggregate Bond ETF", "etf", "fixed_income", "fixed_income"),
+        ("VNQ", "Real Estate ETF", "etf", "real_asset", "real_asset"),
+        ("GLD", "Gold Shares ETF", "etf", "real_asset", "real_asset"),
+        ("GLD", "SPDR Gold Shares ETF", "commodity", "real_asset", "real_asset"),
+        ("QQQ", "Equity Fund ETF", "equity", "equity", "equity"),
+        ("CD", "Certificate of Deposit", "certificate_of_deposit", None, "fixed_income"),
+        ("", "Cash balance", "cash", None, "cash_equivalent"),
+        ("GS", "The Goldman Sachs Group, Inc.", "stock", "other", "equity"),
+        ("MCD", "McDonald's Corporation", None, None, "other"),
+        ("AGG", "Aggregate Bond ETF", "etf", None, "other"),
+    ],
+)
+def test_current_import_preserves_declared_instrument_classification(
+    symbol, name, asset_type, instrument_kind, expected_kind
+):
+    row = _normalize_import_holding_light(
+        {
+            "symbol": symbol,
+            "name": name,
+            "asset_type": asset_type,
+            "instrument_kind": instrument_kind,
+            "quantity": 2,
+            "price": 100,
+            "market_value": 200,
+        },
+        0,
+    )
+    assert row["instrument_kind"] == expected_kind
+    assert row["market_value"] == 200
+    assert row["is_cash_equivalent"] == (expected_kind == "cash_equivalent")
+    if expected_kind == "equity" and symbol in {"MCD", "GS"}:
+        assert row["analyze_eligible"] is True
+        assert row["security_listing_status"] == "sec_common_equity"
+    if symbol in {"AGG", "GLD", "VNQ", "QQQ", "CD"}:
+        assert row["analyze_eligible"] is False
+    if expected_kind == "other":
+        assert row["analyze_eligible"] is False
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [{"security_listing_status": "sec_common_equity"}, {"symbol_kind": "us_common_equity_ticker"}],
+)
+def test_import_resolves_legacy_listing_metadata_when_kind_and_asset_type_are_unresolved(listing):
+    row = _normalize_import_holding_light(
+        {"symbol": "AMZN", "instrument_kind": "other", "market_value": 100, **listing}, 0
+    )
+    assert row["instrument_kind"] == "equity"
+    assert row["tradable"] and row["analyze_eligible"]
+
+
+def test_equity_allocation_does_not_override_the_fund_listing_exclusion():
+    row = _normalize_import_holding_light(
+        {
+            "symbol": "POTX",
+            "asset_type": "Equities",
+            "instrument_kind": "other",
+            "security_listing_status": "non_sec_common_equity",
+            "symbol_kind": "fund_or_etf_ticker",
+            "market_value": 100,
+        },
+        0,
+    )
+    assert row["instrument_kind"] == "equity"
+    assert row["security_listing_status"] == "non_sec_common_equity"
+    assert row["analyze_eligible"] is False
+
+
+@pytest.mark.parametrize(
+    "symbol,kind", [("AGG", "fixed_income"), ("GLD", "real_asset"), ("QQQ", "other")]
+)
+def test_secondary_normalizer_preserves_typed_etfs_and_leaves_generic_etfs_unresolved(symbol, kind):
+    row = _normalize_raw_holding_row(
+        {"symbol": symbol, "asset_type": "etf", "instrument_kind": kind, "market_value": 100}, 0
+    )
+    assert row["instrument_kind"] == kind
+    assert row["market_value"] == 100
+    assert row["analyze_eligible"] is False
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_grouped_allocation_resolves_metadata_from_either_lot_order(reverse):
+    rows = [
+        _normalize_import_holding_light(
+            {"symbol": "GS", "instrument_kind": kind, "quantity": 1, "price": 100}, index
+        )
+        for index, kind in enumerate(("other", "equity"))
+    ]
+    if reverse:
+        rows.reverse()
+    [holding] = _aggregate_holdings_by_symbol(rows)
+    assert holding["instrument_kind"] == "equity"
+    assert holding["is_sec_common_equity_ticker"] is True
+    assert holding["market_value"] == 200
+
+
+def test_current_import_keeps_issuer_fragments_out_of_allocation():
+    inputs = [
+        ("MCD", "McDonald's Corporation", "stock", 22892.26),
+        ("GS", "The Goldman Sachs Group, Inc.", "stock", 8564.26),
+        ("AAPL", "Other equity position", "stock", 521122.03),
+        ("CASH", "Cash balance", "cash", 7432.18),
+    ]
+    rows = [
+        _normalize_import_holding_light(
+            {"symbol": symbol, "name": name, "asset_type": asset_type, "market_value": value},
+            index,
+        )
+        for index, (symbol, name, asset_type, value) in enumerate(inputs)
+    ]
+    allocation = {
+        item["bucket"]: item["value"] for item in _allocation_mix_from_holdings(rows, 560010.73)
+    }
+    assert allocation["equity"] == 552578.55
+    assert allocation["cash_equivalent"] == 7432.18
+    assert allocation["fixed_income"] == 0
+    assert allocation["real_asset"] == 0
 
 
 def _validate_many(rows):

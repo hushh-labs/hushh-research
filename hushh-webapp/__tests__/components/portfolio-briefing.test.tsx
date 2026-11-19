@@ -91,6 +91,7 @@ describe("portfolio briefing", () => {
       { symbol: "FUND", name: "Sample fund", quantity: 1, price: 456, market_value: 456, asset_type: "ETF" },
       { symbol: "CASH", name: "Cash", quantity: 1, price: 544, market_value: 544, asset_type: "Cash" },
     ] });
+    expect(model.canonicalModel.positions.find(({ tickerSymbol }) => tickerSymbol === "FUND")?.assetBucket).toBe("other");
     render(<PortfolioAnalysis model={model} />);
     expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
       "Portfolio mix", "What if your investments fall?",
