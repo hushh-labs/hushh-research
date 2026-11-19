@@ -7,6 +7,18 @@ const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
   getPlatform: vi.fn(() => "web"),
   request: vi.fn(),
+  getIdToken: vi.fn(),
+}));
+
+const streamBridge = vi.hoisted(() => ({
+  addListener: vi.fn(),
+  open: vi.fn(),
+  cancel: vi.fn(),
+}));
+
+vi.mock("@/lib/capacitor/stream", () => ({
+  HUSHH_STREAM_EVENT: "hushhStreamEvent",
+  HushhStream: streamBridge,
 }));
 
 const ownerPodMocks = vi.hoisted(() => ({
@@ -33,7 +45,7 @@ vi.mock("@capacitor/core", () => ({
 
 vi.mock("@/lib/capacitor", () => ({
   HushhVault: {},
-  HushhAuth: {},
+  HushhAuth: { getIdToken: capacitorMocks.getIdToken },
   HushhConsent: {},
   HushhNotifications: {},
 }));
@@ -53,8 +65,8 @@ vi.mock("@/lib/capacitor/kai", () => ({
 
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
-    getIdToken: vi.fn(async () => "firebase-token"),
-    getCurrentUser: vi.fn(() => ({ uid: "uid-owner" })),
+    getIdToken: vi.fn(async () => `header.${btoa(JSON.stringify({ sub: "uid-owner" }))}.signature`),
+    getCurrentUser: vi.fn(() => capacitorMocks.isNativePlatform() ? null : { uid: "uid-owner" }),
   },
 }));
 
@@ -121,10 +133,45 @@ function json(body: unknown, status = 200) {
 }
 
 describe("ApiService owner-direct pod path", () => {
+  it("opens a Shared chat stream for a validated native-only session", async () => {
+    vi.useRealTimers();
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(null);
+    capacitorMocks.request.mockReset().mockResolvedValue({
+      status: 200, data: { hostingMode: "shared", state: "active" }, headers: {},
+    });
+    const remove = vi.fn();
+    streamBridge.addListener.mockResolvedValue({ remove });
+    streamBridge.open.mockResolvedValue({ status: 200, headers: {} });
+    streamBridge.cancel.mockResolvedValue({ cancelled: true });
+
+    const response = await ApiService.agentChatRequest("/api/one/agent-chat", {
+      method: "POST",
+      headers: { Authorization: "Bearer HCT:synthetic" },
+      body: "{}",
+    }, true);
+
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({
+      url: expect.stringMatching(/\/api\/one\/personal-agent\/status$/),
+      method: "GET",
+    }));
+    expect(streamBridge.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      path: "/api/one/agent-chat", method: "POST",
+    }));
+    const streamHeaders = new Headers(streamBridge.open.mock.calls[0][0].headers);
+    expect(streamHeaders.get("Authorization")).toBe("Bearer HCT:synthetic");
+    expect(response.status).toBe(200);
+    await response.body?.cancel();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
   it.each([["shared", false], ["shared", true], ["pod", false], ["pod", true]] as const)(
     "keeps %s Stop authority through final HTTP setup (native=%s)", async (source, native) => {
       vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://dev.example");
       capacitorMocks.isNativePlatform.mockReturnValue(native);
+      if (native) vi.spyOn(ApiService, "getPersonalAgentStatusForRouting").mockResolvedValue({
+        hostingMode: "shared", state: "active",
+      });
       vi.useRealTimers();
       ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(source === "pod" ? PIN : null);
       ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
@@ -150,6 +197,9 @@ describe("ApiService owner-direct pod path", () => {
   );
 
   beforeEach(() => {
+    capacitorMocks.getIdToken.mockResolvedValue({
+      idToken: `header.${btoa(JSON.stringify({ sub: "uid-owner" }))}.signature`,
+    });
     vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({
       hostingMode: "shared", state: "active", hushhId: "ha1_owner",
     });
@@ -166,6 +216,7 @@ describe("ApiService owner-direct pod path", () => {
 
   afterEach(() => {
     capacitorMocks.isNativePlatform.mockReturnValue(false);
+    ApiService.clearRoutingHostingBurstCache();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.useRealTimers();

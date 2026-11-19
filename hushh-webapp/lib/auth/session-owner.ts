@@ -124,6 +124,11 @@ export function snapshotValidatedAuthSessionPrincipal(): (AccountPrincipalBindin
   return { ...browserPrincipal, userId: browserUserId, generation: browserGeneration };
 }
 
+/** A pending sign-in still represents an identity, even before owner admission. */
+export function hasAuthSessionIdentity(): boolean {
+  return typeof window !== "undefined" && browserFirebaseUid !== null;
+}
+
 /** Maps only the current session's owner to its Firebase identity; any other value passes through. */
 export function firebaseUidForOwner(ownerId: string): string {
   const principal = snapshotValidatedAuthSessionPrincipal();

@@ -9,15 +9,21 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { publishPendingAuthSessionIdentity, publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const state = vi.hoisted(() => ({
   uid: null as string | null,
+  native: false,
   pinned: null as unknown,
   hosting: vi.fn(),
   agents: [] as Array<{ url: string }>,
   streamFetch: vi.fn(),
 }));
+
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@capacitor/core")>();
+  return { ...real, Capacitor: { ...real.Capacitor, isNativePlatform: () => state.native } };
+});
 
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getCurrentUser: () => (state.uid ? { uid: state.uid } : null) },
@@ -26,7 +32,7 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: async () => state.pinned,
 }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getPersonalAgentStatus: () => state.hosting() },
+  ApiService: { getPersonalAgentStatusForRouting: (options: unknown) => state.hosting(options) },
 }));
 vi.mock("@/lib/services/native-sse-fetch", () => ({ nativeStreamFetch: state.streamFetch }));
 vi.mock("@ag-ui/client", () => ({
@@ -50,6 +56,7 @@ import { PRIVATE_AGENT_INTRO_REPLY, streamAgentIntro } from "@/lib/services/agen
 beforeEach(() => {
   publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   state.uid = "owner";
+  state.native = false;
   state.pinned = null;
   state.agents = [];
   state.hosting.mockReset();
@@ -69,8 +76,30 @@ describe("introMayReachHub", () => {
   });
   it("lets an anonymous visitor use the public tier without reading hosting", async () => {
     state.uid = null;
+    publishValidatedAuthSessionPrincipal(null);
     await expect(introMayReachHub(state.hosting)).resolves.toBe(true);
     expect(state.hosting).not.toHaveBeenCalled();
+  });
+
+  it("requires settled guest state on native and keeps pending sign-in local", async () => {
+    state.native = true;
+    state.uid = null;
+    publishValidatedAuthSessionPrincipal(null);
+    await expect(introMayReachHub(state.hosting)).resolves.toBe(false);
+    await expect(introMayReachHub(state.hosting, true)).resolves.toBe(true);
+    publishPendingAuthSessionIdentity("pending-owner");
+    await expect(introMayReachHub(state.hosting, true)).resolves.toBe(false);
+    expect(state.hosting).not.toHaveBeenCalled();
+  });
+
+  it("reads placement for an admitted native owner without a Firebase JS user", async () => {
+    state.native = true;
+    state.uid = null;
+    state.hosting.mockResolvedValue({ hostingMode: "shared" });
+    await expect(introMayReachHub(state.hosting)).resolves.toBe(true);
+    state.pinned = { hushhId: "ha1_owner" };
+    await expect(introMayReachHub(state.hosting)).resolves.toBe(false);
+    expect(state.hosting).toHaveBeenCalledOnce();
   });
 
   it("keeps a pinned private agent's words on this device", async () => {
@@ -119,6 +148,7 @@ describe("streamAgentIntro", () => {
     state.hosting.mockResolvedValue({ hostingMode: "shared" });
     const result = await streamAgentIntro({ message: "What is Hussh?" });
     expect(result.text).toBe("Hello");
+    expect(state.hosting).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ fresh: true }));
     expect(state.agents.map((agent) => agent.url)).toEqual(["/api/one/agent-chat"]);
   });
 });
