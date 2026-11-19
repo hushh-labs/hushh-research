@@ -2,25 +2,35 @@
 # SPDX-FileCopyrightText: 2026 Hushh
 """Portable Kubernetes Agent Sandbox manifest renderers (FedRAMP High baseline, #9744).
 
-Produces `agents.x-k8s.io/v1alpha1` (`SandboxTemplate`, `SandboxWarmPool`,
-`SandboxClaim`) plus default-deny `NetworkPolicy` resources runnable across
-GKE Assured Workloads (`kata` / `gvisor`), AWS GovCloud EKS, and Azure Gov AKS.
+Produces `extensions.agents.x-k8s.io/v1beta1` (`SandboxTemplate`,
+`SandboxWarmPool`, `SandboxClaim`) and `networking.k8s.io/v1` default-deny
+`NetworkPolicy` resources runnable across GKE (`kata` / `gke-sandbox`), AWS
+GovCloud EKS, and Azure Gov AKS.
 """
 
 from __future__ import annotations
 
+import datetime
 import re
+import time
 from typing import Any, Literal
 
 from hushh_mcp.operons.pod_workspace.command_policy import METADATA_NO_PROXY
 
-AGENT_SANDBOX_API_VERSION = "agents.x-k8s.io/v1alpha1"
+AGENT_SANDBOX_API_VERSION = "agents.x-k8s.io/v1beta1"
+AGENT_SANDBOX_EXTENSIONS_API_VERSION = "extensions.agents.x-k8s.io/v1beta1"
 DEFAULT_CPU_MILLIS = 2000
 DEFAULT_MEMORY_LIMIT = "4Gi"
 DEFAULT_SANDBOX_UID = 10001
 DEFAULT_EGRESS_PROXY_PORT = 3128
 DEFAULT_EGRESS_PROXY_URL = (
     "http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128"
+)
+DEFAULT_STANDBY_COMMAND = (
+    "/opt/venv/bin/python",
+    "-I",
+    "-m",
+    "hushh_mcp.services.agent_sandbox.virgin_standby",
 )
 K8S_MANIFEST_INVARIANT_ERROR = "AGENT_SANDBOX_MANIFEST_INVALID"
 
@@ -53,8 +63,9 @@ def render_sandbox_template(
     cpu_millis: int = DEFAULT_CPU_MILLIS,
     memory_limit: str = DEFAULT_MEMORY_LIMIT,
     egress_proxy_url: str = DEFAULT_EGRESS_PROXY_URL,
+    command: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Render a virgin hardened SandboxTemplate with zero owner state or SA tokens."""
+    """Render a virgin hardened v1beta1 SandboxTemplate with zero owner state or SA tokens."""
     tpl_name = _require_dns_label(name, field_name="template name")
     ns = _require_dns_label(namespace, field_name="namespace")
     clean_image = str(image_ref or "").strip()
@@ -72,6 +83,10 @@ def render_sandbox_template(
     if not clean_proxy.startswith(("http://", "https://")):
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: valid egress_proxy_url required")
 
+    entrypoint = list(command) if command is not None else list(DEFAULT_STANDBY_COMMAND)
+    if not entrypoint or not all(isinstance(part, str) and part.strip() for part in entrypoint):
+        raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: non-empty command is required")
+
     env_list = [
         {"name": "HUSSH_POD_MODE", "value": "1"},
         {"name": "HUSSH_SANDBOX_PROFILE", "value": "virgin_pool_v1"},
@@ -87,7 +102,7 @@ def render_sandbox_template(
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: virgin template cannot carry tenant env")
 
     return {
-        "apiVersion": AGENT_SANDBOX_API_VERSION,
+        "apiVersion": AGENT_SANDBOX_EXTENSIONS_API_VERSION,
         "kind": "SandboxTemplate",
         "metadata": {
             "name": tpl_name,
@@ -99,6 +114,10 @@ def render_sandbox_template(
             },
         },
         "spec": {
+            "envVarsInjectionPolicy": "Disallowed",
+            "volumeClaimTemplatesPolicy": "Disallowed",
+            "failedPodPolicy": "Retain",
+            "networkPolicyManagement": "Unmanaged",
             "podTemplate": {
                 "metadata": {
                     "labels": {
@@ -122,8 +141,14 @@ def render_sandbox_template(
                         {
                             "name": "sandbox",
                             "image": clean_image,
+                            "command": entrypoint,
                             "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
                             "env": env_list,
+                            "readinessProbe": {
+                                "httpGet": {"path": "/healthz", "port": 8080},
+                                "initialDelaySeconds": 1,
+                                "periodSeconds": 5,
+                            },
                             "resources": {
                                 "requests": {"cpu": f"{cpu_millis}m", "memory": memory_limit},
                                 "limits": {"cpu": f"{cpu_millis}m", "memory": memory_limit},
@@ -138,21 +163,26 @@ def render_sandbox_template(
                             "volumeMounts": [
                                 {"name": "workspace-nvme", "mountPath": "/workspace"},
                                 {"name": "runtime-tmp", "mountPath": "/run/hussh-tmp"},
+                                {"name": "gunicorn-runtime", "mountPath": "/app/.gunicorn"},
                             ],
                         }
                     ],
                     "volumes": [
                         {
                             "name": "workspace-nvme",
-                            "emptyDir": {"medium": "", "sizeLimit": "4Gi"},
+                            "emptyDir": {"sizeLimit": "4Gi"},
                         },
                         {
                             "name": "runtime-tmp",
-                            "emptyDir": {"medium": "Memory", "sizeLimit": "512Mi"},
+                            "emptyDir": {"medium": "Memory", "sizeLimit": "256Mi"},
+                        },
+                        {
+                            "name": "gunicorn-runtime",
+                            "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"},
                         },
                     ],
                 },
-            }
+            },
         },
     }
 
@@ -164,19 +194,20 @@ def render_sandbox_warm_pool(
     template_name: str = "hussh-one-sandbox-v1",
     replicas: int = 8,
 ) -> dict[str, Any]:
-    """Render a virgin pre-warmed SandboxWarmPool sized for active demand."""
+    """Render a virgin pre-warmed v1beta1 SandboxWarmPool sized for active demand."""
     pool_name = _require_dns_label(name, field_name="warm pool name")
     ns = _require_dns_label(namespace, field_name="namespace")
     tpl_name = _require_dns_label(template_name, field_name="template name")
     if replicas < 0 or replicas > 5000:
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: replicas out of bounds")
     return {
-        "apiVersion": AGENT_SANDBOX_API_VERSION,
+        "apiVersion": AGENT_SANDBOX_EXTENSIONS_API_VERSION,
         "kind": "SandboxWarmPool",
         "metadata": {"name": pool_name, "namespace": ns},
         "spec": {
             "replicas": replicas,
             "sandboxTemplateRef": {"name": tpl_name},
+            "updateStrategy": {"type": "Recreate"},
         },
     }
 
@@ -185,14 +216,15 @@ def render_sandbox_claim(
     *,
     claim_name: str,
     namespace: str = "hussh-agents",
-    template_name: str = "hussh-one-sandbox-v1",
+    warm_pool_name: str = "hussh-one-warm-pool",
     billing_space_id: str,
     idle_shutdown_seconds: int = 600,
+    now_epoch_s: int | None = None,
 ) -> dict[str, Any]:
-    """Render an ephemeral single-use SandboxClaim (`Delete` on exit, NIST SC-4)."""
+    """Render an ephemeral single-use v1beta1 SandboxClaim (`DeleteForeground`, NIST SC-4)."""
     clean_claim = _require_dns_label(claim_name, field_name="claim name")
     ns = _require_dns_label(namespace, field_name="namespace")
-    tpl_name = _require_dns_label(template_name, field_name="template name")
+    pool_name = _require_dns_label(warm_pool_name, field_name="warm pool name")
     clean_space = re.sub(r"[^a-z0-9_-]+", "-", str(billing_space_id or "").strip().lower()).strip(
         "-_"
     )
@@ -200,8 +232,13 @@ def render_sandbox_claim(
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: valid billing_space_id required")
     if idle_shutdown_seconds < 60 or idle_shutdown_seconds > 3600:
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: idle_shutdown_seconds out of bounds")
+    base_epoch = int(time.time()) if now_epoch_s is None else int(now_epoch_s)
+    shutdown_dt = datetime.datetime.fromtimestamp(
+        base_epoch + idle_shutdown_seconds, tz=datetime.timezone.utc
+    )
+    shutdown_iso = shutdown_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
-        "apiVersion": AGENT_SANDBOX_API_VERSION,
+        "apiVersion": AGENT_SANDBOX_EXTENSIONS_API_VERSION,
         "kind": "SandboxClaim",
         "metadata": {
             "name": clean_claim,
@@ -212,9 +249,18 @@ def render_sandbox_claim(
             },
         },
         "spec": {
-            "sandboxTemplateRef": {"name": tpl_name},
-            "reclaimPolicy": "Delete",
-            "lifecycle": {"shutdownAfterIdleSeconds": idle_shutdown_seconds},
+            "warmPoolRef": {"name": pool_name},
+            "additionalPodMetadata": {
+                "labels": {
+                    "hussh-billing-space": clean_space,
+                    "hussh.ai/single-use": "true",
+                }
+            },
+            "lifecycle": {
+                "shutdownPolicy": "DeleteForeground",
+                "ttlSecondsAfterFinished": 0,
+                "shutdownTime": shutdown_iso,
+            },
         },
     }
 
@@ -279,8 +325,9 @@ def render_agent_sandbox_bundle(
     namespace: str = "hussh-agents",
     runtime_class: SandboxRuntimeClass = "kata",
     warm_pool_replicas: int = 8,
+    warm_pool_name: str = "hussh-one-warm-pool",
 ) -> dict[str, dict[str, Any]]:
-    """Render complete portable Kubernetes AgentSandbox resources for one claim."""
+    """Render complete portable Kubernetes AgentSandbox v1beta1 resources for one claim."""
     return {
         "template": render_sandbox_template(
             namespace=namespace,
@@ -288,6 +335,7 @@ def render_agent_sandbox_bundle(
             runtime_class=runtime_class,
         ),
         "warmPool": render_sandbox_warm_pool(
+            name=warm_pool_name,
             namespace=namespace,
             replicas=warm_pool_replicas,
         ),
@@ -295,6 +343,7 @@ def render_agent_sandbox_bundle(
         "claim": render_sandbox_claim(
             claim_name=claim_name,
             namespace=namespace,
+            warm_pool_name=warm_pool_name,
             billing_space_id=billing_space_id,
         ),
     }

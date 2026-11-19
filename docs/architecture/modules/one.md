@@ -25,7 +25,7 @@ Ask One; its specialist dispatch uses the task’s existing consent and returns 
 
 ## Components and dependencies
 
-The canonical ADK tree composes specialists, scoped tools, task state and owner model access.
+The canonical ADK tree composes specialists, scoped tools, task state and owner model access. Pod-mode sessions also expose gated Browser and stateful Terminal tools only when an admitted sandbox invocation binds their runtime hands.
 
 ## Trust boundary and limits
 

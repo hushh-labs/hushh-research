@@ -3,17 +3,28 @@
 
 # Portable Agent Sandbox Kubernetes Baseline
 
-Reference Kubernetes manifests for Hussh One's single-use per-user microVM pool
-(`agents.x-k8s.io/v1alpha1`, tracked in `#9744`).
+Reference Kubernetes manifests and cluster reconciliation script for Hussh One's
+single-use per-user sandbox pool (`extensions.agents.x-k8s.io/v1beta1`, tracked
+in `#9744`).
 
 ## Portability Targets
 
-- **GKE Assured Workloads:** set `runtimeClassName: gke-sandbox` (gVisor) or `kata` when Kata nodes are provisioned.
+- **GKE Autopilot / Assured Workloads:** set `runtimeClassName: gke-sandbox` (gVisor) or `kata` where Kata nodes are provisioned.
 - **AWS GovCloud EKS / Azure Gov AKS:** use `runtimeClassName: kata` (Kata microVM).
-- **Network Fencing:** apply `sandbox-network-policy.yaml` so sandbox pods only accept traffic from `hussh-consent-hub` on TCP `8080` and only reach `sentinel-egress-proxy` on TCP `3128`.
+- **Network Fencing:** `sandbox-network-policy.yaml` restricts sandbox pods strictly to `hussh-consent-hub` on TCP `8080` and `sentinel-egress-proxy` on TCP `3128`.
+
+## Reconciler (Plan-First, No Terraform)
+
+Per Hussh's [deployment standard](../../docs/architecture/deployment-standard.md),
+Dev cluster setup uses explicit declarative manifests and gcloud reconcilers
+rather than Terraform state files:
+
+- Plan only (default): `./deploy/agent-sandbox/reconcile_dev_gke_sandbox.sh`
+- Apply Dev Autopilot sandbox infrastructure and warm pool: `./deploy/agent-sandbox/reconcile_dev_gke_sandbox.sh --apply`
+- Drain warm pool back to zero standby cost: `./deploy/agent-sandbox/reconcile_dev_gke_sandbox.sh --scale-zero`
 
 ## Deployment Invariants (FedRAMP High Baseline)
 
-1. Pin `image` to a Cosign-signed immutable `@sha256:` digest before cluster apply (`sandbox-template.yaml` ships a zero-digest placeholder for CI/lint safety).
-2. Never place owner tokens, vault keys, or `APP_SIGNING_KEY` inside `SandboxTemplate` or `SandboxWarmPool`.
-3. Provision per-user workspaces only via ephemeral `SandboxClaim` (`reclaimPolicy: Delete`) rendered by the backend lease manager (`consent-protocol/hushh_mcp/operons/agent_sandbox/k8s_manifests.py`).
+1. Pin `image` to a signed immutable `@sha256:` digest before cluster apply (`sandbox-template.yaml` ships a zero-digest placeholder for repository lint safety).
+2. Never place owner tokens, vault keys, or `APP_SIGNING_KEY` inside `SandboxTemplate` or `SandboxWarmPool` (`envVarsInjectionPolicy: Disallowed`).
+3. Provision per-user workspaces only via ephemeral `SandboxClaim` (`shutdownPolicy: DeleteForeground`, `ttlSecondsAfterFinished: 0`) rendered by `consent-protocol/hushh_mcp/operons/agent_sandbox/k8s_manifests.py`.

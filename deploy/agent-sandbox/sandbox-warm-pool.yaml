@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-# Reference SandboxWarmPool sized for concurrent active demand.
-apiVersion: agents.x-k8s.io/v1alpha1
+# Reference SandboxWarmPool (extensions.agents.x-k8s.io/v1beta1) sized for active demand.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
 kind: SandboxWarmPool
 metadata:
   name: hussh-one-warm-pool
@@ -10,3 +10,5 @@ spec:
   replicas: 8
   sandboxTemplateRef:
     name: hussh-one-sandbox-v1
+  updateStrategy:
+    type: Recreate

@@ -44,6 +44,7 @@ from hushh_mcp.services.agent_sandbox.sentinel_egress_proxy import (
     SentinelEgressError,
     SentinelEgressGatekeeper,
 )
+from hushh_mcp.services.agent_sandbox.virgin_standby import build_readiness_payload
 from hushh_mcp.services.compute_backend import PodSpec
 
 _IMAGE_WITH_DIGEST = "us-docker.pkg.dev/hushh-pda-dev/hussh-sandbox/one-sandbox@sha256:" + "a" * 64
@@ -270,10 +271,14 @@ def test_au9_audit_tamper_detection_and_au5_fail_closed_outage() -> None:
 
 
 def _assert_template_hardened(tpl: dict) -> None:
+    assert tpl["apiVersion"] == "extensions.agents.x-k8s.io/v1beta1"
+    assert tpl["spec"]["envVarsInjectionPolicy"] == "Disallowed"
+    assert tpl["spec"]["volumeClaimTemplatesPolicy"] == "Disallowed"
     pod_spec = tpl["spec"]["podTemplate"]["spec"]
     assert pod_spec["automountServiceAccountToken"] is False
     assert pod_spec["restartPolicy"] == "Never"
     container = pod_spec["containers"][0]
+    assert container["readinessProbe"]["httpGet"] == {"path": "/healthz", "port": 8080}
     sec = container["securityContext"]
     assert sec["allowPrivilegeEscalation"] is False
     assert sec["readOnlyRootFilesystem"] is True
@@ -289,6 +294,10 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
             image_ref="us-docker.pkg.dev/hushh-pda-dev/hussh-sandbox/one-sandbox:latest"
         )
 
+    with pytest.raises(PermissionError, match="VIRGIN_STANDBY_ROOT_FORBIDDEN"):
+        build_readiness_payload(uid=0)
+    assert build_readiness_payload(uid=10001)["status"] == "virgin_ready"
+
     bundle = render_agent_sandbox_bundle(
         claim_name="claim-user-123",
         billing_space_id="bs_123",
@@ -296,7 +305,9 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
         runtime_class="gke-sandbox",
     )
     _assert_template_hardened(bundle["template"])
-    assert bundle["claim"]["spec"]["reclaimPolicy"] == "Delete"
+    assert bundle["claim"]["apiVersion"] == "extensions.agents.x-k8s.io/v1beta1"
+    assert bundle["claim"]["spec"]["warmPoolRef"] == {"name": "hussh-one-warm-pool"}
+    assert bundle["claim"]["spec"]["lifecycle"]["shutdownPolicy"] == "DeleteForeground"
     assert bundle["networkPolicy"]["spec"]["policyTypes"] == ["Ingress", "Egress"]
 
     ace_bundle = AceComputeBackend().render_k8s_agent_sandbox_bundle(
@@ -308,7 +319,7 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
         )
     )
     _assert_template_hardened(ace_bundle["template"])
-    assert ace_bundle["claim"]["spec"]["reclaimPolicy"] == "Delete"
+    assert ace_bundle["claim"]["spec"]["lifecycle"]["shutdownPolicy"] == "DeleteForeground"
 
     deploy_dir = Path(__file__).resolve().parents[3] / "deploy" / "agent-sandbox"
     tpl_yaml = yaml.safe_load((deploy_dir / "sandbox-template.yaml").read_text(encoding="utf-8"))
@@ -318,7 +329,9 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
     )
 
     _assert_template_hardened(tpl_yaml)
+    assert pool_yaml["apiVersion"] == "extensions.agents.x-k8s.io/v1beta1"
     assert pool_yaml["kind"] == "SandboxWarmPool"
     assert pool_yaml["spec"]["sandboxTemplateRef"]["name"] == tpl_yaml["metadata"]["name"]
+    assert pool_yaml["spec"]["updateStrategy"] == {"type": "Recreate"}
     assert net_yaml["spec"]["policyTypes"] == ["Ingress", "Egress"]
     assert net_yaml["spec"]["egress"][0]["ports"] == [{"protocol": "TCP", "port": 3128}]
