@@ -87,8 +87,14 @@ async def test_post_run_runs_in_settle_after_run_finished_while_holding_admissio
 
 
 def test_context_cache_config_targets_native_gemini_only(monkeypatch):
+    from hushh_mcp.one_adk import agui_factory
+
     monkeypatch.setenv("HUSHH_ADK_CONTEXT_CACHE_FORCE_TEST", "1")
     monkeypatch.delenv("HUSHH_ADK_CONTEXT_CACHE_DISABLED", raising=False)
+
+    if agui_factory.ContextCacheConfig is None or not agui_factory._APP_ACCEPTS_CONTEXT_CACHE:
+        assert _adk_context_cache_config(SimpleNamespace(model="gemini-2.5-flash")) is None
+        return
 
     assert _adk_context_cache_config(SimpleNamespace(model="gemini-2.5-flash")) is not None
     gemini_model = Gemini.model_construct(model="gemini-2.5-flash")

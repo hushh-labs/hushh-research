@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 from collections.abc import Callable
 from typing import Any
 
 from ag_ui_adk.request_state_service import RequestStateSessionService
 from ag_ui_adk.session_manager import SessionManager
-from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.models.google_llm import Gemini
 from google.genai import types as genai_types
 
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_ONE, TimedADKAgent
 
+try:
+    from google.adk.agents.context_cache_config import ContextCacheConfig
+except ImportError:  # pragma: no cover - older google-adk runtimes lack ContextCacheConfig
+    ContextCacheConfig = None  # type: ignore[assignment,misc]
 
-def _adk_context_cache_config(root_agent: Any) -> ContextCacheConfig | None:
-    """Enable ADK 2.14 implicit prompt/tool context caching only on native Gemini models."""
+_APP_ACCEPTS_CONTEXT_CACHE = "context_cache_config" in inspect.signature(App).parameters
+
+
+def _adk_context_cache_config(root_agent: Any) -> Any | None:
+    """Enable ADK implicit prompt/tool context caching only when supported on native Gemini."""
+    if ContextCacheConfig is None or not _APP_ACCEPTS_CONTEXT_CACHE:
+        return None
     if os.getenv("HUSHH_ADK_CONTEXT_CACHE_DISABLED", "").strip().lower() in {
         "1",
         "true",
@@ -32,12 +41,14 @@ def _adk_context_cache_config(root_agent: Any) -> ContextCacheConfig | None:
     )
     if not supports_gemini_cache:
         return None
-    return ContextCacheConfig(
-        min_tokens=4096,
-        ttl_seconds=1800,
-        cache_intervals=10,
-        create_http_options=genai_types.HttpOptions(timeout=5000),
-    )
+    params = inspect.signature(ContextCacheConfig).parameters
+    kwargs: dict[str, Any] = {
+        "min_tokens": 4096,
+        "ttl_seconds": 1800,
+        "cache_intervals": 10,
+        "create_http_options": genai_types.HttpOptions(timeout=5000),
+    }
+    return ContextCacheConfig(**{k: v for k, v in kwargs.items() if k in params})
 
 
 class _DurableSessionManager(SessionManager):
@@ -95,14 +106,17 @@ def build_authenticated_agui(
     memory_service: Any = None,
     plugins: list | None = None,
 ) -> TimedADKAgent:
+    cache_config = _adk_context_cache_config(root_agent)
+    app_kwargs: dict[str, Any] = {
+        "name": app_name,
+        "root_agent": root_agent,
+        "plugins": plugins or [],
+        "resumability_config": ResumabilityConfig(is_resumable=True),
+    }
+    if cache_config is not None and _APP_ACCEPTS_CONTEXT_CACHE:
+        app_kwargs["context_cache_config"] = cache_config
     return agent_class.from_app(
-        App(
-            name=app_name,
-            root_agent=root_agent,
-            plugins=plugins or [],
-            context_cache_config=_adk_context_cache_config(root_agent),
-            resumability_config=ResumabilityConfig(is_resumable=True),
-        ),
+        App(**app_kwargs),
         head=HEAD_ONE,
         user_id_extractor=user_id_extractor,
         max_concurrent_executions=max_concurrent_executions,
