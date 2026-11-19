@@ -44,6 +44,7 @@ Do not remove active peer work based on its date.
 
 ## Further reading
 
+- [Agent Sandbox microVM pool and standalone Terminal](personal-agent/agent-sandbox-microvm-plan.md)
 - [Apple a plus](apple-a-plus/README.md)
 - [Email Agent — Inbox Nudges & A2A (`feat/email-a2a`)](email-agent-nudges-plan.md)
 - [Independent Email OTP and Microsoft Sign-In Plan](independent-email-otp-and-microsoft-sign-in-plan.md)

@@ -2,7 +2,7 @@
 
 [Private-agent remaining work](README.md) · [Roadmap](../README.md) · [Current hosting architecture](../../architecture/modules/hosting.md)
 
-This active plan tracks [#9744 Stand up FedRAMP-ready Agent Sandbox microVM pool, Terminal capability, and Shared Runtime retirement](https://github.com/hushh-labs/hushh-research/issues/9744) and works alongside [#9511 Complete One's standalone Browser capability and reusable workspace split-pane UI](https://github.com/hushh-labs/hushh-research/issues/9511). Source foundations and contract tests are active in Dev; live cluster promotion, UAT verification, and Shared Runtime retirement remain gated behind phase exits.
+This active plan tracks [#9744 Stand up FedRAMP-ready Agent Sandbox microVM pool, Terminal capability, and Shared Runtime retirement](https://github.com/hushh-labs/hushh-research/issues/9744) ([Wave 1 PR #9755](https://github.com/hushh-labs/hushh-research/pull/9755)) and works alongside [#9511 Complete One's standalone Browser capability and reusable workspace split-pane UI](https://github.com/hushh-labs/hushh-research/issues/9511). Source foundations and contract tests are active in Dev; live cluster promotion, UAT verification, and Shared Runtime retirement remain gated behind phase exits.
 
 ## Visual Map
 
@@ -38,10 +38,18 @@ Moving hosted accounts onto a pre-warmed pool of isolated single-use Kubernetes 
 ### Phased rollout
 
 - [x] **Phase 0: Architecture alignment and clean split.** Locked unified microVM runtime and narrowed #9511 to standalone Browser and reusable workspace split-pane UI.
-- [ ] **Phase 1: Warm-pool sandbox baseline, incremental sync, outside gatekeeper, and standalone Terminal.** Land Wave 1 contracts, complete live Dev GKE sandbox claim and single-use teardown validation, and green every CI check.
+- [ ] **Phase 1: Warm-pool sandbox baseline, incremental sync, outside gatekeeper, and standalone Terminal.** Land Wave 1 contracts ([Wave 1 PR #9755](https://github.com/hushh-labs/hushh-research/pull/9755)), complete live Dev GKE sandbox claim and single-use teardown validation, and green every CI check.
 - [ ] **Phase 2: Live Dev routing, outside proxy runtime, and Browser + Terminal composition.** Connect Hub claim allocation and proxy mediation end to end in Dev.
 - [ ] **Phase 3: Unblock #9511 split-pane integration and verify 100% specialist parity in Dev.**
 - [ ] **Phase 4: UAT qualification and Shared Agent Runtime retirement.**
+
+### Connected plans and sibling tracks
+
+- **[#9511 Standalone Browser & Split-Pane UI](https://github.com/hushh-labs/hushh-research/issues/9511) ([Browser completion plan](browser-completion-plan.md)):** Delivers the desktop split-pane shell (`Browser` + `Activity` + pluggable `Terminal` slot) right behind Phase 1/2 runtime stabilization.
+- **[#9736 Unify Information Exchange across Shared and Private Pods](https://github.com/hushh-labs/hushh-research/issues/9736):** Converges Drive/Gmail sharing onto unified Shared and Private Pod executors and retires standalone Drive workers alongside unified sandbox parity.
+- **[#9517 Goals and Tasks](https://github.com/hushh-labs/hushh-research/issues/9517):** Schedules recurring tasks across Pod and local Puppy devices using qualified Browser/Terminal boundaries.
+- **[#9370 Personal Wiki Memory](https://github.com/hushh-labs/hushh-research/issues/9370) and [#9429 External AI Archive Imports](https://github.com/hushh-labs/hushh-research/issues/9429) ([Personal Wiki Memory plan](../personal-wiki-memory-plan.md)):** Consumer memory compilation, archive imports, and scoped recall running inside the unified personal runtime.
+- **[#5507 Owner-Controlled Private Pods](https://github.com/hushh-labs/hushh-research/issues/5507) ([Private-agent infra roadmap](../hussh-one-infra/README.md)):** Owner-hosted BYOC runtime readiness sharing the unified custody and broker boundary.
 
 ## For coding agents
 
