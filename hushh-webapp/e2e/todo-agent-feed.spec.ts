@@ -47,7 +47,6 @@ for (const width of [393, 1280]) {
     await detail.getByRole("button", { name: "Mark as not completed", exact: true }).click();
     await expect(detail.getByRole("status")).toHaveText("To do");
     await remove.click();
-    await detail.getByRole("button", { name: "Remove task", exact: true }).click();
     await expect(page.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -72,6 +71,13 @@ test.beforeAll(async () => {
   );
   const overrides: Record<string, string> = {
     "hooks/use-auth.ts": "useAuth",
+    "lib/services/feed-service.ts": "FeedService",
+    "lib/capacitor/native-drawers.ts": "nativeDrawersPlatformEligible,nativeDrawerIsolation",
+    "lib/agent/use-one-display-name.ts": "useOneDisplayName",
+    "lib/cache/use-stale-resource.ts": "useStaleResource",
+    "lib/feed/use-feed-live-refresh.ts": "useFeedLiveRefresh",
+    "components/profile/live-mirror-preview.tsx": "LiveMirrorPreview",
+    "components/app-ui/native-feature-page.tsx": "NativeFeaturePage",
     "lib/vault/vault-context.tsx": "useVault",
     "lib/feed/use-feed-actionables.ts": "useFeedActionables",
     "lib/feed/use-feed-briefing.ts": "useFeedBriefing",
@@ -85,7 +91,7 @@ test.beforeAll(async () => {
       "todoSuggestionsAvailable,suggestTodoTasks",
     "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
     "lib/services/personal-knowledge-model-service.ts":
-      "PersonalKnowledgeModelService",
+      "PersonalKnowledgeModelService,GEMINI_RUNTIME_CREDENTIAL_REF,GEMINI_RUNTIME_TRANSPORT_REF,GEMINI_VERTEX_LOCATION_REF,GEMINI_VERTEX_PROJECT_REF,RUNTIME_CREDENTIAL_MODE_REF",
     "lib/services/pkm-write-coordinator.ts": "PkmWriteCoordinator",
     "lib/morphy-ux/morphy.ts": "morphyToast",
     "lib/morphy-ux/morphy.tsx": "morphyToast",
@@ -98,6 +104,10 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic" } },
     resolve: { alias: [{ find: "@", replacement: root }] },
     define: {
+      "process.env.NEXT_PUBLIC_FIREBASE_API_KEY": JSON.stringify("fixture-only-public-api-key"),
+      "process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN": JSON.stringify("fixture.invalid"),
+      "process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID": JSON.stringify("fixture-project"),
+      "process.env.NEXT_PUBLIC_FIREBASE_APP_ID": JSON.stringify("1:123:web:fixture"),
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
     },
@@ -110,6 +120,7 @@ test.beforeAll(async () => {
           const relative = path.relative(root, clean).split(path.sep).join("/");
           if (overrides[relative])
             return `export {${overrides[relative]}} from ${JSON.stringify(boundary)};`;
+          if (clean.endsWith("/node_modules/next/navigation.js")) return `export {usePathname,useRouter} from ${JSON.stringify(boundary)};`;
           if (clean.endsWith("/node_modules/next/link.js"))
             return `export {default} from ${JSON.stringify(boundary)};`;
         },
@@ -159,7 +170,7 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + fs.readdirSync(outDir).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
 });
 
 test.afterAll(() => {
@@ -187,15 +198,14 @@ for (const [width, dark] of [
     await page.addScriptTag({ content: script });
     await page.getByRole("button", { name: "Open agent Todo" }).click();
     const preview = page.locator('[data-profile-type-scale="todo"]');
-    const title = preview.getByRole("heading", { name: "Review Alex's connection request", exact: true });
+    const title = preview.getByRole("button", { name: "Review Alex's connection request", exact: true }).locator("span").first();
     await expect(title).toBeVisible();
     // This is the mounted agent-sheet path, outside the standalone page shell.
     expect(await preview.evaluate(element => element.closest(".app-page-shell"))).toBeNull();
     for (const [locator, size, weight] of [
-      [preview.getByRole("heading", { name: "To-do list", exact: true }), "20px", "600"],
-      [title, "13px", "400"],
-      [preview.getByRole("heading", { name: "Any time", exact: true }), "10px", "600"],
-      [preview.getByRole("link", { name: "Open Review Alex's connection request", exact: true }), "12px", "500"],
+      [preview.getByRole("heading", { name: "Your tasks", exact: true }), width <= 360 ? "17px" : "19px", "600"],
+      [title, "13px", "600"],
+      [preview.getByRole("heading", { name: "Any time", exact: true }), "11px", "600"],
     ] as const) {
       await expect(locator).toHaveCSS("font-size", size);
       await expect(locator).toHaveCSS("font-weight", weight);
@@ -204,7 +214,7 @@ for (const [width, dark] of [
     await expect(preview.getByRole("button", { name: "Task sources", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Suggest tasks", exact: true })).toHaveCount(0);
     await expect(preview.getByRole("button", { name: "Refresh sources", exact: true })).toHaveCount(0);
-    for (const control of await preview.locator('button, a, summary, label').all()) {
+    for (const control of await preview.locator('button:not([data-todo-add-item]), a, summary, label').all()) {
       const box = (await control.boundingBox())!;
       expect(box.height).toBeGreaterThanOrEqual(44);
     }
@@ -368,26 +378,79 @@ test.describe("Calendar and email task list", () => {
     await page.getByRole("button", { name: "Open agent Todo" }).click();
     await page.getByRole("button", { name: "Load Calendar and email" }).click();
     const preview = page.locator('[data-profile-type-scale="todo"]');
-    await expect(preview.getByRole("heading", { name: "Planning meeting", exact: true })).toBeVisible();
+    await expect(preview.getByRole("button", { name: "Planning meeting", exact: true })).toBeVisible();
     await expect(preview.getByRole("heading", { name: "Any time", exact: true })).toBeVisible();
     await expect(preview.getByRole("heading", { name: /Jan 2/ })).toBeVisible();
     await expect(preview.getByText(/5:00\s*AM/)).toBeVisible();
-    await expect(preview.getByText("Calendar", { exact: true })).toBeVisible();
-    await expect(preview.getByText("Gmail", { exact: true })).toBeVisible();
-    await expect(preview.getByRole("heading", { name: "Connect Google Drive — Request from Saru", exact: true })).toBeVisible();
-    await expect(preview.getByRole("link", { name: "Open Reply to Saru: Meeting details", exact: true })).toHaveAttribute("href", "/one/gmail");
+    await expect(preview.getByRole("button", { name: "Connect Google Drive — Request from Saru", exact: true })).toBeVisible();
+    await expect(preview.getByRole("button", { name: "Reply to Saru: Meeting details", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Task sources", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Suggest tasks", exact: true })).toHaveCount(0);
     await expect(preview.getByText("Some tasks could not refresh.", { exact: true })).toHaveCount(0);
     await preview.getByRole("checkbox", { name: "Mark Reply to Saru: Meeting details as completed", exact: true }).click();
-    await expect(preview.getByRole("heading", { name: "Reply to Saru: Meeting details", exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Reply to Saru: Meeting details", exact: true })).toHaveCount(0);
     await expect(preview).toHaveAttribute("aria-busy", "false");
     await page.getByRole("button", { name: "Toggle lock" }).click();
     await expect(preview.getByText("Unlock your vault to view your to-do list.")).toBeVisible();
     await page.getByRole("button", { name: "Toggle lock" }).click();
-    await expect(preview.getByRole("heading", { name: "Planning meeting", exact: true })).toBeVisible();
-    await expect(preview.getByRole("heading", { name: "Reply to Saru: Meeting details", exact: true })).toHaveCount(0);
+    await expect(preview.getByRole("button", { name: "Planning meeting", exact: true })).toBeVisible();
+    await expect(preview.getByRole("button", { name: "Reply to Saru: Meeting details", exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
     await page.screenshot({ path: test.info().outputPath("todo-clean-calendar-email.png") });
   });
 });
+
+
+for (const [width, height] of [[320, 568], [390, 844], [1440, 900]] as const) {
+  test(`approved full profile task frame stays bounded at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height });
+    await page.route("http://localhost/todo-fixture?profile=1", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/todo-fixture?profile=1");
+    await page.addScriptTag({ content: script });
+    const heading = page.getByRole("heading", { name: "Your tasks", exact: true });
+    await expect(heading).toBeVisible();
+    await expect(heading).toHaveCSS("font-size", width <= 360 ? "17px" : "19px");
+    await page.getByRole("button", { name: "Task sources", exact: true }).click();
+    const sources = page.getByRole("dialog", { name: "Task sources", exact: true });
+    await expect(sources.getByRole("switch")).toHaveCount(9);
+    const pane = page.locator('[data-todo-active="true"]');
+    const [sourceBox, paneBox] = await Promise.all([sources.boundingBox(), pane.boundingBox()]);
+    expect(sourceBox!.x).toBeGreaterThanOrEqual(paneBox!.x);
+    expect(sourceBox!.x + sourceBox!.width).toBeLessThanOrEqual(paneBox!.x + paneBox!.width);
+    expect(sourceBox!.y + sourceBox!.height).toBeLessThanOrEqual(paneBox!.y + paneBox!.height);
+    await sources.getByRole("switch", { name: "Messages", exact: true }).click();
+    await expect(sources.getByRole("switch", { name: "Messages", exact: true })).not.toBeChecked();
+    await expect(sources.getByRole("switch", { name: "Messages", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(sources).toHaveCount(0);
+    await expect(heading).toBeVisible();
+    await page.getByRole("button", { name: "Demo with Ankit", exact: true }).click();
+    const detail = page.getByRole("region", { name: "Task details" });
+    await expect(page.getByRole("tab", { name: "To-do", exact: true })).toBeHidden();
+    await expect(detail.getByRole("heading", { name: "Demo with Ankit", exact: true })).toHaveCSS("font-size", width <= 600 ? "23px" : "24px");
+    await expect(detail.getByRole("heading", { name: "About the meeting", exact: true })).toHaveCSS("font-size", "13px");
+    const complete = detail.getByRole("button", { name: "Mark as completed", exact: true });
+    const remove = detail.getByRole("button", { name: "Remove task", exact: true });
+    const [primaryBox, removeBox] = await Promise.all([complete.boundingBox(), remove.boundingBox()]);
+    expect(primaryBox!.height).toBeGreaterThanOrEqual(48);
+    expect(removeBox!.y).toBeGreaterThanOrEqual(primaryBox!.y + primaryBox!.height);
+    expect(removeBox!.y + removeBox!.height).toBeLessThanOrEqual(height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`approved-detail-${width}.png`), animations: "disabled" });
+    await complete.click();
+    await expect(detail.getByRole("status")).toHaveText("Completed");
+    await detail.getByRole("button", { name: "Mark as not completed", exact: true }).click();
+    await expect(detail.getByRole("status")).toHaveText("To do");
+    await remove.click();
+    await expect(detail).toHaveCount(0);
+    await expect(heading).toBeVisible();
+    await expect(page.getByText("Remove this task?", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Demo with Ankit", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}

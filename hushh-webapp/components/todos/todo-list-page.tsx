@@ -557,9 +557,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           }).format(new Date())}
           title="Your tasks"
           titleRole="agent"
-          actionsInlineMobile
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2">
               {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoTaskSources persistence={{ userId, vaultKey, vaultOwnerToken }} selected={selected} coverage={liveTasks.coverage} evidence={liveTasks.evidence} loading={liveTasks.sourceLoading} disabled={itemsLoading || !itemsLoaded || itemsLoadError || isSaving}
                 isCurrent={isCurrent} onChange={setSelected} onRefresh={() => { void liveTasks.refreshSources(); calendar.refresh(); upcoming.refresh(); }} onSaved={() => { void loadItems(); }} /> : null}
               {writeReady && agentLoadError ? (

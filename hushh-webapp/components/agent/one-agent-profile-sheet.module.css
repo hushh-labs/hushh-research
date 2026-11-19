@@ -160,3 +160,27 @@
   width: 100%;
   height: 100%;
 }
+
+/* The approved To-do pane owns a bounded detail frame, including its footer. */
+.sheet:has([data-todo-active="true"]) { width: min(430px, calc(100vw - 36px)) !important; height: min(820px, calc(100dvh - 36px)) !important; max-height: none; top: max(18px, calc((100dvh - 820px)/2)) !important; right: 18px !important; bottom: auto !important; border-radius: 25px !important; }
+.content[data-todo-active="true"] .hero { padding: 15px 20px 18px; }
+.content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 208px; margin-bottom: -20px; }
+.content[data-todo-active="true"] .tabs { margin: 0 16px 16px; border-radius: 18px; }
+.content[data-todo-active="true"] .tabList { padding: 0 10px; border-bottom: 1px solid var(--border); }
+.content[data-todo-active="true"] .tabList button { min-height: 48px; font-size: 12px; background: transparent; border-radius: 0; box-shadow: none; color: var(--muted-foreground); }
+.content[data-todo-active="true"] .tabList button[data-state="active"] { color: var(--app-accent); border-bottom: 2px solid var(--app-accent); }
+.content[data-todo-active="true"] .tabList button svg { width: 15px; height: 15px; }
+.content[data-todo-active="true"] .scroll { padding: 0; overflow: hidden; scrollbar-gutter: auto; }
+.todoTab { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; }
+.content[data-todo-detail="true"] .hero, .content[data-todo-detail="true"] .modelControl, .content[data-todo-detail="true"] .tabRail { display: none; }
+.content[data-todo-detail="true"] .tabs { margin: 0; border-radius: 0; background: transparent; }
+@media (max-width: 600px) {
+  .sheet:has([data-todo-active="true"]) { width: calc(100vw - 24px) !important; right: 12px !important; top: max(12px, env(safe-area-inset-top)) !important; height: calc(100dvh - 54px - env(safe-area-inset-top)) !important; }
+  .content[data-todo-active="true"] .hero { padding-top: 6px; padding-bottom: 15px; }
+  .content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 178px; margin-bottom: -17px; }
+  .content[data-todo-active="true"] .tabs { margin: 0 12px 12px; border-radius: 16px; }
+  .content[data-todo-detail="true"] .tabs { margin: 0; border-radius: 0; }
+}
+@media (max-height: 650px) { .content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 128px; margin-bottom: -12px; } }
+
+.todoTab[data-state="inactive"] { display: none; }
