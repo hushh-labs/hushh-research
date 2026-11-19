@@ -82,7 +82,7 @@ def _default_asgi_launcher(bind_host: str, port: int) -> None:
 
     config = uvicorn.Config(
         pod_server.app,
-        host=bind_host or "0.0.0.0",  # noqa: S104 - container listener inside sandbox pod
+        host=bind_host,
         port=port,
         log_level="warning",
         workers=1,
