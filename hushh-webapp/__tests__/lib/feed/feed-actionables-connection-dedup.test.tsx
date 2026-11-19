@@ -1239,7 +1239,7 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     );
     for (const id of [DOC_ID, otherId]) {
       const row = documentRow(result, id)!;
-      expect(row.todo).toMatchObject({ key: `consent:${row.id.slice(8)}:setup:payouts`, source: "drive", title: "Link payouts — Request from Kushal Trivedi", href: "/one/profile/payouts?from=%2Fone%2Ftodos" });
+      expect(row.todo).toMatchObject({ key: `consent:${row.id.slice(8)}:setup:payouts`, source: "drive", title: "Link payouts — Request from Kushal Trivedi", href: "/one/profile/payouts?from=%2Fone%2Ftasks" });
       expect(row.description).toBe("Requested a document");
       expect(row.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
       expect(

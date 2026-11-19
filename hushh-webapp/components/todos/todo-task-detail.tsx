@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate } from "./todo-list-presentation";
 
@@ -15,7 +16,7 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
   onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
   const [confirm, setConfirm] = useState(false);
-  const pathname = usePathname() ?? "/one/todos";
+  const pathname = usePathname() ?? ROUTES.ONE_TASKS;
   const date = task.date ? groupByDate([task])[0]?.label : null;
   const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
   const back = useCallback(() => {

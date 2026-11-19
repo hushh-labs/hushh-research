@@ -28,7 +28,7 @@
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
-    "hushh-webapp/app/one/todos/page.voice-action-contract.json",
+    "hushh-webapp/app/one/tasks/page.voice-action-contract.json",
     "hushh-webapp/app/one/wallet-card/page.voice-action-contract.json",
     "hushh-webapp/app/one/wallet/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
@@ -846,7 +846,7 @@
       "docs_references": [
         "docs/development/contracts/api-contracts.md"
       ],
-      "contract_file": "hushh-webapp/app/one/todos/page.voice-action-contract.json",
+      "contract_file": "hushh-webapp/app/one/tasks/page.voice-action-contract.json",
       "defaults": {
         "speaker_persona": "one",
         "reachability": {
@@ -855,7 +855,7 @@
             "ria"
           ],
           "routes": [
-            "/one/todos",
+            "/one/tasks",
             "/one"
           ],
           "screens": [
@@ -23454,7 +23454,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/todos",
+          "/one/tasks",
           "/one"
         ],
         "screens": [
@@ -23493,7 +23493,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/todos"
+          "current route becomes /one/tasks"
         ],
         "backend_effects": []
       },
@@ -23552,7 +23552,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/todos",
+          "/one/tasks",
           "/one"
         ],
         "screens": [
@@ -23591,7 +23591,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/todos"
+          "current route becomes /one/tasks"
         ],
         "backend_effects": []
       },
@@ -23650,7 +23650,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/todos",
+          "/one/tasks",
           "/one"
         ],
         "screens": [
@@ -23689,7 +23689,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/todos"
+          "current route becomes /one/tasks"
         ],
         "backend_effects": []
       },
@@ -23748,7 +23748,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/todos",
+          "/one/tasks",
           "/one"
         ],
         "screens": [
@@ -23787,7 +23787,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/todos"
+          "current route becomes /one/tasks"
         ],
         "backend_effects": []
       },

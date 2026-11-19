@@ -7,7 +7,7 @@
     "speaker_persona": "one",
     "reachability": {
       "active_personas": ["investor", "ria"],
-      "routes": ["/one/todos", "/one"],
+      "routes": ["/one/tasks", "/one"],
       "screens": ["app", "one_agents"],
       "hidden_navigable": false
     }

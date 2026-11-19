@@ -213,6 +213,8 @@ _ACTIVITY_TOOLS = frozenset(
         "propose_calendar_event",
         "propose_calendar_reschedule",
         "propose_calendar_cancellation",
+        "propose_file_schedule",
+        "propose_goal_plan",
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
         "propose_gmail_mailbox_change",

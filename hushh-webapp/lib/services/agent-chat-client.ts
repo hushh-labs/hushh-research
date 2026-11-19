@@ -60,6 +60,8 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { readGoalPlanProposal } from "@/lib/goals/goal-plan-proposal";
+import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
 import {
   WIKI_TOOL_DECLARATIONS,
@@ -246,6 +248,7 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  onGoalPlanProposal?: (proposal: GoalPlanInput) => void;
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
@@ -810,6 +813,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Calendar",
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
+  },
+  propose_file_schedule: {
+    label: "Private Files",
+    message: "Preparing a file schedule for your review.",
+    activity: "Preparing a file schedule",
+  },
+  propose_goal_plan: {
+    label: "Goal plan",
+    message: "Preparing a goal plan for you to review.",
+    activity: "Preparing a goal plan",
   },
   open_gmail_email_draft: {
     label: "Gmail",
@@ -1945,7 +1958,8 @@ async function streamAgentChatAttempt(input: {
           return;
         }
       }
-      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
+      const safeArgs = toolCallName === "propose_file_schedule" || toolCallName === "propose_goal_plan"
+        ? {} : privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -1953,6 +1967,12 @@ async function streamAgentChatAttempt(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "propose_goal_plan") {
+        const proposal = readGoalPlanProposal(event.content);
+        if (proposal) handlers.onGoalPlanProposal?.(proposal);
+        handlers.onToolResult?.(toolPayload(event.toolCallId, toolName));
+        return;
+      }
       if (toolName === "start_browser_task") {
         const result = browserTaskProgress(event.content, input.userId);
         if (result.accepted) handlers.onBrowserTaskCreated?.();

@@ -886,6 +886,24 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE SEARCH");
   });
 
+  it("delivers goal details only to the typed goal review", async () => {
+    const onGoalPlanProposal = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    const draft = { title: "PRIVATE GOAL NAME", outcome: "A completed plan", category: null, steps: ["Review the agenda"] };
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "goal", toolCallName: "propose_goal_plan" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "goal" }, toolCallName: "propose_goal_plan", toolCallArgs: draft });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "goal", content: JSON.stringify({
+        status: "proposal_ready", type: "goals.plan", ...draft,
+      }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Draft a goal", vaultOwnerToken: "fixture",
+      handlers: { onGoalPlanProposal, onToolResult, onToolWaiting } });
+    expect(onGoalPlanProposal).toHaveBeenCalledExactlyOnceWith({ ...draft, taskIds: [] });
+    expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain(draft.title);
+  });
+
   it.each(["user-1", "other-owner"])("keeps browser content private and rediscovers only the current owner: %s", async (owner) => {
     const onBrowserTaskCreated = vi.fn();
     const onToolResult = vi.fn();

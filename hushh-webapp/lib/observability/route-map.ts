@@ -10,6 +10,7 @@ export const ROUTE_ID_VALUES = [
   "one_dashboard",
   "one_messages",
   "one_todos",
+  "one_goals",
   "getting_started",
   "delete_account",
   "privacy_policy",
@@ -288,7 +289,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "consents";
   }
   if (pathname === ROUTES.ONE_MESSAGES) return "one_messages";
-  if (pathname === ROUTES.ONE_TODOS) return "one_todos";
+  if (pathname === ROUTES.ONE_TODOS || pathname === ROUTES.ONE_TASKS) return "one_todos";
+  if (pathname === ROUTES.ONE_GOALS) return "one_goals";
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
