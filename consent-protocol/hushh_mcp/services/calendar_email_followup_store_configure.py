@@ -28,6 +28,29 @@ def delete_monitor(conn: Any, user_id: str, account_id: str) -> None:
     )
 
 
+def disable_monitor(conn: Any, user_id: str, account_id: str) -> None:
+    """Forget extracted content but retain the owner's explicit opt-out."""
+    params = {"user_id": user_id, "account_id": account_id}
+    conn.execute(
+        text("""DELETE FROM calendar_email_followup_conversations
+        WHERE user_id=:user_id AND account_id=:account_id"""),
+        params,
+    )
+    conn.execute(
+        text("""DELETE FROM calendar_email_followup_scanned_messages
+        WHERE user_id=:user_id AND account_id=:account_id"""),
+        params,
+    )
+    conn.execute(
+        text("""UPDATE calendar_email_followup_monitors SET
+        enabled=FALSE, notifications_enabled=FALSE, generation=gen_random_uuid(),
+        checkpoint_ciphertext=NULL, scan_state='disabled', scan_error_code=NULL,
+        consecutive_failures=0, last_complete_at=NULL, lease_id=NULL, lease_until=NULL,
+        updated_at=NOW() WHERE user_id=:user_id AND account_id=:account_id"""),
+        params,
+    )
+
+
 def drop_out_of_period(
     conn: Any, user_id: str, account_id: str, historical_start_at: datetime
 ) -> None:

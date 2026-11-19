@@ -5,7 +5,7 @@ import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connect
 import { useCalendarUpcomingEvents, type RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 import { useFeedActionables, type FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing, type FeedKycBriefing } from "@/lib/feed/use-feed-briefing";
-import { agentTodoInput, buildTodo, calendarTodoInput, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { agentTodoInput, buildTodo, calendarTodoInput, calendarTodoSourceId, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 import { taskSort } from "@/lib/todos/todo-list-model";
 import { useTodoCapabilitySources } from "./use-todo-capability-sources";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -47,15 +47,22 @@ function mergeAutomaticTasks(
   events: RedactedCalendarEvent[],
   saved: TodoItem[],
 ): TodoItem[] {
+  // Cancellation tombstones can omit their start/title. Reconcile by provider
+  // identity before calendarTask drops them as non-displayable events.
+  const cancelledIds = new Set(
+    events.filter(event => event.status?.toLowerCase() === "cancelled" && event.id)
+      .map(event => calendarTodoSourceId(event.id)),
+  );
   const savedAutomatic = new Map(
     saved
       .filter((task) => task.type === "automatic" && !isLiveAgentTodo(task))
+      .filter((task) => !(task.sourceAgent === "calendar" && task.sourceId && cancelledIds.has(task.sourceId)))
       .map((task) => [task.sourceId ?? task.id, task]),
   );
   const seen = new Set<string>();
   const projected = events.flatMap((event, index) => {
     const fromCalendar = calendarTask(event, index);
-    if (!fromCalendar) return [];
+    if (!fromCalendar || cancelledIds.has(fromCalendar.sourceId)) return [];
     const key = fromCalendar.sourceId ?? fromCalendar.id;
     seen.add(key);
     const stored = savedAutomatic.get(key);
@@ -77,7 +84,7 @@ function mergeAutomaticTasks(
   });
 
   // The Calendar read may lag briefly after a successful booking. Keep the
-  // encrypted automatic snapshot visible until the provider projection catches up.
+  // encrypted automatic snapshot visible unless the provider explicitly cancelled it.
   for (const task of savedAutomatic.values()) {
     const key = task.sourceId ?? task.id;
     if (task.status === "pending" && !seen.has(key)) projected.push(task);

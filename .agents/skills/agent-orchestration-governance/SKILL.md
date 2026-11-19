@@ -9,7 +9,7 @@ description: Use when changing repository engineering agents, subagent concurren
 
 - Primary scope: `agent-orchestration-governance-intake`
 - Trigger on repo-scoped custom agents, canonical host configuration limits, delegation policy, child handoff contracts, or workflow orchestration changes.
-- Avoid overlap with `codex-skill-authoring` for generic skill taxonomy and `repo-context` for broad repository intake.
+- Avoid overlap with `skill-authoring` for generic skill taxonomy and `repo-context` for broad repository intake.
 
 ## Coverage and Ownership
 
@@ -32,7 +32,7 @@ Owned repo surfaces:
 Non-owned surfaces:
 
 1. `repo-context`
-2. `codex-skill-authoring`
+2. `skill-authoring`
 3. `repo-operations`
 4. `future-planner`
 
@@ -46,7 +46,7 @@ Non-owned surfaces:
 ## Do Not Use
 
 1. Broad repo scans that should start with `repo-context`.
-2. Generic skill creation or taxonomy work that belongs to `codex-skill-authoring`.
+2. Generic skill creation or taxonomy work that belongs to `skill-authoring`.
 3. Domain implementation after the correct owner lane is clear.
 4. Recursive multi-agent expansion beyond bounded defaults without evidence.
 
@@ -54,8 +54,8 @@ Non-owned surfaces:
 
 1. `AGENTS.md`
 2. `.agents/skills/agent-orchestration-governance/references/delegation-contract.md`
-3. `.agents/skills/codex-skill-authoring/references/skill-contract.md`
-4. `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+3. `.agents/skills/skill-authoring/references/skill-contract.md`
+4. `.agents/skills/skill-authoring/references/truth-first-operating-kernel.md`
 5. `docs/operations/coding-agent-mcp.md`
 6. `.agents/skills/agent-orchestration-governance/references/anti-rationalization.md`
 
@@ -75,7 +75,7 @@ Non-owned surfaces:
 ## Handoff Rules
 
 1. Broad repo intake routes to `repo-context`.
-2. Generic skill-system authoring routes to `codex-skill-authoring`.
+2. Generic skill-system authoring routes to `skill-authoring`.
 3. CI, deploy, or runtime-governance follow-up routes to `repo-operations`.
 4. Future-state agent-lattice planning routes to `future-planner`.
 5. Domain implementation routes to the relevant owner skill.
@@ -83,12 +83,12 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-python3 .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py
+python3 .agents/skills/skill-authoring/scripts/truth_first_smoke.py
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
 python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .agents/skills/agent-orchestration-governance/scripts/delegation_router.py .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 ./scripts/ci/repo-governance-check.sh
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ./bin/hushh agents audit
 ```

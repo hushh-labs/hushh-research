@@ -25,6 +25,20 @@ SOURCE_SHA256 = "78981e14e2dc4ef0d40a6275f785a5015367ea08d00ab7b4ef352538cb612f2
 NOTIFICATION_CHECKPOINT_SUCCESSOR_SHA256 = (
     "79585809cc7e6693f9ee49748ce76acb4053a3c16e88058334548cff81b643e0"
 )
+HOSTED_AZURE_TARGET_CHECK_SHA256 = (
+    "c5a37bdd87803d685ecc19cf34b586f763ab59ace212a775ce90c80d1aa63910"
+)
+HOSTED_AZURE_TARGET_CHECK_DEFINITION = (
+    "CHECK (deployment_target IS NULL OR (deployment_target = ANY "
+    "(ARRAY['gcp'::text, 'azure'::text, 'user_gcp'::text, 'user_azure'::text, 'null'::text])))"
+)
+HOSTED_AZURE_NO_OWNER_CLOUD_CHECK = "personal_agent_registry_hosted_azure_no_owner_cloud_check"
+HOSTED_AZURE_NO_OWNER_CLOUD_DEFINITION = (
+    "CHECK (deployment_target IS DISTINCT FROM 'azure'::text OR user_cloud_project IS NULL "
+    "AND user_cloud_region IS NULL AND user_cloud_bootstrap_sa IS NULL "
+    "AND user_cloud_authorized_at IS NULL AND user_cloud_tenant_id IS NULL "
+    "AND user_cloud_subscription_id IS NULL AND user_cloud_resource_group IS NULL)"
+)
 # Exact pg_get_triggerdef(oid,true) and pg_get_functiondef(oid) from the reviewed
 # legacy schema. No application rows, credentials or consent records are embedded.
 GUARDS = (
@@ -264,7 +278,8 @@ _PREDECESSORS = (
         "personal_agent_registry_deployment_target_check",
         "c",
         "CHECK (deployment_target IS NULL OR (deployment_target = ANY (ARRAY['gcp'::text, 'user_gcp'::text, 'anypoint'::text, 'null'::text])))",
-        "15c9243d622f15d2ca2690cb232af88e3e51b5d586e72042b9000177cc4cc300",
+        "15c9243d622f15d2ca2690cb232af88e3e51b5d586e72042b9000177cc4cc300,"
+        + HOSTED_AZURE_TARGET_CHECK_SHA256,
         "deployment_target",
     ),
     (
@@ -332,7 +347,7 @@ BEGIN
    RAISE EXCEPTION 'Unqualified private-agent predecessor: %',spec.name;
   END IF;
   IF retained.definition IS DISTINCT FROM spec.definition THEN
-   IF encode(sha256(convert_to(retained.definition,'UTF8')),'hex')=spec.successor_hash THEN
+   IF encode(sha256(convert_to(retained.definition,'UTF8')),'hex')=ANY(string_to_array(spec.successor_hash,',')) THEN
     CONTINUE;
    END IF;
    RAISE EXCEPTION 'Unqualified private-agent predecessor: %',spec.name;
@@ -435,7 +450,13 @@ def _retention_inventory_sql(sql: str) -> str:
     if len(lines) != 1 or lines[0].count(anchor) != 1:
         raise MigrationAuthorityError("Private-agent adoption constraint inventory changed")
     definition = HISTORY_DEFINITION.replace("'", "''")
-    extra = f",('byoc_setup_jobs','{HISTORY_CHECK}','{definition}',false)"
+    target_def = HOSTED_AZURE_TARGET_CHECK_DEFINITION.replace("'", "''")
+    no_owner_def = HOSTED_AZURE_NO_OWNER_CLOUD_DEFINITION.replace("'", "''")
+    extra = (
+        f",('byoc_setup_jobs','{HISTORY_CHECK}','{definition}',false)"
+        f",('personal_agent_registry','personal_agent_registry_deployment_target_check','{target_def}',true)"
+        f",('personal_agent_registry','{HOSTED_AZURE_NO_OWNER_CLOUD_CHECK}','{no_owner_def}',true)"
+    )
     return sql.replace(lines[0], lines[0].replace(anchor, extra + anchor), 1)
 
 

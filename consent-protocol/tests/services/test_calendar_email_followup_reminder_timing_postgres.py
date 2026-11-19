@@ -69,7 +69,6 @@ async def _retime(monitor, account_id, hour):
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
 
 

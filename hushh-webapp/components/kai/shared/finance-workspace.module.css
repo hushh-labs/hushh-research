@@ -54,6 +54,9 @@
 .portfolioTop, .portfolioInsights { display: grid; gap: 12px; min-width: 0; }
 .portfolioInsights { align-items: stretch; }
 .portfolioTop > *, .portfolioInsights > * { min-width: 0; }
+.portfolioTopBody { display: flex; flex: 1; flex-direction: column; gap: 12px; padding: 16px; }
+.portfolioTopHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.portfolioTopCaption { margin-top: auto; }
 .portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
 .portfolioAllocation > span { min-width: 0; }
 .portfolioList { display: grid; gap: 0; }
@@ -61,9 +64,9 @@
 button.portfolioListRow { min-height: 44px; }
 .portfolioListRow:last-child { border-bottom: 0; }
 @media (min-width: 768px) {
-  .portfolioTop { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-  .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .portfolioTop > :global([data-slot="card"]) > div { height: 100%; }
+  .portfolioTop, .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .portfolioTop > :global([data-slot="card"]) > div { display: flex; flex-direction: column; height: 100%; }
+  .portfolioTopHeader { min-height: 36px; }
 }
 
 .insightCard { display: flex; flex-direction: column; gap: 10px; padding: 16px; }

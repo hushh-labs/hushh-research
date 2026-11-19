@@ -63,7 +63,6 @@ _HOLDING_ROW_SCHEMA: dict[str, Any] = {
         "currency": _TEXT,
         "acquisition_date": _TEXT,
     },
-    "required": ["instrument_kind"],
 }
 
 _STATEMENT_DETAILS_SCHEMA: dict[str, Any] = {

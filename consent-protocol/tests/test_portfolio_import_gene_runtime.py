@@ -236,4 +236,4 @@ def test_holding_rows_declare_every_key_the_prompt_asks_for():
         "other",
     }
     assert kind_schema["nullable"] is True
-    assert "instrument_kind" in row_schema["required"]
+    assert "instrument_kind" not in row_schema.get("required", [])

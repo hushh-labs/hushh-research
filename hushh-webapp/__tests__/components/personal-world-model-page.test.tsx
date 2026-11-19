@@ -10,6 +10,7 @@ import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { pwmClaimKey } from "@/lib/services/world-model-decision-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/profile/world-model-fact-sheet";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
@@ -376,6 +377,21 @@ describe("Personal World Model page", () => {
     );
     expect(screen.getByText("Bing web research")).toBeInTheDocument();
     expect(screen.queryByText("Related Google searches")).not.toBeInTheDocument();
+  });
+
+  it("keeps Google's original suggestions isolated and opens links outside the frame", async () => {
+    const html = '<a href="https://www.google.com/search?q=public+example">Public example</a>';
+    research({ ...offered([{ statement: "Works at Hushh", kind: "career" }]), search_suggestions: [html] });
+    render(<PersonalWorldModelPage embedded />);
+
+    const frame = await screen.findByTitle("Google Search suggestions 1");
+    expect(screen.getByRole("heading", { name: "Related Google searches" })).toBeInTheDocument();
+    expect(frame).toHaveAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+
+    const source = frame.getAttribute("srcdoc") ?? "";
+    const parsed = new DOMParser().parseFromString(source, "text/html");
+    expect(parsed.querySelector("base")?.target).toBe("_blank");
+    expect(source.endsWith(html)).toBe(true);
   });
 
   it("keeps approved details and the last checkpoint visible after an unavailable result", async () => {
@@ -817,7 +833,7 @@ describe("Personal World Model page", () => {
     expect(screen.getByTestId("pwm-progress-row")).toHaveTextContent("Searching public pages");
   });
 
-  it("shows what research looks for, with contacts masked", async () => {
+  it.each([null, "+14155550124"])("shows the verified app phone when Firebase has %s", async (providerPhone) => {
     mock.auth.user = {
       uid: "owner-a",
       displayName: "Alice Example",
@@ -825,6 +841,9 @@ describe("Personal World Model page", () => {
       emailVerified: true,
     };
     mock.auth.phoneNumber = "+14155550123";
+    vi.mocked(AuthService.reloadPhoneVerificationUser).mockResolvedValue({
+      uid: "owner-a", phoneNumber: providerPhone,
+    } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
     research(pending);
     render(<PersonalWorldModelPage embedded />);
 
@@ -844,6 +863,26 @@ describe("Personal World Model page", () => {
     expect(phone).toHaveTextContent("0123");
     expect(phone).not.toHaveTextContent("5550123");
     expect(within(phone).getByText("Verified")).toBeInTheDocument();
+    expect(AuthService.reloadPhoneVerificationUser).not.toHaveBeenCalled();
+  });
+
+  it("updates the phone row when the account claim arrives or is removed", async () => {
+    mock.auth.user = { uid: "owner-a", displayName: "Alice", phoneNumber: "+14155550123" };
+    research(pending);
+    const view = render(<PersonalWorldModelPage embedded />);
+    const phone = await screen.findByTestId("pwm-identity-phone");
+    expect(phone).toHaveTextContent("Not added");
+
+    mock.auth.phoneNumber = "+14155550123";
+    view.rerender(<PersonalWorldModelPage embedded />);
+    expect(phone).toHaveTextContent("0123");
+    expect(within(phone).getByText("Verified")).toBeInTheDocument();
+
+    mock.auth.phoneNumber = null;
+    view.rerender(<PersonalWorldModelPage embedded />);
+    expect(phone).toHaveTextContent("Not added");
+    expect(phone).not.toHaveTextContent("0123");
+    expect(within(phone).queryByText("Verified")).not.toBeInTheDocument();
   });
 
   it("tells the owner what to add when identity is insufficient, with a way there", async () => {

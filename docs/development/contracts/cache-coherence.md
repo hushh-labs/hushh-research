@@ -83,6 +83,17 @@ No invitation contents or credentials are persisted to device storage. RSVP revi
 and confirmation, along with explicit invitation requests in chat, continue to
 use live provider requests.
 
+## Calendar follow-up snapshots
+
+Follow-ups uses the existing memory cache for the selected account’s first page.
+Keys include authenticated-session generation, owner, account, provider binding
+and connection revision. Saved presentation can render while live status/list
+reads revalidate; it never authorizes mutations. Authentication withdrawal purges
+snapshots. Grant or monitor rejection clears rows, details, links and drafts and
+exposes recovery. No follow-up content persists in device storage. Visible online
+polling continues after initial completion, with focus/online refresh; each read
+uses the selected account’s current Mail authority on the server.
+
 ## People message snapshots
 
 `DirectMessagesResourceService` keeps owner-scoped presentation snapshots in
@@ -237,8 +248,15 @@ durable transaction journal. Initial connection, listener recovery, and Feed
 queue overflow send `feed_reset`; authenticated reads recover the current state.
 Legacy consent queues remain separate from Feed-only burst/reset handling.
 
+UAT migration 459 emits a Feed wake after a committed change to a connection
+request, a request-linked Drive search or delivery, or a Drive checkout or
+refund. The stream sends a fixed reason to the participants. The client
+rereads the authorized snapshots and refreshes incoming connections
+separately from consent and Drive. Visible request outcomes join Feed
+history while the reader stays on the same row.
+
 Deleting a participant chat emits the owner-only `history_mutated` reason on a
-general Feed hint. The stream admits only that exact enum and discards other
+general Feed hint. The stream admits a fixed set of reasons and discards other
 producer fields. `CacheSyncService.onFeedHistoryMutated` advances the Feed
 presentation revision, evicts its saved pages, and invalidates list/count reads.
 The next authoritative page drops previously loaded deleted rows; a stale

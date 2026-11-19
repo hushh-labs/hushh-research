@@ -16,14 +16,14 @@
   ],
   "required_reads": [
     ".agents/skills/agent-orchestration-governance/references/delegation-contract.md",
-    ".agents/skills/codex-skill-authoring/references/skill-contract.md",
+    ".agents/skills/skill-authoring/references/skill-contract.md",
     "docs/architecture/engineering-principles.md",
     "docs/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
     "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
     "./scripts/ci/repo-governance-check.sh",
-    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
     "./bin/hushh agents list-workflows",
     "./bin/hushh agents audit",
     "./bin/hushh docs verify"
@@ -34,7 +34,7 @@
       "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
       "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
       "./scripts/ci/repo-governance-check.sh",
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
       "./bin/hushh agents list-workflows",
       "./bin/hushh agents audit",
       "./bin/hushh docs verify"
@@ -43,7 +43,7 @@
       "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
       "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
       "./scripts/ci/repo-governance-check.sh",
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py",
       "./bin/hushh agents audit",
       "./bin/hushh docs verify"
     ]
@@ -62,7 +62,7 @@
   ],
   "handoff_chain": [
     "agent-orchestration-governance",
-    "codex-skill-authoring",
+    "skill-authoring",
     "repo-context",
     "repo-operations",
     "future-planner"

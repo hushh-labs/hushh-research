@@ -34,6 +34,9 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
       ...["next/navigation", "next/image", "@/lib/firebase/auth-context", "@/components/app-ui/native-route-marker", "@/components/vault/vault-lock-guard", "@/lib/services/account-identity-service", "@/lib/services/onboarding-route-cookie", "@/lib/services/post-auth-route-service", "@/lib/services/pre-vault-user-state-service", "@/lib/services/ria-service", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions", "@/lib/services/api-service", "@/lib/observability/client"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") })),
+      { find: "@/components/auth/phone-recovery-review", replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") },
+      { find: "@/lib/services/auth-service", replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") },
+      { find: /^\.\/auth-service$/, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") },
       { find: "@", replacement: root },
     ] },
     define: {
@@ -98,9 +101,10 @@ for (const viewport of [
         await route.fulfill({ path: path.join(process.cwd(), "public", asset) });
       });
       await page.goto("https://phone-entry.test/");
-      await page.setContent('<html class="' + (theme === "dark" ? "dark" : "") + '" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><base href="https://phone-entry.test/"><style>' + css + '</style></head><body><div id="root"></div></body></html>');
+      await page.setContent('<html class="' + (theme === "dark" ? "dark" : "") + '" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><meta name="viewport" content="width=device-width, initial-scale=1"><base href="https://phone-entry.test/"><style>' + css + '</style></head><body><div id="root"></div></body></html>');
       await page.addScriptTag({content:script});
       await awaitProductFont(page);
+      const accentColor = await page.getByTestId("shared-primary-reference").evaluate(element => getComputedStyle(element).backgroundColor);
 
       const phoneHeading = page.getByRole("heading", {name:"Enter your phone number", exact:true});
       await expect(phoneHeading).toBeVisible();
@@ -123,8 +127,10 @@ for (const viewport of [
       const countrySearch = countryPanel.getByRole("searchbox", {name:"Search countries"});
       const searchShell = countrySearch.locator("..");
       const inactiveSearchFill = await searchShell.evaluate(element => getComputedStyle(element).backgroundColor);
+      await countrySearch.click();
       await countrySearch.fill("United States");
       await expect(countrySearch).toHaveCSS("outline-style", "none");
+      await expect(countrySearch).toHaveCSS("box-shadow", "none");
       await expect(countrySearch).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       expect(await searchShell.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(inactiveSearchFill);
       await expect(searchShell).not.toHaveCSS("box-shadow", "none");
@@ -132,9 +138,14 @@ for (const viewport of [
       await countryPanel.getByRole("option", {name:"United States (+1)"}).click();
       await expect(countryPanel).toHaveCount(0);
       await expect(helper).toContainText("We may send SMS notifications.");
+      await page.getByRole("button", {name:"Learn more", exact:true}).click();
+      const smsDialog = page.getByRole("dialog", {name:"Text messages"});
+      await expect(smsDialog).toContainText("We’ll text you a verification code. We may also send notifications.");
+      await smsDialog.getByRole("button", {name:"Close", exact:true}).click();
+      await expect(smsDialog).toBeHidden();
       const continueButton = page.getByRole("button", {name:"Continue", exact:true});
       await expect(continueButton).toHaveCSS("height", "52px");
-      await expect(continueButton).toHaveCSS("background-color", "rgb(0, 113, 227)");
+      await expect(continueButton).toHaveCSS("background-color", accentColor);
       const shell = page.getByTestId("phone-mandate-screen");
       const back = (await page.getByRole("button", {name:"Go back", exact:true}).boundingBox())!;
       const account = (await page.getByRole("button", {name:"Account actions", exact:true}).boundingBox())!;
@@ -168,7 +179,7 @@ for (const viewport of [
       await codeInput.fill("123456");
       await expect(codeInput).toHaveValue("123456");
       await expect(confirm).toBeEnabled();
-      await expect(confirm).toHaveCSS("background-color", "rgb(0, 113, 227)");
+      await expect(confirm).toHaveCSS("background-color", accentColor);
       await page.screenshot({path:testInfo.outputPath("code.png")});
 
       if (viewport.width < 800) {

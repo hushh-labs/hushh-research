@@ -227,8 +227,8 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
   });
 
   it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {
-    const connectIndex = normalized.indexOf('type === "calendar.connect"');
-    const block = normalized.slice(connectIndex, normalized.indexOf('if (type !== "calendar.execute_proposal")', connectIndex));
+    const connectIndex = normalized.indexOf("const renderCalendarConnectCard");
+    const block = normalized.slice(connectIndex, normalized.indexOf("const visibleMessages", connectIndex));
     expect(block).toContain('calendarDirectiveAccountId(payload)');
     expect(block).toContain('requestedAccount !== selectedAccount');
     expect(block).toContain('runDirectiveConnect("calendar", requestedAccount);');

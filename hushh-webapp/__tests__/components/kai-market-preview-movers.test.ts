@@ -211,12 +211,12 @@ describe("market index quote evidence", () => {
       { label: "Market Status", value: "Open", delta_pct: null, as_of: null, source: "Schedule", degraded: false },
     ] }, { market_overview: [{ ...quote, degraded: false, is_delayed: false }] });
     expect(payload.market_overview?.[0]).toMatchObject({ value: 7712.57, degraded: true, as_of: quote.as_of });
-    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("");
+    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("Saved quote");
     expect(toIndexStripItems(payload)[0].quotedAt).toBe(quote.as_of);
     const metrics = toIndexStripItems(payload);
     const { container } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
     expect(container.textContent).not.toMatch(/cached/i);
-    expect(metrics[0].detailPanel?.statusLabel).toBe("");
+    expect(metrics[0].detailPanel?.statusLabel).toBe("Saved quote");
     expect(metrics[0].degraded).toBe(true);
     const next = withStableOverviewFromCache({ market_overview: [{ ...quote, value: 7800, degraded: false }] }, payload);
     expect(next.market_overview?.[0].value).toBe(7800);

@@ -51,8 +51,7 @@ Rules:
 - include cash/sweep/money-market rows when they are positions
 - record pending receivables in portfolio_summary, not detailed_holdings
 
-7) detailed_holdings row contract:
-- each row MUST be a JSON object
+7) detailed_holdings row contract (each row MUST be a JSON object):
 - preferred keys:
   symbol, ticker, symbol_cusip, cusip, security_id,
   name, description,
@@ -62,8 +61,7 @@ Rules:
 - if unknown, set null (do not invent)
 - fill account_id, currency and acquisition_date only when explicitly printed; use an ISO currency code and YYYY-MM-DD for the date
 - do not synthesize ticker from security name
-- include instrument_kind on every row: equity, fixed_income, real_asset,
-  cash_equivalent, other, or null when unresolved
+- assess instrument_kind from the statement: equity, fixed_income, real_asset, cash_equivalent, or other
 
 8) portfolio_summary contract (always include these keys inside portfolio_summary):
 - beginning_value

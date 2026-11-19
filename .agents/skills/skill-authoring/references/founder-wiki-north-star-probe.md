@@ -90,6 +90,6 @@ When the probe matters, include:
 
 ## Workspace Audit
 
-Use `.agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py` when the task requires a holistic private Founder Wiki comparison against repo docs, skills, PR governance, or planning workflows.
+Use `.agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py` when the task requires a holistic private Founder Wiki comparison against repo docs, skills, PR governance, or planning workflows.
 
 The audit must use `HUSHH_FOUNDER_WIKI_MCP_TOKEN` from the local environment, verify authenticated private MCP mode, and write only page names plus classifications to `tmp/`. It must not write raw HCTs or private page bodies.

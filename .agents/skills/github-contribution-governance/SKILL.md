@@ -70,5 +70,5 @@ Non-owned surfaces:
 gh auth status
 gh api user --jq '.login'
 git config --get user.email
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```

@@ -60,7 +60,7 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   </div>;
 }
 
-export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, recoverVaultOwnerToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
+export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
   connectionRevision?: number; refreshRevision?: number; refreshControl?: "inline" | "external"; initialLibrary?: CalendarMeetingReturnContext | null;
   getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null; recoverVaultOwnerToken?: () => Promise<string | null>;
@@ -471,10 +471,10 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
       <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : view === "followups" ? "Follow-ups" : "Meeting library"}</div> : null}
-    {view === "overview" || view === "followups" ? <CalendarFollowups
+    {view === "overview" || view === "followups" ? <CalendarFollowups key={`${userId}:${account.account_id}:${connectionRevision}:${account.grant_generation}:${account.provider_subject_sha256}`}
       userId={userId} accountId={account.account_id} accountEmail={account.google_email || "this account"}
       zone={zone} expanded={view === "followups"} getIdToken={getIdToken}
-      getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onConnectMail={onFollowupMailConnect}
+      connectionRevision={connectionRevision} providerBinding={`${account.grant_generation}:${account.provider_subject_sha256}`} onConnectMail={onFollowupMailConnect}
       refreshRevision={refreshRevision} onViewAll={() => setView("followups")} onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
       deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled} /> : null}
     {view === "overview" ? <>

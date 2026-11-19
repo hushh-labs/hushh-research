@@ -844,7 +844,7 @@ function locationActivity() {
 }
 
 async function openLocationFeatureStep() {
-  expect(await screen.findByRole("heading", { name: "Your location" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Save your first place" })).toBeTruthy();
 }
 
 async function expectLocationInviteStep() {
@@ -5254,7 +5254,8 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Your location",
+        level: 1,
+        name: "Save your first place",
       }),
     ).toBeTruthy();
     await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
@@ -5312,7 +5313,8 @@ describe("OneLocationAgentPage", () => {
       await expectLocationInviteStep();
       expect(
         screen.queryByRole("heading", {
-          name: "Your location",
+          level: 1,
+          name: "Save your first place",
         }),
       ).toBeNull();
       expect(await locationFinishButton()).toBeEnabled();
@@ -5366,7 +5368,8 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "Your location",
+        level: 1,
+        name: "Save your first place",
       }),
     ).toBeNull();
   });
@@ -5766,12 +5769,14 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Your location",
+          level: 1,
+          name: "Save your first place",
         }),
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "Your location",
+          level: 1,
+          name: "Save your first place",
         }),
       ).toBeNull();
     },
@@ -5816,7 +5821,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "Your location",
+        level: 1,
+        name: "Save your first place",
       }),
     ).toBeTruthy();
     const onboardingShellClass =

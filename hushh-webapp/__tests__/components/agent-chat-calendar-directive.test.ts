@@ -43,8 +43,11 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     expect(source).not.toContain("window.location.assign(start.authorize_url)");
     expect(source).not.toContain("persistGoogleOAuthSameWindowAttempt");
     expect(source).not.toMatch(/location\.(assign|replace|href\s*=)\([^)]*authorize/);
-    const connectAt = source.indexOf('if (type === "calendar.connect") {');
-    const block = source.slice(connectAt, source.indexOf('if (type !== "calendar.execute_proposal")', connectAt));
+    const connectAt = source.indexOf("const renderCalendarConnectCard");
+    const renderEnd = source.indexOf("const visibleMessages", connectAt);
+    expect(connectAt).toBeGreaterThanOrEqual(0);
+    expect(renderEnd).toBeGreaterThan(connectAt);
+    const block = source.slice(connectAt, renderEnd);
     expect(block).toContain('calendarDirectiveAccountId(payload)');
     expect(block).toContain('requestedAccount !== selectedAccount');
     expect(block).toContain('runDirectiveConnect("calendar", requestedAccount)');

@@ -288,6 +288,13 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
   const fileInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const documentInput = useRef<HTMLInputElement>(null);
+  const attachmentSelection = useRef(0);
+  const clearFileInputs = useCallback(() => {
+    attachmentSelection.current += 1;
+    for (const input of [fileInput.current, videoInput.current, documentInput.current]) {
+      if (input) input.value = "";
+    }
+  }, []);
   const composerEditor = useRef<HTMLTextAreaElement>(null);
   const persistedDraft = useMessageDraft({ userId: session.userId, scope: JSON.stringify([session.userId, "circle", session.circleId]),
     vaultKey: session.vaultKey, binding: membershipJoinedAt ?? null,
@@ -298,9 +305,9 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
   const retireDraft = persistedDraft.retire;
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;
-    if (unavailable(err)) { void retireDraft().catch(() => undefined); active.current = false; setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
+    if (unavailable(err)) { void retireDraft().catch(() => undefined); active.current = false; clearFileInputs(); setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
     else setError(errorText(err));
-  }, [retireDraft]);
+  }, [retireDraft, clearFileInputs]);
   const decrypt = useCallback(async (items: ChatMessage[]) => Promise.all(items.map(async (message) => {
     if (message.deletedForEveryoneAt) { decryptFailures.current.delete(message.sequence); return { ...message, content: null, failed: false, hasImage: false, reactions: [] }; }
     const current = () => {
@@ -401,7 +408,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
     if (items.length && atBottomRef.current) requestAnimationFrame(() => {
       if (active.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
     });
-  }, [session.userId, accepts]);
+  }, [session.userId, accepts, clearFileInputs]);
   const reconcile = useCallback(async (signal?: AbortSignal) => {
     const selected = [replyRef.current, actionRef.current?.message].filter((item): item is OpenMessage => Boolean(item));
     const loaded = new Map([...selected.map((item) => [item.id, item] as const), ...messagesRef.current.map((item) => [item.id, item] as const), ...targetsRef.current]);
@@ -610,23 +617,21 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
     dispatchCircleChatChanged(session.userId, session.circleId);
   };
 
-  const clearFileInputs = () => {
-    for (const input of [fileInput.current, videoInput.current, documentInput.current]) {
-      if (input) input.value = "";
-    }
-  };
-
   const chooseAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
-    const next = event.target.files?.[0];
+    const input = event.currentTarget;
+    const next = input.files?.[0];
     if (!next) return;
+    const selection = ++attachmentSelection.current;
     if (!next.size || next.size > MAX_CHAT_IMAGE_BYTES) { setError("Choose a file up to 5 MB."); clearFileInputs(); return; }
     setValidFile(null); setError(null);
     try {
-      const kind = validateChatAttachmentBytes(new Uint8Array(await next.arrayBuffer()), next.type);
-      if (event.target.files?.[0] !== next) return;
+      const bytes = new Uint8Array(await next.arrayBuffer());
+      if (!active.current || selection !== attachmentSelection.current || input.files?.[0] !== next) return;
+      const kind = validateChatAttachmentBytes(bytes, next.type);
       setFile(next);
       if (kind !== "photo") setValidFile(next);
     } catch (caught) {
+      if (!active.current || selection !== attachmentSelection.current || input.files?.[0] !== next) return;
       setError(errorText(caught)); clearFileInputs();
     }
   };

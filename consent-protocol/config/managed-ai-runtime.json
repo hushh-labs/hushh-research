@@ -11,6 +11,14 @@
     "max_output_tokens": 16384,
     "allow_cross_provider_fallback": false
   },
+  "one_mail_text_uat": {
+    "version": "one-mail-vertex-argon-v1",
+    "provider": "vertex",
+    "model": "gemini-4-argon",
+    "thinking_level": "medium",
+    "max_output_tokens": 8192,
+    "allow_cross_provider_fallback": false
+  },
   "drive_text_uat": {
     "version": "drive-vertex-hydrogen-v1",
     "provider": "vertex",

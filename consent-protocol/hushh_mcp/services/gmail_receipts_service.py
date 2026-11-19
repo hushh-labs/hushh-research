@@ -2282,7 +2282,7 @@ class GmailReceiptsService:
                 {"user_id": user_id, "watch_enabled": self._watch_enabled()},
                 row,
                 cleanup_sql="""DELETE FROM calendar_email_followup_monitors
-                WHERE user_id = :user_id AND account_id = 'default'""",
+                WHERE user_id = :user_id AND account_id = 'default' AND enabled=TRUE""",
             )
 
             active_runs = await self._execute_raw_async(
@@ -2355,7 +2355,7 @@ class GmailReceiptsService:
             # orphaned operational state. The grant is already absent here.
             await self._execute_raw_async(
                 """DELETE FROM calendar_email_followup_monitors
-                WHERE user_id = :user_id AND account_id = 'default'""",
+                WHERE user_id = :user_id AND account_id = 'default' AND enabled=TRUE""",
                 {"user_id": user_id},
             )
         confirmed = False

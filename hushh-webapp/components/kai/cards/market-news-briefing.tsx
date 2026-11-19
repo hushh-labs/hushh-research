@@ -3,21 +3,26 @@ import { useEffect, useState } from "react";
 import { NewspaperClipping } from "@/components/icons";
 import { getCompanyLogoUrl } from "@/components/kai/shared/symbol-avatar";
 import type { KaiHomeNewsItem } from "@/lib/services/api-service";
-import { openExternalUrl, requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 function normalizeMarketSymbol(value: unknown) { return String(value || "").trim().toUpperCase(); }
-function openOneMarketHref(href: string) {
-  if (/^https?:\/\//i.test(href)) { openExternalUrl(href); return; }
-  requestInternalAppNavigation({ href, scroll: false });
+function validArticleUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
 }
 
-function formatHeadlinePublished(value: string | null | undefined): string {
-  const text = String(value || "").trim();
-  if (!text) return "Recent";
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return "Recent";
+function formatHeadlinePublished(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
   return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -83,6 +88,37 @@ export function OneMarketNewsCover({ row, className, thumbnail = false }: { row:
   );
 }
 
+export function OneMarketNewsRow({ row, showSummary = false, className }: {
+  row: KaiHomeNewsItem;
+  showSummary?: boolean;
+  className?: string;
+}) {
+  const href = validArticleUrl(row.url);
+  const published = formatHeadlinePublished(row.published_at);
+
+  return (
+    <article className={cn(marketBriefingStyles.typography, "min-w-0 border-b border-border/60 last:border-b-0", className)}>
+      <button
+        type="button"
+        disabled={!href}
+        onClick={() => { if (href) openExternalUrl(href); }}
+        className="group/news relative isolate flex min-h-11 w-full items-center gap-3 overflow-hidden rounded-sm px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      >
+        <span className="min-w-0 flex-1">
+          <span className={cn(marketBriefingStyles.newsTitle, !showSummary && marketBriefingStyles.compactNewsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
+          <span className={cn(marketBriefingStyles.newsMetadata, "truncate")}>
+            {row.source_name?.trim() || "Market news"}
+            {published && <><span aria-hidden="true"> · </span><time dateTime={row.published_at ?? undefined}>{published}</time></>}
+          </span>
+          {showSummary && row.summary ? <span className="mt-1 hidden text-xs leading-5 text-muted-foreground sm:line-clamp-1">{row.summary}</span> : null}
+        </span>
+        <OneMarketNewsCover row={row} index={0} thumbnail className="h-14 w-14 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover [&_img[data-publisher-logo]]:!object-contain [&_img[data-publisher-logo]]:!p-3 sm:h-16 sm:w-16" />
+        <MaterialRipple variant="none" effect="fade" className="z-10" />
+      </button>
+    </article>
+  );
+}
+
 export function OneMarketNewsBriefing({ rows, loading = false }: { rows: KaiHomeNewsItem[]; loading?: boolean }) {
   const stories = rows.slice(0, 4);
   if (!stories.length && loading) return (
@@ -101,19 +137,8 @@ export function OneMarketNewsBriefing({ rows, loading = false }: { rows: KaiHome
   if (!stories.length) return <p className="py-4 text-sm text-muted-foreground">Headlines will appear here when a market source is available.</p>;
   return (
     <div className={cn(marketBriefingStyles.typography, "grid sm:grid-cols-2 sm:gap-x-6")}>
-      {stories.map((row, index) => (
-        <article key={row.url} className="min-w-0 border-b border-border/60 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
-          <button type="button" onClick={() => openOneMarketHref(row.url)}
-            className="group/news relative isolate flex min-h-11 w-full items-center gap-3 overflow-hidden rounded-sm px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <span className="min-w-0 flex-1">
-              <span className={cn(marketBriefingStyles.newsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
-              <span className={marketBriefingStyles.newsMetadata}>{row.source_name || "Market news"} <span aria-hidden="true"> · </span> {formatHeadlinePublished(row.published_at)}</span>
-              {row.summary ? <span className="mt-1 hidden text-xs leading-5 text-muted-foreground sm:line-clamp-1">{row.summary}</span> : null}
-            </span>
-            <OneMarketNewsCover row={row} index={index} thumbnail className="h-14 w-14 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover [&_img[data-publisher-logo]]:!object-contain [&_img[data-publisher-logo]]:!p-3 sm:h-16 sm:w-16" />
-            <MaterialRipple variant="none" effect="fade" className="z-10" />
-          </button>
-        </article>
+      {stories.map((row) => (
+        <OneMarketNewsRow key={row.url} row={row} showSummary className="sm:[&:nth-last-child(2)]:border-b-0" />
       ))}
     </div>
   );

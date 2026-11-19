@@ -10,6 +10,8 @@ export const useRouter = () => router;
 export const usePathname = () => "/register-phone";
 export const useSearchParams = () => params;
 export const useAuth = () => ({ user, userId: user.uid, loading: false, phoneNumber: null, startPhoneVerification: async () => ({ autoVerified: false }), confirmPhoneVerification: unavailable, refreshUser: unavailable, signOut: unavailable });
+export const AuthService = { getIdToken: unavailable };
+export const PhoneRecoveryReview = () => null;
 export const NativeRouteMarker = () => null;
 export const VaultLockGuard = ({ children }: { children: ReactNode }) => children;
 export const AccountIdentityService = { syncCurrentUser: unavailable, hasVerifiedPhone: () => false };

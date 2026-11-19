@@ -184,7 +184,6 @@ export function KaiAnalysisPageContent() {
   // Feed link to a result that expired, was deleted or never finished saving.
   const [missingEntryRouteId, setMissingEntryRouteId] = useState<string | null>(null);
   const [liveEntry, setLiveEntry] = useState<AnalysisHistoryEntry | null>(null);
-  const [historyFallbackEntry, setHistoryFallbackEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [activeRunTask, setActiveRunTask] = useState<DebateRunTask | null>(null);
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
@@ -246,7 +245,6 @@ export function KaiAnalysisPageContent() {
     setResolvedEntry(null);
     setFocusedRunId(null);
     setFocusedRunTask(null);
-    setHistoryFallbackEntry(null);
   }, [stocksLanding, setAnalysisParams]);
 
   const setDebateIdParam = useCallback(
@@ -524,7 +522,6 @@ export function KaiAnalysisPageContent() {
       setFocusedRunId(null);
       setFocusedRunTask(null);
       setAnalysisParams(null);
-      setHistoryFallbackEntry(null);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
@@ -597,7 +594,6 @@ export function KaiAnalysisPageContent() {
         });
       }
       setLiveEntry(entry);
-      setHistoryFallbackEntry(entry);
       setAnalysisParams(null);
       setFocusedRunId(meta.runId);
       setShowHistoryWhileActive(false);
@@ -609,7 +605,6 @@ export function KaiAnalysisPageContent() {
   const handleLiveDecisionPersisted = useCallback((entry: AnalysisHistoryEntry) => {
     setLiveEntry(entry);
     setResolvedEntry(entry);
-    setHistoryFallbackEntry(entry);
     setShowHistoryWhileActive(false);
     setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
     // Unlike the fresh-context callers of setDebateIdParam (new ticker,
@@ -633,7 +628,7 @@ export function KaiAnalysisPageContent() {
       toast.dismiss(summaryLoadingToastIdRef.current);
       summaryLoadingToastIdRef.current = null;
     }
-    toast.success("Analysis saved to history.");
+    toast.success("Analysis saved to History on this device.");
   }, [router]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
@@ -854,7 +849,6 @@ export function KaiAnalysisPageContent() {
         has_focused_run: hasFocusedRun,
         has_live_entry: Boolean(liveEntry),
         has_resolved_entry: Boolean(resolvedEntry),
-        history_fallback_entry_present: Boolean(historyFallbackEntry),
         show_history_while_active: showHistoryWhileActive,
         resolving_entry: resolvingEntry,
         header_snapshot_loading: headerSnapshotLoading,
@@ -873,7 +867,6 @@ export function KaiAnalysisPageContent() {
     focusedRunTask,
     hasFocusedRun,
     headerSnapshotLoading,
-    historyFallbackEntry,
     lastVoiceControlId,
     liveEntry,
     liveIntentReady,
@@ -912,7 +905,6 @@ export function KaiAnalysisPageContent() {
         setLiveEntry(null);
         setFocusedRunId(null);
         setFocusedRunTask(null);
-        setHistoryFallbackEntry(null);
         setAnalysisParams({
           ticker: currentPreviewTicker,
           userId,
@@ -953,7 +945,6 @@ export function KaiAnalysisPageContent() {
   const handleSelectTicker = handleStartAnalysis;
   const handleBrowseRecommendations = useCallback(() => {
     setAnalysisParams(null);
-    setHistoryFallbackEntry(null);
     setShowHistoryWhileActive(false);
     router.replace(buildKaiMarketRoute("analysis"), { scroll: false });
   }, [router, setAnalysisParams]);
@@ -1446,7 +1437,6 @@ export function KaiAnalysisPageContent() {
             onViewHistory={handleViewHistory}
             onHistoryCount={setHistoryCount}
             showDebateInputs={false}
-            ephemeralEntry={historyFallbackEntry}
           />} />
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">

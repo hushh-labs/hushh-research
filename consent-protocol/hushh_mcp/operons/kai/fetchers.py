@@ -547,12 +547,7 @@ async def _fetch_finnhub_company_news(ticker: str, days_back: int) -> List[Dict[
             url = str((row or {}).get("url") or "").strip()
             if not title or not url:
                 continue
-            ts = int((row or {}).get("datetime") or 0)
-            published_at = (
-                datetime.utcfromtimestamp(ts).isoformat() + "Z"
-                if ts > 0
-                else datetime.utcnow().isoformat()
-            )
+            published_at = _quote_time_iso((row or {}).get("datetime"))
             articles.append(
                 {
                     "title": title,
@@ -605,9 +600,7 @@ async def _fetch_pmp_news(ticker: str) -> List[Dict[str, Any]]:
                     "title": title,
                     "description": str((row or {}).get("description") or "").strip(),
                     "url": url,
-                    "publishedAt": str(
-                        (row or {}).get("publishedDate") or datetime.utcnow().isoformat()
-                    ),
+                    "publishedAt": (row or {}).get("publishedDate"),
                     "source": {"name": "PMP/FMP"},
                     "provider": "pmp_fmp",
                     "image_url": (row or {}).get("image"),

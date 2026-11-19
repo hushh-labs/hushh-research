@@ -411,7 +411,6 @@ async def _assert_booking_requires_confirmation(restarted, selected, call, listi
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert selected_accounts == [selected]
     calendar.get_event.assert_awaited_once_with(
@@ -446,7 +445,6 @@ async def test_jhumma_complete_body_restart_reminder_and_correction(followup_pg,
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
 
     messages = _mock_messages()

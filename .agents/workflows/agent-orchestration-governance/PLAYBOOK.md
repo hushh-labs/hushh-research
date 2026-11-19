@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `agent-orchestration-governance`.
 
 ## Goal
 
-Define or tighten repo-scoped Codex custom agents, bounded subagent limits, and delegation authority without creating a second skill system or introducing uncontrolled fan-out.
+Define or tighten repo-scoped engineering subagent definitions, bounded subagent limits, and delegation authority without creating a second skill system or introducing uncontrolled fan-out.
 
 ## Steps
 
@@ -29,7 +29,7 @@ Define or tighten repo-scoped Codex custom agents, bounded subagent limits, and 
    - unresolved risks
 10. Treat self-maintenance as local validation plus the existing `Governance` CI lane; do not add autonomous rewrite behavior in wave 1.
 11. Run the dedicated agent-orchestration validation first, then the governance check, skill lint, workflow listing, repo audit, and docs verification.
-12. Hand off to `codex-skill-authoring`, `repo-context`, `repo-operations`, or `future-planner` when the task leaves orchestration governance.
+12. Hand off to `skill-authoring`, `repo-context`, `repo-operations`, or `future-planner` when the task leaves orchestration governance.
 
 ## Common Drift Risks
 

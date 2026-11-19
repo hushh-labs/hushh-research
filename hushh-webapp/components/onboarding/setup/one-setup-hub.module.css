@@ -10,7 +10,6 @@
   letter-spacing: -0.01em !important;
 }
 
-.setupHeader :global([data-slot="page-header-description"]),
 .stepHeader :global([data-slot="page-header-description"]) {
   font-size: 13px !important;
   line-height: 20px !important;
