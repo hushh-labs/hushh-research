@@ -52,6 +52,7 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
         "x-api-key": apiKey,
       },
       body: JSON.stringify({
+        from: { name: "One", email: "one@hushh.ai" },
         to,
         subject: input.subject,
         html: input.html,
