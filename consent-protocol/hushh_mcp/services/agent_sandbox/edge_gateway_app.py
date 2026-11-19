@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
     ClaimedSandboxEndpoint,
@@ -342,6 +342,7 @@ def create_sandbox_edge_gateway_app(
     gateway.state.manager = manager
 
     @gateway.get("/healthz")
+    @gateway.get("/health")
     async def healthz() -> dict[str, Any]:
         return {
             "status": "edge_gateway_ready",
@@ -440,6 +441,11 @@ def create_sandbox_edge_gateway_app(
             reason = rc.reason if rc and rc.reason else "Upstream relay closed"
             with contextlib.suppress(Exception):
                 await websocket.close(code=code, reason=reason)
+        except InvalidStatus as rejected:
+            status = int(getattr(getattr(rejected, "response", None), "status_code", 0) or 0)
+            code = 1008 if status in {401, 403} else 1011
+            with contextlib.suppress(Exception):
+                await websocket.close(code=code, reason="Upstream WebSocket rejected")
         except Exception:  # noqa: BLE001 - refuse unestablished upstream cleanly
             with contextlib.suppress(Exception):
                 await websocket.close(code=1011, reason="Sandbox relay unavailable")

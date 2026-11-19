@@ -206,6 +206,13 @@ class VirginStandbyRuntime:
                     os.environ["HUSSH_LEASE_ID"] = lease_id
                     os.environ["HUSSH_POD_PRIVATE_KEY_FILE"] = str(key_file)
                     os.environ["HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD"] = "1"
+                    from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+                        ensure_pod_sandbox_signing_key,
+                    )
+
+                    ensure_pod_sandbox_signing_key()
+                    if not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
+                        os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
                     for opt_field, env_name in (
                         ("pod_url", "POD_URL"),
                         ("hub_url", "HUSSH_HUB_URL"),

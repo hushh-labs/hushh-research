@@ -60,6 +60,8 @@ def _clean_pod_env() -> Generator[None, None, None]:
         "POD_URL",
         "HUSSH_HUB_URL",
         "HUSHH_SCHEDULER_CALLER_EMAILS",
+        "APP_SIGNING_KEY",
+        "POD_DURABLE_IDENTITY_ENABLED",
     )
     saved = {k: os.environ.get(k) for k in tracked}
     reset_pod_keypair_cache_for_tests()
@@ -241,7 +243,11 @@ class _LocalStandbyClaimClient(SandboxClaimPort):
             runtime.stop()
 
 
-async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(tmp_path: Path) -> None:
+async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("POD_DURABLE_IDENTITY_ENABLED", raising=False)
     guard = "edge-activation-check-value-01"
     admin_check = "edge-admin-check-value-01"
     master_seed = b"S" * 32
@@ -272,11 +278,14 @@ async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(tmp_pat
         async with httpx.AsyncClient(timeout=10.0) as client:
             for _ in range(30):
                 try:
-                    hz = await client.get(f"{base_http}/healthz")
+                    hz = await client.get(f"{base_http}/health")
                     if hz.status_code == 200:
+                        assert hz.json()["status"] == "edge_gateway_ready"
                         break
                 except httpx.HTTPError:
                     await asyncio.sleep(0.1)
+            else:
+                pytest.fail("Edge gateway /health did not respond with 200")
 
             # Public clients cannot invoke /internal/* inside the sandbox via edge route.
             blocked = await client.post(
@@ -298,6 +307,8 @@ async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(tmp_pat
             assert b2["sandbox"] == "sbx-live-1"
             key_id_1 = b1["podKeyId"]
             assert b1["podKeyId"] == r1.headers["x-hussh-pod-key-id"]
+            assert len(os.environ.get("APP_SIGNING_KEY") or "") == 64
+            assert os.environ.get("POD_DURABLE_IDENTITY_ENABLED") == "0"
 
             # Puppy bidirectional WebSocket frame relay keeps sandbox exempt from idle reap.
             ws_uri = f"ws://127.0.0.1:{gw_port}/u/owner_alice/api/one/puppy/relay"
