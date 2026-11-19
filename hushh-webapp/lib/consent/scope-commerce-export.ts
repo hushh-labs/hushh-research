@@ -20,6 +20,7 @@ export async function prepareAndStagePaidScopeExport(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  machineScope?: string;
   negativeNetAcknowledgement?: NegativeNetAcknowledgement;
   activateOnStage?: boolean;
 }) {
@@ -31,9 +32,15 @@ export async function prepareAndStagePaidScopeExport(params: {
   const assertCurrent = () => {
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Unlock your vault again before sharing.");
   };
-  const context = await ScopeCommerceService.getPurchase(params.purchaseId, params.vaultOwnerToken);
+  const directScope =
+    typeof params.machineScope === "string" && params.machineScope.startsWith("attr.")
+      ? params.machineScope
+      : "";
+  const context = directScope
+    ? null
+    : await ScopeCommerceService.getPurchase(params.purchaseId, params.vaultOwnerToken);
   assertCurrent();
-  const scope = String(context.machineScope || context.machine_scope || "");
+  const scope = directScope || String(context?.machineScope || context?.machine_scope || "");
   if (!scope.startsWith("attr.")) throw new Error("The approved scope is unavailable.");
   const built = await buildConsentExportForScope({
     userId: params.userId, scope, vaultKey: params.vaultKey,

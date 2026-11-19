@@ -774,16 +774,16 @@ describe("watching live access for its end: one shared watch", () => {
     return times;
   }
 
-  // Run 4 (P1a): the request card took 20-26s to read "Access ended".
-  it("checks about every 5s for the first minute after an answer, then every 10s", async () => {
+  // Fallback cadence keeps compute low while SSE delivers real-time updates.
+  it("checks about every 30s for the first minute after an answer, then every 60s", async () => {
     const startedAt = Date.now();
     const release = watchLiveAccess({ bundleId: BUNDLE_A, vaultOwnerToken: "owner-token" });
-    const times = await readTimes(BUNDLE_A, 120_000, startedAt);
+    const times = await readTimes(BUNDLE_A, 180_000, startedAt);
     release();
-    expect(times.filter((t) => t <= 60)).toEqual([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
-    expect(times.filter((t) => t > 60)).toEqual([70, 80, 90, 100, 110, 120]);
-    expect(liveAccessDelayMs(0)).toBe(5_000);
-    expect(liveAccessDelayMs(LIVE_ACCESS_FAST_WINDOW_MS)).toBe(10_000);
+    expect(times.filter((t) => t <= 60)).toEqual([30, 60]);
+    expect(times.filter((t) => t > 60)).toEqual([120, 180]);
+    expect(liveAccessDelayMs(0)).toBe(30_000);
+    expect(liveAccessDelayMs(LIVE_ACCESS_FAST_WINDOW_MS)).toBe(60_000);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -800,11 +800,11 @@ describe("watching live access for its end: one shared watch", () => {
     const heard: string[] = [];
     const unsubscribe = subscribeInformationRequest(BUNDLE_A, (bundle) => heard.push(bundle.bundleId));
     const times = await readTimes(BUNDLE_A, 60_000, startedAt);
-    expect(times).toHaveLength(12);
+    expect(times).toHaveLength(2);
     const calls = services.getInformationRequest.mock.calls.map(([input]) => (input as { bundleId: string }).bundleId);
-    expect(calls.filter((id) => id === BUNDLE_B)).toHaveLength(12);
+    expect(calls.filter((id) => id === BUNDLE_B)).toHaveLength(2);
     // Every surface hears every reading.
-    expect(heard).toHaveLength(12);
+    expect(heard).toHaveLength(2);
     // Releasing two of three holders keeps the bundle watched; the last one stops it.
     releases[0]!(); releases[1]!();
     expect(liveAccessWatchSnapshot().bundles).toContain(BUNDLE_A);

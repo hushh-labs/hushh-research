@@ -205,6 +205,7 @@ export function useMarketplaceConsentActions(
                     userId,
                     vaultKey,
                     vaultOwnerToken,
+                    machineScope: latest.machine_scope || state.machine_scope,
                     activateOnStage: true,
                   });
                   return "Shared. Access is active now.";

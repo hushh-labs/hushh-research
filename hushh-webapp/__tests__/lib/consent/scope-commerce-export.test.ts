@@ -35,7 +35,8 @@ describe("paid owner export authority", () => {
 
   it("forwards the explicit reviewed cost binding unchanged to preparation and staging", async () => {
     await prepareAndStagePaidScopeExport({ ...params, negativeNetAcknowledgement: acknowledgement });
-    expect(ports.preparePurchase.mock.calls[0][1]).toEqual({ sourceRevisions: { contentRevision: 1, manifestRevision: 2 }, negative_net_acknowledgement: acknowledgement });
+    expect(ports.preparePurchase.mock.calls[0][1]).toEqual({ sourceRevisions: { contentRevision: 1, manifestRevision: 2 }, negative_net_acknowledgement: acknowledgement, activate_immediately: true });
+    expect(ports.stagePurchase.mock.calls[0][1].activate_on_stage).toBe(true);
     expect(ports.stagePurchase.mock.calls[0][1].negative_net_acknowledgement).toEqual(acknowledgement);
     expect(ports.stagePurchase.mock.calls[0][1].envelope).not.toHaveProperty("negative_net_acknowledgement");
   });

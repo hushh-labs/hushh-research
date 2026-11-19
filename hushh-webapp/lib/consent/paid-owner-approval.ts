@@ -37,6 +37,13 @@ export async function approvePaidOwnerTerms(
   const firebaseToken = await AuthService.getIdToken();
   requireCurrent();
   if (!firebaseToken) throw ownerError("Sign in again before reviewing this request.");
+  const prefetchedReadiness =
+    metadata.commercial_required === true
+      ? ScopeCommerceService.readiness(firebaseToken).then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ ok: false as const, error }),
+        )
+      : null;
   const request = await ScopeCommerceService.scopeRequest(firebaseToken, consent.id).catch(error => {
     if (error instanceof CommerceActionError && error.code &&
       ["scope_unavailable", "recipient_key_changed", "recipient_or_scope_unavailable"].includes(error.code)) {
@@ -49,7 +56,14 @@ export async function approvePaidOwnerTerms(
   const purchaseStatus = request.purchase?.status ?? "";
   const isPaid = Boolean((request.tariff && request.tariff.price_cents > 0) || request.purchase || metadata.commercial_required === true);
   if (request.tariff && request.tariff.price_cents > 0) {
-    const readiness = await ScopeCommerceService.readiness(firebaseToken);
+    const readinessResult = prefetchedReadiness ? await prefetchedReadiness : null;
+    const readiness = readinessResult
+      ? readinessResult.ok
+        ? readinessResult.value
+        : (() => {
+            throw readinessResult.error;
+          })()
+      : await ScopeCommerceService.readiness(firebaseToken);
     requireCurrent();
     if (!readiness.capabilities.approve_paid_request) throw ownerError(commerceReadinessCopy(readiness));
     const durationHours = consent.durationHours || request.duration_seconds / 3600;
@@ -59,9 +73,10 @@ export async function approvePaidOwnerTerms(
     requireCurrent();
     state.paidApprovals.current.add(consent.id);
 
-    const latest = approval.status === "approved_funded"
-      ? await ScopeCommerceService.scopeRequest(firebaseToken, consent.id)
-      : request;
+    const latest =
+      approval.status === "approved_funded" && !request.purchase?.id
+        ? await ScopeCommerceService.scopeRequest(firebaseToken, consent.id)
+        : request;
     requireCurrent();
     const activePurchase = latest.purchase ?? request.purchase;
     if (activePurchase && (activePurchase.status === "reserved" || activePurchase.status === "preparing")) {
@@ -82,6 +97,7 @@ export async function approvePaidOwnerTerms(
         userId,
         vaultKey,
         vaultOwnerToken,
+        machineScope: latest.machine_scope || request.machine_scope || consent.scope,
         negativeNetAcknowledgement: options?.negativeNetAcknowledgement,
         activateOnStage: true,
       });
@@ -104,6 +120,7 @@ export async function approvePaidOwnerTerms(
       userId,
       vaultKey,
       vaultOwnerToken,
+      machineScope: request.machine_scope || consent.scope,
       negativeNetAcknowledgement: options?.negativeNetAcknowledgement,
       activateOnStage: true,
     });
