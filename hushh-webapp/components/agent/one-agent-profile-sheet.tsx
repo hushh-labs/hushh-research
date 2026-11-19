@@ -198,6 +198,7 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const router = useRouter();
   const [tab, setTab] = useState("feed");
+  const [todoDetail, setTodoDetail] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const changeTab = (value: string) => {
     setTab(value);
@@ -226,12 +227,13 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
         vaultOwnerToken={vaultOwnerToken}
         isVaultUnlocked={isVaultUnlocked}
         onDetailBackChange={onTodoBackChange}
+        onDetailModeChange={setTodoDetail}
       />
     );
   }
 
 
-  return <div className={styles.content}>
+  return <div className={styles.content} data-todo-active={tab === "todo"} data-todo-detail={tab === "todo" && todoDetail}>
         <div className={styles.hero}>
           <div className={styles.avatar}>
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
@@ -256,7 +258,7 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
           </div>
           <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
-            <TabsContent value="todo">{todo}</TabsContent>
+            <TabsContent value="todo" className={styles.todoTab}>{todo}</TabsContent>
             <TabsContent value="profile">
               <div className={styles.profile}>
                 <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />
