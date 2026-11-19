@@ -120,7 +120,7 @@ class SandboxEdgeGatewayManager:
         hub_url: str | None = None,
         scheduler_caller_emails: str | None = None,
         claim_timeout_s: float = 180.0,
-        health_poll_timeout_s: float = 30.0,
+        health_poll_timeout_s: float = 90.0,
         clock_s: Callable[[], float] | None = None,
     ) -> None:
         if len(master_seed) < 32:
@@ -182,7 +182,7 @@ class SandboxEdgeGatewayManager:
         if self._activation_guard:
             headers["X-Sandbox-Activation-Token"] = self._activation_guard
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
             last_exc: Exception | None = None
             for _ in range(20):
                 try:
@@ -464,7 +464,9 @@ def create_sandbox_edge_gateway_app(
         body = await request.body()
         req_headers = _filter_headers(request.headers)
         req_headers["X-Forwarded-Prefix"] = f"/u/{hushh_id}"
-        async with httpx.AsyncClient(follow_redirects=False, timeout=160.0) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=False, timeout=160.0, trust_env=False
+        ) as client:
             upstream = await client.request(
                 method=request.method,
                 url=target,
@@ -536,6 +538,9 @@ def create_edge_gateway_from_env() -> FastAPI:
         sentinel_control=sentinel,
         warm_pool_name=warm_pool,
         idle_timeout_s=float(os.environ.get("HUSSH_SANDBOX_IDLE_TIMEOUT_SECONDS") or "600"),
+        health_poll_timeout_s=float(
+            os.environ.get("HUSSH_SANDBOX_HEALTH_POLL_TIMEOUT_SECONDS") or "90"
+        ),
         activation_header_value=os.environ.get("HUSSH_SANDBOX_ACTIVATION_TOKEN"),
         admin_header_value=os.environ.get("HUSSH_EDGE_ADMIN_TOKEN"),
         pod_url_base=os.environ.get("HUSSH_SANDBOX_EDGE_PUBLIC_URL"),

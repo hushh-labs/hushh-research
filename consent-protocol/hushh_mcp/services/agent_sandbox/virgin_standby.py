@@ -69,6 +69,9 @@ def _default_asgi_launcher(bind_host: str, port: int) -> None:
     """Load owner durable identity into RAM, unlink key file, and launch pod_server."""
     import uvicorn  # noqa: PLC0415
 
+    # Import pod_server before loading the durable keypair so root INFO logging
+    # and redaction are configured when pod_key.loaded is emitted.
+    import pod_server  # noqa: PLC0415
     from hushh_mcp.services.pod_self_registration import (  # noqa: PLC0415
         pod_public_key_payload,
         reset_pod_keypair_cache_for_tests,
@@ -76,8 +79,6 @@ def _default_asgi_launcher(bind_host: str, port: int) -> None:
 
     reset_pod_keypair_cache_for_tests()
     pod_public_key_payload()
-
-    import pod_server  # noqa: PLC0415
 
     config = uvicorn.Config(
         pod_server.app,

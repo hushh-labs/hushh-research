@@ -29,7 +29,6 @@ DEFAULT_EGRESS_PROXY_URL = (
 )
 DEFAULT_STANDBY_COMMAND = (
     "/opt/venv/bin/python",
-    "-I",
     "-m",
     "hushh_mcp.services.agent_sandbox.virgin_standby",
 )

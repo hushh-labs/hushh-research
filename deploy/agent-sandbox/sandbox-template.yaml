@@ -39,7 +39,6 @@ spec:
           image: us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod@sha256:0000000000000000000000000000000000000000000000000000000000000000
           command:
             - /opt/venv/bin/python
-            - -I
             - -m
             - hushh_mcp.services.agent_sandbox.virgin_standby
           ports:
