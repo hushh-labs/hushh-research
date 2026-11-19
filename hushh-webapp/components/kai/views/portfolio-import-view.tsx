@@ -34,7 +34,7 @@ const PlaidIcon = ({ className, ...props }: React.SVGProps<SVGSVGElement>) => (
 
 interface PortfolioImportViewProps {
   onFileSelect: (file: File) => void;
-  onSkip: () => void;
+  onSkip?: () => void;
   onPreloadSchema?: () => void;
   onConnectPlaid?: (environment?: string | null) => void;
   plaidConnectionError?: string | null;
@@ -47,13 +47,12 @@ interface PortfolioImportViewProps {
   plaidLocalDualEnvironmentEnabled?: boolean;
   /** Setup routes provide their own single terminal deferral action. */
   showSkip?: boolean;
-  presentation?: "list" | "onboarding";
+  presentation?: "list" | "onboarding" | "dashboard";
   onSetupBack?: () => void;
 }
 
 /**
- * The source picker renders animated cards during onboarding and a compact
- * list from Portfolio. Both surfaces dispatch through the same handlers.
+ * Setup and empty Portfolio use the same source cards and import handlers.
  */
 export function PortfolioImportView({
   onFileSelect,
@@ -143,12 +142,14 @@ export function PortfolioImportView({
 
   const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid || isSkippingSource;
 
-  if (presentation === "onboarding") {
+  if (presentation !== "list") {
+    const isSetup = presentation === "onboarding";
     return <>
       <input ref={fileInputRef} type="file" accept=".csv,.pdf" onChange={handleFileChange}
         className="sr-only" disabled={isBusy} aria-label="Choose a PDF or CSV brokerage statement" />
       <FinanceSourcePicker onConnect={handleConnectPlaid} onStatement={() => fileInputRef.current?.click()}
-        onSample={handlePreloadSchema} onSkip={onSkip} onBack={onSetupBack} busy={isBusy}
+        onSample={handlePreloadSchema} onSkip={isSetup ? onSkip : undefined}
+        onBack={isSetup ? onSetupBack : undefined} embedded={!isSetup} busy={isBusy}
         plaidAvailable={Boolean(onConnectPlaid && plaidConfigured)} sampleAvailable={Boolean(onPreloadSchema)}
         status={isSkippingSource ? "Continuing…" : isConnectingPlaid ? "Opening Plaid…" : isPreloadingSchema ? "Loading sample…" : "Importing statement…"}
         error={selectionError ?? plaidConnectionError} />
@@ -253,7 +254,7 @@ export function PortfolioImportView({
           </p>
         ) : null}
 
-        {showSkip ? (
+        {showSkip && onSkip ? (
           <div className="pt-0.5 text-center">
             <MorphyButton
               variant="none"

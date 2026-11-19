@@ -164,12 +164,14 @@ describe("portfolio briefing", () => {
     expect(screen.getByText("Unavailable")).toBeVisible();
   });
 
-  it("shows a supplied next step after the judgment", () => {
+  it("shows the judgment from a saved review with a separate next step", () => {
     const takeaway = "Most of the money you'll need soon is tied up in stocks.";
     const nextStep = "I'd set aside the money you'll need soon before investing more.";
-    render(<PortfolioBriefing review={{ score: 72, takeaway, next_step: nextStep }} onOpen={vi.fn()} />);
-    expect(screen.getByText(takeaway).compareDocumentPosition(screen.getByText(nextStep)))
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const savedReview = { score: 72, takeaway, next_step: nextStep };
+    render(<PortfolioBriefing review={savedReview} onOpen={vi.fn()} />);
+    expect(screen.getByText(takeaway)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Next step" })).toBeNull();
+    expect(screen.queryByText(nextStep)).toBeNull();
   });
 
 });

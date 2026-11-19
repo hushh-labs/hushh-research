@@ -26,7 +26,8 @@ import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary"
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
 import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";
 import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
@@ -1339,7 +1340,7 @@ async function streamAgentChatAttempt(input: {
           markTiming("wire-start");
           return true;
         },
-      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {});
+      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {}, turnSessionCurrent);
       markTiming("response-headers");
       return response;
     },
@@ -2236,14 +2237,23 @@ export const PRIVATE_AGENT_INTRO_REPLY =
  */
 export async function streamAgentIntro(input: {
   message: string;
+  confirmedNativeGuest?: boolean;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const threadId = crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const authEpisode = snapshotAuthSessionGeneration();
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const current = () => Boolean(authEpisode && isValidatedAuthSessionOwnerCurrent(authEpisode)
+    && (!principal || isFirebaseSessionOwnerCurrent(principal))
+    && !input.signal?.aborted);
   const access = await import("./pod-app-access");
-  if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+  if (!current() || !(await access.introMayReachHub(
+    () => ApiService.getPersonalAgentStatusForRouting({ fresh: true, signal: input.signal }),
+    input.confirmedNativeGuest,
+  )) || !current()) {
     handlers.onToken?.(PRIVATE_AGENT_INTRO_REPLY);
     handlers.onComplete?.({ conversationId: threadId });
     return { conversationId: null, model: null, text: PRIVATE_AGENT_INTRO_REPLY };
@@ -2265,7 +2275,10 @@ export async function streamAgentIntro(input: {
     loseStream();
     agent.abortRun();
   };
-  const liveness = createAgentStreamLiveness((init) => nativeStreamFetch("/api/one/agent-chat", init), onLostTransport);
+  const liveness = createAgentStreamLiveness(
+    (init) => nativeStreamFetch("/api/one/agent-chat", { ...init, isEffectCurrent: current }),
+    onLostTransport,
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,

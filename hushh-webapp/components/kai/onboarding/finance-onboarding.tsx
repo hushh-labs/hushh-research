@@ -216,6 +216,7 @@ export function FinanceSourcePicker({
   onSample,
   onSkip,
   onBack,
+  embedded = false,
   busy,
   plaidAvailable,
   sampleAvailable,
@@ -225,8 +226,9 @@ export function FinanceSourcePicker({
   onConnect: () => void;
   onStatement: () => void;
   onSample: () => void;
-  onSkip: () => void;
+  onSkip?: () => void;
   onBack?: () => void;
+  embedded?: boolean;
   busy: boolean;
   plaidAvailable: boolean;
   sampleAvailable: boolean;
@@ -234,7 +236,7 @@ export function FinanceSourcePicker({
   error?: string | null;
 }) {
   const pathname = usePathname();
-  useBackLayer(pathname, 2, () => {
+  useBackLayer(pathname, embedded ? 0 : 2, () => {
     if (busy) return true;
     if (!onBack) return false;
     onBack();
@@ -269,12 +271,13 @@ export function FinanceSourcePicker({
       start: onSample,
     },
   ];
+  const Heading = embedded ? "h2" : "h1";
   return (
-    <section className={`app-type-compact ${styles.surface} ${styles.sourcePicker}`} aria-label="Add your portfolio">
+    <section className={`app-type-compact ${styles.surface} ${styles.sourcePicker} ${embedded ? styles.embeddedSourcePicker : ""}`} aria-label="Add your portfolio">
       <div className={styles.sourceContent}>
         <div className={styles.importHeading}>
-          <p className={styles.sourceEyebrow}>Optional</p>
-          <h1 className={styles.sourceTitle}>Add your portfolio</h1>
+          {!embedded && <p className={styles.sourceEyebrow}>Optional</p>}
+          <Heading className={styles.sourceTitle}>Add your portfolio</Heading>
         </div>
         <div
           className={styles.sourceGrid}
@@ -310,22 +313,26 @@ export function FinanceSourcePicker({
           ))}
         </div>
       </div>
-      <div className={styles.sourceFooter}>
-        {error && <p className={styles.error} role="alert">{error}</p>}
-        {busy && (
-          <p className="ui-text-row-description text-muted-foreground" role="status">
-            {status ?? "Preparing…"}
-          </p>
-        )}
-        <button
-          type="button"
-          className="ui-text-row-description min-h-11 px-4 text-muted-foreground"
-          onClick={onSkip}
-          disabled={busy}
-        >
-          Skip for now
-        </button>
-      </div>
+      {(error || busy || onSkip) && (
+        <div className={styles.sourceFooter}>
+          {error && <p className={styles.error} role="alert">{error}</p>}
+          {busy && (
+            <p className="ui-text-row-description text-muted-foreground" role="status">
+              {status ?? "Preparing…"}
+            </p>
+          )}
+          {onSkip && (
+            <button
+              type="button"
+              className="ui-text-row-description min-h-11 px-4 text-muted-foreground"
+              onClick={onSkip}
+              disabled={busy}
+            >
+              Skip for now
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

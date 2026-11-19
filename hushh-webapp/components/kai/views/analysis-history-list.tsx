@@ -19,7 +19,6 @@ export type AnalysisHistoryRow = AnalysisHistoryEntry & {
 type HistoryActions = {
   onOpen: (entry: AnalysisHistoryEntry) => void;
   onDelete: (entry: AnalysisHistoryEntry) => void;
-  onDeleteTicker: (ticker: string) => void;
 };
 
 function HistoryEntryRow({ entry, ...actions }: { entry: AnalysisHistoryRow } & HistoryActions) {
@@ -38,7 +37,6 @@ function HistoryEntryRow({ entry, ...actions }: { entry: AnalysisHistoryRow } & 
     <DropdownMenu><DropdownMenuTrigger asChild><ShellActionSurface variant="icon" aria-label={`Actions for ${entry.ticker}`}><MoreHorizontal className="h-4 w-4" /></ShellActionSurface></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={styles.detail}>
         <DropdownMenuItem onSelect={() => actions.onDelete(entry)}><Trash2 className="mr-2 h-4 w-4" />Delete this analysis</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => actions.onDeleteTicker(entry.ticker)} className="text-destructive">Delete all analyses for {entry.ticker}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;

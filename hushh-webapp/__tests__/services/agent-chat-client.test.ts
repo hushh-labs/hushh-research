@@ -91,6 +91,11 @@ import {
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
 
+function streamGuestIntro(input: Parameters<typeof streamAgentIntro>[0]) {
+  publishValidatedAuthSessionOwner(null);
+  return streamAgentIntro(input);
+}
+
 describe("chat attempt observation boundary", () => {
   beforeEach(() => {
     publishValidatedAuthSessionOwner("user-1");
@@ -1393,7 +1398,7 @@ describe("AG-UI Agent One client", () => {
   });
 
   it("uses the same AG-UI endpoint before vault unlock", async () => {
-    await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
+    await expect(streamGuestIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",
     });
     expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
@@ -1413,7 +1418,7 @@ describe("AG-UI Agent One client", () => {
     const onInterrupt = vi.fn();
     try {
       const turn = tier === "intro"
-        ? streamAgentIntro({ message: "Hello", handlers: { onComplete, onInterrupt } })
+        ? streamGuestIntro({ message: "Hello", handlers: { onComplete, onInterrupt } })
         : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", handlers: { onComplete, onInterrupt } });
       await expect(turn).rejects.toMatchObject({ name: "AbortError" });
       expect(onComplete).not.toHaveBeenCalled();
@@ -1442,7 +1447,7 @@ describe("AG-UI Agent One client", () => {
     const handlers = { onComplete, onInterrupt, onToken: () => controller.abort() };
     try {
       const turn = tier === "intro"
-        ? streamAgentIntro({ message: "Hello", signal: controller.signal, handlers })
+        ? streamGuestIntro({ message: "Hello", signal: controller.signal, handlers })
         : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", signal: controller.signal, handlers });
       if (tier === "intro") await expect(turn).rejects.toMatchObject({ name: "AbortError" });
       else await expect(turn).resolves.toMatchObject({ detached: false });
@@ -1477,7 +1482,7 @@ describe("AG-UI Agent One client", () => {
       expect(subscriber.onReasoningMessageContentEvent).toBeUndefined();
     };
     const result = tier === "intro"
-      ? await streamAgentIntro({ message: "Hello" })
+      ? await streamGuestIntro({ message: "Hello" })
       : await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token" });
     expect(result.text).toBe("Hello");
     expect(privateMessage.content).toBe("Private reasoning");
@@ -2139,7 +2144,7 @@ describe("a chat turn never waits forever", () => {
 
     // The pre-vault turn uses the same endpoint and must not report success.
     const introError = vi.fn();
-    await expect(streamAgentIntro({ message: "hello", handlers: { onError: introError } }))
+    await expect(streamGuestIntro({ message: "hello", handlers: { onError: introError } }))
       .rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
     expect(introError).toHaveBeenCalledTimes(1);
   });

@@ -331,12 +331,6 @@
   border: 1px solid color-mix(in srgb, var(--app-accent) 14%, var(--card));
   background: color-mix(in srgb, var(--app-accent) 4%, var(--card));
 }
-.reviewNextLabel {
-  color: var(--app-accent);
-  font-size: var(--type-row-description-size, 12px);
-  font-weight: 600;
-}
-
 .refinePersona {
   color: var(--app-accent);
   text-decoration: none;

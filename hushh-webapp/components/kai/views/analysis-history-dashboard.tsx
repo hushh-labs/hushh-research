@@ -354,11 +354,6 @@ interface DebateInputsCardProps {
   historyTickers: string[];
 }
 
-type PendingDeleteAction =
-  | { kind: "entry"; entry: AnalysisHistoryEntry }
-  | { kind: "ticker"; ticker: string }
-  | null;
-
 function DebateInputsCard({
   loading,
   snapshot,
@@ -503,7 +498,7 @@ export function AnalysisHistoryDashboard({
   const [historyMap, setHistoryMap] = useState<AnalysisHistoryMap>({});
   const entries = useMemo(() => processHistory(historyMap), [historyMap]);
   const historyRequest = useRef(0);
-  const [pendingDelete, setPendingDelete] = useState<PendingDeleteAction>(null);
+  const [pendingDelete, setPendingDelete] = useState<AnalysisHistoryEntry | null>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
 
   useEffect(() => {
@@ -593,30 +588,19 @@ export function AnalysisHistoryDashboard({
     if (!pendingDelete || deleteInFlight) return;
     const epoch = snapshotVaultSessionEpoch();
     const owner = { userId, vaultKey, vaultOwnerToken };
-    const ticker = pendingDelete.kind === "entry" ? pendingDelete.entry.ticker : pendingDelete.ticker;
+    const runId = extractEntryRunId(pendingDelete);
     setDeleteInFlight(true);
     try {
-      const deleted = pendingDelete.kind === "entry"
-        ? await KaiHistoryService.deleteEntry({
-            ...owner,
-            ticker,
-            timestamp: pendingDelete.entry.timestamp,
-            streamId: extractEntryRunId(pendingDelete.entry),
-          })
-        : await KaiHistoryService.deleteTickerHistory({ ...owner, ticker });
+      const deleted = await KaiHistoryService.deleteEntry({
+        ...owner,
+        ticker: pendingDelete.ticker,
+        timestamp: pendingDelete.timestamp,
+        streamId: runId,
+      });
       if (!isVaultSessionEpochCurrent(epoch)) return;
       if (deleted) {
-        if (pendingDelete.kind === "entry") {
-          const runId = extractEntryRunId(pendingDelete.entry);
-          if (runId && DebateRunManagerService.getTask(runId)?.userId === userId) {
-            DebateRunManagerService.dismissTask(runId);
-          }
-        } else {
-          for (const task of DebateRunManagerService.getState().tasks) {
-            if (task.userId === userId && task.ticker === ticker && task.status === "completed" && !task.dismissedAt) {
-              DebateRunManagerService.dismissTask(task.runId);
-            }
-          }
+        if (runId && DebateRunManagerService.getTask(runId)?.userId === userId) {
+          DebateRunManagerService.dismissTask(runId);
         }
         toast.success("Analysis history updated");
       } else {
@@ -693,8 +677,7 @@ export function AnalysisHistoryDashboard({
   return (
     <div className="w-full space-y-3">
       <AnalysisHistoryList entries={entries} onOpen={onViewHistory}
-        onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
-        onDeleteTicker={(ticker) => setPendingDelete({ kind: "ticker", ticker })} />
+        onDelete={setPendingDelete} />
 
       {showDebateInputs ? (
         <DebateInputsCard
@@ -713,14 +696,8 @@ export function AnalysisHistoryDashboard({
       >
         <AlertDialogContent className="z-[800]" overlayClassName="z-[799]">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingDelete?.kind === "ticker" ? "Delete all analyses?" : "Delete this analysis?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.kind === "ticker"
-                ? `This will remove all saved analyses for ${pendingDelete.ticker}.`
-                : "This will remove the selected analysis from history."}
-            </AlertDialogDescription>
+            <AlertDialogTitle>Delete this analysis?</AlertDialogTitle>
+            <AlertDialogDescription>This will remove the selected analysis from history.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteInFlight}>Cancel</AlertDialogCancel>

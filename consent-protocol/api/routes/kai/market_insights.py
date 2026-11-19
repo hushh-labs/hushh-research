@@ -45,7 +45,11 @@ from hushh_mcp.operons.kai.fetchers import (
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
-from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
+from hushh_mcp.services.market_news_images import (
+    article_image_url,
+    enrich_market_news_images,
+    publisher_logo_url,
+)
 from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
     seconds_until_us_market_open,
@@ -797,6 +801,12 @@ def _market_news_image_url(article: dict[str, Any]) -> str | None:
     return None
 
 
+def _market_news_publisher_logo(article: dict[str, Any]) -> str | None:
+    source = article.get("source")
+    publisher = source.get("url") if isinstance(source, dict) else None
+    return publisher_logo_url(publisher) or publisher_logo_url(article.get("url"))
+
+
 def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
     canonical_symbols = ",".join(sorted(set(symbols)))
     return f"news_feed:v5:{canonical_symbols}:{days_back}"
@@ -888,6 +898,7 @@ def _normalize_market_news_rows(
                 "url": url,
                 "published_at": _news_published_at(article.get("publishedAt")),
                 "source_name": source_name or "Market news",
+                "source_logo_url": _market_news_publisher_logo(article),
                 "provider": str(article.get("provider") or "unknown"),
                 "image_url": _market_news_image_url(article),
                 "image_thumbnail_url": _market_news_image_url(
@@ -2842,6 +2853,7 @@ async def _get_market_insights_payload(
                                 or "Unknown"
                             ),
                             "provider": str(article.get("provider") or "unknown"),
+                            "source_logo_url": _market_news_publisher_logo(article),
                             "image_url": _market_news_image_url(article),
                             "image_thumbnail_url": _market_news_image_url(
                                 {"image_url": article.get("image_thumbnail_url")}

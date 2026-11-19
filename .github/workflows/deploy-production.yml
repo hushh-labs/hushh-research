@@ -1856,6 +1856,10 @@ jobs:
             echo "SUPPORT_EMAIL_MODE must equal live before production backend deployment." >&2
             exit 1
           fi
+          if [ -f scripts/ops/reconcile_oauth_and_mail_posture.py ]; then
+            python3 scripts/ops/reconcile_oauth_and_mail_posture.py \
+              --verify-deploy --project "${{ env.GCP_PROJECT_ID }}" --environment production
+          fi
 
       - name: Deploy backend using Cloud Build
         id: deploy-backend
