@@ -7,6 +7,7 @@ export function connectorAccessPurpose(id: string): string {
     case "calendar": return "Use your calendar to help plan your time.";
     case "contacts": return "Use Google Contacts to help you find people.";
     case "plaid": return "Use connected accounts for Finance. Open to review or disconnect each bank.";
+    case "stripe": return "Manage payments, earnings, and optional Stripe Sandbox tools.";
     default: return "Review what this app allows One to use.";
   }
 }

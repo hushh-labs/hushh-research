@@ -112,7 +112,7 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
     {surface !== 'profile' && <Button variant="ghost" onClick={onClose ?? onBack}>Back</Button>}
     <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
-    <SettingsGroup>
+    <SettingsGroup title="Google Workspace">
       {entries.map(({ connector, status, connected, allowChanges }) => {
         return <SettingsRow key={connector} leading={<ConnectorVectorGlyph id={connector} variant="profile" />} title={LABELS[connector]}
         description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
