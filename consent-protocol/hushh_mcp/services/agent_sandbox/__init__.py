@@ -2,6 +2,15 @@
 # SPDX-FileCopyrightText: 2026 Hushh
 """FedRAMP-ready pooled MicroVM sandbox services (#9744)."""
 
+from hushh_mcp.services.agent_sandbox.edge_gateway_app import (
+    SANDBOX_INTERNAL_PATH_FORBIDDEN,
+    SANDBOX_OWNER_ID_INVALID,
+    ActiveOwnerLease,
+    SandboxEdgeGatewayManager,
+    create_edge_gateway_from_env,
+    create_sandbox_edge_gateway_app,
+    derive_owner_pod_identity,
+)
 from hushh_mcp.services.agent_sandbox.hub_sandbox_router import (
     BROWSER_TAKEOVER_REQUIRED,
     HANDOFF_CODE_INVALID,
@@ -57,7 +66,9 @@ __all__ = [
     "BROWSER_TAKEOVER_REQUIRED",
     "DEFAULT_WEEKLY_QUOTA_UNITS",
     "HANDOFF_CODE_INVALID",
+    "SANDBOX_INTERNAL_PATH_FORBIDDEN",
     "SANDBOX_INVITE_REQUIRED",
+    "SANDBOX_OWNER_ID_INVALID",
     "SANDBOX_RAW_CREDENTIAL_FORBIDDEN",
     "SANDBOX_WEEKLY_QUOTA_EXCEEDED",
     "SC4_SINGLE_USE_VIOLATION",
@@ -66,6 +77,7 @@ __all__ = [
     "SURROGATE_PREFIX",
     "TERMINAL_NOT_FOUND",
     "TERMINAL_OWNER_TAKEOVER_ACTIVE",
+    "ActiveOwnerLease",
     "AllocatedSandboxSession",
     "BrowserTerminalHandoffReceipt",
     "ClaimedSandboxEndpoint",
@@ -77,6 +89,7 @@ __all__ = [
     "ProcessSessionSnapshot",
     "SandboxAdmissionError",
     "SandboxClaimPort",
+    "SandboxEdgeGatewayManager",
     "SandboxLeaseRecord",
     "SandboxObjectReuseViolation",
     "SandboxProcessSessionManager",
@@ -90,4 +103,7 @@ __all__ = [
     "VirginSandboxLeaseManager",
     "WeeklyQuotaSnapshot",
     "WeeklySandboxQuotaLedger",
+    "create_edge_gateway_from_env",
+    "create_sandbox_edge_gateway_app",
+    "derive_owner_pod_identity",
 ]

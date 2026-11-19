@@ -208,9 +208,11 @@ class AceComputeBackend:
         audit_hmac_key: bytes,
         namespace: str = "hussh-agents",
         warm_pool_name: str = "hussh-one-warm-pool",
-        require_invite: bool = True,
+        require_invite: bool = False,
+        weekly_limit_units: int | None = None,
         sentinel_control_url: str | None = None,
         sentinel_control_token: str | None = None,
+        edge_gateway_url: str | None = None,
         use_in_cluster_k8s: bool = False,
     ) -> Any:
         """Assemble the Hub SandboxClaim allocator and single-use lease router (#9744)."""
@@ -228,7 +230,10 @@ class AceComputeBackend:
         )
 
         ledger = TamperEvidentAuditLedger(audit_hmac_key)
-        quota = WeeklySandboxQuotaLedger(require_invite=require_invite)
+        quota = WeeklySandboxQuotaLedger(
+            weekly_limit_units=weekly_limit_units,
+            require_invite=require_invite,
+        )
         lease_mgr = VirginSandboxLeaseManager(quota_ledger=quota, audit_ledger=ledger)
         claim_client: SandboxClaimPort = (
             LiveK8sSandboxClaimClient.from_incluster(namespace=namespace)
@@ -249,4 +254,5 @@ class AceComputeBackend:
             audit_ledger=ledger,
             sentinel_control=sentinel,
             warm_pool_name=warm_pool_name,
+            edge_gateway_url=edge_gateway_url,
         )
