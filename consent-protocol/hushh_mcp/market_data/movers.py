@@ -1,12 +1,13 @@
 """Observed mover selection shared by the producer and its cache admission check."""
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 MIN_MOVERS = 3
 MOVERS_COVERAGE_VERSION = 1
 MOVERS_REFRESH_SECONDS = 300
+MOVER_OBSERVATION_WINDOW = timedelta(minutes=20)
 
 
 def number(value: Any) -> float | None:
@@ -74,6 +75,35 @@ def complete_movers(value: Any) -> bool:
         len(select_movers(payload.get(bucket) or [], bucket)) >= MIN_MOVERS
         for bucket in ("gainers", "losers")
     )
+
+
+def mover_refresh_regressed(previous: Any, candidate: Any, now: datetime) -> bool:
+    """Compare the provider's timestamps independently for each directional ranking."""
+
+    def latest_observation(payload: dict, bucket: str) -> datetime | None:
+        return max(
+            (
+                stamp
+                for row in select_movers(payload.get(bucket), bucket)
+                if (stamp := observation_time(row.get("as_of"))) is not None
+            ),
+            default=None,
+        )
+
+    saved, incoming = mover_payload(previous), mover_payload(candidate)
+    for bucket in ("gainers", "losers"):
+        saved_at = latest_observation(saved, bucket)
+        if saved_at is None:
+            continue
+        incoming_at = latest_observation(incoming, bucket)
+        if incoming_at is None:
+            # FMP may omit timestamps. Resume using it when the last dated list
+            # is outside the observation window, without inferring a quote time.
+            if now - saved_at < MOVER_OBSERVATION_WINDOW:
+                return True
+        elif incoming_at < saved_at:
+            return True
+    return False
 
 
 def stale_movers(value: Any) -> dict:

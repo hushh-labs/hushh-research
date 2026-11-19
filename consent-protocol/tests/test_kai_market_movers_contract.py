@@ -233,6 +233,54 @@ async def test_mover_cache_recovers_old_sample_and_never_overwrites_a_complete_f
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("saved_stamp", "incoming_stamp", "retains_saved"),
+    [
+        ("2026-07-14T13:54:00Z", "2026-07-14T13:53:00Z", True),
+        ("2026-07-14T13:54:00Z", None, True),
+        ("2026-07-14T13:54:00Z", "2026-07-14T13:59:00Z", False),
+        ("2026-07-14T13:35:00Z", None, False),
+    ],
+)
+async def test_movers_publication_keeps_recent_observed_rankings(
+    monkeypatch, saved_stamp, incoming_stamp, retains_saved
+):
+    # A newer loser bucket must not mask an older or unverified gainer replay.
+    def snapshot(gainers_at, losers_at):
+        complete = _complete_feed()[0]
+        return assemble_movers(
+            {
+                "gainers": [{**row, "as_of": gainers_at} for row in complete["gainers"]],
+                "losers": [{**row, "as_of": losers_at} for row in complete["losers"]],
+            },
+            {},
+            "2026-07-14T14:00:00Z",
+        )
+
+    now = market_insights.time()
+    cache, store, key = MarketInsightsCache(), _FakeStore(), market_insights.US_MOVERS_KEY
+    previous = snapshot(saved_stamp, saved_stamp)
+    pending = snapshot(incoming_stamp, "2026-07-14T14:00:00Z")
+    store.entries[key] = _FakeEntry(previous, now - MOVERS_REFRESH_SECONDS - 1, now - 1, now + 1800)
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    fetch = AsyncMock(return_value=pending)
+
+    value, stale, *_ = await market_insights._get_or_refresh_public_module(
+        key=key,
+        fresh_ttl_seconds=MOVERS_REFRESH_SECONDS,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+        serve_stale_while_revalidate=False,
+    )
+
+    expected = previous if retains_saved else pending
+    assert stale is retains_saved
+    assert value == store.entries[key].payload == expected
+    fetch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_complete_movers_survive_a_closed_weekend_without_provider_calls(monkeypatch):
     from datetime import datetime
 

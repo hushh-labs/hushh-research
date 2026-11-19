@@ -30,6 +30,7 @@ from hushh_mcp.market_data.movers import (
     MOVERS_REFRESH_SECONDS,
     assemble_movers,
     complete_movers,
+    mover_refresh_regressed,
     observation_time,
     select_movers,
     stale_movers,
@@ -2245,7 +2246,12 @@ async def _overlay_us_priority_snapshots(payload: dict[str, Any], warm_source: s
     ]
     payload["market_overview"] = overlay_index_rows(overview, latest)
     movers, statuses = _us_mover_response(movers_read[0], movers_read[1])
-    if any(movers.get(bucket) for bucket in ("gainers", "losers", "active")):
+    saved_movers = payload.get("movers")
+    now = datetime.fromtimestamp(time(), tz=timezone.utc)
+    if any(movers.get(bucket) for bucket in ("gainers", "losers", "active")) and (
+        not complete_movers(saved_movers)
+        or (complete_movers(movers) and not mover_refresh_regressed(saved_movers, movers, now))
+    ):
         payload["movers"] = movers
     payload["provider_status"] = {**provider_status, **statuses}
     payload["meta"] = {**(payload.get("meta") or {}), "provider_status": payload["provider_status"]}

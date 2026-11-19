@@ -11,6 +11,7 @@ from hushh_mcp.market_data.movers import (
     MOVERS_REFRESH_SECONDS,
     complete_movers,
     mover_payload,
+    mover_refresh_regressed,
 )
 from hushh_mcp.market_data.ports import MarketDataUnavailable
 from hushh_mcp.services.market_history_policy import daily_history_cache_window
@@ -304,6 +305,9 @@ class PublicModuleCache:
         if key.startswith("movers:") and previous and complete_movers(previous.value):
             if not complete_movers(value):
                 raise MarketDataUnavailable("movers_incomplete_refresh")
+            now = datetime.fromtimestamp(self.clock(), tz=timezone.utc)
+            if mover_refresh_regressed(previous.value, value, now):
+                raise MarketDataUnavailable("movers_regressed_refresh")
         if key in self.index_keys and previous:
             quotes = merge_index_quotes(previous.value.get("quotes") or {}, value["quotes"])
             value = {

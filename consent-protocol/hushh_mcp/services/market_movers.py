@@ -6,11 +6,16 @@ and shared public cache enforce session access, single flight and refresh cadenc
 
 import asyncio
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import httpx
 
-from hushh_mcp.market_data.movers import number, observation_time, select_movers
+from hushh_mcp.market_data.movers import (
+    MOVER_OBSERVATION_WINDOW,
+    number,
+    observation_time,
+    select_movers,
+)
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
@@ -22,7 +27,6 @@ from hushh_mcp.services.market_refresh_policy import (
 SCREENER_URL = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
 SCREENERS = {"gainers": "day_gainers", "losers": "day_losers", "active": "most_actives"}
 SCREENER_LIMIT = 12
-SCREENER_MAX_AGE = timedelta(minutes=20)
 COOLDOWN_KEY = "yahoo:market-movers"
 
 
@@ -61,7 +65,9 @@ async def _fetch_mover_recovery(buckets: list[str]) -> dict[str, list[dict]]:
     opened_at = us_market_session_opened_at(now)
     if opened_at is None:
         raise MarketPriceRefreshPaused("market_closed_no_price_refresh")
-    earliest_quote = max(now - SCREENER_MAX_AGE, datetime.fromtimestamp(opened_at, tz=timezone.utc))
+    earliest_quote = max(
+        now - MOVER_OBSERVATION_WINDOW, datetime.fromtimestamp(opened_at, tz=timezone.utc)
+    )
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(6, connect=3),
         headers={"User-Agent": "Mozilla/5.0"},
