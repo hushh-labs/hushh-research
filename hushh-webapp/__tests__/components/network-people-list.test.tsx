@@ -27,7 +27,10 @@ describe("network permission and journey return @feature_connected_profiles", ()
     vi.mocked(usePeriodicTask).mockClear();
     state.generation++;
     state.user.getIdToken.mockReset().mockResolvedValue("token");
-    state.list.mockReset().mockImplementation(async (opts: { page: number }) => page(opts.page));
+    state.list.mockReset().mockImplementation(async (opts: { page: number; degree?: number }) => ({
+      ...page(opts.page),
+      items: page(opts.page).items.map(person => ({ ...person, networkDegree: opts.degree ?? 2 })),
+    }));
     state.mutuals.mockReset(); state.summary.mockReset(); state.visibility.mockReset(); state.update.mockReset();
     state.connect.mockReset(); state.invalidate.mockReset();
   });
@@ -227,7 +230,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
   it("warms the filters and updates a sent request without reloading the open list", async () => {
     state.list.mockImplementation(async ({ degree }) => ({
       ...page(), hasMore: false,
-      items: [{ ...row(degree === 1 ? "Direct" : "Peer"), relationship: degree === 1 ? "connected" : "none" }],
+      items: [{ ...row(degree === 1 ? "Direct" : "Peer"), networkDegree: degree ?? 2, relationship: degree === 1 ? "connected" : "none" }],
     }));
     state.connect.mockResolvedValue({ status: "pending_outgoing" });
     state.invalidate.mockImplementation((owner: string) => dispatchConnectionGraphChanged(owner));
@@ -249,7 +252,62 @@ describe("network permission and journey return @feature_connected_profiles", ()
     state.list.mockResolvedValue({ ...page(), hasMore: false, items: [] });
     act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
     expect(screen.queryByRole("button", { name: "Open Peer's profile" })).toBeNull();
-    await screen.findByText("No people to show right now. Check back as more people join.");
+    await screen.findByText("No 3rd-degree connections to show yet. Connect with people you know to grow your network.");
+  });
+
+  it("keeps expired discovery rows on return and filter changes while revalidating, then clears denied rows", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const owner = "acct_recreated_owner";
+      preloadNetworkDiscovery(owner, state.user.getIdToken);
+      const cache = discoveryNetworkPages(owner);
+      await waitFor(() => expect(cache.peek({ mode: "discovery", query: "", degree: 3, page: 1 })).toBeDefined());
+      const view = (onReady?: () => void) => <div data-network-scroll-owner><NetworkPeopleList mode="discovery" visitKey="expired-discovery" embedded retainedPages={cache} onReady={onReady} /></div>;
+      const first = render(view());
+      fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+      fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open Person 2's profile" }));
+      first.unmount();
+      clock.mockReturnValue(now + 120_001);
+      const finish: Record<number, (value: unknown) => void> = {};
+      state.list.mockImplementation(({ degree, page: number }: { degree?: number; page: number }) => degree === 3
+        ? new Promise(resolve => { finish[number] = resolve; })
+        : Promise.resolve({ ...page(), hasMore: false }));
+      const ready = vi.fn();
+      render(view(ready));
+      expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toBeVisible();
+      expect(screen.queryByText("Loading connections…")).toBeNull();
+      expect(screen.getByRole("list", { name: "Extended network people" })).toHaveAttribute("aria-busy", "true");
+      expect(ready).not.toHaveBeenCalled();
+      await waitFor(() => expect(finish[1]).toBeDefined());
+      await act(async () => finish[1]({ ...page(), hasMore: true, items: [{ ...row("Refreshed"), networkDegree: 3 }] }));
+      await waitFor(() => expect(finish[2]).toBeDefined());
+      expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toBeVisible();
+      expect(ready).not.toHaveBeenCalled();
+      await act(async () => finish[2]({ ...page(2), hasMore: false, items: [{ ...row("Refreshed second page"), networkDegree: 3 }] }));
+      await screen.findByRole("button", { name: "Open Refreshed second page's profile" });
+      expect(screen.queryByRole("button", { name: "Open Person 1's profile" })).toBeNull();
+      await waitFor(() => expect(ready).toHaveBeenCalled());
+
+      let deny!: (reason: unknown) => void;
+      state.list.mockImplementation(({ degree }: { degree?: number }) => degree === 3
+        ? new Promise((_resolve, reject) => { deny = reject; })
+        : Promise.resolve({ ...page(), hasMore: false }));
+      fireEvent.click(screen.getByRole("button", { name: "All" }));
+      await waitFor(() => expect(screen.getByRole("list")).not.toHaveAttribute("aria-busy", "true"));
+      clock.mockReturnValue(now + 240_002);
+      fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+      expect(screen.getByRole("button", { name: "Open Refreshed's profile" })).toBeVisible();
+      expect(screen.queryByText("Loading connections…")).toBeNull();
+      await waitFor(() => expect(deny).toBeDefined());
+      await act(async () => deny(new state.Error(403)));
+      await screen.findByRole("alert");
+      expect(screen.queryByRole("button", { name: "Open Refreshed's profile" })).toBeNull();
+      expect(cache.peek({ mode: "discovery", query: "", degree: 3, page: 1 })).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("renders preloaded filters and a paged journey return without waiting on network or tab focus", async () => {
@@ -277,14 +335,47 @@ describe("network permission and journey return @feature_connected_profiles", ()
     expect(state.list).not.toHaveBeenCalled();
   });
 
-  it("rejects a retained private read after authentication changes", async () => {
-    const retainedPages = new NetworkPageCache();
-    await retainedPages.load({ mode: "connections", personRef: "target", query: "", page: 1 }, state.user.getIdToken);
-    state.generation++;
-    expect(retainedPages.peek({ mode: "connections", personRef: "target", query: "", page: 1 })).toBeUndefined();
+  it("revokes a discovery snapshot when a background reader is denied without a mounted list", async () => {
+    const cache = new NetworkPageCache();
+    const read = { mode: "discovery" as const, query: "", page: 1 };
+    await cache.load(read, state.user.getIdToken);
+    expect(cache.peekDiscoverySnapshot(read)).toBeDefined();
+    state.list.mockRejectedValueOnce(new state.Error(403));
+    await expect(cache.load(read, state.user.getIdToken, true)).rejects.toMatchObject({ status: 403 });
+    expect(cache.peekDiscoverySnapshot(read)).toBeUndefined();
   });
 
-  it("keeps suggestions after loading more and prefers a newly qualified network row", async () => {
+  it("keeps private snapshots strict and retires retained discovery snapshots after authentication changes", async () => {
+    const retainedPages = new NetworkPageCache();
+    const privateRead = { mode: "connections" as const, personRef: "target", query: "", page: 1 };
+    const discoveryRead = { mode: "discovery" as const, query: "", page: 1 };
+    await retainedPages.load(privateRead, state.user.getIdToken);
+    expect(retainedPages.peek(privateRead)).toBeDefined();
+    expect(retainedPages.peekDiscoverySnapshot(privateRead)).toBeUndefined();
+    await retainedPages.load(discoveryRead, state.user.getIdToken);
+    expect(retainedPages.peekDiscoverySnapshot(discoveryRead)).toBeDefined();
+    state.generation++;
+    expect(retainedPages.peek(privateRead)).toBeUndefined();
+    expect(retainedPages.peekDiscoverySnapshot(discoveryRead)).toBeUndefined();
+  });
+
+  it("explains an empty extended network and returns new users to Find people", async () => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [
+      { ...row("Direct person"), networkDegree: 1 },
+      { ...row("Second degree"), networkDegree: 2 },
+      { ...row("Public stranger"), networkDegree: null },
+    ] });
+    const dismiss = vi.fn();
+    render(<NetworkPeopleList mode="discovery" visitKey="new-network" onDismiss={dismiss} />);
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    await screen.findByText("No 3rd-degree connections to show yet. Connect with people you know to grow your network.");
+    expect(screen.queryByRole("list", { name: "Extended network people" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Find people" }));
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(state.list.mock.calls.every(([options]) => !options.includeSuggestions)).toBe(true);
+  });
+
+  it("keeps exact third-degree pages while excluding legacy recommendations", async () => {
     const third = (name: string) => ({ ...row(name), networkDegree: 3 });
     state.list.mockImplementation(async ({ degree, page: requestedPage }) => {
       if (degree !== 3) return { ...page(), hasMore: false };
@@ -301,54 +392,55 @@ describe("network permission and journey return @feature_connected_profiles", ()
     });
     render(<NetworkPeopleList mode="discovery" visitKey="extended-pages" />);
     fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
-    await screen.findByRole("button", { name: "Open Advisor's profile" });
+    await screen.findByRole("button", { name: "Open Third degree's profile" });
+    expect(screen.queryByRole("button", { name: "Open Advisor's profile" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Open Now third degree's profile" })).not.toHaveAccessibleDescription());
     expect(screen.getAllByRole("button", { name: /^Open .* profile$/ }).map(
       button => button.getAttribute("aria-label"),
-    )).toEqual(["Open Third degree's profile", "Open Now third degree's profile", "Open Advisor's profile"]);
-    expect(screen.getByRole("button", { name: "Open Advisor's profile" })).toHaveAccessibleDescription("Suggested · Verified advisor");
-    expect(state.list).toHaveBeenCalledWith(expect.objectContaining({ degree: 3, page: 1, includeSuggestions: true }));
-    expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 3, page: 2, includeSuggestions: true }));
+    )).toEqual(["Open Third degree's profile", "Open Now third degree's profile"]);
+    expect(screen.queryByRole("button", { name: "Open Advisor's profile" })).toBeNull();
+    expect(state.list).toHaveBeenCalledWith(expect.objectContaining({ degree: 3, page: 1 }));
+    expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 3, page: 2 }));
   });
 
-  it("pages unrelated public people with no graph, deduplicates warmed rows, and replays the list on return", async () => {
-    const suggested = (name: string) => ({ ...row(name), networkDegree: null, relationship: "none", suggestionReason: "public_profile" });
+  it("pages exact third-degree people, deduplicates warmed rows, and restores the list on return", async () => {
+    const third = (name: string) => ({ ...row(name), networkDegree: 3, relationship: "none" });
     state.list.mockImplementation(async ({ degree, page: number }) => ({
       person: null, page: number, hasMore: degree === 3 && number < 3,
-      items: degree !== 3 ? [] : number === 1 ? [suggested("New person"), suggested("New person")]
-        : [suggested(`Unrelated ${number}`)],
+      items: degree !== 3 ? [] : number === 1 ? [third("New person"), third("New person")]
+        : [third(`Third degree ${number}`)],
     }));
     const view = render(<NetworkPeopleList mode="discovery" visitKey="public-pages-return" />);
     fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
     const first = await screen.findByRole("button", { name: "Open New person's profile" });
-    expect(first).toHaveAccessibleDescription("Suggested · Discover someone new");
+    expect(first).not.toHaveAccessibleDescription();
     expect(screen.getAllByRole("button", { name: "Open New person's profile" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
-    await screen.findByRole("button", { name: "Open Unrelated 2's profile" });
+    await screen.findByRole("button", { name: "Open Third degree 2's profile" });
     fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
-    const last = await screen.findByRole("button", { name: "Open Unrelated 3's profile" });
+    const last = await screen.findByRole("button", { name: "Open Third degree 3's profile" });
     expect(screen.queryByRole("button", { name: "Load more people" })).toBeNull();
     expect(screen.getByText("You’ve reached the end of this list.")).toBeVisible();
     fireEvent.click(last);
     view.unmount();
     state.list.mockClear();
     render(<NetworkPeopleList mode="discovery" visitKey="public-pages-return" />);
-    await screen.findByRole("button", { name: "Open Unrelated 3's profile" });
+    await screen.findByRole("button", { name: "Open Third degree 3's profile" });
     expect(state.list.mock.calls.map(([options]) => [options.degree, options.page, options.includeSuggestions]))
-      .toEqual([[3, 1, true], [3, 2, true], [3, 3, true]]);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open Unrelated 3's profile" })).toHaveFocus());
+      .toEqual([[3, 1, undefined], [3, 2, undefined], [3, 3, undefined]]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open Third degree 3's profile" })).toHaveFocus());
   });
 
   it("returns focus to search when a remembered public profile becomes unavailable", async () => {
-    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Public person"), networkDegree: null, suggestionReason: "public_profile" }] });
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Public person"), networkDegree: 3 }] });
     const view = render(<NetworkPeopleList mode="discovery" visitKey="unlisted-return" />);
     fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open Public person's profile" }));
     view.unmount();
     state.list.mockResolvedValue({ ...page(), hasMore: false, items: [] });
     render(<NetworkPeopleList mode="discovery" visitKey="unlisted-return" />);
-    await screen.findByText("No people to show right now. Check back as more people join.");
+    await screen.findByText("No 3rd-degree connections to show yet. Connect with people you know to grow your network.");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Search people by name" })).toHaveFocus());
     expect(screen.queryByRole("button", { name: "Open Public person's profile" })).toBeNull();
   });

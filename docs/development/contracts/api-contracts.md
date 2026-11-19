@@ -68,7 +68,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), mutual count with up to two previews (`mutualConnectionPreviews`; `mutualConnectionPreview` is the first), `canBrowseConnections`, and nullable `visibleConnectionCount`. The count uses the unfiltered shared list's eligibility, excludes the viewer, and caps at 501 for the **500+** label. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance. `query` searches names (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. Viewer discovery with `degree=3&include_suggestions=true` returns one paginated stream in `items`: qualified third-degree people first, then eligible public people without direct or mutual connections. Suggestions have `networkDegree: null` and `suggestionReason: public_profile` (or `name_match` during name search). `page`, `limit` and `hasMore` cover the complete stream, including viewers with no graph connections. Public listing or environment enrollment, active-account and block checks apply before pagination; current database eligibility is rechecked after profile loading. Fixed-corpus ordering uses cohort, name rank, name and unique user identity; concurrent eligibility or name changes can move offset pages. Other degrees, omitted suggestion opt-in, and another person’s list retain exact graph behavior. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects the exact shortest eligible distance over active accepted connections. Both intermediaries on a third-degree path must allow discovery. `query` searches names within that graph set (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. The legacy `include_suggestions` flag is accepted and has no effect. A viewer with no eligible paths receives an empty list. Direct, second-degree, fourth-degree and unrelated people are excluded from the third-degree filter. Current eligibility and path permissions are rechecked after profile loading. The service refuses a result whose degree or permission changed during the read so that the caller can retry. |
 | `GET /api/one/connections/network/visibility` | The caller's own extended network discovery preference, retaining the compatibility key `shareConnectionList`. Missing or existing accounts default to false. This preference does not restrict accepted direct connections from viewing the caller's eligible connection count and list. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's extended network discovery preference. Account reset clears this permission. |
 
@@ -2594,6 +2594,33 @@ same business UID. A different or unidentified origin fails closed rather than
 merging two businesses merely because their names or contact details overlap.
 
 ### One task inventory and reviewed suggestions
+
+Task Sources saves the owner's selected capability IDs inside the encrypted
+`one_todos._private.selectedCapabilities` branch using the existing PKM write
+coordinator. Missing preferences retain the legacy nine-source selection; an
+empty list means all sources are off. Choices must load successfully before
+source collection starts. Disabled sources are excluded from collection,
+automatic projections and model inputs; manual tasks and private completion or
+dismissal records are preserved. Public discovery summaries contain counters,
+never source preferences. Coverage remains bounded and reports unavailable or
+partial reads explicitly; Memory supplies refresh metadata, not its contents.
+
+Private owners use `GET /api/one/pod/todos/suggestions/status` and
+`POST /api/one/pod/todos/suggestions`, through the existing admitted owner-direct
+transport. The body and result match the Shared suggestion contract below.
+These doors require the current app-role `pkm.read` session, a held incarnation
+and the matching pod owner. Hub consent-token relays, foreign owners and fenced
+sessions are refused. Inference uses the owner's configured native runtime,
+never the Shared model credential or a Shared fallback. Existing drain admission,
+concurrency bounds, disconnect cancellation and final authority revalidation
+apply. Model failures and validation errors disclose no supplied content and
+responses are private/no-store. Explicit processing consent and a separate
+owner-confirmed Add remain required. No task action or background schedule is
+executed. The existing rollout flag is unchanged.
+
+Local service/HTTP and browser-fixture checks cover the integrated contracts.
+Live private-owner/model acceptance must be repeated after a separately
+authorized deployment; local fixture checks do not establish deployed behavior.
 
 One profile To-do and `/one/todos` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,

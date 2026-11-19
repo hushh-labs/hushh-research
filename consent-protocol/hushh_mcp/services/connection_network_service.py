@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from hushh_mcp.services.connection_discovery_sql import PUBLIC_RECOMMENDATION_FILTER_SQL
 from hushh_mcp.services.connection_network_sql import (
     QUALIFIED_DEGREES_SQL,
     QUALIFIED_SUMMARY_SQL,
@@ -29,18 +28,6 @@ if TYPE_CHECKING:
 MAX_NETWORK_NODES = 4000
 MAX_NETWORK_EDGES = 12000
 SHARED_CONNECTION_COUNT_LIMIT = 501
-
-_EXTENDED_QUALIFICATION_SQL = f"""
-WITH graph AS ({QUALIFIED_DEGREES_SQL})
-SELECT user_id, degree, overflow FROM graph
-WHERE overflow OR (degree = 3 AND user_id = ANY(CAST(:extended_network_user_ids AS TEXT[])))
-UNION ALL
-SELECT profile.user_id, NULL::INTEGER AS degree, FALSE AS overflow
-FROM actor_profiles profile
-WHERE profile.user_id = ANY(CAST(:candidates AS TEXT[]))
-  AND profile.user_id <> ALL(CAST(:extended_network_user_ids AS TEXT[]))
-  AND ({PUBLIC_RECOMMENDATION_FILTER_SQL})
-"""  # nosec B608 -- module-owned SQL only; all request values are bound.
 
 # Each frontier is admitted before it can expand. UNION uses both indexed
 # endpoint columns, rather than scanning the whole graph with an OR join.
@@ -78,6 +65,7 @@ class ConnectionNetworkService:
         self._directory: Any = None
         self._scope: ExitStack | None = None
         self._admitted: list[str] = []
+        self._observed_first_degree: list[str] = []
 
     def __enter__(self) -> ConnectionNetworkService:
         from db.db_client import get_db_connection
@@ -242,6 +230,7 @@ class ConnectionNetworkService:
         """
         deadline = time.monotonic() + 12
         distances: dict[str, int] = {}
+        self._observed_first_degree = []
         frontier = [viewer]
         shared_path: set[str] = {viewer}
         edges_seen = 0
@@ -253,6 +242,8 @@ class ConnectionNetworkService:
             rows = self.neighbors(viewer, frontier, MAX_NETWORK_EDGES - edges_seen)
             edges_seen += len(rows)
             candidates = sorted({str(row["peer_id"]) for row in rows} - {viewer})
+            if depth == 1:
+                self._observed_first_degree = candidates
             if len(set(distances).union(candidates)) > MAX_NETWORK_NODES:
                 raise self.unavailable()
             # The canonical directory checks current Firebase account status,
@@ -304,7 +295,9 @@ class ConnectionNetworkService:
                 QUALIFIED_DEGREES_SQL,
                 {
                     "viewer": viewer,
+                    "owner_user_id": viewer,
                     "admitted": self._admitted,
+                    "observed_first_degree": self._observed_first_degree,
                     "candidates": candidates,
                     "max_degree": max_degree,
                     "edge_limit": MAX_NETWORK_EDGES + 1,
@@ -360,6 +353,7 @@ class ConnectionNetworkService:
                 "target": uid,
                 "previews": preview_ids,
                 "admitted": self._admitted,
+                "observed_first_degree": self._observed_first_degree,
                 "candidates": [uid],
                 "page_user_ids": [uid],
                 "max_degree": 3,
@@ -429,20 +423,21 @@ class ConnectionNetworkService:
         else:
             degrees = self.degrees(viewer, max_degree=degree or 3)
             ids = sorted(degrees)
-        extended = include_suggestions and target is None and degree == 3
+        # Older clients still send include_suggestions. Every degree filter
+        # now has the same graph-only contract, including an empty network.
         if degree:
             ids = [uid for uid in ids if degrees.get(uid) == degree]
         result = (
             self.directory().search_directory_candidates(
                 owner_user_id=viewer,
-                **({"extended_network_user_ids": ids} if extended else {"network_user_ids": ids}),
+                network_user_ids=ids,
                 query=query,
                 name_only=True,
                 page=page,
                 limit=limit,
                 include_recommendations=False,
             )
-            if ids or extended
+            if ids
             else {"items": [], "page": page, "hasMore": False}
         )
         # Directory/auth reads may be slow. A permission observed before them
@@ -462,20 +457,19 @@ class ConnectionNetworkService:
             )
         else:
             payloads = metadata.settle(
-                _EXTENDED_QUALIFICATION_SQL if extended else QUALIFIED_DEGREES_SQL,
+                QUALIFIED_DEGREES_SQL,
                 {
                     "viewer": viewer,
                     "admitted": self._admitted,
+                    "observed_first_degree": self._observed_first_degree,
                     "candidates": page_ids,
                     "max_degree": degree or 3,
                     "edge_limit": MAX_NETWORK_EDGES + 1,
-                    "extended_network_user_ids": ids if extended else [],
                 },
             )
         final_degrees = {uid: value["networkDegree"] for uid, value in payloads.items()}
         if set(final_degrees) != set(page_ids) or (
-            degree
-            and any(d != degree and not (extended and d is None) for d in final_degrees.values())
+            degree and any(d != degree for d in final_degrees.values())
         ):
             raise self.unavailable()
         degrees = final_degrees
@@ -490,11 +484,6 @@ class ConnectionNetworkService:
                     "photoUrl": p.get("photoUrl"),
                     "networkDegree": degrees.get(str(p["userId"])),
                     **payloads[str(p["userId"])],
-                    **(
-                        {"suggestionReason": "name_match" if query.strip() else "public_profile"}
-                        if extended and degrees.get(str(p["userId"])) is None
-                        else {}
-                    ),
                 }
                 for p in result["items"]
                 if p.get("publicPersonRef")

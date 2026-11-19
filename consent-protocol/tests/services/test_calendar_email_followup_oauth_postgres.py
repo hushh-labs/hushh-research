@@ -12,12 +12,15 @@ from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+import asyncpg
 import pytest
 from fastapi import Response
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 
 from api.routes.one import calendar_email_followups as routes
 from db.db_client import DatabaseClient
+from db.migration_authority import build_manifest_entries
 from hushh_mcp.services import calendar_email_followup_account as account
 from hushh_mcp.services import calendar_email_followup_store_read as followup_read
 from hushh_mcp.services import owner_placement_guard
@@ -27,7 +30,7 @@ from hushh_mcp.services.calendar_email_followup_store import (
     FollowupStateError,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
-from tests.feed_fixture_support import add_feed_presentation_relations
+from tests.feed_fixture_support import add_feed_presentation_relations, apply_fixture_migrations
 from tests.google_oauth_postgres_support import OWNER, install_calendar_schema
 from tests.google_oauth_test_support import configure_gmail_oauth
 from tests.services.test_external_connector_lifecycle_postgres import (
@@ -541,3 +544,127 @@ async def test_mail_consent_is_per_account_across_a_b_and_c(one_consent_pg):
     # Three accounts is the limit; a fourth consent is refused before any grant is written.
     with pytest.raises(Exception, match="up to three"):
         await _consent(service, subject="synthetic-d", granted=_FULL, additional=True)
+
+
+def _prepare_pwm_replay(engine):
+    # Complete the historical migration's unrelated neighbours in this private DB.
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE pwm_claim_invitations (id UUID PRIMARY KEY)")
+        connection.exec_driver_sql("""CREATE FUNCTION install_account_deletion_write_guards()
+          RETURNS VOID LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$""")
+
+
+def test_pwm_replay_preserves_populated_calendar_feed_and_projection(followup_pg):
+    _, _, engine = followup_pg
+    _prepare_pwm_replay(engine)
+    entry = build_manifest_entries(MIGRATIONS, ("341_pwm_research_lifecycle.sql",))[0]
+    with engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO feed_events
+              (user_id,source_domain,event_type,metadata,source_row_id,read_at,
+               dismissed_at,dismissal_token)
+              SELECT :owner,domain,'synthetic_compatibility',jsonb_build_object('fixture',true),
+                'compat-'||domain,'2026-11-01T00:00:00Z'::timestamptz,
+                '2026-11-02T00:00:00Z'::timestamptz,gen_random_uuid()
+              FROM unnest(ARRAY['consent','location','kai','kyc','connected_systems',
+                'connections','pwm','calendar_email_followup']) AS domain"""),
+            {"owner": OWNER},
+        )
+        before = connection.exec_driver_sql(
+            "SELECT jsonb_agg(to_jsonb(f) ORDER BY id) FROM feed_events f"
+        ).scalar_one()
+    assert len(before) == 8
+    # The published migration reproduces the actual UAT release failure.
+    with pytest.raises(IntegrityError, match="feed_events_source_domain_check"):
+        with engine.begin() as connection:
+            connection.exec_driver_sql(entry.sql)
+
+    for _ in range(2):
+        apply_fixture_migrations(engine, (entry.filename,))
+        apply_fixture_migrations(engine, ("444_calendar_email_followup_delivery.sql",))
+        assert (
+            _row(engine, "SELECT jsonb_agg(to_jsonb(f) ORDER BY id) AS rows FROM feed_events f")[
+                "rows"
+            ]
+            == before
+        )
+    with pytest.raises(IntegrityError, match="feed_events_source_domain_check"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO feed_events(user_id,source_domain,event_type)
+                  VALUES (:owner,'unreviewed_domain','synthetic')"""),
+                {"owner": OWNER},
+            )
+    # The adapter retains the remainder of 341, including its actual PWM trigger.
+    with engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO pwm_research_preferences(user_id,generation)
+              VALUES (:owner,'00000000-0000-4000-8000-000000000001');
+              INSERT INTO pwm_completion_events(user_id,draft_id,generation,outcome)
+              VALUES (:owner,'00000000-0000-4000-8000-000000000002',
+                '00000000-0000-4000-8000-000000000001','ready')"""),
+            {"owner": OWNER},
+        )
+    assert (
+        _row(engine, "SELECT count(*) AS n FROM feed_events WHERE event_type='pwm_research'")["n"]
+        == 1
+    )
+
+
+@pytest.mark.parametrize("drift", ["unvalidated", "weaker", "other_relation", "missing"])
+def test_pwm_replay_refuses_unqualified_calendar_domain_successors(followup_pg, drift):
+    _, _, engine = followup_pg
+    _prepare_pwm_replay(engine)
+    domains = "('consent','location','kai','kyc','connected_systems','connections','pwm','calendar_email_followup')"
+    with engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO feed_events(user_id,source_domain,event_type)
+              VALUES (:owner,'calendar_email_followup','synthetic_compatibility')"""),
+            {"owner": OWNER},
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE feed_events DROP CONSTRAINT feed_events_source_domain_check"
+        )
+        if drift == "other_relation":
+            connection.exec_driver_sql(
+                "CREATE TABLE feed_domain_decoy(source_domain TEXT CONSTRAINT "
+                f"feed_events_source_domain_check CHECK (source_domain IN {domains}))"
+            )
+        elif drift != "missing":
+            predicate = f"source_domain IN {domains}"
+            if drift == "weaker":
+                predicate += " OR source_domain='unreviewed_domain'"
+            suffix = " NOT VALID" if drift == "unvalidated" else ""
+            connection.exec_driver_sql(
+                "ALTER TABLE feed_events ADD CONSTRAINT feed_events_source_domain_check "
+                f"CHECK ({predicate}){suffix}"
+            )
+    with pytest.raises(asyncpg.CheckViolationError, match="Calendar Feed domain successor changed"):
+        apply_fixture_migrations(engine, ("341_pwm_research_lifecycle.sql",))
+    assert _row(engine, "SELECT count(*) AS n FROM feed_events")["n"] == 1
+
+
+def test_pwm_replay_keeps_the_original_pre_calendar_upgrade(followup_pg):
+    _, _, engine = followup_pg
+    _prepare_pwm_replay(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("""DROP FUNCTION calendar_email_followup_grant_current(
+          calendar_email_followup_monitors);
+          ALTER TABLE feed_events DROP CONSTRAINT feed_events_source_domain_check;
+          ALTER TABLE feed_events ADD CONSTRAINT feed_events_source_domain_check CHECK (
+            source_domain IN ('consent','location','kai','kyc','connected_systems','connections'))""")
+    for _ in range(2):
+        apply_fixture_migrations(engine, ("341_pwm_research_lifecycle.sql",))
+    with engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO feed_events(user_id,source_domain,event_type)
+              VALUES (:owner,'pwm','synthetic_compatibility')"""),
+            {"owner": OWNER},
+        )
+    with pytest.raises(IntegrityError, match="feed_events_source_domain_check"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO feed_events(user_id,source_domain,event_type)
+                  VALUES (:owner,'calendar_email_followup','synthetic')"""),
+                {"owner": OWNER},
+            )

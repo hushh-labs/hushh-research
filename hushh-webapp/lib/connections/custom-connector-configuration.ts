@@ -80,6 +80,15 @@ async function readStoredRecords(
   access: VaultAccess,
   force: boolean,
 ): Promise<Record<string, unknown>> {
+  if (
+    !force &&
+    PersonalKnowledgeModelService.isDomainAbsentInCachedMetadata?.(
+      access.userId,
+      "runtime_secrets",
+    )
+  ) {
+    return {};
+  }
   const domain = force
     ? (await PersonalKnowledgeModelService.loadDomainSnapshot({ ...access, domain: "runtime_secrets", force: true })).data
     : await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });

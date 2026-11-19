@@ -54,7 +54,9 @@ class TaskSuggestions(BaseModel):
     items: list[TaskSuggestion] = Field(default_factory=list, max_length=12)
 
 
-async def run_todo_gene(*, prompt: str, user_id: str, consent_token: str) -> object:
+async def run_todo_gene(
+    *, prompt: str, user_id: str, consent_token: str, model: object | None = None
+) -> object:
     from hushh_mcp.hushh_adk.manifest import ManifestLoader
     from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 
@@ -65,7 +67,7 @@ async def run_todo_gene(*, prompt: str, user_id: str, consent_token: str) -> obj
     if gene.runtime.adk_mode != "single_turn" or gene.privacy.plaintext_telemetry:
         raise ValueError("invalid task suggestion boundary")
     result = await run_single_turn(
-        build_single_turn_agent(gene, output_schema=TaskSuggestions),
+        build_single_turn_agent(gene, output_schema=TaskSuggestions, model=model),
         prompt_parts=prompt,
         user_id=user_id,
         consent_token=consent_token,

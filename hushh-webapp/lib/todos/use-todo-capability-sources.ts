@@ -3,15 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readTodoCapabilities, type CapabilityRead } from "@/lib/services/todo-capability-sources";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { TaskCapability } from "./task-suggestion-model";
 
 export function useTodoCapabilitySources(input: {
   enabled: boolean; userId: string | null; vaultOwnerToken: string | null;
   idTokenProvider: (() => Promise<string>) | null; mailConnected: boolean; calendarConnected: boolean;
   mailStatusKnown: boolean; calendarStatusKnown: boolean;
+  selectedCapabilities?: readonly TaskCapability[];
 }) {
   const { enabled, userId, vaultOwnerToken, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown } = input;
   const epoch = snapshotVaultSessionEpoch();
-  const identity = useMemo(() => Symbol(`todo-sources-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${enabled}-${mailConnected}-${calendarConnected}-${mailStatusKnown}-${calendarStatusKnown}-${epoch}`), [userId, vaultOwnerToken, enabled, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, epoch]);
+  const selectionKey = JSON.stringify(input.selectedCapabilities);
+  const selection = useMemo<readonly TaskCapability[] | undefined>(() => selectionKey ? JSON.parse(selectionKey) : undefined, [selectionKey]);
+  const identity = useMemo(() => Symbol(`todo-sources-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${enabled}-${mailConnected}-${calendarConnected}-${mailStatusKnown}-${calendarStatusKnown}-${epoch}-${selection?.join(",") ?? "all"}`), [userId, vaultOwnerToken, enabled, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, epoch, selection]);
   const current = useRef(identity);
   current.current = identity;
   const provider = useRef(input.idTokenProvider);
@@ -28,12 +32,12 @@ export function useTodoCapabilitySources(input: {
     const isCurrent = () => current.current === identity && request.current === revision && !controller.signal.aborted && isVaultSessionEpochCurrent(epoch);
     setSnapshot({ identity, reads: [], loading: true, error: false });
     try {
-      const reads = await readTodoCapabilities({ userId, vaultOwnerToken, getIdToken: provider.current, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, signal: controller.signal, isCurrent });
+      const reads = await readTodoCapabilities({ userId, vaultOwnerToken, getIdToken: provider.current, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, signal: controller.signal, isCurrent, selectedCapabilities: selection });
       if (isCurrent()) setSnapshot({ identity, reads, loading: false, error: false });
     } catch {
       if (isCurrent()) setSnapshot(previous => ({ ...previous, loading: false, error: true }));
     }
-  }, [enabled, userId, vaultOwnerToken, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, identity, epoch]);
+  }, [enabled, userId, vaultOwnerToken, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, identity, epoch, selection]);
   useEffect(() => {
     void load();
     return () => { request.current += 1; abort.current?.abort(); };
