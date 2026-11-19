@@ -2868,9 +2868,9 @@ def build_one_text_agent(
             receipt_before_model,
             wiki_before_model,
             document_period_before_model,
+            scope_leaf_tools_before_model,
             timed_one_before_model,
             club_queued_input,
-            scope_leaf_tools_before_model,
             chat_memory_before_model,
         ],
         after_model_callback=[

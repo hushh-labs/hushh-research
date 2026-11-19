@@ -41,10 +41,6 @@ LOCATION_LEAF_TOOLS: frozenset[str] = frozenset(
 
 DRIVE_LEAF_TOOLS: frozenset[str] = frozenset(
     {
-        "inspect_selected_drive_files",
-        "propose_document_request",
-        "propose_drive_bulk_share",
-        "propose_drive_share",
         "read_selected_drive_search_result",
         "create_drive_file",
         "copy_drive_file",
@@ -63,10 +59,10 @@ SHARING_LIST_LEAF_TOOLS: frozenset[str] = frozenset(
         "list_my_outgoing_information_requests",
         "list_pending_information_requests",
         "list_pending_connection_requests",
-        "discover_person_information",
-        "propose_information_request",
     }
 )
+
+_MIN_DECLARATIONS_TO_SCOPE = 26
 
 ALL_SCOPED_LEAF_TOOLS: frozenset[str] = (
     CALENDAR_LEAF_TOOLS | LOCATION_LEAF_TOOLS | DRIVE_LEAF_TOOLS | SHARING_LIST_LEAF_TOOLS
@@ -193,6 +189,11 @@ def scope_leaf_tools_before_model(callback_context: Any, llm_request: Any) -> No
     config = getattr(llm_request, "config", None)
     existing_tools = list(getattr(config, "tools", None) or [])
     if config is None or not existing_tools:
+        return
+    total_decls = sum(
+        len(getattr(tool, "function_declarations", None) or []) for tool in existing_tools
+    )
+    if total_decls < _MIN_DECLARATIONS_TO_SCOPE:
         return
 
     contents = list(getattr(llm_request, "contents", None) or [])

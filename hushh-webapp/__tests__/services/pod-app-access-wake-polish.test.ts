@@ -38,6 +38,7 @@ vi.mock("@/lib/services/owner-pod-crypto", () => ({ verifyHubSignature: pod.veri
 const URL = "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io";
 const PIN = { hushhId: "ha1_owner", url: URL, podKeyId: "podk_1", environment: "dev", endpointVersion: 2 };
 const CAPABILITIES = `${URL}/api/one/pod/agent-chat/capabilities`;
+const HEALTH = `${URL}/health`;
 const TURN = `${URL}/api/one/pod/agent-chat`;
 const turnInit = () => ({ method: "POST", body: JSON.stringify({ messages: [], forwardedProps: {} }) });
 const grants = () => new Response(JSON.stringify({
@@ -251,13 +252,13 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
       fetch,
     });
     expect(hub).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES]);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([HEALTH]);
 
     const ports = { transport: async () => ({ hub, direct: vi.fn() }), fetch } as unknown as Parameters<typeof ownerPodRequest>[2];
     await ownerPodRequest("agent-chat", turnInit(), ports);
     // Consumed prewarmed grant on first turn -> still only 1 hub call and pod is already awake.
     expect(hub).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES, TURN]);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([HEALTH, TURN]);
 
     // Second turn still checks hub live so endpoint pinning rotation cannot be skipped.
     await ownerPodRequest("agent-chat", turnInit(), ports);

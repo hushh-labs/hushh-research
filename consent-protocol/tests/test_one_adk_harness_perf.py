@@ -108,14 +108,16 @@ def test_context_cache_config_targets_native_gemini_only(monkeypatch):
 
 
 def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history():
+    core_padding = [f"core_tool_{i}" for i in range(25)]
     all_names = [
+        *core_padding,
         "run_app_action",
         "ask_consent_agent",
         "calendar_summary",
         "propose_calendar_event",
         "list_my_location_circles",
         "create_drive_file",
-        "propose_information_request",
+        "list_active_grants",
     ]
     tool = genai_types.Tool(
         function_declarations=[
@@ -152,8 +154,8 @@ def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history():
     generic_req = make_request("analyze NVDA stock price")
     scope_leaf_tools_before_model(None, generic_req)
     kept_generic = {d.name for d in generic_req.config.tools[0].function_declarations}
-    assert kept_generic == {"run_app_action", "ask_consent_agent"}
-    assert set(generic_req.tools_dict) == {"run_app_action", "ask_consent_agent"}
+    assert kept_generic == {*core_padding, "run_app_action", "ask_consent_agent"}
+    assert set(generic_req.tools_dict) == {*core_padding, "run_app_action", "ask_consent_agent"}
 
     cal_req = make_request("what meetings are on my calendar tomorrow?")
     scope_leaf_tools_before_model(None, cal_req)
@@ -162,7 +164,94 @@ def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history():
     assert "propose_calendar_event" in kept_cal
     assert "create_drive_file" not in kept_cal
 
-    hist_req = make_request("thanks!", history_tool="propose_information_request")
+    hist_req = make_request("thanks!", history_tool="list_active_grants")
     scope_leaf_tools_before_model(None, hist_req)
     kept_hist = {d.name for d in hist_req.config.tools[0].function_declarations}
-    assert "propose_information_request" in kept_hist
+    assert "list_active_grants" in kept_hist
+
+    # Small synthetic fixture requests (<= 25 declarations) stay untouched.
+    small_tool = genai_types.Tool(
+        function_declarations=[
+            genai_types.FunctionDeclaration(
+                name="create_drive_file", description="create_drive_file"
+            )
+        ]
+    )
+    small_req = LlmRequest(
+        model="gemini-2.5-flash",
+        contents=[genai_types.Content(role="user", parts=[genai_types.Part(text="hi")])],
+        config=genai_types.GenerateContentConfig(tools=[small_tool]),
+        tools_dict={"create_drive_file": _StubTool("create_drive_file")},
+    )
+    scope_leaf_tools_before_model(None, small_req)
+    assert [d.name for d in small_req.config.tools[0].function_declarations] == [
+        "create_drive_file"
+    ]
+
+
+async def test_pod_chat_context_and_app_handle_fenced_pod_session_refused(monkeypatch):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from fastapi import HTTPException
+
+    from api.routes.one import pod_session
+    from hushh_mcp.one_adk.pod_agui_context import PodChatContext
+    from hushh_mcp.services.pod_session_authority import PodSessionRefused
+
+    claims = {"user_id": "owner-1", "hushh_id": "ha1_owner", "exp": 9_999_999_999}
+    authority = SimpleNamespace(
+        require_held=AsyncMock(
+            side_effect=PodSessionRefused(
+                "fenced",
+                "this incarnation no longer holds the pod",
+                status=503,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        pod_session, "verified_session", lambda *args, **kwargs: (authority, claims)
+    )
+
+    ctx = PodChatContext.__new__(PodChatContext)
+    ctx.authorization = "Bearer pod-session:test"
+    ctx.authority = authority
+    ctx.claims = claims
+
+    refused_exc = None
+    try:
+        await ctx._require_session_access()
+    except HTTPException as exc:
+        refused_exc = exc
+
+    assert refused_exc is not None
+    assert refused_exc.status_code == 503
+    assert refused_exc.detail == {
+        "code": "fenced",
+        "message": "this incarnation no longer holds the pod",
+    }
+
+    # Import pod_server in an isolated interpreter so its module-level
+    # HUSSH_POD_MODE=1 default never leaks into hub tests in this worker.
+    probe = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            "-c",
+            (
+                "import asyncio, json, pod_server; "
+                "from hushh_mcp.services.pod_session_authority import PodSessionRefused; "
+                "handler = pod_server.app.exception_handlers[PodSessionRefused]; "
+                "res = asyncio.run(handler(None, PodSessionRefused("
+                "'fenced', 'this incarnation no longer holds the pod', status=503))); "
+                "assert res.status_code == 503; "
+                "assert json.loads(res.body.decode()) == "
+                "{'detail': {'code': 'fenced', 'message': 'this incarnation no longer holds the pod'}}"
+            ),
+        ],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert probe.returncode == 0, probe.stderr or probe.stdout

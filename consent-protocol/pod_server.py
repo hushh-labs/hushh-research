@@ -94,6 +94,7 @@ from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_public_key_payload,
     pod_signing_public_payload,
 )
+from hushh_mcp.services.pod_session_authority import PodSessionRefused  # noqa: E402
 
 # MAKE THE POD SPEAK. Without these two lines a pod is silent, and a silent pod is
 # an undebuggable one.
@@ -262,6 +263,14 @@ async def _hub_unavailable(_request: Request, _exc: PodHubUnavailable) -> JSONRe
     hushh-pda-dev on 2026-08-04, where a hub that refused the pod surfaced as a raw 500.
     """
     return JSONResponse(status_code=503, content={"detail": "hub unavailable"})
+
+
+@app.exception_handler(PodSessionRefused)
+async def _pod_session_refused(_request: Request, exc: PodSessionRefused) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status,
+        content={"detail": {"code": exc.code, "message": exc.detail}},
+    )
 
 
 for _router in _POD_ROUTERS:

@@ -199,6 +199,8 @@ async function authHeader(idToken: string): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${idToken}` };
 }
 
+const unreadCountInFlight = new Map<string, Promise<number>>();
+
 export class FeedService {
   private static async postMutation<T>(options: {
     idToken: string;
@@ -396,21 +398,34 @@ export class FeedService {
     if (!options.force) {
       const cached = cache.get<number>(cacheKey);
       if (cached != null) return cached;
+      const inflight = unreadCountInFlight.get(cacheKey);
+      if (inflight) return inflight;
     }
-    const response = await ApiService.apiFetch("/api/one/feed/unread-count", {
-      method: "GET",
-      headers: await authHeader(options.idToken),
+    const fetchUnread = async (): Promise<number> => {
+      const response = await ApiService.apiFetch("/api/one/feed/unread-count", {
+        method: "GET",
+        headers: await authHeader(options.idToken),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        unread_count?: number;
+      } & ErrorPayload;
+      if (!response.ok) {
+        throw feedRequestError(payload, response.status);
+      }
+      const count = payload.unread_count ?? 0;
+      if (epoch === currentFeedInvalidationEpoch(options.userId))
+        cache.set(cacheKey, count, CACHE_TTL.SHORT);
+      return count;
+    };
+    const pending = fetchUnread().finally(() => {
+      if (unreadCountInFlight.get(cacheKey) === pending) {
+        unreadCountInFlight.delete(cacheKey);
+      }
     });
-    const payload = (await response.json().catch(() => ({}))) as {
-      unread_count?: number;
-    } & ErrorPayload;
-    if (!response.ok) {
-      throw feedRequestError(payload, response.status);
+    if (!options.force) {
+      unreadCountInFlight.set(cacheKey, pending);
     }
-    const count = payload.unread_count ?? 0;
-    if (epoch === currentFeedInvalidationEpoch(options.userId))
-      cache.set(cacheKey, count, CACHE_TTL.SHORT);
-    return count;
+    return pending;
   }
 
   static async markRead(options: {

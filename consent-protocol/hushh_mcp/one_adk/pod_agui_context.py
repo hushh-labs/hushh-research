@@ -146,15 +146,22 @@ class PodChatContext:
 
     async def _require_session_access(self) -> None:
         """Revalidate this request's authority; the repository owns its log fence."""
-        from api.routes.one.pod_session import verified_session
-        from hushh_mcp.services.pod_session_authority import ROLE_APP, SCOPE_PKM_READ
+        from api.routes.one.pod_session import _refuse, verified_session
+        from hushh_mcp.services.pod_session_authority import (
+            ROLE_APP,
+            SCOPE_PKM_READ,
+            PodSessionRefused,
+        )
 
         authority, claims = verified_session(
             self.authorization, role=ROLE_APP, scope=SCOPE_PKM_READ
         )
         if authority is not self.authority or claims != self.claims:
             raise HTTPException(403, detail={"code": "POD_CHAT_SESSION_CHANGED"})
-        await authority.require_held()
+        try:
+            await authority.require_held()
+        except PodSessionRefused as exc:
+            raise _refuse(exc) from exc
 
     async def require_access(self) -> None:
         await self._require_session_access()

@@ -1294,11 +1294,7 @@ async def get_consent_center_list(
     source_read: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    service = (
-        ConsentCenterService(require_complete=True)
-        if source_read
-        else ConsentCenterService(read_only=True)
-    )
+    service = ConsentCenterService(require_complete=True) if source_read else ConsentCenterService()
     return await service.list_center(
         firebase_uid,
         actor=actor,
