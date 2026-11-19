@@ -10,15 +10,22 @@ import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
 import { CommerceFundingControls } from "./scope-commerce-account-controls";
 import { useScopeCommerceAccount } from "./use-scope-commerce-account";
 
-function AddRequestCoins({ refresh }: { refresh: () => void }) {
-  const state = useScopeCommerceAccount();
-  return <div className="motion-step-enter space-y-3">
+function AddRequestCoins({
+  suggestedCents,
+  refresh,
+}: {
+  suggestedCents: number;
+  refresh: () => void;
+}) {
+  const state = useScopeCommerceAccount({ suggestedCents });
+  return <div className="motion-step-enter space-y-3 border-t border-border/60 pt-3">
     {state.account?.sandboxVerified === true ? <p data-consent-role="disclosure" className="text-xs text-muted-foreground">{COMMERCE_SANDBOX_COPY}</p> : null}
     <CommerceFundingControls enabled={state.account?.readiness?.capabilities.start_funding === true}
       busy={state.busy || state.loading} amount={state.amount} changeAmount={state.changeAmount}
+      maxCents={state.account?.sandboxRemainingCents ?? null}
       checkout={() => { void state.checkout()?.then(refresh); }} />
     {state.hostedPending ? <p role="status" data-consent-role="status" className="text-sm">Finish checkout in Stripe, then return here.</p> : null}
-    {state.message ? <p role="status" data-consent-role="status" className="text-sm">{state.message}</p> : null}
+    {state.message ? <p role="alert" data-consent-role="status" className="text-sm text-destructive">{state.message}</p> : null}
     <Button type="button" variant="ghost" size="sm" disabled={state.busy} onClick={() => { void state.refresh().then(refresh); }}>Check balance</Button>
   </div>;
 }
@@ -49,7 +56,11 @@ export function InformationRequestPriceReview({ personRef, scopeRefs, durationHo
       personRef, scopeRefs: JSON.parse(selection), durationSeconds: durationHours * 3600,
       vaultOwnerToken, signal: controller.signal,
     }).then(value => {
-      if (!controller.signal.aborted) { setReading({ key, price: value }); onChange(value); }
+      if (!controller.signal.aborted) {
+        setReading({ key, price: value });
+        onChange(value);
+        setFunding(value.shortfallCoins > 0);
+      }
     }).catch(() => { if (!controller.signal.aborted) setFailed(true); })
       .finally(() => window.clearTimeout(timeout));
     return () => { window.clearTimeout(timeout); controller.abort(); };
@@ -59,18 +70,37 @@ export function InformationRequestPriceReview({ personRef, scopeRefs, durationHo
       <p data-consent-role="status" className="text-sm">{failed ? "Couldn’t check the price." : "Checking price…"}</p>
       {failed ? <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check again</Button> : null}
     </> : <>
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span data-consent-role="fact-label">Total</span>
-        <strong data-consent-role="fact-value" className="tabular-nums">{price.totalCoins ? formatCommerceMoney(price.totalCoins) : "Free"}</strong>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div>
+          <span data-consent-role="fact-label" className="text-muted-foreground">Total · </span>
+          <strong data-consent-role="fact-value" className="tabular-nums">{price.totalCoins ? formatCommerceMoney(price.totalCoins) : "Free"}</strong>
+        </div>
+        {price.totalCoins > 0 ? (
+          <span data-consent-role="body" className="text-xs text-muted-foreground tabular-nums">
+            Balance: {formatCommerceMoney(price.availableCoins)}
+          </span>
+        ) : null}
       </div>
       {price.totalCoins > 0 ? <>
-        <p data-consent-role="body" className="text-sm text-muted-foreground">Balance: {formatCommerceMoney(price.availableCoins)}</p>
-        <p data-consent-role="disclosure" className="text-xs text-muted-foreground">Coins are reserved when you send and spent when sharing starts. Returned if declined, cancelled or not shared in time.</p>
-        {price.shortfallCoins > 0 ? <p data-consent-role="status" className="text-sm">Add {formatCommerceMoney(price.shortfallCoins)} to send.</p> : null}
-        <Button type="button" variant="ghost" size="sm" onClick={() => setFunding(value => !value)}>{funding ? "Close" : "Add coins"}</Button>
-        {funding ? <AddRequestCoins refresh={refresh} /> : null}
-      </> : null}
-      <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check price</Button>
+        {price.shortfallCoins > 0 ? (
+          <p data-consent-role="status" className="text-xs font-medium text-foreground">
+            Add {formatCommerceMoney(price.shortfallCoins)} or choose a shorter duration above.
+          </p>
+        ) : (
+          <p data-consent-role="disclosure" className="text-xs text-muted-foreground">
+            Covered by your balance. Reserved on send; refunded if declined or unused.
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setFunding(value => !value)}>
+            {funding ? "Close" : "Add coins"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check price</Button>
+        </div>
+        {funding ? <AddRequestCoins suggestedCents={price.shortfallCoins} refresh={refresh} /> : null}
+      </> : (
+        <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check price</Button>
+      )}
     </>}
   </div>;
 }

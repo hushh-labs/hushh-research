@@ -17,7 +17,6 @@ export const PROFILE_MENU_GROUPS = [
     { id: "account", label: PROFILE_LABELS.account, icon: PROFILE_ICONS.account, symbol: "person" },
     { id: "payouts", label: "Payouts", icon: PROFILE_ICONS.payouts, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
     { id: "request-pricing", label: "Request pricing", icon: PROFILE_ICONS.pricing, symbol: "tag", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing", voicePurpose: "Opens your default document request price." },
-    { id: "my-data", label: "Memory", icon: PROFILE_ICONS.memory, symbol: "wallet.pass", voiceControlId: "profile_my_data", voiceActionId: "route.profile_my_data", voicePurpose: "Opens saved details and sharing." },
     { id: "world-model", label: "Personal World Model", icon: PROFILE_ICONS.worldModel, symbol: "globe", voiceControlId: "profile_world_model", voiceActionId: "route.profile_world_model", voicePurpose: "Opens your Personal World Model." },
     { id: "preferences", label: PROFILE_LABELS.preferences, icon: PROFILE_ICONS.preferences, symbol: "slider.horizontal.3" },
     { id: "security", label: PROFILE_LABELS.security, icon: PROFILE_ICONS.security, symbol: "checkmark.shield" },

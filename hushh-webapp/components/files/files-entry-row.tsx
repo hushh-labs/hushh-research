@@ -33,6 +33,7 @@ import {
   type FilesSettings,
   type OrganizationJob,
 } from "@/lib/files/service";
+import { isPreviewableTextFilename } from "@/lib/files/files-cache";
 import type { FilesAction } from "./files-settings-panel";
 import { areScheduledTasksAvailable } from "@/lib/services/pod-scheduled-tasks";
 import { ScheduleFileDialog } from "@/components/scheduled-tasks/schedule-file-dialog";
@@ -240,9 +241,14 @@ export function FilesEntryRow({
         </form>
       ) : (
         <div className="min-w-0 flex-[1_1_6rem]">
-          {entry.kind === "folder" && !trash ? (
+          {((entry.kind === "folder") ||
+            (entry.kind === "file" &&
+              entry.state === "ready" &&
+              isPreviewableTextFilename(entry.name))) &&
+          !trash ? (
             <button
-              className="block max-w-full truncate text-left font-medium"
+              type="button"
+              className="block max-w-full truncate text-left font-medium hover:underline"
               disabled={busy}
               onClick={() => onOpen(entry)}
             >

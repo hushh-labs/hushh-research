@@ -3180,65 +3180,15 @@ class PersonalKnowledgeModelService:
         user_id: str,
         disabled_scopes: list[str],
     ) -> list[str]:
-        if not disabled_scopes:
-            return []
+        from hushh_mcp.services.pkm_scope_token_revocation import (
+            revoke_scope_access_tokens,
+        )
 
-        try:
-            import time
-
-            from hushh_mcp.consent.token import revoke_token
-            from hushh_mcp.services.consent_db import ConsentDBService
-
-            consent_service = ConsentDBService()
-            external_tokens = await consent_service.get_active_tokens(user_id)
-            internal_tokens = await consent_service.get_active_internal_tokens(user_id)
-            revoked_ids: list[str] = []
-            seen_token_ids: set[str] = set()
-
-            for token in [*external_tokens, *internal_tokens]:
-                granted_scope = str(token.get("scope") or "").strip()
-                token_id = str(token.get("token_id") or "").strip()
-                if not granted_scope or not token_id or token_id in seen_token_ids:
-                    continue
-                overlaps = any(
-                    scope_matches(granted_scope, disabled_scope)
-                    or scope_matches(disabled_scope, granted_scope)
-                    for disabled_scope in disabled_scopes
-                )
-                if not overlaps:
-                    continue
-
-                seen_token_ids.add(token_id)
-                if not token_id.startswith("REVOKED_"):
-                    revoke_token(token_id)
-                await consent_service.delete_consent_export(token_id)
-
-                event_token_id = f"REVOKED_SCOPE_{int(time.time() * 1000)}_{len(revoked_ids)}"
-                agent_id = token.get("agent_id") or token.get("developer") or "Unknown"
-                request_id = token.get("request_id")
-                await consent_service.insert_event(
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    scope=granted_scope,
-                    action="REVOKED",
-                    token_id=event_token_id,
-                    request_id=request_id,
-                    metadata={
-                        "revoked_by": "pkm_scope_exposure",
-                        "disabled_scopes": disabled_scopes,
-                    },
-                )
-                revoked_ids.append(token_id)
-
-            return revoked_ids
-        except Exception as exc:
-            logger.warning(
-                "Failed to revoke overlapping scope grants for user=%s scopes=%s: %s",
-                user_id,
-                disabled_scopes,
-                exc,
-            )
-            return []
+        return await revoke_scope_access_tokens(
+            user_id=user_id,
+            disabled_scopes=disabled_scopes,
+            scope_matches_fn=scope_matches,
+        )
 
     async def update_scope_exposure(
         self,

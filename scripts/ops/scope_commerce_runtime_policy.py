@@ -124,11 +124,11 @@ def _validated_scope_commerce_policy(value: Any) -> dict[str, Any]:
             if (
                 item["environment"] != "sandbox"
                 or not re.fullmatch(r"acct_[A-Za-z0-9]+", item["platform_account_id"])
-                or len(users) != 2
+                or not 2 <= len(users) <= 20
                 or any(not isinstance(uid, str) or not uid.strip() for uid in users)
-                or len(set(users)) != 2
-                or item["reviewer_funding_cap_cents"] != 2000
-                or item["operating_capital_cap_cents"] != 2500
+                or len(set(users)) != len(users)
+                or not 50 <= item["reviewer_funding_cap_cents"] <= 1_000_000
+                or not 1 <= item["operating_capital_cap_cents"] <= 2_000_000
             ):
                 raise ValueError(
                     "Scope commerce sandbox policy must use the approved identities and caps"

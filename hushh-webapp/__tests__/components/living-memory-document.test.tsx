@@ -163,20 +163,56 @@ describe("native Memory operation boundary", () => {
       previewPermission: vi.fn().mockResolvedValue(undefined), setPosture: vi.fn().mockResolvedValue(undefined),
       removeEntity: vi.fn().mockResolvedValue(true), editEntity: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined), ...overrides };
   }
-  it("returns Live memory to its retained root and distinguishes blocked Back from a committed pop", () => {
-    const input = model();
+  it("returns section preview to domain detail and distinguishes blocked Back from a committed pop", () => {
+    const domainPresentation = {
+      key: "financial",
+      title: "Financial",
+      summary: "2 details",
+      accessSummary: "Ask first",
+      sourceLabels: [],
+      highlights: [],
+    } as unknown as NativeMemoryModel["domains"][number];
+    const openSection = {
+      open: true,
+      title: "Profile",
+      presentation: null,
+      loading: false,
+      error: null,
+      deletingEntityKey: null,
+    };
+    const closedSection = { ...openSection, open: false, title: "" };
+    const closePreview = vi.fn(() =>
+      hook.rerender({
+        value: {
+          ...input,
+          detail: "domain:financial",
+          selectedDomain: domainPresentation,
+          preview: closedSection,
+        },
+      }),
+    );
+    const input = model({
+      domains: [domainPresentation],
+      detail: "domain:financial",
+      selectedDomain: domainPresentation,
+      preview: openSection,
+      closePreview,
+    });
     const hook = renderHook(({ value }) => useNativeMemory(value), { initialProps: { value: input } });
-    const live = hook.result.current.pages[0].sections.flatMap(section => section.rows).find(row => row.label === "Live memory")!;
-    act(() => { void hook.result.current.rows.get(live.id)!({} as NativeDrawerChoice); });
-    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-live"]);
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-domain", "memory-section"]);
     expect(hook.result.current.navigationBlocked()).toBe(false);
     act(() => { expect(hook.result.current.back()).toBe(true); });
-    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory"]);
-    act(() => { void hook.result.current.rows.get(live.id)!({} as NativeDrawerChoice); });
-    hook.rerender({ value: { ...input, preview: { ...input.preview, deletingEntityKey: "synthetic-pending-write" } } });
+    expect(closePreview).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-domain"]);
+    hook.rerender({
+      value: {
+        ...input,
+        preview: { ...openSection, deletingEntityKey: "synthetic-pending-write" },
+      },
+    });
     expect(hook.result.current.navigationBlocked()).toBe(true);
     act(() => { expect(hook.result.current.back()).toBe(true); });
-    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-live"]);
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-domain", "memory-section"]);
     hook.rerender({ value: input });
     m.privacy.shielded = true;
     expect(hook.result.current.navigationBlocked()).toBe(true);

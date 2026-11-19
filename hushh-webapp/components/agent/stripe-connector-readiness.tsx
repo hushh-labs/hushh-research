@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ProfilePaymentsLink } from "@/components/profile/profile-account-link";
+import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { Button } from "@/components/ui/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -163,6 +164,10 @@ function OwnedStripeConnectorReadiness(props: Parameters<typeof StripeConnectorR
 function StripeConnectorReadinessView({ model }: { model: StripeConnectorReadinessModel }) {
   const { access, onPrepareRecovery, busy, checking, status, verification, current, connect, check } = model;
   return <section className="space-y-3" aria-label="Stripe connection readiness">
+    <div className="flex items-center gap-2.5">
+      <ConnectorVectorGlyph id="stripe" variant="profile" />
+      <h3 className="text-base font-medium text-foreground">Stripe</h3>
+    </div>
     <p role="status" className="text-sm text-muted-foreground">
       {checking && current() ? "Checking Stripe tools and Sandbox account…" : STRIPE_CONNECTION_STATUS[status]}
       {" "}{status !== "verified" && "Stripe account and balance tools still need verification."}

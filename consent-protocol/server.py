@@ -1581,6 +1581,31 @@ async def startup_umbrella_cell_replenisher_worker() -> None:
 
 
 @app.on_event("startup")
+async def startup_source_pod_retirement_worker() -> None:
+    """Enforce Dev 14-day two-key source-pod retirement (grace expiry + owner confirmation)."""
+    if pod_mode():
+        logger.info("startup.source_pod_retirement_skipped reason=pod_mode")
+        return
+    try:
+        from hushh_mcp.services.source_pod_retirement import (  # noqa: PLC0415
+            start_source_pod_retirement_loop,
+        )
+
+        task = start_source_pod_retirement_loop(
+            interval_seconds=600.0,
+            initial_delay_seconds=30.0,
+            sweep_lock=fleet_sweep_lock.SOURCE_POD_RETIREMENT,
+        )
+        if task is None:
+            logger.info("startup.source_pod_retirement_off reason=lane_or_flag")
+            return
+        _track_startup_background_task(task)
+        logger.info("startup.source_pod_retirement_registered interval_s=600 fleet_lock=on")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.source_pod_retirement_failed reason=%s", type(exc).__name__)
+
+
+@app.on_event("startup")
 async def startup_account_deletion_cleanup_worker() -> None:
     """Retry durable Firebase identity cleanup intents after account erasure."""
     if pod_mode():

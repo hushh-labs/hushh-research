@@ -85,6 +85,10 @@ describe("ai-selection agent client", () => {
     mocks.status.mockResolvedValueOnce({ hostingMode: "shared", state: "active" });
     expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
     expect(mocks.pod).not.toHaveBeenCalled();
+    mocks.status.mockResolvedValueOnce({ hostingMode: "hussh_pods", state: "active", deploymentTarget: "azure", aiSelection: null });
+    mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "azure_openai", defaultModel: "managed-azure", checkedAtMs: 2 }));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: true, provider: "azure_openai", model: "managed-azure", checkedAtMs: 2 });
+    mocks.pod.mockClear();
     mocks.status.mockResolvedValueOnce({ hostingMode: "byoc", state: "active", deploymentTarget: "unknown" });
     expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
     expect(mocks.pod).not.toHaveBeenCalled();
@@ -149,6 +153,14 @@ describe("ai-selection agent client", () => {
     });
     expect(agentAiReadiness(CAPABLE as never, "openai")).toEqual({
       kind: "ready",
+    });
+    expect(
+      agentAiReadiness(
+        { hostingMode: "byoc", state: "failed", aiSelection: null },
+        "openai",
+      ),
+    ).toEqual({
+      kind: "unknown",
     });
   });
 

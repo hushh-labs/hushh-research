@@ -41,6 +41,11 @@ export function InformationRequestReviewFields({
       </div>
     </section>
     {scopes.length > 50 ? <p data-consent-role="status" role="alert" className="text-sm text-destructive">Choose up to 50 fields for one request.</p> : null}
+    <fieldset disabled={disabled} className="min-w-0 space-y-2" data-testid={`${testIdPrefix}-duration`}>
+      <legend data-consent-role="form-label" className="text-sm font-medium">Access duration</legend>
+      <SegmentedControl ariaLabel="Access duration" value={String(durationHours)} options={durationOptions}
+        onValueChange={value => onDurationChange(Number(value))} disabled={disabled} size="lg" mobileColumns={2} className={styles.duration} />
+    </fieldset>
     {personRef && onPriceChange ? <InformationRequestPriceReview personRef={personRef} scopeRefs={scopes.map(scope => scope.scopeRef)} durationHours={durationHours} onChange={onPriceChange} /> : null}
     <label data-consent-role="form-label" className="block space-y-2 text-sm font-medium">
       Purpose
@@ -49,11 +54,6 @@ export function InformationRequestReviewFields({
         data-testid={`${testIdPrefix}-purpose`} />
       <span id={hintId} data-consent-role="helper" className="text-xs font-normal text-muted-foreground">At least 8 characters.</span>
     </label>
-    <fieldset disabled={disabled} className="min-w-0 space-y-2" data-testid={`${testIdPrefix}-duration`}>
-      <legend data-consent-role="form-label" className="text-sm font-medium">Access duration</legend>
-      <SegmentedControl ariaLabel="Access duration" value={String(durationHours)} options={durationOptions}
-        onValueChange={value => onDurationChange(Number(value))} disabled={disabled} size="lg" mobileColumns={2} className={styles.duration} />
-    </fieldset>
     {!(personRef && onPriceChange) ? (
       <p data-consent-role="body" className="text-sm text-muted-foreground">They&rsquo;ll review your request. If sharing has a price, you&rsquo;ll confirm the exact amount before access. Sending this request won&rsquo;t charge you.</p>
     ) : null}

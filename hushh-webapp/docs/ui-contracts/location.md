@@ -394,10 +394,10 @@ Sources: [invitation sheet](../../components/connections/contact-invitation-shee
 | --- | --- |
 | Search / Show more contacts | Local case-insensitive search across names/destinations; initially50, +50; no server read. Changing step scrolls list to top. |
 | Select checkbox / destination dropdown | Local selection; max15 unique normalized destinations; native valid phones, web valid emails; duplicate destination disabled/explained. No invite send from selection. |
-| Review | Local select→review; disabled empty. Preserves choices/query and reviewed batch. |
+| Review | Local select→review. Disabled until a contact is selected and hidden when no contacts are eligible. Preserves choices, query, and reviewed batch. |
 | Remove | Local deselect selected recipient; no server request. |
 | Back to selection / Back to review | Local step return; blocked busy; retains selection. Escape on review/queue consumes and performs same back; select Escape closes. |
-| Share link instead | Calls shared platform Share on prepared payload, no reviewed-recipient server POST. Shows outcome; no sending/delivery claim. |
+| Share link / Share link instead | Calls shared platform Share on prepared payload and shows the handoff outcome. |
 | Copy invitation | Copies complete text + URL locally; success toast `Invitation copied`. No delivery. |
 | Retry invitation link | Re-runs preparation GET/fallback using current owner/session; 15s timeout; not a recipient send retry. |
 | Open Messages / Open email | Snapshot reviewed unique recipients + share before handoff, set queue step and busy. Native batch composer vs one web BCC draft. Native compose disabled until canComposeBatchSms true; share missing/preparing/empty/busy also disable. |
@@ -416,12 +416,13 @@ Sources: [invitation sheet](../../components/connections/contact-invitation-shee
 | Dropdown first option | `Choose a number` / `Choose an email` |
 | Duplicate destination | `This destination is already selected.` |
 | Search empty | `No contacts match your search.` |
-| Native empty | `No contacts with a valid phone number are available to invite.` |
-| Web empty | `No contacts with an email address are available to invite. Sync Google contacts with emails, or share your invitation link.` |
+| Native empty description | `No contacts with a valid phone number are available to invite.` |
+| Web empty description | `No contacts with an email address are available to invite.` Adds `Use the One mobile app to invite contacts by phone.` when phone-only contacts were excluded. |
 | Native filter explanation | `Only contacts with a phone number appear here.` |
 | Web filter explanation | `Only contacts with an email address appear here. Phone-only contacts can be invited from the One mobile app.` |
 | Limit | `15 contacts selected. Remove one to choose another.` |
-| Selection auxiliary actions | `Share link instead` / `Copy invitation` / `Retry invitation link` / `Show more contacts` |
+| Empty selection actions | `Share link` / `Copy invitation`, or `Retry invitation link` if preparation fails. |
+| Selection pagination | `Show more contacts` |
 | Preparation busy | `Preparing invitation…` |
 | Link not yet available / preparation error | `An invitation link is unavailable. Retry to prepare it again.` / `Could not prepare the invitation. Check your connection and retry.` |
 | Repeat-handoff warning | `Before opening again, check your app to avoid sending the same invitation twice.` |

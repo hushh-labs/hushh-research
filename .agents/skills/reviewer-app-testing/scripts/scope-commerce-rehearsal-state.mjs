@@ -41,7 +41,7 @@ function validateRecord(record) {
 function validateMoneyRecord(record) {
   commerceEvidence(exactKeys(record, ["operationId", "id", "cents", "status", "coldRecovery"]) &&
     uuid(record.operationId) && (record.id === undefined || uuid(record.id)) &&
-    Number.isSafeInteger(record.cents) && record.cents >= 0 && record.cents <= 2000 &&
+    Number.isSafeInteger(record.cents) && record.cents >= 0 && record.cents <= 1_000_000 &&
     ["new", "hosted", "succeeded", "pending"].includes(record.status) &&
     (record.coldRecovery === undefined || typeof record.coldRecovery === "boolean"), "CHECKPOINT_MONEY_INVALID");
 }

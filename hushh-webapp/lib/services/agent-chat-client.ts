@@ -990,6 +990,11 @@ function specialistReadMessage(toolName: string, status: unknown, metadataOnly =
   const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
   if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
   if (status === "input_required") return `${source} needs more detail.`;
+  if (status === "connect_required") return `${source} isn't connected yet.`;
+  if (status === "reconnect_required") return `${source} needs to be reconnected.`;
+  if (status === "permission_denied" || status === "permission_required") {
+    return `${source} needs permission to continue.`;
+  }
   // The Email specialist read no mail and handed a receipts question back to One.
   if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
   return `${source} could not complete that read.`;
@@ -2254,7 +2259,7 @@ async function streamAgentChatAttempt(input: {
       }
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
@@ -2601,11 +2606,12 @@ export async function streamAgentIntro(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
+      if (input.signal?.aborted) return;
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
@@ -2614,13 +2620,13 @@ export async function streamAgentIntro(input: {
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
@@ -2639,6 +2645,7 @@ export async function streamAgentIntro(input: {
     liveness.stop();
     input.signal?.removeEventListener("abort", abort);
   }
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
   if (!runTerminal) loseStream();
   if (failure) throw failure;
   return { conversationId: threadId, model: null, text };

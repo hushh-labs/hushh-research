@@ -3495,7 +3495,7 @@ describe("Connect — Circles", () => {
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
   });
 
-  it("switches to Circles without exposing selection mode", async () => {
+  it("returns from Circles to the loaded directory without starting another read", async () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
@@ -3508,6 +3508,13 @@ describe("Connect — Circles", () => {
     expect(
       screen.queryByRole("button", { name: "Cancel selecting people" }),
     ).toBeNull();
+
+    const reads = mocks.searchDirectory.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "Connections", exact: true }));
+    });
+    expect(screen.getByRole("button", { name: "Explore your network" })).toBeVisible();
+    expect(mocks.searchDirectory).toHaveBeenCalledTimes(reads);
   });
 
   it("supersedes a pending Circle navigation before the route echo", async () => {

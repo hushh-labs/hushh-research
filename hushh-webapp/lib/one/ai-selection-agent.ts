@@ -9,7 +9,7 @@
 import { readUpdateStatus } from "@/lib/feed/agent-update-status";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
-import { ownerCloudProvider } from "./owner-cloud";
+import { ownerCloudProvider, podCloudProvider } from "./owner-cloud";
 import type {
   AiSelectionPlaintext,
   AiSelectionProvider,
@@ -122,6 +122,8 @@ export function agentAiReadiness(
   if (mode !== "byoc" && mode !== "hussh_pods") return { kind: "unknown" };
   if (advertisedAiProviders(status)?.includes(provider))
     return { kind: "ready" };
+  if (status.state === "failed")
+    return { kind: "unknown" };
   if (status.state && status.state !== "active")
     return { kind: "agent_pending" };
   const update = readUpdateStatus(status);
@@ -306,9 +308,10 @@ export async function verifyAgentCloudAi(visitIsCurrent: () => boolean = () => t
   const status = await readAgentStatus();
   if (!isCurrent())
     return { ok: false, code: "AGENT_UNREACHABLE" };
-  const provider = ownerCloudProvider(status?.deploymentTarget);
-  const knownPlacement = (status?.hostingMode === "byoc" && provider !== null) ||
-    (status?.hostingMode === "hussh_pods" && status.deploymentTarget === "gcp");
+  const provider = podCloudProvider(status?.deploymentTarget);
+  const knownPlacement =
+    (status?.hostingMode === "byoc" && ownerCloudProvider(status.deploymentTarget) !== null) ||
+    (status?.hostingMode === "hussh_pods" && provider !== null);
   if (!status || !knownPlacement || status.state !== "active")
     return { ok: false, code: "AGENT_UNREACHABLE" };
   // A missing heartbeat advert is unread evidence, not a refusal by the pod.

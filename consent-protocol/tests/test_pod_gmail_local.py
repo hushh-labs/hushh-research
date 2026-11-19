@@ -272,3 +272,37 @@ async def test_a_turn_the_hub_admitted_gets_no_mail_from_the_agents_own_login(ag
         with pytest.raises(PermissionError):
             await port.search_inbox(user_id=h.OWNER_UID, query="from:ravi")
     assert tokens.asks == [] and google.requests == []
+
+
+async def test_pod_local_email_preflight_checks_connection_without_llm_or_network(
+    agent, monkeypatch
+):
+    _log, tokens, google = agent
+    port = email_read_port(h.OWNER_UID, "hub-scope-token-never-used", *OWNER_SESSION)
+    assert isinstance(port, PodLocalEmailReadPort)
+    assert await port.preflight_mail_read_status(user_id=h.OWNER_UID) is None
+
+    store.set_active_connector_credentials({})
+    assert await port.preflight_mail_read_status(user_id=h.OWNER_UID) == "connect_required"
+
+    store.set_active_connector_credentials(
+        {
+            "gmail": h.credential(
+                "gmail",
+                h.SCOPES["gmail"],
+                status=store.STATUS_NEEDS_REAUTH,
+            )
+        }
+    )
+    assert await port.preflight_mail_read_status(user_id=h.OWNER_UID) == "reconnect_required"
+
+    store.set_active_connector_credentials(
+        {"gmail": h.credential("gmail", ("https://www.googleapis.com/auth/gmail.send",))}
+    )
+    assert await port.preflight_mail_read_status(user_id=h.OWNER_UID) == "reconnect_required"
+    assert tokens.asks == [] and google.requests == []
+
+    # Negative control: a hub-admitted turn cannot bypass owner_session checks.
+    hub_port = PodLocalEmailReadPort(h.OWNER_UID, owner_session=False)
+    with pytest.raises(PermissionError):
+        await hub_port.preflight_mail_read_status(user_id=h.OWNER_UID)

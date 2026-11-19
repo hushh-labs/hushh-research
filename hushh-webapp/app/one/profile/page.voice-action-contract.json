@@ -160,7 +160,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/profile/my-data"
+          "/one/pkm"
         ],
         "screens": [
           "profile_account",
@@ -177,14 +177,12 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/profile/my-data"
+        "target": "/one/pkm"
       },
-      "control_ids": [
-        "profile_my_data"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/one/profile/my-data/page.tsx"
+        "app/one/pkm/page.tsx"
       ],
       "speaker_persona": "one"
     },

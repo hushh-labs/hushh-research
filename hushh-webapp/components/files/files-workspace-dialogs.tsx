@@ -11,7 +11,6 @@ import type { FileEdit } from "./files-entry-row";
 import { FilesMovePicker } from "./files-move-picker";
 import { FilesSettingsPanel, type FilesAction } from "./files-settings-panel";
 import { FilesOrganizationHistory } from "./files-organization-history";
-import { PersonalWikiPanel } from "./personal-wiki-panel";
 
 export function FilesMoveDialog({
   edit,
@@ -92,7 +91,7 @@ export function FilesDetailsDialog({
   act,
   onClose,
 }: {
-  panel: "settings" | "activity" | "wiki" | null;
+  panel: "settings" | "activity" | null;
   ownerId: string | undefined;
   signal: AbortSignal;
   settings: FilesSettings | null;
@@ -112,33 +111,18 @@ export function FilesDetailsDialog({
         srDescription={
           panel === "settings"
             ? "Storage, retention and organization preferences for your private library."
-            : panel === "wiki"
-              ? "Your private personal wiki notes, preferences and saved facts."
-              : "Organization jobs and their recorded outcomes."
+            : "Organization jobs and their recorded outcomes."
         }
       >
         <DialogHeader>
           <DialogTitle>
-            {panel === "settings"
-              ? "File settings"
-              : panel === "wiki"
-                ? "Personal wiki"
-                : "Files activity"}
+            {panel === "settings" ? "File settings" : "Files activity"}
           </DialogTitle>
         </DialogHeader>
         {panel === "activity" && ownerId ? (
           <FilesOrganizationHistory
             key={`history:${ownerId}`}
             ownerId={ownerId}
-          />
-        ) : panel === "wiki" ? (
-          <PersonalWikiPanel
-            key={`wiki:${ownerId}`}
-            ownerId={ownerId}
-            signal={signal}
-            busy={busy}
-            unavailable={unavailable}
-            act={act}
           />
         ) : panel === "settings" ? (
           <FilesSettingsPanel

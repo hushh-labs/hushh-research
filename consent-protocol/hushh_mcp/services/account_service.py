@@ -1938,6 +1938,7 @@ class AccountService:
                 # Reset setup progress so the user re-runs setup. Keeps the
                 # vault row (identity + unlock methods) intact; only clears the
                 # setup/tour flags carried on it.
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
                 conn.execute(
                     text(
                         """
@@ -1947,6 +1948,11 @@ class AccountService:
                             setup_completed_at = NULL,
                             nav_setup_completed_at = NULL,
                             nav_setup_skipped_at = NULL,
+                            setup_capability_ids = NULL,
+                            setup_capability_declined_ids = NULL,
+                            setup_capabilities_updated_at = NULL,
+                            one_chat_onboarding = NULL,
+                            one_runtime_setup_choice = NULL,
                             onboarding_journey_version = NULL,
                             onboarding_phase = NULL,
                             onboarding_active_capability = NULL,
@@ -1958,11 +1964,45 @@ class AccountService:
                         WHERE user_id = :user_id
                         """
                     ),
-                    {
-                        "user_id": user_id,
-                        "now_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
-                    },
+                    {"user_id": user_id, "now_ms": now_ms},
                 )
+                if self._column_exists(
+                    conn, "vault_keys", "one_hosting_choice"
+                ) and self._column_exists(conn, "vault_keys", "one_hosting_choice_at"):
+                    conn.execute(
+                        text(
+                            "UPDATE vault_keys SET one_hosting_choice = NULL, one_hosting_choice_at = NULL WHERE user_id = :user_id"
+                        ),
+                        {"user_id": user_id},
+                    )
+                for optional_col, optional_stmt in (
+                    (
+                        "onboarding_callback_attempt_id",
+                        text(
+                            "UPDATE vault_keys SET onboarding_callback_attempt_id = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_source",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_source = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_welcome_acknowledged",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_welcome_acknowledged = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_circle_id",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_circle_id = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                ):
+                    if self._column_exists(conn, "vault_keys", optional_col):
+                        conn.execute(optional_stmt, {"user_id": user_id})
                 results["onboarding_reset"] = True
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=False)
 

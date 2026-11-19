@@ -796,6 +796,24 @@ def umbrella_cell_replenisher_enabled() -> bool:
     return _bool_from_value(_clean_env("HUSSH_UMBRELLA_REPLENISHER_ENABLED"), default=True)
 
 
+def umbrella_cell_auto_scaleout_enabled() -> bool:
+    """Enable automatic horizontal cell scale-out above the 80% soft watermark in ``dev``."""
+    if not umbrella_cell_replenisher_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_UMBRELLA_CELL_AUTOSCALEOUT_ENABLED"), default=True)
+
+
+def source_pod_retirement_sweep_enabled() -> bool:
+    """Enable the 14-day two-key source-pod retirement sweep in ``dev`` only."""
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
+
+    if deploy_lane() != "dev":
+        return False
+    if not personal_agent_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED"), default=True)
+
+
 def personal_agent_upgrade_sweep_enabled() -> bool:
     """Kill-switch for the pod IMAGE UPGRADE sweep inside the reconcile worker.
 

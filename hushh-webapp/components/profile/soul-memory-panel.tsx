@@ -18,16 +18,19 @@ import {
 } from "./use-soul-memory-model";
 
 /** Existing web entrypoint; the shared owner also supports native presentation. */
-export function SoulMemoryPanel(options: SoulMemoryModelOptions) {
-  const model = useSoulMemoryModel(options);
-  return <SoulMemoryPanelBody model={model} />;
+export function SoulMemoryPanel(
+  options: SoulMemoryModelOptions & { hideLiveMirror?: boolean },
+) {
+  const { hideLiveMirror, ...modelOptions } = options;
+  const model = useSoulMemoryModel(modelOptions);
+  return <SoulMemoryPanelBody model={model} hideLiveMirror={hideLiveMirror} />;
 }
 
 /** Presentation only. A retained parent can supply its one existing owner. */
 export function SoulMemoryPanelBody({
   model,
   liveMirror,
-  hideLiveMirror = false,
+  hideLiveMirror = true,
 }: {
   model: SoulMemoryModel;
   liveMirror?: LiveMirrorViewState;

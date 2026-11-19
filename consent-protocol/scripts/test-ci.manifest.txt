@@ -1722,6 +1722,7 @@ tests/services/test_wiki_pkm_projections.py
 tests/services/test_wiki_phase4_migration_and_forget.py
 tests/services/test_wiki_phase5_floci_conformance.py
 tests/services/test_wiki_pkm_unification_and_shared_recall.py
+tests/services/test_pkm_scope_exposure_preserves_vault_owner.py
 
 # Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
 tests/test_provider_capability_registry_and_aws_parity.py
@@ -1732,6 +1733,10 @@ tests/test_floci_aws_wire_conformance.py
 # Wave 6 Hub Zero-Role Capability & Custody Broker and Tri-Cloud Floci (GCP + Azure) wire conformance.
 tests/test_floci_gcp_azure_wire_conformance.py
 tests/test_pod_capability_broker.py
+
+# Wave 17 Dev Horizontal Umbrella Cell scale-out and 14-day two-key source-pod retirement policy.
+tests/services/test_umbrella_scaleout_and_source_retirement.py
+tests/test_source_pod_retirement_postgres.py
 
 # Calendar email follow-ups: relevance gate, incremental sync, retry/backoff,
 # Calendar reconciliation, account isolation and durable reminders. The model,

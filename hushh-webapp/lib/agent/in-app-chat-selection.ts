@@ -12,3 +12,11 @@ export function selectedInAppChat(ownerId: string): string | null {
 export function rememberInAppChat(ownerId: string, conversationId: string | null): void {
   if (typeof window !== "undefined") selectedByOwner.set(ownerId, conversationId);
 }
+
+export function clearInAppChatSelection(ownerId?: string): void {
+  if (ownerId) {
+    selectedByOwner.delete(ownerId);
+    return;
+  }
+  selectedByOwner.clear();
+}

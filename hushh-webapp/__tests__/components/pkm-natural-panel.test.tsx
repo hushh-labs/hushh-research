@@ -1,11 +1,12 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within, cleanup } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import { usePkmNaturalModel } from "@/components/profile/use-pkm-natural-model";
 import { PkmSavedSharing, usePkmSharingExpansion } from "@/components/profile/pkm-saved-sharing";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { describePkmCaptureSection } from "@/lib/pkm/pkm-capture-sections";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -218,6 +219,8 @@ const FULL_BLOB = {
 describe("PkmNaturalPanel — Memory redesign", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    previewAgentPkmMemory.mockReset();
+    addToPKM.mockReset();
     authState.user = user;
     authState.userId = undefined;
     authState.loading = false;
@@ -277,6 +280,17 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     addToPKM.mockResolvedValue({ attempted: 1, saved: 1, failed: 0, domains: ["financial"], results: [] });
   });
 
+  afterEach(() => {
+    cleanup();
+    vaultState.isVaultUnlocked = true;
+    vaultState.vaultOwnerToken = "memory-only-owner-token";
+    vaultState.tokenExpiresAt = Date.now() + 60_000;
+    authState.user = user;
+    authState.userId = undefined;
+    authState.loading = false;
+    authState.sessionVerificationRequired = false;
+  });
+
   function setupLocation(data: Record<string, unknown>) {
     const metadata = baseMetadata();
     metadata.domains = [{ ...metadata.domains[0]!, key: "location", displayName: "Location", attributeCount: 3 }];
@@ -305,7 +319,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       return { snapshots: { location: snapshot } as never, failedDomains: [] };
     });
     const home = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     fireEvent.click(within(await screen.findByTestId("memory-category-location")).getByRole("button"));
     expect(push).toHaveBeenLastCalledWith("/one/pkm/location");
     home.unmount();
@@ -384,7 +397,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it.each(["home", "recent"] as const)("opens a represented place label directly from %s", async (view) => {
+  it("opens a represented place label directly from recent and navigates to location category from home", async () => {
     const data = { saved_places: { locations: [{ id: "home", label: "Home", category: "home", address: "Synthetic street", addressBase: "Synthetic street" }] } };
     setupLocation(data);
     vi.mocked(PkmDomainResourceService.getManyStaleFirst).mockImplementation(async (params) => {
@@ -392,12 +405,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       params.onProgress?.({ domain: "location", snapshot: snapshot as never, failed: false });
       return { snapshots: { location: snapshot } as never, failedDomains: [] };
     });
-    const rendered = render(<PkmNaturalPanel view={view} />);
-    if (view === "home") fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    if (view === "home") {
-      await screen.findByTestId("memory-category-location");
-      fireEvent.change(screen.getByRole("searchbox", { name: "Search Memory" }), { target: { value: "Home" } });
-    }
+    const homeRendered = render(<PkmNaturalPanel view="home" />);
+    fireEvent.click(within(await screen.findByTestId("memory-category-location")).getByRole("button"));
+    expect(push).toHaveBeenLastCalledWith("/one/pkm/location");
+    homeRendered.unmount();
+
+    const rendered = render(<PkmNaturalPanel view="recent" />);
     fireEvent.click(await screen.findByRole("button", { name: "Open memory: Label" }));
     const href = push.mock.lastCall![0] as string;
     expect(href).toMatch(/^\/one\/pkm\/location\/detail\?memory=[a-f0-9]{16}$/);
@@ -452,22 +465,21 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.queryByText("Owner B hidden note")).toBeNull();
   });
 
-  // Home shows one "Recently learned" row into /one/pkm/recent; the memory
-  // rows themselves render in the recent view.
+  // Home shows the consolidated Wiki/Core files hub + Scopes categories directly.
   async function openMainScreen(view: "home" | "recent" = "home") {
     render(<PkmNaturalPanel view={view} />);
     if (view === "recent") {
       return screen.findByRole("button", { name: "Open memory: Risk Profile" });
     }
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    return screen.findByTestId("memory-recently-learned-row");
+    return screen.findByTestId("memory-categories");
   }
 
-  it("keeps Saved and Add with private-agent memory inside Saved", () => {
+  it("renders streamlined Memory home with Wiki, Core files, and Scopes without legacy Saved/Add tabs or Live memory", () => {
     render(<PkmNaturalPanel />);
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs.map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByText("Recently learned")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Live memory" })).toBeNull();
     expect(screen.getByText("Memory knowledge hub")).toBeVisible();
   });
 
@@ -477,33 +489,21 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       () => new Promise(resolve => { finish = resolve; }),
     );
     render(<PkmNaturalPanel view="home" />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     await screen.findByText("Opening Memory…");
     expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
     await act(async () => finish(baseMetadata()));
-    await screen.findByTestId("memory-recently-learned-row");
+    await screen.findByTestId("memory-categories");
     expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
   });
 
-  it("shows search, one Recently learned row into its route, and Categories", async () => {
+  it("shows Memory knowledge hub and Scopes categories without home search or Recently learned rows", async () => {
     await openMainScreen();
 
-    expect(screen.getByRole("searchbox", { name: "Search Memory" })).toBeTruthy();
-
-    const recentRow = screen.getByTestId("memory-recently-learned-row");
-    expect(recentRow).toHaveTextContent("Recently learned");
-    expect(recentRow).toHaveTextContent("3 memories");
+    expect(screen.queryByRole("searchbox", { name: "Search Memory" })).toBeNull();
+    expect(screen.queryByTestId("memory-recently-learned-row")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open memory: Risk Profile" })).toBeNull();
-    fireEvent.click(within(recentRow).getByRole("button"));
-    expect(push).toHaveBeenCalledWith("/one/pkm/recent");
-
-    expect(screen.getByText("Categories")).toBeTruthy();
-
-    // Tab viewport tracks the active pane's height (no frozen tallest-pane
-    // height leaving dead space under the shorter Add pane).
-    expect(
-      document.querySelector("[data-swipe-views-height-mode]")?.getAttribute("data-swipe-views-height-mode"),
-    ).toBe("active");
+    expect(screen.getByText("Scopes")).toBeTruthy();
+    expect(screen.getByTestId("memory-category-financial")).toBeTruthy();
   });
 
   it("recent view lists memories newest first", async () => {
@@ -519,7 +519,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
-  it("keeps Saved/Add with verified sharing and retries unavailable manifests in place", async () => {
+  it("renders Scopes sharing status, retries unavailable manifests in place, and opens category controls", async () => {
     vi.spyOn(ConsentCenterService, "getCenter").mockRejectedValueOnce(new Error("consent unavailable"));
     vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockRejectedValue(new Error("manifest unavailable"));
     vi.mocked(ScopeCommerceService.tariff).mockResolvedValue({ scope_handle: "financial.profile", machine_scope: "attr.financial.profile.*", price_cents: 1, base_duration_seconds: 3600, tariff_revision: 1 });
@@ -533,13 +533,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry sharing settings" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Retry sharing settings" })).toBeNull());
     expect(push).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("textbox", { name: "Memory note" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
-    expect(screen.getByRole("tab", { name: "Saved" })).toHaveAttribute("aria-selected", "true");
-    // Sharing settings is consolidated directly into Categories (no duplicate accordion below)
+    // Sharing settings is consolidated directly into Scopes (no duplicate accordion below)
     expect(screen.queryByRole("button", { name: "Sharing settings" })).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId("memory-category-financial")).toHaveTextContent("2 memories · Ask first"),
@@ -550,8 +544,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);
     expect(screen.queryByText("Your copy")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open category: Financial" }));
-    const price = await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
-    await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
+    await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Set sharing price for Financial · Profile" }),
+      ).toHaveTextContent("1 Hussh coin ($0.01) / 1h"),
+    );
     expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");
     expect(screen.getByRole("switch", { name: "Make private Profile" })).toBeTruthy();
     expect(await screen.findByRole("region", { name: "Sharing and price for Financial" })).toBeVisible();
@@ -587,7 +585,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     await openMainScreen();
 
-    expect(screen.getByTestId("memory-recently-learned-row")).toHaveTextContent("2 memories");
+    expect(screen.getByTestId("memory-category-financial")).toHaveTextContent("2 memories");
     expect(
       await screen.findByText(
         "Some saved details couldn’t be refreshed. Your available details are still here.",
@@ -626,40 +624,28 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(navigate).toHaveBeenCalledWith({ href: "/one", mode: "push", transitionMode: "full" });
   });
 
-  it("shows a readable path on deep search hits and returns to the same results", async () => {
-    await openMainScreen();
-    const box = screen.getByRole("searchbox", { name: "Search Memory" });
-    fireEvent.change(box, { target: { value: "balanced" } });
-
-    const result = await screen.findByRole("button", { name: "Open memory: Risk Profile" });
-    expect(
-      within(screen.getByTestId("memory-search-results")).getByText("Financial › Profile"),
-    ).toBeTruthy();
-
-    fireEvent.click(result);
-    expect(await screen.findByRole("heading", { name: "Risk Profile" })).toBeTruthy();
-
-    const navigate = vi.fn();
-    act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
-    expect(navigate).not.toHaveBeenCalled();
-    // The query and its results are still there — search is a shortcut, not a drill.
-    expect(screen.getByRole("searchbox", { name: "Search Memory" })).toHaveValue("balanced");
-    expect(
-      await screen.findByRole("button", { name: "Open memory: Risk Profile" }),
-    ).toBeTruthy();
+  it("formats readable paths for deep search matches in usePkmNaturalModel", async () => {
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.recentMemories.length).toBeGreaterThan(0));
+    act(() => view.result.current.setHomeSearchQuery("balanced"));
+    await waitFor(() => expect(view.result.current.searchResults).toHaveLength(1));
+    const hit = view.result.current.searchResults[0]!;
+    expect(hit.title).toContain("Risk Profile");
+    expect(hit.domainTitle).toBe("Financial");
+    expect(hit.path).toBe("profile.risk_profile");
   });
 
-  it("searches title/value and shows a clean empty state", async () => {
-    await openMainScreen();
-    const box = screen.getByRole("searchbox", { name: "Search Memory" });
-
-    fireEvent.change(box, { target: { value: "balanced" } });
-    expect(await screen.findByTestId("memory-search-results")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open memory: Risk Profile" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open memory: Primary Bank" })).toBeNull();
-
-    fireEvent.change(box, { target: { value: "zzz-nothing" } });
-    expect(await screen.findByText('No memories match “zzz-nothing”.')).toBeTruthy();
+  it("filters searchResults in usePkmNaturalModel cleanly for unmatched queries", async () => {
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.recentMemories.length).toBeGreaterThan(0));
+    act(() => view.result.current.setHomeSearchQuery("balanced"));
+    await waitFor(() =>
+      expect(
+        view.result.current.searchResults.some((c) => c.title.includes("Risk Profile")),
+      ).toBe(true),
+    );
+    act(() => view.result.current.setHomeSearchQuery("zzz-nothing"));
+    await waitFor(() => expect(view.result.current.searchResults).toEqual([]));
   });
 
   it("shows value and per-scope sharing only — never a guessed source or timestamp", async () => {
@@ -782,7 +768,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     let finish!: (value: { saved: boolean; filename: string; domainCount: number; backupIncluded: boolean }) => void;
     const download = vi.spyOn(PkmExportService, "downloadMemoryExport").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     fireEvent.click(await screen.findByRole("button", { name: "Download Memory" }));
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     authState.sessionVerificationRequired = true;
@@ -975,37 +960,28 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   });
 
   it("does not expose a confirmation or off switch for automatic chat memory", async () => {
-    await openMainScreen();
+    render(<PkmNaturalPanel />);
     const savedPanel = document.querySelector('[data-pkm-saved-panel="true"]') as HTMLElement;
     expect(within(savedPanel).queryByRole("switch")).toBeNull();
     expect(within(savedPanel).queryByTestId("memory-auto-save-row")).toBeNull();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.queryByTestId("memory-auto-save-row")).toBeNull();
     expect(screen.queryByRole("switch", { name: /automatic memory saving/i })).toBeNull();
   });
 
-  it("keeps the review-first Add flow intact", async () => {
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+  it("keeps the review-first Add flow intact in usePkmNaturalModel", async () => {
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("I prefer morning flights whenever possible."));
+    await act(async () => view.result.current.previewMemoryCapture());
 
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "I prefer morning flights whenever possible." } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-
-    await waitFor(() =>
-      expect(previewAgentPkmMemory).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "reviewer" }),
-      ),
+    expect(previewAgentPkmMemory).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "reviewer" }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
-    await waitFor(() =>
-      expect(addToPKM).toHaveBeenCalledWith(
-        expect.objectContaining({
-          source: "memory_workspace",
-          confirmation: expect.objectContaining({ confirmedByUser: true }),
-        }),
-      ),
+    await act(async () => view.result.current.saveMemoryCapture());
+    expect(addToPKM).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "memory_workspace",
+        confirmation: expect.objectContaining({ confirmedByUser: true }),
+      }),
     );
     await expectMemoryAttempt("pkm.prepare_capture", "returned");
     await expectMemoryAttempt("pkm.save_capture", "returned");
@@ -1013,36 +989,31 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   });
 
   it("binds identifier model permission to the reviewed note", async () => {
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "Synthetic employee SSN 123-45-6789" } });
-    const permission = screen.getByRole("checkbox", { name: /process personal identifiers/i });
-    fireEvent.click(permission);
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Synthetic employee SSN 123-45-6789"));
+    act(() => view.result.current.setIdentifierProcessingApproval(true));
+    await act(async () => view.result.current.previewMemoryCapture());
+    expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(
       expect.objectContaining({ allowIdentifierProcessing: true }),
-    ));
-    await waitFor(() => expect(note).not.toBeDisabled());
-    fireEvent.change(note, { target: { value: "Another synthetic employee detail" } });
-    expect(permission).not.toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(
+    );
+    act(() => view.result.current.changeCaptureText("Another synthetic employee detail"));
+    expect(view.result.current.identifierProcessingApproved()).toBe(false);
+    await act(async () => view.result.current.previewMemoryCapture());
+    expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(
       expect.objectContaining({ allowIdentifierProcessing: false }),
-    ));
+    );
   });
 
   it("records an exact local duplicate as an expected preparation outcome", async () => {
     vi.spyOn(AgentPkmContextStore, "findLocalDuplicate").mockReturnValueOnce({
       kind: "exact", domain: "preferences", path: ["travel", "seat_choice"],
     });
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
-      target: { value: "I prefer morning flights whenever possible." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    expect(await screen.findByText(/exact detail is already saved/i)).toBeTruthy();
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("I prefer morning flights whenever possible."));
+    await act(async () => view.result.current.previewMemoryCapture());
+    expect(view.result.current.captureMessage).toMatch(/exact detail is already saved/i);
     expect(previewAgentPkmMemory).not.toHaveBeenCalled();
     expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
       route_id: "pkm", action: "capture_prepared", result: "expected_error",
@@ -1061,14 +1032,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       ],
       used_fallback: true,
     });
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
-      target: { value: "I prefer morning flights whenever possible." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("I prefer morning flights whenever possible."));
+    await act(async () => view.result.current.previewMemoryCapture());
 
-    expect(await screen.findByText(/still needs another pass/i)).toBeTruthy();
+    expect(view.result.current.captureMessage).toMatch(/still needs another pass/i);
     expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
       route_id: "pkm",
       action: "capture_prepared",
@@ -1102,24 +1071,18 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       }],
     });
 
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
-      target: { value: "I prefer asynchronous written updates for work." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("I prefer asynchronous written updates for work."));
+    await act(async () => view.result.current.previewMemoryCapture());
 
-    const acknowledgment = await screen.findByRole("checkbox", {
-      name: /already shared and will be refreshed/i,
-    });
-    const save = await screen.findByRole("button", { name: "Save to Memory" });
-    expect(screen.getByText("This detail is already shared with the current recipients.")).toBeTruthy();
-    expect(save).toBeDisabled();
+    expect(view.result.current.captureHasSharedRecipients).toBe(true);
+    expect(view.result.current.captureSharingImpactAcknowledged).toBe(false);
+    await act(async () => view.result.current.saveMemoryCapture());
     expect(addToPKM).not.toHaveBeenCalled();
 
-    fireEvent.click(acknowledgment);
-    expect(save).not.toBeDisabled();
-    fireEvent.click(save);
+    act(() => view.result.current.setCaptureSharingImpactAcknowledged(true));
+    await act(async () => view.result.current.saveMemoryCapture());
     await waitFor(() =>
       expect(addToPKM).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1134,40 +1097,39 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
   it("keeps a failed review retryable without asking the owner to relock the vault", async () => {
     previewAgentPkmMemory.mockRejectedValueOnce(new Error("proposal unavailable"));
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "Synthetic review note" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    expect(await screen.findByText("That note couldn’t be prepared. Nothing was saved. Please try again.")).toBeTruthy();
-    expect(note).toHaveValue("Synthetic review note");
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Synthetic review note"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    expect(view.result.current.captureMessage).toBe("That note couldn’t be prepared. Nothing was saved. Please try again.");
+    expect(view.result.current.captureText).toBe("Synthetic review note");
+    expect(view.result.current.captureSaveableCards).toHaveLength(0);
     expect(addToPKM).not.toHaveBeenCalled();
   });
 
   // Founder report 2026-09-27: one unprepared section blocked every ready detail.
   it("saves the ready details while a section that could not be prepared stays listed", async () => {
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
     const source = "# Historical project\n" + "A qualified synthetic detail. ".repeat(240) +
       "\n# Separate preference\nI prefer morning flights.";
-    fireEvent.change(note, { target: { value: source } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    expect(await screen.findByText(/1 section of this note still needs another pass\. You can save the details that are ready now/)).toBeTruthy();
-    const section = screen.getByTestId("memory-unresolved-section");
-    expect(within(section).getByText("Historical project")).toBeTruthy();
-    expect(within(section).getByText(/too long to prepare in one pass.*Nothing from this section has been saved/)).toBeTruthy();
+    act(() => view.result.current.changeCaptureText(source));
+    await act(async () => view.result.current.previewMemoryCapture());
+    expect(view.result.current.captureMessage).toMatch(/1 section of this note still needs another pass\. You can save the details that are ready now/);
+    expect(
+      describePkmCaptureSection(
+        view.result.current.captureSourceSnapshot,
+        view.result.current.captureUnresolvedSections[0]!,
+      ).label,
+    ).toContain("Historical project");
+    expect(view.result.current.captureSaveableCards).toHaveLength(1);
 
-    const save = screen.getByRole("button", { name: "Save to Memory" });
-    expect(save).not.toBeDisabled();
-    fireEvent.click(save);
-    await waitFor(() => expect(addToPKM).toHaveBeenCalledTimes(1));
+    await act(async () => view.result.current.saveMemoryCapture());
+    expect(addToPKM).toHaveBeenCalledTimes(1);
     expect(addToPKM.mock.calls[0]![0].cards).toHaveLength(1);
-    // Honest receipt: the unprepared section is named as not saved, and the note stays.
-    expect(await screen.findByText(/1 reviewed detail saved\. 1 section still needs another pass; nothing from it was saved/)).toBeTruthy();
-    expect(note).toHaveValue(source);
-    expect(screen.getByTestId("memory-unresolved-section")).toBeTruthy();
+    expect(view.result.current.captureMessage).toMatch(/1 reviewed detail saved\. 1 section still needs another pass; nothing from it was saved/);
+    expect(view.result.current.captureText).toBe(source);
+    expect(view.result.current.captureUnresolvedSections).toHaveLength(1);
   });
 
   it("retries one section on its own and adds what it prepares", async () => {
@@ -1176,23 +1138,27 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       .mockResolvedValueOnce({ cards: [{ card_id: "first", source_text: "Fact number 1 about me.", write_mode: "confirm_first" }], preview_summary: { total_segments_detected: 1 } })
       .mockRejectedValueOnce(new Error("Memory preparation failed (http_503). Please try again."))
       .mockResolvedValueOnce({ cards: [{ card_id: "retried", source_text: "Fact number 7 about me.", write_mode: "confirm_first" }], preview_summary: { total_segments_detected: 1 } });
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
-      target: { value: sections.join("\n\n") },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    const retry = await screen.findByRole("button", { name: "Retry this section: Section 7" });
-    expect(screen.getByRole("button", { name: "Save to Memory" })).not.toBeDisabled();
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText(sections.join("\n\n")));
+    await act(async () => view.result.current.previewMemoryCapture());
+    const unresolved = view.result.current.captureUnresolvedSections[0]!;
+    expect(
+      describePkmCaptureSection(
+        view.result.current.captureSourceSnapshot,
+        unresolved,
+      ).label,
+    ).toContain("Section 7");
+    expect(view.result.current.captureSaveableCards.length).toBeGreaterThan(0);
 
-    fireEvent.click(retry);
-    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenCalledTimes(3));
+    await act(async () => view.result.current.retryCaptureSection(unresolved));
+    expect(previewAgentPkmMemory).toHaveBeenCalledTimes(3);
     expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(expect.objectContaining({
       message: "7. Section 7\nFact number 7 about me.",
     }));
-    expect(await screen.findByText("Fact number 7 about me.", { selector: ":not(textarea)" })).toBeTruthy();
-    expect(screen.queryByTestId("memory-unresolved-section")).toBeNull();
-    expect(screen.getByText(/Every section is prepared/)).toBeTruthy();
+    expect(view.result.current.captureCards.some((card) => card.source_text === "Fact number 7 about me.")).toBe(true);
+    expect(view.result.current.captureUnresolvedSections).toHaveLength(0);
+    expect(view.result.current.captureMessage).toMatch(/Every section is prepared/);
     expect(addToPKM).not.toHaveBeenCalled();
     await expectMemoryAttempt("pkm.retry_capture_section", "returned");
   });
@@ -1203,18 +1169,13 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       write_mode: "confirm_first", target_domain: "financial",
       primary_json_path: "investments.holdings",
     }] });
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "My test role is Synthetic Reviewer." } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    expect(await screen.findByText("My test role is Synthetic Reviewer.", { selector: ":not(textarea)" })).toBeTruthy();
-    // The founder-reported gap: the preview echoed the note and never said where it would go.
-    expect(screen.getByTestId("memory-capture-destination").textContent).toBe(
-      "Saves to Financial › Investments › Holdings",
-    );
-    fireEvent.change(note, { target: { value: "A different note" } });
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("My test role is Synthetic Reviewer."));
+    await act(async () => view.result.current.previewMemoryCapture());
+    expect(view.result.current.captureCards[0]?.source_text).toBe("My test role is Synthetic Reviewer.");
+    act(() => view.result.current.changeCaptureText("A different note"));
+    expect(view.result.current.captureCards).toHaveLength(0);
     expect(addToPKM).not.toHaveBeenCalled();
   });
 
@@ -1252,77 +1213,77 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   it("starts only one review for simultaneous taps on the same draft", async () => {
     let finish!: (value: unknown) => void;
     previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "A synthetic note" } });
-    const review = screen.getByRole("button", { name: "Review memory" });
-    act(() => { review.click(); review.click(); });
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("A synthetic note"));
+    let p1!: Promise<void>;
+    let p2!: Promise<void>;
+    act(() => {
+      p1 = view.result.current.previewMemoryCapture();
+      p2 = view.result.current.previewMemoryCapture();
+    });
     await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenCalledTimes(1));
-    await act(async () => finish({ cards: [] }));
+    await act(async () => { finish({ cards: [] }); await Promise.all([p1, p2]); });
   });
 
   it("ignores an old review response after the draft is edited", async () => {
     let finish!: (value: unknown) => void;
     previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "First synthetic note" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("First synthetic note"));
+    let pending!: Promise<void>;
+    act(() => { pending = view.result.current.previewMemoryCapture(); });
     await waitFor(() => expect(finish).toBeTypeOf("function"));
-    fireEvent.change(note, { target: { value: "Second synthetic note" } });
-    await act(async () => finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }));
-    expect(note).toHaveValue("Second synthetic note");
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
-    expect(screen.queryByText("Stale preview")).toBeNull();
+    act(() => view.result.current.changeCaptureText("Second synthetic note"));
+    await act(async () => { finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }); await pending; });
+    expect(view.result.current.captureText).toBe("Second synthetic note");
+    expect(view.result.current.captureCards).toHaveLength(0);
   });
 
   it.each(["verification", "loading", "expiry"])("rejects an in-flight preview after %s readiness is lost", async (reason) => {
     let finish!: (value: unknown) => void;
     previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const view = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "Synthetic preference" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Synthetic preference"));
+    let pending!: Promise<void>;
+    act(() => { pending = view.result.current.previewMemoryCapture(); });
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     const current = previewAgentPkmMemory.mock.calls.at(-1)?.[0].isEffectCurrent;
     expect(current()).toBe(true);
     if (reason === "verification") authState.sessionVerificationRequired = true;
     if (reason === "loading") authState.loading = true;
     if (reason === "expiry") vaultState.tokenExpiresAt = Date.now() - 1;
-    view.rerender(<PkmNaturalPanel />);
+    view.rerender();
     expect(current()).toBe(false);
-    await act(async () => finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }));
+    await act(async () => { finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }); await pending; });
     authState.loading = false;
     authState.sessionVerificationRequired = false;
-    view.rerender(<PkmNaturalPanel />);
-    expect(screen.queryByText("Stale preview")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    view.rerender();
+    expect(view.result.current.captureCards).toHaveLength(0);
     expect(addToPKM).not.toHaveBeenCalled();
   });
 
   it.each(["verification", "loading", "expiry"])("stops save dispatch/publication after %s readiness is lost", async (reason) => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const view = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "Synthetic preference" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Synthetic preference"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    let saving!: Promise<void>;
+    act(() => { saving = view.result.current.saveMemoryCapture(); });
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     const options = addToPKM.mock.calls.at(-1)?.[0];
     expect(options.mayPublish()).toBe(true);
     if (reason === "verification") authState.sessionVerificationRequired = true;
     if (reason === "loading") authState.loading = true;
     if (reason === "expiry") vaultState.tokenExpiresAt = Date.now() - 1;
-    view.rerender(<PkmNaturalPanel />);
+    view.rerender();
     await expect(options.beforeEffect()).rejects.toMatchObject({ name: "AbortError" });
     expect(options.mayPublish()).toBe(false);
-    await act(async () => finish({ attempted: 1, saved: 0, failed: 1, results: [], domains: [] }));
+    await act(async () => { finish({ attempted: 1, saved: 0, failed: 1, results: [], domains: [] }); await saving; });
     expect(clearAgentPkmContext).not.toHaveBeenCalled();
     await waitFor(() => expect(activityReports("pkm.save_capture")).toHaveLength(1));
     expect(activityReports("pkm.save_capture")[0].phase).toBe("started");
@@ -1331,30 +1292,26 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   it("holds an interrupted save until settlement and retires its cards before another review", async () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const view = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "Synthetic preference" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Synthetic preference"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    let saving!: Promise<void>;
+    act(() => { saving = view.result.current.saveMemoryCapture(); });
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     authState.sessionVerificationRequired = true;
-    view.rerender(<PkmNaturalPanel />);
+    view.rerender();
     authState.sessionVerificationRequired = false;
-    view.rerender(<PkmNaturalPanel />);
-    expect(note).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    view.rerender();
+    expect(view.result.current.captureSaving).toBe(true);
+    expect(view.result.current.captureSaveableCards).toHaveLength(0);
+    await act(async () => view.result.current.previewMemoryCapture());
     expect(addToPKM).toHaveBeenCalledTimes(1);
     expect(previewAgentPkmMemory).toHaveBeenCalledTimes(1);
-    await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"],
-      results: [{ cardId: "memory-card-1", success: true }] }));
-    expect(note).not.toBeDisabled();
-    expect(note).toHaveValue("Synthetic preference");
-    expect(screen.getByText(/1 reviewed detail saved. Check Memory/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    await act(async () => { finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [{ cardId: "memory-card-1", success: true }] }); await saving; });
+    expect(view.result.current.captureSaving).toBe(false);
+    expect(view.result.current.captureText).toBe("Synthetic preference");
+    expect(view.result.current.captureMessage).toMatch(/1 reviewed detail saved. Check Memory/);
     expect(clearAgentPkmContext).not.toHaveBeenCalled();
     expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
       route_id: "pkm",
@@ -1370,30 +1327,26 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       .mockImplementationOnce(() => new Promise(resolve => { finishA = resolve; }))
       .mockImplementationOnce(() => new Promise(resolve => { finishB = resolve; }));
 
-    const view = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const noteA = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(noteA, { target: { value: "Owner A synthetic detail" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Owner A synthetic detail"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    let saveA!: Promise<void>;
+    act(() => { saveA = view.result.current.saveMemoryCapture(); });
     await waitFor(() => expect(finishA).toBeTypeOf("function"));
 
     authState.user = otherUser;
     publishValidatedAuthSessionOwner(otherUser.uid);
-    view.rerender(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const noteB = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(noteB, { target: { value: "Owner B synthetic detail" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    view.rerender();
+    await waitFor(() => expect(view.result.current.ownerId).toBe(otherUser.uid));
+    act(() => view.result.current.changeCaptureText("Owner B synthetic detail"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    let saveB!: Promise<void>;
+    act(() => { saveB = view.result.current.saveMemoryCapture(); });
     await waitFor(() => expect(finishB).toBeTypeOf("function"));
 
-    await act(async () => finishA({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
-    expect(noteB).toBeDisabled();
+    await act(async () => { finishA({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }); await saveA; });
+    expect(view.result.current.captureSaving).toBe(true);
     expect(
       trackEvent.mock.calls.filter(
         ([event, fields]) =>
@@ -1401,8 +1354,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
           fields?.action === "capture_saved",
       ),
     ).toHaveLength(0);
-    await act(async () => finishB({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
-    expect(noteB).not.toBeDisabled();
+    await act(async () => { finishB({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }); await saveB; });
+    expect(view.result.current.captureSaving).toBe(false);
     expect(
       trackEvent.mock.calls.filter(
         ([event, fields]) =>
@@ -1433,20 +1386,16 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         },
       ],
     });
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
-      target: { value: "Synthetic preference" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Synthetic preference"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    await act(async () => view.result.current.saveMemoryCapture());
 
-    await waitFor(() => {
-      expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
-        route_id: "pkm",
-        action: "capture_saved",
-        result: "error",
-      });
+    expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+      route_id: "pkm",
+      action: "capture_saved",
+      result: "error",
     });
     await expectMemoryAttempt("pkm.prepare_capture", "returned");
     if (phase) await expectMemoryAttempt("pkm.save_capture", phase);
@@ -1458,12 +1407,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
   it("does not turn a partially saved review into a full success or failure", async () => {
     addToPKM.mockResolvedValueOnce({ attempted: 2, saved: 1, failed: 1, domains: ["preferences"], results: [{ cardId: "memory-card-1", success: true }] });
-    await openMainScreen();
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "PRIVATE_PARTIAL_NOTE" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
-    await screen.findByText(/1 reviewed detail saved/);
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("PRIVATE_PARTIAL_NOTE"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    await act(async () => view.result.current.saveMemoryCapture());
+    expect(view.result.current.captureMessage).toMatch(/1 reviewed detail saved/);
     await waitFor(() => expect(activityReports("pkm.save_capture")).toHaveLength(1));
     expect(activityReports("pkm.save_capture")[0].phase).toBe("started");
     expect(JSON.stringify(activityReports("pkm.save_capture"))).not.toContain("PRIVATE_PARTIAL_NOTE");
@@ -1472,22 +1421,20 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   it("reconciles a save acknowledged during verification recovery with a fresh read", async () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const view = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const note = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(note, { target: { value: "Recovered synthetic detail" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(view.result.current.captureSessionCurrent()).toBe(true));
+    act(() => view.result.current.changeCaptureText("Recovered synthetic detail"));
+    await act(async () => view.result.current.previewMemoryCapture());
+    let saving!: Promise<void>;
+    act(() => { saving = view.result.current.saveMemoryCapture(); });
     await waitFor(() => expect(finish).toBeTypeOf("function"));
 
     authState.sessionVerificationRequired = true;
-    view.rerender(<PkmNaturalPanel />);
-    await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
+    view.rerender();
+    await act(async () => { finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }); await saving; });
     const metadataCallsBeforeRecovery = vi.mocked(PersonalKnowledgeModelService.getMetadata).mock.calls.length;
     authState.sessionVerificationRequired = false;
-    view.rerender(<PkmNaturalPanel />);
+    view.rerender();
 
     await waitFor(() => expect(
       vi.mocked(PersonalKnowledgeModelService.getMetadata).mock.calls.slice(metadataCallsBeforeRecovery)
@@ -1498,23 +1445,18 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   it("keeps a pending save locked across a route remount", async () => {
     let finish!: (value: unknown) => void;
     addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const first = render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    const firstNote = await screen.findByRole("textbox", { name: "Memory note" });
-    fireEvent.change(firstNote, { target: { value: "Remount synthetic detail" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    const first = renderHook(() => usePkmNaturalModel());
+    await waitFor(() => expect(first.result.current.captureSessionCurrent()).toBe(true));
+    act(() => first.result.current.changeCaptureText("Remount synthetic detail"));
+    await act(async () => first.result.current.previewMemoryCapture());
+    let saving!: Promise<void>;
+    act(() => { saving = first.result.current.saveMemoryCapture(); });
     await waitFor(() => expect(finish).toBeTypeOf("function"));
 
     first.unmount();
-    render(<PkmNaturalPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
-    await screen.findByTestId("memory-recently-learned-row");
-    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(await screen.findByRole("textbox", { name: "Memory note" })).toBeDisabled();
-    await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
+    const second = renderHook(() => usePkmNaturalModel());
+    expect(second.result.current.captureSaving).toBe(true);
+    await act(async () => { finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }); await saving; });
   });
 
   // ── Issue #6307: item sharing acts in place, never opens the Consent Center ──
@@ -1699,10 +1641,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       return { snapshots: snapshots as never, failedDomains: [] };
     });
 
-    await openMainScreen();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search Memory" }), {
-      target: { value: "Lovelace" },
-    });
+    await openMainScreen("recent");
     fireEvent.click(await screen.findByRole("button", { name: "Open memory: Legal Name" }));
     expect(await screen.findByRole("heading", { name: "Legal Name" })).toBeTruthy();
     // Mail's KYC tab owns it: read-only here, opened there.

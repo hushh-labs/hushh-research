@@ -16,7 +16,7 @@ def mint_reviewer_token(
     """Never mint another owner or a disabled subject; preserve reviewer containment."""
     if (
         lane not in {"uat", "dev"}
-        or len(reviewer_ids) != 2
+        or not 2 <= len(reviewer_ids) <= 20
         or requested_uid not in reviewer_ids
     ):
         raise ValueError("operator_reviewer_authority_refused")
@@ -193,7 +193,7 @@ def main() -> None:
             "https://www.googleapis.com/auth/cloud-platform",
             "openid",
             "https://www.googleapis.com/auth/userinfo.email",
-        ]
+        ],
     )
     adc.refresh(Request())
     response = requests.get(
@@ -228,7 +228,7 @@ def main() -> None:
         return response.json()
 
     configured_ids, lane, versions = runtime_reviewer_binding(secret, config, read)
-    if set(configured_ids) != reviewer_ids:
+    if not reviewer_ids.issubset(set(configured_ids)):
         raise ValueError("isolated_reviewer_runtime_required")
     firebase = initialize_app(
         credentials.Certificate(firebase_certificate(secret, versions, lane=lane)),

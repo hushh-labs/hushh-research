@@ -1,6 +1,34 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { files, session } from "../fixtures/files-workspace";
+
+vi.mock("@/lib/pkm/agent-core-markdown-files", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pkm/agent-core-markdown-files")>();
+  return {
+    ...actual,
+    peekCoreAgentMarkdownFile: vi.fn(() => null),
+    loadCoreAgentMarkdownFile: vi.fn(async ({ docId }: { docId: "memory.md" | "identity.md" | "soul.md" }) => ({
+      id: docId,
+      markdown: `# ${docId}\n\nVerified personal notes.`,
+      storedMarkdown: `# ${docId}\n\nVerified personal notes.`,
+      persisted: true,
+      isDefaultTemplate: false,
+      updatedAt: "2026-11-18T10:00:00Z",
+    })),
+    saveCoreAgentMarkdownFile: vi.fn(async ({ docId, markdown }: { docId: "memory.md" | "identity.md" | "soul.md"; markdown: string }) => ({
+      success: true,
+      document: {
+        id: docId,
+        markdown,
+        storedMarkdown: markdown,
+        persisted: true,
+        isDefaultTemplate: false,
+        updatedAt: "2026-11-18T10:05:00Z",
+      },
+    })),
+  };
+});
+
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
@@ -60,24 +88,21 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
     });
   });
 
-  it("manages opt-in, candidate confirmation, note editing, Forget confirmation, Back unwind, and vault-lock closure without technical jargon", async () => {
+  it("manages opt-in, candidate confirmation, unified Markdown sheet editing, Forget confirmation, Back unwind, and vault-lock closure without technical jargon", async () => {
     const view = render(<FilesWorkspace />);
-    const options = await screen.findByRole("button", {
-      name: "Files options",
+    const wikiFolderButton = await screen.findByRole("button", {
+      name: "Personal wiki",
     });
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled(),
     );
 
-    fireEvent.keyDown(options, { key: "Enter" });
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Personal wiki" }),
-    );
-    const dialog = await screen.findByRole("dialog", { name: "Personal wiki" });
+    fireEvent.click(wikiFolderButton);
+    const wikiView = await screen.findByTestId("files-personal-wiki-view");
     await screen.findByText("Travel Preferences");
 
     // Verify calm consumer copy with zero internal identifier jargon
-    expect(dialog.textContent).not.toMatch(
+    expect(wikiView.textContent).not.toMatch(
       /PKM|manifest|wcl_|wsr_|wpr_|visibility_posture/i,
     );
 
@@ -130,17 +155,18 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
       ),
     );
 
-    // 3. Open note -> unwinds nested note layer on Back before leaving `/one/files`
+    // 3. Open note -> opens unified FilesMarkdownDocumentSheet in Preview first
     fireEvent.click(
       screen.getByRole("button", { name: "Open Travel Preferences" }),
     );
-    await screen.findByRole("textbox", { name: "Note title" });
+    await screen.findByTestId("files-markdown-document-sheet");
     expect(
-      screen.getByText(/From Conversation · 2026-11-15/),
+      await screen.findByText(/From Conversation · 2026-11-15/),
     ).toBeInTheDocument();
 
-    // Edit and save note
-    fireEvent.change(screen.getByRole("textbox", { name: "Summary" }), {
+    // Switch to Edit mode and save note
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Summary" }), {
       target: { value: "Updated travel summary" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -174,12 +200,14 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
       ),
     );
 
-    // Back unwinds the open note back to overview first
+    // Back unwinds the open Markdown document sheet back to Personal wiki folder
     expect(unwindBackLayer("/one/files")).toBe(true);
+    await waitFor(() =>
+      expect(screen.queryByTestId("files-markdown-document-sheet")).toBeNull(),
+    );
     await screen.findByText("Travel Preferences");
-    expect(screen.queryByRole("textbox", { name: "Note title" })).toBeNull();
 
-    // Vault lock closes Personal wiki and does not reopen on unlock
+    // Vault lock clears Files workspace cleanly with no lingering sheet/dialog
     session.vaultKey = null;
     view.rerender(<FilesWorkspace />);
     await screen.findByText("Unlock your vault to open Files.");
@@ -203,5 +231,30 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
     expect(
       await screen.findByTestId("files-personal-wiki-folder"),
     ).toBeInTheDocument();
+  });
+
+  it("opens initialDoc core markdown sheet and keeps Core agent files usable even when remote wiki overview fails", async () => {
+    files.wikiOverview.mockRejectedValueOnce(new Error("POD_UNAVAILABLE"));
+    const onConsumed = vi.fn();
+
+    render(
+      <FilesWorkspace
+        initialFolder="personal-wiki"
+        initialDoc="memory.md"
+        onInitialSelectionConsumed={onConsumed}
+      />,
+    );
+
+    const sheet = await screen.findByTestId("files-markdown-document-sheet");
+    expect(sheet).toBeInTheDocument();
+    expect(sheet).toHaveTextContent("memory.md");
+
+    expect(screen.getByTestId("wiki-core-doc-memory.md")).toBeInTheDocument();
+    expect(screen.getByTestId("wiki-core-doc-identity.md")).toBeInTheDocument();
+    expect(screen.getByTestId("wiki-core-doc-soul.md")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(await screen.findByLabelText("memory.md content")).toBeInTheDocument();
+    await waitFor(() => expect(onConsumed).toHaveBeenCalled());
   });
 });

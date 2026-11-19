@@ -241,11 +241,15 @@ RiskSnapshot.load(str(manifest))
     _check("main-sync", "python3", "scripts/ci/test_check_main_sync.py"),
     _check("ui-contract-gate", "python3", "scripts/ci/test_ui_contract_gate.py"),
     _check("web-lane-partition", "python3", "scripts/ci/test_web_ci_lane_partition.py"),
+    _check("affected-tests-selector-contract", "node", "--test", "hushh-webapp/scripts/testing/affected-tests.test.mjs", groups=("controller", "operations")),
     _check(
-        "affected-tests-selector-contract",
-        "node",
-        "--test",
-        "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+        "local-runtime-contracts",
+        "python3",
+        "-m",
+        "unittest",
+        "scripts/runtime/test_run_backend_local_proxy_handoff.py",
+        "scripts/runtime/test_run_local_fast.py",
+        "scripts/env/test_local_bootstrap_and_proxy_parity.py",
         groups=("controller", "operations"),
     ),
     _check("pkm-upgrade-gate-scope", "python3", "scripts/ci/test_pkm_upgrade_gate_scope.py"),
@@ -403,7 +407,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         # Authored CI filenames use both hyphens and underscores. Treat the
         # same owner token consistently instead of rejecting registered tools.
         lower = path.lower().replace("-", "_")
-        if parts[1] == "release":
+        if parts[1] in {"release", "env", "runtime"}:
             return frozenset({"controller"}), None
         if parts[1] == "ops" and "runtime_topology" in lower:
             return frozenset(), None

@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryKnowledgeHub } from "@/components/profile/memory-knowledge-hub";
-import type { SoulMemoryModel } from "@/components/profile/use-soul-memory-model";
 
 const wikiOverviewMock = vi.fn();
 const replaceMarkdownMock = vi.fn();
@@ -69,30 +68,6 @@ vi.mock("@/lib/pkm/markdown-memory", async (importOriginal) => {
   };
 });
 
-function buildSoulModel(markdown: string): SoulMemoryModel {
-  return {
-    active: true,
-    verified: true,
-    current: {
-      document: { markdown, persisted: true },
-      draft: markdown,
-    },
-    editing: false,
-    loading: false,
-    failed: false,
-    saving: false,
-    conflict: false,
-    sync: "synced",
-    beginEdit: vi.fn(),
-    cancelEdit: vi.fn(),
-    changeDraft: vi.fn(),
-    reloadLatest: vi.fn(),
-    retryLoad: vi.fn(),
-    retrySync: vi.fn(),
-    save: vi.fn(),
-  } as unknown as SoulMemoryModel;
-}
-
 describe("MemoryKnowledgeHub", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -109,50 +84,48 @@ describe("MemoryKnowledgeHub", () => {
     replaceMarkdownMock.mockResolvedValue({ success: true, markdown: "# memory.md\n" });
   });
 
-  it("renders compact Personal wiki and Core documents (memory.md, identity.md, soul.md) without inline Markdown sprawl or obsolete Live memory subtitle", async () => {
-    const soul = buildSoulModel(
-      "# memory.md\n\n## Facts\n- Legal name: Kushal Trivedi\n\n## Projects\n- Hussh One private agent bullet that must not dump inline\n",
-    );
-    render(
-      <MemoryKnowledgeHub
-        soul={soul}
-        liveMirror={{ status: "loading", view: null }}
-      />,
-    );
+  it("renders streamlined Wiki and Core files (memory.md, identity.md, soul.md) and routes straight to /one/files", async () => {
+    const navigateSpy = vi.fn();
+    render(<MemoryKnowledgeHub onNavigate={navigateSpy} />);
 
-    // Live memory has zero "Updates while the app is open and unlocked." subtitle
+    // Obsolete Live memory subtitle and modal controls are retired
     expect(
       screen.queryByText("Updates while the app is open and unlocked."),
     ).toBeNull();
+    expect(screen.queryByText(/Live memory/i)).toBeNull();
 
-    // Inline classic memory.md bullet is NOT sprawled across the home screen
-    expect(
-      screen.queryByText(/Hussh One private agent bullet that must not dump inline/),
-    ).toBeNull();
-
-    // Personal wiki & Core documents summaries are visible
+    // Personal wiki & Core files rows are present and route straight into /one/files
     await waitFor(() =>
       expect(screen.getByTestId("memory-open-personal-wiki")).toHaveTextContent(
-        "2 pages · Conversation memory on",
+        "2 pages",
       ),
     );
-    expect(screen.getByTestId("memory-open-index-doc")).toHaveTextContent(
-      "Compact wiki index · Primary recall active",
+    expect(screen.getByTestId("memory-open-core-memory")).toHaveTextContent(
+      "memory.md",
     );
-    expect(screen.getByTestId("memory-open-identity-doc")).toHaveTextContent(
-      "Kushal Trivedi · Stated identity",
+    expect(screen.getByTestId("memory-open-core-identity")).toHaveTextContent(
+      "identity.md",
     );
-    expect(screen.getByTestId("memory-open-soul-doc")).toHaveTextContent(
-      "Kushal · Direct · Short · No em dashes",
+    expect(screen.getByTestId("memory-open-core-soul")).toHaveTextContent(
+      "soul.md",
     );
 
-    // Opening Personal wiki mounts PersonalWikiPanel inside a dialog
-    fireEvent.click(screen.getByRole("button", { name: "Open Personal wiki" }));
-    expect(await screen.findByTestId("mock-personal-wiki-panel")).toBeVisible();
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Open Personal wiki in Files" }));
+    expect(navigateSpy).toHaveBeenCalledWith("/one/files?folder=personal-wiki");
 
-    // Opening soul.md mounts the standing writing style editor
-    fireEvent.click(screen.getByRole("button", { name: "Open soul.md" }));
-    expect(await screen.findByTestId("mock-writing-style-editor")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open memory.md in Files" }));
+    expect(navigateSpy).toHaveBeenCalledWith(
+      "/one/files?folder=personal-wiki&doc=memory.md",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open identity.md in Files" }));
+    expect(navigateSpy).toHaveBeenCalledWith(
+      "/one/files?folder=personal-wiki&doc=identity.md",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open soul.md in Files" }));
+    expect(navigateSpy).toHaveBeenCalledWith(
+      "/one/files?folder=personal-wiki&doc=soul.md",
+    );
   });
 });

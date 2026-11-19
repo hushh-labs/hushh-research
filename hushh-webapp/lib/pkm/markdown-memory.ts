@@ -51,6 +51,8 @@ type CachedMarkdownMemory = {
   userId: string;
   vaultEpoch: number;
   markdown: string;
+  identityMarkdown?: string;
+  soulMarkdown?: string;
   updatedAt: string | null;
   dataVersion?: number;
   persisted: boolean;
@@ -207,18 +209,30 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function readStoredDocument(data: unknown): { markdown: string; verbatimMarkdown: boolean; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims; chatMemoryCheckpoint: ChatMemoryCheckpoint } | null {
+function readStoredDocument(data: unknown): { markdown: string; identityMarkdown: string; soulMarkdown: string; verbatimMarkdown: boolean; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims; chatMemoryCheckpoint: ChatMemoryCheckpoint } | null {
   const root = record(data);
-  if (typeof root.markdown !== "string") {
+  const hasAnyMarkdown =
+    typeof root.markdown === "string" ||
+    typeof root.identity_markdown === "string" ||
+    typeof root.soul_markdown === "string";
+  if (!hasAnyMarkdown) {
     if (Object.keys(root).length) throw new Error("memory.md document is invalid.");
     return null;
   }
   const chatMemoryCheckpoint = readChatCheckpoint(root._chat_memory);
   const verbatimMarkdown = root._chat_memory != null;
-  const safeMarkdown = omitCredentialsFromMemory(root.markdown);
+  const safeMarkdown = omitCredentialsFromMemory(typeof root.markdown === "string" ? root.markdown : "");
   const markdown = verbatimMarkdown ? safeMarkdown : normalizeSoulDocument(safeMarkdown);
+  const identityMarkdown = typeof root.identity_markdown === "string"
+    ? omitCredentialsFromMemory(root.identity_markdown)
+    : "";
+  const soulMarkdown = typeof root.soul_markdown === "string"
+    ? omitCredentialsFromMemory(root.soul_markdown)
+    : "";
   return {
     markdown,
+    identityMarkdown,
+    soulMarkdown,
     verbatimMarkdown,
     updatedAt: typeof root.updated_at === "string" ? root.updated_at : null,
     kycIntakeCompletedAt: typeof root._kyc_intake_completed_at === "string" ? root._kyc_intake_completed_at : null,
@@ -353,6 +367,8 @@ function applyPendingMemory(markdown: string, summaries: SourceSummaries, jobs: 
 function cacheDocument(params: {
   userId: string;
   markdown: string;
+  identityMarkdown?: string;
+  soulMarkdown?: string;
   updatedAt: string | null;
   dataVersion?: number;
   persisted: boolean;
@@ -365,12 +381,15 @@ function cacheDocument(params: {
   pwmClaims?: PwmClaims;
   chatMemoryCheckpoint?: ChatMemoryCheckpoint;
 }): CachedMarkdownMemory {
+  const prior = cache.get(params.userId);
   const entry = {
     ...params,
-    verbatimMarkdown: params.verbatimMarkdown ?? cache.get(params.userId)?.verbatimMarkdown ?? false,
-    deletedFactLabels: params.deletedFactLabels ?? cache.get(params.userId)?.deletedFactLabels ?? [],
-    pwmClaims: params.pwmClaims ?? cache.get(params.userId)?.pwmClaims ?? {},
-    chatMemoryCheckpoint: params.chatMemoryCheckpoint ?? cache.get(params.userId)?.chatMemoryCheckpoint ?? readChatCheckpoint(null),
+    identityMarkdown: params.identityMarkdown !== undefined ? params.identityMarkdown : prior?.identityMarkdown,
+    soulMarkdown: params.soulMarkdown !== undefined ? params.soulMarkdown : prior?.soulMarkdown,
+    verbatimMarkdown: params.verbatimMarkdown ?? prior?.verbatimMarkdown ?? false,
+    deletedFactLabels: params.deletedFactLabels ?? prior?.deletedFactLabels ?? [],
+    pwmClaims: params.pwmClaims ?? prior?.pwmClaims ?? {},
+    chatMemoryCheckpoint: params.chatMemoryCheckpoint ?? prior?.chatMemoryCheckpoint ?? readChatCheckpoint(null),
     vaultEpoch: snapshotVaultSessionEpoch(),
   };
   cache.set(params.userId, entry);
@@ -433,6 +452,8 @@ async function readMarkdownMemory(params: {
   return cacheDocument({
     userId: params.userId,
     markdown: pending.markdown,
+    identityMarkdown: stored?.identityMarkdown ?? "",
+    soulMarkdown: stored?.soulMarkdown ?? "",
     verbatimMarkdown: stored?.verbatimMarkdown ?? false,
     sourceSummaries: pending.sourceSummaries,
     deletedFactLabels: stored?.deletedFactLabels ?? [],
@@ -1049,10 +1070,20 @@ export function markdownMemoryToAgentContext(
     try { assertLightweightReceiptFacts([fact]); } catch { excluded.add(fact); }
   }
   const markdown = memory.markdown.split("\n").filter(line => !excluded.has(line.trim().replace(/^[-*]\s+/, ""))).join("\n");
-  const bulletCount = markdown.split("\n").filter((line) => /^\s*[-*]\s+/.test(line)).length;
-  const usedChars = markdown.length;
+  // #9370 Decision 5: `memory.md` and `identity.md` are owner evidence only;
+  // `soul.md` persona/voice routes strictly through the closed OwnerStyleSettings
+  // channel so freeform Markdown can never act as authored system instructions.
+  const extraSections: string[] = [];
+  if (memory.identityMarkdown?.trim()) {
+    extraSections.push(`## Identity (identity.md)\n\n${memory.identityMarkdown.trim()}`);
+  }
+  const combinedText = extraSections.length > 0
+    ? [markdown.trimEnd(), ...extraSections].filter(Boolean).join("\n\n").slice(0, MAX_MARKDOWN_MEMORY_CHARS)
+    : markdown;
+  const bulletCount = combinedText.split("\n").filter((line) => /^\s*[-*]\s+/.test(line)).length;
+  const usedChars = combinedText.length;
   return {
-    text: markdown,
+    text: combinedText,
     domains: [MARKDOWN_MEMORY_DOMAIN],
     totalAttributes: bulletCount,
     updatedAt: memory.updatedAt,

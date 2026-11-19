@@ -8,7 +8,6 @@ import type { PkmSectionPreviewEntity, PkmSectionPreviewPresentation } from "@/l
 import { pkmPreviewEntityTarget } from "@/lib/profile/pkm-section-preview";
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
-import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { MemorySharedModel } from "./use-memory-shared-model";
 import type { SecretsListModel } from "@/components/secrets/use-secrets-list-model";
@@ -16,9 +15,6 @@ import { SECRET_OFFER_ROUTES } from "@/lib/pkm/secret-offer-handoff";
 import { sharedDatesLine, sharedValueRows } from "@/components/agent/consent/shared-with-you-card-view";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
-import { LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
-import { formatLiveMirrorDateTime, liveMirrorStatus, liveMirrorRecordRows, liveMirrorSourceRoute, liveMirrorSourceDescription, liveMirrorSourceStateLabel,
-  liveMirrorClaimText, liveMirrorConflictKey, liveMirrorFixRoutes, liveMirrorHistoryAction, liveMirrorHistoryDetail, liveMirrorGapText, LIVE_MIRROR_HISTORY_FOOTER } from "@/lib/pkm/live-mirror-presentation";
 
 export type NativeMemoryModel = {
   owner: string; active: boolean; detail: string | null; loading: boolean; metadataReady: boolean; sharingReady: boolean;
@@ -52,10 +48,10 @@ class MemoryVisit {
   current() { const privacy = nativePrivacyObservation().state; return this.live && privacy?.appIsActive === true && !privacy.shielded; }
   retire() { this.live = false; this.handles.clear(); }
 }
-type Local = { query: string; pages: Partial<Record<NativeMemoryPageId, number>>; liveTab: "facts" | "history" | "preview";
-  liveOpen: boolean; secretsOpen: boolean; record: string | null; conflict: string | null; entity: string | null;
+type Local = { query: string; pages: Partial<Record<NativeMemoryPageId, number>>;
+  secretsOpen: boolean; entity: string | null;
   confirmation: { kind: "entity" | "grant"; key: string; privacy: number } | null; outcome: string | null };
-const initial = (): Local => ({ query: "", pages: {}, liveTab: "facts", liveOpen: false, secretsOpen: false, record: null, conflict: null, entity: null, confirmation: null, outcome: null });
+const initial = (): Local => ({ query: "", pages: {}, secretsOpen: false, entity: null, confirmation: null, outcome: null });
 const retainedRoot = (value: Local): Local => ({ ...initial(), query: value.query, pages: { memory: value.pages.memory } });
 // A replacement record may have the same display ordinal/title. Bind its
 // opaque handle to the private target, not to its current list position.
@@ -91,7 +87,6 @@ export function useNativeMemory(model: NativeMemoryModel) {
   useLayoutEffect(() => {
     setStored(previous => previous?.owner === visit.owner ? { owner: visit.owner, visit, value: retainedRoot(previous.value) } : null);
   }, [visit]);
-  const mirror = useLiveMirrorView(model.active);
   if (!model.active) return { pages: [] as NativeProfilePage[], rows: new Map<string, (choice?: NativeDrawerChoice) => void | Promise<void>>(),
     back: () => false, navigationBlocked: () => true, ancestor: (_choice: { rowId?: string }) => false, nested: false, busy: false };
   const change = (update: (value: Local) => Local) => {
@@ -118,7 +113,6 @@ export function useNativeMemory(model: NativeMemoryModel) {
     pages.push({ id, title: navigationText(title, 256), sections: [{ id: `section-${id}`, rows }] });
   };
   const root: NativeDrawerRow[] = [
-    action("memory-live", "Live memory", () => change(value => ({ ...value, liveOpen: true })), { chevron: true, artworkId: "my-data" }),
     action("memory-sharing", "Manage sharing", model.openSharing, { chevron: true, artworkId: "security" }),
     action("memory-refresh", "Refresh", model.refresh),
     action("memory-browse", "Browse all memory", () => model.navigate(ROUTES.PKM), { chevron: true }),
@@ -337,51 +331,6 @@ export function useNativeMemory(model: NativeMemoryModel) {
       page("memory-connection", connection?.requesterLabel || "Connection access", content);
     }
   }
-  if (!model.detail && local.liveOpen) {
-    const content: NativeDrawerRow[] = [];
-    if (mirror.status !== "ready") content.push(...read("live-status", mirror.status === "locked" ? "Unlock your vault to view live memory." : "Loading live memory…"));
-    else {
-      const view = mirror.view, status = liveMirrorStatus(view.overall, view);
-      content.push(...read("live-status", [status.headline, status.sub].filter(Boolean).join("\n")));
-      content.push({ id: visit.handle("live-tab"), label: "Show", enabled: true,
-        options: (["facts", "history", "preview"] as const).map(tab => ({ id: bind(`live-tab-${tab}`, () => change(value => ({ ...value, liveTab: tab }))),
-          label: ({ facts: "Facts", history: "History", preview: "Preview" })[tab], selected: local.liveTab === tab })) });
-      const conflicts = (view.conflicts ?? []).filter(item => !(LIVE_MIRROR_HIDDEN_PREDICATES as readonly string[]).includes(item.predicate));
-      const records = liveMirrorRecordRows(view.facts);
-      if (local.liveTab === "facts") {
-        for (const conflict of conflicts) content.push(action(`conflict:${liveMirrorConflictKey(conflict)}`, conflict.label,
-          () => change(value => ({ ...value, conflict: liveMirrorConflictKey(conflict), record: null })), { detail: "Sources disagree", chevron: true }));
-        for (const source of view.sources) {
-          const route = source.kind ? liveMirrorSourceRoute(source.kind) : null;
-          const detail = [liveMirrorSourceDescription(source, view.evaluatedAt), liveMirrorSourceStateLabel(source.state)].filter(Boolean).join(" · ");
-          if (route) content.push(action(`source:${source.id}`, source.label, () => model.navigate(route.href), { detail: detail || undefined, chevron: true }));
-          else content.push(...field(`source:${source.id}`, source.label, detail));
-        }
-        for (const record of records) content.push(action(`record:${record.key}`, record.ref, () => change(value => ({ ...value, record: record.key, conflict: null })), { detail: record.summary, chevron: true }));
-      } else if (local.liveTab === "history") {
-        for (const entry of view.history.entries) content.push(...field(`history:${entry.sequence}`, entry.ref,
-          [entry.gap ? liveMirrorGapText(entry.gap) : liveMirrorHistoryAction(entry), formatLiveMirrorDateTime(entry.capturedAt),
-            entry.gap ? null : liveMirrorHistoryDetail(entry, view.facts), entry.current ? "Now" : "Earlier"].filter(Boolean).join(" · ")));
-        if (!view.history.entries.length) content.push(...read("history-empty", "No changes yet"));
-        if (view.history.droppedCount) content.push(...read("history-dropped", `${view.history.droppedCount} older changes not kept`));
-        content.push(...read("history-footer", LIVE_MIRROR_HISTORY_FOOTER));
-      } else content.push(...read("live-preview", view.markdown.trim() || "Nothing to preview yet"));
-      page("memory-live", "Live memory", content);
-      const record = records.find(item => item.key === local.record), conflict = conflicts.find(item => liveMirrorConflictKey(item) === local.conflict);
-      const details: NativeDrawerRow[] = [];
-      if (record) {
-        record.fields.forEach((item, index) => details.push(...field(`record-field-${index}`, item.label, item.value)));
-        for (const [label, value] of [["Version", String(record.revision)], ["Changed", record.sourceUpdatedAt], ["Checked", record.verifiedAt], ["Saved", record.capturedAt]] as const)
-          details.push(...field(`record-meta-${label}`, label, label === "Version" ? value : formatLiveMirrorDateTime(value) || "Unknown"));
-        const route = liveMirrorSourceRoute(record.kind); if (route) details.push(action("record-source", route.label, () => model.navigate(route.href), { chevron: true }));
-      } else if (conflict) {
-        conflict.claims.forEach((claim, index) => { const text = liveMirrorClaimText(claim, conflict.predicate, view.evaluatedAt); details.push(...field(`claim-${index}`, text.label, [text.value, text.detail].filter(Boolean).join("\n"))); });
-        liveMirrorFixRoutes([conflict]).forEach((route, index) => details.push(action(`fix-${index}`, route.label, () => model.navigate(route.href), { chevron: true })));
-      }
-      if (record || conflict) page("memory-record", "Source details", details);
-    }
-    if (mirror.status !== "ready") page("memory-live", "Live memory", content);
-  }
   const confirmationVisible = !!local.confirmation && (local.confirmation.kind === "entity" ? pages.at(-1)?.id === "memory-entity" : pages.at(-1)?.id === "memory-connection");
   if (local.confirmation && confirmationVisible) {
     const selection = local.confirmation;
@@ -420,8 +369,6 @@ export function useNativeMemory(model: NativeMemoryModel) {
     if (confirmationVisible) { change(value => ({ ...value, confirmation: null })); return true; }
     if (local.entity && model.preview.open) { change(value => ({ ...value, entity: null })); return true; }
     if (model.preview.open) { model.closePreview(); return true; }
-    if (pages.some(page => page.id === "memory-record")) { change(value => ({ ...value, record: null, conflict: null })); return true; }
-    if (local.liveOpen) { change(value => ({ ...value, liveOpen: false })); return true; }
     if (model.shared?.location) { change(value => ({ ...value, outcome: null })); return model.shared.back(); }
     return false;
   };
@@ -442,9 +389,8 @@ export function useNativeMemory(model: NativeMemoryModel) {
     if (choice.rowId === "memory") model.openRoot();
     else if (choice.rowId === "memory-sharing") model.openSharing();
     else if (choice.rowId === "memory-section") { /* Retain the current section and clear only its nested selection. */ }
-    else if (choice.rowId === "memory-live") change(value => ({ ...value, liveOpen: true }));
     return true;
   };
-  return { pages, rows: actions, back, ancestor, navigationBlocked, nested: local.secretsOpen || !!model.shared?.location || local.liveOpen || confirmationVisible || model.preview.open,
+  return { pages, rows: actions, back, ancestor, navigationBlocked, nested: local.secretsOpen || !!model.shared?.location || confirmationVisible || model.preview.open,
     busy: visit.pending || !!model.preview.deletingEntityKey || !!model.secrets?.pending };
 }
