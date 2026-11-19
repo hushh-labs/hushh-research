@@ -22,10 +22,11 @@ import { NETWORK_FILTERS, NetworkPageCache, type NetworkListMode, type NetworkPa
 type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
 type ListProps = { mode: NetworkListMode; personRef?: string; visitKey: string; embedded?: boolean; retainedPages?: NetworkPageCache; onReady?: () => void; onDismiss?: () => void };
 
-function cachedResult(cache: NetworkPageCache, read: NetworkPageRead): NetworkPage | null {
+function cachedResult(cache: NetworkPageCache, read: NetworkPageRead, allowDiscoverySnapshot = false): NetworkPage | null {
   const pages: NetworkPage[] = [];
   for (let page = 1; page <= read.page; page++) {
-    const value = cache.peek({ ...read, page });
+    const value = (allowDiscoverySnapshot ? cache.peekDiscoverySnapshot({ ...read, page }) : undefined)
+      ?? cache.peek({ ...read, page });
     if (!value) return null;
     pages.push(value);
     if (!value.hasMore) break;
@@ -71,10 +72,10 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
   const [localPages] = useState(() => new NetworkPageCache());
   const pageCache = retainedPages ?? localPages;
   const [result, setResult] = useState<NetworkPage | null>(() => {
-    const cached = user && cachedResult(pageCache, { mode, personRef, degree, query, page });
+    const cached = user && cachedResult(pageCache, { mode, personRef, degree, query, page }, true);
     return cached ? markRequests(cached, new Set()) : null;
   });
-  const [busy, setBusy] = useState(!result);
+  const [busy, setBusy] = useState(() => !(user && cachedResult(pageCache, { mode, personRef, degree, query, page })));
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [retry, setRetry] = useState(0);
@@ -149,7 +150,6 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
     const read = { mode, personRef, degree, query, page };
     const refresh = refreshKind.current;
     refreshKind.current = null;
-    const keepRows = refresh === "quiet";
     const cached = user && !searchPending && !append && !refresh && cachedResult(pageCache, read);
     if (cached) {
       lastSuccessfulRead.current = { scope, page: cached.page };
@@ -158,7 +158,10 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
       setError(null);
       return () => controller.abort();
     }
+    const retained = user && !searchPending && !append && !refresh && cachedResult(pageCache, read, true);
+    const keepRows = refresh === "quiet" || Boolean(retained);
     setBusy(true); setError(null);
+    if (retained) setResult(markRequests(retained, requestedPeople.current));
     if (!append) {
       lastSuccessfulRead.current = null;
       if (!keepRows) setResult(null);
@@ -323,9 +326,11 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
               restore.current = false;
               const scroller = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
               if (scroller) scroller.scrollTop = 0;
-              const cached = pageCache.peek({ mode, personRef, degree: value, query, page: 1 });
+              const read = { mode, personRef, degree: value, query, page: 1 };
+              const fresh = pageCache.peek(read);
+              const cached = fresh ?? pageCache.peekDiscoverySnapshot(read);
               setResult(cached ? markRequests(cached, requestedPeople.current) : null);
-              setBusy(!cached);
+              setBusy(!fresh);
               setError(null);
               setDegree(value);
               setPage(1);
