@@ -1557,12 +1557,16 @@ describe("supported connector catalog", () => {
         userId: "owner-a",
         accessLevel: "manage",
         includeMeetingFiles: true,
+        includeMailAccess: true,
       });
       expect(await screen.findByText("Finish signing in with Google in the window that opened.")).toBeInTheDocument();
       const attempt = attemptOf(popup);
       expect(attempt?.service).toBe("calendar");
       // The attempt marker in the popup carries no OAuth state or credentials.
       expect(popup.sessionStorage.getItem(ATTEMPT_KEY)).not.toContain("synthetic=calendar");
+
+      expect(state.calendarStatus).toHaveBeenCalledOnce();
+      state.calendarStatus.mockClear();
 
       // Negative controls: none of these may settle the attempt.
       await post(settlement(attempt!.attemptId), popup, "https://attacker.invalid");
@@ -1638,6 +1642,8 @@ describe("supported connector catalog", () => {
       vi.spyOn(window, "open").mockReturnValue(popup);
       await openCalendar();
       await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+      expect(state.calendarStatus).toHaveBeenCalledOnce();
+      state.calendarStatus.mockClear();
       const attempt = attemptOf(popup)!;
       fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
       expect(await screen.findByText("Calendar not connected.")).toBeInTheDocument();

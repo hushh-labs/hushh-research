@@ -127,7 +127,7 @@ create the first vault. Vault keys and owner tokens remain in memory only.
 
 ```mermaid
 flowchart TD
-  Hub["/one/setup (hub)<br/>tiles + live status<br/>master Finish setup"]
+  Hub["/one/setup (hub)<br/>tiles + live status<br/>Continue → optional memory import → Finish setup"]
   Placement["/one/setup/cloud<br/>verify hosting first"]
   Shared["Hussh Shared<br/>shared runtime; no personal pod"]
   Byoc["BYOC<br/>owner's Google Cloud or Azure pod"]
@@ -138,7 +138,7 @@ flowchart TD
   Static["/one/setup/location | email | ria | connected-systems<br/>reused feature workspace + terminal footer"]
   Wizard["/one/setup/finance<br/>Market, Portfolio and Stocks demo"]
   Import["Portfolio source + explicit completion<br/>Plaid, statement, sample, or later<br/>direct resume: /one/setup/finance/import"]
-  Dash["/one (dashboard)<br/>reached after the master acknowledgement"]
+  Dash["/ (Chat)<br/>after memory import or Skip and vault success"]
 
   Hub --> Placement
   Placement -->|no assignment or pending setup| Shared
@@ -155,7 +155,7 @@ flowchart TD
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|after both saved choices: Finish setup then required vault| Dash
+  Hub -->|after both saved choices: Continue, optional memory import, then required vault| Dash
 ```
 
 The evidenced legacy Shared cohort retains Shared. An account with unknown placement
@@ -314,7 +314,7 @@ The One root resolves completion from one durable authority plus local mirrors:
    confirms a reviewed sample portfolio during setup, the bounded structured
    portfolio record (never raw PDFs, Plaid tokens, credentials, or vault
    material) is retained in their user-scoped IndexedDB resource cache for at
-   most seven days. The master Finish setup action commits it to the encrypted
+   most seven days. The Continue → optional memory import → Finish setup action commits it to the encrypted
    Financial PKM domain, then erases the staged origin. A failed commit keeps
    the draft for an explicit retry; sign-out and account deletion erase it.
 4. **Legacy Preferences + localStorage** (`PreVaultOnboardingService`) —
@@ -345,11 +345,25 @@ See the note in
 
 The master account gate is resolved on the **hub**
 [`components/onboarding/setup/one-setup-hub.tsx`](../../../hushh-webapp/components/onboarding/setup/one-setup-hub.tsx)
-via its own shared bottom action: **Finish setup**. It is not available until
-the durable placement and Connections markers exist. The click/voice handler
-force-revalidates that marker immediately, then shows the required vault flow.
-Only vault success acknowledges the root gate, primes the local completion
-latch, mirrors it account-wide, and redirects. The shared top-bar Back action
+via **Continue**, which opens an optional memory-import step after verified phone,
+placement, and AI access. The step offers a copyable prompt for another
+agent and a paste field. **Finish setup** with empty input and top-right **Skip**
+continue without submitting a draft. Back returns to the checklist and clears
+the unsubmitted draft. The existing required vault flow remains in place.
+
+A submitted import is handed to the same owner-scoped `ownerChatMemory` runtime
+as Chat after required setup saves succeed. Navigation does not await encrypted
+source registration, the LLM rewrite, or its commit. The runtime combines the
+latest `memory.md` with the new information in the background.
+It does not use proposal-card ingestion, append a separate document, or create
+a chat transcript entry. Raw drafts stay in process memory. Once submitted, the
+existing runtime retains encrypted pending work and idle retries after a failed
+rewrite or save; the last saved document remains active. Recreating the owner
+runtime resumes encrypted pending work. Until registration succeeds, the handoff
+is RAM-only and cannot survive reload or session end. Skip queues no import,
+including after a required setup save fails.
+Vault success and required setup saves acknowledge the root gate,
+prime the local completion latch, mirror it account-wide, and redirect. The shared top-bar Back action
 never acknowledges root setup. Static setup adapters at
 `app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
 only their own capability signal; none can write the master account gate.
@@ -433,7 +447,7 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   `/one/setup/finance/import` for Plaid, statement, sample brokerage, or an
   explicit later choice. Sample brokerage information loads and can be
   reviewed immediately without a vault. Its confirmed structured portfolio is
-  staged for the master Finish setup transaction, which encrypts it into the
+  staged for the Continue → optional memory import → Finish setup transaction, which encrypts it into the
   Financial PKM before root setup exits. Statement parsing, Plaid Link,
   background snapshots, and their external persistence remain after that vault
   boundary; raw files and connection credentials are never staged in IndexedDB.

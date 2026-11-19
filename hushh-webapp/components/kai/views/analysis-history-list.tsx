@@ -9,17 +9,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
 import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
-import type { HistoryEntryWithVersion } from "./columns";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
+
+export type AnalysisHistoryRow = AnalysisHistoryEntry & {
+  companyName?: string;
+  searchText?: string;
+};
 
 type HistoryActions = {
   onOpen: (entry: AnalysisHistoryEntry) => void;
-  versionsFor: (ticker: string) => HistoryEntryWithVersion[];
   onDelete: (entry: AnalysisHistoryEntry) => void;
   onDeleteTicker: (ticker: string) => void;
 };
 
-export function HistoryEntryRow({ entry, ...actions }: { entry: HistoryEntryWithVersion } & HistoryActions) {
+function HistoryEntryRow({ entry, ...actions }: { entry: AnalysisHistoryRow } & HistoryActions) {
   const raw = entry.raw_card as Record<string, unknown> | undefined;
   const owns = typeof raw?.owns_position === "boolean" ? raw.owns_position : typeof raw?.is_position_owned === "boolean" ? raw.is_position_owned : null;
   const decision = toInvestorDecisionLabel(entry.decision, owns);
@@ -30,25 +33,18 @@ export function HistoryEntryRow({ entry, ...actions }: { entry: HistoryEntryWith
     <button type="button" className={styles.historyPrimary} onClick={() => actions.onOpen(entry)} aria-label={`Open ${entry.ticker} analysis`}>
       <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><span className="text-sm font-semibold">{entry.ticker}</span><span className="text-xs text-muted-foreground">{decision.label}{raw?.analysis_degraded ? " · Limited analysis" : ""}</span></span>
       {entry.companyName ? <span className={styles.description}>{entry.companyName}</span> : null}
-      <span className={styles.description}>{date} · {confidence} · Version {entry.version}</span>
+      <span className={styles.description}>{date} · {confidence}</span>
     </button>
-    <DropdownMenu><DropdownMenuTrigger asChild><ShellActionSurface variant="pill" aria-label={`Versions for ${entry.ticker}`}>Versions</ShellActionSurface></DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className={`${styles.detail} max-h-80 overflow-y-auto`}>
-        {actions.versionsFor(entry.ticker).map(version => <DropdownMenuItem key={`${version.ticker}-${version.timestamp}`} onSelect={() => actions.onOpen(version)}>
-          Version {version.version} · {Number.isFinite(Date.parse(version.timestamp)) ? new Date(version.timestamp).toLocaleString() : "Date unavailable"}
-        </DropdownMenuItem>)}
-      </DropdownMenuContent>
-    </DropdownMenu>
     <DropdownMenu><DropdownMenuTrigger asChild><ShellActionSurface variant="icon" aria-label={`Actions for ${entry.ticker}`}><MoreHorizontal className="h-4 w-4" /></ShellActionSurface></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={styles.detail}>
-        <DropdownMenuItem onSelect={() => actions.onDelete(entry)}><Trash2 className="mr-2 h-4 w-4" />Delete this version</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => actions.onDeleteTicker(entry.ticker)} className="text-destructive">Delete all {entry.ticker} versions</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => actions.onDelete(entry)}><Trash2 className="mr-2 h-4 w-4" />Delete this analysis</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => actions.onDeleteTicker(entry.ticker)} className="text-destructive">Delete all analyses for {entry.ticker}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;
 }
 
-export function AnalysisHistoryList({ entries, ...actions }: { entries: HistoryEntryWithVersion[] } & HistoryActions) {
+export function AnalysisHistoryList({ entries, ...actions }: { entries: AnalysisHistoryRow[] } & HistoryActions) {
   const [query, setQuery] = useState("");
   const [decision, setDecision] = useState("all");
   const filtered = useMemo(() => entries.filter(entry =>

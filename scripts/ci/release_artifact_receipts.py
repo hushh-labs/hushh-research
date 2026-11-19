@@ -6,15 +6,15 @@ lane metadata. This module never grants cleanup or deployment authority.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime, timedelta
 import hashlib
 import importlib
 import os
-from io import BytesIO
-from pathlib import Path
 import re
 import stat
+from collections.abc import Callable
+from datetime import datetime, timedelta
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 from zipfile import BadZipFile, ZipFile
 
@@ -24,6 +24,19 @@ retention = importlib.import_module("cloudrun-retention")
 Document = dict[str, Any]
 Timestamp = Callable[[object], datetime | None]
 PRODUCTION_EVIDENCE_REPAIR_FLAG = "HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR"
+# A staged-worker upload spans /tmp and runner.temp, so upload-artifact keeps
+# the tmp/ prefix on these release receipts. Accept only the two exact layouts.
+PRODUCTION_RELEASE_MEMBERS = frozenset(
+    {
+        "prod-release-status.json",
+        "prod-account-deletion-activation.json",
+        "prod-activation-origin.json",
+        "prod-protected-document-release.json",
+        "prod-document-reader-compatibility.json",
+        "phone-rollback/plan.json",
+        "phone-rollback/qualified.json",
+    }
+)
 
 
 def production_evidence_repair_enabled() -> bool:
@@ -276,6 +289,13 @@ def current_attempt_artifact(repository, run, lane, *, api, timestamp):
     return selected[0], deploy
 
 
+def _member_names(name: str, *, allow_legacy_production: bool = False) -> set[str]:
+    names = {name}
+    if allow_legacy_production and name in PRODUCTION_RELEASE_MEMBERS:
+        names.add(f"tmp/{name}")
+    return names
+
+
 def _status_bytes(
     archive: bytes, status_name: str, *, allow_legacy_production: bool = False
 ) -> bytes:
@@ -283,9 +303,9 @@ def _status_bytes(
         with ZipFile(BytesIO(archive)) as bundle:
             entries = bundle.infolist()
             names = [entry.filename for entry in entries]
-            allowed = {status_name}
-            if allow_legacy_production and status_name == "prod-release-status.json":
-                allowed.add("tmp/prod-release-status.json")
+            allowed = _member_names(
+                status_name, allow_legacy_production=allow_legacy_production
+            )
             matches = [name for name in names if name in allowed]
             if (
                 len(entries) > 500

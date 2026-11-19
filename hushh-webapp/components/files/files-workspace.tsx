@@ -119,7 +119,7 @@ export function FilesWorkspace() {
                 ? "Files is not enabled on this pod. Review setup below."
                 : hosting === "shared"
                   ? "Files storage is temporarily unavailable. Try again later."
-                  : "Your private Files library is not connected. Check Hosting and Software updates.",
+                  : "Your private Files library is not connected. Check Hosting and Agent updates.",
             );
         })
         .finally(() => {

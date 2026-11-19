@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
 import re
 import os
@@ -13,6 +14,23 @@ from typing import Any
 
 _REVISION_MAX_SCALE = "autoscaling.knative.dev/maxScale"
 _REVISION_MIN_SCALE = "autoscaling.knative.dev/minScale"
+_RECORDED_RECOVERY_SHA = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
+
+
+def _production_managed_ai_env() -> dict[str, str]:
+    root = Path(__file__).resolve().parents[2]
+    config_path = root / "consent-protocol/config/managed-ai-runtime.json"
+    module_path = root / "consent-protocol/hushh_mcp/managed_ai_config.py"
+    spec = importlib.util.spec_from_file_location("managed_ai_contract", module_path)
+    if spec is None or spec.loader is None:
+        raise ValueError("worker_managed_ai_contract_unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    profile = module.load_profile("production", config_path)
+    return {
+        "GENAI_GOOGLE_CLOUD_PROJECT": str(profile["project"]),
+        "HUSSH_GEMINI_TEXT_MODEL": str(profile["text_model"]),
+    }
 
 
 def _digest(image: Any) -> str | None:
@@ -358,21 +376,34 @@ def staged_template(value: dict, fields: dict, version: str, name: str) -> dict:
         if item["name"] == "drive-worker"
     )
     worker["image"] = fields["image"]
-    env = [
-        item
-        for item in worker["env"]
-        if item["name"]
-        not in {"BACKEND_RUNTIME_CONFIG_JSON", "PROTECTED_DOCUMENT_DELIVERY_ENABLED"}
-    ]
-    worker["env"] = env + [
-        {
-            "name": "BACKEND_RUNTIME_CONFIG_JSON",
-            "valueFrom": {
-                "secretKeyRef": {"name": fields["config_secret"], "key": version}
+    managed_ai_updates: list[dict[str, str]] = []
+    replaced_names = {
+        "BACKEND_RUNTIME_CONFIG_JSON",
+        "PROTECTED_DOCUMENT_DELIVERY_ENABLED",
+    }
+    if fields["source"] != _RECORDED_RECOVERY_SHA:
+        managed_ai = _production_managed_ai_env()
+        replaced_names |= set(managed_ai)
+        managed_ai_updates = [
+            {"name": key, "value": env_value} for key, env_value in managed_ai.items()
+        ]
+    env = [item for item in worker["env"] if item["name"] not in replaced_names]
+    worker["env"] = (
+        env
+        + managed_ai_updates
+        + [
+            {
+                "name": "BACKEND_RUNTIME_CONFIG_JSON",
+                "valueFrom": {
+                    "secretKeyRef": {"name": fields["config_secret"], "key": version}
+                },
             },
-        },
-        {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": fields["protected"]},
-    ]
+            {
+                "name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED",
+                "value": fields["protected"],
+            },
+        ]
+    )
     return template
 
 

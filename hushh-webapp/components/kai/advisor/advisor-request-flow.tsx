@@ -137,7 +137,7 @@ export function AdvisorRequestFlow({
       title={advisor ? "Review request" : "Find an advisor"}
       description={advisor?.name}
       presentation="sheet"
-      surfaceClassName={`${finance.detail} ${styles.handshakeSheet}`}
+      surfaceClassName={`${finance.detail} ${styles.handshakeSheet} ${styles.handshakeTabbedSheet}`}
       footer={advisor && snapshot ? (
         <div className={styles.handshakeFooter}>
           <ShellActionSurface variant="pill" disabled={busy || !!pending.current} onClick={returnToDiscovery}>

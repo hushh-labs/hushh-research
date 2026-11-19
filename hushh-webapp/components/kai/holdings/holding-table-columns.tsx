@@ -42,7 +42,7 @@ export function holdingTableColumns(total: number, onEntries?: (id: string) => v
       <HoldingGainLoss className={numeric} holding={toHoldingViewModel(row.original, total)} /> },
   ];
   if (onEntries) columns.unshift({ id: "entries", header: "Entries", cell: ({ row }) =>
-    <ShellActionSurface variant="pill" className="h-11 text-sm sm:text-sm" onClick={event => {
+    <ShellActionSurface variant="pill" className="h-11 whitespace-nowrap text-sm sm:text-sm" onClick={event => {
       event.stopPropagation(); onEntries(row.original.client_id);
     }}>Manage</ShellActionSurface> });
   return columns;

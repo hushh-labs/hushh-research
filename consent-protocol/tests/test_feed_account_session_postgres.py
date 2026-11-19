@@ -236,7 +236,12 @@ def test_important_feed_is_incoming_and_preserves_other_dri_rows(feed_db):
 
 def test_latest_sms_does_not_resurface_after_dismiss_clear_or_source_cleanup(feed_db):
     old_grant, new_grant, other_grant = (str(uuid.uuid4()) for _ in range(3))
-    meta = {"feed_audience": "recipient", "share_kind": "sos", "counterpart_label": "Same name"}
+    meta = {
+        "feed_audience": "recipient",
+        "share_kind": "sos",
+        "feed_sms_confirmed": True,
+        "counterpart_label": "Same name",
+    }
     old = policy_event(
         feed_db, OWNER, "location_share_created", meta, source=old_grant, peer=SOS_SENDER
     )
@@ -280,7 +285,7 @@ def test_latest_sms_does_not_resurface_after_dismiss_clear_or_source_cleanup(fee
 def test_history_revision_recovers_missed_sms_and_clear_hints_without_cross_account_leaks(
     feed_db, monkeypatch
 ):
-    meta = {"feed_audience": "recipient", "share_kind": "sos"}
+    meta = {"feed_audience": "recipient", "share_kind": "sos", "feed_sms_confirmed": True}
     own_grant, foreign_grant = str(uuid.uuid4()), str(uuid.uuid4())
     with feed_db.begin() as connection:
         for grant_id, recipient in [(own_grant, OWNER), (foreign_grant, OTHER)]:
@@ -368,7 +373,7 @@ def test_legacy_clear_retention_keeps_receipt_hidden_and_invalidates_stale_undo(
         """),
             {"id": grant, "sender": SOS_SENDER, "recipient": OWNER},
         )
-    meta = {"feed_audience": "recipient", "share_kind": "sos"}
+    meta = {"feed_audience": "recipient", "share_kind": "sos", "feed_sms_confirmed": True}
     receipt = policy_event(
         feed_db, OWNER, "location_share_created", meta, source=grant, peer=SOS_SENDER
     )

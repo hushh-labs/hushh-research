@@ -61,7 +61,7 @@
     "not distinguishing PR feedback from queue authority or post-merge deploy authority",
     "stopping after rerun without monitoring terminal state",
     "treating every merge as an implicit downstream UAT deploy instead of a separate explicit dispatch",
-    "creating or staying on a temporary branch when the preserved developer branch should carry the follow-up",
-    "landing a hotfix on main without back-syncing it into the preserved developer branch"
+    "orphaning an uncleaned task worktree or spawning redundant phase-N branches when continuing an active PR worktree",
+    "landing a fix on main or uat without downstream source synchronization and clean active-base restoration"
   ]
 }

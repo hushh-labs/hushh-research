@@ -18,13 +18,13 @@
   ],
   "required_commands": [
     "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q",
-    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
   ],
   "verification_bundle": {
     "id": "ria-api-reference",
     "commands": [
       "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q",
-      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
     ],
     "tests": [
       "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q"

@@ -1337,7 +1337,7 @@ Package count: 1296
 
 ## Backend Python packages
 
-Package count: 250
+Package count: 251
 
 ### License summary
 
@@ -1365,7 +1365,7 @@ Package count: 250
 - `ISC`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 59
+- `MIT`: 60
 - `MIT License`: 43
 - `MIT License
 
@@ -1454,6 +1454,7 @@ SOFTWARE.
 - `fastavro` `1.13.1` — MIT
 - `fastembed` `0.9.1` — Apache-2.0
 - `filelock` `4.2.4` — MIT
+- `filetype` `1.2.0` — MIT License
 - `firebase_admin` `7.1.0` — Apache Software License
 - `Flask` `3.1.3` — BSD-3-Clause
 - `flatbuffers` `25.12.19` — Apache Software License
@@ -1507,7 +1508,7 @@ SOFTWARE.
 - `korean_lunar_calendar` `0.4.0` — MIT
 - `langchain` `1.3.13` — MIT License
 - `langchain-core` `1.7.3` — MIT License
-- `langchain-openai` `1.6.3` — MIT License
+- `langchain-google-genai` `4.4.2` — MIT
 - `langchain-protocol` `0.0.20` — MIT License
 - `langchain-text-splitters` `1.1.3` — MIT License
 - `langgraph` `1.2.14` — MIT

@@ -33,6 +33,8 @@ export class AdvisorReviewError extends Error {
     super(
       (
         {
+          RATE_LIMITED:
+            "Too many requests. Give it a minute, then check the status again.",
           ADVISOR_REQUEST_EXISTS:
             "You already have a request or advisor workspace with this person. Open it below.",
           ADVISOR_CONNECT_CALENDAR:

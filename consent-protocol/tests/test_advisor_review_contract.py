@@ -672,6 +672,29 @@ def test_a_503_logs_where_it_failed_without_logging_what_it_said(caplog):
     assert not any("ADVISOR_PLAN_CHANGED" in line for line in lines)
 
 
+def test_private_finance_route_preserves_rate_limit_response():
+    from types import SimpleNamespace
+
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    from slowapi.errors import RateLimitExceeded
+
+    from api.routes.one.finance_sharing import PrivateFinanceRoute
+
+    router = APIRouter(route_class=PrivateFinanceRoute)
+
+    @router.get("/limited")
+    async def limited():
+        raise RateLimitExceeded(SimpleNamespace(error_message=None, limit="10 per minute"))
+
+    app = FastAPI()
+    app.include_router(router)
+    response = TestClient(app).get("/limited")
+    assert response.status_code == 429
+    assert response.json() == {"detail": {"code": "RATE_LIMITED"}}
+    assert response.headers["cache-control"] == "private, no-store"
+
+
 def test_advisor_stripe_calls_return_plain_dicts_the_billing_code_can_read(monkeypatch):
     from types import SimpleNamespace
 

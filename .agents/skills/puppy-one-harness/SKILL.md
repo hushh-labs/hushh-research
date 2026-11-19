@@ -81,5 +81,5 @@ Non-owned surfaces:
 
 ```bash
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```

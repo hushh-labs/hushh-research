@@ -48,6 +48,43 @@ beforeEach(() => {
 afterEach(() => { advanceVaultSessionEpoch(); runtimes.splice(0).forEach(runtime => runtime.clear()); vi.useRealTimers(); });
 
 describe("incremental owner chat memory", () => {
+  it("hands off without waiting, keeps the saved document on failure, and retries encrypted work", async () => {
+    vi.useFakeTimers();
+    const { runtime, rewrite } = create();
+    mocks.write.mockRejectedValueOnce(new Error("Device storage temporarily unavailable"));
+    runtime.queueSnapshot({ conversationId: "chat", messages: [source("background")] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(memory.markdown).toBe("- Existing fact\n");
+    expect(rewrite).not.toHaveBeenCalled();
+    mocks.replace.mockResolvedValueOnce({ success: false });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(memory.markdown).toBe("- Existing fact\n");
+    expect(durable).toMatchObject({ messages: [{ id: "background" }] });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(memory.markdown).toBe("- Updated memory\n");
+    expect(durable).toMatchObject({ messages: [] });
+  });
+
+  it("drops an unregistered background handoff when the owner session ends", async () => {
+    vi.useFakeTimers();
+    const { runtime, rewrite } = create();
+    mocks.write.mockRejectedValueOnce(new Error("Device unavailable"));
+    runtime.queueSnapshot({ conversationId: "chat", messages: [source("private")] });
+    await vi.advanceTimersByTimeAsync(0);
+    runtime.clear();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(rewrite).not.toHaveBeenCalled();
+    expect(memory.markdown).toBe("- Existing fact\n");
+  });
+
+  it("automatically resumes encrypted pending work when the owner runtime is recreated", async () => {
+    await create().runtime.registerSnapshot({ conversationId: "chat", messages: [source("recover")] });
+    mocks.rewrite.mockResolvedValue({ markdown: "- Recovered import\n" });
+    ownerChatMemory({ ...session, token: session.vaultOwnerToken, vaultEpoch: snapshotVaultSessionEpoch(), readToken: () => session.vaultOwnerToken });
+    await vi.waitFor(() => expect(memory.markdown).toBe("- Recovered import\n"));
+    expect(durable).toMatchObject({ messages: [] });
+  });
+
   it("keeps one owner writer across navigation and cancels it immediately on lock", async () => {
     const owner = { ...session, token: session.vaultOwnerToken, vaultEpoch: snapshotVaultSessionEpoch(), readToken: () => session.vaultOwnerToken };
     const first = ownerChatMemory(owner);
@@ -161,7 +198,20 @@ describe("incremental owner chat memory", () => {
     expect(parts[1]!.content.startsWith("🦊")).toBe(true);
     await runtime.registerSnapshot({ conversationId: "chat", messages: [source("large", content)] });
     expect(await runtime.trigger("new_chat")).toBe(false);
+    expect(await runtime.isSnapshotCommitted({ conversationId: "chat", messages: [source("large", content)] })).toBe(true);
     expect(rewrite).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not acknowledge a large import when only its first source fragment committed", async () => {
+    const { runtime } = create();
+    const input = { conversationId: "chat", messages: [source("import", "A".repeat(200_000))] };
+    await runtime.registerSnapshot(input);
+    const commit = mocks.replace.getMockImplementation()!;
+    mocks.replace.mockImplementationOnce(commit).mockResolvedValueOnce({ success: false });
+    expect(await runtime.trigger("remember")).toBe(true);
+    expect(await runtime.isSnapshotCommitted(input)).toBe(false);
+    await runtime.trigger("remember");
+    expect(await runtime.isSnapshotCommitted(input)).toBe(true);
   });
 
   it("flushes on the idle timer and coalesces simultaneous triggers", async () => {

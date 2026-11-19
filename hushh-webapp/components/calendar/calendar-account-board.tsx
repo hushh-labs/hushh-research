@@ -42,6 +42,7 @@ import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } 
 import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider, occasionDateLabel, occasionNote } from "./calendar-schedule-presentation";
 import { declineReason, invitationDescription } from "./calendar-invitation-detail";
 import styles from "./calendar-account-board.module.css";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 
 type Props = {
   userId: string;
@@ -52,7 +53,7 @@ type Props = {
   connectionNotice?: React.ReactNode;
   token: string | null;
   getIdToken: () => Promise<string>;
-  getVaultOwnerToken?: () => string | null;
+  getVaultOwnerToken?: () => string | null; recoverVaultOwnerToken?: () => Promise<string | null>;
   onAddAccount: () => void;
   onReconnectAccount: (accountId: string) => void;
   onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
@@ -155,7 +156,7 @@ function JoinVideoIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 10 6-3v10l-6-3" /></svg>;
 }
 
-export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onFollowupMailConnect, onChat }: Props) {
+export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, recoverVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onFollowupMailConnect, onChat }: Props) {
   const [restored, setRestored] = useState(() => {
     const value = consumeCalendarMeetingOAuthReturn(userId);
     return value && status.accounts?.some(account => account.account_id === value.accountId) ? value : null;
@@ -390,10 +391,10 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
         <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={people} />
-        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
+        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
-      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} getIdToken={getIdToken} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
         const request = booking.followupRequest;
         const selectedAccount = booking.accountId;
         closeBooking();
@@ -403,9 +404,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         if (request) {
           try {
             if (selectedAccount !== accountId || !result.event.id) throw new Error("Follow-up account or event changed.");
-            const ownerToken = getVaultOwnerToken?.();
-            if (!ownerToken) throw new Error("Unlock One to link this event to its follow-up.");
-            await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken(), ownerToken);
+            await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken());
             setInsightsRefreshRevision(value => value + 1);
           } catch {
             morphyToast.error("Calendar event created, but its follow-up could not be marked booked. Review it again before dismissing reminders.", { className: presentationStyles.toast });
@@ -430,7 +429,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         </DialogContent>
       </Dialog>
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
-        <DialogContent className={`${styles.detail} ${presentationStyles.portal}`} data-connect-type-scale="page" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
+        <DialogContent className={`${styles.detail} ${presentationStyles.portal} ${connectTypography.surface}`} data-connect-type-scale="page" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
             <DialogHeader className={styles.detailHeader}>
               <div className={styles.detailTitleRow}>

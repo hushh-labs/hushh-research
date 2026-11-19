@@ -19,7 +19,13 @@ export function isFeedItemHidden(
     if (["location_access_request", "location_access_approved", "location_access_request_withdrawn",
       "location_share_viewed", "location_circle_message", "location_one_network_joined",
       "location_circle_code_joined", "location_circle_member_invite_accepted", "circle_member_left",
-      "circle_invite_cancelled", "circle_member_invited", "location_public_invite_submitted"].includes(eventType)) return true;
+      "circle_invite_cancelled", "circle_member_invited", "location_public_invite_submitted",
+      "location_referral_invite", "location_share_unconfirmed"].includes(eventType)) return true;
+    if (metadata.actor_is_self === true || metadata.actor_is_self === "true") return true;
+    if (eventType !== "location_share_created" &&
+      ["recipient_revoke", "recipient_shorten"].includes(String(metadata.reason))) return true;
+    if (eventType === "location_share_created" && metadata.share_kind === "sos"
+      && metadata.feed_sms_confirmed === false) return true;
     if (eventType.startsWith("location_share_") && metadata.feed_audience !== "recipient") return true;
     if (["location_sms_contact_added", "location_sms_contact_removed"].includes(eventType)
       && metadata.feed_audience !== "recipient") return true;

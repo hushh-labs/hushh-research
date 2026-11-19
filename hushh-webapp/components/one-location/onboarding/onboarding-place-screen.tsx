@@ -11,6 +11,8 @@ import {
 } from "./save-location-sheet-layout";
 import { cn } from "@/lib/utils";
 
+export const ONBOARDING_PLACE_TITLE = "Save your first place";
+
 export function OnboardingPlaceScreen({
   map,
   routeId,
@@ -59,13 +61,13 @@ export function OnboardingPlaceScreen({
         nativeMapShowing ? "bg-transparent" : "bg-[color:var(--app-grouped-background)]",
       )}
     >
-      <header className="bg-[color:var(--app-grouped-background)] flex h-11 shrink-0 items-center gap-3">
+      <header className="bg-[color:var(--app-grouped-background)] flex min-h-11 shrink-0 items-center gap-3">
         <button type="button" aria-label="Go back" onClick={onBack} disabled={busy} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")}>
           <ArrowLeft className="h-5 w-5" aria-hidden />
         </button>
-        <h1 data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)]">Your location</h1>
+        <h1 data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)]">{ONBOARDING_PLACE_TITLE}</h1>
       </header>
-      <p data-location-type-role="row-description" className="bg-[color:var(--app-grouped-background)] mb-3 mt-2 shrink-0 text-muted-foreground">Share live · Check in · SOS</p>
+      <p data-location-type-role="row-description" className="bg-[color:var(--app-grouped-background)] mb-3 mt-2 shrink-0 text-muted-foreground">Share live · Check in · SMS (Save My Soul)</p>
       <div className={cn(
         "grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-rows-1",
         COMPACT_ONBOARDING_COLUMNS_CLASSNAME,

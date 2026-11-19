@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import Any
 
-import httpx
+from hushh_mcp.runtime_providers.lifecycle import finish_owned_cleanup
 
 from .attachment_worker import WorkerAttachmentParser
 from .binding_helpers import (
-    approved_azure_binding,
+    approved_mail_model_policy,
     build_email_model,
     connection_status_port,
     restore_email_selection,
@@ -29,6 +30,8 @@ from .transport import (
 from .transport import (
     _BoundedGmailHttp as _BoundedGmailHttp,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OwnerGmailExecution:
@@ -185,9 +188,9 @@ async def owner_email_runtime(
     supports_email_reviews: bool = False,
     selected_messages: dict | None = None,
 ):
-    """Central Azure selection, existing owner grant, and device-encrypted memory."""
+    """Use managed Vertex with the existing owner grant and encrypted memory."""
     await require_access()
-    binding, descriptor = approved_azure_binding()
+    policy = approved_mail_model_policy()
     current = True
     memory = EmailMemorySession(
         owner_id=user_id,
@@ -198,35 +201,46 @@ async def owner_email_runtime(
 
     async def admitted():
         await require_access()
-        binding.require_current()
+        try:
+            current_policy = approved_mail_model_policy()
+        except (RuntimeError, ValueError) as error:
+            raise PermissionError("The managed Mail processing policy changed") from error
+        if current_policy != policy:
+            raise PermissionError("The managed Mail processing policy changed")
         await execution.require_current_grant()
 
     execution = OwnerGmailExecution(gmail, user_id, admitted, page_context)
     await restore_email_selection(gmail, user_id, execution, selected_messages)
     status = connection_status_port(gmail, admitted, user_id)
 
+    model = None
     try:
-        with httpx.Client(timeout=30) as sync_http:
-            async with httpx.AsyncClient(timeout=30) as async_http:
-                model = build_email_model(binding, descriptor, sync_http, async_http)
-                yield (
-                    EmailAgentRuntime(
-                        model_factory=lambda _context: model,
-                        execution_factory=lambda _context: execution,
-                        memory_port=memory,
-                        review_port=review_port
-                        or ExistingReviewPort(execution, pending_email_draft),
-                        connection_status_port=status,
-                        attachment_scan_parse=(
-                            WorkerAttachmentParser()
-                            if os.getenv("HUSHH_DEPLOY_ENV") == "uat"
-                            else None
-                        ),
-                        router=select_email_tools,
-                        supports_email_reviews=supports_email_reviews,
-                    ),
-                    admitted,
-                )
+        model = build_email_model(policy)
+        from api.middlewares.observability import get_request_id
+
+        logger.info(
+            "email_oss.model_bound provider=%s model=%s request_id=%s",
+            policy["provider"],
+            policy["model"],
+            get_request_id() or "-",
+        )
+        yield (
+            EmailAgentRuntime(
+                model_factory=lambda _context: model,
+                execution_factory=lambda _context: execution,
+                memory_port=memory,
+                review_port=review_port or ExistingReviewPort(execution, pending_email_draft),
+                connection_status_port=status,
+                attachment_scan_parse=(
+                    WorkerAttachmentParser() if os.getenv("HUSHH_DEPLOY_ENV") == "uat" else None
+                ),
+                router=select_email_tools,
+                supports_email_reviews=supports_email_reviews,
+            ),
+            admitted,
+        )
     finally:
         current = False
         memory.clear()
+        if model is not None:
+            await finish_owned_cleanup(model.aclose())

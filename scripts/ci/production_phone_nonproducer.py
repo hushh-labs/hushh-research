@@ -9,6 +9,11 @@ from typing import Any
 
 JOB_ID = "complete-restoration-activation"
 ADMISSION_STEP = "Admit manual restoration verification only"
+PHONE_JOB_ID = "complete-phone-activation"
+PHONE_ADMISSION_STEP = "Assert manual activation continuation originates from main"
+# Reviewed activation continuation from Main212986. It can update lifecycle
+# state, but never creates a cold backend lease or builds/deploys an image.
+_PHONE_BLOCK = "8f70d7d25a971cf35eff2fdc2d70e17ec8a96c972f88950c1b2fa77b0c94eb3a"
 PRODUCTION_JOB_NAMES = {
     "deploy": "Deploy Production Scope",
     "complete-phone-activation": "Deploy Production Scope · Phone activation",
@@ -74,7 +79,9 @@ def recognizes(job: dict[str, Any]) -> bool:
             isinstance(step, dict) and isinstance(step.get("name"), str)
             for step in steps
         )
-        and any(step["name"] == ADMISSION_STEP for step in steps)
+        and (any(step["name"] == ADMISSION_STEP for step in steps)
+             or (job.get("name") == PRODUCTION_JOB_NAMES[PHONE_JOB_ID]
+                 and any(step["name"] == PHONE_ADMISSION_STEP for step in steps)))
     )
 
 
@@ -240,7 +247,22 @@ def attempt_producer_job(jobs, run, attempt, workflow):
     return raw_skipped[0]
 
 
-def _source(workflow: str, canonical: str, lease_markers: tuple[str, ...]) -> None:
+def _source(workflow: str, canonical: str, lease_markers: tuple[str, ...], *, phone=False) -> None:
+    if phone:
+        block = _job_block(workflow, PHONE_JOB_ID)
+        _require(hashlib.sha256(block.encode()).hexdigest() == _PHONE_BLOCK
+                 and not any(marker in block for marker in (*lease_markers, *_MUTATORS)),
+                 "phone activation cold-producer absence is unproved")
+        prefix = "needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && "
+        conditions = {
+            "deploy": "inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''",
+            "stage-drive-worker": "inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''",
+            JOB_ID: "inputs.restoration_activation_run_id != ''",
+        }
+        _require(all(re.findall(r"^    if: (.+)$", _job_block(workflow, name), re.M)
+                     == [prefix + condition] for name, condition in conditions.items()),
+                 "phone activation producer exclusion is unproved")
+        return
     # Every other changed historical job shape still requires compatibility review.
     block = _job_block(workflow, JOB_ID)
     _require(
@@ -283,11 +305,14 @@ def qualify(
 ) -> None:
     """Prove only nonproduction, including terminal failed/cancelled attempts."""
     _require(recognizes(job), "restoration job shape is unproved")
-    _source(workflow, canonical, lease_markers)
+    phone = job.get("name") == PRODUCTION_JOB_NAMES[PHONE_JOB_ID]
+    _source(workflow, canonical, lease_markers, phone=phone)
     steps = job["steps"]
     indexed = {step["name"]: step for step in steps}
     _require(
         len(indexed) == len(steps)
+        and (PHONE_ADMISSION_STEP if phone else ADMISSION_STEP) in indexed
+        and not (ADMISSION_STEP in indexed and PHONE_ADMISSION_STEP in indexed)
         and not any(
             marker in step["name"] for marker in lease_markers for step in steps
         ),
@@ -295,8 +320,8 @@ def qualify(
     )
     if current:
         _require(
-            indexed[ADMISSION_STEP].get("status") == "completed"
-            and indexed[ADMISSION_STEP].get("conclusion") == "success"
+            indexed[PHONE_ADMISSION_STEP if phone else ADMISSION_STEP].get("status") == "completed"
+            and indexed[PHONE_ADMISSION_STEP if phone else ADMISSION_STEP].get("conclusion") == "success"
             and indexed.get(guard, {}).get("status") == "in_progress"
             and indexed[guard].get("conclusion") is None
             and sum(step.get("status") == "in_progress" for step in steps) == 1,

@@ -102,19 +102,17 @@ describe("Stocks history intent", () => {
 });
 
 
-it("opens versions from a dropdown and keeps deletion in the actions menu", () => {
-  const entry = { ticker: "TEST", timestamp: "2026-10-20T14:00:00Z", decision: "hold", confidence: 0.8, consensus_reached: true, agent_votes: {}, final_statement: "Saved analysis", raw_card: {}, version: 2, companyName: "Test Company" };
-  const previous = { ...entry, timestamp: "2026-10-19T14:00:00Z", version: 1 };
+it("opens the dated analysis and keeps deletion in the actions menu", () => {
+  const entry = { ticker: "TEST", timestamp: "2026-10-20T14:00:00Z", decision: "hold", confidence: 0.8, consensus_reached: true, agent_votes: {}, final_statement: "Saved analysis", raw_card: {}, companyName: "Test Company" };
   const onOpen = vi.fn(), onDelete = vi.fn(), onDeleteTicker = vi.fn();
-  render(<AnalysisHistoryList entries={[entry]} onOpen={onOpen} versionsFor={() => [entry, previous]} onDelete={onDelete} onDeleteTicker={onDeleteTicker} />);
-  fireEvent.click(screen.getByRole("button", { name: "Open TEST analysis" }));
-  expect(onOpen).toHaveBeenCalledWith(entry);
-  fireEvent.keyDown(screen.getByRole("button", { name: "Versions for TEST" }), { key: "Enter" });
-  expect(screen.queryByText("Delete this version")).toBeNull();
-  fireEvent.click(screen.getByRole("menuitem", { name: /Version 1/ }));
-  expect(onOpen).toHaveBeenLastCalledWith(previous);
+  render(<AnalysisHistoryList entries={[entry]} onOpen={onOpen} onDelete={onDelete} onDeleteTicker={onDeleteTicker} />);
+  const analysis = screen.getByRole("button", { name: "Open TEST analysis" });
+  expect(analysis).toHaveTextContent(new Date(entry.timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }));
+  expect(screen.queryByRole("button", { name: /versions/i })).toBeNull();
+  fireEvent.click(analysis);
+  expect(onOpen).toHaveBeenCalledExactlyOnceWith(entry);
   fireEvent.keyDown(screen.getByRole("button", { name: "Actions for TEST" }), { key: "Enter" });
-  fireEvent.click(screen.getByRole("menuitem", { name: "Delete this version" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete this analysis" }));
   expect(onDelete).toHaveBeenCalledWith(entry);
 });
 

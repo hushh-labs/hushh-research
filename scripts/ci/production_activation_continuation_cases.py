@@ -10,7 +10,7 @@ import production_backend_successor_proof as proof
 import production_activation_continuation as continuation
 import production_phone_receipt as phone
 from production_pending_activation_cases import _pending_case
-from production_phone_receipt_fixtures import archive, healthy_tag
+from production_phone_receipt_fixtures import archive, healthy_tag, mixed_root_archive
 
 
 class _ContinuationCase:
@@ -131,6 +131,41 @@ class _ContinuationCase:
             }
         ]
         self.pack()
+
+    def published_failure(self):
+        self.run["conclusion"] = self.job["conclusion"] = "failure"
+        next(
+            step
+            for step in self.job["steps"]
+            if step["name"] == continuation.pending.HEALTHY_TAG
+        )["conclusion"] = "failure"
+        self.jobs["jobs"] += [
+            {"name": name, "status": "completed", "conclusion": "success"}
+            for name in (
+                "Validate Production dispatch mode",
+                "Deployment security / Verify repository secret clearance",
+            )
+        ]
+        self.jobs["total_count"] = len(self.jobs["jobs"])
+        stamp = "20261027T010000Z"
+        fields = {
+            "sha": self.release["sha"],
+            "backend_revision": self.release["final"]["backend_revision"],
+            "backend_url": "https://api.example.test",
+            "frontend_revision": self.release["final"]["frontend_revision"],
+            "frontend_url": "https://app.example.test",
+            "run": f"https://github.com/{self.fixture.repo}/actions/runs/500",
+            "actor": "governed-maintainer",
+            "tagged_at": stamp,
+        }
+        message = "Last known good — production\n" + "".join(
+            f"{key}: {value}\n" for key, value in fields.items()
+        )
+        return proof.reference.tag_identity(
+            f"object {self.release['sha']}\ntype commit\ntag deployed/production/{self.release['sha'][:8]}-{stamp}\n"
+            "tagger Fixture <fixture@example.test> 1793001000 +0000\n\n" + message,
+            ref=f"refs/tags/deployed/production/{self.release['sha'][:8]}-{stamp}",
+        )
 
     def read(self):
         return continuation.archive_context(
@@ -258,6 +293,167 @@ class ActivationFrontendContinuationCases:
 
 
 class ActivationContinuationCases(ActivationFrontendContinuationCases):
+    def test_published_activation_failure_requires_full_join_and_current_attempt(self):
+        for defect in (
+            None,
+            "health",
+            "another-step",
+            "another-job",
+            "duplicate-security",
+            "security",
+            "artifact",
+            "activation",
+            "frontend",
+            "rerun",
+            "missing-tag",
+        ):
+            with self.subTest(defect=defect), _continuation_case(self) as case:
+                tag = case.published_failure()
+                if defect in {"health", "another-step"}:
+                    name = (
+                        "Post-deploy backend runtime health gate"
+                        if defect == "health"
+                        else "unexpected"
+                    )
+                    case.job["steps"].append(
+                        {**case.original.upload, "name": name, "conclusion": "failure"}
+                    )
+                elif defect == "another-job":
+                    case.jobs["jobs"][-1]["conclusion"] = "failure"
+                elif defect == "duplicate-security":
+                    case.jobs["jobs"].append({**case.jobs["jobs"][-1], "conclusion": "skipped"})
+                    case.jobs["total_count"] += 1
+                elif defect == "security":
+                    case.jobs["jobs"][-1]["conclusion"] = "skipped"
+                elif defect == "artifact":
+                    case.artifact["digest"] = "sha256:" + "0" * 64
+                elif defect == "activation":
+                    case.activation["fence_removal"] = "unknown"
+                    case.pack()
+                elif defect == "frontend":
+                    tag = {
+                        **tag,
+                        "message": tag["message"].replace(
+                            "hushh-webapp-current", "hushh-webapp-other"
+                        ),
+                    }
+                elif defect == "rerun":
+                    case.on_refresh = lambda: case.run.update(run_attempt=2)
+                with mock.patch.object(
+                    continuation, "publication_tag", return_value=tag
+                ) as publication:
+                    if defect == "missing-tag":
+                        publication.side_effect = ValueError("missing publication")
+                    if defect is None:
+                        result = case.read()
+                        self.assertEqual(result["backend"]["run_id"], 400)
+                        self.assertEqual(
+                            result["publication_reconciliation"]["run_id"], 500
+                        )
+                    else:
+                        with self.assertRaises(phone.retention.UnsafeState):
+                            case.read()
+
+    def test_immutable_publication_discovery_rejects_changed_identity(self):
+        for defect in (
+            None,
+            "missing",
+            "duplicate",
+            "oid",
+            "source",
+            "revision",
+            "run",
+            "name",
+            "window",
+        ):
+            with self.subTest(defect=defect), _continuation_case(self) as case:
+                tag = case.published_failure()
+                ref = continuation.publication_ref(tag)
+                listing = tag["tag_oid"] + "\t" + ref
+                if defect == "missing":
+                    listing = ""
+                elif defect == "duplicate":
+                    listing += "\n" + listing
+                elif defect == "oid":
+                    listing = "0" * 40 + "\t" + ref
+                elif defect == "source":
+                    tag = {**tag, "commit": "0" * 40}
+                elif defect in {"revision", "run"}:
+                    tag = {
+                        **tag,
+                        "message": tag["message"].replace(
+                            case.release["final"]["backend_revision"]
+                            if defect == "revision"
+                            else "/runs/500",
+                            "consent-protocol-other"
+                            if defect == "revision"
+                            else "/runs/501",
+                        ),
+                    }
+                elif defect == "name":
+                    tag = {
+                        **tag,
+                        "tag_object": tag["tag_object"].replace(
+                            "tag deployed/production/", "tag unrelated/"
+                        ),
+                    }
+                step = next(
+                    step
+                    for step in case.job["steps"]
+                    if step["name"] == continuation.pending.HEALTHY_TAG
+                )
+                step.update(
+                    started_at="2026-10-27T00:59:59Z",
+                    completed_at="2026-10-27T01:00:01Z",
+                )
+                if defect == "window":
+                    step["completed_at"] = "2026-10-27T00:59:59Z"
+                with (
+                    mock.patch.object(proof.reference, "git", return_value=listing),
+                    mock.patch.object(proof, "read_tag", return_value=tag),
+                ):
+                    if defect is None:
+                        self.assertEqual(
+                            continuation.publication_tag(
+                                case.release["sha"],
+                                case.release["final"]["backend_revision"],
+                                run_id=500,
+                                job=case.job,
+                            ),
+                            tag,
+                        )
+                    else:
+                        with self.assertRaises(
+                            (phone.retention.UnsafeState, ValueError)
+                        ):
+                            continuation.publication_tag(
+                                case.release["sha"],
+                                case.release["final"]["backend_revision"],
+                                run_id=500,
+                                job=case.job,
+                            )
+
+    def test_continuation_reuses_mixed_root_pending_and_healthy_receipt_layouts(self):
+        with _continuation_case(self) as case:
+            case.original.payload = mixed_root_archive(
+                case.original, case.original.documents
+            )
+            case.origin = case.load()
+            case.documents[continuation.ORIGIN] = case.origin
+            case.payload = mixed_root_archive(case, case.documents)
+            context = case.read()
+            self.assertEqual(context["status"], "activated")
+            self.assertEqual(context["backend"]["run_id"], 400)
+            self.assertEqual(context["cold_rollback"]["runtime_run_id"], "300")
+            self.assertEqual(
+                case.origin["original"]["artifact_digest"],
+                case.original.artifact["digest"],
+            )
+            case.documents[continuation.ORIGIN] = None
+            case.payload = mixed_root_archive(case, case.documents)
+            with self.assertRaises(phone.retention.UnsafeState):
+                case.read()
+
     def test_continuation_loads_original_pending_archive_and_keeps_backend_owner(self):
         with _continuation_case(self) as case:
             before = copy.deepcopy(case.original.documents)

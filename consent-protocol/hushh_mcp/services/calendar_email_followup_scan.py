@@ -37,6 +37,7 @@ from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
     _clear_message,
     _cutoff_ms,
     _initial_checkpoint,
+    _is_empty_retry_checkpoint,
     _mark_incomplete,
     _reset_exhausted,
     _save,
@@ -101,6 +102,7 @@ async def _step(
     sections_left: int,
     now: datetime | None,
     reconcile: Reconcile,
+    deadline: float | None = None,
 ) -> tuple[int, int, bool]:
     """Advance one durable section, message, thread, or provider page boundary."""
     if checkpoint.get("version") != 1 or checkpoint.get("mode") not in _MODES:
@@ -115,7 +117,7 @@ async def _step(
         "now": now,
     }
     if checkpoint["thread_messages"]:
-        return await _step_message(**common, reconcile=reconcile)
+        return await _step_message(**common, reconcile=reconcile, deadline=deadline)
     if checkpoint["pending_threads"]:
         return await _step_thread(**common)
     return await _step_page(**common)
@@ -131,6 +133,7 @@ async def _step_message(
     sections_left: int,
     now: datetime | None,
     reconcile: Reconcile,
+    deadline: float | None = None,
 ) -> tuple[int, int, bool]:
     messages = checkpoint["thread_messages"]
     index = checkpoint["message_index"]
@@ -201,6 +204,7 @@ async def _step_message(
         prior=prior,
         sections_left=sections_left,
         now=now,
+        deadline=deadline,
     )
     if moved_on:
         return consumed, 0, False
@@ -228,9 +232,12 @@ async def _assess_sections(
     prior: list[dict[str, str]],
     sections_left: int,
     now: datetime | None,
+    deadline: float | None = None,
 ) -> tuple[int, bool]:
     consumed = 0
     while checkpoint["section_index"] < len(message.sections) and consumed < sections_left:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         section = message.sections[checkpoint["section_index"]]
         drops = dict(checkpoint["partial_drops"])
         started = time.monotonic()
@@ -365,7 +372,7 @@ async def _prepare(
     expired history only needs the unsynchronized period, and keeps what was
     still unverified.
     """
-    if force and checkpoint.get("mode") != "gap":
+    if checkpoint and force and checkpoint.get("mode") != "gap":
         _reset_exhausted(checkpoint)
     if checkpoint and checkpoint.get("mode") != "gap" and not bootstrap_window_is_stale(checkpoint):
         return checkpoint
@@ -417,6 +424,7 @@ async def _drain(
             sections_left=max_sections - progress["sections"],
             now=now,
             reconcile=reconcile,
+            deadline=deadline,
         )
         progress["sections"] += used
         progress["messages"] += completed
@@ -471,7 +479,12 @@ async def scan_once(
     )
     if not monitor:
         return {"state": "not_due", "sections": 0, "messages": 0}
-    checkpoint = _upgrade_checkpoint(dict(monitor.checkpoint)) if monitor.checkpoint else {}
+    checkpoint = dict(monitor.checkpoint or {})
+    recovering_empty_retry = bool(checkpoint) and _is_empty_retry_checkpoint(checkpoint)
+    if recovering_empty_retry:
+        checkpoint = {}
+    elif checkpoint:
+        checkpoint = _upgrade_checkpoint(checkpoint)
     progress: dict[str, Any] = {"sections": 0, "messages": 0, "done": False}
     try:
         selected = await open_selected_mail_grant(user_id=user_id, account_id=account_id)
@@ -485,6 +498,10 @@ async def scan_once(
             checkpoint = await _prepare(
                 store, monitor, checkpoint, client=client, grant=grant, now=now, force=force
             )
+            if recovering_empty_retry:
+                logger.info(
+                    "calendar_followup_checkpoint_reinitialized reason=empty_retry_checkpoint"
+                )
             await _drain(
                 monitor=monitor,
                 checkpoint=checkpoint,

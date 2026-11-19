@@ -14,7 +14,7 @@ export function AgentUpdateProgress({ update }: { update: AgentUpdateStatus }) {
 
   const label = stage === STAGES.length ? "Installation verified" : STAGES[stage];
   return (
-    <span className="block space-y-2" role="status" aria-label={`Software update: ${label}`}>
+    <span className="block space-y-2" role="status" aria-label={`Agent update: ${label}`}>
       <span className="grid grid-cols-4 gap-1" aria-hidden="true">
         {STAGES.map((name, index) => (
           <span

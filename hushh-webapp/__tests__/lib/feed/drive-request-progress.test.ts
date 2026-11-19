@@ -53,7 +53,10 @@ describe("projectFeedDriveProgress", () => {
     } })]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("Finding documents");
+    expect(rows[0]).toMatchObject({
+      title: "Finding your documents",
+      description: "Trusted Circle request. Sharing is automatic.",
+    });
     expect(rows[0]?.href).toContain("requestId=document_share_request");
     expect(rows[0]?.href).not.toContain("requestView=sent");
     expect(JSON.stringify(rows)).not.toMatch(/unconfirmed\.pdf|candidate_count|7 files/i);
@@ -66,7 +69,15 @@ describe("projectFeedDriveProgress", () => {
     })]);
 
     expect(rows[0]?.href).toContain("requestView=sent");
-    expect(rows[0]?.description).toContain("your Trusted Circle request");
+    expect(rows[0]).toMatchObject({
+      title: "Finding documents",
+      description: "Files appear once access is confirmed.",
+    });
+    const [sharing] = projectFeedDriveProgress([entry({
+      kind: "outgoing_request",
+      metadata: { ...entry().metadata, direction: "outgoing", automatic_progress_state: "sharing" },
+    })]);
+    expect(sharing?.title).toBe("Sharing documents with you");
   });
 
   // 2026-10-17: "One is preparing the document request" showed for an hour while nothing ran.
@@ -112,10 +123,10 @@ describe("projectFeedDriveProgress", () => {
     const row = (metadata: Record<string, unknown>) =>
       projectFeedDriveProgress([entry({ metadata: { ...entry().metadata, ...metadata } })])[0];
     expect(row({ automatic_progress_state: "searching" })).toMatchObject({
-      title: "Finding documents" });
+      title: "Finding your documents" });
     expect(row({ automatic_progress_state: "searching" })?.waiting).toBeUndefined();
     expect(row({ automatic_progress_stage: "sharing", automatic_progress_state: "sharing" })?.title)
-      .toBe("Sharing documents");
+      .toBe("Sharing your documents");
     // No state field (older server): its "preparing" never meant work had started.
     expect(row({ automatic_progress_stage: "preparing" })).toMatchObject({
       title: "Waiting to start", waiting: true, queuedAt: null });
@@ -175,7 +186,7 @@ describe("projectFeedDriveProgress", () => {
     const rows = projectFeedDriveProgress([pending, active]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("Sharing documents");
+    expect(rows[0]?.title).toBe("Sharing your documents");
     expect(rows[0]?.href).toContain("tab=active");
   });
 
@@ -464,6 +475,10 @@ describe("projectFeedDriveProgress", () => {
     expect(first.title).toBe("Pay $10 · Standup notes");
     expect(second.title).toBe("Pay $10 · Project budget");
     expect(first.description).toMatch(/^From V · .+2026.+ · 5m left$/);
+    const withPayAction = describeFeedDrivePayment(payment, now, context, { priceOnAction: true });
+    expect(withPayAction).toMatchObject({ title: "Standup notes", description: first.description });
+    expect(describeFeedDrivePayment({ ...payment, ownerLabel: null }, now, undefined, { priceOnAction: true }).title)
+      .toBe("Document request ready");
     const expired = describeFeedDrivePayment(payment, now + 300_001, context);
     expect(expired.title).toBe("Payment link expired");
     expect(expired.description).toContain("Standup notes · From V");

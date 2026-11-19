@@ -173,7 +173,31 @@ describe("Profile pane: Personal World Model", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("reverifies an app-only phone without automatically transferring it from its Firebase owner", async () => {
+  it.each([
+    { appPhone: "+16505550101", providerPhone: null, description: "0101", action: "Manage" },
+    { appPhone: "+16505550101", providerPhone: "+16505550999", description: "0101", action: "Manage" },
+    { appPhone: "+16505550101", providerPhone: "+16505550101", description: "0101", action: "Change" },
+    { appPhone: null, providerPhone: "+16505550999", description: "Finish phone verification", action: "Verify" },
+  ])("shows the Account phone summary and $action for its binding state", async ({
+    appPhone, providerPhone, description, action,
+  }) => {
+    nav.query = "profile_pane=1&profile_panel=account";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    auth.phoneNumber = appPhone;
+    auth.phoneNumberStatus = appPhone ? "verified" : "missing";
+    vi.mocked(AuthService.reloadPhoneVerificationUser).mockResolvedValue({
+      ...auth.user, phoneNumber: providerPhone,
+    } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
+    render(<StepProgressProvider><ProfilePage presentation="pane"
+      paneLocation={{ panel: "account", detail: null }} /></StepProgressProvider>);
+    const row = await screen.findByRole("button", { name: new RegExp(`^Phone number.*${action}`) });
+    expect(row).toHaveTextContent(description);
+    expect(row).not.toHaveTextContent("5550101");
+    expect(row).not.toHaveTextContent("0999");
+    expect(auth.startPhoneVerification).not.toHaveBeenCalled();
+  });
+
+  it("asks for fresh provider proof when the owner chooses to link an app-only phone", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);

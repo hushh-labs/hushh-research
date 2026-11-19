@@ -1,12 +1,14 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OneLocationGrant } from "@/lib/one-location/types";
+import type { OneLocationGrant, OneLocationState } from "@/lib/one-location/types";
 
 let receivedGrantsFixture: Array<Partial<OneLocationGrant>> = [];
 const mocks = vi.hoisted(() => ({
   clearSosCards: vi.fn(),
   locationRefresh: vi.fn(async () => undefined),
   vaultOwnerToken: "test-vault-token" as string | null,
+  realLocation: false,
+  getState: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -34,7 +36,8 @@ vi.mock("@/lib/vault/vault-context", () => {
   }) };
 });
 
-vi.mock("@/lib/services/cache-service", () => ({
+vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/cache-service")>(),
   CACHE_KEYS: {
     CONSENT_CENTER_SUMMARY: (userId: string) =>
       `consent-summary:${userId}`,
@@ -48,19 +51,16 @@ vi.mock("@/lib/services/cache-service", () => ({
   CACHE_TTL: {
     SHORT: 1,
   },
-  CacheService: {
-    getInstance: () => ({
-      set: () => undefined,
-      invalidate: () => undefined,
-    }),
-  },
 }));
 
-vi.mock("@/lib/cache/use-stale-resource", () => ({
-  useStaleResource: ({ cacheKey }: { cacheKey: string }) => {
+vi.mock("@/lib/cache/use-stale-resource", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cache/use-stale-resource")>();
+  return { useStaleResource: (options: Parameters<typeof actual.useStaleResource>[0]) => {
+    const { cacheKey } = options;
     const refresh = async () => undefined;
 
     if (cacheKey.startsWith("location:")) {
+      if (mocks.realLocation) return actual.useStaleResource(options);
       return {
         data: {
           requests: [],
@@ -89,8 +89,8 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
       loading: false,
       refresh,
     };
-  },
-}));
+  } };
+});
 
 vi.mock("@/lib/services/debate-run-manager", () => ({
   DebateRunManagerService: {
@@ -133,10 +133,7 @@ vi.mock("@/lib/services/connections-service", () => ({
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
-    getState: async () => ({
-      requests: [],
-      receivedGrants: [],
-    }),
+    getState: mocks.getState,
   },
 }));
 
@@ -145,6 +142,8 @@ vi.mock("@/lib/services/feed-service", () => ({
 }));
 
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { CacheService } from "@/lib/services/cache-service";
 
 function revokedSos(overrides: Record<string, unknown> = {}) {
   return {
@@ -166,6 +165,11 @@ function emergencyCard(current: ReturnType<typeof useFeedActionables>) {
 
 describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   beforeEach(() => {
+    mocks.realLocation = false;
+    mocks.getState.mockReset();
+    mocks.getState.mockResolvedValue({ requests: [], receivedGrants: [] });
+    OneLocationStateResource.discardAll();
+    CacheService.getInstance().clear();
     window.localStorage.clear();
     delete window.__HUSHH_NATIVE_TEST__;
     mocks.vaultOwnerToken = "test-vault-token";
@@ -189,9 +193,31 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   });
 
   afterEach(() => {
+    OneLocationStateResource.discardAll();
+    CacheService.getInstance().clear();
     delete window.__HUSHH_NATIVE_TEST__;
     vi.useRealTimers();
     window.localStorage.clear();
+  });
+
+  it("reconciles a Feed refresh arriving during a slow pre-event Location read without publishing that old read", async () => {
+    mocks.realLocation = true;
+    let resolveOld!: (state: OneLocationState) => void;
+    let resolveNew!: (state: OneLocationState) => void;
+    mocks.getState.mockReset();
+    mocks.getState.mockImplementationOnce(() => new Promise<OneLocationState>(resolve => { resolveOld = resolve; }));
+    mocks.getState.mockImplementationOnce(() => new Promise<OneLocationState>(resolve => { resolveNew = resolve; }));
+    const { result } = renderHook(() => useFeedActionables());
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(1));
+    let refresh!: Promise<unknown>;
+    act(() => { refresh = result.current.retry(); });
+    await act(async () => { resolveOld({ requests: [], receivedGrants: receivedGrantsFixture } as OneLocationState); });
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(2));
+    expect(OneLocationStateResource.peek("receiver-user")).toBeNull();
+    expect(emergencyCard(result.current)).toBeUndefined();
+    await act(async () => { resolveNew({ requests: [], receivedGrants: [] } as unknown as OneLocationState); await refresh; });
+    expect(OneLocationStateResource.peek("receiver-user")?.data.receivedGrants).toEqual([]);
+    expect(emergencyCard(result.current)).toBeUndefined();
   });
 
   it("does not present self-addressed or another recipient's SMS as this recipient's alert", async () => {

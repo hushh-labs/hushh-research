@@ -316,6 +316,59 @@ it("preserves Alerts after a failed save and recovers through Reconnect", async 
   await waitFor(() => expect(screen.getByRole("switch", { name: "Chat alerts" })).toHaveAttribute("aria-checked", "false"));
 });
 
+it("offers photo, video, and document choices from the circle attachment action", async () => {
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+
+  const attachmentAction = screen.getByRole("button", { name: "Attach photo, video, or document" });
+  fireEvent.keyDown(attachmentAction, { key: "Enter", code: "Enter" });
+
+  expect(await screen.findByRole("menuitem", { name: "Photo" })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Video" })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Document" })).toBeInTheDocument();
+  expect(screen.getByTestId("circle-attachment-video")).toHaveAttribute("accept", "video/mp4,video/webm");
+  expect(screen.getByTestId("circle-attachment-document")).toHaveAttribute("accept", "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt");
+  const openDocument = vi.spyOn(screen.getByTestId("circle-attachment-document"), "click").mockImplementation(() => {});
+  fireEvent.click(screen.getByRole("menuitem", { name: "Document" }));
+  expect(openDocument).toHaveBeenCalledOnce();
+});
+
+it.each(["success", "failure"] as const)("keeps the newer attachment when an older picker read ends in %s", async (outcome) => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:older-photo");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  api.prepare.mockResolvedValue({ clientMessageId: "latest-document" });
+  api.send.mockResolvedValue({ ...message, id: "sent-document", sequence: 2, senderUserId: "alice" });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+
+  const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  let finishOlder!: () => void;
+  const olderRead = new Promise<ArrayBuffer>((resolve, reject) => {
+    finishOlder = () => outcome === "success" ? resolve(bytes.buffer) : reject(new Error("Old read failed"));
+  });
+  const older = new File([bytes], "older.png", { type: "image/png" });
+  Object.defineProperty(older, "arrayBuffer", { value: () => olderRead });
+  fireEvent.change(screen.getByLabelText("Attach photo, video, or document", { selector: "input" }), { target: { files: [older] } });
+
+  const textBytes = new TextEncoder().encode("latest attachment");
+  const latest = new File([textBytes], "latest.txt", { type: "text/plain" });
+  Object.defineProperty(latest, "arrayBuffer", { value: async () => textBytes.buffer });
+  const documentInput = screen.getByTestId("circle-attachment-document");
+  Object.defineProperty(documentInput, "value", { value: "C:\\fakepath\\latest.txt", writable: true, configurable: true });
+  fireEvent.change(documentInput, { target: { files: [latest] } });
+  await screen.findByText("latest.txt");
+  await act(async () => finishOlder());
+
+  expect(screen.getByText("latest.txt")).toBeVisible();
+  expect(documentInput).toHaveValue("C:\\fakepath\\latest.txt");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(api.prepare).toHaveBeenCalled());
+  expect(api.prepare.mock.calls[0]![2]).toBe(latest);
+  await waitFor(() => expect(screen.queryByText("latest.txt")).not.toBeInTheDocument());
+  expect(documentInput).toHaveValue("");
+});
+
 it("shows the photo before preparation, retries identical ciphertext and reconciles a transcript confirmation before POST", async () => {
   const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});

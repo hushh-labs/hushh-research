@@ -1104,7 +1104,7 @@ export function PortfolioReviewView({
     return (
       <ShellActionSurface
         variant="pill"
-        className="h-11 text-sm sm:text-sm"
+        className="h-11 whitespace-nowrap text-sm sm:text-sm"
         aria-label={"Manage entries for " + (position.symbol || "holding")}
         onClick={(event) => {
           event.stopPropagation();

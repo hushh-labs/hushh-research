@@ -10,11 +10,6 @@ import type { FinanceShareContext } from "@/lib/services/finance-sharing-service
 import { documentPayoutLinkUrl } from "@/lib/services/document-payout-links";
 import styles from "./advisor-review.module.css";
 
-const payoutStatus = {
-  pending: "Pending", in_transit: "On its way", paid: "Paid",
-  failed: "Failed", canceled: "Cancelled",
-};
-
 export function AdvisorPlanPanel({
   review,
   context,
@@ -71,12 +66,12 @@ export function AdvisorPlanPanel({
     );
     return () => controller.abort();
   }, [active, context, hasPlan, oneTime, refreshPaymentOnOpen, review.id, revision]);
-  const openStripe = (action: "onboarding" | "dashboard") => run(async () => {
-    const result = await AdvisorReviewService.sandboxPayoutLink(context, review.id, action);
+  const openStripe = () => run(async () => {
+    const result = await AdvisorReviewService.sandboxPayoutLink(context, review.id, "onboarding");
     if (result.mode !== "test") {
       throw new Error("The Stripe sandbox link could not be verified.");
     }
-    const url = documentPayoutLinkUrl(result.url, action === "dashboard" ? "management" : "onboarding");
+    const url = documentPayoutLinkUrl(result.url, "onboarding");
     if (context.isCurrent()) window.location.assign(url);
   });
   const refreshPayout = () => run(async () => {
@@ -203,6 +198,23 @@ export function AdvisorPlanPanel({
               : "Set up test payouts to offer a plan."}
           </p>
         )}
+        {showPayouts && !payoutReady && sandbox !== null ? (
+          <div className={styles.planActions}>
+            {sandbox !== "unavailable" ? (
+              <ShellActionSurface
+                variant="pill"
+                className={styles.handshakePrimary}
+                disabled={busy}
+                onClick={() => void openStripe()}
+              >
+                Set up test payouts
+              </ShellActionSurface>
+            ) : <p className="ui-text-helper-text">Sandbox status is unavailable.</p>}
+            <ShellActionSurface variant="pill" disabled={busy} onClick={() => void refreshPayout()}>
+              Check payout status
+            </ShellActionSurface>
+          </div>
+        ) : null}
         {advisor && canStartPlan && payoutReady ? (
           <details>
             <summary className="ui-text-button-label">Offer or update a plan</summary>
@@ -237,40 +249,6 @@ export function AdvisorPlanPanel({
           </p>
         ) : null}
       </section>
-      {showPayouts ? (
-        <section className={`${styles.card} ${styles.planCard}`} aria-label="Sandbox payouts">
-          <h3 className="ui-text-section-label">Test payouts</h3>
-          {sandbox === null ? <p role="status" className="ui-text-helper-text">Checking Stripe…</p>
-            : sandbox === "unavailable" ? <p className="ui-text-helper-text">Sandbox status is unavailable.</p>
-            : payoutReady ? (
-              <div className={styles.planDetails}>
-                <p className="ui-text-row-label">Test bank account ready</p>
-                <p className="ui-text-helper-text">
-                  {sandbox.latest
-                    ? `Latest account payout · ${payoutStatus[sandbox.latest.status]} · $${(sandbox.latest.amountCents / 100).toFixed(2)}`
-                    : "No sandbox payouts yet."}
-                </p>
-              </div>
-            ) : <p className="ui-text-helper-text">Finish sandbox setup to receive test payouts.</p>}
-          {sandbox !== null ? (
-            <div className={styles.planActions}>
-              {sandbox !== "unavailable" ? (
-                <ShellActionSurface
-                  variant="pill"
-                  className={!payoutReady ? styles.handshakePrimary : undefined}
-                  disabled={busy}
-                  onClick={() => void openStripe(payoutReady ? "dashboard" : "onboarding")}
-                >
-                  {payoutReady ? "Open test Stripe" : "Set up test payouts"}
-                </ShellActionSurface>
-              ) : null}
-              <ShellActionSurface variant="pill" disabled={busy} onClick={() => void refreshPayout()}>
-                Check payout status
-              </ShellActionSurface>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
     </div>
   );
 }

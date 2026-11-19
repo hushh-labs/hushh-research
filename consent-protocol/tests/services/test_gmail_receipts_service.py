@@ -23,8 +23,9 @@ from tests.google_oauth_test_support import configure_gmail_oauth as _configure_
 
 
 @pytest.fixture(autouse=True)
-def _enable_legacy_sync_path_for_compatibility_tests(monkeypatch):
+def _enable_legacy_sync_path_for_compatibility_tests(monkeypatch, active_account_lifecycle):
     """Keep retained worker-path tests useful while production stays read-only."""
+    _ = active_account_lifecycle
 
     monkeypatch.setattr(
         gmail_receipts_service_module,
@@ -133,8 +134,13 @@ async def test_machine_gmail_paths_refuse_private_or_unknown_owners_before_provi
         == ("canceled" if mode in owner_placement_guard.PRIVATE_MODES else "failed")
         for item in terminals
     )
+    retired_sqls = [sql for sql, _params in updates if "auto_sync_enabled = FALSE" in sql]
     retired = [params for sql, params in updates if "auto_sync_enabled = FALSE" in sql]
     assert bool(retired) == (mode in owner_placement_guard.PRIVATE_MODES)
+    assert all(
+        "last_sync_status = 'idle'" in sql and "last_sync_status = 'canceled'" not in sql
+        for sql in retired_sqls
+    )
 
 
 @pytest.mark.parametrize("changed_after", [None, "credential", "listing", "metadata", "model"])
@@ -222,6 +228,7 @@ async def test_retiring_a_verified_private_cohort_keeps_shared_scheduler_work_re
                 data=[{"user_id": owner} for owner, enabled in active.items() if enabled][:50]
             )
         if "auto_sync_enabled = FALSE" in sql:
+            assert "last_sync_status = 'idle'" in sql and "last_sync_status = 'canceled'" not in sql
             active[params["user_id"]] = False
         return SimpleNamespace(data=[])
 
@@ -1533,9 +1540,13 @@ async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacemen
         lambda: datetime(2026, 3, 1, 0, 5, tzinfo=timezone.utc),
     )
 
-    def _fake_create_task(coro):
-        coro.close()
-        return SimpleNamespace(add_done_callback=lambda cb: None)
+    orig_create_task = asyncio.create_task
+
+    def _fake_create_task(coro, *args, **kwargs):
+        if getattr(coro, "__name__", "") == "_run_sync_worker":
+            coro.close()
+            return SimpleNamespace(add_done_callback=lambda cb: None)
+        return orig_create_task(coro, *args, **kwargs)
 
     monkeypatch.setattr(
         "hushh_mcp.services.gmail_receipts_service.asyncio.create_task",
@@ -1603,9 +1614,13 @@ async def test_queue_sync_preempts_backfill_for_manual_request(monkeypatch):
 
     service._sync_tasks_by_run_id["gmail_sync_backfill"] = _LiveTask()
 
-    def _fake_create_task(coro):
-        coro.close()
-        return SimpleNamespace(add_done_callback=lambda cb: None)
+    orig_create_task = asyncio.create_task
+
+    def _fake_create_task(coro, *args, **kwargs):
+        if getattr(coro, "__name__", "") == "_run_sync_worker":
+            coro.close()
+            return SimpleNamespace(add_done_callback=lambda cb: None)
+        return orig_create_task(coro, *args, **kwargs)
 
     monkeypatch.setattr(
         "hushh_mcp.services.gmail_receipts_service.asyncio.create_task",

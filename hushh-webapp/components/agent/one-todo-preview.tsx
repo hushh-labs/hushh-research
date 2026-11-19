@@ -154,7 +154,10 @@ export function OneTodoPreview({
         <h3 data-profile-role="header">To-do list</h3>
         <Button
           type="button"
+          variant="blue"
+          effect="fade"
           size="compact"
+          className="border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] px-3 hover:bg-[color:var(--app-card-surface-default-solid)]"
           data-todo-add-item="true"
           disabled={!ready || loading || Boolean(savingTaskId)}
           onClick={() => setEditorOpen(true)}

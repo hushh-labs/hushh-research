@@ -20,7 +20,10 @@ Classes:
 * ``NETWORK``: person-to-person and directory features the hub brokers between
   accounts (connections, messages, Location sharing, marketplace, referrals).
 * ``CIPHERTEXT``: sealed records the hub stores and indexes but does not open.
-* ``CONNECTOR_ADMIN``: connect, disconnect and status of a provider link.
+* ``CONNECTOR_ADMIN``: connect, disconnect, status, and stateless zero-persistence
+  vendor-secret passthrough (such as ``/api/kai/plaid/vault/*``, where every provider
+  call requires Hussh's corporate secret while the owner's device holds and seals all
+  tokens and records).
 * ``SUPPORT``: public reference information, settings and retired responders.
 * ``OPS``: placement, provisioning, setup, heartbeat and lifecycle.
 
@@ -117,7 +120,6 @@ POST /api/kai/gmail/sync
 GET /api/kai/gmail/sync/{run_id}
 GET /api/kai/market/insights/{user_id}
 GET /api/kai/market/news/{user_id}
-POST /api/kai/plaid/vault/snapshot
 POST /api/kai/portfolio/analyze-losers
 POST /api/kai/portfolio/analyze-losers/stream
 POST /api/kai/portfolio/import
@@ -160,6 +162,8 @@ POST /api/one/calendar/followups/resolve
 POST /api/one/calendar/followups/source
 POST /api/one/calendar/followups/source/link
 POST /api/one/calendar/followups/request
+POST /api/one/calendar/followups/booking/review
+POST /api/one/calendar/followups/booking/execute
 POST /api/one/calendar/followups/booking/confirm
 POST /api/one/calendar/followups/scan
 POST /api/one/calendar/followups/mail/connect/start
@@ -336,6 +340,7 @@ GET /api/kai/gmail/status/{user_id}
 POST /api/kai/plaid/vault/exchange
 POST /api/kai/plaid/vault/link-token
 POST /api/kai/plaid/vault/remove
+POST /api/kai/plaid/vault/snapshot
 POST /api/one/calendar/connect/complete
 POST /api/one/calendar/connect/native/complete
 POST /api/one/calendar/connect/native/start

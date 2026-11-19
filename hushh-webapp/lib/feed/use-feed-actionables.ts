@@ -41,12 +41,12 @@ import {
   isConsentChangeWorthRefreshing,
   useFeedLiveRefresh,
   useFeedPendingConsentRefresh,
+  type FeedRefreshScope,
 } from "@/lib/feed/use-feed-live-refresh";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
   CACHE_TTL,
-  CacheService,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
@@ -597,7 +597,6 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     Set<string>
   >(() => (userId ? readDeviceOnlySmsClearIds(userId) : new Set()));
   const deviceOnlySmsCopyRef = useRef<string | null>(null);
-  const cache = useMemo(() => CacheService.getInstance(), []);
   const consentDecision = useOwnerConsentDecision({ userId });
   const readConsentPage = (options: Parameters<typeof ConsentCenterService.listEntries>[0]) =>
     allPending ? listConsentTaskPages(options, () => getAuthSessionGeneration() === authGeneration)
@@ -852,21 +851,23 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   });
 
   // ── Location access requests (vault-gated read) ──
-  // Shares the canonical ONE_LOCATION_STATE cache with the Location workspace,
-  // so this loader write-throughs via OneLocationStateResource (which owns that
-  // key) rather than leaving the shared snapshot stale; useStaleResource only
-  // peeks the cache, so without the write the SWR warm-render never happens.
+  // Share publication and invalidation fences with the Location workspace.
+  const locationVaultEpoch = snapshotVaultSessionEpoch();
   const locationResource = useStaleResource({
     cacheKey: userId
       ? CACHE_KEYS.ONE_LOCATION_STATE(userId)
       : "one_location_state_guest",
     enabled: Boolean(userId) && Boolean(vaultOwnerToken),
+    requestScope: `location:${authGeneration}:${locationVaultEpoch}`,
+    retainOnInvalidate: true,
+    getRequestVersion: () => userId ? OneLocationStateResource.currentRevision(userId) : 0,
+    isRequestCurrent: () => getAuthSessionGeneration() === authGeneration &&
+      isVaultSessionEpochCurrent(locationVaultEpoch) && getVaultOwnerToken() === vaultOwnerToken,
     load: async () => {
-      if (!vaultOwnerToken)
+      if (!vaultOwnerToken || !userId || getAuthSessionGeneration() !== authGeneration ||
+        !isVaultSessionEpochCurrent(locationVaultEpoch) || getVaultOwnerToken() !== vaultOwnerToken)
         throw new Error("Unlock to review location requests");
-      const state = await OneLocationService.getState(vaultOwnerToken);
-      if (userId) OneLocationStateResource.write(userId, state);
-      return state;
+      return OneLocationStateResource.load(userId, () => OneLocationService.getState(vaultOwnerToken));
     },
   });
 
@@ -877,26 +878,26 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // this resource never re-runs, so an accepted request stays on the feed as
   // though it were still waiting.
   const connectionsResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONNECTIONS_INCOMING(userId)
       : "connections_incoming_guest",
     refreshKey: `connections:${consentTick}`,
     enabled: Boolean(userId),
+    retainOnInvalidate: true,
+    cacheTtlMs: CACHE_TTL.SHORT,
+    resourceLabel: "feed_connection_requests",
     load: async () => {
       const idToken = await user?.getIdToken();
-      if (!idToken) throw new Error("Sign in to review connections");
+      if (!idToken || getAuthSessionGeneration() !== authGeneration) {
+        throw new Error("Sign in to review connections");
+      }
       const requests = await ConnectionsService.listRequests({
         idToken,
         direction: "incoming",
       });
-      // Write-through so a revisit renders instantly (useStaleResource peeks
-      // the cache but never populates it; the loader owns that here).
-      if (userId) {
-        cache.set(
-          CACHE_KEYS.CONNECTIONS_INCOMING(userId),
-          requests,
-          CACHE_TTL.SHORT,
-        );
+      if (getAuthSessionGeneration() !== authGeneration) {
+        throw new DOMException("The Feed session changed.", "AbortError");
       }
       return requests;
     },
@@ -1372,16 +1373,23 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   // worse than a stale history: it offers Approve on a request somebody already
   // answered elsewhere. Every source behind it re-checks on the same live signal
   // the list and the tab badge use.
-  const refreshActionables = useCallback(async () => {
+  const refreshActionables = useCallback(async (scope?: FeedRefreshScope) => {
     if (!userId) return;
+    if (scope === "connections") {
+      await connectionsRefresh({ force: true });
+      return;
+    }
+    if (scope !== "consent") OneLocationStateResource.invalidate(userId);
     await Promise.all([
       consentSummaryRefresh({ force: true }),
       consentListRefresh({ force: true }),
       receivedOverflowRefresh({ force: true }),
       sentProgressRefresh({ force: true }),
       activeProgressRefresh({ force: true }),
-      locationRefresh({ force: true }),
-      connectionsRefresh({ force: true }),
+      ...(scope === "consent" ? [] : [
+        locationRefresh({ force: true }),
+        connectionsRefresh({ force: true }),
+      ]),
     ]);
   }, [
     userId,
@@ -1395,8 +1403,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
   ]);
 
   useFeedLiveRefresh(
-    useCallback(() => {
-      void refreshActionables();
+    useCallback((scope?: FeedRefreshScope) => {
+      void refreshActionables(scope);
     }, [refreshActionables]),
     Boolean(userId),
   );
@@ -1594,13 +1602,14 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     }
 
     for (const payment of sentPayments) {
-      const displayPayment = describeFeedDrivePayment(
-        payment,
-        paymentClockNow,
-        paymentContexts[payment.requestId],
-      );
+      if (settledConsentKeys.has(`drive-payment:${payment.requestId}`)) continue;
+      const paymentContext = paymentContexts[payment.requestId];
+      const displayPayment = describeFeedDrivePayment(payment, paymentClockNow, paymentContext);
       const paymentIsNonActionable = displayPayment.status !== "ready";
-      const packetReviewRequired = payment.packageDisclosureRequired === true || !!paymentContexts[payment.requestId]?.packageDisclosure;
+      const packetReviewRequired = payment.packageDisclosureRequired === true || !!paymentContext?.packageDisclosure;
+      const feedPayment = paymentIsNonActionable || packetReviewRequired
+        ? displayPayment
+        : describeFeedDrivePayment(payment, paymentClockNow, paymentContext, { priceOnAction: true });
       const paymentAction = paymentIsNonActionable
         ? []
         : packetReviewRequired ? [{ key: "review-packet", label: "Review packet", tone: "primary" as const,
@@ -1628,6 +1637,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
                   if (!current()) return;
                   if (typeof checkoutUrl === "string") window.location.assign(checkoutUrl);
                   else {
+                    markConsentSettled(`drive-payment:${payment.requestId}`);
                     CacheSyncService.onConsentMutated(userId);
                     notifyFeedActionResolved();
                     await Promise.all([refreshDocumentRequests(), sentProgressRefresh({ force: true })]);
@@ -1648,8 +1658,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
-        title: displayPayment.title,
-        description: displayPayment.description,
+        title: feedPayment.title,
+        description: feedPayment.description,
         href: paymentIsNonActionable ? payment.href : undefined,
         onSelect: paymentIsNonActionable ? undefined : () => router.push(buildConsentCenterHref("pending", {
           requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
@@ -1968,7 +1978,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
       const isLive = isActiveSmsEmergencyGrant(grant);
-      const sentAt = toDisplayTimestamp(grant.createdAt);
+      const sentAt = toDisplayTimestamp(grant.feedConfirmedAt ?? grant.createdAt);
       const status = isLive ? "Active" : grant.status === "revoked" ? "Revoked"
         : grant.status === "expired" ? "Expired" : "Ended";
       items.push({
@@ -2163,7 +2173,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     // A feed shortcut must never turn an omitted scope decision into a silent
     // decline (or, worse, an implied approval).
     const pendingConnections = (connectionRequests ?? []).filter(
-      (request: ConnectionRequest) => request.status === "pending",
+      (request: ConnectionRequest) => request.status === "pending" && !settledConsentKeys.has(`connection:${request.id}`),
     );
     for (const request of pendingConnections) {
       const label = request.counterpartDisplayName?.trim() || "Someone";
@@ -2213,12 +2223,14 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
                       confirm: true,
                       run: async () => {
                         const idToken = await user?.getIdToken();
-                        if (!idToken) return;
+                        if (!idToken || getAuthSessionGeneration() !== authGeneration) return;
                         await ConnectionsService.report({
                           idToken,
                           requestId: request.id,
                           reason: "inappropriate",
                         });
+                        if (getAuthSessionGeneration() !== authGeneration) return;
+                        markConsentSettled(`connection:${request.id}`);
                         toast.success(
                           "Reported. This person can't send you another request.",
                         );
@@ -2237,11 +2249,13 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
                 confirm: true,
                 run: async () => {
                   const idToken = await user?.getIdToken();
-                  if (!idToken) return;
+                  if (!idToken || getAuthSessionGeneration() !== authGeneration) return;
                   await ConnectionsService.reject({
                     idToken,
                     requestId: request.id,
                   });
+                  if (getAuthSessionGeneration() !== authGeneration) return;
+                  markConsentSettled(`connection:${request.id}`);
                   CacheSyncService.onConnectionCapabilityMutated(userId);
                   notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
@@ -2254,11 +2268,13 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
                 disabled: !userId,
                 run: async () => {
                   const idToken = await user?.getIdToken();
-                  if (!idToken) return;
+                  if (!idToken || getAuthSessionGeneration() !== authGeneration) return;
                   await ConnectionsService.accept({
                     idToken,
                     requestId: request.id,
                   });
+                  if (getAuthSessionGeneration() !== authGeneration) return;
+                  markConsentSettled(`connection:${request.id}`);
                   CacheSyncService.onConnectionGraphMutated(userId);
                   notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
@@ -2455,6 +2471,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
     openDocumentPrice,
     markConsentSettled,
     settledConsentKeys,
+    authGeneration,
     connectionRequests,
     connectionsRefresh,
     consentItems,

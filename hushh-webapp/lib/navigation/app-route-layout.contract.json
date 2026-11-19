@@ -190,7 +190,7 @@
       "playbookId": "route.one.setup",
       "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
       "screen": "one_setup_hub",
-      "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+      "entryCue": "Choose your setup options, then Continue to the optional memory import.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
@@ -201,6 +201,8 @@
         "setup.open_email",
         "setup.open_finance",
         "setup.open_ria",
+        "setup.memory_import_skip",
+        "setup.hub_continue",
         "setup.hub_master_ack"
       ],
       "requiredInputs": [],
@@ -212,8 +214,8 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Only the hub finish or skip action resolves root onboarding.",
-      "nextRoute": "/one",
+      "completionBoundary": "Continue opens optional memory import. Finish setup or Skip retains the required vault and setup-save boundaries; a submitted import runs through the shared Chat memory writer in the background after completion.",
+      "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     },
@@ -225,7 +227,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Setup cannot retrace into completed phone verification."
+      "reason": "Setup cannot retrace into completed phone verification. The memory import is a local Back layer that returns to the setup checklist and discards its unsubmitted draft."
     }
   },
   {

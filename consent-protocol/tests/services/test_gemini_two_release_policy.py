@@ -3,37 +3,52 @@
 A roll-forward replaces the oldest id, it never adds a third. This test holds every
 surface that names a text release to that rule: the generation contract, the person
 facing catalog, the lane default, the code tree, the deploy substitutions, and the
-agent manifests. It reads files only; nothing here touches a network.
+agent manifests. UAT typed Mail has a separate Vertex scope. This
+test enforces its exact config field and the two-release rule everywhere else.
 """
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
 import yaml
 
 from hushh_mcp.constants import FLEET_TEXT_MODEL_DEFAULT
-from hushh_mcp.managed_ai_config import load_profile
+from hushh_mcp.managed_ai_config import load_profile, load_scoped_text_policy
 from hushh_mcp.runtime_providers import gemini_config, model_catalog
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
 SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
+_MANAGED_CONFIG = BACKEND_ROOT / "config" / "managed-ai-runtime.json"
+_UAT_MAIL_MODEL = "gemini-4-argon"
 
-_RELEASE_ID = re.compile(r"^gemini-3\.(\d+)-flash$")
+# Ordered GA text release lineage, oldest to newest. A roll-forward advances the
+# two-release window by one step and retires the older release.
+_ORDERED_RELEASES: tuple[str, ...] = (
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
+    "gemini-4-hydrogen",
+)
 
-# Any gemini-3.<n>-<family> id on a code line under the scanned roots. Comment lines are
-# skipped so a docstring or comment may still explain why a release was retired.
-_ANY_GEMINI_3_ID = re.compile(r"gemini-3\.\d+-[a-z0-9.-]+")
+# Any gemini-3.<n>-<family> or gemini-4-<family> id on a code line under the scanned roots.
+# Comment lines are skipped so a docstring or comment may still explain why a release was retired.
+_ANY_GEMINI_TEXT_ID = re.compile(r"gemini-(?:3\.\d+|4)-[a-z0-9.-]+")
 _SCANNED_ROOTS = ("hushh_mcp", "api", "scripts", "config")
 _SCANNED_SUFFIXES = {".py", ".yaml", ".yml", ".json", ".toml", ".sh", ".txt"}
 
 # Ids that may appear on a code line even though they are not one of the two supported
 # text releases. Every entry needs a reason; an empty tuple is the expected steady state.
-# gemini-embedding-001 needs no entry: it is not a gemini-3.<n>- id and is retrieval, not
-# generation.
-_ALLOWED_OTHER_IDS: tuple[tuple[str, str], ...] = ()
+# gemini-embedding-001 needs no entry: it is retrieval, not generation.
+_ALLOWED_OTHER_IDS: tuple[tuple[str, str], ...] = (
+    (
+        "gemini-4-carbon",
+        "drive_request_search_binding.py retains historical Carbon rollout receipt transition",
+    ),
+)
 
 # Deploy substitutions that pin a lane's text model. Both spellings are matched: the
 # Cloud Build substitution (_HUSSH_GEMINI_TEXT_MODEL) and the runtime env name it feeds.
@@ -43,23 +58,21 @@ _SUBSTITUTION_DEFAULT = re.compile(r"_HUSSH_GEMINI_TEXT_MODEL:\s*\"?([^\"\n]*)\"
 _MANIFEST_ALIASES = {"gemini-default"}
 
 
-def _minor(model_id: str) -> int:
-    match = _RELEASE_ID.fullmatch(model_id)
-    assert match, f"{model_id!r} is not a gemini-3.<n>-flash release id"
-    return int(match.group(1))
-
-
 def test_contract_names_exactly_two_consecutive_releases_newest_first() -> None:
     assert len(SUPPORTED) == 2, SUPPORTED
     assert len(set(SUPPORTED)) == 2, SUPPORTED
-    newest, previous = (_minor(model_id) for model_id in SUPPORTED)
-    assert newest == previous + 1, f"expected consecutive minors newest first, got {SUPPORTED}"
+    newest, previous = SUPPORTED
+    assert newest in _ORDERED_RELEASES, f"{newest!r} is not in _ORDERED_RELEASES"
+    assert previous in _ORDERED_RELEASES, f"{previous!r} is not in _ORDERED_RELEASES"
+    assert _ORDERED_RELEASES.index(newest) == _ORDERED_RELEASES.index(previous) + 1, (
+        f"expected consecutive releases newest first, got {SUPPORTED}"
+    )
 
 
 def test_catalog_offers_only_supported_releases() -> None:
-    # Owner decision 2026-10-15: the catalog offers 3.8 Flash alone (no picker); the
-    # provider layer still supports both releases for explicit pins.
-    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.8-flash",)
+    # Owner decision 2026-11-14: the catalog offers Gemini 4 Hydrogen alone (no picker);
+    # the provider layer still supports both releases for explicit pins.
+    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-4-hydrogen",)
     assert set(model_catalog.FLEET_TEXT_MODEL_CHOICES) <= set(SUPPORTED)
     for model_id in model_catalog.FLEET_TEXT_MODEL_CHOICES:
         assert model_catalog.is_selectable_text_model(model_id), model_id
@@ -74,11 +87,28 @@ def _code_lines(path: pathlib.Path) -> list[tuple[int, str]]:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return []
+    if path == _MANAGED_CONFIG:
+        config = json.loads(text)
+        mail = config.get("one_mail_text_uat")
+        if isinstance(mail, dict) and mail.get("model") == _UAT_MAIL_MODEL:
+            # The UAT Mail scope owns this one model. Scan every other field.
+            del mail["model"]
+            text = json.dumps(config, indent=2)
     return [
         (number, line)
         for number, line in enumerate(text.splitlines(), 1)
         if not line.lstrip().startswith("#")
     ]
+
+
+def test_argon_is_configured_only_for_the_uat_mail_scope() -> None:
+    policy = load_scoped_text_policy("one_mail_chat", environment="uat")
+    assert policy is not None
+    assert policy["model"] == _UAT_MAIL_MODEL
+    assert policy["provider"] == "vertex"
+    assert policy["allow_cross_provider_fallback"] is False
+    for environment in ("local", "development", "production"):
+        assert load_scoped_text_policy("one_mail_chat", environment=environment) is None
 
 
 def test_no_other_gemini_3_text_id_on_a_code_line() -> None:
@@ -91,7 +121,7 @@ def test_no_other_gemini_3_text_id_on_a_code_line() -> None:
             if not path.is_file() or path.suffix not in _SCANNED_SUFFIXES:
                 continue
             for number, line in _code_lines(path):
-                for model_id in _ANY_GEMINI_3_ID.findall(line):
+                for model_id in _ANY_GEMINI_TEXT_ID.findall(line):
                     # Native realtime candidates are governed by the Live
                     # registry, not the two-release text fleet policy.
                     if "-live-" in model_id or model_id.endswith("-live"):

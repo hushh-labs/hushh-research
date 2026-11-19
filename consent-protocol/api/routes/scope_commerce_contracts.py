@@ -53,6 +53,8 @@ def _error(error: Exception) -> HTTPException:
         "recipient_key_changed": 409,
         "payer_delegation_required": 409,
         "insufficient_balance": 409,
+        "bank_payment_pending": 409,
+        "provider_sandbox_only": 403,
         "seller_not_eligible": 409,
         "quote_expired": 409,
         "owner_approval_required": 409,

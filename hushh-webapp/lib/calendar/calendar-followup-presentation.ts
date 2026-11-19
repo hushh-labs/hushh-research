@@ -101,7 +101,7 @@ export function reminderText(request: FollowupRequest, zone: string): string {
 }
 
 export function gmailMessageUrl(accountEmail: string, gmailMessageId: string): string {
-  return `https://mail.google.com/mail/u/${encodeURIComponent(accountEmail)}/#all/${encodeURIComponent(gmailMessageId)}`;
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(accountEmail)}#all/${encodeURIComponent(gmailMessageId)}`;
 }
 
 export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | null };
@@ -113,9 +113,11 @@ export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "
  */
 export function coverageNotice(coverage: FollowupCoverage | null | undefined, vaultUnlocked = true): CoverageNotice | null {
   if (!coverage || coverage.coverage === "complete") return null;
-  if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Catching up on your email…", action: null };
-  if (coverage.attention !== "reconnect_mail") return null;
   if (!vaultUnlocked) return { tone: "quiet", text: "Unlock One to check your email.", action: null };
+  if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Updating follow-ups…", action: null };
+  if (coverage.attention === "provider_unavailable") return { tone: "quiet", text: "Email sync paused. Retrying automatically.", action: null };
+  if (coverage.attention === "retry_needed") return { tone: "quiet", text: "Checking remaining email in the background.", action: null };
+  if (coverage.attention !== "reconnect_mail") return null;
   return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
 }
 
@@ -153,6 +155,7 @@ export function rememberSyncedNotice(userId: string, accountId: string, seen: bo
  * and says so; it is never reported as a failed check.
  */
 export function followupErrorText(error: unknown): string {
+  if (error instanceof Error && error.message === "FOLLOWUPS_SESSION_UNAVAILABLE") return "Your secure connection could not be restored. Try again.";
   if (error instanceof Error && error.message.startsWith("Unlock One")) return error.message;
   if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
   if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";

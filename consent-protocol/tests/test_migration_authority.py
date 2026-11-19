@@ -1255,3 +1255,25 @@ async def test_a_broken_probe_never_changes_the_migration_outcome(
 
     assert "20260721_ABC_new.sql" in applied, "the retry still succeeds"
     assert "blocker probe unavailable [TimeoutError]" in capsys.readouterr().err
+
+
+def test_ledger_mode_strips_outer_transaction_envelope_and_keeps_inner_sql():
+    from types import SimpleNamespace
+
+    from db.migrate import _migration_version
+    from db.migration_authority import prepare_execution_sql
+
+    entry = SimpleNamespace(filename="1000_sample.sql", transactional=True)
+    wrapped = (
+        "-- header comment\n"
+        "BEGIN;\n"
+        "CREATE TABLE IF NOT EXISTS sample_table (id INT PRIMARY KEY);\n"
+        "COMMIT;\n"
+    )
+    stripped = prepare_execution_sql(entry, wrapped, mode_value=MigrationMode.LEDGER.value)
+    assert "BEGIN;" not in stripped
+    assert "COMMIT;" not in stripped
+    assert "CREATE TABLE IF NOT EXISTS sample_table" in stripped
+    assert prepare_execution_sql(entry, wrapped, mode_value=MigrationMode.REPLAY.value) == wrapped
+    assert _migration_version("099_legacy.sql") == 99
+    assert _migration_version("1000_four_digit.sql") == 1000

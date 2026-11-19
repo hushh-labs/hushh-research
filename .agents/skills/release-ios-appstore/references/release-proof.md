@@ -53,8 +53,11 @@ UAT TestFlight runs from trusted Main and signs a qualified protected UAT source
 Ordinary UAT may select an accepted commit in protected history; a later source-only
 sync does not replace it. Legacy isolated UAT retains its exact-tip requirement.
 Build/signing scripts and configuration must match the reviewed Main authority.
-The uninvoked `phone-conflict-flow.mjs` diagnostic and affected-test selectors are
-excluded from that comparison; their differing test coverage is preserved.
+The uninvoked `phone-conflict-flow.mjs`, `verify-signed-in-routes.mjs`,
+`benchmark-advisor-matching.mjs` and `build-advisor-preview.mjs` diagnostics,
+plus the affected-test selectors, are excluded from that comparison; their
+differing test coverage is preserved. The advisor helpers use synthetic inputs
+for a local benchmark and preview; neither is called by CI or native packaging.
 Other scripts, native helpers and package inputs remain protected. The selected
 UAT source still needs accepted backend revision, digest and deployment evidence;
 passing tooling parity alone never authorizes an archive.
@@ -103,7 +106,7 @@ These operator checks complement existing workflow gates; prose is not an automa
 ## Identity / governance
 
 The actor and rerunner must have current `deploy-production` team membership.
-The trusted `scripts/ci/assert-governed-actor.py --surface production` admission refuses otherwise. Confirm before
+The trusted `scripts/ci/assert-governed-actor.py` (`--surface production`) admission refuses otherwise. Confirm before
 Gate 1. Do not weaken branch protection and do not accept Apple Program License Agreements or enter
 the Apple ID password — those are the user's to perform.
 

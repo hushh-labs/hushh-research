@@ -13,15 +13,20 @@ export function feedDeviceOnlySosClearStorageKey(ownerId: string): string {
   return `hushh:feed-sms-dismissed:${ownerId}`;
 }
 
-/** The Feed sound choice for one account on this device. */
-export function feedSoundStorageKey(ownerId: string): string {
-  return `hushh:feed-sound-enabled:${ownerId}`;
+const retiredFeedSoundKey = (ownerId: string) => `hushh:feed-sound-enabled:${ownerId}`;
+
+/** Remove only the signed-in account's leftover preference from older builds. */
+export function removeRetiredFeedSoundPreference(ownerId: string): void {
+  try {
+    window.localStorage.removeItem(retiredFeedSoundKey(ownerId));
+  } catch {
+    // Browser storage can be unavailable.
+  }
 }
 
 /**
  * Remove every Feed key this device keeps for one account. Only for account
- * delete or reset: sign-out keeps the sound choice, and device-only clears
- * stay until they are copied to the server.
+ * delete or reset: device-only clears stay until they are copied to the server.
  */
 export function forgetFeedDeviceState(ownerId: string): void {
   if (!ownerId || typeof window === "undefined") return;
@@ -29,7 +34,7 @@ export function forgetFeedDeviceState(ownerId: string): void {
     feedClearedThroughStorageKey(ownerId),
     feedLegacyClearedAtStorageKey(ownerId),
     feedDeviceOnlySosClearStorageKey(ownerId),
-    feedSoundStorageKey(ownerId),
+    retiredFeedSoundKey(ownerId),
   ]) {
     try {
       window.localStorage.removeItem(key);

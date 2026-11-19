@@ -56,6 +56,32 @@ export function feedItemIdentity(item: FeedItem): string {
   return item.id;
 }
 
+/** Quiet status changes keep the reading position; the row still shows its actual event time. */
+export function updateKnownFeedItem(item: FeedItem, update: FeedItem | undefined): FeedItem {
+  if (!update) return item;
+  return update.metadata.feed_silent === true ? {
+    ...update, presentationCreatedAt: item.presentationCreatedAt ?? item.created_at,
+  } : update;
+}
+
+export function feedItemPresentationTime(item: FeedItem): string {
+  return item.presentationCreatedAt ?? item.created_at;
+}
+
+/** Settle known rows without moving the reader or admitting unseen arrivals. */
+export function updateLoadedFeedItems(
+  state: FeedPaginationState,
+  items: readonly FeedItem[],
+): FeedPaginationState {
+  const updates = new Map(items.map(item => [feedItemIdentity(item), item]));
+  const update = (item: FeedItem) => updateKnownFeedItem(item, updates.get(feedItemIdentity(item)));
+  return {
+    ...state,
+    previousFirstPageItems: state.previousFirstPageItems.map(update),
+    additionalItems: state.additionalItems.map(update),
+  };
+}
+
 function mergeAdditionalItems(
   firstPageItems: FeedItem[],
   ...itemGroups: FeedItem[][]

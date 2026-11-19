@@ -18,7 +18,11 @@ from typing import Any, Sequence
 from google.genai import types
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.hushh_adk.single_turn import (
+    build_single_turn_agent,
+    run_single_turn,
+    single_turn_processing_scope,
+)
 from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
@@ -197,7 +201,9 @@ async def run_portfolio_gene(
         # failed before its request was sent. The regional model is the seam for
         # a tool-less single turn, with bounded failover across locations.
         model=build_managed_regional_gemini_adk_model(
-            resolved_model, timeout_seconds=call_timeout_seconds
+            resolved_model,
+            timeout_seconds=call_timeout_seconds,
+            processing_scope=single_turn_processing_scope(gene_id),
         ),
     )
     parts: list[Any] = [types.Part.from_text(text=str(prompt).strip())]

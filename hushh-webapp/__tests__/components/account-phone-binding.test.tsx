@@ -41,7 +41,20 @@ describe("Profile phone binding", () => {
     await waitFor(() => expect(result.current.status).toBe("needs-verification"));
     expect(result.current.linkedPhone).toBeNull();
     rerender(options);
-    expect(result.current.linkedPhone).toBe(appPhone);
+    await waitFor(() => expect(result.current.linkedPhone).toBe(appPhone));
+  });
+
+  it("rechecks the provider for a claim committed while Account is open", async () => {
+    vi.mocked(AuthService.reloadPhoneVerificationUser)
+      .mockResolvedValueOnce(user(null))
+      .mockResolvedValueOnce(user(appPhone));
+    const { result, rerender } = renderHook(useAccountPhoneBinding, {
+      initialProps: { ...options, appPhone: null, appStatus: "missing" } as Parameters<typeof useAccountPhoneBinding>[0],
+    });
+    await waitFor(() => expect(result.current.status).toBe("missing"));
+    rerender(options);
+    await waitFor(() => expect(result.current.linkedPhone).toBe(appPhone));
+    expect(AuthService.reloadPhoneVerificationUser).toHaveBeenCalledTimes(2);
   });
 
   it("reports a failed provider read as unavailable and verifies the match on retry", async () => {

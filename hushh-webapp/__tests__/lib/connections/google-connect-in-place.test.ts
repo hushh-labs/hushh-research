@@ -337,6 +337,30 @@ describe("connectCalendarInPlace", () => {
     expect(mocks.calendarStatus).toHaveBeenCalledWith(expect.any(String), ownerId);
   });
 
+  it.each(["disconnected", "needs_reauth", "connected", "empty"])("requests onboarding Mail only for a new Calendar connection (%s)", async (priorStatus) => {
+    mocks.calendarStatus.mockResolvedValueOnce({ connected: priorStatus === "connected", status: priorStatus === "empty" ? "disconnected" : priorStatus, access_level: "manage", ...(priorStatus === "empty" ? { accounts: [] } : {}) })
+      .mockResolvedValue({ connected: true, status: "connected", access_level: "manage" });
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage", includeMeetingFiles: true, includeMailAccess: true });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.calendarStartConnect.mock.calls[0][0].includeMailAccess).toBe(["disconnected", "empty"].includes(priorStatus) ? true : undefined);
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe("connected");
+  });
+
+  it("does not start consent after cancellation during the initial grant check", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.calendarStatus.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const cancel = new AbortController();
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage", includeMailAccess: true, cancelSignal: cancel.signal });
+    await vi.waitFor(() => expect(mocks.calendarStatus).toHaveBeenCalledOnce());
+    cancel.abort();
+    finish({ connected: false, status: "disconnected", accounts: [] });
+    await expect(start.result).resolves.toBe("not_connected");
+    expect(mocks.calendarStartConnect).not.toHaveBeenCalled();
+    expect(popup.location.replace).not.toHaveBeenCalled();
+  });
+
   it("requires manage access for a scheduling connect", async () => {
     mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "read" });
     const start = connectCalendarInPlace({ owner, accessLevel: "manage" });

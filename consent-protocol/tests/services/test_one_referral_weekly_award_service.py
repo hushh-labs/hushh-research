@@ -120,6 +120,7 @@ def test_finalize_awards_top_three_by_cumulative_points_as_of_cutoff(monkeypatch
             return _Result([SimpleNamespace(status="scheduled")])
         if "GROUP BY user_id" in sql:
             assert params["cutoff_at"] == CUTOFF_AT
+            assert "account_deletion_tombstones" in sql
             return _Result(ranked_rows)
         if "INSERT INTO one_referral_weekly_awards" in sql:
             inserted.append(params)

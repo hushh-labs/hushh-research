@@ -241,6 +241,27 @@ async def test_funding_receipt_rejects_wrong_binding_and_never_estimates_fee(mut
         assert receipt.amount_cents == 50
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "status"),
+    [("us_bank_account", "succeeded"), ("card", "succeeded"), ("us_bank_account", "processing")],
+)
+async def test_bank_receipt_requires_a_successful_bank_debit(method, status):
+    intent, expected = _receipt_fixture()
+    intent["status"] = status
+    intent["latest_charge"]["payment_method_details"] = {"type": method}
+    expected["payment_method_type"] = "us_bank_account"
+    api = SimpleNamespace(PaymentIntent=SimpleNamespace(retrieve=lambda *_args, **_kwargs: intent))
+    adapter = StripeScopeCommerceAdapter("test-only", "test-only", stripe_api=api)
+
+    if method == "us_bank_account" and status == "succeeded":
+        receipt = await adapter.funding_receipt("pi_fixture", expected=expected)
+        assert receipt.amount_cents == expected["amount_cents"]
+    else:
+        with pytest.raises(CommerceProviderError, match="provider_receipt_mismatch"):
+            await adapter.funding_receipt("pi_fixture", expected=expected)
+
+
 def test_unsigned_webhook_rejected_before_parsing_and_valid_input_uses_raw_bytes():
     observed = []
 
@@ -350,6 +371,45 @@ async def test_durable_retry_recovers_uncertain_success_and_rejects_changed_requ
     with pytest.raises(CommerceProviderError, match="provider_operation_conflict"):
         await run({"metadata": metadata, "name": "changed"})
     assert adapter.created == 1
+
+
+@pytest.mark.parametrize("methods", [["us_bank_account"], ["us_bank_account", "card"]])
+async def test_bank_checkout_replays_only_a_bank_only_session(methods, monkeypatch):
+    store, adapter = _OperationStore(), _FundingAdapter()
+    service = _funding_service(store, adapter)
+    create = adapter.create
+
+    async def configured_create(kind, request, **kwargs):
+        response = await create(kind, request, **kwargs)
+        if kind == "funding":
+            response["payment_method_types"] = methods
+        return response
+
+    async def admit_fixture():
+        pass
+
+    async def existing_customer(_user_id):
+        return "cus_fixture"
+
+    monkeypatch.setattr(adapter, "create", configured_create)
+    monkeypatch.setattr(service, "_admit", admit_fixture)
+    monkeypatch.setattr(service, "_customer", existing_customer)
+    checkout = {
+        "payer_user_id": "buyer",
+        "buyer_app_id": "agent_one",
+        "amount_cents": 100,
+        "operation_id": str(uuid4()),
+        "bank_quote_id": str(uuid4()),
+    }
+    if "card" in methods:
+        with pytest.raises(CommerceProviderError, match="provider_reconciliation_required"):
+            await service.funding_checkout(**checkout)
+        assert store.operations[checkout["operation_id"]]["status"] == "reconciliation_required"
+    else:
+        first = await service.funding_checkout(**checkout)
+        created = adapter.created
+        assert await service.funding_checkout(**checkout) == first
+        assert adapter.created == created
 
 
 @pytest.mark.asyncio

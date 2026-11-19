@@ -129,6 +129,35 @@ def fixture(*, diagnostic=GUARD, after_guard=(), glob=evidence._GLOB_CONTINUATIO
     return run, job, "\n".join(lines), blobs
 
 
+def static_manual_fixture():
+    run, job, log, _ = fixture(
+        diagnostic="Hosted maintenance stopped: stage=publication_guard kind=safety_refusal"
+    )
+    sha = "212986079daab42038119fba15d6023f4ac7087c"
+    run["head_sha"] = job["head_sha"] = sha
+    log = log.replace(SHA, sha)
+    job["name"] = "Production revision maintenance"
+    for step in job["steps"][1:]:
+        step["number"] += 2
+    job["steps"][1:1] = [
+        {"name": "Maintenance mode: " + mode, "number": number,
+         "status": "completed", "conclusion": conclusion}
+        for mode, number, conclusion in (
+            ("inspection", 2, "skipped"), ("cleanup", 3, "success")
+        )
+    ]
+    profile = {
+        base.OWNER: ("cda6877dbbc5fd5f838e1a73ca771fcf0843b783", 96172),
+        base.WORKFLOW: ("943a4ac0772fbc110baa1bbcedf3d0764d217ba3", 21387),
+        evidence.PUBLICATION: ("13c9c2f6400ede6400eb5cd6637c607f14ab93de", 30462),
+        "scripts/ci/retention_pass_diagnostics.py": ("855d2f936eb49d67c4f4e1c58847e0da40f183dc", 6576),
+    }
+    blobs = {path: {"sha": blob, "size": size} for path, (blob, size) in profile.items()}
+    run.update(created_at=at("20:30:20"), actor={"id": 1, "type": "User", "login": "reviewer"},
+               triggering_actor={"id": 1, "type": "User", "login": "reviewer"})
+    return run, job, log, blobs
+
+
 def qualify(run, job, log, blobs, environment="production", workflow=None):
     return evidence.qualify_guard_run(
         base.REPOSITORY,
@@ -308,6 +337,35 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
         }
         self.assertIsNotNone(qualify(run, job, log, earlier))
 
+    def test_static_manual_guard_refusal_preserves_custody_and_rejects_drift(self):
+        run, job, log, blobs = static_manual_fixture()
+        sha = run["head_sha"]
+        proof = qualify(run, job, log, blobs)
+        self.assertEqual(proof, {"run_id": 100, "attempt": 1, "job_id": 200,
+                                 "checkout_sha": sha, "qualification": "no_provider_mutation"})
+        for field, value in (("actor", {"id": 1, "type": "Bot", "login": "robot"}),
+                             ("created_at", at("20:40:20")), ("head_sha", "d" * 40)):
+            with self.subTest(run=field):
+                self.assertIsNone(qualify({**run, field: value}, job, log, blobs))
+        for key in blobs:
+            with self.subTest(source=key):
+                changed = copy.deepcopy(blobs)
+                changed[key]["sha"] = "f" * 40
+                self.assertIsNone(qualify(run, job, log, changed))
+        for index, field, value in ((1, "conclusion", "success"),
+                                    (2, "conclusion", "skipped"),
+                                    (13, "conclusion", "success"),
+                                    (12, "conclusion", "cancelled"),
+                                    (3, "number", True)):
+            with self.subTest(step=index, field=field, value=value):
+                changed = copy.deepcopy(job)
+                changed["steps"][index][field] = value
+                self.assertIsNone(qualify(run, changed, log, blobs))
+        self.assertIsNone(qualify(run, job, log.replace("stage=publication_guard", "stage=mutation"), blobs))
+        self.assertIsNone(qualify(run, job, log.replace(sha, SHA), blobs))
+        self.assertIsNone(qualify(run, job, log + "\nunstamped tail", blobs))
+        self.assertIsNone(qualify(run, {**job, "run_attempt": 2}, log, blobs))
+
     def test_manual_production_refusal_keeps_the_two_line_log_contract(self):
         fields = {
             "run_id": 99,
@@ -417,8 +475,8 @@ class PublicationRoutingTest(unittest.TestCase):
             sys.modules.pop("retention_publication", None)
             self._qualify_production(importlib.import_module("retention_publication"))
 
-    def _qualify_production(self, publication):
-        run, job, log, blobs = fixture()
+    def _qualify_production(self, publication, build=fixture):
+        run, job, log, blobs = build()
         run.update(
             actor={"login": "ankitkumarsingh1702", "type": "User", "id": 1},
             triggering_actor={"login": "ankitkumarsingh1702", "type": "User", "id": 1},
@@ -442,9 +500,13 @@ class PublicationRoutingTest(unittest.TestCase):
         self.assertEqual(proof["qualification"], "no_provider_mutation")
         self.assertCountEqual(
             reads,
-            [*((path, SHA) for path in evidence.SOURCE_PATHS), (base.WORKFLOW, SHA)],
+            [*((path, run["head_sha"]) for path in blobs), (base.WORKFLOW, run["head_sha"])],
         )
         self.assertIsNone(publication.qualify(owner, base.REPOSITORY, "dev", run, job))
+
+    def test_static_manual_failure_uses_existing_attempt_and_human_origin_admission(self):
+        publication = importlib.import_module("retention_publication")
+        self._qualify_production(publication, static_manual_fixture)
 
     def test_unlisted_legacy_dispatch_without_clock_stops_before_log_reads(
         self,

@@ -496,13 +496,13 @@ export function DueReceiptsSection({
 
 export function TodoRows({
   tasks,
-  savingTaskId,
+  savingTaskIds,
   dueReceipts = [],
   onToggle,
   onDelete,
 }: {
   tasks: TodoItem[];
-  savingTaskId: string | null;
+  savingTaskIds: ReadonlySet<string>;
   dueReceipts?: DueReceiptItem[];
   onToggle: (task: TodoItem, complete: boolean) => void;
   onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
@@ -543,7 +543,7 @@ export function TodoRows({
               <TodoRow
                 key={task.id}
                 task={task}
-                saving={savingTaskId === task.id}
+                saving={savingTaskIds.has(task.id)}
                 onToggle={onToggle}
                 onDelete={onDelete}
               />
@@ -574,7 +574,7 @@ export function TodoRows({
               <TodoRow
                 key={task.id}
                 task={task}
-                saving={savingTaskId === task.id}
+                saving={savingTaskIds.has(task.id)}
                 onToggle={onToggle}
                 onDelete={onDelete}
               />

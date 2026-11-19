@@ -92,9 +92,16 @@ bounded lengths, opaque-token character set).
 
 ## Route guarantees and limits
 
-- **Auth:** every endpoint requires the `VAULT_OWNER` consent token through
-  `require_vault_owner_token` (the same dependency the consent-gated Kai routes use).
-  Missing or invalid tokens get 401; a token with another scope is refused.
+- **Auth & BYOC passthrough classification:** every endpoint requires the `VAULT_OWNER`
+  consent token through `require_vault_owner_token` (the same dependency the consent-gated
+  Kai routes use) and is classified `CONNECTOR_ADMIN` in `api/hub_route_classes.py`. Because
+  every Plaid provider call — including `/snapshot` — requires Hussh's corporate
+  `PLAID_SECRET` (which can never be placed inside a customer-owned BYOC pod), the Hub acts
+  solely as a stateless, zero-persistence provider-secret broker for the unlocked owner
+  device across both Shared and private-pod (`byoc` / `hussh_pods`) placements, while all
+  vault sealing and all financial analysis (`CONTENT` routes) remain off the Hub for
+  private-pod owners. Missing or invalid tokens get 401; a token with another scope is
+  refused.
 - **No persistent route storage:** the module has no database import and never calls
   `get_plaid_portfolio_service()`; a test patches `get_db` to raise and exercises every
   endpoint. This does not mean the backend never processes readable tokens or records, and it

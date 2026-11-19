@@ -150,8 +150,8 @@ it("keeps matching opt-in and preserves the explicit introduction boundary", asy
   expect(mocks.savePreferences).toHaveBeenCalledWith(expect.objectContaining({
     updates: { advisor_service: "portfolio_management" }, beforeEffect: expect.any(Function),
   }));
-  expect(mocks.request).toHaveBeenCalledWith(context, "/candidates", "POST",
-    { scope: "recommended", service: "portfolio_management" }, expect.any(AbortSignal));
+  await waitFor(() => expect(mocks.request).toHaveBeenCalledWith(context, "/candidates", "POST",
+    { scope: "recommended", service: "portfolio_management" }, expect.any(AbortSignal)));
   fireEvent.click(await screen.findByRole("button", { name: "Open Service-matched advisor profile" }));
   expect(mocks.push).toHaveBeenCalledWith(`/people/${suggested.personRef}?from=%2Fria%2Fclients`);
   expect(mocks.send).not.toHaveBeenCalled();
@@ -338,7 +338,7 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
   render(
     <AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "Plan" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Payment" }));
   await screen.findByRole("button", { name: "Check payment status" });
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
   expect(await screen.findByRole("button", { name: "Set up test payouts" })).toBeEnabled();
@@ -348,6 +348,26 @@ it("keeps billing explicitly unconfirmed until a provider status check and expos
     expect(screen.getByRole("status")).toHaveTextContent("past due"),
   );
   expect(screen.queryByText(/Test subscription active/)).toBeNull();
+});
+
+it("keeps the plan available without a separate payout card once setup is ready", async () => {
+  mocks.view.mockResolvedValue({ ...value, status: "accepted", meeting: null, plan: null });
+  mocks.sandboxPayout.mockResolvedValue({ mode: "test", setup: "ready", latest: null });
+  render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Payment" }));
+  expect(await screen.findByText("Set a price and describe what’s included.")).toBeVisible();
+  expect(screen.getByText("Offer or update a plan")).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Sandbox payouts" })).toBeNull();
+  expect(screen.queryByText("Test payouts")).toBeNull();
+});
+
+it("names the review for the person on each side", async () => {
+  const rendered = render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
+  expect(await screen.findByRole("heading", { name: "Client review" })).toBeVisible();
+  rendered.unmount();
+  mocks.view.mockResolvedValue({ ...value, direction: "outgoing" });
+  render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }} onClose={vi.fn()} />);
+  expect(await screen.findByRole("heading", { name: "Advisor review" })).toBeVisible();
 });
 
 it("opens a one-time Stripe return on Plan and only shows Paid after provider readback", async () => {
@@ -367,7 +387,7 @@ it("opens a one-time Stripe return on Plan and only shows Paid after provider re
   mocks.billing.mockResolvedValue({ mode: "test", status: "processing", planRevision: 2 });
   render(<AdvisorWorkspace id={value.id} context={{ ...context, userId: "owner" }}
     openPlan onClose={vi.fn()} />);
-  expect(await screen.findByRole("tab", { name: "Plan" })).toHaveAttribute("aria-selected", "true");
+  expect(await screen.findByRole("tab", { name: "Payment" })).toHaveAttribute("aria-selected", "true");
   expect(await screen.findByText("Payment pending")).toBeVisible();
   expect(screen.queryByText(/^Paid /)).toBeNull();
   expect(screen.queryByRole("button", { name: "Pay $25.00" })).toBeNull();

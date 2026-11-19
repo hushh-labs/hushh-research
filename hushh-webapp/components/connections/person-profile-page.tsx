@@ -1,6 +1,7 @@
 "use client";
 import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
 import { PersonNetworkSummary } from "./person-network-summary";
+import { cn } from "@/lib/utils";
 
 import { useCallback, useEffect, useMemo, useState, useRef, useId } from "react";
 
@@ -830,12 +831,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
 
   if (!profile) {
     return (
-      <AppPageShell width="agent" fitContent>
+      <AppPageShell as={embedded ? "div" : "main"} className={embedded ? "!p-0" : undefined} width="agent" fitContent>
         <div
-          className="flex min-h-[50vh] items-center justify-center"
+          className={embedded ? "flex flex-col items-start gap-2" : "flex min-h-[50vh] flex-col items-center justify-center gap-2"}
           data-native-route="native-route-person-profile"
         >
-          <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
+          <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : "status"}>
             {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
           </p>
           {publicProfileUnavailable && !profileMissing ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
@@ -845,8 +846,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
   }
 
   return (
-    <AppPageShell width="agent" fitContent>
-      <div className={styles.page} data-calendar-profile={calendarPresentation || undefined} data-native-route="native-route-person-profile">
+    <AppPageShell as={embedded ? "div" : "main"} className={embedded ? "!p-0" : undefined} width="agent" fitContent>
+      <div className={cn(styles.page, embedded && "!pb-0")} data-calendar-profile={calendarPresentation || undefined} data-native-route="native-route-person-profile">
         <PersonProfileHero
           profile={profile}
           network={<PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />}

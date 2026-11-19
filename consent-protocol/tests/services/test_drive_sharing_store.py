@@ -2049,7 +2049,7 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
 
     assert private["semantic_model_binding"] == managed_text_binding()
     assert private["semantic_model_binding"]["provider"] == "gemini"
-    assert private["semantic_model_binding"]["deployment"] == "gemini-3.8-flash"
+    assert private["semantic_model_binding"]["deployment"] == "gemini-4-hydrogen"
     assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
     with sharing.db.engine.connect() as connection:
         assert (

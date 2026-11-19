@@ -73,7 +73,7 @@
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
-    "codex-skill-authoring",
+    "skill-authoring",
     "planning-board",
     "comms-community"
   ],
@@ -88,7 +88,7 @@
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
-    "codex-skill-authoring"
+    "skill-authoring"
   ],
   "risk_tags": [
     "coverage-drift",

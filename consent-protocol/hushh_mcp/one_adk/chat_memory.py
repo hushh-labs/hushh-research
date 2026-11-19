@@ -44,9 +44,9 @@ class ContextBudget:
 
 
 def context_budget(model: str) -> ContextBudget:
-    """Published supported-model limits, checked 2026-11-05.
+    """Published supported-model limits, checked 2026-11-14.
 
-    aistudio.google.com/docs/models/gemini-3.8-flash (and gemini-3.7-flash);
+    Vertex AI Model Garden gemini-4-hydrogen and gemini-3.8-flash;
     developers.openai.com/api/docs/models/gpt-5.1, gpt-5.6-luna and gpt-6-luna;
     learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/models (GPT-5.4 mini);
     platform.claude.com/docs/en/build-with-claude/context-windows.
@@ -54,7 +54,7 @@ def context_budget(model: str) -> ContextBudget:
     """
     name = str(model).lower().rsplit("/", 1)[-1]
     budgets = {
-        **dict.fromkeys(("gemini-3.8-flash", "gemini-3.7-flash"), ContextBudget(1048576, 65536)),
+        **dict.fromkeys(("gemini-4-hydrogen", "gemini-3.8-flash"), ContextBudget(1048576, 65536)),
         **dict.fromkeys(
             ("gpt-5", "gpt-5-mini", "gpt-5.1", "gpt-5.4-mini"), ContextBudget(400000, 128000)
         ),

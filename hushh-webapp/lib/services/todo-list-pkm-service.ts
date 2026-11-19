@@ -260,6 +260,11 @@ export function buildTodo(
   };
 }
 
+/** Share Calendar identity normalization with cancellation tombstones. */
+export function calendarTodoSourceId(id: CalendarTodoEvent["id"]): string | null {
+  return text(id, 240) || null;
+}
+
 /**
  * Converts a confirmed Calendar event into the common private-agent To-do
  * input. It deliberately accepts only the presentation fields used by the
@@ -269,7 +274,7 @@ export function buildTodo(
 export function calendarTodoInput(
   event: CalendarTodoEvent,
 ): CreateTodoInput | null {
-  const sourceId = text(event.id, 240);
+  const sourceId = calendarTodoSourceId(event.id);
   if (!sourceId) return null;
   const title = text(event.title, 240) || "Scheduled meeting";
   const link = event.conference_url ?? event.conferenceUrl ?? null;

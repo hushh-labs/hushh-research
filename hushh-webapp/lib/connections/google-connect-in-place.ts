@@ -335,7 +335,7 @@ export function connectGmailInPlace(
   );
 }
 
-/** Calendar access. Setup asks for scheduling, the calendar list and meeting files at once. */
+/** Calendar setup keeps scheduling, meeting files and optional Mail in one consent. */
 export function connectCalendarInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
@@ -343,6 +343,8 @@ export function connectCalendarInPlace(
     accountId?: string;
     includeCalendarList?: boolean;
     includeMeetingFiles?: boolean;
+    /** Include Follow-ups Mail permission for a new shared-web Calendar connection. */
+    includeMailAccess?: boolean;
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -425,12 +427,22 @@ export function connectCalendarInPlace(
         clearCalendarSetupOAuthReturn();
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
+        let includeMailAccess = false;
+        if (input.includeMailAccess) {
+          const prior = await GoogleCalendarService.status(idToken, input.applicationOwnerId);
+          if (!current()) return "stale";
+          if (input.cancelSignal?.aborted) return "not_connected";
+          const selected = calendarAccountStatus(prior, accountId);
+          // A targeted renewal must not silently expand an existing grant.
+          includeMailAccess = !selected || selected.status === "disconnected";
+        }
         const start = await GoogleCalendarService.startConnect({
           idToken,
           userId: input.applicationOwnerId,
           accessLevel,
           ...(accountId !== "default" ? { accountId, additional: true } : {}),
           ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
+          ...(includeMailAccess ? { includeMailAccess: true } : {}),
         });
         if (!current()) return "stale";
         if (!isGoogleAuthorizeUrl(start.authorize_url)) return "failed";

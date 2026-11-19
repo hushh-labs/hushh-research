@@ -8180,7 +8180,7 @@
           "playbook_id": "route.one.setup",
           "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
           "screen": "one_setup_hub",
-          "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+          "entry_cue": "Choose your setup options, then Continue to the optional memory import.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.open_cloud",
           "happy_path_action_ids": [
@@ -8191,6 +8191,8 @@
             "setup.open_email",
             "setup.open_finance",
             "setup.open_ria",
+            "setup.memory_import_skip",
+            "setup.hub_continue",
             "setup.hub_master_ack"
           ],
           "required_inputs": [],
@@ -8202,8 +8204,8 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Only the hub finish or skip action resolves root onboarding.",
-          "next_route": "/one",
+          "completion_boundary": "Continue opens optional memory import. Finish setup or Skip retains the required vault and setup-save boundaries; a submitted import runs through the shared Chat memory writer in the background after completion.",
+          "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -11074,5 +11076,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ee4e462ea974e9d86a62941249f5bfaad080792bd1846fc3041b82f23bd8e943"
+  "content_sha256": "cb03660be102ad705c396324d9fed035c8bc48f348879ca3e7d2f57bb791b858"
 }

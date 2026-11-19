@@ -240,7 +240,7 @@ The same shared UI and API transport apply on web, iOS and Android; physical
 native verification remains separate from browser evidence.
 
 For a sample-only UI preview, run `node scripts/testing/build-advisor-preview.mjs`
-from `hushh-webapp`, then serve `../tmp/advisor-preview` locally. The fixture aliases
+from `hushh-webapp`, then serve the generated preview directory locally. The fixture aliases
 are confined to this preview and the browser diagnostics. The production matcher
 can be measured independently with `node scripts/testing/benchmark-advisor-matching.mjs`;
 that probe excludes database/network time and recommendation-quality validation.

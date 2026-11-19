@@ -9,10 +9,12 @@ import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 describe("Files settings and local navigation", () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   });
   beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     vi.clearAllMocks();
     session.vaultKey = "synthetic-memory-only";
     files.list.mockResolvedValue({ entries: [], cursor: "" });
@@ -32,7 +34,13 @@ describe("Files settings and local navigation", () => {
     });
   });
 
-  it.each([false, true])("offers scheduling only for a qualified background executor (%s)", async (backgroundAvailable) => {
+  it.each([
+    ["development", false, false],
+    ["development", true, true],
+    ["uat", true, true],
+    ["production", true, false],
+  ])("bounds scheduling by app environment and executor (%s, %s)", async (environment, backgroundAvailable, available) => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
     const settings = { revision: 1, analysis: true, automatic: false,
       excluded: [], foregroundOnly: !backgroundAvailable, backgroundAvailable };
     const noop = vi.fn();
@@ -42,7 +50,7 @@ describe("Files settings and local navigation", () => {
       onRenameChange={noop} onRenameSave={noop} onRenameCancel={noop} />);
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for notes.txt" }), { key: "Enter" });
     await screen.findByRole("menuitem", { name: "Organize", exact: true });
-    expect(Boolean(screen.queryByRole("menuitem", { name: "Schedule organization…" }))).toBe(backgroundAvailable);
+    expect(Boolean(screen.queryByRole("menuitem", { name: "Schedule organization…" }))).toBe(available);
   });
 
   it("closes protected settings when the vault locks and does not reopen on unlock", async () => {

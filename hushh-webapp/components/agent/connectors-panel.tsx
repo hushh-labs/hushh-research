@@ -1673,6 +1673,7 @@ function OwnerConnectorsPanel({
       accessLevel,
       includeCalendarList: true,
       includeMeetingFiles: true,
+      includeMailAccess: true,
       signal,
       cancelSignal: attemptCancel.signal,
     });

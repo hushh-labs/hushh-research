@@ -19,6 +19,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
+from hushh_mcp.market_data.movers import number, observation_time
+
 from ._market_presentation import resolve_public_module
 
 INDEX_SYMBOLS: tuple[str, ...] = ("^GSPC", "^IXIC", "^DJI", "^RUT")
@@ -66,6 +68,22 @@ def merge_quote_bundles(*bundles: Any) -> dict[str, Any]:
         quotes.update({s: q for s, q in found.items() if q} if isinstance(found, dict) else {})
         status.update(bundle.get("provider_status") or {})
     return {"quotes": quotes, "provider_status": status}
+
+
+def merge_index_quotes(previous: dict[str, Any], observed: dict[str, Any]) -> dict[str, Any]:
+    """Protect each benchmark independently against empty or regressed responses."""
+    quotes = dict(observed)
+    for symbol, saved in previous.items():
+        if not isinstance(saved, dict) or not (number(saved.get("price")) or 0) > 0:
+            continue
+        incoming = quotes.get(symbol) or {}
+        saved_at = observation_time(saved.get("quoted_at"))
+        incoming_at = observation_time(incoming.get("quoted_at"))
+        if (number(incoming.get("price")) or 0) <= 0 or (
+            saved_at and (incoming_at is None or incoming_at < saved_at)
+        ):
+            quotes[symbol] = {**saved, "is_stale": True}
+    return quotes
 
 
 @dataclass(frozen=True)

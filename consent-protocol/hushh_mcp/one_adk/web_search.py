@@ -89,21 +89,41 @@ def build_web_search_agent(model: Any, *, manifest: Any) -> LlmAgent:
     if not head_supports_web_search(model):
         raise ValueError("Web search is unavailable for this model")
     tool = GoogleSearchTool()
-    if (
+    is_azure_primary = (
         isinstance(model, AzureOpenAIAdkModel)
         and getattr(model, "primary_provider", "azure_openai") == "azure_openai"
-    ):
+    )
+    if is_azure_primary:
         from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
 
         tool = AzurePublicSearchTool()
     child = next(item for item in manifest.subagents if item.id == "google_search")
-    return managed_text_agent(
-        name=child.name,
-        model=model,
-        description=child.description,
-        instruction=child.system_instruction,
-        tools=[tool],
-    )
+    kwargs: dict[str, Any] = {
+        "name": child.name,
+        "model": model,
+        "description": child.description,
+        "instruction": child.system_instruction,
+        "tools": [tool],
+    }
+    if not is_azure_primary and child.model.thinking_level:
+        from google.genai import types
+
+        from hushh_mcp.runtime_providers.gemini_config import (
+            resolve_fleet_model_name,
+            thinking_config_for,
+        )
+
+        selected = (
+            model
+            if isinstance(model, str)
+            else getattr(model, "model", None) or resolve_fleet_model_name(child.model.name)
+        )
+        thinking = thinking_config_for(str(selected), child.model.thinking_level, types)
+        if thinking is not None:
+            kwargs["generate_content_config"] = types.GenerateContentConfig(
+                thinking_config=thinking
+            )
+    return managed_text_agent(**kwargs)
 
 
 def web_search_tools(model: Any, *, manifest: Any) -> list[Any]:

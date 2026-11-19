@@ -18,11 +18,13 @@ import math
 import re
 import time
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 
 from db.db_client import get_db_connection
 from hushh_mcp.services.account_deletion_lifecycle_service import (
@@ -390,11 +392,14 @@ class AccountGenerationService:
         return owner_id
 
     @staticmethod
-    def firebase_identities_for_owners(owner_ids: list[str]) -> dict[str, str]:
+    def firebase_identities_for_owners(
+        owner_ids: list[str], *, connection: Connection | None = None
+    ) -> dict[str, str]:
         """Bounded batch of exact active owners for SDK reads, never UID→latest.
 
         Filtering retirement precedes SDK/cache projection. Returned records
-        must still be keyed by their captured application owner.
+        must still be keyed by their captured application owner. A lifecycle caller
+        may retain its already-qualified connection and original session barriers.
         """
         owners = list(dict.fromkeys(owner_ids))
         if len(owners) > 10_000 or any(
@@ -403,7 +408,7 @@ class AccountGenerationService:
             raise AccountGenerationRefused("identity_read_batch_invalid")
         if not owners:
             return {}
-        with get_db_connection() as conn:
+        with nullcontext(connection) if connection is not None else get_db_connection() as conn:
             conn.execute(text("SET LOCAL statement_timeout='5000ms'"))
             installed = conn.execute(
                 text("SELECT to_regclass('public.account_generations') IS NOT NULL")

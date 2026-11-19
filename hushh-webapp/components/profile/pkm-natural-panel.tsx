@@ -630,6 +630,7 @@ export function PkmNaturalPanelBody({
               data-pkm-memory-capture="true"
             >
               <Textarea
+                className="border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] placeholder:text-[color:var(--app-secondary-label)]"
                 value={captureText}
                 disabled={captureSaving}
                 onPaste={(event) => {

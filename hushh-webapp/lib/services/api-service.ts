@@ -466,10 +466,17 @@ function isLiveGmailReceiptPath(path: string): boolean {
  */
 const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
+function isMemoryRewritePath(path: string): boolean {
+  const pathname = /^https?:\/\//i.test(path) ? new URL(path).pathname : path.split("?", 1)[0];
+  return pathname === "/api/pkm/memory/rewrite" || pathname === "/api/one/pod/memory/rewrite";
+}
+
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = /^https?:\/\//i.test(path)
     ? new URL(path).pathname
     : path.split("?", 1)[0] ?? "";
+  // Memory inference has a 90-second backend budget; allow its response to arrive.
+  if (isMemoryRewritePath(path)) return 100_000;
   if (/^\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
     return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
   }
@@ -927,6 +934,8 @@ async function apiFetch(
             ? LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
+          : isMemoryRewritePath(path)
+            ? 100_000
           : isLongRunningRoute
             ? 90_000
             : 60_000);
@@ -1240,6 +1249,7 @@ export interface KaiHomeMovers {
   as_of: string | null;
   source_tags: string[];
   degraded: boolean;
+  stale?: boolean;
   /** India only: how many large NSE stocks the movers were ranked from. */
   universe_size?: number | null;
 }
@@ -2312,7 +2322,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string },
+    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string; readOnly?: boolean },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2325,18 +2335,20 @@ export class ApiService {
     }
 
     const force = options?.force ?? true;
-    const path = options?.requireSuccess === true
+    const path = options?.readOnly === true
+      ? "/api/account/identity"
+      : options?.requireSuccess === true
       ? "/api/account/identity/refresh?require_success=true"
       : force
       ? "/api/account/identity/refresh"
       : "/api/account/identity/refresh?force=false";
 
     return apiFetch(path, {
-      method: "POST",
+      method: options?.readOnly ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
-      ...(options?.verifiedPhoneNumber ? {
+      ...(!options?.readOnly && options?.verifiedPhoneNumber ? {
         body: JSON.stringify({ verified_phone_number: options.verifiedPhoneNumber }),
       } : {}),
     });

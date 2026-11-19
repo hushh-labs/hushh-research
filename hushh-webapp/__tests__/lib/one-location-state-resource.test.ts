@@ -3,8 +3,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OneLocationState } from "@/lib/one-location/types";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheService } from "@/lib/services/cache-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 describe("OneLocationStateResource", () => {
+  it.each(["vault", "account"])("rejects a late read across a %s boundary and starts a fresh read", async (boundary) => {
+    const userId = "location-resource-owner";
+    publishValidatedAuthSessionOwner(userId);
+    let resolve!: (state: OneLocationState) => void;
+    const stale = OneLocationStateResource.load(userId, () => new Promise<OneLocationState>(done => { resolve = done; }));
+    if (boundary === "vault") advanceVaultSessionEpoch();
+    else publishValidatedAuthSessionOwner("another-owner");
+    const fresh = { recipients: [] } as unknown as OneLocationState;
+    const successor = OneLocationStateResource.load(userId, async () => fresh);
+    expect(successor).not.toBe(stale);
+    await successor;
+    resolve({ recipients: [{ userId: "stale" }] } as unknown as OneLocationState);
+    await stale;
+    expect(OneLocationStateResource.peek(userId)?.data).toBe(fresh);
+  });
   afterEach(() => {
     OneLocationStateResource.discardAll();
     CacheService.getInstance().clear();

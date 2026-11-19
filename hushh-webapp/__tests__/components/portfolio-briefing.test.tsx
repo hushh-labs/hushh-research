@@ -140,26 +140,36 @@ describe("portfolio briefing", () => {
     expect(performance.queryByText("Unavailable")).toBeNull();
   });
 
-  it("shows a saved score and next step only for the matching portfolio", async () => {
+  it("shows the judgment and score for the matching portfolio without inventing a next step", async () => {
     reviewMocks.capture.mockReturnValue({ userId: "owner", isCurrent: reviewMocks.isCurrent });
+    const takeaway = "There's enough cash here for the money you'll need soon.";
     reviewMocks.readCache.mockResolvedValue({
       digest: "current",
-      review: { score: 0, next_step: "Check your cash needs." },
+      review: { score: 0, takeaway, next_step: null },
     });
     reviewMocks.readInput.mockImplementation(async (_context, source) => ({
       digest: source.snapshotId === "first" ? "current" : "stale",
     }));
     const open = vi.fn();
     const { rerender } = render(<SavedPortfolioBriefing source={{ kind: "statement", snapshotId: "first" }} onOpen={open} />);
-    expect(await screen.findByText("Check your cash needs.")).toBeVisible();
+    expect(await screen.findByText(takeaway)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Next step" })).toBeNull();
     expect(screen.getByText("Portfolio score").nextElementSibling).toHaveTextContent("0 / 100");
     rerender(<SavedPortfolioBriefing source={{ kind: "statement", snapshotId: "second" }} onOpen={open} />);
     await waitFor(() => expect(reviewMocks.readInput).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "owner" }),
       expect.objectContaining({ snapshotId: "second" }),
     ));
-    expect(screen.queryByText("Check your cash needs.")).toBeNull();
+    expect(screen.queryByText(takeaway)).toBeNull();
     expect(screen.getByText("Unavailable")).toBeVisible();
+  });
+
+  it("shows a supplied next step after the judgment", () => {
+    const takeaway = "Most of the money you'll need soon is tied up in stocks.";
+    const nextStep = "I'd set aside the money you'll need soon before investing more.";
+    render(<PortfolioBriefing review={{ score: 72, takeaway, next_step: nextStep }} onOpen={vi.fn()} />);
+    expect(screen.getByText(takeaway).compareDocumentPosition(screen.getByText(nextStep)))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
 });

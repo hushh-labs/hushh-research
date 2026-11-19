@@ -9732,6 +9732,7 @@ class OneLocationAgentService:
                 {
                     **payload,
                     "recipientClearedAt": _iso(row.get("recipient_cleared_at")),
+                    "feedConfirmedAt": _iso(row.get("feed_confirmed_at")),
                     **(
                         {"feedLatestSms": row["feed_latest_sms"]}
                         if isinstance(row.get("feed_latest_sms"), bool)

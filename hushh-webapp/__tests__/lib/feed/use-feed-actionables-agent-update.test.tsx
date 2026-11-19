@@ -71,6 +71,7 @@ vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
     getInstance: () => ({
       set: () => undefined,
+      invalidate: () => undefined,
     }),
   },
 }));

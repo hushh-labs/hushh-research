@@ -1,5 +1,6 @@
 "use client";
 
+import { CalendarFollowupsService, FollowupRequestError } from "@/lib/services/calendar-followups-service";
 import presentationStyles from "./calendar-presentation.module.css";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { GoogleCalendarService, type CalendarExecution, type GoogleCalendarAccount, type CalendarOpening } from "@/lib/services/google-calendar-service";
 import styles from "./calendar-booking-dialog.module.css";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { CalendarSelect } from "./calendar-select";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 
@@ -40,13 +42,14 @@ function emailAddress(value: string) {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) && email.length <= 320 ? email : null;
 }
 
-export function CalendarBookingDialog({ opening, accounts, people, accountPeople, userId, token, timeZone, alternatives, onClose, onConfirmed, onConflict, onRequireWrite }: {
+export function CalendarBookingDialog({ opening, accounts, people, accountPeople, userId, token, getIdToken, timeZone, alternatives, onClose, onConfirmed, onConflict, onRequireWrite }: {
   opening: BookingOpening;
   accounts: GoogleCalendarAccount[];
   people: CalendarHusshPeople;
   accountPeople: CalendarHusshPeople;
   userId: string;
   token: string | null;
+  getIdToken?: () => Promise<string>;
   timeZone: string;
   alternatives: CalendarOpening[];
   onClose: () => void;
@@ -97,7 +100,8 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
 
   const schedule = async () => {
     if (busyRef.current || uncertain) return;
-    if (!token) { setError("Unlock One before scheduling a Calendar event."); return; }
+    const followup = opening.followupRequest;
+    if ((!followup && !token) || (followup && !getIdToken)) { setError("Unlock One before scheduling a Calendar event."); return; }
     if (!account?.connected || !account.google_email) { setError("Reconnect the selected Calendar account."); return; }
     if (account.access_level !== "manage") { setError("Allow scheduling on this Calendar account first. Nothing has been created."); return; }
     if (!draft.title.trim()) { setError("Enter a meeting title."); return; }
@@ -119,9 +123,9 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
     setConflicts([]);
     const owner = snapshotValidatedAuthSessionOwner();
     const vaultEpoch = snapshotVaultSessionEpoch();
-    const current = () => mounted.current && isVaultSessionEpochCurrent(vaultEpoch) &&
+    const current = () => mounted.current && (Boolean(followup) || isVaultSessionEpochCurrent(vaultEpoch)) &&
       (!owner || isValidatedAuthSessionOwnerCurrent(owner)) &&
-      liveContext.current.accountKey === accountKey && liveContext.current.token === token && liveContext.current.userId === userId;
+      liveContext.current.accountKey === accountKey && (Boolean(followup) || liveContext.current.token === token) && liveContext.current.userId === userId;
     const flagUncertain = () => {
       if (!mounted.current) return;
       setUncertain(true);
@@ -129,14 +133,19 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
     };
     let executing = false;
     try {
-      const proposed = await GoogleCalendarService.reviewBoardBooking({
-        vaultOwnerToken: token, userId, accountId: draft.accountId,
+      const input = {
+        userId, accountId: draft.accountId,
         checkedAccountIds: accounts.map(item => item.account_id), selectedDate: draft.date,
         title: draft.title.trim(), startAt, endAt, timeZone: nextZone,
         attendees: guests, description: draft.description.trim(), meetingType: draft.meetingType,
         meetingLink: draft.meetingType === "external_link" ? draft.meetingLink.trim() : "",
         location: draft.meetingType === "in_person" ? draft.location.trim() : "",
-      });
+      };
+      const idToken = followup ? await getIdToken!() : null;
+      if (!current()) return;
+      const proposed = followup
+        ? await CalendarFollowupsService.reviewBooking(input, followup, idToken!)
+        : await GoogleCalendarService.reviewBoardBooking({ ...input, vaultOwnerToken: token! });
       if (!current()) return;
       if (proposed.plan.account_id !== draft.accountId ||
           Date.parse(proposed.plan.start_at) !== Date.parse(startAt) ||
@@ -151,10 +160,15 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
         onConflict();
         return;
       }
+      if (followup && (!("review_token" in proposed) || typeof proposed.review_token !== "string" || !proposed.review_token)) {
+        throw new Error("Calendar review was incomplete. Review the meeting again.");
+      }
       executing = true;
-      const result = await GoogleCalendarService.executeProposal({
-        vaultOwnerToken: token, userId, proposalId: proposed.proposal_id, accountId: draft.accountId, isEffectCurrent: current,
-      });
+      const result = followup && "review_token" in proposed
+        ? await CalendarFollowupsService.executeBooking(userId, draft.accountId, followup, proposed.proposal_id, proposed.review_token as string, idToken!, current)
+        : await GoogleCalendarService.executeProposal({
+          vaultOwnerToken: token!, userId, proposalId: proposed.proposal_id, accountId: draft.accountId, isEffectCurrent: current,
+        });
       if (!current()) { flagUncertain(); return; }
       if (result.action !== "create" || !result.event?.id) throw new Error("Calendar did not confirm the event.");
       onConfirmed(result, result.event.start?.dateTime || startAt, draft.accountId, account.google_email);
@@ -163,14 +177,15 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
         if (executing) flagUncertain();
         return;
       }
-      const blockedBeforeWrite = failure instanceof GoogleCalendarError && [
+      const blockedFollowup = failure instanceof FollowupRequestError && ["request_changed", "mail_grant_changed", "monitor_changed", "selected_mail_permission_required", "monitoring_off", "calendar_availability_changed", "calendar_accounts_changed", "calendar_selection_changed", "calendar_destination_read_only", "calendar_permission_required"].includes(failure.code);
+      const blockedBeforeWrite = blockedFollowup || failure instanceof GoogleCalendarError && [
         "calendar_availability_changed", "calendar_accounts_changed", "calendar_selection_changed",
         "calendar_destination_read_only", "calendar_permission_required",
       ].includes(failure.reasonCode || "");
       if (executing && !blockedBeforeWrite) {
         flagUncertain();
       } else {
-        setError(failure instanceof Error ? failure.message : "Couldn’t schedule the meeting. Try again.");
+        setError(blockedFollowup ? "Calendar or follow-up details changed. Review the meeting and try again." : failure instanceof Error ? failure.message : "Couldn’t schedule the meeting. Try again.");
       }
       onConflict();
     } finally {
@@ -185,7 +200,7 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
   };
 
   return <Dialog modal open onOpenChange={open => { if (!open) close(); }}>
-    <DialogContent className={`${styles.dialog} ${presentationStyles.portal}`} data-connect-type-scale="page" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
+    <DialogContent className={`${styles.dialog} ${presentationStyles.portal} ${connectTypography.surface}`} data-connect-type-scale="page" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
       <DialogHeader className={styles.header}><DialogTitle>Schedule meeting</DialogTitle><DialogDescription>Nothing is scheduled yet.</DialogDescription></DialogHeader>
       <div className={styles.body} data-calendar-booking-body aria-busy={busy}>
       <div className={styles.fields}>

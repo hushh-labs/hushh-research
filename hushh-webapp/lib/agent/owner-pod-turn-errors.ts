@@ -32,7 +32,7 @@ const CHAT_GRANTS_REFUSAL = /^POD_CHAT_AUTHORITY_UNAVAILABLE:\d{3}(?::([A-Z][A-Z
 const FIXED_MESSAGES: Readonly<Record<string, string>> = {
   "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY": NOT_READY,
   POD_CHAT_BUSY: "Agent One is finishing active work. Try again shortly.",
-  POD_CHAT_UPDATING: "Agent One is updating. Check Software updates in Settings before trying again.",
+  POD_CHAT_UPDATING: "Agent One is updating. Check Agent updates in Settings before trying again.",
   POD_CHAT_RECOVERY_FAILED: "This answer could not be saved safely. Reconnect to Agent One before continuing.",
   POD_CHAT_AUTHORITY_UNAVAILABLE: "This action is not available through Agent One yet.",
   POD_RECEIPT_UPDATE_REQUIRED: "Update Agent One in Settings before resuming this receipt request.",
