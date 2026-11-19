@@ -9,7 +9,7 @@ in `#9744`).
 
 ## Portability Targets
 
-- **GKE Autopilot / Assured Workloads:** set `runtimeClassName: gke-sandbox` (gVisor) or `kata` where Kata nodes are provisioned.
+- **GKE Autopilot / Assured Workloads:** `runtimeClassName: gvisor` is verified live on `hussh-one-sandbox-dev` (`us-central1` Autopilot); `microvm` (`kata-clh` Cloud Hypervisor hardware microVMs) is supported where Autopilot/Standard microVM node pools are enabled.
 - **AWS GovCloud EKS / Azure Gov AKS:** use `runtimeClassName: kata` (Kata microVM).
 - **Network Fencing:** `sandbox-network-policy.yaml` restricts sandbox pods strictly to `hussh-consent-hub` on TCP `8080` and `sentinel-egress-proxy` on TCP `3128`.
 

@@ -4,8 +4,8 @@
 
 Produces `extensions.agents.x-k8s.io/v1beta1` (`SandboxTemplate`,
 `SandboxWarmPool`, `SandboxClaim`) and `networking.k8s.io/v1` default-deny
-`NetworkPolicy` resources runnable across GKE (`kata` / `gke-sandbox`), AWS
-GovCloud EKS, and Azure Gov AKS.
+`NetworkPolicy` resources runnable across GKE Autopilot (`microvm` / `kata-clh`
+and `gvisor`), AWS GovCloud EKS (`kata`), and Azure Gov AKS (`kata`).
 """
 
 from __future__ import annotations
@@ -34,7 +34,8 @@ DEFAULT_STANDBY_COMMAND = (
 )
 K8S_MANIFEST_INVARIANT_ERROR = "AGENT_SANDBOX_MANIFEST_INVALID"
 
-SandboxRuntimeClass = Literal["kata", "gke-sandbox"]
+SandboxRuntimeClass = Literal["microvm", "kata", "gvisor"]
+SUPPORTED_SANDBOX_RUNTIME_CLASSES = frozenset({"microvm", "kata", "gvisor"})
 
 _DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 _IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[a-f0-9]{64}$")
@@ -59,7 +60,7 @@ def render_sandbox_template(
     name: str = "hussh-one-sandbox-v1",
     namespace: str = "hussh-agents",
     image_ref: str,
-    runtime_class: SandboxRuntimeClass = "kata",
+    runtime_class: SandboxRuntimeClass = "microvm",
     cpu_millis: int = DEFAULT_CPU_MILLIS,
     memory_limit: str = DEFAULT_MEMORY_LIMIT,
     egress_proxy_url: str = DEFAULT_EGRESS_PROXY_URL,
@@ -73,7 +74,7 @@ def render_sandbox_template(
         raise ValueError(
             f"{K8S_MANIFEST_INVARIANT_ERROR}: immutable @sha256 digest image_ref required"
         )
-    if runtime_class not in {"kata", "gke-sandbox"}:
+    if runtime_class not in SUPPORTED_SANDBOX_RUNTIME_CLASSES:
         raise ValueError(
             f"{K8S_MANIFEST_INVARIANT_ERROR}: unsupported runtimeClassName {runtime_class!r}"
         )
@@ -252,8 +253,8 @@ def render_sandbox_claim(
             "warmPoolRef": {"name": pool_name},
             "additionalPodMetadata": {
                 "labels": {
-                    "hussh-billing-space": clean_space,
-                    "hussh.ai/single-use": "true",
+                    "sandbox.users.io/billing-space": clean_space,
+                    "sandbox.users.io/single-use": "true",
                 }
             },
             "lifecycle": {
@@ -323,7 +324,7 @@ def render_agent_sandbox_bundle(
     billing_space_id: str,
     image_ref: str,
     namespace: str = "hussh-agents",
-    runtime_class: SandboxRuntimeClass = "kata",
+    runtime_class: SandboxRuntimeClass = "microvm",
     warm_pool_replicas: int = 8,
     warm_pool_name: str = "hussh-one-warm-pool",
 ) -> dict[str, dict[str, Any]]:

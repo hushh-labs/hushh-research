@@ -120,6 +120,8 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/actions/gmail/proposals",
         "/api/one/pod/calendar/events",
         "/api/one/pod/gmail/todos",
+        "/api/one/pod/todos/suggestions",
+        "/api/one/pod/todos/suggestions/status",
         "/api/one/pod/browser/capability",
         "/api/one/pod/browser/tasks",
         "/api/one/pod/browser/worker",

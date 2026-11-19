@@ -302,13 +302,29 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
         claim_name="claim-user-123",
         billing_space_id="bs_123",
         image_ref=_IMAGE_WITH_DIGEST,
-        runtime_class="gke-sandbox",
+        runtime_class="microvm",
     )
     _assert_template_hardened(bundle["template"])
+    assert bundle["template"]["spec"]["podTemplate"]["spec"]["runtimeClassName"] == "microvm"
     assert bundle["claim"]["apiVersion"] == "extensions.agents.x-k8s.io/v1beta1"
     assert bundle["claim"]["spec"]["warmPoolRef"] == {"name": "hussh-one-warm-pool"}
+    assert (
+        bundle["claim"]["spec"]["additionalPodMetadata"]["labels"]["sandbox.users.io/single-use"]
+        == "true"
+    )
     assert bundle["claim"]["spec"]["lifecycle"]["shutdownPolicy"] == "DeleteForeground"
     assert bundle["networkPolicy"]["spec"]["policyTypes"] == ["Ingress", "Egress"]
+
+    with pytest.raises(ValueError, match="Unsupported sandbox runtimeClassName"):
+        AceComputeBackend().render_k8s_agent_sandbox_bundle(
+            PodSpec(
+                hushh_id="user_123",
+                phone_e164_hash="hash_123",
+                pod_pubkey="pk_123",
+                billing_space_id="bs_123",
+            ),
+            runtime_class="runc",
+        )
 
     ace_bundle = AceComputeBackend().render_k8s_agent_sandbox_bundle(
         PodSpec(

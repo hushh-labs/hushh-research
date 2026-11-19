@@ -41,7 +41,7 @@ if [ "$MODE" = "plan" ]; then
   echo "  2. Ensure Cloud Router $ROUTER_NAME and Cloud NAT $NAT_NAME in $REGION (default VPC)"
   echo "  3. Ensure private GKE Autopilot cluster $CLUSTER_NAME in $REGION"
   echo "  4. Apply kubernetes-sigs/agent-sandbox $AGENT_SANDBOX_RELEASE CRDs + controller"
-  echo "  5. Apply namespaces, NetworkPolicy, gke-sandbox SandboxTemplate, and SandboxWarmPool (replicas=$REPLICAS)"
+  echo "  5. Apply namespaces, NetworkPolicy, microvm/gvisor SandboxTemplate, and SandboxWarmPool (replicas=$REPLICAS)"
   exit 0
 fi
 

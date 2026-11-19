@@ -9,7 +9,7 @@ import { agentTodoInput, buildTodo, calendarTodoInput, calendarTodoSourceId, isL
 import { taskSort } from "@/lib/todos/todo-list-model";
 import { useTodoCapabilitySources } from "./use-todo-capability-sources";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import type { TaskCapability, TaskCoverage, TaskEvidence } from "./task-suggestion-model";
+import { taskCapabilitySchema, type TaskCapability, type TaskCoverage, type TaskEvidence } from "./task-suggestion-model";
 
 const sourceCapabilities: Partial<Record<NonNullable<TodoItem["sourceAgent"]>, TaskCapability>> = {
   calendar: "calendar", gmail: "gmail", kai: "finance", location: "location",
@@ -144,26 +144,29 @@ function projectTodoTasks(
  * Only explicit source todos are included; projecting tasks never writes PKM
  * or executes a task's source action. The existing feed hook retains its own
  * refresh and previously requested clear lifecycle. Completion stays in PKM. */
-export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, enabled, tasks }: {
+export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, enabled, tasks, selectedCapabilities = taskCapabilitySchema.options }: {
   userId: string | null;
   vaultOwnerToken: string | null;
   idTokenProvider: (() => Promise<string>) | null;
   enabled: boolean;
   tasks: TodoItem[];
+  selectedCapabilities?: readonly TaskCapability[];
 }) {
-  const agentFeed = useFeedActionables({ enabled, allPending: true });
-  const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({ enabled, includeCalendar: false, includeNudges: false });
-  const calendar = useCalendarConnectionStatus({ userId: enabled ? userId : null, idTokenProvider: enabled ? idTokenProvider : null });
-  const upcoming = useCalendarUpcomingEvents({ userId: enabled ? userId : null, vaultOwnerToken: enabled ? vaultOwnerToken : null, isConnected: enabled && calendar.connected, windowHours: 168 });
-  const gmail = useGmailConnectorStatus({ userId: enabled ? userId : null, idTokenProvider: enabled ? idTokenProvider : null });
-  const extra = useTodoCapabilitySources({ enabled, userId, vaultOwnerToken, idTokenProvider, mailConnected: gmail.status?.connected === true && gmail.status.needs_reauth !== true, calendarConnected: calendar.connected, mailStatusKnown: Boolean(gmail.status) && !gmail.statusError, calendarStatusKnown: calendar.loaded && !calendar.error });
+  const includes = (source: TaskCapability) => enabled && selectedCapabilities.includes(source);
+  const calendarEnabled = includes("calendar"), mailEnabled = includes("gmail");
+  const agentFeed = useFeedActionables({ enabled: enabled && ["finance", "location", "consent"].some(source => selectedCapabilities.includes(source as TaskCapability)), allPending: true, taskSources: selectedCapabilities });
+  const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({ enabled: mailEnabled, includeCalendar: false, includeNudges: false });
+  const calendar = useCalendarConnectionStatus({ userId: calendarEnabled ? userId : null, idTokenProvider: calendarEnabled ? idTokenProvider : null });
+  const upcoming = useCalendarUpcomingEvents({ userId: calendarEnabled ? userId : null, vaultOwnerToken: calendarEnabled ? vaultOwnerToken : null, isConnected: calendarEnabled && calendar.connected, windowHours: 168 });
+  const gmail = useGmailConnectorStatus({ userId: mailEnabled ? userId : null, idTokenProvider: mailEnabled ? idTokenProvider : null });
+  const extra = useTodoCapabilitySources({ enabled, userId, vaultOwnerToken, idTokenProvider, mailConnected: gmail.status?.connected === true && gmail.status.needs_reauth !== true, calendarConnected: calendar.connected, mailStatusKnown: Boolean(gmail.status) && !gmail.statusError, calendarStatusKnown: calendar.loaded && !calendar.error, selectedCapabilities });
   const evidence = useMemo(() => extra.reads.flatMap(read => read.evidence), [extra.reads]);
   const agentLoadError = agentFeed.error || agentFeed.progressError || kycError;
   const agentLoading = agentFeed.loading || agentFeed.progressLoading || kycLoading;
-  const calendarReadLoading = enabled && (!calendar.loaded || calendar.loading || (calendar.connected && (!upcoming.loaded || upcoming.loading)));
-  const calendarReadError = Boolean(calendar.error || upcoming.error);
-  const emailReadLoading = enabled && (gmail.loadingStatus || extra.loading);
-  const emailReadError = enabled && !emailReadLoading && Boolean(gmail.statusError || extra.error ||
+  const calendarReadLoading = calendarEnabled && (!calendar.loaded || calendar.loading || (calendar.connected && (!upcoming.loaded || upcoming.loading)));
+  const calendarReadError = calendarEnabled && Boolean(calendar.error || upcoming.error);
+  const emailReadLoading = mailEnabled && (gmail.loadingStatus || extra.loading);
+  const emailReadError = mailEnabled && !emailReadLoading && Boolean(gmail.statusError || extra.error ||
     extra.reads.some(read => read.coverage.capability === "gmail" && read.coverage.status === "unavailable"));
   const pending = useMemo(
     () => projectTodoTasks(tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence),
@@ -184,9 +187,9 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     });
   }
   return {
-    pending: enabled ? pending : [], agentFeed, retryKyc, calendar, upcoming,
+    pending: enabled ? pending.filter(task => task.type === "manual" || (task.sourceAgent === "agent" && selectedCapabilities.length > 0) || Boolean(task.sourceAgent && selectedCapabilities.includes(sourceCapabilities[task.sourceAgent]!))) : [], agentFeed, retryKyc, calendar, upcoming,
     agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading,
-    evidence: suggestionEvidence, coverage: allCoverage, sourceLoading: extra.loading || agentLoading || calendarReadLoading,
+    evidence: suggestionEvidence.filter(item => selectedCapabilities.includes(item.capability)), coverage: allCoverage.filter(item => selectedCapabilities.includes(item.capability)), sourceLoading: extra.loading || agentLoading || calendarReadLoading,
     sourceError: extra.error || allCoverage.some(source => source.status === "unavailable"), refreshSources: extra.refresh,
   };
 }

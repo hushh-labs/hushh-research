@@ -23,7 +23,8 @@ spec:
         hussh.ai/pool: hussh-one-sandbox-v1
         hussh.ai/egress-enforced: sentinel
     spec:
-      runtimeClassName: kata
+      # Verified live on Dev GKE Autopilot (gvisor); use microvm (kata-clh) or kata on dedicated Kata node pools / EKS / AKS.
+      runtimeClassName: gvisor
       automountServiceAccountToken: false
       restartPolicy: Never
       securityContext:
