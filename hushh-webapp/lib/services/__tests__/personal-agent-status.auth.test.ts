@@ -16,8 +16,15 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const authState = vi.hoisted(() => ({
+  user: null as { uid: string } | null,
+}));
+
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdToken: vi.fn(async () => "firebase-id-token") },
+  AuthService: {
+    getIdToken: vi.fn(async () => "firebase-id-token"),
+    getCurrentUser: vi.fn(() => authState.user),
+  },
 }));
 
 // Spread the real module: `api-service` pulls in `lib/capacitor/index.ts`, which calls
@@ -31,6 +38,7 @@ vi.mock("@capacitor/core", async (importOriginal) => {
   };
 });
 
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 
 function mockFetchOnce(body: unknown, ok = true, status = 200) {
@@ -44,6 +52,9 @@ function mockFetchOnce(body: unknown, ok = true, status = 200) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  ApiService.clearRoutingHostingBurstCache();
+  publishValidatedAuthSessionPrincipal(null);
+  authState.user = null;
 });
 
 describe("ApiService.getPersonalAgentStatus", () => {
@@ -98,5 +109,49 @@ describe("ApiService.getPersonalAgentStatus", () => {
     await expect(ApiService.getPersonalAgentStatus()).rejects.toThrow(
       "AGENT_STATUS_UNAVAILABLE:401",
     );
+  });
+
+  it("reuses settled byoc routing status within 5s, skips unsettled states, and invalidates on principal switch", async () => {
+    authState.user = { uid: "fb-1" };
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "fb-1",
+      ownerId: "owner-1",
+      accountGeneration: 1,
+    });
+    const spy = vi
+      .spyOn(ApiService, "apiFetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ hostingMode: "byoc", state: "provisioning" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ hostingMode: "byoc", state: "active", hushhId: "ha1_1" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ hostingMode: "shared", state: "idle" }),
+      } as unknown as Response);
+
+    const unsettled = await ApiService.getPersonalAgentStatusForRouting();
+    expect(unsettled.state).toBe("provisioning");
+    const activeFirst = await ApiService.getPersonalAgentStatusForRouting();
+    const activeSecond = await ApiService.getPersonalAgentStatusForRouting();
+    expect(activeFirst.hushhId).toBe("ha1_1");
+    expect(activeSecond.hushhId).toBe("ha1_1");
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    authState.user = { uid: "fb-2" };
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "fb-2",
+      ownerId: "owner-2",
+      accountGeneration: 2,
+    });
+    const switched = await ApiService.getPersonalAgentStatusForRouting();
+    expect(switched.hostingMode).toBe("shared");
+    expect(spy).toHaveBeenCalledTimes(3);
   });
 });

@@ -2822,6 +2822,7 @@ def build_one_text_agent(
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
     from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
 
     track_current_consent, finance_before_model, finance_after_model = finance_model_callbacks(
@@ -2867,6 +2868,7 @@ def build_one_text_agent(
             receipt_before_model,
             wiki_before_model,
             document_period_before_model,
+            scope_leaf_tools_before_model,
             timed_one_before_model,
             club_queued_input,
             chat_memory_before_model,

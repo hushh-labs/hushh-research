@@ -10,6 +10,15 @@ const source = readFileSync(
   join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
   "utf8",
 );
+const transformsSource = readFileSync(
+  join(process.cwd(), "components/agent/workspace/agent-message-transforms.ts"),
+  "utf8",
+);
+const bubbleSource = readFileSync(
+  join(process.cwd(), "components/agent/workspace/agent-bubble.tsx"),
+  "utf8",
+);
+const workspaceUnitSource = `${source}\n${transformsSource}\n${bubbleSource}`;
 
 // Execute the same workspace callbacks at their service ports. The native
 // workspace cannot be mounted here; no authorization logic is copied to this fixture.
@@ -165,51 +174,51 @@ describe("Initial history warm return", () => {
 
 describe("Agent Chat email draft layout contract", () => {
   it("keeps a draft in the conversation scroller, then hands send work to a collapsible history item", () => {
-    expect(source).toContain("emailDraftOpen");
-    expect(source).toContain("initialInstruction={emailDraftInstruction}");
-    expect(source).toContain(
+    expect(workspaceUnitSource).toContain("emailDraftOpen");
+    expect(workspaceUnitSource).toContain("initialInstruction={emailDraftInstruction}");
+    expect(workspaceUnitSource).toContain(
       "emailDraftInstruction = handoff.emailDraftInstruction?.trim()",
     );
-    expect(source).toContain("openGmailEmailDraftFromDirective");
-    expect(source).toContain('event.raw.toolName !== "open_gmail_email_draft"');
-    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft?.body);");
-    expect(source).toContain("getGmailInformationRequestReplyPayload");
-    expect(source).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
-    expect(source).toContain(
+    expect(workspaceUnitSource).toContain("openGmailEmailDraftFromDirective");
+    expect(workspaceUnitSource).toContain('event.raw.toolName !== "open_gmail_email_draft"');
+    expect(workspaceUnitSource).toContain("setEmailDraftAutoDraft(!payload.initialDraft?.body);");
+    expect(workspaceUnitSource).toContain("getGmailInformationRequestReplyPayload");
+    expect(workspaceUnitSource).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
+    expect(workspaceUnitSource).toContain(
       '"Reply to the selected Gmail email with appropriate details from my memory."',
     );
-    expect(source).not.toContain("appropriate details from my PKM");
-    expect(source).toContain("gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id");
-    expect(source).not.toContain("prepareScopedGmailInformationRequestDraft");
-    expect(source).toContain("autoDraft={emailDraftAutoDraft}");
-    expect(source).toContain("onSendStarted={handleEmailSendStarted}");
-    expect(source).toContain("EmailDeliveryHistoryCard");
-    expect(source).toContain("bucketEmailDeliveryTimelineItems");
-    expect(source).toContain("emailDraftAnchorMessageId");
-    expect(source).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
-    expect(source).toContain("message.id === emailDraftAnchorMessageId");
-    expect(source).toContain("renderEmailDraftCard()");
-    expect(source).toContain("sourceBoundReply=");
-    expect(source).toContain("sourceBoundEnvelope={gmailKycEmailDraftEnvelope}");
-    expect(source).toContain("source.reply_to?.trim() || source.from.trim()");
-    expect(source).not.toContain("sourceBoundContext=");
-    expect(source).not.toContain("gmailKycRequestSummary");
-    expect(source).toContain("sourceWorkflowId: workflowId");
-    expect(source).toContain("const prepared = await EmailDeliveryService.prepare");
-    expect(source).not.toContain("GmailInformationRequestsService.prepareReply");
-    expect(source).not.toContain("GmailKycReplyCard");
-    expect(source).toContain("itemsAfterMessage.get(message.id)");
-    expect(source).toContain(
+    expect(workspaceUnitSource).not.toContain("appropriate details from my PKM");
+    expect(workspaceUnitSource).toContain("gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id");
+    expect(workspaceUnitSource).not.toContain("prepareScopedGmailInformationRequestDraft");
+    expect(workspaceUnitSource).toContain("autoDraft={emailDraftAutoDraft}");
+    expect(workspaceUnitSource).toContain("onSendStarted={handleEmailSendStarted}");
+    expect(workspaceUnitSource).toContain("EmailDeliveryHistoryCard");
+    expect(workspaceUnitSource).toContain("bucketEmailDeliveryTimelineItems");
+    expect(workspaceUnitSource).toContain("emailDraftAnchorMessageId");
+    expect(workspaceUnitSource).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
+    expect(workspaceUnitSource).toContain("message.id === emailDraftAnchorMessageId");
+    expect(workspaceUnitSource).toContain("renderEmailDraftCard()");
+    expect(workspaceUnitSource).toContain("sourceBoundReply=");
+    expect(workspaceUnitSource).toContain("sourceBoundEnvelope={gmailKycEmailDraftEnvelope}");
+    expect(workspaceUnitSource).toContain("source.reply_to?.trim() || source.from.trim()");
+    expect(workspaceUnitSource).not.toContain("sourceBoundContext=");
+    expect(workspaceUnitSource).not.toContain("gmailKycRequestSummary");
+    expect(workspaceUnitSource).toContain("sourceWorkflowId: workflowId");
+    expect(workspaceUnitSource).toContain("const prepared = await EmailDeliveryService.prepare");
+    expect(workspaceUnitSource).not.toContain("GmailInformationRequestsService.prepareReply");
+    expect(workspaceUnitSource).not.toContain("GmailKycReplyCard");
+    expect(workspaceUnitSource).toContain("itemsAfterMessage.get(message.id)");
+    expect(workspaceUnitSource).toContain(
       "openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);",
     );
-    expect(source).toContain("kycInformationSaveConfirmed:");
-    expect(source).toContain("gmailInformationRequestWorkflowId:");
-    expect(source).not.toContain(
+    expect(workspaceUnitSource).toContain("kycInformationSaveConfirmed:");
+    expect(workspaceUnitSource).toContain("gmailInformationRequestWorkflowId:");
+    expect(workspaceUnitSource).not.toContain(
       "current.filter((message) => message.id !== assistantMessageId)",
     );
-    expect(source).toContain("setQueuedHandoffPrompt({ text: emailDraftInstruction });");
-    expect(source).not.toContain('aria-label="Draft an email"');
-    expect(source).not.toContain(
+    expect(workspaceUnitSource).toContain("setQueuedHandoffPrompt({ text: emailDraftInstruction });");
+    expect(workspaceUnitSource).not.toContain('aria-label="Draft an email"');
+    expect(workspaceUnitSource).not.toContain(
       'className="shrink-0 border-t border-border/70 bg-background px-3 pt-3 sm:px-5"',
     );
   });

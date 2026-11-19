@@ -5,10 +5,16 @@ import { describe, expect, it } from "vitest";
 
 import { legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 
-const source = readFileSync(
-  join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
-  "utf8",
-);
+const source = [
+  readFileSync(
+    join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
+    "utf8",
+  ),
+  readFileSync(
+    join(process.cwd(), "components/agent/workspace/agent-message-transforms.ts"),
+    "utf8",
+  ),
+].join("\n");
 
 /**
  * agent-chat-workspace.tsx has no existing mount/render test coverage at all

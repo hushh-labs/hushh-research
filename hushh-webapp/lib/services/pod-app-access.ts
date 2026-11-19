@@ -642,11 +642,10 @@ export async function prewarmOwnerPodChatAccess(ports: {
               })
               .catch(() => undefined),
         ports
-          .fetch(`${connection.endpoint.url}/api/one/pod/agent-chat/capabilities`, {
+          .fetch(`${connection.endpoint.url}/health`, {
             method: "GET",
             credentials: "omit",
             cache: "no-store",
-            headers: { Authorization: `Bearer ${connection.session.session}` },
           })
           .then((res) => {
             if (!isAgentStillWaking(res)) markAgentAnswered(connection.endpoint.url);
