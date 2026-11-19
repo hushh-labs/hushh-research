@@ -2,7 +2,6 @@
 
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
-import { useAccountPhoneBinding } from "@/components/profile/use-account-phone-binding";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useWorldModelOwnerState as useWorldModelSessionState } from "./world-model-owner-state";
@@ -833,19 +832,13 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const namesakeNotice = preparing ? identityNotice(shownProgress) : null;
   const namesakesFound =
     status.kind === "nothing" && offered !== null && offered.research.candidates.length > 0;
-  const { linkedPhone: phone, status: phoneStatus } = useAccountPhoneBinding({
-    active: ready && present,
-    ownerId: userId,
-    firebaseUid: user?.uid,
-    appPhone: phoneNumber,
-    appStatus: phoneNumberStatus,
-  });
+  const phone = ready && present && phoneNumberStatus === "verified" ? phoneNumber : null;
   const identity = {
     name: user?.displayName,
     email: user?.email,
     emailVerified: Boolean(user?.emailVerified),
     phone,
-    phoneStatus,
+    phoneStatus: phoneNumberStatus,
   };
   // The landmark carries the group's own title, so both read the same.
   const identityLabel = identityGroupTitle(identity);
@@ -1151,8 +1144,17 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               </SettingsGroup>
             ) : null}
             {offered && offered.search_suggestions.length > 0 ? (
-              <SettingsGroup title="Related Google searches" density="compact">
-                <div aria-label="Google Search suggestions">
+              <SettingsGroup
+                title="Related Google searches"
+                description={
+                  <span className="text-foreground/75">
+                    Swipe or scroll sideways to see the full search terms.
+                  </span>
+                }
+                density="compact"
+                className="@container"
+              >
+                <div className="grid min-w-0 gap-1.5 p-1.5 @sm:p-2">
                   {offered.search_suggestions.map((html, index) => (
                     <SearchSuggestions key={index} html={html} index={index} />
                   ))}

@@ -114,7 +114,7 @@ describe("ApiService.apiFetch", () => {
 
     expect(await request).toBeUndefined();
   });
-  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+  it("sends explicit phone finalization in the authenticated body and omits it for ordinary refresh", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ success: true }));
     await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
     const [url, init] = mockFetch.mock.calls.at(-1)!;
@@ -123,6 +123,17 @@ describe("ApiService.apiFetch", () => {
     expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
     await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
     expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
+  it("reads committed identity through GET even when refresh and phone-finalization options are supplied", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true, identity: null }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", {
+      readOnly: true, force: true, requireSuccess: true, verifiedPhoneNumber: "+12025550101",
+    });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).toMatch(/\/api\/account\/identity$/);
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
   });
   it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
     let active = true;

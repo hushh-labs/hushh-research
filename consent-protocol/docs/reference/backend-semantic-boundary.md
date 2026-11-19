@@ -1353,3 +1353,20 @@ agent is added.
   retries forever.
 - Live eval before promotion: mocked contract tests for the host policy only.
   Durable-fact quality on real owner activity is unmeasured.
+
+### Declared: connector connection-readiness preflight and post-tool boundary
+
+- Owner: Email, Drive, Calendar, and One ADK turn orchestration
+  (`GmailReceiptsService.preflight_mail_read_status`,
+  `PodLocalEmailReadPort.preflight_mail_read_status`,
+  `EmailChatService.handle_delegated_turn`, `agent_tree.ask_email_agent` /
+  `ask_documents_agent`, `pod_connector_tools.calendar_turn_refusal`, and
+  `external_read_boundary`).
+- Non-semantic gate only: inspects stored OAuth connection status (`status`,
+  `revoked`, granted scopes), Data Door grant presence, and pod placement
+  (`private_pod_runtime` vs `owner_cloud_agent`) strictly before invoking a
+  specialist planner LLM or emitting a post-tool `One` summary call.
+- Never inspects user message phrasing, intent keywords, or mailbox/file/event
+  text; semantically choosing which connector or operation the user asked for
+  remains exclusively inside the ADK model layers.
+

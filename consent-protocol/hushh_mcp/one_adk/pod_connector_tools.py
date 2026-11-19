@@ -75,7 +75,11 @@ def calendar_reads_via_door() -> bool:
 async def calendar_turn_refusal(tool_context: Any) -> Optional[dict[str, Any]]:
     """Refuse a local Calendar call outside the owner's own verified chat."""
     if private_pod_runtime() and not owner_cloud_agent():
-        return {"status": "failed", "message": "Calendar is not connected in this agent."}
+        return {
+            "status": "failed",
+            "reason": "hosted_pod_unavailable",
+            "message": "Calendar is not connected in this agent.",
+        }
     if not owner_cloud_agent():
         return None
     if await pod_tool_owner(tool_context, "calendar") is None:

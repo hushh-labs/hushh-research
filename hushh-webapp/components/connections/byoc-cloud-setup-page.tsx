@@ -194,18 +194,26 @@ function OwnerCloudSetupPage({ user, owner }: {
           status.state === "reserved" &&
           isOwnerCloudTarget(status.deploymentTarget) &&
           Boolean(status.cloudProject);
+        const byocState = status.state ?? null;
+        const byocUnavailableState =
+          byocState === "connecting" ||
+          byocState === "provisioning" ||
+          byocState === "failed";
         setReservedProjectId(
           unassignedByoc ? status.cloudProject ?? null : null,
         );
-        if (mode === "byoc" && provider === "azure" && !unassignedByoc) {
+        if (mode === "byoc" && provider === "azure" && !unassignedByoc && !byocUnavailableState) {
           setExisting(azureConnected(status.cloudProject));
-        } else if (mode === "byoc" && status.cloudProject && !unassignedByoc) {
+        } else if (mode === "byoc" && status.cloudProject && !unassignedByoc && !byocUnavailableState) {
           setExisting({
             projectId: status.cloudProject,
             rationale: "Your own-cloud agent is still assigned.",
           });
-        } else if (mode === "byoc" && !unassignedByoc) {
-          setChoice("own");
+        } else {
+          setExisting(null);
+          if (mode === "byoc" && !unassignedByoc && !byocUnavailableState) {
+            setChoice("own");
+          }
         }
       })
       .catch(() => {
@@ -244,10 +252,14 @@ function OwnerCloudSetupPage({ user, owner }: {
           watchedRunningJob.current = false;
           setAgentStatusNonce((value) => value + 1);
         }
+        const byocReadyState =
+          agentState !== "connecting" &&
+          agentState !== "provisioning" &&
+          agentState !== "failed";
         if (status.status === "recorded") {
           // Only a Google job restores its project from the Google suggestion;
           // an Azure home is already named by the registry status above.
-          if (hostingMode === "byoc" && setupJobProvider(status) === "gcp") {
+          if (hostingMode === "byoc" && byocReadyState && setupJobProvider(status) === "gcp") {
             // The durable marker just landed server-side; refresh the shared
             // bootstrap and restore the BYOC project shown to the person.
             await PreVaultUserStateService.bootstrapState(ownerId, {
@@ -289,10 +301,19 @@ function OwnerCloudSetupPage({ user, owner }: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ownerId, hostingMode, setupPollNonce]);
+  }, [ownerId, hostingMode, agentState, setupPollNonce]);
 
   useEffect(() => {
-    if (!ownerId || (hostingMode !== "shared" && (hostingMode !== "byoc" || ownerProvider === "azure"))) return;
+    if (
+      !ownerId ||
+      (hostingMode !== "shared" &&
+        (hostingMode !== "byoc" ||
+          ownerProvider === "azure" ||
+          agentState === "connecting" ||
+          agentState === "provisioning" ||
+          agentState === "failed"))
+    )
+      return;
     // A saved Shared choice cannot conceal an interrupted own-cloud setup.
     if (hostingMode === "shared" && (!setupStatusReadOk || job !== null)) return;
     let cancelled = false;
@@ -322,7 +343,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     return () => {
       cancelled = true;
     };
-  }, [ownerId, hostingMode, ownerProvider, setupStatusReadOk, job]);
+  }, [ownerId, hostingMode, ownerProvider, agentState, setupStatusReadOk, job]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -451,6 +472,14 @@ function OwnerCloudSetupPage({ user, owner }: {
   }, [ownerCurrent, ownerId]);
 
   // A durable connected project or a selected hosting mode completes this step.
+  const byocAssignedConnecting =
+    hostingMode === "byoc" &&
+    reservedProjectId === null &&
+    (agentState === "connecting" || agentState === "provisioning");
+  const byocAssignedFailed =
+    hostingMode === "byoc" &&
+    reservedProjectId === null &&
+    agentState === "failed";
   const connectedBefore = existing !== null && reservedProjectId === null;
   const hostedChosen = hosted !== null;
   const recordedReservedProject = Boolean(
@@ -607,6 +636,48 @@ function OwnerCloudSetupPage({ user, owner }: {
             onRetry={ownCloudAvailable ? () => {
               if (ownerCurrent()) void retryDirectIngress().finally(refreshAgent);
             } : null} />
+        ) : byocAssignedConnecting ? (
+          <ConnectingToAgentCard onRefresh={refreshAttach} />
+        ) : byocAssignedFailed ? (
+          <div
+            className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
+            role="alert"
+            data-testid="byoc-agent-failed"
+          >
+            <p className="text-sm font-semibold">We couldn&rsquo;t reach your agent</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              {ownerProvider === "azure"
+                ? "Your agent in Microsoft Azure is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."
+                : "Your agent in Google Cloud is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."}
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <button
+                type="button"
+                className="min-h-11 self-start text-sm underline underline-offset-4"
+                onClick={refreshAttach}
+                data-testid="byoc-agent-failed-refresh"
+              >
+                Check connection again
+              </button>
+              <button
+                type="button"
+                className="min-h-11 self-start text-sm underline underline-offset-4"
+                onClick={() => {
+                  const requested = requestInternalAppNavigation({
+                    href: ROUTES.PROFILE_HOSTING,
+                    replace: false,
+                    scroll: false,
+                    source: "programmatic",
+                    transitionMode: "full",
+                  });
+                  if (!requested) router.push(ROUTES.PROFILE_HOSTING);
+                }}
+                data-testid="byoc-agent-failed-hosting"
+              >
+                Open Hosting settings
+              </button>
+            </div>
+          </div>
         ) : connectedBefore ? (
           // Revisit: the cloud is recorded and proven; first-time setup cannot move an assigned pod.
           <div className="space-y-4">

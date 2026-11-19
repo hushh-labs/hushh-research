@@ -45,7 +45,11 @@ def reviewer_bindings(value: dict[str, Any], policy: SandboxPolicy) -> dict[str,
         for role, details in reviewers.items()
         if isinstance(details, dict) and details.get("identity_binding_ref")
     }
-    if len(bindings) != 2 or set(bindings.values()) != set(policy.reviewer_user_ids):
+    if (
+        len(bindings) != 2
+        or len(set(bindings.values())) != 2
+        or not set(bindings.values()).issubset(set(policy.reviewer_user_ids))
+    ):
         raise CommerceProviderError("sandbox_reviewer_binding_invalid")
     return bindings
 

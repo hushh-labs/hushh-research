@@ -2236,17 +2236,23 @@ function ProfilePageContent({
   });
   const phoneLookupPending = accountPhoneStatus === "loading" || accountPhoneStatus === "unavailable";
   const phoneNeedsVerification = accountPhoneStatus === "needs-verification";
-  const phoneSummaryText = accountLinkedPhone
-    ? formatMaskedPhoneNumber(accountLinkedPhone)
+  const accountSavedPhone = phoneNumberStatus === "verified" ? phoneNumber : null;
+  const manageSavedPhone = phoneNeedsVerification && Boolean(accountSavedPhone);
+  const phoneAvailabilityText = accountPhoneStatus === "unavailable"
+    ? "Phone number temporarily unavailable"
+    : "Checking phone number…";
+  const phoneSummaryText = accountSavedPhone
+    ? formatMaskedPhoneNumber(accountSavedPhone)
     : phoneNeedsVerification
       ? "Finish phone verification"
       : accountPhoneStatus === "missing"
         ? "No phone number yet"
-        : accountPhoneStatus === "unavailable"
-          ? "Phone number temporarily unavailable"
-          : "Checking phone number…";
-  const phoneAction = accountLinkedPhone ? "Change" : phoneNeedsVerification ? "Verify" : phoneLookupPending ? "Retry" : "Add";
-  const phoneEntryHint = accountLinkedPhone ? "Enter the new phone number." : "Enter your phone number.";
+        : phoneAvailabilityText;
+  const phoneAction = accountLinkedPhone ? "Change" : manageSavedPhone ? "Manage"
+    : phoneNeedsVerification ? "Verify" : phoneLookupPending ? "Retry" : "Add";
+  const phoneDetailTitle = phoneLookupPending ? "Phone number" : `${phoneAction} phone number`;
+  const phoneEntryHint = accountLinkedPhone ? "Enter the new phone number."
+    : manageSavedPhone ? "Enter your saved number or a new number." : "Enter your phone number.";
   const retryPhoneLookup = useCallback(async () => {
     const owner = snapshotValidatedAuthSessionOwner();
     if (!owner || owner.userId !== applicationOwnerId) {
@@ -2257,12 +2263,14 @@ function ProfilePageContent({
       if (!isValidatedAuthSessionOwnerCurrent(owner)) {
         return { status: "blocked" as const, summary: "Your account changed. Try again." };
       }
-      if (firebaseUser && phone && firebaseUser.phoneNumber === phone) {
-        return { status: "succeeded" as const, summary: "Your verified phone number is available." };
+      if (firebaseUser && phone) {
+        return { status: "succeeded" as const, summary: firebaseUser.phoneNumber === phone
+          ? "Your verified phone number is available."
+          : "Your saved phone number is verified. Open Phone number to manage it." };
       }
       const snapshot = AccountIdentityService.peekCachedIdentity(applicationOwnerId);
-      if (firebaseUser && (phone || (snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, applicationOwnerId)))) {
-        return { status: "succeeded" as const, summary: phone || firebaseUser.phoneNumber
+      if (firebaseUser && snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, applicationOwnerId)) {
+        return { status: "succeeded" as const, summary: firebaseUser.phoneNumber
           ? "You can finish verifying your phone number." : "You can add a verified phone number." };
       }
     } catch { /* Keep an unavailable lookup retryable. */ }
@@ -2524,9 +2532,9 @@ function ProfilePageContent({
                   "Propose Salesforce CRM update",
                 ]
               : activePanel === "account"
-                ? accountLinkedPhone ? ["Change phone number"] : phoneNeedsVerification
-                  ? ["Verify phone number"] : accountPhoneStatus === "missing"
-                    ? ["Add phone number"] : accountPhoneStatus === "unavailable" ? ["Retry phone lookup"] : []
+                ? phoneLookupPending
+                  ? accountPhoneStatus === "unavailable" ? ["Retry phone lookup"] : []
+                  : [phoneDetailTitle]
                 : activePanel === "preferences" || activePanel === "hosting" || activePanel === "software-updates"
                   ? []
                   : activePanel === "security"
@@ -2653,7 +2661,8 @@ function ProfilePageContent({
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
-        phone_verified: activePanel === "account" ? Boolean(accountLinkedPhone) : Boolean(phoneNumber),
+        phone_verified: Boolean(accountSavedPhone),
+        phone_linked_for_sign_in: activePanel === "account" ? Boolean(accountLinkedPhone) : null,
         phone_lookup_status: activePanel === "account" ? accountPhoneStatus : phoneNumberStatus,
         email_verified: emailVerified,
         preference_voice_actions_available:
@@ -2674,7 +2683,8 @@ function ProfilePageContent({
         gmail_state: gmailPresentation.state,
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
-        phone_verified: activePanel === "account" ? Boolean(accountLinkedPhone) : Boolean(phoneNumber),
+        phone_verified: Boolean(accountSavedPhone),
+        phone_linked_for_sign_in: activePanel === "account" ? Boolean(accountLinkedPhone) : null,
         phone_lookup_status: activePanel === "account" ? accountPhoneStatus : phoneNumberStatus,
         email_verified: emailVerified,
         pkm_agent_lab_available: canShowPkmAgentLab,
@@ -2698,12 +2708,12 @@ function ProfilePageContent({
     marketplaceOptIn,
     passphraseDialogOpen,
     pendingConsents,
-    phoneNumber,
+    accountSavedPhone,
+    phoneDetailTitle,
     phoneLookupPending,
     phoneNumberStatus,
     accountLinkedPhone,
     accountPhoneStatus,
-    phoneNeedsVerification,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
     savingMarketplaceOptIn,
@@ -4245,14 +4255,15 @@ function ProfilePageContent({
     if (activeDetail === "phone") {
       profileStackEntries.push({
         key: "detail:phone",
-        title: accountLinkedPhone ? "Change phone number" : phoneNeedsVerification
-          ? "Verify phone number" : phoneLookupPending ? "Phone number" : "Add phone number",
+        title: phoneDetailTitle,
         description: accountLinkedPhone
           ? "Verify a new number."
-          : phoneLookupPending ? undefined : "Verify your number for this account.",
+          : phoneLookupPending ? undefined
+            : manageSavedPhone ? "Link your saved number to sign-in or verify a new number."
+              : "Verify your number for this account.",
         content: phoneLookupPending ? (
           <div className="flex flex-col gap-4">
-            <p role="status">{phoneSummaryText}</p>
+            <p role="status">{phoneAvailabilityText}</p>
             <Button
               data-voice-control-id="profile-phone-detail-retry"
               onClick={() => void retryPhoneLookup()}

@@ -220,7 +220,7 @@ async def test_late_write_uses_joined_sql_only_for_managed_files(files, target):
 @pytest.mark.parametrize("cancel_target", ["proxy", "child"])
 async def test_cancelled_callback_joins_actual_late_db_write(monkeypatch, port, cancel_target):
     loop = asyncio.get_running_loop()
-    started, release, exited = Event(), Event(), Event()
+    started, submitted, release, exited = Event(), Event(), Event(), Event()
     proxies, children = [], []
     original_submit = asyncio.run_coroutine_threadsafe
     original_create = asyncio.create_task
@@ -228,6 +228,7 @@ async def test_cancelled_callback_joins_actual_late_db_write(monkeypatch, port, 
     def capture_submit(coroutine, owner_loop):
         proxy = original_submit(coroutine, owner_loop)
         proxies.append(proxy)
+        submitted.set()
         return proxy
 
     def capture_child(coroutine):
@@ -264,6 +265,8 @@ async def test_cancelled_callback_joins_actual_late_db_write(monkeypatch, port, 
     pending = loop.create_task(asyncio.to_thread(provider))
     try:
         assert await asyncio.to_thread(started.wait, 1)
+        # The owner loop can enter the DB before the submitting thread records its proxy.
+        assert await asyncio.to_thread(submitted.wait, 1)
         assert len(proxies) == len(children) == 1
         assert (proxies[0] if cancel_target == "proxy" else children[0]).cancel()
         await asyncio.sleep(0.02)

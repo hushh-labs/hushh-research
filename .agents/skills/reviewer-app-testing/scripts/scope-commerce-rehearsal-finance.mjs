@@ -13,7 +13,7 @@ export async function proveExternalFunding(runtime, role, amountCents) {
     (!retained || item.fundingId === retained.id));
   if (!candidates.length) {
     runtime.externalStep = { type: "hostedCheckout", role, amountCents, destination: "/one?profile_pane=1&profile_panel=payouts",
-      maximumAggregateCents: COMMERCE_REHEARSAL.fundingCapCents };
+      maximumAggregateCents: runtime.proof.reviewerFundingCapCents ?? COMMERCE_REHEARSAL.fundingCapCents };
     throw new CommerceRehearsalWait("EXTERNAL_HUMAN_CHECKOUT_AND_RECEIPT_REQUIRED");
   }
   commerceEvidence(candidates.length === 1 && uuid(candidates[0].fundingId), "EXACT_FUNDING_ATTEMPT_AMBIGUOUS");

@@ -15,10 +15,15 @@ if TYPE_CHECKING:
     from hushh_mcp.services.account_generation_service import AccountPrincipal
 
 
+MAX_REVIEWER_USERS = 20
+MAX_REVIEWER_FUNDING_CAP_CENTS = 1_000_000
+MAX_OPERATING_CAPITAL_CAP_CENTS = 2_000_000
+
+
 @dataclass(frozen=True)
 class SandboxPolicy:
     platform_account_id: str
-    reviewer_user_ids: tuple[str, str] = field(repr=False)
+    reviewer_user_ids: tuple[str, ...] = field(repr=False)
     reviewer_funding_cap_cents: int = 2000
     operating_capital_cap_cents: int = 2500
 
@@ -46,13 +51,13 @@ class SandboxPolicy:
             not isinstance(self.platform_account_id, str)
             or not self.platform_account_id.startswith("acct_")
             or not isinstance(self.reviewer_user_ids, tuple)
-            or len(self.reviewer_user_ids) != 2
+            or not 2 <= len(self.reviewer_user_ids) <= MAX_REVIEWER_USERS
             or any(not isinstance(user, str) or not user.strip() for user in self.reviewer_user_ids)
-            or self.reviewer_user_ids[0] == self.reviewer_user_ids[1]
+            or len(set(self.reviewer_user_ids)) != len(self.reviewer_user_ids)
             or type(self.reviewer_funding_cap_cents) is not int
-            or not 50 <= self.reviewer_funding_cap_cents <= 2000
+            or not 50 <= self.reviewer_funding_cap_cents <= MAX_REVIEWER_FUNDING_CAP_CENTS
             or type(self.operating_capital_cap_cents) is not int
-            or not 1 <= self.operating_capital_cap_cents <= 2500
+            or not 1 <= self.operating_capital_cap_cents <= MAX_OPERATING_CAPITAL_CAP_CENTS
         ):
             raise CommerceProviderError("provider_sandbox_policy_invalid")
 

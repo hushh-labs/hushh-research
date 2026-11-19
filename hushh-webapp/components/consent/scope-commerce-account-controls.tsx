@@ -32,7 +32,7 @@ export function CommerceFundingControls({ enabled, busy, amount, changeAmount, c
       <Input data-consent-input="true" inputMode="decimal" value={amount} aria-invalid={Boolean((invalid && amount.trim()) || exceedsRemaining || remainingExhausted)} onChange={event => changeAmount(event.target.value)} disabled={busy || remainingExhausted} />
     </label>
     {remainingExhausted ? (
-      <p data-consent-role="status" role="status" className="text-sm text-destructive">Sandbox test funding cap ($20.00 total) reached on this account.</p>
+      <p data-consent-role="status" role="status" className="text-sm text-destructive">Sandbox test funding limit reached on this account.</p>
     ) : exceedsRemaining && typeof maxCents === "number" ? (
       <p data-consent-role="status" role="status" className="text-sm text-destructive">Up to ${(maxCents / 100).toFixed(2)} remaining in sandbox test allowance.</p>
     ) : coins !== null ? (
