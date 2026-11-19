@@ -6,6 +6,9 @@ import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
 export type ActivityCriteria = {
     query: string;
     person: string;
+    personRef?: string;
+    personUserId?: string;
+    effectiveQuery?: string;
     agent: string;
     fromAt: string | null;
     beforeAt: string | null;

@@ -130,6 +130,9 @@ class SearchActivityBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str = Field(default="", max_length=120)
     person: str = Field(default="", max_length=160)
+    person_ref: str | None = Field(
+        default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$"
+    )
     agent: str | None = None
     scope: str | None = None
     persona: Literal["investor", "ria"] = "investor"
@@ -183,7 +186,13 @@ async def search_activity(
         if (
             payload.query.strip()
             and payload.cursor is None
-            and not (payload.agent or payload.person or payload.from_at or payload.before_at)
+            and not (
+                payload.agent
+                or payload.person
+                or payload.person_ref
+                or payload.from_at
+                or payload.before_at
+            )
         ):
             from hushh_mcp.services.feed_search_people import identity_top_hit
 
@@ -194,6 +203,19 @@ async def search_activity(
                 if hit is not None:
                     result["top_hit"] = hit
             except Exception:  # Identity lookup degrades independently; never broaden the source.
+                result["identity_unavailable"] = True
+        if (
+            payload.person_ref
+            and result.get("matched_person_ref") == payload.person_ref
+            and payload.cursor is None
+        ):
+            from hushh_mcp.services.feed_search_people import identity_ref_top_hit
+
+            try:
+                result["top_hit"] = await identity_ref_top_hit(
+                    firebase_uid, payload.person_ref, payload.scope, payload.persona
+                )
+            except Exception:
                 result["identity_unavailable"] = True
         return result
     except FeedSearchError as exc:

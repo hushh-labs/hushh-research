@@ -304,7 +304,10 @@ def _parse_google_news_rss(xml_text: str, ticker: str) -> List[Dict[str, Any]]:
                 "description": None,
                 "url": link,
                 "publishedAt": published_at or None,
-                "source": {"name": source_name},
+                "source": {
+                    "name": source_name,
+                    "url": source_node.get("url") if source_node is not None else None,
+                },
                 "provider": "google_news_rss",
             }
         )

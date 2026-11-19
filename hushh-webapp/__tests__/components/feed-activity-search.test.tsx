@@ -16,6 +16,10 @@ vi.mock("@/lib/services/feed-service", () => ({ FeedService: { searchActivity: m
 vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: mocks.back }));
 vi.mock("@/components/feed/feed-row", () => ({ FeedRow: ({ item, onOpen }: any) => <button onClick={() => onOpen(item)}>{item.actor_label}</button> }));
 vi.mock("@/components/feed/feed-finance-search", () => ({ FeedFinanceSearch: mocks.finance }));
+const privateNames = vi.hoisted(() => ({ load: vi.fn(async () => ({ version: 1, items: [] })), connections: vi.fn(async () => [] as any[]) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ getVaultKey: () => "private-key", getVaultOwnerToken: () => "private-token" }) }));
+vi.mock("@/lib/connections/private-contact-names", async original => ({ ...await original<typeof import("@/lib/connections/private-contact-names")>(), loadContactNames: privateNames.load }));
+vi.mock("@/lib/services/connections-service", () => ({ ConnectionsService: { listConnections: privateNames.connections } }));
 const result = { id: "9007199254740997", activity_group_id: "location-grant:one", scope_id: "location", source_domain: "location", event_type: "location_share_expired", actor_label: "Ankit", metadata: {}, read: true, created_at: "2026-10-03T12:00:00Z" };
 const current = () => true, getToken = async () => "memory-only-token";
 const props = { ownerId: "qa_search", getToken, isCurrent: current, onOpen: vi.fn(), onModeChange: vi.fn() };
@@ -137,4 +141,32 @@ describe("Server-backed Feed search", () => {
         expect(screen.queryByRole("search")).toBeNull();
         expect(props.onModeChange).toHaveBeenLastCalledWith(false);
     });
+});
+
+
+it("resolves a confirmed private family alias to a server person filter without sending the alias, retaining scope and original query on return", async () => {
+  privateNames.load.mockResolvedValueOnce({ version: 1, items: [{ personRef: "person-maya", alias: "Mom" }] } as any);
+  privateNames.connections.mockResolvedValueOnce([{ publicPersonRef: "person-maya", userId: "maya", displayName: "Maya Rao" }]);
+  mocks.search.mockResolvedValueOnce({ items: [result], next_cursor: null, matched_person_ref: "person-maya", top_hit: { kind: "person", label: "Maya Rao", href: "/people/person-maya?from=%2Fone%2Ffeed" } });
+  const view = render(<FeedActivitySearch {...props} initial={{ open: true, query: "mom check-in", person: "", agent: "location", from: "", through: "", filtersOpen: false, submitted: null, items: [], cursor: null }} />);
+  await screen.findByRole("button", { name: "Maya Rao" });
+  const sent = mocks.search.mock.calls.at(-1)[0].query;
+  expect(sent).toEqual(expect.objectContaining({ query: "check in", person_ref: "person-maya", scope: "location" }));
+  expect(JSON.stringify(sent)).not.toContain("mom");
+  expect(screen.getByRole("textbox", { name: "Search Feed" })).toHaveValue("mom check-in");
+  const retained = recallFeedSearch(props.ownerId);
+  expect(retained?.query).toBe("mom check-in");
+  expect(retained?.submitted?.personRef).toBe("person-maya");
+  await act(async () => { advanceVaultSessionEpoch(); });
+  expect(screen.queryByRole("textbox", { name: "Search Feed" })).toBeNull();
+  view.unmount();
+});
+
+
+it("keeps ordinary server history available when optional private names cannot be read", async () => {
+  privateNames.load.mockRejectedValueOnce(new Error("identity unavailable"));
+  mocks.search.mockResolvedValueOnce({ items: [], next_cursor: null });
+  render(<FeedActivitySearch {...props} initial={{ open: true, query: "AAPL", person: "", agent: "finance", from: "", through: "", filtersOpen: false, submitted: null, items: [], cursor: null }} />);
+  await waitFor(() => expect(mocks.search).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ query: "AAPL", scope: "finance", person_ref: null }) })));
+  expect(await screen.findByText("Private names unavailable")).toBeInTheDocument();
 });

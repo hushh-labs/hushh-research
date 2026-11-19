@@ -75,7 +75,7 @@ async def resource(
     async with pool.acquire() as connection, connection.transaction():
         await _placement_lock(connection, owner)
         await admit_hub_content(owner, "shared_files_enrollment")
-        await connection.execute(
+        installed = await connection.execute(
             """INSERT INTO shared_files_storage(user_id,bucket,prefix,bucket_admission)
                SELECT user_id,$2,$3,$4::jsonb FROM vault_keys WHERE user_id=$1
                ON CONFLICT(user_id) DO NOTHING""",
@@ -87,7 +87,7 @@ async def resource(
         row = await connection.fetchrow(
             "SELECT * FROM shared_files_storage WHERE user_id=$1", owner
         )
-        return dict(row) if row else None
+        return {**dict(row), "_newly_enrolled": installed == "INSERT 0 1"} if row else None
 
 
 def _epoch(value: Any) -> str:
@@ -102,6 +102,24 @@ async def active(owner: str, library_id: str) -> dict[str, Any]:
     if not row or row["state"] != "active" or str(row["library_id"]) != _epoch(library_id):
         raise FilesRefused("FILES_LIBRARY_CHANGED", 409)
     return row
+
+
+@asynccontextmanager
+async def locked_lease(owner: str, library_id: str, lease_id: str):
+    """Serialize an exact object acknowledgement with deletion and placement changes."""
+    pool = await get_pool()
+    async with pool.acquire() as connection, connection.transaction():
+        row = await connection.fetchrow(
+            """SELECT * FROM shared_files_storage WHERE user_id=$1 AND library_id=$2::uuid
+               AND state='active' AND lease_id=$3::uuid AND lease_until>clock_timestamp()
+               FOR UPDATE""",
+            owner,
+            _epoch(library_id),
+            _epoch(lease_id),
+        )
+        if not row:
+            raise FilesRefused("FILES_LIBRARY_CHANGED", 409)
+        yield connection
 
 
 async def acquire(owner: str, library_id: str, lease_id: str) -> None:

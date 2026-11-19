@@ -352,3 +352,12 @@ describe("manifest entity-map collapse", () => {
     }
   });
 });
+
+
+it("keeps owner-private contact names as one non-externalizable manifest node", () => {
+  const artifact = buildPersonalKnowledgeModelStructureArtifacts({ domain: "identity", domainData: { contact_aliases: { version: 1, items: [{ personRef: "private-ref", alias: "Mom" }] } } });
+  const wire = JSON.stringify(artifact);
+  expect(wire).not.toMatch(/private-ref|Mom/);
+  expect(artifact.structureDecision.json_paths).toEqual(["contact_aliases"]);
+  expect(artifact.structureDecision.externalizable_paths).toEqual([]);
+});

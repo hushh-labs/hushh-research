@@ -48,7 +48,6 @@ import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-c
 import {
   buildKaiAnalysisPreviewRoute,
   buildKaiImportRoute,
-  buildKaiPortfolioSectionRoute,
   buildOneSetupRoute,
   resolveOneSetupReturnTo,
   ROUTES,
@@ -3901,9 +3900,7 @@ export function KaiFlow({
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
           <PortfolioDashboardEmpty
-            onOpenAnalysis={() => router.push(buildKaiPortfolioSectionRoute("analysis"))}
             onFileSelect={handleFileUpload}
-            onSkip={handleSkipImport}
             onPreloadSchema={() => void handlePreloadSchema()}
             onConnectPlaid={(environment) =>
               void handleConnectPlaid(environment)

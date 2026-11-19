@@ -32,7 +32,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ChevronDown } from "@/components/icons";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
-  findAnalysisHistoryEntryByRouteId,
   getAnalysisHistoryEntryRouteId,
   KaiHistoryService,
   type AnalysisHistoryEntry,
@@ -180,6 +179,8 @@ export function KaiAnalysisPageContent() {
 
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
+  const [entryLookupVersion, setEntryLookupVersion] = useState(0);
+  const [entryLoadFailed, setEntryLoadFailed] = useState(false);
   // The `analysis_id`/`debate_id` a lookup finished without finding, e.g. a
   // Feed link to a result that expired, was deleted or never finished saving.
   const [missingEntryRouteId, setMissingEntryRouteId] = useState<string | null>(null);
@@ -385,20 +386,16 @@ export function KaiAnalysisPageContent() {
 
     async function resolveEntry() {
       try {
-        const allHistory = await KaiHistoryService.getAllHistory({
-          userId: resolvedUserId,
-          vaultKey: resolvedVaultKey,
-          vaultOwnerToken: vaultOwnerToken || "",
-        });
+        setEntryLoadFailed(false);
+        const exactId = analysisEntryId || (debateId ? `run:${debateId}` : "");
+        const match = await KaiHistoryService.getAnalysisByRouteId({
+          userId: resolvedUserId, vaultKey: resolvedVaultKey, vaultOwnerToken: vaultOwnerToken || "",
+        }, exactId);
         if (cancelled) return;
-
-        const match = analysisEntryId
-          ? findAnalysisHistoryEntryByRouteId(allHistory, analysisEntryId)
-          : Object.values(allHistory)
-              .flat()
-              .find((entry) => extractDebateId(entry) === debateId) ?? null;
         setResolvedEntry(match || null);
         setMissingEntryRouteId(match ? null : analysisEntryId || debateId);
+      } catch {
+        if (!cancelled) { setEntryLoadFailed(true); setResolvedEntry(null); setMissingEntryRouteId(analysisEntryId || debateId); }
       } finally {
         if (!cancelled) {
           setResolvingEntry(false);
@@ -411,7 +408,7 @@ export function KaiAnalysisPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken]);
+  }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken, entryLookupVersion]);
 
   const searchParamsRef = useRef(new URLSearchParams(searchParams.toString()));
   useEffect(() => {
@@ -1447,11 +1444,12 @@ export function KaiAnalysisPageContent() {
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
               <SurfaceCardContent className="p-4 text-center">
-                <h2 className="ui-text-section-label">This analysis is no longer available</h2>
+                <h2 className="ui-text-section-label">{entryLoadFailed ? "Report unavailable" : "Report removed"}</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  It may have expired, been deleted, or never finished saving to your history.
+                  {entryLoadFailed ? "Your saved report couldn’t be checked." : "This report is no longer in your history."}
                 </p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {entryLoadFailed ? <MorphyButton variant="none" effect="fade" onClick={() => setEntryLookupVersion(value => value + 1)}>Try again</MorphyButton> : null}
                   <MorphyButton variant="none" effect="fade" onClick={handleBrowseRecommendations}>
                     Back to history
                   </MorphyButton>

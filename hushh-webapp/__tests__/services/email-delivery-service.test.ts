@@ -457,3 +457,16 @@ describe("private send recovery", () => {
     expect(ApiService.apiFetch).not.toHaveBeenCalled();
   });
 });
+
+
+it("reads an exact historical send without reconciliation or another send", async () => {
+  placement.mockResolvedValue(false);
+  vi.mocked(ApiService.apiFetch).mockClear();
+  vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(Response.json({ action_id: ACTION_ID, state: "sent" }));
+  await expect(EmailDeliveryService.readSendStatus({ ...AUTH, actionId: ACTION_ID })).resolves.toEqual({ actionId: ACTION_ID, state: "sent" });
+  expect(ApiService.apiFetch).toHaveBeenCalledExactlyOnceWith(`/api/one/email/send/status/${ACTION_ID}`, {
+    method: "GET", headers: { Authorization: "Bearer firebase-token", "X-Hushh-Consent": "Bearer vault-owner-token", "Content-Type": "application/json" },
+  });
+  vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(Response.json({ action_id: "other", state: "sent" }));
+  await expect(EmailDeliveryService.readSendStatus({ ...AUTH, actionId: ACTION_ID })).rejects.toMatchObject({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" });
+});

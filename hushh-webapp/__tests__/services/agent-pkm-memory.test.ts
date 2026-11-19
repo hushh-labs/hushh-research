@@ -4,7 +4,8 @@ import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    apiFetch: (...args: unknown[]) => apiFetchMock(...args), getPersonalAgentStatus: async () => ({ hostingMode: "shared" }),
+    apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+    getPersonalAgentStatusForRouting: async () => ({ hostingMode: "shared" }),
   },
 }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "user_1" }) } }));
@@ -1272,6 +1273,7 @@ describe("agent PKM memory helpers", () => {
       secrets: { items: { sec_00000000000000a1: { label: "openai API key ending 9f2a", kind: "credential", value: FAKE_API_KEY } } },
       identity: {
         identity_profile: { city: "Synthetic City" },
+        contact_aliases: { version: 1, items: [{ personRef: "person-private-family", alias: "Mummy Work" }] },
         identity_documents: { doc_1: { document_type: "passport", label: "Passport ending 4567", number: FAKE_PASSPORT } },
         communication_preferences: {
           preferred_name: "Kay",
@@ -1293,6 +1295,7 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toMatch(/Communication Preferences|Kay|Sign off/i);
     expect(context.communicationPreferences).toEqual({ preferred_name: "Kay", tone: "executive" });
     const wire = JSON.stringify([context.text, context.communicationPreferences]);
+    expect(wire).not.toMatch(/Mummy Work|person-private-family|Contact Aliases/);
     for (const value of FAKE_VALUES) expect(wire).not.toContain(value);
   });
 

@@ -199,6 +199,9 @@ export interface FeedActionable {
   id: string;
   /** Same source-owned operation as the historical Feed projection. */
   operationKey?: string;
+  operationKeys?: readonly string[];
+  connectorPrerequisite?: { connectorId: string; requestId: string; href: string };
+  affectedRequests?: readonly { requestId: string; label: string; href: string }[];
   /** Visible owning subagent, independent of a person avatar. */
   sourceLabel?: string;
   scopeId?: string;
@@ -1575,6 +1578,10 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       setupEntryIds.add(entry.id);
       const row = {
         id: `consent:${entry.id}`,
+        ...(setup === "drive" ? { connectorPrerequisite: {
+          connectorId: GOOGLE_DRIVE_CONNECTOR_ID, requestId: entry.id,
+          href: buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" }),
+        } } : {}),
         operationKey: documentShareRequestId(entry.id) ? `document:${documentShareRequestId(entry.id)}` : undefined,
         ...(isDocumentRequestSetupStep(setup) ? { todo: {
           key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,

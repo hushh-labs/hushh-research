@@ -47,7 +47,7 @@ def _configured_store(bucket: str, prefix: str) -> SharedCipherStore:
 
 
 async def _store(
-    owner: str, library_id: str | None = None
+    owner: str, library_id: str | None = None, *, create: bool = True
 ) -> tuple[SharedCipherStore, dict[str, Any]]:
     if os.getenv("HUSSH_SHARED_FILES_ENABLED", "").lower() not in {"1", "true"}:
         raise _refuse("FILES_NOT_ENABLED", 503)
@@ -55,7 +55,11 @@ async def _store(
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]", bucket):
         raise _refuse("FILES_STORAGE_UNAVAILABLE", 503)
     try:
-        if library_id is None:
+        if library_id is None and not create:
+            row = await registry.resource(owner)
+            if not row:
+                raise _refuse("FILES_SETUP_REQUIRED")
+        elif library_id is None:
             metadata_store = _configured_store(bucket, registry.owner_prefix(owner))
             observed = await bucket_admission.observe(metadata_store, bucket)
             row = await registry.resource(
@@ -131,11 +135,16 @@ def _response(body: Any, status: int = 200) -> JSONResponse:
 
 
 @router.get("/storage")
-async def configuration(request: Request, token: dict = Depends(hub_content_owner)) -> JSONResponse:
-    store, row = await _store(token["user_id"], request.headers.get("x-files-library-id"))
+async def configuration(
+    request: Request, token: dict = Depends(hub_content_owner), existing: bool = False
+) -> JSONResponse:
+    store, row = await _store(
+        token["user_id"], request.headers.get("x-files-library-id"), create=not existing
+    )
     from hushh_mcp.services.shared_files.reconciliation import reconcile  # noqa: PLC0415
 
-    await reconcile(row)
+    if not existing:
+        await reconcile(row)
     retention = await _security(store, row)
     await _fresh_owner(request, token["user_id"])
     await _active(token["user_id"], str(row["library_id"]))
@@ -144,6 +153,7 @@ async def configuration(request: Request, token: dict = Depends(hub_content_owne
         {
             "version": 1,
             "libraryId": str(row["library_id"]),
+            "keyBootstrapAllowed": row.get("_newly_enrolled") is True,
             "retention": retention,
             "backgroundAvailable": False,
         }

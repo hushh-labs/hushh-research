@@ -1,3 +1,5 @@
+import { normalizeInternalRouteHref, normalizeStaticExportPathname } from "./route-normalization";
+export { normalizeInternalRouteHref, resolveInternalRouteHref, normalizeStaticExportPathname } from "./route-normalization";
 import { withQuery } from "./route-query";
 
 /**
@@ -361,30 +363,6 @@ export function initialContactsWelcomeDestination(returnTo?: string | null): str
   const path = normalizeStaticExportPathname(safe?.split(/[?#]/, 1)[0] ?? "");
   const financeResume = path === ROUTES.ONE_SETUP_FINANCE_IMPORT || path === ROUTES.ONE_SETUP_FINANCE;
   return safe && path !== ROUTES.ONE_WELCOME && (financeResume || !isOneSetupSurfaceRoute(path ?? "")) ? safe : ROUTES.HOME;
-}
-
-export function normalizeInternalRouteHref(
-  value: string | null | undefined,
-): string | null {
-  const href = String(value ?? "").trim();
-  if (!href) return null;
-  if (!href.startsWith("/") || href.startsWith("//")) return null;
-  if (/[\\\u0000-\u001f\u007f]/.test(href) || /%5c/i.test(href)) return null;
-  try {
-    const parsed = new URL(href, "https://one.local");
-    if (parsed.origin !== "https://one.local") return null;
-    const canonical = `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    return canonical === href ? canonical : null;
-  } catch {
-    return null;
-  }
-}
-
-export function resolveInternalRouteHref(
-  value: string | null | undefined,
-  fallback: string,
-): string {
-  return normalizeInternalRouteHref(value) ?? fallback;
 }
 
 export function buildOneSetupKaiRoute(entries?: {
@@ -825,14 +803,6 @@ export function isOneSetupRoute(pathname: string): boolean {
  * a WebView navigation). Route admission must compare the logical app route,
  * not that transport-specific pathname shape.
  */
-export function normalizeStaticExportPathname(pathname: string): string {
-  const withoutIndexDocument = String(pathname || "/").replace(
-    /\/index\.html$/i,
-    "",
-  );
-  const withoutTrailingSlash = withoutIndexDocument.replace(/\/+$/, "");
-  return withoutTrailingSlash || "/";
-}
 
 /**
  * The setup-scoped per-capability step route, e.g. `/one/setup/gmail`.

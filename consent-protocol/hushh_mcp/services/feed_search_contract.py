@@ -18,6 +18,7 @@ SCOPES = POLICY["scopes"]
 class FeedSearchCriteria(TypedDict, total=False):
     query: str
     person: str
+    person_ref: str | None
     agent: str | None
     scope: str | None
     persona: Literal["investor", "ria"]

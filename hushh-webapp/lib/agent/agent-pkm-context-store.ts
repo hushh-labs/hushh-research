@@ -329,7 +329,7 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
       skippedFactCount += 1;
       return;
     }
-    if (isOwnerStylePath(domain, path)) return;
+    if (isOwnerStylePath(domain, path) || reservedEntryFor(domain, path.join("."))?.sendToModel === "never") return;
     if (isPrimitive(value)) {
       // A detail saved before the Secrets area existed can still hold a raw
       // secret; the packet carries a mark in its place, never the value.

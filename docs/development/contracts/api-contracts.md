@@ -3979,7 +3979,12 @@ including invalidation of older generic Feed Undo tokens.
 | ------ | ---- | --------------------- |
 | GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |
 | POST | `/api/one/feed/funding-history` | Firebase and matching VAULT_OWNER. Body selects an owner's retained transfer by exact `item_id` or a status/date query; returns grouped current status and recorded milestones. This is historical Feed evidence from the retired shared funding service, with no amount or provider account information. |
-| POST | `/api/kai/analyze/run/{run_id}/feed-result?user_id=…` | Validates the VAULT_OWNER, exact run owner and terminal completion. The client acknowledges its successful encrypted analysis history save when the run completed outside Finance; the server derives ticker and idempotency from the run and never reads the report. |
+| GET | `/api/kai/analysis/report-storage` | Current hub VAULT_OWNER and Shared placement; qualifies the existing completion-proof custody key before explicit report-sync setup. No secret or proof is returned. |
+| POST | `/api/kai/analyze/run/{run_id}/feed-result?user_id=…` | Current VAULT_OWNER/Shared placement, live completion or retained server proof, exact report ticker and active Shared library/object-generation lease. The browser acknowledges verified encrypted readback; the server checks ciphertext custody and derives the ticker. It cannot decrypt the report. Publication reuses the library transaction and per-run lock. |
+| POST | `/api/kai/analyze/run/{run_id}/feed-result/read?user_id=…` | Body contains the optional encrypted completion proof. Validates actual owner-bound completion and persists only this run's read intent, including before its first saved Feed row. It cannot mark another agent or run read. |
+| POST | `/api/kai/analyze/run/{run_id}/feed-result/remove?user_id=…` | Exact Shared object receipt without publication-only fields. Current owner, library, generation and active lease are rechecked before hiding this run. The browser has independently verified the encrypted tombstone. |
+| GET | `/api/one/email/information-requests/{workflow_id}/activity` | Firebase and matching hub VAULT_OWNER, exact owner and terminal `sent`, `ignored` or `blocked` metadata only; private/no-store. Does not reopen reply authority or require monitoring to be enabled. Missing/retention-expired sources return 404 while Feed retains its dated receipt. |
+| GET | `/api/one/email/send/status/{action_id}` | Existing owner-bound read-only recorded status. Feed history uses GET, never the POST reconciliation or send endpoint. |
 | GET | `/api/one/finance/advisor-reviews?pending_received=true` | Existing dual-auth history endpoint filtered before its result limit to pending, unexpired, unblocked incoming requests of the currently verified advisor. |
 | POST | `/api/one/feed/{item_id}/dismiss` | Marks this owner's presentation row hidden and read. Returns `{status:"ok",dismissal_token:"<UUID>"}` for a newly hidden row; missing, another owner's, or already hidden IDs return a null token. |
 | POST | `/api/one/feed/{item_id}/restore` | Body `{dismissal_token:"<UUID>"}`. Undoes only that exact dismissal, leaving the row read. Returns `{status:"ok",restored:boolean}`; missing, another owner's, or superseded tokens return false. |
@@ -4085,8 +4090,9 @@ data. Client behaviour is in the
 Notes:
 
 - First-party PKM writes are version-aware through the frontend `PkmWriteCoordinator`; stale domains may trigger resumable client-side PKM upgrade before save.
-- Debate/analysis history remains encrypted in `financial.analysis_history` and mirrors a privacy-safe `decision_history_v1` projection for backend/read-model consumers.
-- Current history retention is `3` saved versions per ticker, newest first.
+- New analysis reports are encrypted in owner-scoped device storage, keyed by the exact run. Separate runs for one ticker remain separate. Legacy `financial.analysis_history` remains readable and supports explicit deletion. New results do not rewrite that PKM branch or publish report contents into backend projections.
+- Saved background results retain an encrypted pending-publication marker. Feed acknowledgement requires an actual idempotent Feed write; network/server failure stays pending. Publication currently requires the retained source run and cannot recover after its six-hour operational retention.
+- Statement imports rebuild from the coordinator’s latest financial revision and persist the confirmed result with the encrypted statement snapshot. Filename search uses only unlocked owner information. Delta counts remain unavailable when the source identity or prior baseline cannot be proved.
 
 ---
 
@@ -6310,3 +6316,17 @@ Send remain necessary. Closing, vault retirement and owner changes retire
 pending recommendation results. No schema migration or advisor-flow change is
 required. Removing the launcher rolls back the feature; older profile editors
 preserve the optional preference.
+
+
+Feed search accepts optional `person_ref` alongside query, scope, persona and dates.
+A locally decrypted, explicitly saved Connections private name resolves only a
+unique confirmed person. The nickname is never placed in a readable PKM summary,
+manifest path, model context or backend search index. The server resolves the
+opaque reference and rechecks the active connection on every page; counterpart
+matching occurs before ranking/pagination while preserving the full workflow's
+current summary. Missing counterpart schema refuses the person filter instead
+of broadening it. Cursor and in-memory query cache identities include that
+reference. Optional private-name storage failures leave ordinary lexical search
+available with a quiet unavailable status. RIA client Top Hits independently
+require verified RIA and workspace authority. Agent scope never changes delivery,
+subscriptions or read state; active emergencies remain pinned across scopes.

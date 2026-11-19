@@ -1,3 +1,4 @@
+vi.mock("@/components/connections/private-contact-name", () => ({ PrivateContactName: () => null }));
 import { currentGrantFixture, viewerProfile } from "./person-profile/fixtures";
 import {
   act,

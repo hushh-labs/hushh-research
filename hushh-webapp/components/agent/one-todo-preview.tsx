@@ -175,8 +175,8 @@ export function OneTodoPreview({
       <header className={workspace.toolbar}>
         <h3>Your tasks</h3>
         <div className={workspace.tools}>
-          {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources presentation="pane" onOpenChange={setSourcesOpen} onBackChange={onDetailBackChange} persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} evidence={live.evidence} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
-            isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} onRefresh={retry} onSaved={() => { void loadTasks(); }} /> : null}
+          {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources presentation="pane" onOpenChange={setSourcesOpen} onBackChange={onDetailBackChange} persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
+            isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} /> : null}
           <button type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => setEditorOpen(true)}><Plus aria-hidden /></button>
         </div>
       </header>

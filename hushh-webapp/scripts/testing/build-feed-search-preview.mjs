@@ -9,6 +9,8 @@ export async function buildFeedSearchPreview(outDir, beforeSource) {
   const root=process.cwd(), boundary=path.join(root,"e2e/fixtures/feed-search-boundaries.tsx");
   const overrides={
     "lib/services/feed-service.ts":"FeedService",
+    "lib/feed/use-contact-name-search.ts":"useContactNameSearch",
+    "lib/connections/private-contact-names.ts":"PRIVATE_NAMES_CHANGED",
     "lib/services/auth-service.ts":"AuthService",
     "components/feed/feed-finance-search.tsx":"FeedFinanceSearch",
     "lib/navigation/back-layers.tsx":"useBackLayer,unwindBackLayer",

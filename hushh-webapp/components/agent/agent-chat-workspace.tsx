@@ -7653,6 +7653,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     try {
       await streamAgentIntro({
         message: text,
+        confirmedNativeGuest: !authLoading && !user && !sessionVerificationRequired,
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,

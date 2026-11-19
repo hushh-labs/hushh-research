@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, cast
 
 import api.routes.kai.analyze_run_store as run_store
+from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.kai_completion_proof import issue_completion_proof
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,22 @@ RunGeneratorFactory = Callable[
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+async def _record_completed_source(run: "AnalyzeRunRecord") -> None:
+    """Feed availability cannot prevent durable terminal persistence or cleanup."""
+    try:
+        await asyncio.to_thread(
+            FeedService().record_event,
+            user_id=run.user_id,
+            source_domain="kai",
+            event_type="kai_analysis_completed",
+            actor_label="Kai",
+            metadata={"run_id": run.run_id, "ticker": run.ticker},
+            source_row_id=run.run_id,
+        )
+    except Exception:
+        logger.warning("kai.completion_source_unavailable")
 
 
 # How often a live worker may ask the durable store whether its owner canceled
@@ -269,6 +287,15 @@ class KaiAnalyzeRunManager:
         async with run.condition:
             if run.status != "running" and envelope and envelope.get("terminal"):
                 return cast(dict[str, Any], envelope)
+            if envelope and envelope.get("terminal") and envelope.get("event") == "decision":
+                try:
+                    envelope["payload"]["completion_proof"] = issue_completion_proof(
+                        run.user_id, run.run_id, run.ticker
+                    )
+                except Exception:
+                    logger.warning("kai.completion_proof_unavailable")
+                    envelope["payload"]["completion_proof_unavailable"] = True
+                frame["data"] = json.dumps(envelope)
             run.events.append(frame)
             run.updated_at = _now_iso()
             if envelope and bool(envelope.get("terminal")):
@@ -425,6 +452,9 @@ class KaiAnalyzeRunManager:
                 active_run_id = self._active_by_session.get(session_key)
                 if active_run_id == run.run_id:
                     del self._active_by_session[session_key]
+
+            if run.status == "completed":
+                await _record_completed_source(run)
 
             # One durable receipt per run, at terminal state, off the per-token
             # hot path; then answer hand-off requests from other processes.

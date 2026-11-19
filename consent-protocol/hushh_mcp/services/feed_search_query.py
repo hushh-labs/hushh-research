@@ -5,7 +5,17 @@ from hushh_mcp.services.feed_location_search import search_label_sql
 from hushh_mcp.services.feed_search_contract import scope_sql, terms_sql
 
 
-def search_sql(cte: str) -> str:
+def _person_clause(filtered: bool) -> str:
+    # Match immutable counterpart identity without changing the current workflow summary.
+    return (
+        "AND EXISTS(SELECT 1 FROM feed_event_counterparts p WHERE p.feed_event_id=m.id AND p.counterpart_user_id=:person_user_id)"
+        if filtered
+        else ""
+    )
+
+
+def search_sql(cte: str, *, person_filtered: bool = False) -> str:
+    person_clause = _person_clause(person_filtered)
     anchor = "WHERE f.user_id = :user_id"
     if anchor not in cte:
         raise ValueError("Canonical owner Feed CTE required")
@@ -40,6 +50,7 @@ def search_sql(cte: str) -> str:
         AND current.event_type='mail_message_sent' AND current.subagent_id='agent_kyc'))
         AND (CAST(:from_at AS timestamptz) IS NULL OR m.created_at>=CAST(:from_at AS timestamptz))
         AND (CAST(:before_at AS timestamptz) IS NULL OR m.created_at<CAST(:before_at AS timestamptz))
+        {person_clause}
         AND (CAST(:agent AS text) IS NULL OR m.subagent_id=:agent)
     ), searchable AS (
       SELECT *,array_to_string(labels,' ') AS words FROM search_labels
@@ -67,7 +78,8 @@ def search_sql(cte: str) -> str:
     )
 
 
-def suggestion_sql(cte: str) -> str:
+def suggestion_sql(cte: str, *, person_filtered: bool = False) -> str:
+    person_clause = _person_clause(person_filtered)
     # Suggestions come from admitted, owner-scoped labels, never a directory.
     return (
         cte
@@ -76,6 +88,7 @@ def suggestion_sql(cte: str) -> str:
       WHERE m.dismissed_at IS NULL AND (g.last_dismissed_id IS NULL OR m.id>g.last_dismissed_id)
         AND m.source_action_required AND {browse_admission_sql("m")}
         AND m.actor_label IS NOT NULL AND (CAST(:scope AS text) IS NULL OR {scope_sql("m")}=:scope)
+        {person_clause}
         AND (CAST(:agent AS text) IS NULL OR m.subagent_id=:agent)
         AND (CAST(:from_at AS timestamptz) IS NULL OR m.created_at>=CAST(:from_at AS timestamptz))
         AND (CAST(:before_at AS timestamptz) IS NULL OR m.created_at<CAST(:before_at AS timestamptz))

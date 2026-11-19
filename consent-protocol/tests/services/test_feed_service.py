@@ -145,6 +145,20 @@ def test_source_backed_feed_event_uses_idempotent_projection_insert() -> None:
     assert db.inserted == []
 
 
+def test_saved_result_ack_requires_persistence_but_other_projections_remain_best_effort() -> None:
+    from unittest.mock import Mock
+
+    service = FeedService()
+    service._db = Mock()
+    service._db.execute_raw.side_effect = RuntimeError("database unavailable")
+    event = dict(
+        user_id="owner", source_domain="kai", event_type="kai_analysis_saved", source_row_id="run"
+    )
+    service.record_event(**event)
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        service.record_event(**event, require_confirmation=True)
+
+
 def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
     db = _Db()
     service = FeedService()

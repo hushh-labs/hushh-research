@@ -21,6 +21,7 @@ import httpx
 from defusedxml import ElementTree as DefusedET
 
 from hushh_mcp.market_data.movers import assemble_movers, observation_time
+from hushh_mcp.services.market_news_images import publisher_logo_url
 
 INDIA_INDICES: tuple[tuple[str, str], ...] = (
     ("NIFTY 50", "^NSEI"),
@@ -161,14 +162,6 @@ def build_india_sectors(quotes: dict[str, dict[str, Any]]) -> tuple[list[dict[st
     return rows, "ok" if len(rows) == len(INDIA_SECTORS) else "partial"
 
 
-def _publisher_logo(url: str | None) -> str | None:
-    """Google News carries no article images, so each headline gets its publisher's mark."""
-    host = urllib.parse.urlsplit(str(url or "")).hostname or ""
-    if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}", host.lower()):
-        return None
-    return f"https://www.google.com/s2/favicons?domain={host.lower()}&sz=128"
-
-
 def parse_india_news(xml_text: str) -> list[dict[str, Any]]:
     """Newest first, one row per headline, publisher suffix removed from the title."""
     try:
@@ -206,7 +199,7 @@ def parse_india_news(xml_text: str) -> list[dict[str, Any]]:
                     "url": url,
                     "published_at": published.astimezone(UTC).isoformat(),
                     "source_name": source_name or "Google News",
-                    "source_logo_url": _publisher_logo(
+                    "source_logo_url": publisher_logo_url(
                         source_node.get("url") if source_node is not None else None
                     ),
                     "provider": "google_news_rss",

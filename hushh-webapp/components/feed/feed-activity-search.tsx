@@ -15,7 +15,9 @@ import { FEED_SEARCH_OPEN_EVENT, FEED_SEARCH_RESET_EVENT } from "@/lib/feed/feed
 import { availableFeedScopes, feedScopeLabel, matchesCurrentFeedAction } from "@/lib/feed/agent-scopes";
 import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
 import { feedResultHref } from "@/lib/feed/result-navigation";
-import { searchFeed } from "@/lib/feed/search-cache";
+import { searchFeed, clearFeedSearchCache } from "@/lib/feed/search-cache";
+import { useContactNameSearch } from "@/lib/feed/use-contact-name-search";
+import { PRIVATE_NAMES_CHANGED } from "@/lib/connections/private-contact-names";
 import { armFeedSearchReturn, retainFeedSearch, clearFeedSearch, type FeedSearchSnapshot, type ActivityCriteria } from "@/lib/feed/feed-search-memory";
 import type { FeedItem, FeedService } from "@/lib/services/feed-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
@@ -44,6 +46,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
     persona?: "investor" | "ria";
 }) {
     const router = useRouter();
+    const resolveName = useContactNameSearch(ownerId);
     const vaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
     const initialVaultEpoch = useRef(vaultEpoch);
     const [open, setOpen] = useState(Boolean(initial?.open || initial?.submitted));
@@ -59,6 +62,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
     const [suggestion, setSuggestion] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [privateNamesUnavailable, setPrivateNamesUnavailable] = useState(false);
     const [financeCount, setFinanceCount] = useState<number | null>(initial?.financeItems?.length ?? 0);
     const [financeItems, setFinanceItems] = useState(initial?.financeItems);
     const scrollFrame = useRef<number | null>(null);
@@ -109,6 +113,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
         setSuggestion(null);
         setBusy(false);
         setFailed(false);
+        setPrivateNamesUnavailable(false);
         setFinanceItems(undefined);
         setFinanceCount(0);
         onModeChange(false);
@@ -154,9 +159,14 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
             const token = await getToken();
             if (!current())
                 return;
-            const page = await searchFeed(ownerId, { query: criteria.query, scope: criteria.agent || null, persona, from_at: criteria.fromAt, before_at: criteria.beforeAt, cursor: append ? cursor : null, limit: 20 }, token, current);
+            const name = await resolveName(criteria.query, token, current);
+            if (!current()) return;
+            const page = await searchFeed(ownerId, { query: name.query, person_ref: name.personRef || null, scope: criteria.agent || null, persona, from_at: criteria.fromAt, before_at: criteria.beforeAt, cursor: append ? cursor : null, limit: 20 }, token, current);
             if (!current())
                 return;
+            setPrivateNamesUnavailable(name.privateNamesUnavailable === true);
+            setSubmitted({ ...criteria, effectiveQuery: name.query, personRef: name.personRef,
+              personUserId: name.personRef && page.matched_person_ref === name.personRef ? name.personUserId : undefined });
             setItems(previous => {
                 const unique = new Map((append ? previous : []).map(item => [item.activity_group_id || item.id, item]));
                 for (const item of page.items)
@@ -177,11 +187,23 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
             if (current())
                 setBusy(false);
         }
-    }, [isCurrent, getToken, ownerId, persona, cursor]);
+    }, [isCurrent, getToken, ownerId, persona, cursor, resolveName]);
     // A criteria change retires the previous request synchronously. Only text
     // entry is debounced; a scope selection takes effect immediately, including "".
     const runRef = useRef(run);
     runRef.current = run;
+    const nameEpoch = useRef(vaultEpoch);
+    useLayoutEffect(() => {
+        if (nameEpoch.current === vaultEpoch) return;
+        nameEpoch.current = vaultEpoch;
+        if (submitted?.personRef) clear();
+    }, [vaultEpoch, submitted?.personRef, clear]);
+    useEffect(() => {
+        const changed = () => { clearFeedSearchCache(); if (open) void runRef.current({ query, person: "", agent: scope, fromAt: dateBoundary(from), beforeAt: dateBoundary(through, true), revision: Date.now() }); };
+        window.addEventListener(PRIVATE_NAMES_CHANGED, changed);
+        return () => window.removeEventListener(PRIVATE_NAMES_CHANGED, changed);
+    }, [open, query, scope, from, through]);
+
     useEffect(() => {
         if (!open)
             return;
@@ -221,11 +243,14 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
             clearTimeout(scheduled.current);
         void run({ query, person: "", agent: scope, fromAt: dateBoundary(from), beforeAt: dateBoundary(through, true), revision: Date.now() });
     };
-    const pending = actionables.filter(item => (!scope || item.scopeId === scope) && matchesCurrentFeedAction(item, query)
+    const named = submitted?.query === query && submitted.personRef ? submitted : null;
+    const pending = actionables.filter(item => (!scope || item.scopeId === scope) &&
+        (!named || (Boolean(named.personUserId) && (item.person?.userId === named.personUserId || item.person?.personRef === named.personRef))) &&
+        matchesCurrentFeedAction(item, named?.effectiveQuery ?? query)
         && (!from || (item.displayTimestamp != null && item.displayTimestamp >= Date.parse(dateBoundary(from)!)))
         && (!through || (item.displayTimestamp != null && item.displayTimestamp < Date.parse(dateBoundary(through, true)!))));
     const navigate = (href: string) => { const target = feedResultHref(href); armFeedSearchReturn(target); router.push(target); };
-    const pendingKeys = new Set(pending.flatMap(item => item.operationKey ? [item.operationKey] : []));
+    const pendingKeys = new Set(pending.flatMap(item => item.operationKey ? [item.operationKey, ...(item.operationKeys ?? [])] : []));
     const visible = items.filter(item => !item.activity_group_id || (!pinnedOperations?.has(item.activity_group_id) && !pendingKeys.has(item.activity_group_id)));
     const excluded = (item: FeedItem) => Boolean(item.activity_group_id && (pinnedOperations?.has(item.activity_group_id) || pendingKeys.has(item.activity_group_id)));
     const visibleHit = topHit?.kind === "activity" && excluded(topHit.item) ? null : topHit;
@@ -235,7 +260,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
         const label = feedDayLabel(item.created_at);
         dated.set(label, [...(dated.get(label) || []), item]);
     }
-    const showFinance = !scope || scope === "finance" || scope === "advisor";
+    const showFinance = !named && (!scope || scope === "finance" || scope === "advisor");
     if (!open)
         return null;
     return <section aria-label="Search activity" className="space-y-3 pb-3">
@@ -246,6 +271,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
       </select>
       <Button type="button" variant="ghost" size="icon" aria-label="Close search" onClick={clear}><X className="size-5"/></Button>
     </form>
+    {privateNamesUnavailable ? <p role="status" className="text-xs text-muted-foreground">Private names unavailable</p> : null}
     <div className="flex items-center gap-2">
       {scope ? <Button variant="ghost" className="min-h-11 px-2 text-xs" onClick={() => selectScope("")} aria-label={`Remove ${feedScopeLabel(scope)} scope`}>{feedScopeLabel(scope)} ×</Button> : null}
       {query ? <Button variant="ghost" className="min-h-11 px-2 text-xs" onClick={() => changeQuery("")}>Clear search</Button> : null}

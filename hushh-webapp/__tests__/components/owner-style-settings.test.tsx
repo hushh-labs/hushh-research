@@ -13,9 +13,11 @@ const mocks = vi.hoisted(() => ({
   getStaleFirst: vi.fn(),
   saveMergedDomain: vi.fn(),
 }));
+const privateNameProfile = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/person-profile-service", () => ({ PersonProfileService: { getRelationship: privateNameProfile } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultKey: "k", vaultOwnerToken: "t" }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultKey: "k", vaultOwnerToken: "t", getVaultKey: () => "k", getVaultOwnerToken: () => "t" }) }));
 vi.mock("@/lib/morphy-ux/button", () => ({
   Button: ({ children, variant: _variant, size: _size, ...props }: { children: ReactNode; variant?: string; size?: string }) =>
     <button {...props}>{children}</button>,
@@ -31,6 +33,8 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
 import { CommunicationPreferencesSection, useCommunicationPreferencesEditor, type CommunicationSaveOutcome } from "@/components/profile/communication-preferences-section";
 import { parseAgentToolResultExperience } from "@/lib/agent/agui-structured-experiences";
+import { PrivateContactName } from "@/components/connections/private-contact-name";
+import { saveContactName, matchContactName, contactNames } from "@/lib/connections/private-contact-names";
 import { saveChatPreferredName } from "@/lib/agent/owner-style-settings-writer";
 import {
   OWNER_STYLE_SETTINGS_SOURCE,
@@ -298,4 +302,54 @@ describe("Settings commits through the reserved writer", () => {
     expect(mocks.getStaleFirst).not.toHaveBeenCalled();
     expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
   });
+});
+
+
+it("saves only an explicit private name for a connected person through a sibling-preserving encrypted writer, without readable names", async () => {
+  let current = true;
+  const access = { userId: "owner-1", personRef: "person-one", alias: "Mom", vaultKey: "k", vaultOwnerToken: "t", getIdToken: async () => "firebase", isCurrent: () => current };
+  privateNameProfile.mockResolvedValue({ status: "connected" });
+  mocks.saveMergedDomain.mockReset().mockResolvedValue({ success: true });
+  expect(await saveContactName(access)).toBe(true);
+  const request = mocks.saveMergedDomain.mock.calls[0][0];
+  expect(request.confirmation).toEqual({ confirmedByUser: true, source: "one_connections_private_name", surface: "web" });
+  await request.beforeEffect();
+  expect(privateNameProfile).toHaveBeenCalledWith("person-one", "firebase");
+  const sibling = { identity_profile: { city: "Synthetic" }, contact_aliases: { version: 1, items: [{ personRef: "other", alias: "Dad" }] } };
+  const built = request.build({ currentDomainData: sibling });
+  expect(built.domainData.identity_profile).toEqual(sibling.identity_profile);
+  expect(built.domainData.contact_aliases.items).toEqual([{ personRef: "other", alias: "Dad" }, { personRef: "person-one", alias: "Mom" }]);
+  expect(JSON.stringify(built.summary)).not.toMatch(/Mom|Dad|person-one/);
+  expect(() => request.build({ currentDomainData: { contact_aliases: { version: 2, items: [] } } })).toThrow("unavailable");
+  privateNameProfile.mockResolvedValueOnce({ status: "none" });
+  await expect(request.beforeEffect()).rejects.toThrow("Connection changed");
+  current = false;
+  expect(request.mayPublish()).toBe(false);
+  await expect(request.beforeEffect()).rejects.toThrow("access changed");
+  const names = contactNames({ version: 1, items: [{ personRef: "person-one", alias: "Mom" }] });
+  expect(matchContactName("MOM check-in", names)).toEqual({ personRef: "person-one", query: "check in" });
+  expect(matchContactName("mom check-in", { version: 1, items: [...names.items, { personRef: "different", alias: "Mom" }] })).toBeNull();
+  expect(matchContactName("mum", names)).toBeNull();
+});
+
+
+it("edits a contact name only after Save and ignores a completed write from the previous person", async () => {
+  mocks.user = Object.assign({ uid: "owner-1" }, { getIdToken: async () => "firebase" });
+  mocks.getStaleFirst.mockResolvedValue({ data: { contact_aliases: { version: 1, items: [{ personRef: "person-a", alias: "Mom" }, { personRef: "person-b", alias: "Dad" }] } } });
+  privateNameProfile.mockResolvedValue({ status: "connected" });
+  let finish!: (value: unknown) => void;
+  mocks.saveMergedDomain.mockReset().mockImplementation(async request => { await request.beforeEffect(); return new Promise(resolve => { finish = resolve; }); });
+  const view = render(<PrivateContactName personRef="person-a" />);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Private name" })).toHaveValue("Mom"));
+  fireEvent.change(screen.getByRole("textbox", { name: "Private name" }), { target: { value: "Mama" } });
+  expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1));
+  view.rerender(<PrivateContactName personRef="person-b" />);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Private name" })).toHaveValue("Dad"));
+  await act(async () => { finish({ success: true }); });
+  expect(screen.getByRole("textbox", { name: "Private name" })).toHaveValue("Dad");
+  expect(screen.getByRole("textbox", { name: "Private name" })).toBeEnabled();
+  view.unmount();
 });

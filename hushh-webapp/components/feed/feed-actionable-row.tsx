@@ -1,5 +1,6 @@
 "use client";
 
+import { FeedPrerequisiteDetail } from "./feed-prerequisite-detail";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FeedSmsSentTime } from "@/components/feed/feed-sms-sent-time";
@@ -361,6 +362,7 @@ function FeedActionableIdentity({
  * trailing buttons from nesting.
  */
 export function FeedActionableRow({ item, onNavigate }: { item: FeedActionable; onNavigate?: (href: string) => void }) {
+  const [prerequisiteOpen, setPrerequisiteOpen] = useState(false);
   const isLive = item.emphasis === "emergency";
   const indicator = item.spinning || isLive ? (
     <span aria-hidden="true" className={cn(
@@ -428,12 +430,16 @@ export function FeedActionableRow({ item, onNavigate }: { item: FeedActionable; 
         />
       </SettingsRow>
     ) : (
-      <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect ?? (item.href ? () => {
+      <SettingsRow {...shared} chevron={item.chevron} onClick={item.affectedRequests?.length ? () => setPrerequisiteOpen(true) : item.onSelect ?? (item.href ? () => {
         onNavigate?.(item.href!);
         if (router) router.push(item.href!);
         else if (typeof window !== "undefined") window.location.assign(item.href!);
       } : undefined)} />
     );
 
-  return row;
+  return <>{row}{prerequisiteOpen && item.affectedRequests?.length ? <FeedPrerequisiteDetail
+    requests={item.affectedRequests} onClose={() => setPrerequisiteOpen(false)} onNavigate={onNavigate}
+    actions={<ActionButtons actions={item.actions.map(action => ({ ...action, run: () => {
+      setPrerequisiteOpen(false); return action.run();
+    } }))} />} /> : null}</>;
 }

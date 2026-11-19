@@ -158,3 +158,51 @@ def test_clear_fences_old_labels_suggestions_and_cursor_without_erasing_exact_de
     }
     assert reader.restore(OWNER, item_id=old, dismissal_token=token)["restored"] is True
     assert reader.search_activity(OWNER, query="Alpha")["items"]
+
+
+def test_verified_person_filter_matches_counterpart_before_pagination_without_replacing_group_summary(
+    feed_db, monkeypatch
+):
+    from hushh_mcp.services import person_profile_service
+    from hushh_mcp.services.person_profile_service import PersonProfileService
+
+    with feed_db.begin() as conn:
+        conn.execute(
+            text("""CREATE TABLE connections(id TEXT,created_at TIMESTAMPTZ,user_a_id TEXT,user_b_id TEXT,status TEXT);
+          CREATE TABLE connection_requests(id TEXT,requester_user_id TEXT,addressee_user_id TEXT,status TEXT,created_at TIMESTAMPTZ);
+          CREATE TABLE IF NOT EXISTS feed_event_counterparts(feed_event_id BIGINT,counterpart_user_id TEXT);
+          INSERT INTO connections VALUES('one',now(),LEAST(:owner,:peer),GREATEST(:owner,:peer),'active');"""),
+            {"owner": OWNER, "peer": OTHER},
+        )
+    # Resolve only the opaque profile lookup; real canonical connection SQL remains authoritative.
+    monkeypatch.setattr(
+        PersonProfileService,
+        "_profile_row",
+        lambda self, ref: {"user_id": OTHER} if ref == "person-one" else {"user_id": "foreign"},
+    )
+    monkeypatch.setattr(person_profile_service, "get_db", lambda: session(feed_db)._get_db())
+    rows = seed(
+        feed_db,
+        OWNER,
+        [
+            ("one", "connections", "connection_accepted", {}),
+            ("two", "connections", "connection_accepted", {}),
+        ],
+    )
+    foreign = seed(feed_db, OTHER, [("foreign", "connections", "connection_accepted", {})])
+    with feed_db.begin() as conn:
+        conn.execute(
+            text("INSERT INTO feed_event_counterparts VALUES(:one,:peer),(:foreign,:peer)"),
+            {"one": rows["one"], "foreign": foreign["foreign"], "peer": OTHER},
+        )
+    reader = session(feed_db)
+    unread = reader.unread_count(OWNER)
+    page = reader.search_activity(OWNER, person_ref="person-one", limit=1)
+    assert [item["id"] for item in page["items"]] == [str(rows["one"])]
+    assert page["next_cursor"] is None and page["matched_person_ref"] == "person-one"
+    assert reader.search_activity(OWNER, person_ref="foreign")["items"] == []
+    assert reader.search_activity(OTHER, person_ref="person-one")["items"] == []
+    assert reader.unread_count(OWNER) == unread
+    with feed_db.begin() as conn:
+        conn.execute(text("UPDATE connections SET status='revoked'"))
+    assert reader.search_activity(OWNER, person_ref="person-one")["items"] == []

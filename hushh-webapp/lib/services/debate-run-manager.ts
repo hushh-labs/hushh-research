@@ -1108,6 +1108,7 @@ class DebateRunManager {
     const rawCard = buildDecisionHistoryRawCard(payload, runId);
 
     const entry: AnalysisHistoryEntry = {
+      ...(finishedOutsideFinance ? { feed_publication_pending: true } : {}),
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),
       timestamp:
         typeof payload.analysis_updated_at === "string" &&
@@ -1185,16 +1186,11 @@ class DebateRunManager {
       for (const listener of this.historyListeners) {
         listener(entry, savedTask);
       }
-      if (finishedOutsideFinance) {
-        // A replay may acknowledge this same immutable run; Feed deduplicates by run ID.
-        void ApiService.publishSavedKaiAnalysis({
-          runId,
-          userId: task.userId,
+      {
+        void KaiHistoryService.publishPendingFeedResults({
+          userId: task.userId, vaultKey: secrets.vaultKey,
           vaultOwnerToken: secrets.vaultOwnerToken,
-          isEffectCurrent: () => isVaultSessionEpochCurrent(secrets.vaultEpoch),
-        }).catch(() => {
-          // The encrypted report is already saved and remains available in Finance.
-        });
+        }, () => isVaultSessionEpochCurrent(secrets.vaultEpoch)).catch(() => undefined);
       }
       return;
     }

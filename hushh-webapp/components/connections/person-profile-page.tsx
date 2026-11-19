@@ -23,6 +23,7 @@ import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import styles from "./person-profile-page.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
+import { PrivateContactName } from "./private-contact-name";
 import { useVault } from "@/lib/vault/vault-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PersonInformationRequestDialog } from "./person-information-request-dialog";
@@ -978,6 +979,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, cal
           </>}
         />
 
+        {relationship?.status === "connected" ? <PrivateContactName key={`${userId}:${resolvedPersonRef}`} personRef={resolvedPersonRef} /> : null}
         {packets.content}
 
         {!user && !authLoading ? (

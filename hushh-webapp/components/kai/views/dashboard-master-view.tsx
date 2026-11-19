@@ -19,6 +19,7 @@ import { toast } from "sonner";
 
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import {
   SurfaceCard,
@@ -428,7 +429,7 @@ export function DashboardMasterView({
   const holdingsEditSnapshotRef = useRef<string | null>(null);
   const [holdingsSearch, setHoldingsSearch] = useState("");
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
-  const [managingSelectedEntries, setManagingSelectedEntries] = useState(false);
+  const [entriesOpenedFrom, setEntriesOpenedFrom] = useState<"list" | "details" | null>(null);
   const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
   const [isDeletingStatementSnapshot, setIsDeletingStatementSnapshot] =
     useState(false);
@@ -511,6 +512,7 @@ export function DashboardMasterView({
     if (activeSource === "statement" && (!isHoldingsEditing || holdingsEditSnapshotRef.current === activeStatementSnapshotId)) return;
     setIsHoldingsEditing(false);
     setSelectedHoldingId(null);
+    setEntriesOpenedFrom(null);
     setIsModalOpen(false);
     setEditingHolding(null);
     setEditingHoldingId(null);
@@ -1017,7 +1019,7 @@ export function DashboardMasterView({
     setHoldingsDraft(managed);
     closeHoldingModal();
     setSelectedHoldingId(null);
-    setManagingSelectedEntries(false);
+    setEntriesOpenedFrom(null);
     setIsHoldingsEditing(false);
   }, [closeHoldingModal, statementEditablePortfolio]);
 
@@ -1504,13 +1506,18 @@ export function DashboardMasterView({
   const loadHoldingHistory = useCallback((symbol: string, signal: AbortSignal) =>
     ApiService.getKaiStockPriceHistory(userId, symbol, signal), [userId]);
 
+  const openHoldingEntries = useCallback((holdingId: string) => {
+    setSelectedHoldingId(holdingId);
+    setEntriesOpenedFrom("list");
+  }, []);
+  const showManageEntries = canEditStatement && isHoldingsEditing;
   const holdingsTableColumns = useMemo<ColumnDef<ManagedHolding>[]>(() => {
     return holdingTableColumns(holdingsTableDenominator,
-      canEditStatement && isHoldingsEditing ? setSelectedHoldingId : undefined);
+      showManageEntries ? openHoldingEntries : undefined);
   }, [
-    canEditStatement,
     holdingsTableDenominator,
-    isHoldingsEditing,
+    openHoldingEntries,
+    showManageEntries,
   ]);
 
   const handleSharePortfolioPdf = useCallback(async () => {
@@ -2250,8 +2257,15 @@ export function DashboardMasterView({
                       title={holding.symbol || "Holding"}
                       description={`${holding.name || "Unnamed security"}${holding.entries.length > 1 ? ` · ${holding.entries.length} entries` : ""}`}
                       trailing={
-                        isHoldingsEditing ? (
-                          <span className="text-sm text-muted-foreground">Manage</span>
+                        showManageEntries ? (
+                          <ShellActionSurface
+                            variant="pill"
+                            className="h-11 whitespace-nowrap text-sm"
+                            aria-label={`Manage entries for ${holding.symbol || "holding"}`}
+                            onClick={() => openHoldingEntries(holding.client_id)}
+                          >
+                            Manage
+                          </ShellActionSurface>
                         ) : (
                           <span className="text-right">
                             <span className="block text-sm font-medium tabular-nums text-foreground">
@@ -2264,12 +2278,9 @@ export function DashboardMasterView({
                           </span>
                         )
                       }
+                      trailingInteractive={showManageEntries}
                       onClick={() => setSelectedHoldingId(holding.client_id)}
-                      ariaLabel={
-                        isHoldingsEditing && !holding.pending_delete
-                          ? `Manage entries for ${holding.symbol || "holding"}`
-                          : `View details for ${holding.symbol || "holding"}`
-                      }
+                      ariaLabel={`View details for ${holding.symbol || "holding"}`}
                       className={cn(
                         financeStyles.mobileHoldingRow,
                         selectedHoldingId === holding.client_id && [financeStyles.interactiveRow, financeStyles.selectedRow],
@@ -2282,7 +2293,7 @@ export function DashboardMasterView({
               </SettingsGroup>
 
               <HoldingDetailsDrawer
-                open={Boolean(selectedHolding) && !isModalOpen && !managingSelectedEntries}
+                open={Boolean(selectedHolding) && !isModalOpen && !entriesOpenedFrom}
                 holding={selectedHolding}
                 entries={selectedEntries}
                 canManageHoldings={canEditStatement}
@@ -2292,7 +2303,7 @@ export function DashboardMasterView({
                     holdingsEditSnapshotRef.current = activeStatementSnapshotId;
                     setIsHoldingsEditing(true);
                   }
-                  setManagingSelectedEntries(true);
+                  setEntriesOpenedFrom("details");
                 }}
                 onEditEntry={handleEditHolding}
                 onToggleDeleteEntry={handleToggleDeleteHolding}
@@ -2305,9 +2316,13 @@ export function DashboardMasterView({
                   if (!open) setSelectedHoldingId(null);
                 }}
               />
-              <ReviewEntriesSheet open={Boolean(selectedHolding) && managingSelectedEntries && !isModalOpen}
+              <ReviewEntriesSheet open={Boolean(selectedHolding && entriesOpenedFrom) && !isModalOpen}
                 position={selectedHolding ?? null} entries={selectedEntries ?? []}
-                onOpenChange={open => setManagingSelectedEntries(open)}
+                onOpenChange={(open) => {
+                  if (open) return;
+                  if (entriesOpenedFrom === "list") setSelectedHoldingId(null);
+                  setEntriesOpenedFrom(null);
+                }}
                 onEditEntry={handleEditHolding} onToggleDeleteEntry={handleToggleDeleteHolding}
                 onAddEntry={() => {
                   const seed = groupHoldingPositions(sourceHoldingRows).find(row => row.client_id === selectedHoldingId);

@@ -10,15 +10,13 @@ import styles from "./todo-workspace.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { TodoListPkmService, type TodoWriteParams } from "@/lib/services/todo-list-pkm-service";
-import { taskCapabilities, type TaskCapability, type TaskCoverage, type TaskEvidence } from "@/lib/todos/task-suggestion-model";
-import { TodoAgentSuggestions } from "./todo-agent-suggestions";
+import { taskCapabilities, type TaskCapability, type TaskCoverage } from "@/lib/todos/task-suggestion-model";
 
-export function TodoTaskSources({ persistence, selected, coverage, evidence, loading, disabled, isCurrent, onChange, onRefresh, onSaved, presentation = "sheet", onOpenChange, onBackChange }: {
+export function TodoTaskSources({ persistence, selected, coverage, loading, disabled, isCurrent, onChange, presentation = "sheet", onOpenChange, onBackChange }: {
   presentation?: "sheet" | "pane"; onOpenChange?: (open: boolean) => void; onBackChange?: (handler: (() => boolean) | null) => void;
   persistence: TodoWriteParams; selected: readonly TaskCapability[];
-  coverage: TaskCoverage[]; evidence: TaskEvidence[]; loading: boolean; disabled: boolean;
+  coverage: TaskCoverage[]; loading: boolean; disabled: boolean;
   isCurrent: () => boolean; onChange: (selected: TaskCapability[]) => void;
-  onRefresh: () => void; onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(false);
   const pending = useRef(false);
@@ -46,7 +44,6 @@ export function TodoTaskSources({ persistence, selected, coverage, evidence, loa
       <div className={styles.pickerBody}>
         {taskCapabilities().map(source => { const id = source.id as TaskCapability; return <label className={styles.sourceRow} key={id}><span className={styles.sourceName}><ClipboardList aria-hidden />{source.title}</span><span className={styles.switchHit}><Switch aria-label={source.title} checked={selected.includes(id)} disabled={saving || disabled} onCheckedChange={checked => void save(id, checked)} /></span></label>; })}
         {error ? <p role="status">Could not save. Try again.</p> : null}
-        <details className={styles.suggestions}><summary>Task suggestions</summary><TodoAgentSuggestions {...persistence} selectedCapabilities={selected} coverage={coverage} evidence={evidence.filter(item => !item.pendingTitle)} loading={loading || saving} onRefresh={onRefresh} onSaved={onSaved} /></details>
       </div>
       <footer className={styles.pickerFooter}><span>{selected.length} sources selected</span><button type="button" className={styles.done} disabled={saving} onClick={() => setVisible(false)}>Done</button></footer>
     </section></FocusScope> : null}
@@ -67,7 +64,6 @@ export function TodoTaskSources({ persistence, selected, coverage, evidence, loa
           })}
         </div>
         {error ? <p role="status">Couldn’t save. Try again.</p> : null}
-        <TodoAgentSuggestions {...persistence} selectedCapabilities={selected} coverage={coverage} evidence={evidence.filter(item => !item.pendingTitle)} loading={loading || saving} onRefresh={onRefresh} onSaved={onSaved} />
       </SheetContent>
     </Sheet>
   </>;

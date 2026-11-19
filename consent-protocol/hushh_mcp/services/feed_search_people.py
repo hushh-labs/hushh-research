@@ -63,8 +63,6 @@ async def identity_top_hit(owner: str, query: str, scope: str | None, persona: s
             return None
         if scope == "advisor":
             return None
-    if scope not in {None, "connections"}:
-        return None
     from hushh_mcp.services.connections_service import ConnectionsService
 
     rows = await run_in_threadpool(ConnectionsService().list_connections, owner)
@@ -78,3 +76,52 @@ async def identity_top_hit(owner: str, query: str, scope: str | None, persona: s
             + "?from=%2Fone%2Ffeed",
         }
     return None
+
+
+def resolve_search_person(owner: str, person_ref: str) -> str | None:
+    from hushh_mcp.services.person_profile_service import (
+        PersonProfileNotFoundError,
+        PersonProfileService,
+    )
+
+    try:
+        user_id, relationship = PersonProfileService().get_relationship_target(
+            viewer_user_id=owner, public_person_ref=person_ref
+        )
+    except PersonProfileNotFoundError:
+        return None
+    return user_id if relationship.get("status") == "connected" else None
+
+
+async def identity_ref_top_hit(owner: str, person_ref: str, scope: str | None, persona: str):
+    from hushh_mcp.services.person_profile_service import PersonProfileService
+
+    user_id = await run_in_threadpool(resolve_search_person, owner, person_ref)
+    if not user_id:
+        return None
+    if persona == "ria" and scope in {None, "advisor"}:
+        from hushh_mcp.services.ria_iam_service import (
+            IAMSchemaNotReadyError,
+            RIAIAMPolicyError,
+            RIAIAMService,
+        )
+
+        try:
+            service = RIAIAMService()
+            await service.require_ria_verified(owner)
+            await service.get_ria_workspace(owner, user_id)
+            profile = await run_in_threadpool(PersonProfileService().get_public_profile, person_ref)
+            return {
+                "kind": "client",
+                "label": profile["displayName"],
+                "href": "/ria/clients/" + quote(user_id, safe="") + "?from=%2Fone%2Ffeed",
+            }
+        except (RIAIAMPolicyError, IAMSchemaNotReadyError):
+            if scope == "advisor":
+                return None
+    profile = await run_in_threadpool(PersonProfileService().get_public_profile, person_ref)
+    return {
+        "kind": "person",
+        "label": profile["displayName"],
+        "href": "/people/" + quote(person_ref, safe="") + "?from=%2Fone%2Ffeed",
+    }

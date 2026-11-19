@@ -639,11 +639,11 @@ five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
   - first-party writes should use `PkmWriteCoordinator`
   - stale domains can trigger resumable client-side PKM upgrade before save
   - bounded optimistic conflict retries rebuild writes from the latest decrypted domain state
-- Debate/analysis history writes attach explicit non-sensitive `write_projections[]`:
-  - encrypted `financial.analysis_history` stays canonical
-  - backend `decision_projection` events stay aligned with the encrypted history after save, refresh, and hard reload
-  - first-party readers should treat `projection_mode=replace_all` as canonical for upgraded users
-  - current retention stays `3` saved analyses per ticker (newest first)
+- New analysis history is encrypted in owner-scoped device storage, keyed by exact run, without rewriting `financial.analysis_history`. Legacy PKM results retain their existing read and explicit-deletion compatibility.
+  - separate same-ticker runs remain available on the originating device
+  - report contents and owner tokens never enter Feed or browser plaintext storage
+  - pending Feed publication stays with the encrypted result and retries after an authorized history read; failed publication is not acknowledged as success
+  - cross-device report custody is not implied by cross-device Feed unread synchronization
 - Save compatibility policy:
   - first-party financial/one/profile/portfolio/history writes must go through `PkmWriteCoordinator`
   - stale manifests/domains should resume the client-side PKM upgrade before save when the vault is unlocked
@@ -675,3 +675,15 @@ payload for all catalog, grants and history data. Retained labels/drafts are
 separate from current permission authority. Revalidation keeps workflow owners
 mounted, gates new submits while uncertain and accepts already dispatched server
 receipts under the original session guard. No backend response fields are removed.
+
+
+Shared Finance reports use existing Shared Files ciphertext storage rather than
+restoring the retired PKM report writer. Full report-history pages are coalesced
+in owner/auth-generation/vault-epoch memory for ten seconds; exact result opens
+read the current object independently. Lock, owner reset and report mutations
+invalidate that private cache. Tombstones suppress device/legacy copies and
+pending publication; a shared read failure never licenses a stale local fallback.
+The pending notification marker stays encrypted until its strict backend commit.
+Private contact-name search retains the original query and resolved opaque person
+reference only within the current search episode; lock clears that alias-bound
+view. Alias saves invalidate the query cache without changing unread state.

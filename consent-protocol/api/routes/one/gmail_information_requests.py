@@ -362,6 +362,26 @@ async def scan_information_requests_stream(
     )
 
 
+@router.get("/{workflow_id}/activity")
+async def get_information_request_activity(
+    workflow_id: UUID,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
+) -> dict[str, Any]:
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        workflow = await _service().get_terminal_workflow(
+            user_id=user_id, workflow_id=str(workflow_id)
+        )
+    except Exception as exc:
+        raise _as_http_error(exc) from exc
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Request history is no longer available.")
+    response.headers["Cache-Control"] = "private, no-store"
+    return workflow
+
+
 @router.get("/{workflow_id}")
 async def get_active_information_request(
     workflow_id: UUID,

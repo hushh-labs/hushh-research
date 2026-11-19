@@ -33,10 +33,11 @@ export function normalizedFeedQuery(value: string): string[] {
 export function matchesCurrentFeedAction(item: {
     title: string;
     description: string;
+    affectedRequests?: readonly { label: string }[];
     person?: {
         displayName: string;
     } | null;
 }, query: string): boolean {
-    const text = normalizedFeedQuery([item.title, item.description, item.person?.displayName].join(" ")).join(" ");
+    const text = normalizedFeedQuery([item.title, item.description, item.person?.displayName, ...(item.affectedRequests?.map(request => request.label) ?? [])].join(" ")).join(" ");
     return normalizedFeedQuery(query).every(term => text.includes(term));
 }

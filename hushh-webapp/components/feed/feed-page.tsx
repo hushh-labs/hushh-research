@@ -1,5 +1,6 @@
 "use client";
 
+import { foldFeedConnectorPrerequisites } from "@/lib/feed/connector-prerequisites";
 import {
   useCallback,
   useEffect,
@@ -968,13 +969,13 @@ function FeedPageSession({
     const endedLocation = new Set(items.filter(item => item.source_domain === "location" &&
       (["location_share_revoked","location_share_expired"].includes(item.event_type) || ["revoked","expired"].includes(String(item.metadata.current_location_status))))
       .flatMap(item => item.activity_group_id ? [item.activity_group_id] : []));
-    return [...actionables, ...briefingActionables].filter(item => (!item.smsEmergency || !item.operationKey || !endedLocation.has(item.operationKey)) && item.feedVisibility !== "routine"
+    return foldFeedConnectorPrerequisites([...actionables, ...briefingActionables].filter(item => (!item.smsEmergency || !item.operationKey || !endedLocation.has(item.operationKey)) && item.feedVisibility !== "routine"
       && (!item.updateProgress || item.updateProgress.failed || item.updateProgress.presentationState === "blocked")
-      && (!item.operationKey || !sentKyc.has(item.operationKey)))
+      && (!item.operationKey || !sentKyc.has(item.operationKey))))
       .map(item=>({...item,sourceLabel:feedScopeLabel(item.scopeId||"one")})).sort((a, b) => b.sortAt - a.sortAt);
   }, [items, actionables, briefingActionables]);
   const actionableOperations = useMemo(() => new Set(
-    currentActionables.flatMap(item => item.operationKey && (!item.smsEmergency || item.emphasis === "emergency") ? [item.operationKey] : []),
+    currentActionables.flatMap(item => item.operationKey && (!item.smsEmergency || item.emphasis === "emergency") ? [item.operationKey, ...(item.operationKeys ?? [])] : []),
   ), [currentActionables]);
   const historyItems = useMemo(() => items.filter(item =>
     !item.activity_group_id || !actionableOperations.has(item.activity_group_id)

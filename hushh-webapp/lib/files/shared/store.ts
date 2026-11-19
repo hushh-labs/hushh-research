@@ -8,6 +8,9 @@ export type SharedFilesAccess = {
   check: () => void;
 };
 export type Snapshot<T> = { value: T | null; generation: string };
+export type SharedObjectReceipt = {
+  libraryId: string; namespace: string; objectId: string; generation: string; leaseId: string;
+};
 const ZERO = "0".repeat(64);
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -18,7 +21,8 @@ export class SharedFilesStore {
   private leaseId: string | null = null;
   private mutationTail: Promise<void> = Promise.resolve();
   private initialization: Promise<void> | null = null;
-  constructor(private readonly access: SharedFilesAccess) {}
+  private canCreateKey = false;
+  constructor(private readonly access: SharedFilesAccess, private readonly options: { bootstrap?: "create" | "existing" } = {}) {}
   check(): void {
     this.access.check();
   }
@@ -142,6 +146,11 @@ export class SharedFilesStore {
     );
     let envelope = await this.remote(`objects/${ZERO}/${ZERO}`);
     if (envelope.ciphertext === null) {
+      if (this.options.bootstrap === "existing") throw new Error("FILES_SETUP_REQUIRED");
+      if (!this.canCreateKey) throw new Error("FILES_KEY_RECOVERY_REQUIRED");
+      // A missing key on a previously admitted library is never a fresh library.
+      // Consume the new-enrollment proof even if the first install is interrupted.
+      this.canCreateKey = false;
       const proposed = crypto.getRandomValues(new Uint8Array(32));
       try {
         const ciphertext = await cipher.seal(wrapping, proposed, context);
@@ -357,7 +366,7 @@ export class SharedFilesStore {
     return { values, cursor: result.cursor };
   }
   async storage(signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const result = await this.remote("storage", undefined, signal);
+    const result = await this.remote(this.options.bootstrap === "existing" ? "storage?existing=true" : "storage", undefined, signal);
     if (
       typeof result.libraryId !== "string" ||
       !/^[a-f0-9-]{36}$/.test(result.libraryId) ||
@@ -365,6 +374,21 @@ export class SharedFilesStore {
     )
       throw new Error("FILES_LIBRARY_CHANGED");
     this.libraryId = result.libraryId;
+    this.canCreateKey = result.keyBootstrapAllowed === true;
     return result;
+  }
+
+  /** Explicit setup only; background consumers use existing-only bootstrap. */
+  async activate(): Promise<void> { await this.ready(); }
+
+  async verifiedObject(group: string, id: string, expectedGeneration: string): Promise<SharedObjectReceipt> {
+    this.check();
+    if (!this.libraryId || !this.leaseId) throw new Error("FILES_LEASE_REQUIRED");
+    const stored = await this.readBytes(group, id);
+    if (!stored.value || stored.generation !== expectedGeneration) throw new Error("FILES_REVISION_CONFLICT");
+    const address = await this.address(group, id);
+    this.check();
+    return { libraryId: this.libraryId, namespace: address.namespace, objectId: address.id,
+      generation: stored.generation, leaseId: this.leaseId };
   }
 }

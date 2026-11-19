@@ -8,6 +8,8 @@ export function buildDecisionHistoryRawCard(
       ? { ...(payload.raw_card as Record<string, unknown>) }
       : {};
   rawCard.debate_run_id = runId;
+  delete rawCard.completion_proof;
+  if (payload.completion_proof && typeof payload.completion_proof === "object") rawCard.completion_proof = payload.completion_proof;
   rawCard.analysis_degraded = Boolean(payload.analysis_degraded || rawCard.analysis_degraded);
   rawCard.degraded_agents = Array.isArray(payload.degraded_agents)
     ? payload.degraded_agents

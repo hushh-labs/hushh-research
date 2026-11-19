@@ -228,7 +228,7 @@ export class FeedService {
   /** Read-only owner activity; never updates the browse cache or read watermark. */
   static async searchActivity(options: {
     idToken: string; query: FeedActivityQuery; isEffectCurrent?: () => boolean;
-  }): Promise<Pick<FeedListResponse, "items" | "next_cursor"> & { top_hit?: {kind:"activity";item:FeedItem}|{kind:"person"|"client";label:string;href:string}|null;suggestion?:string|null }> {
+  }): Promise<Pick<FeedListResponse, "items" | "next_cursor"> & { top_hit?: {kind:"activity";item:FeedItem}|{kind:"person"|"client";label:string;href:string}|null;suggestion?:string|null; matched_person_ref?: string|null }> {
     const response = await ApiService.apiFetch("/api/one/feed/search", {
       method: "POST", cache: "no-store", isEffectCurrent: options.isEffectCurrent,
       headers: { ...(await authHeader(options.idToken)), "Content-Type": "application/json" },

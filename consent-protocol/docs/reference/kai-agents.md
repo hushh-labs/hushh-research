@@ -254,11 +254,13 @@ envelope remains unchanged.
 
 ## Analysis History
 
-Analysis results are stored in the PKM under `financial.analysis.decisions` (finance-root contract).
+New analysis reports are encrypted in owner-scoped device storage, with immutable run identities. Separate runs for one ticker remain separate; there is no latest-per-ticker replacement. Legacy PKM history remains readable and explicitly deletable.
 
-- **FIFO**: Maximum 3 versions per ticker. Fourth analysis deletes the oldest.
-- **Storage**: Encrypted in `pkm_blobs(financial/history)` and summarized in `pkm_index.summary_projection.financial`
-- **Access**: `GET /api/kai/decisions/{user_id}` returns the decision summary list
+The decision API exposes its retained legacy projection, not new report contents. The owner can explicitly enable **Sync reports** in Finance history. On Shared hosting, this enrolls the existing Shared Files library, wraps its browser-only key under the unlocked vault, and enables an encrypted report namespace. Background reads never enroll a library or replace a missing existing key. Existing storage enrollment requires the qualified storage-transfer path before changing hosting.
+
+Immutable reports retain their exact run identity, record and replay text. Device saves remain pending until the browser decrypts and verifies the shared readback, then acknowledges the exact owner/library/object generation under its active lease. Feed publishes only bounded run/ticker metadata after that acknowledgement. Terminal delivery carries a purpose-bound encrypted completion proof, so response loss and expiration of the live run do not erase completion authority; replacing the deployment custody key can invalidate that proof, with retained server completion metadata as a separate fallback. Neither proof grants access or attests decrypted report contents.
+
+Opening a report rechecks the current owner, vault and shared object. Deletion writes and verifies an encrypted tombstone, hides that exact Feed result, and refuses stale device resurrection or publication retries. An unavailable shared read is not evidence that the report is absent. Finance read acknowledgements serialize with publication so an already viewed run does not become a new unread result. Shared report ciphertext follows the existing Files inventory and account-erasure fences; history removal is logical deletion, not a claim of physical provider erasure.
 
 ---
 

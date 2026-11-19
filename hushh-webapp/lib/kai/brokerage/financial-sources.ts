@@ -149,6 +149,8 @@ export function getStatementSnapshotOptions(
       brokerage: cleanText(source?.brokerage),
       statementPeriodEnd: cleanText(source?.statement_period_end),
       importedAt: cleanText(snapshot.imported_at),
+      filename: cleanText(source?.filename),
+      importResult: asRecord(snapshot.import_result),
     };
   });
 }

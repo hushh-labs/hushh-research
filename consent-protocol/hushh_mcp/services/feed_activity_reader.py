@@ -25,10 +25,12 @@ class FeedActivityReader:
         photos: Presenter,
         item: Callable[[Row, str], Row],
         max_limit: int,
+        has_counterparts: bool = False,
     ):
         self._cte, self._db = cte, db
         self._present, self._photos, self._item = present, photos, item
         self._max_limit = max_limit
+        self._has_counterparts = has_counterparts
 
     def search_activity(
         self, user_id: str, **criteria: Unpack[FeedSearchCriteria]

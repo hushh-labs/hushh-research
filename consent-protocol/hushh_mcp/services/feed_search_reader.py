@@ -24,6 +24,7 @@ def search_history(
     *,
     query: str = "",
     person: str = "",
+    person_ref: str | None = None,
     agent: str | None = None,
     scope: str | None = None,
     persona: str = "investor",
@@ -35,6 +36,7 @@ def search_history(
     values = {
         "query": normalized(query),
         "person": normalized(person),
+        "person_ref": person_ref,
         "agent": agent,
         "scope": scope,
         "persona": persona,
@@ -45,6 +47,21 @@ def search_history(
         return {"items": [], "next_cursor": None, "top_hit": None, "suggestion": None}
     key = criteria_key(user_id, values)
     boundary = decode_cursor(cursor, key)
+    counterpart = None
+    if person_ref:
+        if not reader._has_counterparts:
+            raise FeedSearchError("Person filter is unavailable. Try again.")
+        from hushh_mcp.services.feed_search_people import resolve_search_person
+
+        counterpart = resolve_search_person(user_id, person_ref)
+        if counterpart is None:
+            return {
+                "items": [],
+                "next_cursor": None,
+                "top_hit": None,
+                "suggestion": None,
+                "matched_person_ref": None,
+            }
     maximum = reader._db.execute_raw(
         "SELECT COALESCE(max(id),0) AS id FROM feed_events WHERE user_id=:user_id",
         {"user_id": user_id},
@@ -54,6 +71,7 @@ def search_history(
     params = {
         **values,
         "user_id": user_id,
+        "person_user_id": counterpart,
         "snapshot_id": snapshot,
         "terms": json.dumps(values["query"].split()),
         "page_size": size + 1,
@@ -61,7 +79,12 @@ def search_history(
         "after_time": boundary["at"] if boundary else None,
         "after_id": boundary["id"] if boundary else None,
     }
-    result = reader._db.execute_raw(search_sql(reader._cte), params).data or []
+    result = (
+        reader._db.execute_raw(
+            search_sql(reader._cte, person_filtered=bool(person_ref)), params
+        ).data
+        or []
+    )
     if boundary and result and result[0]["search_revision"] != boundary["revision"]:
         raise FeedSearchError("Activity changed. Start again.")
     rows = [row for row in result if row.get("id") is not None]
@@ -79,10 +102,16 @@ def search_history(
     )
     suggestion = None
     if not rows and values["query"] and not cursor:
-        labels = reader._db.execute_raw(suggestion_sql(reader._cte), params).data or []
+        labels = (
+            reader._db.execute_raw(
+                suggestion_sql(reader._cte, person_filtered=bool(person_ref)), params
+            ).data
+            or []
+        )
         suggestion = typo_suggestion(query, [str(row["label"]) for row in labels])
     return {
         "items": items,
+        "matched_person_ref": person_ref if counterpart else None,
         "next_cursor": encode_cursor(page[-1], key, snapshot) if more else None,
         "top_hit": {"kind": "activity", "item": top} if top else None,
         "suggestion": suggestion,

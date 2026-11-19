@@ -83,8 +83,11 @@ function SavedStatement({ statementId }: { statementId: string }) {
 
   return <article className="space-y-3 p-6">
     <h1 className="text-xl font-semibold">{statement.label}</h1>
-    <p>Saved to your vault</p>
     <dl className="space-y-2 text-sm">
+      {statement.filename ? <div><dt>File</dt><dd className="break-words">{statement.filename}</dd></div> : null}
+      {statement.importResult && typeof statement.importResult.holdings_saved === "number" ? <div><dt>Holdings saved</dt><dd>{statement.importResult.holdings_saved}</dd></div> : null}
+      {statement.importResult?.counts_available === true ? ["added", "updated", "unchanged"].map(key => typeof statement.importResult?.[key] === "number" && Number(statement.importResult[key]) > 0 ? <div key={key}><dt className="capitalize">{key}</dt><dd>{String(statement.importResult[key])}</dd></div> : null) : null}
+      {typeof statement.importResult?.skipped_entries === "number" && statement.importResult.skipped_entries > 0 ? <div><dt>Skipped entries</dt><dd>{statement.importResult.skipped_entries}</dd></div> : null}
       {statement.brokerage ? <div><dt>Brokerage</dt><dd>{statement.brokerage}</dd></div> : null}
       {statement.statementPeriodEnd ? <div><dt>Statement period end</dt><dd>{statement.statementPeriodEnd}</dd></div> : null}
       {statement.importedAt ? <div><dt>Saved</dt><dd><time dateTime={statement.importedAt}>{new Date(statement.importedAt).toLocaleDateString()}</time></dd></div> : null}

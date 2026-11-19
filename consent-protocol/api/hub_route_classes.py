@@ -61,6 +61,12 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+GET /api/kai/analysis/report-storage
+POST /api/kai/analyze/run/{run_id}/feed-result
+POST /api/kai/analyze/run/{run_id}/feed-result/read
+POST /api/kai/analyze/run/{run_id}/feed-result/remove
+GET /api/one/email/information-requests/{workflow_id}
+GET /api/one/email/information-requests/{workflow_id}/activity
 POST /api/one/finance/advisor-reviews/portfolio-analysis
 POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview

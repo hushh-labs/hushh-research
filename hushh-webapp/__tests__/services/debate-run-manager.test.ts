@@ -36,6 +36,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 vi.mock("@/lib/services/kai-history-service", () => ({
   KaiHistoryService: {
     saveAnalysis: vi.fn(async () => true),
+    publishPendingFeedResults: vi.fn(async (..._args: unknown[]) => undefined),
   },
 }));
 
@@ -156,14 +157,14 @@ describe("DebateRunManagerService start gate", () => {
       emit({ schema_version: "1.0", stream_id: "run_saved-run", stream_kind: "stock_analyze",
         seq: 2, event: "decision", terminal: true, payload: { run_id: "saved-run", ticker: "AAPL", decision: "hold" } });
       await waitFor(() => expect(saved).toBeDefined());
-      expect(apiMocks.publishSavedKaiAnalysis).not.toHaveBeenCalled();
+      expect(KaiHistoryService.publishPendingFeedResults).not.toHaveBeenCalled();
       saved(true);
-      await waitFor(() => expect(apiMocks.publishSavedKaiAnalysis).toHaveBeenCalledTimes(1));
-      const request = apiMocks.publishSavedKaiAnalysis.mock.calls[0]![0] as { runId: string; userId: string; vaultOwnerToken: string; isEffectCurrent: () => boolean };
-      expect(request).toMatchObject({ runId: "saved-run", userId: "user-1", vaultOwnerToken: "vault-token" });
-      expect(request.isEffectCurrent()).toBe(true);
+      await waitFor(() => expect(KaiHistoryService.publishPendingFeedResults).toHaveBeenCalledTimes(1));
+      const [request, isCurrent] = vi.mocked(KaiHistoryService.publishPendingFeedResults).mock.calls[0]!;
+      expect(request).toMatchObject({ userId: "user-1", vaultOwnerToken: "vault-token" });
+      expect((isCurrent as () => boolean)()).toBe(true);
       advanceVaultSessionEpoch();
-      expect(request.isEffectCurrent()).toBe(false);
+      expect((isCurrent as () => boolean)()).toBe(false);
       expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toContain("vault-token");
     } finally {
       window.history.replaceState({}, "", originalPath);

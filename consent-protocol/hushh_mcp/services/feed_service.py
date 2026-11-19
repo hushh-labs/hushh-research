@@ -37,13 +37,13 @@ from typing import Any, Unpack
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+from db.connection import get_pool
 from db.db_client import get_db
 from hushh_mcp.services import feed_calendar_context as calendar_context
 from hushh_mcp.services.direct_messages_service import (
     DirectMessageCipher,
     DirectMessagesError,
 )
-from hushh_mcp.services.drive_request_outcome_view import request_outcome_view
 from hushh_mcp.services.feed_activity_dto import (
     activity_fields,
     chat_activity_fields,
@@ -58,9 +58,16 @@ from hushh_mcp.services.feed_counterpart_projection import (
     with_counterpart_identity,
     without_counterpart_identity,
 )
+from hushh_mcp.services.feed_document_payment_query import DRIVE_DOCUMENT_PAYMENT_QUERY
 from hushh_mcp.services.feed_drive_fold import (
     DRIVE_OUTCOME_EVENT,
     drive_rows_revealed_by_removal,
+)
+from hushh_mcp.services.feed_event_writer import (
+    completed_analysis_source,
+    mark_analysis_viewed,
+    record_saved_analysis,
+    write_feed_event,
 )
 from hushh_mcp.services.feed_group_queries import (
     _DISMISS_SQL,
@@ -70,7 +77,13 @@ from hushh_mcp.services.feed_group_queries import (
     _SOURCE_EVENTS_SQL,
 )
 from hushh_mcp.services.feed_metadata_keys import FEED_METADATA_KEYS
-from hushh_mcp.services.feed_payment_projection import requester_payment_projection
+from hushh_mcp.services.feed_payment_projection import (
+    DRIVE_DELIVERY_COUNT_FIELDS as _DRIVE_DELIVERY_COUNT_FIELDS,
+)
+from hushh_mcp.services.feed_payment_projection import (
+    project_document_payment_rows,
+    requester_payment_projection,
+)
 from hushh_mcp.services.feed_read_snapshot import (
     SNAPSHOT_FINGERPRINT_SQL,
     guarded_acknowledgment_sql,
@@ -166,11 +179,7 @@ _WALLET_GROUPED_FEED_CTE = _GROUPED_FEED_CTE.replace(
     "AND wg.recipient_user_id=:user_id AND wg.owner_user_id=m.sender_user_id\n"
     "  WHERE f.user_id = :user_id",
 )
-_DRIVE_DELIVERY_COUNT_FIELDS = (
-    "current_delivery_total_count",
-    "current_delivery_confirmed_count",
-    "current_delivery_pending_count",
-)
+
 _LOCATION_GRANT_EVENT_TYPES = frozenset(
     {
         "location_share_created",
@@ -325,56 +334,58 @@ class FeedService:
         actor_label: str | None = None,
         metadata: dict[str, Any] | None = None,
         source_row_id: str | None = None,
+        require_confirmation: bool = False,
     ) -> None:
-        """Best-effort feed write for domains with no existing durable event
-        table to trigger from (Kai completion, KYC status, connections).
-
-        Never raises: the feed is a presentation surface, not part of the
-        domain's own transaction, so a feed-write failure must never block or
-        roll back the action that produced it.
-        """
+        """Default writes are best effort; explicit saved-result ACKs require persistence."""
         if source_domain not in _SOURCE_DOMAINS:
+            if require_confirmation:
+                raise ValueError("Unsupported Feed source")
             logger.warning("feed.record_event_unknown_domain domain=%s", source_domain)
             return
-        safe_actor_label = _bounded_text(actor_label, limit=_MAX_ACTOR_LABEL_LENGTH)
-        safe_metadata = _safe_feed_metadata(metadata)
-        try:
-            if source_row_id:
-                self._get_db().execute_raw(
-                    """
-                    INSERT INTO feed_events (
-                      user_id, source_domain, event_type, actor_label,
-                      metadata, source_row_id
-                    )
-                    VALUES (
-                      :user_id, :source_domain, :event_type, :actor_label,
-                      CAST(:metadata_json AS JSONB), :source_row_id
-                    )
-                    ON CONFLICT DO NOTHING
-                    """,
-                    {
-                        "user_id": user_id,
-                        "source_domain": source_domain,
-                        "event_type": event_type,
-                        "actor_label": safe_actor_label,
-                        "metadata_json": json.dumps(safe_metadata),
-                        "source_row_id": source_row_id,
-                    },
-                )
-            else:
-                self._get_db().table("feed_events").insert(
-                    {
-                        "user_id": user_id,
-                        "source_domain": source_domain,
-                        "event_type": event_type,
-                        "actor_label": safe_actor_label,
-                        "metadata": safe_metadata,
-                    }
-                ).execute()
-        except Exception:
-            logger.exception(
-                "feed.record_event_failed domain=%s event_type=%s", source_domain, event_type
+        write_feed_event(
+            get_db=self._get_db,
+            user_id=user_id,
+            source_domain=source_domain,
+            event_type=event_type,
+            actor_label=_bounded_text(actor_label, limit=_MAX_ACTOR_LABEL_LENGTH),
+            metadata=_safe_feed_metadata(metadata),
+            source_row_id=source_row_id,
+            require_confirmation=require_confirmation,
+        )
+
+    def completed_analysis_source(self, user_id: str, run_id: str) -> str | None:
+        return completed_analysis_source(self._get_db, user_id, run_id)
+
+    async def mark_analysis_viewed(
+        self,
+        user_id: str,
+        run_id: str,
+        completed_ticker: str | None = None,
+        *,
+        connection: Any = None,
+    ) -> None:
+        await mark_analysis_viewed(
+            get_pool, user_id, run_id, completed_ticker, connection=connection
+        )
+
+    async def record_saved_analysis(
+        self, user_id: str, run_id: str, ticker: str, *, connection: Any = None
+    ) -> None:
+        await record_saved_analysis(get_pool, user_id, run_id, ticker, connection=connection)
+
+    def dismiss_analysis(self, user_id: str, run_id: str) -> None:
+        rows = (
+            self._get_db()
+            .execute_raw(
+                """SELECT id FROM feed_events WHERE user_id=:user_id AND source_domain='kai'
+               AND event_type='kai_analysis_saved' AND source_row_id=:run_id ORDER BY id DESC LIMIT 1""",
+                {"user_id": user_id, "run_id": run_id},
             )
+            .data
+            or []
+        )
+        if rows:
+            self.dismiss(user_id, item_id=int(rows[0]["id"]))
 
     def list_feed(
         self,
@@ -454,6 +465,8 @@ class FeedService:
             photos=self._with_counterpart_photos,
             item=self._to_item,
             max_limit=_MAX_LIMIT,
+            has_counterparts={"feed_event_id", "counterpart_user_id"}
+            <= self._feed_source_columns().get("feed_event_counterparts", set()),
         )
 
     def search_activity(
@@ -498,86 +511,7 @@ class FeedService:
             results = (
                 self._get_db()
                 .execute_raw(
-                    """
-                    SELECT r.request_id::TEXT AS request_id,
-                           r.status AS current_request_status,
-                           outcome_search.status AS outcome_search_status,
-                           outcome_search.incomplete_search AS outcome_search_incomplete,
-                           outcome_search.matched AS outcome_search_matched,
-                           outcome_search.unshareable_count AS outcome_search_unshareable,
-                           delivery.total AS current_delivery_total_count,
-                           delivery.available AS current_delivery_confirmed_count,
-                           delivery.pending AS current_delivery_pending_count,
-                           r.expires_at AS current_request_expires_at,
-                           (r.expires_at <= clock_timestamp()) AS current_request_expired,
-                           (r.access_stop_requested_at IS NOT NULL) AS current_access_stopped,
-                           CASE WHEN o.stripe_mode<>:stripe_mode AND o.status IN ('awaiting_payment','checkout_open')
-                             THEN 'expired' ELSE o.status END AS current_payment_status,
-                           (o.stripe_checkout_session_id IS NOT NULL AND
-                            o.stripe_checkout_expires_at IS NOT NULL AND
-                            o.stripe_checkout_expires_at <= clock_timestamp()) AS current_checkout_expired,
-                           CASE WHEN o.stripe_checkout_session_id IS NOT NULL
-                             THEN o.stripe_checkout_expires_at END AS current_checkout_expires_at,
-                           (r.user_id=:user_id) AS viewer_is_owner,
-                           p.status AS owner_payout_status,
-                           p.owner_earning_cents,
-                           CASE WHEN r.payment_required AND r.settlement_method<>'hashcoins'
-                             AND r.status IN
-                             ('pending','preparing','review_ready','approved','partial','completed')
-                             AND
-                             (p.request_id IS NOT NULL OR
-                              (:payout_rollout AND o.request_id IS NULL)) THEN
-                             COALESCE(a.account_ready,FALSE)
-                           END AS owner_payout_account_ready,
-                           CASE WHEN p.request_id IS NOT NULL
-                             AND r.settlement_method<>'hashcoins' THEN
-                             COALESCE(a.account_ready,FALSE)
-                           END AS current_owner_payout_account_ready,
-                           CASE WHEN f.status='succeeded'
-                             THEN COALESCE(f.amount_cents,o.amount_cents) END
-                             AS current_refund_amount_cents,
-                           o.amount_cents AS current_payment_amount_cents,
-                           r.payment_required AS view_payment_required,
-                           (r.existing_access_waived_at IS NOT NULL AND NOT r.payment_required
-                            AND r.status='completed' AND COALESCE(o.status,'expired') NOT IN ('paid','refunded'))
-                            AS current_existing_access_nocharge,
-                           r.preparation_error_code AS view_preparation_error_code,
-                           r.quoted_amount_cents AS view_quoted_amount_cents,
-                           o.reconciliation_reason AS view_reconciliation_reason,
-                           f.status AS view_refund_status,
-                           f.amount_cents AS view_refund_amount_cents
-                    FROM drive_share_requests r
-                    JOIN jsonb_array_elements_text(CAST(:request_ids_json AS JSONB)) ids(value)
-                      ON r.request_id = CAST(ids.value AS UUID)
-                    LEFT JOIN drive_owner_search_jobs outcome_search
-                      ON outcome_search.user_id=r.user_id
-                      AND outcome_search.client_request_id=r.request_id AND r.status='no_match'
-                    LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
-                    LEFT JOIN drive_request_owner_payouts p
-                      ON p.request_id=r.request_id AND p.erased_at IS NULL
-                    LEFT JOIN stripe_owner_payout_accounts a
-                      ON a.user_id=r.user_id AND r.payment_required AND a.stripe_mode=:stripe_mode
-                    LEFT JOIN drive_request_payment_refunds f ON f.request_id=r.request_id
-                    LEFT JOIN LATERAL (
-                      SELECT count(*) AS total,
-                        count(*) FILTER (WHERE e.state IN ('succeeded','preexisting')) AS available,
-                        count(*) FILTER (WHERE e.state IN ('queued','dispatching','unknown')) AS pending
-                      FROM drive_bulk_shares b
-                      JOIN drive_bulk_share_effects e ON e.share_id=b.share_id AND e.user_id=b.user_id
-                      JOIN drive_bulk_share_files selected ON selected.share_id=e.share_id
-                        AND selected.user_id=e.user_id AND selected.position=e.position
-                      WHERE r.status IN ('partial','completed') AND b.origin_request_id=r.request_id
-                        AND b.user_id=r.user_id AND b.approved_at IS NOT NULL
-                        AND e.recipient_user_id=r.recipient_user_id
-                        AND (b.progressive_batch=FALSE OR selected.origin_request_id=r.request_id)
-                        AND b.expires_at>clock_timestamp()
-                        AND NOT EXISTS (
-                          SELECT 1 FROM drive_request_bulk_removals removal
-                          WHERE removal.share_id=e.share_id AND removal.position=e.position
-                            AND removal.recipient_user_id=e.recipient_user_id)
-                    ) delivery ON TRUE
-                    WHERE r.recipient_user_id=:user_id OR r.user_id=:user_id
-                    """,
+                    DRIVE_DOCUMENT_PAYMENT_QUERY,
                     {
                         "user_id": user_id,
                         "request_ids_json": json.dumps(sorted(request_ids)),
@@ -592,124 +526,7 @@ class FeedService:
         except Exception as exc:  # presentation must not break Feed availability
             logger.warning("feed.drive_payment_status_unavailable error=%s", type(exc).__name__)
 
-        result: list[dict[str, Any]] = []
-        for row in rows:
-            if not str(row.get("event_type") or "").startswith("document_share_"):
-                result.append(row)
-                continue
-            metadata = row.get("metadata")
-            if not isinstance(metadata, dict):
-                result.append(row)
-                continue
-            current = by_request.get(str(metadata.get("request_id") or ""), {})
-            # These fields are live receipt projections, never snapshot claims.
-            metadata = {
-                key: value
-                for key, value in metadata.items()
-                if key not in _DRIVE_DELIVERY_COUNT_FIELDS
-            }
-            projection: dict[str, Any] = {}
-            metadata.pop("current_existing_access_nocharge", None)
-            metadata.pop("current_outcome_reason", None)
-            is_document_group = str(row.get("thread_key") or "").startswith("document:")
-            if is_document_group and current:
-                projection.update(
-                    {
-                        "feed_audience": "owner" if current["viewer_is_owner"] else "recipient",
-                        "current_request_status": current.get("current_request_status"),
-                        "current_request_expired": current.get("current_request_expired") is True,
-                        "current_access_stopped": current.get("current_access_stopped") is True,
-                        "current_payment_status": current.get("current_payment_status"),
-                    }
-                )
-                for field in ("current_payment_amount_cents", "current_refund_amount_cents"):
-                    amount = current.get(field)
-                    if type(amount) is int and amount >= 0:
-                        projection[field] = amount
-            if (
-                row.get("event_type") == "document_share_outcome"
-                and current.get("current_request_status") == "partial"
-            ) or (
-                is_document_group
-                and current.get("current_request_status") in {"partial", "completed"}
-                and current.get("current_access_stopped") is not True
-            ):
-                # Historical outcome rows use current participant-scoped receipts,
-                # not payment state or the ambiguous request-level partial flag.
-                for field in _DRIVE_DELIVERY_COUNT_FIELDS:
-                    count = current.get(field)
-                    if type(count) is int and count >= 0:
-                        projection[field] = count
-            if row.get("event_type") == "document_share_payment_ready":
-                # Fail closed in presentation: a missing read cannot authorize
-                # an old Pay instruction. The action rechecks the live order.
-                projection.update(
-                    {
-                        "current_payment_status": current.get("current_payment_status")
-                        or "unavailable",
-                        "current_request_status": current.get("current_request_status")
-                        or "unavailable",
-                        "current_checkout_expired": current.get("current_checkout_expired") is True,
-                        "current_request_expired": current.get("current_request_expired") is True,
-                        "current_access_stopped": current.get("current_access_stopped") is True,
-                    }
-                )
-                readiness = current.get("current_owner_payout_account_ready")
-                if type(readiness) is bool:
-                    projection["current_owner_payout_account_ready"] = readiness
-                for field in ("current_checkout_expires_at", "current_request_expires_at"):
-                    instant = current.get(field)
-                    if instant is not None:
-                        projection[field] = (
-                            instant.isoformat() if hasattr(instant, "isoformat") else str(instant)
-                        )
-            if current.get("viewer_is_owner") is True and row.get("event_type") in {
-                "document_share_request",
-                "document_share_outcome",
-            }:
-                status = current.get("owner_payout_status")
-                if isinstance(status, str):
-                    projection["owner_payout_status"] = status
-                readiness = current.get("owner_payout_account_ready")
-                if type(readiness) is bool:
-                    projection["owner_payout_account_ready"] = readiness
-                earning = current.get("owner_earning_cents")
-                if type(earning) is int and earning >= 0:
-                    projection["owner_earning_cents"] = earning
-            if (
-                current.get("viewer_is_owner") is False
-                and row.get("event_type") == "document_share_payment_refunded"
-            ):
-                refund_amount = current.get("current_refund_amount_cents")
-                payment_amount = current.get("current_payment_amount_cents")
-                if (
-                    type(refund_amount) is int
-                    and type(payment_amount) is int
-                    and (0 < refund_amount <= payment_amount)
-                ):
-                    projection["current_refund_amount_cents"] = refund_amount
-                    projection["current_payment_amount_cents"] = payment_amount
-            if current.get("viewer_is_owner") is False and row.get("event_type") in {
-                "document_share_payment_ready",
-                "document_share_payment_confirmed",
-            }:
-                projection.update(self._requester_payment_projection(row["event_type"], current))
-            result.append(
-                {
-                    **row,
-                    "metadata": {**metadata, **projection},
-                    "_drive_outcome_reason": request_outcome_view(
-                        {**current, "status": current.get("current_request_status")}
-                    ).get("outcomeReason")
-                    if row.get("event_type") == "document_share_outcome"
-                    else None,
-                    "_drive_existing_access_nocharge": current.get(
-                        "current_existing_access_nocharge"
-                    )
-                    is True,
-                }
-            )
-        return result
+        return project_document_payment_rows(rows, by_request, self._requester_payment_projection)
 
     @staticmethod
     def _requester_payment_projection(event_type: str, current: dict[str, Any]) -> dict[str, Any]:

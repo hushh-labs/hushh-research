@@ -32,3 +32,6 @@ export const DirectMessageLink=React.forwardRef<HTMLAnchorElement,React.AnchorHT
 export default DirectMessageLink;
 
 export const AuthService={getIdToken:async()=>{throw new Error("Live auth is unavailable in this synthetic preview");}};
+
+export const useContactNameSearch=()=>async(query:string)=>({query});
+export const PRIVATE_NAMES_CHANGED="one:private-contact-names-changed";

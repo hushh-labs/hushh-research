@@ -373,3 +373,30 @@ def test_ignore_route_requires_the_vault_owner_and_marks_only_that_workflow():
         "user_id": "owner",
         "workflow_id": "workflow-1",
     }
+
+
+def test_exact_terminal_request_history_is_owner_bound_read_only_and_not_cached():
+    workflow = "af36e1c0-4dde-44eb-87a1-e3d5fa07d281"
+    service = type("Service", (), {})()
+    service.get_terminal_workflow = AsyncMock(
+        return_value={"workflow_id": workflow, "status": "sent"}
+    )
+    with patch.object(module, "_service", return_value=service):
+        response = _app().get(f"/api/one/email/information-requests/{workflow}/activity")
+        assert response.status_code == 200 and response.json()["status"] == "sent"
+        assert response.headers["Cache-Control"] == "private, no-store"
+        service.get_terminal_workflow.assert_awaited_once_with(
+            user_id="owner", workflow_id=workflow
+        )
+        assert (
+            _app(owner_user_id="foreign")
+            .get(f"/api/one/email/information-requests/{workflow}/activity")
+            .status_code
+            == 403
+        )
+        service.get_terminal_workflow.assert_awaited_once()
+        service.get_terminal_workflow.return_value = None
+        assert (
+            _app().get(f"/api/one/email/information-requests/{workflow}/activity").status_code
+            == 404
+        )

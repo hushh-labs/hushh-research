@@ -24,7 +24,7 @@ _FINANCE_THREAD_KEY_SQL = """CASE
       AND (f.metadata->>'advisorReviewId') ~*
         '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
       THEN 'advisor-review:' || lower(f.metadata->>'advisorReviewId')
-    WHEN f.source_domain = 'kai' AND f.event_type = 'kai_analysis_saved'
+    WHEN f.source_domain = 'kai' AND f.event_type IN ('kai_analysis_completed','kai_analysis_saved')
       AND COALESCE(NULLIF(f.metadata->>'run_id',''),NULLIF(f.source_row_id,'')) IS NOT NULL
       THEN 'finance-analysis:' || COALESCE(NULLIF(f.metadata->>'run_id',''),f.source_row_id)
     WHEN f.source_domain = 'kai' AND f.event_type = 'funding_transfer_status'

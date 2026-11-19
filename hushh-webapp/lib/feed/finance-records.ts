@@ -30,7 +30,7 @@ export function financeFeedRecords(
       href: buildKaiImportRoute(ROUTES.ONE_FEED, statement.id),
       title: `${statement.label} · Saved statement`,
       timestamp: statement.importedAt || statement.statementPeriodEnd || null,
-      searchable: [statement.label, statement.id, statement.brokerage, statement.statementPeriodEnd, "saved statement"],
+      searchable: [statement.label, statement.id, statement.filename, statement.brokerage, statement.statementPeriodEnd, "saved statement"],
     })),
     ...Object.values(history).flat().map(entry => {
       const id = getAnalysisHistoryEntryRouteId(entry);

@@ -4,6 +4,7 @@ export type FeedActivityQuery = {
     scope?: string | null;
     persona?: "investor" | "ria";
     person?: string;
+    person_ref?: string | null;
     agent?: string | null;
     from_at?: string | null;
     before_at?: string | null;

@@ -43,7 +43,6 @@ import {
   Accordion,
 } from "@/components/ui/accordion";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
@@ -62,13 +61,9 @@ import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { toInvestorMessage } from "@/lib/copy/investor-language";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { ROUTES } from "@/lib/navigation/routes";
-import {
-  buildFinancialDomainSummary,
-  buildStatementSource,
-} from "@/lib/kai/brokerage/financial-sources";
+import { buildStatementImportWrite } from "@/lib/kai/brokerage/statement-import-write";
 import {
   computeStatementImportId,
-  upsertStatementSnapshot,
 } from "@/lib/kai/brokerage/statement-import-identity";
 import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
@@ -1384,20 +1379,6 @@ export function PortfolioReviewView({
       });
 
       const nowIso = new Date().toISOString();
-      const blobLoadStartedAt = nowMs();
-      const {
-        domainData: existingFinancialRaw,
-      } = await runKaiStepWithTimeout(
-        "Vault portfolio load",
-        PkmDomainResourceService.prepareDomainWriteContext({
-          userId,
-          domain: "financial",
-          vaultKey: effectiveVaultKey,
-          vaultOwnerToken: resolvedVaultOwnerToken,
-        })
-      );
-      const existingFinancial = existingFinancialRaw ?? {};
-      logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
 
       const parsedAccountSummary = sanitizeAccountSummary(accountSummary);
@@ -1410,17 +1391,6 @@ export function PortfolioReviewView({
       );
       const derivedCashBalance = deriveCashFromHoldings(savedHoldings);
       const holdingsIncludeCash = derivedCashBalance !== undefined;
-
-      // 3. Append structured statement snapshot (no raw PDF bytes).
-      const existingDocsValue = existingFinancial.documents;
-      const existingDocsSource =
-        existingDocsValue &&
-        typeof existingDocsValue === "object" &&
-        !Array.isArray(existingDocsValue)
-          ? (existingDocsValue as Record<string, unknown>)
-          : {};
-      const existingDocs = { ...existingDocsSource };
-      const existingStatements = existingDocs.statements;
 
       const statementTotalValue =
         toFiniteNumber(initialData.total_value) ??
@@ -1528,6 +1498,7 @@ export function PortfolioReviewView({
         },
         source: {
           brokerage: accountInfo.brokerage || null,
+          filename: importFileName?.trim().slice(0, 255) || null,
           statement_period_start: accountInfo.statement_period_start || null,
           statement_period_end: accountInfo.statement_period_end || null,
           account_type: accountInfo.account_type || null,
@@ -1560,18 +1531,6 @@ export function PortfolioReviewView({
           fallback_merge_applied: false,
         },
       };
-      const nextDocsDomain = {
-        schema_version: 1,
-        statements: upsertStatementSnapshot(existingStatements, snapshot),
-        domain_intent: {
-          primary: "financial",
-          secondary: "documents",
-          source: "kai_import_llm",
-          captured_sections: capturedSections,
-          updated_at: nowIso,
-        },
-      };
-
       const lastQuality = initialData.quality_report_v2;
       const lastQualityRawCount =
         typeof (lastQuality as Record<string, unknown> | undefined)?.raw_count === "number"
@@ -1587,31 +1546,6 @@ export function PortfolioReviewView({
         lastQualityRawCount > 0
           ? Number((lastQualityValidatedCount / lastQualityRawCount).toFixed(4))
           : undefined;
-      const existingDocsStatementEnd =
-        typeof existingDocs.last_statement_end === "string"
-          ? (existingDocs.last_statement_end as string)
-          : undefined;
-      const existingDocsBrokerage =
-        typeof existingDocs.last_brokerage === "string"
-          ? (existingDocs.last_brokerage as string)
-          : undefined;
-
-      const docsSummary: Record<string, unknown> = {
-        documents_count: nextDocsDomain.statements.length,
-        last_statement_end:
-          accountInfo.statement_period_end ||
-          existingDocsStatementEnd ||
-          null,
-        last_brokerage:
-          accountInfo.brokerage || existingDocsBrokerage || null,
-        parse_fallback_last_import: parseFallback,
-        sparse_sections_last_import: sparseSections,
-        last_updated: nowIso,
-      };
-      if (lastQualityScore !== undefined) {
-        docsSummary.last_quality_score = lastQualityScore;
-      }
-
       const canonicalPortfolio = {
         ...portfolioToSave,
         source_metadata: {
@@ -1630,39 +1564,7 @@ export function PortfolioReviewView({
         },
       };
 
-      const nextFinancialDomain = {
-        ...existingFinancial,
-        schema_version: 3,
-        domain_intent: {
-          primary: "financial",
-          source: "domain_registry_prepopulate",
-          contract_version: 2,
-          updated_at: nowIso,
-        },
-        portfolio: canonicalPortfolio,
-        analytics: initialData.analytics_v2 || existingFinancial.analytics || null,
-        documents: nextDocsDomain,
-        sources: {
-          ...(
-            existingFinancial.sources &&
-            typeof existingFinancial.sources === "object" &&
-            !Array.isArray(existingFinancial.sources)
-              ? (existingFinancial.sources as Record<string, unknown>)
-              : {}
-          ),
-          active_source: "statement",
-          statement: buildStatementSource(
-            existingFinancial,
-            nextDocsDomain.statements as Record<string, unknown>[],
-            snapshotId,
-            nowIso
-          ),
-        },
-        updated_at: nowIso,
-      };
-
       const financialSummary = {
-        ...buildFinancialDomainSummary(nextFinancialDomain as Record<string, unknown>),
         intent_source: "kai_import_llm",
         attribute_count: savedHoldings.length,
         item_count: savedHoldings.length,
@@ -1693,7 +1595,6 @@ export function PortfolioReviewView({
           "runtime",
           "analysis.decisions",
         ],
-        ...docsSummary,
         last_updated: nowIso,
       };
       logSavePhase("merge/build", mergeBuildStartedAt);
@@ -1711,15 +1612,10 @@ export function PortfolioReviewView({
             surface: "import",
             source: "kai_portfolio_review_confirm",
           },
-          build: () => ({
-            domainData: nextFinancialDomain as unknown as Record<string, unknown>,
-            summary: financialSummary,
-            mergeDecision: {
-              merge_mode: "replace_domain",
-              target_domain: "financial",
-              match_reason:
-                "Statement import is authoritative for the active financial portfolio projection.",
-            },
+          build: ({ currentDomainData }) => buildStatementImportWrite({
+            current: currentDomainData, snapshot, portfolio: canonicalPortfolio,
+            analytics: initialData.analytics_v2, summary: financialSummary, now: nowIso,
+            skipped: holdings.filter(holding => holding.pending_delete).length,
           }),
         });
 
@@ -1769,14 +1665,21 @@ export function PortfolioReviewView({
         );
       }
 
+      const committedPortfolio = financialResult.fullBlob?.financial &&
+        typeof financialResult.fullBlob.financial === "object"
+        ? (financialResult.fullBlob.financial as Record<string, unknown>).portfolio as PortfolioData | undefined
+        : undefined;
+      if (!committedPortfolio?.source_metadata?.active_snapshot_id) {
+        throw new Error("The saved statement could not be confirmed. Reopen Finance before trying again.");
+      }
       const postSaveSyncStartedAt = nowMs();
       // 5. Prime/invalidate deterministic cache entries for all financial reads.
       const cachePortfolioData: CachedPortfolioData = {
-        ...(portfolioToSave as unknown as CachedPortfolioData),
+        ...(committedPortfolio as unknown as CachedPortfolioData),
         account_info: {
-          ...(portfolioToSave.account_info || {}),
-          brokerage_name: portfolioToSave.account_info?.brokerage,
-          account_holder: portfolioToSave.account_info?.holder_name,
+          ...(committedPortfolio.account_info || {}),
+          brokerage_name: committedPortfolio.account_info?.brokerage,
+          account_holder: committedPortfolio.account_info?.holder_name,
         },
       };
       setCachePortfolioData(userId, cachePortfolioData);
@@ -1826,7 +1729,7 @@ export function PortfolioReviewView({
       void runKaiStepWithTimeout(
         "Finalizing save",
         Promise.resolve()
-          .then(() => onSaveComplete(savePayload))
+          .then(() => onSaveComplete(committedPortfolio))
           .catch((saveCompleteError) => {
             console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
           }),

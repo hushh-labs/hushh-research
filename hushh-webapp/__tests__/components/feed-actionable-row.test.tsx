@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MapPin } from "lucide-react";
 
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
 import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
@@ -21,6 +22,22 @@ function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
 }
 
 describe("FeedActionableRow", () => {
+  it("reviews exact affected requests without connecting, and Back closes the grouped recovery first", () => {
+    const connect = vi.fn();
+    render(<FeedActionableRow item={actionable({ id: "connector:google_drive", title: "Connect Google Drive",
+      description: "2 document requests", affectedRequests: [
+        { requestId: "one", label: "Maya", href: "/one/consent?tab=pending&requestId=one&from=%2Fone%2Ffeed" },
+        { requestId: "two", label: "Ankit", href: "/one/consent?tab=pending&requestId=two&from=%2Fone%2Ffeed" },
+      ], actions: [{ key: "setup-drive", label: "Connect", tone: "primary", run: connect }] })} />);
+    fireEvent.click(screen.getByText("2 document requests"));
+    const detail = screen.getByRole("dialog", { name: "Connect Google Drive" });
+    expect(within(detail).getByRole("link", { name: /Maya/ })).toHaveAttribute("href", expect.stringContaining("requestId=one"));
+    expect(within(detail).getByRole("link", { name: /Ankit/ })).toHaveAttribute("href", expect.stringContaining("requestId=two"));
+    expect(connect).not.toHaveBeenCalled();
+    act(() => { expect(unwindBackLayer("/one/feed")).toBe(true); });
+    expect(screen.queryByRole("dialog", { name: "Connect Google Drive" })).not.toBeInTheDocument();
+  });
+
   it("shows only the latest SMS for each sender without an older-incident disclosure", () => {
     const base = actionable({ title: "Same name", person: { displayName: "Same name", photoUrl: null }, smsEmergency: { senderId: "sender-a" }, description: "Emergency SMS · Revoked", displayTimestamp: Date.parse("2026-08-12T09:00:00Z"), sortAt: 1 });
     const active = { ...base, id: "active", emphasis: "emergency" as const, description: "Emergency SMS · Active", href: "/one/location?grantId=active&open=1&section=shared", chevron: true, sortAt: 2 };

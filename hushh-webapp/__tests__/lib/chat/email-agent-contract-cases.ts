@@ -99,6 +99,7 @@ function registerEmailCapabilityCase(mockTransport: TransportHarness): void {
       mockTransport.outcome = "success";
       mockTransport.emitEvents = null;
       await onMcpReview.mock.calls[0][0].resume(null);
+      publishValidatedAuthSessionOwner(null);
       await streamAgentIntro({ message: "Hello" });
       expect(mockTransport.runAgent.mock.calls.map(([parameters]) => parameters.forwardedProps.emailAgentContract))
         .toEqual([1, 1, 1]);
