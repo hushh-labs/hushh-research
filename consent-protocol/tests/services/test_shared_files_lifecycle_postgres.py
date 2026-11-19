@@ -24,6 +24,126 @@ local_postgres = _postgres_fixture
 
 
 @pytest.mark.feature_account_deletion
+async def test_operator_maintenance_fences_enrollment_and_old_write_paths(
+    shared_storage, local_postgres, monkeypatch
+):
+    import sys
+    from types import SimpleNamespace
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/ops"))
+    from reconcile_uat_shared_files import Database
+    from shared_files_maintenance_contract import PROTOCOL
+
+    alice = await registry.resource(
+        "alice",
+        bucket="synthetic-files",
+        admission=bucket_admission.admission(BUCKET, "synthetic-files"),
+    )
+    bob = await registry.resource(
+        "bob",
+        bucket="synthetic-files",
+        admission=bucket_admission.admission(BUCKET, "synthetic-files"),
+    )
+    await shared_storage.execute("INSERT INTO vault_keys VALUES('carol')")
+    # Negative control: the exact same new-owner INSERT works before admission closes.
+    await shared_storage.execute(
+        "INSERT INTO shared_files_storage(user_id,bucket,prefix) VALUES('carol','synthetic-files','synthetic/carol')"
+    )
+    await shared_storage.execute("DELETE FROM shared_files_storage WHERE user_id='carol'")
+    name = await shared_storage.fetchval("SELECT current_database()")
+    engine = create_engine(local_postgres.set(database=name))
+    connection = engine.raw_connection()
+    marker = {
+        "protocol": PROTOCOL,
+        "state": "maintenance",
+        "operation": str(uuid.uuid4()),
+        "cohortSize": 2,
+        "bucket": "synthetic-files",
+        "originalPolicy": {"retentionDurationSeconds": "0"},
+    }
+    key = "operator-maintenance-v1:" + marker["operation"]
+    db = Database(connection, "synthetic-files")
+    try:
+        db.table_lock()
+        db.install(marker, key)
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+            await shared_storage.execute(
+                "INSERT INTO shared_files_storage(user_id,bucket,prefix) VALUES('carol','synthetic-files','synthetic/carol')"
+            )
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+            await shared_storage.execute(
+                "UPDATE shared_files_storage SET bucket='elsewhere' WHERE user_id='bob'"
+            )
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+            await shared_storage.execute("DELETE FROM shared_files_storage WHERE user_id='bob'")
+        await shared_storage.execute(
+            "UPDATE shared_files_storage SET lease_until=now()-interval '1 minute'"
+        )
+        with pytest.raises(FilesRefused):
+            await registry.acquire("bob", str(bob["library_id"]), str(uuid.uuid4()))
+        await registry.release("bob", str(bob["library_id"]), marker["operation"])
+        with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+            await registry.fence("alice")
+        from hushh_mcp.services.shared_files import reconciliation
+
+        monkeypatch.setattr(reconciliation, "GcsObjectStore", lambda *_: SimpleNamespace())
+        monkeypatch.setattr(bucket_admission, "observe", lambda *_: asyncio.sleep(0, result=BUCKET))
+        await reconciliation.reconcile(await registry.resource("bob"))
+        current = await registry.resource("bob")
+        assert json.loads(current["writes"]) == {key: marker}
+        assert str(current["lease_id"]) == marker["operation"]
+        assert str(alice["library_id"]) != str(bob["library_id"])
+    finally:
+        connection.rollback()
+        connection.close()
+        engine.dispose()
+
+
+@pytest.mark.feature_account_deletion
+async def test_operator_verifier_rejects_inert_same_name_guard(shared_storage, local_postgres):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/ops"))
+    from reconcile_uat_shared_files import PROTECTED_COLUMNS, Database
+    from shared_files_maintenance_contract import FUNCTION, TRIGGER, RecoveryRefused
+
+    await registry.resource(
+        "alice",
+        bucket="synthetic-files",
+        admission=bucket_admission.admission(BUCKET, "synthetic-files"),
+    )
+    name = await shared_storage.fetchval("SELECT current_database()")
+    engine = create_engine(local_postgres.set(database=name))
+    connection = engine.raw_connection()
+    marker = {"operation": str(uuid.uuid4()), "cohortSize": 1}
+    db = Database(connection, "synthetic-files")
+    try:
+        db.table_lock()
+        db.install(marker, "operator-maintenance-v1:" + marker["operation"])
+        db.execute("DROP TRIGGER " + TRIGGER + " ON public.shared_files_storage")
+        literals = db.execute(
+            "SELECT quote_literal(%s),quote_literal(%s)", ("synthetic-files", marker["operation"])
+        ).fetchone()
+        db.execute(
+            "CREATE TRIGGER "
+            + TRIGGER
+            + " BEFORE INSERT OR DELETE OR UPDATE OF "
+            + ",".join(PROTECTED_COLUMNS)
+            + " ON public.shared_files_storage FOR EACH ROW WHEN(false) EXECUTE FUNCTION public."
+            + FUNCTION
+            + "("
+            + ",".join(literals)
+            + ")"
+        )
+        with pytest.raises(RecoveryRefused, match="maintenance_guard_changed"):
+            db.verify_guard(marker)
+    finally:
+        connection.rollback()
+        connection.close()
+        engine.dispose()
+
+
+@pytest.mark.feature_account_deletion
 @pytest.mark.trace_loop
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_erasure_joins_every_started_provider_delete_before_returning(monkeypatch, cancel):
