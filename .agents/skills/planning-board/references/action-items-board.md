@@ -73,13 +73,4 @@ board identically.
 
 ## Concise task presentation
 
-Use [task handoffs](task-handoff.md) for one canonical issue. `For humans` explains
-the findings, chosen direction, reasons, phase outcomes and visible references;
-`For coding agents` gives detailed implementation mechanics. Keep the owner's next
-action clear without hiding human decisions in the agent section.
-Update the issue/checklist in place rather than repeating summaries in comments.
-Keep sensitive receipts in approved evidence artifacts; preserve material blockers,
-unverified work and release gates.
-Include a brief current status and clear owner next action. Keep source/build
-identity and detailed receipts with their evidence owner, linked for agents and
-reviewers rather than copied into the human decision brief.
+Use [task handoffs](task-handoff.md) for one canonical issue. `For humans` explains the problem, chosen direction, tradeoffs, phase exits and visible references in plain teammate language with zero code identifiers, technical jargon or em/en dashes; `For coding agents` holds implementation mechanics. Keep the owner's next action clear, include Phase 0 estimates only on substantial multi-phase work when needed, update the issue in place, and link detailed receipts in agent guidance rather than copying them into human prose.
