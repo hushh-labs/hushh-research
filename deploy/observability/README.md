@@ -9,9 +9,9 @@ python3 deploy/observability/reconcile_capacity.py \
   --project PROJECT_ID --sql-instance INSTANCE_NAME
 ```
 
-Review the plan, then repeat with `--apply`. The default recipient is the
-`dev-ops@hushh.ai` Cloud Identity group (`manish@hushh.ai`, `ankit@hushh.ai`,
-and `kushal@hushh.ai`). Use a repeated `--email`
+Review the plan, then repeat with `--apply`. The canonical notification recipient
+is the `dev-ops@hushh.ai` Cloud Identity group; individual engineering alert
+channels are retired so operational paging stays group-owned. Use a repeated `--email`
 for each recipient when overriding this list. Reconcile one project at a
 time and verify the channel and policy names afterward. Existing duplicate
 channels or policy display names cause a hard failure instead of deletion.
