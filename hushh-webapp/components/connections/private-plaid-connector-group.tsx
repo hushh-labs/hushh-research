@@ -19,6 +19,7 @@ import {
   snapshotValidatedAuthSessionOwner,
 } from "@/lib/auth/session-owner";
 import type { CustomConnectorAccess } from "@/lib/connections/custom-connector-setup";
+import { summarizePlaidVaultProjection } from "@/lib/kai/plaid-vault/projection-summary";
 import {
   connectVaultPlaid,
   disconnectVaultPlaid,
@@ -35,6 +36,7 @@ export type PrivatePlaidBankEntry = {
   key: string;
   name: string;
   status: string;
+  amountLabel: string | null;
   lastRefreshedLabel: string | null;
   needsRelink: boolean;
 };
@@ -117,12 +119,14 @@ export function usePrivatePlaidConnectorModel({
     refresh?: (options?: { force?: boolean }) => Promise<unknown>;
   };
 
+  const projectionSummary = summarizePlaidVaultProjection(financial.data?.data);
   const connectionMap = vaultConnections(financial.data?.data);
   const banks: PrivatePlaidBankEntry[] = Object.entries(connectionMap).map(
     ([itemId, connection]) => ({
       key: itemId,
       name: connection.institution_name || "Bank connection",
       status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+      amountLabel: projectionSummary.byItemId[itemId]?.summaryLabel ?? null,
       lastRefreshedLabel: formatRefreshedTime(connection.last_refreshed_at),
       needsRelink: connection.status === "needs_relink",
     }),
@@ -276,7 +280,7 @@ export function usePrivatePlaidConnectorModel({
     banks: banks.map((bank) => ({
       key: bank.key,
       name: bank.name,
-      status: bank.status,
+      status: [bank.status, bank.amountLabel].filter(Boolean).join(" · "),
       disconnect: {
         label: "Disconnect",
         disabled: !access || busy,
@@ -311,6 +315,7 @@ export function usePrivatePlaidConnectorModel({
   return {
     access,
     banks,
+    projectionSummary,
     connected: banks.length > 0,
     loading: financial.loading,
     error: financial.error,
@@ -341,6 +346,7 @@ export function PrivatePlaidConnectorGroup({
   const {
     access,
     banks,
+    projectionSummary,
     loading,
     error,
     busy,
@@ -401,6 +407,26 @@ export function PrivatePlaidConnectorGroup({
             </div>
           }
         />
+        {banks.length > 0 && projectionSummary.hasData ? (
+          <SettingsRow
+            testId="private-plaid-projection-summary"
+            leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
+            title="Live scope projection"
+            description={
+              <>
+                {projectionSummary.totalsLine ? (
+                  <span>{projectionSummary.totalsLine}</span>
+                ) : null}
+                {projectionSummary.projectedScopesLine ? (
+                  <span className="block pt-0.5">{projectionSummary.projectedScopesLine}</span>
+                ) : null}
+                <span className="block pt-0.5">
+                  Active ongoing shares update automatically on sync.
+                </span>
+              </>
+            }
+          />
+        ) : null}
         {banks.map((bank) => (
           <SettingsRow
             key={bank.key}
@@ -408,9 +434,13 @@ export function PrivatePlaidConnectorGroup({
             leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
             title={bank.name}
             description={
-              bank.lastRefreshedLabel
-                ? `${bank.status} · Updated ${bank.lastRefreshedLabel}`
-                : bank.status
+              [
+                bank.status,
+                bank.amountLabel,
+                bank.lastRefreshedLabel ? `Updated ${bank.lastRefreshedLabel}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
             }
             trailing={
               <Button

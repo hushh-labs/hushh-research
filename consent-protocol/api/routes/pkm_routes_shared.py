@@ -1275,6 +1275,9 @@ async def store_domain(
                 detail=str(exc),
             ) from exc
     pkm_service = get_pkm_service()
+    effective_mutation_plan_json = (
+        request.mutation_plan.model_dump(mode="json") if request.mutation_plan is not None else None
+    )
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -1301,31 +1304,53 @@ async def store_domain(
             domain=canonical_domain,
             scope_path=request.mutation_plan.proposed_scope,
         )
-        client_impact = request.mutation_plan.sharing_impact
-        impact_changed = (
-            client_impact.active_recipient_count
-            != int(server_impact.get("active_recipient_count") or 0)
-            or sorted(client_impact.recipient_labels)
-            != sorted(server_impact.get("recipient_labels") or [])
-            or client_impact.enters_next_export_revision
-            != bool(server_impact.get("enters_next_export_revision"))
-            or sorted(request.mutation_plan.affected_grant_ids)
-            != sorted(server_impact.get("affected_grant_ids") or [])
-            or sorted(request.mutation_plan.affected_export_ids)
-            != sorted(server_impact.get("affected_export_ids") or [])
-        )
-        if impact_changed:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "PKM_SHARING_IMPACT_CHANGED",
-                    "message": (
-                        "Sharing changed while this mutation was being reviewed. "
-                        "Review the current recipients and confirm again."
+        if (
+            request.mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_connected_source_sync"
+        ):
+            if effective_mutation_plan_json is not None:
+                effective_mutation_plan_json["affected_grant_ids"] = list(
+                    server_impact.get("affected_grant_ids") or []
+                )
+                effective_mutation_plan_json["affected_export_ids"] = list(
+                    server_impact.get("affected_export_ids") or []
+                )
+                effective_mutation_plan_json["sharing_impact"] = {
+                    "active_recipient_count": int(server_impact.get("active_recipient_count") or 0),
+                    "recipient_labels": list(server_impact.get("recipient_labels") or []),
+                    "enters_next_export_revision": bool(
+                        server_impact.get("enters_next_export_revision")
                     ),
-                    "sharing_impact": server_impact,
-                },
+                    "summary": str(
+                        server_impact.get("summary") or "No active recipients are affected."
+                    ),
+                }
+        else:
+            client_impact = request.mutation_plan.sharing_impact
+            impact_changed = (
+                client_impact.active_recipient_count
+                != int(server_impact.get("active_recipient_count") or 0)
+                or sorted(client_impact.recipient_labels)
+                != sorted(server_impact.get("recipient_labels") or [])
+                or client_impact.enters_next_export_revision
+                != bool(server_impact.get("enters_next_export_revision"))
+                or sorted(request.mutation_plan.affected_grant_ids)
+                != sorted(server_impact.get("affected_grant_ids") or [])
+                or sorted(request.mutation_plan.affected_export_ids)
+                != sorted(server_impact.get("affected_export_ids") or [])
             )
+            if impact_changed:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "PKM_SHARING_IMPACT_CHANGED",
+                        "message": (
+                            "Sharing changed while this mutation was being reviewed. "
+                            "Review the current recipients and confirm again."
+                        ),
+                        "sharing_impact": server_impact,
+                    },
+                )
 
     # Store encrypted blob + metadata
     store_result = await pkm_service.store_domain_data(
@@ -1358,9 +1383,7 @@ async def store_domain(
             request.preservation_receipt.model_dump() if request.preservation_receipt else None
         ),
         write_projections=[projection.model_dump() for projection in request.write_projections],
-        mutation_plan=request.mutation_plan.model_dump(mode="json")
-        if request.mutation_plan
-        else None,
+        mutation_plan=effective_mutation_plan_json,
         return_result=True,
         location_finalize_authorization=request.location_finalize_authorization.model_dump(
             mode="json"
