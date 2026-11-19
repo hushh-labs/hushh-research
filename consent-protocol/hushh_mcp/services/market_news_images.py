@@ -31,6 +31,31 @@ def article_image_url(value: Any) -> str | None:
         return None
 
 
+def publisher_logo_url(value: Any) -> str | None:
+    """Resolve a publisher's public domain through the existing favicon service."""
+    if not isinstance(value, str):
+        return None
+    try:
+        url = urlsplit(value.strip())
+        if url.scheme not in {"http", "https"} or url.username or url.password:
+            return None
+        host = url.hostname or ""
+    except ValueError:
+        return None
+    if host in {"news.google.com", "finnhub.io", "www.finnhub.io", "financialmodelingprep.com"}:
+        return None
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}", host):
+        return None
+    return f"https://www.google.com/s2/favicons?domain={host}&sz=128"
+
+
+def _has_provider_image(row: dict[str, Any]) -> bool:
+    return any(
+        article_image_url(row.get(field))
+        for field in ("image_url", "image", "urlToImage", "image_thumbnail_url")
+    )
+
+
 def _canonical_url(value: Any) -> str | None:
     try:
         url = urlsplit(str(value or ""))
@@ -113,7 +138,7 @@ def attach_article_images(
             by_digest[hashlib.sha256(str(item.findtext("link")).encode()).hexdigest()] = image
     result = []
     for row in articles:
-        if article_image_url(row.get("image_url") or row.get("image") or row.get("urlToImage")):
+        if _has_provider_image(row):
             result.append(row)
             continue
         image = by_url.get(_canonical_url(row.get("url")) or "")
@@ -132,11 +157,7 @@ def attach_article_images(
 async def enrich_market_news_images(
     ticker: str, articles: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    missing = [
-        row
-        for row in articles
-        if not article_image_url(row.get("image_url") or row.get("image") or row.get("urlToImage"))
-    ]
+    missing = [row for row in articles if not _has_provider_image(row)]
     # Other provider feeds retain their own images. Only resolve the Yahoo/Finnhub
     # identity bridge for which structured metadata supplies an exact join.
     if not any(

@@ -80,8 +80,17 @@
   .moverGroups { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 0; }
   .moverGroup { grid-row: span 4; grid-template-rows: subgrid; }
 }
-.newsTitle { display: block; font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: 600; overflow-wrap: anywhere; }
-.compactNewsTitle { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.newsTitle {
+  display: -webkit-box;
+  min-block-size: 2lh;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: 600;
+}
 .newsMetadata { display: block; margin-top: 6px; font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted-foreground); }
 .sectorContent { display: grid; gap: 8px; }
 .sectorContent .sectionHeader { margin-bottom: 0; }

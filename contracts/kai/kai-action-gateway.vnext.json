@@ -36010,9 +36010,7 @@
         "path": "route",
         "target": "/one/kai/portfolio/analysis"
       },
-      "control_ids": [
-        "open_portfolio_analysis"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",

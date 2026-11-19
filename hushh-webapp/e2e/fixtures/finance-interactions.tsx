@@ -24,7 +24,7 @@ import { FinanceSharedDetail } from "../../components/kai/sharing/finance-shared
 import { seedActiveFinanceShare, sharingModel } from "./finance-sharing-boundaries";
 import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
 import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
-import { FinancePortfolioSharing } from "../../components/kai/sharing/finance-portfolio-sharing";
+import { PortfolioDashboardEmpty } from "../../components/kai/views/portfolio-dashboard-empty";
 import { AnalysisHistoryList } from "../../components/kai/views/analysis-history-list";
 import { AnalysisSummaryView } from "../../components/kai/views/analysis-summary-view";
 import { StockComparisonPreview } from "../../components/kai/cards/stock-comparison-preview";
@@ -114,7 +114,10 @@ function Fixture() {
   return <main className="mx-auto max-w-3xl p-4">
     <section data-testid="finance-import-fixture"><FullscreenFlowShell width="agent"><PortfolioImportView onFileSelect={() => {}} onSkip={() => {}} /></FullscreenFlowShell></section>
     <section data-testid="finance-preferences-fixture"><KaiPreferencesWizard mode="onboarding" onComplete={() => setAction("Preferences saved")} /></section>
-    <section data-testid="finance-received-only-fixture" className="mt-4"><FinancePortfolioSharing /></section>
+    <section data-testid="finance-received-only-fixture" className="-mx-4 mt-4 p-4">
+      <PortfolioDashboardEmpty onFileSelect={() => setAction("Upload statement")}
+        onConnectPlaid={() => setAction("Connect Plaid")} onPreloadSchema={() => setAction("Try sample")} />
+    </section>
     <GroupedHoldingsFixture />
     <section data-testid="finance-import-status">
       <button onClick={() => setUpdated(true)}>Finish reading statement</button>
@@ -133,9 +136,14 @@ function Fixture() {
       agent_votes: { fundamental: "buy", technical: "hold", sentiment: "reduce" },
       dissenting_opinions: ["Example dissent"], raw_card: {} }} />
     <section data-testid="market-news-iphone-fixture" className="mt-8 [--one-link:var(--app-accent-deep)]">
-      <OneMarketNewsBriefing rows={[0, 1, 2, 3].map((index) => ({ symbol: "TEST", title: `Market fixture story ${index}: a deliberately long company headline for a narrow phone`,
+      <OneMarketNewsBriefing rows={[0, 1, 2, 3].map((index) => ({ symbol: "TEST", title: index === 0
+          ? "Foreign investors bought shares across several Indian sectors in November, reversing a sharp outflow over the previous two months and setting a new monthly record for the domestic market"
+          : `Market fixture story ${index}`,
+        summary: index === 1 ? "A short summary from the publisher." : undefined,
         url: `https://publisher.test/story-${index}`, published_at: "2026-10-20T20:00:00Z", source_name: "Publisher", provider: "fixture", degraded: false,
-        image_url: "https://images.example.test/large.png", image_thumbnail_url: "https://images.example.test/small.png" }))} />
+        image_url: index >= 2 ? null : "https://images.example.test/large.png",
+        image_thumbnail_url: index === 0 ? "https://images.example.test/small.png" : `https://images.example.test/story-${index}-small.png`,
+        source_logo_url: index === 2 ? "https://images.example.test/publisher.png" : null }))} />
     </section>
     <section data-testid="portfolio-chart-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <PortfolioValueCard source="Sample" value={24680.42} change={584.24} changePct={2.43} period="Sample portfolio · September 20 – October 20"
@@ -143,7 +151,7 @@ function Fixture() {
     </section>
     <section data-testid="portfolio-overview-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
-      <PortfolioOverview briefing={<PortfolioBriefing review={{ score: 72, takeaway: "Most of your money is in one company. A bad quarter there could pull down your whole balance.", next_step: null }} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Statement" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
+      <PortfolioOverview briefing={<PortfolioBriefing review={{ score: 72, takeaway: "Most of your money is in one company. A bad quarter there could pull down your whole balance." }} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Statement" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
       <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
       <HoldingDetailsDrawer loadHistory={loadSampleHistory} open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
     </section>
@@ -151,7 +159,7 @@ function Fixture() {
       <DataTable columns={holdingTableColumns(24680.42)} data={samplePortfolio.holdings!.map((row, index) => ({ ...row, client_id: `sample-${index}` }))} tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle" />
     </section>
     <section data-testid="finance-history-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
-      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
+      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onDelete={() => setAction("Delete saved")} />
     </section>
     <section data-testid="finance-subpages-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full space-y-5`}>
       <PortfolioAllocationBar data={sampleModel.allocation} totalValue={sampleModel.hero.totalValue} />
