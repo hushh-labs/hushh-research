@@ -1303,6 +1303,19 @@ def clear_runtime_settings_caches() -> None:
     get_app_runtime_settings.cache_clear()
 
 
+def ensure_pod_sandbox_signing_key() -> str:
+    """Provision an isolated per-sandbox signing key during virgin lease activation."""
+    import secrets  # noqa: PLC0415
+
+    existing = _clean_env(APP_SIGNING_KEY_ENV)
+    if len(existing) >= 32:
+        return existing
+    generated = secrets.token_hex(32)
+    os.environ[APP_SIGNING_KEY_ENV] = generated
+    clear_runtime_settings_caches()
+    return generated
+
+
 hydrate_runtime_environment()
 
 
