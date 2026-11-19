@@ -368,13 +368,19 @@ class PodBindingService:
 
     # -- endpoint discovery -----------------------------------------------------------
 
-    async def endpoint(self, *, user_id: str) -> dict[str, Any]:
+    async def endpoint(
+        self, *, user_id: str, authorized_row: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """Where the owner's pod is, signed, with a version that only moves forward.
 
         Registry publication validates the observed deployment and allocates the
         version under its row lock. Sign only that committed result.
         """
-        row = await self._owner_row(user_id, request_id="pod-endpoint")
+        row = (
+            authorized_row
+            if isinstance(authorized_row, dict)
+            else await self._owner_row(user_id, request_id="pod-endpoint")
+        )
         pod_key_id, public, url = self._deployment(row)
         metadata = (
             row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}

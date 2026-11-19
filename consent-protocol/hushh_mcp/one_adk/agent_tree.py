@@ -2726,6 +2726,7 @@ def build_one_text_agent(
     google_search_model = search_model_for_text_head(text_model, google_search_model)
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
 
     track_current_consent, finance_before_model, finance_after_model = finance_model_callbacks(
         lookup=consent_bundle_lookup or _requester_bundle, before_model=_one_consent_before_model
@@ -2759,6 +2760,7 @@ def build_one_text_agent(
             finance_before_model,
             receipt_before_model,
             document_period_before_model,
+            scope_leaf_tools_before_model,
             timed_one_before_model,
             club_queued_input,
         ],

@@ -29,6 +29,7 @@ refused by shape before the verifier looks at anything else.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -36,6 +37,8 @@ import json
 import logging
 import os
 import secrets
+import signal
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -115,7 +118,7 @@ from hushh_mcp.services.pod_binding_contract import (
     verify_binding_capabilities,
 )
 from hushh_mcp.services.pod_consent_client import ConsentVerdict
-from hushh_mcp.services.pod_platform import pod_revision_name
+from hushh_mcp.services.pod_platform import pod_revision_name, workload_platform
 
 logger = logging.getLogger(__name__)
 
@@ -641,6 +644,56 @@ async def apply_pending_tombstones(
 # -- process-wide active copy ------------------------------------------------------------------
 
 _ACTIVE: Optional[PodSessionAuthority] = None
+_FENCED_RETIRE_SCHEDULED = False
+
+
+def _reset_fenced_pod_retirement_for_tests() -> None:
+    """Reset the process-wide fenced retirement guard between unit tests."""
+    global _FENCED_RETIRE_SCHEDULED
+    _FENCED_RETIRE_SCHEDULED = False
+
+
+def schedule_fenced_pod_retirement(
+    reason: str,
+    *,
+    platform_fn: Optional[Callable[[], str]] = None,
+    kill_fn: Callable[[int, int], None] = os.kill,
+    delay_seconds: float = 0.25,
+) -> bool:
+    """Gracefully retire a permanently fenced managed cloud pod process once."""
+    global _FENCED_RETIRE_SCHEDULED
+    platform = (platform_fn or workload_platform)()
+    if platform not in {"gcp", "azure", "aws", "ace"}:
+        return False
+    if _FENCED_RETIRE_SCHEDULED:
+        return False
+    _FENCED_RETIRE_SCHEDULED = True
+    logger.warning(
+        "pod_incarnation.retiring_fenced_process reason=%s platform=%s",
+        reason,
+        platform,
+    )
+
+    def _retire() -> None:
+        ppid = os.getppid()
+        if ppid >= 1:
+            try:
+                kill_fn(ppid, signal.SIGTERM)
+                return
+            except (PermissionError, ProcessLookupError, OSError):
+                pass
+        try:
+            kill_fn(os.getpid(), signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            pass
+
+    try:
+        asyncio.get_running_loop().call_later(delay_seconds, _retire)
+    except RuntimeError:
+        timer = threading.Timer(delay_seconds, _retire)
+        timer.daemon = True
+        timer.start()
+    return True
 
 
 def active_session_authority() -> Optional[PodSessionAuthority]:
@@ -692,6 +745,10 @@ async def build_pod_session_authority(
 
         projection = OwnerRecoveryProjection(owner=hushh_id)
         records = await startup_records(log, projection=projection)
+        if records is None:
+            # An oversized history loses the checkpoint optimization, never
+            # records. Share one verified full replay across all boot reducers.
+            records = await log.replay()
         await load_owner_state(log, records=records)
     await store.load(records=records)
     keypair = pod_keypair()
@@ -744,6 +801,7 @@ __all__ = [
     "derive_session_key",
     "expected_environment",
     "role_for_platform",
+    "schedule_fenced_pod_retirement",
     "set_active_session_authority",
     "verify_subject_proof",
 ]
