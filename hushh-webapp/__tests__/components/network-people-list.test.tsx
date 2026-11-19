@@ -255,6 +255,61 @@ describe("network permission and journey return @feature_connected_profiles", ()
     await screen.findByText("No 3rd-degree connections to show yet. Connect with people you know to grow your network.");
   });
 
+  it("keeps expired discovery rows on return and filter changes while revalidating, then clears denied rows", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const owner = "acct_recreated_owner";
+      preloadNetworkDiscovery(owner, state.user.getIdToken);
+      const cache = discoveryNetworkPages(owner);
+      await waitFor(() => expect(cache.peek({ mode: "discovery", query: "", degree: 3, page: 1 })).toBeDefined());
+      const view = (onReady?: () => void) => <div data-network-scroll-owner><NetworkPeopleList mode="discovery" visitKey="expired-discovery" embedded retainedPages={cache} onReady={onReady} /></div>;
+      const first = render(view());
+      fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+      fireEvent.click(screen.getByRole("button", { name: "Load more people" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open Person 2's profile" }));
+      first.unmount();
+      clock.mockReturnValue(now + 120_001);
+      const finish: Record<number, (value: unknown) => void> = {};
+      state.list.mockImplementation(({ degree, page: number }: { degree?: number; page: number }) => degree === 3
+        ? new Promise(resolve => { finish[number] = resolve; })
+        : Promise.resolve({ ...page(), hasMore: false }));
+      const ready = vi.fn();
+      render(view(ready));
+      expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toBeVisible();
+      expect(screen.queryByText("Loading connections…")).toBeNull();
+      expect(screen.getByRole("list", { name: "Extended network people" })).toHaveAttribute("aria-busy", "true");
+      expect(ready).not.toHaveBeenCalled();
+      await waitFor(() => expect(finish[1]).toBeDefined());
+      await act(async () => finish[1]({ ...page(), hasMore: true, items: [{ ...row("Refreshed"), networkDegree: 3 }] }));
+      await waitFor(() => expect(finish[2]).toBeDefined());
+      expect(screen.getByRole("button", { name: "Open Person 2's profile" })).toBeVisible();
+      expect(ready).not.toHaveBeenCalled();
+      await act(async () => finish[2]({ ...page(2), hasMore: false, items: [{ ...row("Refreshed second page"), networkDegree: 3 }] }));
+      await screen.findByRole("button", { name: "Open Refreshed second page's profile" });
+      expect(screen.queryByRole("button", { name: "Open Person 1's profile" })).toBeNull();
+      await waitFor(() => expect(ready).toHaveBeenCalled());
+
+      let deny!: (reason: unknown) => void;
+      state.list.mockImplementation(({ degree }: { degree?: number }) => degree === 3
+        ? new Promise((_resolve, reject) => { deny = reject; })
+        : Promise.resolve({ ...page(), hasMore: false }));
+      fireEvent.click(screen.getByRole("button", { name: "All" }));
+      await waitFor(() => expect(screen.getByRole("list")).not.toHaveAttribute("aria-busy", "true"));
+      clock.mockReturnValue(now + 240_002);
+      fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+      expect(screen.getByRole("button", { name: "Open Refreshed's profile" })).toBeVisible();
+      expect(screen.queryByText("Loading connections…")).toBeNull();
+      await waitFor(() => expect(deny).toBeDefined());
+      await act(async () => deny(new state.Error(403)));
+      await screen.findByRole("alert");
+      expect(screen.queryByRole("button", { name: "Open Refreshed's profile" })).toBeNull();
+      expect(cache.peek({ mode: "discovery", query: "", degree: 3, page: 1 })).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("renders preloaded filters and a paged journey return without waiting on network or tab focus", async () => {
     const owner = "acct_recreated_owner";
     preloadNetworkDiscovery(owner, state.user.getIdToken);
@@ -280,11 +335,28 @@ describe("network permission and journey return @feature_connected_profiles", ()
     expect(state.list).not.toHaveBeenCalled();
   });
 
-  it("rejects a retained private read after authentication changes", async () => {
+  it("revokes a discovery snapshot when a background reader is denied without a mounted list", async () => {
+    const cache = new NetworkPageCache();
+    const read = { mode: "discovery" as const, query: "", page: 1 };
+    await cache.load(read, state.user.getIdToken);
+    expect(cache.peekDiscoverySnapshot(read)).toBeDefined();
+    state.list.mockRejectedValueOnce(new state.Error(403));
+    await expect(cache.load(read, state.user.getIdToken, true)).rejects.toMatchObject({ status: 403 });
+    expect(cache.peekDiscoverySnapshot(read)).toBeUndefined();
+  });
+
+  it("keeps private snapshots strict and retires retained discovery snapshots after authentication changes", async () => {
     const retainedPages = new NetworkPageCache();
-    await retainedPages.load({ mode: "connections", personRef: "target", query: "", page: 1 }, state.user.getIdToken);
+    const privateRead = { mode: "connections" as const, personRef: "target", query: "", page: 1 };
+    const discoveryRead = { mode: "discovery" as const, query: "", page: 1 };
+    await retainedPages.load(privateRead, state.user.getIdToken);
+    expect(retainedPages.peek(privateRead)).toBeDefined();
+    expect(retainedPages.peekDiscoverySnapshot(privateRead)).toBeUndefined();
+    await retainedPages.load(discoveryRead, state.user.getIdToken);
+    expect(retainedPages.peekDiscoverySnapshot(discoveryRead)).toBeDefined();
     state.generation++;
-    expect(retainedPages.peek({ mode: "connections", personRef: "target", query: "", page: 1 })).toBeUndefined();
+    expect(retainedPages.peek(privateRead)).toBeUndefined();
+    expect(retainedPages.peekDiscoverySnapshot(discoveryRead)).toBeUndefined();
   });
 
   it("explains an empty extended network and returns new users to Find people", async () => {
