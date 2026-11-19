@@ -113,7 +113,7 @@ function isFeedRoute(route) {
 }
 
 function isTodoListRoute(route) {
-  return route === "/one/todos";
+  return route === "/one/tasks";
 }
 
 function isConnectedSystemsRoute(route) {
@@ -163,7 +163,7 @@ function screenClassForRoute(route, mode, flags) {
     return "PKM-secure";
   }
   if (route.startsWith("/one/kai")) return "vault-backed";
-  if (isTodoListRoute(route)) return "PKM-secure";
+  if (isTodoListRoute(route) || route === "/one/goals") return "PKM-secure";
   if (route === "/one/profile" || isConsentCenterRoute(route))
     return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
@@ -216,6 +216,7 @@ function routeCacheKeys(route) {
   if (isTodoListRoute(route)) {
     return ["PKM_DOMAIN_RESOURCE(one_todos)", "Calendar event projection (memory-only)"];
   }
+  if (route === "/one/goals") return ["PKM_DOMAIN_RESOURCE(one_todos)"];
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
   if (route === "/pkm")
@@ -484,7 +485,8 @@ function invalidatorFor(route, screenClass) {
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
     route === "/one/kyc" ||
-    isTodoListRoute(route)
+    isTodoListRoute(route) ||
+    route === "/one/goals"
   ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";
   }

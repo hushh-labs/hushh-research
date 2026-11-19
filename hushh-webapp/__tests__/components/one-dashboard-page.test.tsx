@@ -50,7 +50,7 @@ describe("Scheduled tasks placement", () => {
     render(<ScheduledTasksPanel ownerId="owner" />);
     expect(schedule.hosting).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
-    await screen.findByText("Scheduled tasks need Agent One.");
+    await screen.findByText("Scheduling requires a private agent.");
     expect(schedule.status).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute("href", "/one/profile/hosting");
   });

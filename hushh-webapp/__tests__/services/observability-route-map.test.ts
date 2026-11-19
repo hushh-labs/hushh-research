@@ -46,6 +46,8 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one")).toBe("one_dashboard");
     expect(resolveRouteId("/one/messages")).toBe("one_messages");
     expect(resolveRouteId("/one/todos")).toBe("one_todos");
+    expect(resolveRouteId("/one/tasks")).toBe("one_todos");
+    expect(resolveRouteId("/one/goals")).toBe("one_goals");
     expect(resolveRouteId("/calendar/reschedule?token=private-recipient-token")).toBe("calendar_reschedule");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");

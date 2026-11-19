@@ -180,7 +180,7 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     if (existing && suggested) existing.pendingTitle = task.title;
     if (capability && !existing) suggestionEvidence.push({
       capability, key, summary: task.title, pendingTitle: task.title,
-      href: task.link || "/one/todos",
+      href: task.link || "/one/tasks",
     });
   }
   return {

@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-10-28",
-  "total_routes": 147,
-  "native_required_routes": 119,
+  "total_routes": 148,
+  "native_required_routes": 120,
   "excluded_routes": 28,
   "routes": [
     {
@@ -668,11 +668,21 @@
       ]
     },
     {
-      "route": "/one/todos",
+      "route": "/one/goals",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Ftodos",
-      "expectedMarker": "native-route-one-todos",
-      "expectedRoute": "/one/todos",
+      "initialRoute": "/login?redirect=%2Fone%2Fgoals",
+      "expectedMarker": "native-route-one-goals",
+      "expectedRoute": "/one/goals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loading", "loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/one/tasks",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ftasks",
+      "expectedMarker": "native-route-one-tasks",
+      "expectedRoute": "/one/tasks",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

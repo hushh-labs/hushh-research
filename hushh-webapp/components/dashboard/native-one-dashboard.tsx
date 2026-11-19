@@ -138,6 +138,8 @@ function LauncherBody({ roster, discovery, tasks, frame, presentation, openDisco
     ]);
   } else {
     section("utilities", [
+      row("goals", "Goals", () => router.push(ROUTES.ONE_GOALS), { symbol: "target", chevron: true }),
+      row("tasks", "Tasks", () => router.push(ROUTES.ONE_TASKS), { symbol: "checklist", chevron: true }),
       ...(areScheduledTasksAvailable() ? [row("scheduled", "Scheduled tasks", () => tasks.changeOpen(true), { symbol: "calendar.badge.clock", chevron: true })] : []),
       ...(discovery.visible ? [row("discovery", discovery.ready ? "Review your profile" : "Claim your profile",
         () => discovery.ready ? router.push(ROUTES.ONE_PROFILE_DISCOVERY) : openDiscovery(), { chevron: true })] : []),

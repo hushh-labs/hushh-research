@@ -2683,7 +2683,7 @@ merging two businesses merely because their names or contact details overlap.
 
 ### One task inventory and reviewed suggestions
 
-One profile To-do and `/one/todos` share live pending-work projection and encrypted
+The private agent's profile Tasks preview and `/one/tasks` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
 services. This is a bounded foreground inventory, not a background sweep of all
@@ -4650,6 +4650,53 @@ incrementally (`include_granted_scopes=true`) on the web; read-only connections 
 asked for it. `gmail.modify` is a Google restricted scope and needs Google's
 restricted-scope verification before production use. Native Google sign-in does not yet
 request it.
+
+### Durable goal planning in the encrypted task domain
+
+`GoalsPkmService` stores owner-confirmed goals in
+`one_todos._private.goals`, a version-1 envelope with `schemaVersion` and
+`items`. Each goal records its outcome, optional category, explicit status,
+ordered `taskIds`, revision and lifecycle timestamps. A task may support
+multiple goals; task completion remains authoritative in `_private.tasks`.
+Completing tasks never automatically completes a goal. Goal completion is an
+explicit reviewed operation, and deletion retains a tombstone.
+
+The service uses the existing owner-scoped `PkmWriteCoordinator`, vault keys,
+owner token, serialized writes and revision-CAS retries. Edits require the
+expected goal revision; stale edits and edits to deleted goals fail. Every
+retry checks links against the latest saved task snapshot. Missing, live-only
+and deleted tasks cannot be newly linked; removing their references is allowed.
+Saving or deleting a goal never creates, completes, restores or deletes tasks.
+
+The additive sibling preserves compatibility with existing To-do writers,
+which retain `_private` siblings but normalize individual task fields. Goal
+writes preserve raw task records and unrelated branches. Unsupported goal
+versions or malformed records stop a write rather than being discarded.
+Goal details and links remain encrypted; metadata keeps the existing task
+counters and timestamp only. The `one_todos` domain stays unshareable.
+
+The Goals workspace reads goals and saved tasks in one unlocked owner snapshot.
+The editor saves the outcome, category and task links in a single revision.
+Existing unavailable links can be retained or removed. New links must resolve
+to saved tasks. A create retry keeps the editor's original draft identity.
+Goal details are hidden when the vault locks or the owner changes. Web, iOS and
+Android use the same client and PKM transport. A saved plan grants no background
+execution authority; Pod and Puppy retain their existing approval gates.
+
+### Chat review for a private Files schedule
+
+The Dev private agent's typed Chat tool `propose_file_schedule` emits a review
+offer with an optional timezone-qualified instant. The tool reads and changes
+no file or schedule. The unlocked owner selects an exact upload from private
+Files and confirms a one-time run. The client rechecks the file and uses the
+existing owner-bound Pod scheduling API with the reviewed Pod and request ID.
+The Files adapter rejects a changed file or analysis revision during creation.
+Retries after an uncertain response use the same request and unchanged terms.
+
+The confirmation links to `/one/tasks?scheduled=<opaque-schedule-id>`. Tasks
+reads the current Pod's existing schedule projection and shows the latest run
+state and recorded time. The opaque link supplies no access. Shared hosting
+keeps foreground planning available and cannot submit or read a Pod schedule.
 
 ### Owner-confirmed Gmail To-do follow-ups
 

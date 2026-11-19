@@ -1556,7 +1556,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         ...(isDocumentRequestSetupStep(setup) ? { todo: {
           key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,
           title: documentRequestTaskTitle(setup, entry.counterpart_label),
-          href: documentRequestSetupHref(setup, "/one/todos"),
+          href: documentRequestSetupHref(setup, "/one/tasks"),
         } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
@@ -1652,7 +1652,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         id: `drive-payment:${payment.requestId}`,
         ...(!paymentIsNonActionable ? { todo: {
           source: "drive" as const, title: displayPayment.title,
-          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/todos" }),
+          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/tasks" }),
         } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
@@ -1864,7 +1864,7 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
             key: `consent:${entry.id}:review`,
             source: isDriveSharingEntry(entry) ? "drive" : "consent",
             title: `Review request from ${requesterLabel}`,
-            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/todos" }),
+            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/tasks" }),
           },
           icon: ConsentAgentIcon,
           iconTone: "capability",
