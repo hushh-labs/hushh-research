@@ -1,11 +1,12 @@
 """Observed mover selection shared by the producer and its cache admission check."""
 
 import math
+from datetime import datetime
 from typing import Any
 
 MIN_MOVERS = 3
 MOVERS_COVERAGE_VERSION = 1
-MOVERS_REFRESH_SECONDS = 120
+MOVERS_REFRESH_SECONDS = 300
 
 
 def number(value: Any) -> float | None:
@@ -16,6 +17,16 @@ def number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def observation_time(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo is not None else None
 
 
 def select_movers(rows: Any, bucket: str, limit: int = 8) -> list[dict]:
@@ -83,14 +94,21 @@ def stale_movers(value: Any) -> dict:
     }
 
 
-def assemble_movers(primary: dict, fallback: dict, retrieved_at: str) -> tuple[dict, dict]:
+def assemble_movers(primary: dict, fallback: dict, retrieved_at: str | None) -> tuple[dict, dict]:
     buckets = {
         bucket: select_movers((primary.get(bucket) or []) + (fallback.get(bucket) or []), bucket)
         for bucket in ("gainers", "losers", "active")
     }
+    observations = [
+        stamp
+        for rows in buckets.values()
+        for row in rows
+        if (stamp := observation_time(row.get("as_of"))) is not None
+    ]
     payload = {
         **buckets,
-        "as_of": retrieved_at,
+        "as_of": max(observations).isoformat() if observations else None,
+        "retrieved_at": retrieved_at,
         "coverage_version": MOVERS_COVERAGE_VERSION,
         "source_tags": sorted(
             {tag for rows in buckets.values() for row in rows for tag in row.get("source_tags", [])}

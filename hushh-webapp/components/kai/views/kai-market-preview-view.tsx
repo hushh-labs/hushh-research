@@ -294,7 +294,7 @@ export function toIndexStripItems(
         match(String(candidate.label || "").toLowerCase()),
       ) || null;
     const metric = row && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0
-      ? toIndexOverviewMetric({ ...row, label, degraded: Boolean(row.degraded || payload?.stale) }, label)
+      ? toIndexOverviewMetric({ ...row, label }, label)
       : toIndexOverviewMetric(null, label);
     return region === "IN" && metric.detailPanel
       ? { ...metric, detailPanel: { ...metric.detailPanel, summary: "India equity index · points" } }
@@ -409,7 +409,8 @@ export function OneMarketMovers({ groups, linkable = true, note, onSelect, balan
   ] as const;
   const shown = columns.flatMap((column) => column.rows);
   const commonAsOf = shown[0]?.asOf ?? null;
-  const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
+  const sharedTime = commonAsOf && Number.isFinite(Date.parse(commonAsOf))
+    && shown.every((row) => row.asOf === commonAsOf);
   if (balanced && slots === 0) {
     return <p data-market-mover-none className="ui-text-row-description px-2 py-3 text-muted-foreground">Movers are not available right now.</p>;
   }
@@ -464,9 +465,13 @@ export function OneMarketMovers({ groups, linkable = true, note, onSelect, balan
           );
         })}
       </div>
-      {sharedTime && commonAsOf && Number.isFinite(Date.parse(commonAsOf)) ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        {note ? `${note} · ` : null}<time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
-      </p> : null}
+      {note || sharedTime ? (
+        <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
+          {note}
+          {note && sharedTime ? " · " : null}
+          {sharedTime ? <time dateTime={commonAsOf ?? undefined}>{formatOverviewAsOf(commonAsOf)}</time> : null}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -631,7 +636,7 @@ function indexQuoteStatus(
     return "Delayed";
   if (!Number.isFinite(quotedAt)) return "Time unavailable";
   if (row.market_state === "closed") return "Market closed";
-  if (row.degraded) return "";
+  if (row.degraded) return "Saved quote";
   return age > 10 * 60 * 1000 ? "Snapshot" : "Latest quote";
 }
 
@@ -1246,7 +1251,12 @@ export function KaiMarketPreviewView() {
                   <OneMarketSectionHeader title="Market movers" />
                   <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
                   <OneMarketMovers groups={moverGroups} linkable={!inIndia} balanced={inIndia} onSelect={row => setSelectedMover({ row, market: inIndia ? "IN" : "US" })}
-                    note={inIndia && effectivePayload?.movers?.universe_size ? `Among ${effectivePayload.movers.universe_size} large NSE stocks` : undefined} />
+                    note={[
+                      effectivePayload?.movers?.stale ? "Saved prices" : null,
+                      inIndia && effectivePayload?.movers?.universe_size
+                        ? `Among ${effectivePayload.movers.universe_size} large NSE stocks`
+                        : null,
+                    ].filter(Boolean).join(" · ") || undefined} />
                   </SurfaceCardContent></SurfaceCard>
                 </section>
               </div>
@@ -1282,7 +1292,7 @@ export function KaiMarketPreviewView() {
         {selectedMover ? <StockDetailContent market={selectedMover.market} marketMover
           row={{ symbol: selectedMover.row.symbol, company_name: selectedMover.row.companyName, price: selectedMover.row.price,
             change_pct: selectedMover.row.changePct, volume: selectedMover.row.volume ?? null, market_cap: null,
-            source_tags: [], degraded: Boolean(selectedMover.row.degraded), as_of: selectedMover.market === "IN" ? null : selectedMover.row.asOf ?? null }}
+            source_tags: [], degraded: Boolean(selectedMover.row.degraded), as_of: selectedMover.row.asOf ?? null }}
           loadHistory={loadMoverHistory} loadQuote={selectedMover.market === "US" ? loadPublicStockQuote : undefined}
           loadCompanyNews={loadMoverNews} /> : null}
       </KaiControlSurface>

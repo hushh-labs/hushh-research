@@ -5,7 +5,12 @@ import pytest
 
 from api.routes.kai import market_insights
 from api.routes.kai.market_insights import _normalize_mover_row
-from hushh_mcp.market_data.movers import assemble_movers, complete_movers, select_movers
+from hushh_mcp.market_data.movers import (
+    MOVERS_REFRESH_SECONDS,
+    assemble_movers,
+    complete_movers,
+    select_movers,
+)
 from hushh_mcp.services import market_movers
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
 from tests.helpers.market_public_cache import (  # noqa: F401
@@ -85,6 +90,12 @@ async def test_sparse_fmp_losers_recover_three_real_stocks_from_marketwide_feed(
             for symbol, change in (("XYL", -11), ("BA", -9), ("UNF", -8))
         ]
         rows += [
+            {
+                **rows[0],
+                "symbol": "PRIOR",
+                "regularMarketChangePercent": -50,
+                "regularMarketTime": 1783951200,
+            },
             rows[0],
             {**rows[0], "symbol": "SPY", "quoteType": "ETF"},
             {**rows[0], "symbol": "UP", "regularMarketChangePercent": 2},
@@ -92,6 +103,7 @@ async def test_sparse_fmp_losers_recover_three_real_stocks_from_marketwide_feed(
         return httpx.Response(200, json={"finance": {"result": [{"quotes": rows}]}})
 
     client = httpx.AsyncClient
+    monkeypatch.setattr(market_insights, "is_budget_critical", lambda: False)
     monkeypatch.setattr(market_insights, "_fetch_pmp_json", primary)
     monkeypatch.setattr(market_movers, "market_insights_cache", MarketInsightsCache())
     monkeypatch.setattr(
@@ -119,6 +131,7 @@ async def test_complete_primary_feed_does_not_add_fallback_requests(monkeypatch)
         ]
 
     fallback = AsyncMock(side_effect=AssertionError("unexpected extra provider request"))
+    monkeypatch.setattr(market_insights, "is_budget_critical", lambda: False)
     monkeypatch.setattr(market_insights, "_fetch_pmp_json", primary)
     monkeypatch.setattr(market_movers, "fetch_mover_recovery", fallback)
     result = await market_insights._fetch_movers_from_fmp()
@@ -186,7 +199,7 @@ async def test_mover_cache_recovers_old_sample_and_never_overwrites_a_complete_f
     complete = _complete_feed()
     partial = ({**complete[0], "losers": complete[0]["losers"][:1]}, complete[1])
     previous = ({**partial[0], "coverage_version": 0}, {}) if old_sample else complete
-    saved_at = now[0] - (1 if old_sample else 121)
+    saved_at = now[0] - (1 if old_sample else MOVERS_REFRESH_SECONDS + 1)
     if tier == "memory":
         cache.seed_entry(key, previous, saved_at)
     else:
@@ -214,7 +227,7 @@ async def test_mover_cache_recovers_old_sample_and_never_overwrites_a_complete_f
     second = await read()
     assert complete_movers(second[0])
     assert fetch.await_count == 1  # partial refreshes cannot hammer providers per viewer
-    now[0] += 121
+    now[0] += MOVERS_REFRESH_SECONDS + 1
     assert complete_movers((await read())[0])
     assert fetch.await_count == 2
 

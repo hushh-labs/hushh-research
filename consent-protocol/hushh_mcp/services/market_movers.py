@@ -5,21 +5,24 @@ and shared public cache enforce session access, single flight and refresh cadenc
 """
 
 import asyncio
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from hushh_mcp.market_data.movers import number, select_movers
+from hushh_mcp.market_data.movers import number, observation_time, select_movers
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
     MarketPriceRefreshPaused,
     market_price_refresh_scope,
+    us_market_session_opened_at,
 )
 
 SCREENER_URL = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
 SCREENERS = {"gainers": "day_gainers", "losers": "day_losers", "active": "most_actives"}
 SCREENER_LIMIT = 12
+SCREENER_MAX_AGE = timedelta(minutes=20)
 COOLDOWN_KEY = "yahoo:market-movers"
 
 
@@ -54,6 +57,11 @@ async def fetch_mover_recovery(buckets: list[str]) -> dict[str, list[dict]]:
 async def _fetch_mover_recovery(buckets: list[str]) -> dict[str, list[dict]]:
     if market_insights_cache.is_provider_in_cooldown(COOLDOWN_KEY):
         return {}
+    now = datetime.fromtimestamp(time.time(), tz=timezone.utc)
+    opened_at = us_market_session_opened_at(now)
+    if opened_at is None:
+        raise MarketPriceRefreshPaused("market_closed_no_price_refresh")
+    earliest_quote = max(now - SCREENER_MAX_AGE, datetime.fromtimestamp(opened_at, tz=timezone.utc))
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(6, connect=3),
         headers={"User-Agent": "Mozilla/5.0"},
@@ -76,11 +84,14 @@ async def _fetch_mover_recovery(buckets: list[str]) -> dict[str, list[dict]]:
                     return bucket, []
                 results = response.json().get("finance", {}).get("result") or []
                 quotes = results[0].get("quotes", []) if results else []
+                received_at = datetime.fromtimestamp(time.time(), tz=timezone.utc)
                 rows = [
                     normalized
                     for row in quotes[:SCREENER_LIMIT]
                     if isinstance(row, dict)
                     and (normalized := normalize_screener_row(row)) is not None
+                    and (quoted_at := observation_time(normalized["as_of"])) is not None
+                    and earliest_quote <= quoted_at <= received_at
                 ]
                 return bucket, select_movers(rows, bucket)
             except MarketPriceRefreshPaused:

@@ -1,5 +1,6 @@
 """Public Market cache orchestration with request-resolved dependencies."""
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ from hushh_mcp.services.market_refresh_policy import (
     us_market_session_opened_at,
 )
 
+from ._shared_last_close import merge_index_quotes
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +42,8 @@ class PublicModuleCache:
     # Shared price entries kept past the last session: they are price modules, so a
     # closed exchange never refreshes them, and they replay for the retention window.
     last_close_prefixes: tuple[str, ...] = ()
+    shared_refresh_keys: frozenset[str] = frozenset()
+    index_keys: frozenset[str] = frozenset()
 
     async def read(
         self,
@@ -115,12 +120,13 @@ class PublicModuleCache:
             # Retire old sampled payloads once. New incomplete observations still
             # obey the normal session TTL, instead of retrying for every viewer.
             return mover_payload(payload).get("coverage_version") != MOVERS_COVERAGE_VERSION
-        if not isinstance(payload, dict):
+        # Incomplete indices are retried on the next scheduled or on-demand window.
+        if key in self.index_keys or not isinstance(payload, dict):
             return False
         provider_status = payload.get("provider_status")
         applies_to_key = (
             key.startswith("quotes:")
-            or key.startswith(("indices:", "picks:"))
+            or key.startswith("picks:")
             or key.startswith("home:")
             or key.startswith("home:baseline:")
             or key.startswith("home:personalized:")
@@ -228,12 +234,50 @@ class PublicModuleCache:
     async def refresh(
         self, key, price_module, fetcher, store, fresh_ttl_seconds, stale_ttl_seconds
     ) -> Any:
+        async def publish() -> Any:
+            return await self.fetch_and_publish(
+                key, price_module, fetcher, store, fresh_ttl_seconds, stale_ttl_seconds
+            )
+
+        if key not in self.shared_refresh_keys or fresh_ttl_seconds <= 0:
+            return await publish()
+
+        retry_key = f"refresh:{key}"
+        if self.cache.is_provider_in_cooldown(retry_key):
+            raise MarketDataUnavailable("shared_market_refresh_cooldown")
+        retry_seconds = MOVERS_REFRESH_SECONDS if key.startswith("movers:") else fresh_ttl_seconds
+        self.cache.mark_provider_cooldown(retry_key, retry_seconds)
+        if store is None:
+            return await publish()
+
+        # Coordinate request and scheduled refreshes across replicas. A failed
+        # provider attempt consumes the window as well, so retries stay bounded.
+        result: Any = None
+
+        async def refresh_if_due() -> None:
+            nonlocal result
+            attempt = await store.get_entry(retry_key)
+            if attempt and attempt.is_fresh(self.clock()):
+                raise MarketDataUnavailable("shared_market_refresh_cooldown")
+            await store.set_entry(
+                cache_key=retry_key,
+                payload={"attempted": True},
+                fresh_ttl_seconds=retry_seconds,
+                stale_ttl_seconds=retry_seconds,
+            )
+            result = await publish()
+
+        lock_key = int.from_bytes(
+            hashlib.sha256(retry_key.encode()).digest()[:8], "big", signed=True
+        )
+        if not await store.try_with_advisory_lock(lock_key=lock_key, callback=refresh_if_due):
+            raise MarketDataUnavailable("shared_market_refresh_in_progress")
+        return result
+
+    async def fetch_and_publish(
+        self, key, price_module, fetcher, store, fresh_ttl_seconds, stale_ttl_seconds
+    ) -> Any:
         requested_at = self.clock()
-        if key.startswith("movers:"):
-            retry_key = f"refresh:{key}"
-            if self.cache.is_provider_in_cooldown(retry_key):
-                raise MarketDataUnavailable("movers_refresh_cooldown")
-            self.cache.mark_provider_cooldown(retry_key, MOVERS_REFRESH_SECONDS)
         if price_module:
             with market_price_refresh_scope():
                 value = await fetcher()
@@ -260,6 +304,20 @@ class PublicModuleCache:
         if key.startswith("movers:") and previous and complete_movers(previous.value):
             if not complete_movers(value):
                 raise MarketDataUnavailable("movers_incomplete_refresh")
+        if key in self.index_keys and previous:
+            quotes = merge_index_quotes(previous.value.get("quotes") or {}, value["quotes"])
+            value = {
+                **value,
+                "quotes": quotes,
+                "provider_status": {
+                    **value.get("provider_status", {}),
+                    **{
+                        f"quote:{symbol}": "partial"
+                        for symbol, quote in quotes.items()
+                        if isinstance(quote, dict) and quote.get("is_stale")
+                    },
+                },
+            }
         provider_status = {}
         if isinstance(value, dict) and isinstance(value.get("provider_status"), dict):
             provider_status = value.get("provider_status") or {}
