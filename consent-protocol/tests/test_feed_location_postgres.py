@@ -42,7 +42,7 @@ def _unpublished_incidents(feed_db):
         with feed_db.begin() as conn:
             conn.execute(
                 text(
-                    "INSERT INTO one_location_share_grants(id,owner_user_id,recipient_user_id,recipient_key_id,status,metadata) VALUES(:id,:sender,:owner,'key','active',CAST(:meta AS JSONB))"
+                    "INSERT INTO one_location_share_grants(id,owner_user_id,recipient_user_id,recipient_key_id,status,duration_mode,metadata) VALUES(:id,:sender,:owner,'key','active','until_stopped',CAST(:meta AS JSONB))"
                 ),
                 {
                     "id": grant,
@@ -86,6 +86,38 @@ def test_emergencies_require_publication_and_clear_never_hides_two_live_incident
         str(row["id"]) for row in live if row["feed_sms_confirmed"] and row["status"] == "active"
     } == set(grants)
     assert all(row["feed_confirmed_at"] is not None for row in live)
+
+    # Both legacy Clear and snapshot Clear preserve the incident's eventual history.
+    current = reader.list_feed(OWNER)
+    protected = reader.clear(
+        OWNER,
+        up_to_id=int(current["read_snapshot"]["up_to_id"]),
+        snapshot_fingerprint=current["read_snapshot"]["fingerprint"],
+    )
+    assert protected["snapshot_changed"] is False
+    for item in page["items"]:
+        assert reader.dismiss(OWNER, item_id=int(item["id"]))["dismissal_token"] is None
+    with feed_db.begin() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM feed_events WHERE user_id=:owner AND dismissed_at IS NOT NULL"
+                ),
+                {"owner": OWNER},
+            ).scalar_one()
+            == 0
+        )
+        # Same-lane supersession changes the source without producing another end event.
+        conn.execute(
+            text("UPDATE one_location_share_grants SET status='revoked' WHERE id=:id"),
+            {"id": grants[0]},
+        )
+    superseded = reader.search_activity(OWNER, query="Ankit")["items"]
+    assert any(
+        item["activity_group_id"] == "location-grant:" + grants[0]
+        and item["metadata"]["current_location_status"] == "revoked"
+        for item in superseded
+    )
 
     # An unpublished draft ending must not manufacture a delivered incident.
     draft = str(uuid.uuid4())
@@ -238,3 +270,47 @@ def test_check_in_erasure_preserves_the_denominator_and_blocks_identity_resurrec
                 ),
                 {"id": operation, "other": OTHER},
             )
+
+
+def test_location_feed_uses_server_expiry_before_retention_settles_raw_status(feed_db):
+    from tests.feed_fixture_support import install_location_publication
+
+    install_location_publication(feed_db)
+    sender, grants = _unpublished_incidents(feed_db)
+    with feed_db.begin() as conn:
+        for grant in grants:
+            envelope = str(uuid.uuid4())
+            conn.execute(
+                text(
+                    "INSERT INTO one_location_envelopes VALUES(:id,:grant,:sender,:owner); UPDATE one_location_share_grants SET latest_envelope_id=:id WHERE id=:grant"
+                ),
+                {"id": envelope, "grant": grant, "sender": sender, "owner": OWNER},
+            )
+            _audit_incident(conn, sender, grant, "location_envelope_updated", envelope)
+        conn.execute(
+            text(
+                "UPDATE one_location_share_grants SET duration_mode='timed',expires_at=clock_timestamp()-interval '1 second' WHERE id=:id"
+            ),
+            {"id": grants[0]},
+        )
+    items = {
+        item["metadata"]["recorded_grant_id"]: item
+        for item in session(feed_db).list_feed(OWNER)["items"]
+    }
+    assert items[grants[0]]["metadata"]["current_location_status"] == "expired"
+    assert items[grants[1]]["metadata"]["current_location_status"] == "active"
+    with feed_db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_location_share_grants SET expires_at=NULL,duration_mode='timed' WHERE id=:id"
+            ),
+            {"id": grants[0]},
+        )
+    assert (
+        next(
+            item
+            for item in session(feed_db).list_feed(OWNER)["items"]
+            if item["metadata"]["recorded_grant_id"] == grants[0]
+        )["metadata"]["current_location_status"]
+        == "expired"
+    )

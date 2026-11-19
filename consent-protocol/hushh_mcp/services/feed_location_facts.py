@@ -2,23 +2,50 @@
 
 from typing import Any
 
+from hushh_mcp.services.feed_location_state import grant_status_sql
+
 
 def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
     joins, patches, required = [], [], {}
-    if has("one_location_share_grants") and has("one_location_access_requests"):
+    grants = ["flg"] if has("one_location_share_grants") else []
+    has_requests = has("one_location_access_requests")
+    if grants and has_requests:
         joins.append(f"""LEFT JOIN one_location_share_grants result_grant
           ON result_grant.id={uuid_sql("to_jsonb(flr)->>'approved_grant_id'")}
           AND result_grant.owner_user_id=flr.owner_user_id AND result_grant.recipient_user_id=flr.requester_user_id""")
-        patches.append("""jsonb_strip_nulls(jsonb_build_object(
-          'grant_id',COALESCE(flg.id,result_grant.id)::text,
-          'share_kind',COALESCE(f.metadata->>'share_kind',to_jsonb(flg)->'metadata'->>'share_kind',to_jsonb(result_grant)->'metadata'->>'share_kind'),
-          'current_location_status',COALESCE(to_jsonb(flg)->>'status',to_jsonb(result_grant)->>'status',
-            CASE WHEN to_jsonb(flr)->>'status'='pending' AND (to_jsonb(flr)->>'expires_at')::timestamptz<=clock_timestamp() THEN 'expired' ELSE to_jsonb(flr)->>'status' END),
-          'feed_audience',CASE WHEN f.user_id=COALESCE(flg.recipient_user_id,flr.requester_user_id) THEN 'recipient' WHEN flg.id IS NOT NULL OR flr.id IS NOT NULL THEN 'owner' END))""")
-        if not historical:
-            required["location_access_request"] = (
-                "flr.id IS NULL OR (COALESCE(to_jsonb(flr)->>'status','pending')<>'expired' AND NOT(COALESCE(to_jsonb(flr)->>'status','pending')='pending' AND COALESCE((to_jsonb(flr)->>'expires_at')::timestamptz<=clock_timestamp(),FALSE)))"
+        grants.append("result_grant")
+    if grants or has_requests:
+        # The grant and request tables roll out independently. A confirmed grant
+        # still supplies current state when the request relation is unavailable.
+        statuses = [grant_status_sql(alias) for alias in grants]
+        recipients = [alias + ".recipient_user_id" for alias in grants]
+        sources = [alias + ".id IS NOT NULL" for alias in grants]
+        if has_requests:
+            statuses.append(
+                "CASE WHEN to_jsonb(flr)->>'status'='pending' AND (to_jsonb(flr)->>'expires_at')::timestamptz<=clock_timestamp() THEN 'expired' ELSE to_jsonb(flr)->>'status' END"
             )
+            recipients.append("flr.requester_user_id")
+            sources.append("flr.id IS NOT NULL")
+        fields = [
+            "'current_location_status',COALESCE(" + ",".join(statuses) + ")",
+            "'feed_audience',CASE WHEN f.user_id=COALESCE("
+            + ",".join(recipients)
+            + ") THEN 'recipient' WHEN "
+            + " OR ".join(sources)
+            + " THEN 'owner' END",
+        ]
+        if grants:
+            fields += [
+                "'grant_id',COALESCE(" + ",".join(alias + ".id" for alias in grants) + ")::text",
+                "'share_kind',COALESCE(f.metadata->>'share_kind',"
+                + ",".join("to_jsonb(" + alias + ")->'metadata'->>'share_kind'" for alias in grants)
+                + ")",
+            ]
+        patches.append("jsonb_strip_nulls(jsonb_build_object(" + ",".join(fields) + "))")
+    if has_requests and not historical:
+        required["location_access_request"] = (
+            "flr.id IS NULL OR (COALESCE(to_jsonb(flr)->>'status','pending')<>'expired' AND NOT(COALESCE(to_jsonb(flr)->>'status','pending')='pending' AND COALESCE((to_jsonb(flr)->>'expires_at')::timestamptz<=clock_timestamp(),FALSE)))"
+        )
     if has("one_location_circle_member_invites"):
         joins.append(f"""LEFT JOIN one_location_circle_member_invites circle_invite
           ON circle_invite.id={uuid_sql("COALESCE(f.metadata->>'invite_id',split_part(f.source_row_id,':',1))")}

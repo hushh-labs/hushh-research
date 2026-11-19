@@ -217,3 +217,12 @@ _DISMISS_SQL = f"""
                      WHERE f.user_id = :user_id AND ({GENERAL_OPERATION_KEY_SQL}) = target.operation_key)))
             RETURNING id, dismissal_token
             """
+
+
+def protected_dismissal_sql(active_incident: str) -> str:
+    if active_incident == "FALSE":
+        return _DISMISS_SQL
+    marker = "RETURNING id, dismissal_token"
+    if _DISMISS_SQL.count(marker) != 1:
+        raise ValueError("Feed dismissal contract changed")
+    return _DISMISS_SQL.replace(marker, f"AND NOT ({active_incident}) " + marker)

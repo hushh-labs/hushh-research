@@ -70,12 +70,13 @@ from hushh_mcp.services.feed_event_writer import (
     write_feed_event,
 )
 from hushh_mcp.services.feed_group_queries import (
-    _DISMISS_SQL,
     _GROUPED_FEED_COUNT_SELECT,
     _GROUPED_FEED_CTE,
     _GROUPED_FEED_PAGE_SELECT,
     _SOURCE_EVENTS_SQL,
+    protected_dismissal_sql,
 )
+from hushh_mcp.services.feed_location_state import active_incident_sql
 from hushh_mcp.services.feed_metadata_keys import FEED_METADATA_KEYS
 from hushh_mcp.services.feed_payment_projection import (
     DRIVE_DELIVERY_COUNT_FIELDS as _DRIVE_DELIVERY_COUNT_FIELDS,
@@ -90,6 +91,7 @@ from hushh_mcp.services.feed_read_snapshot import (
     mark_read_snapshot,
 )
 from hushh_mcp.services.feed_search_contract import FeedSearchCriteria
+from hushh_mcp.services.feed_source_context import _uuid as feed_uuid_sql
 from hushh_mcp.services.feed_source_context import load_source_columns, source_events_sql
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -1269,7 +1271,9 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         rows = (
             self._get_db()
             .execute_raw(
-                _DISMISS_SQL,
+                protected_dismissal_sql(
+                    active_incident_sql("item", self._feed_source_columns(), feed_uuid_sql)
+                ),
                 {
                     "user_id": user_id,
                     "item_id": item_id,
@@ -1347,7 +1351,12 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
             rows = (
                 self._get_db()
                 .execute_raw(
-                    guarded_acknowledgment_sql(clear=True),
+                    guarded_acknowledgment_sql(
+                        clear=True,
+                        protected_incident=active_incident_sql(
+                            "item", self._feed_source_columns(), feed_uuid_sql
+                        ),
+                    ),
                     {
                         "user_id": user_id,
                         "up_to_id": up_to_id,
@@ -1362,18 +1371,25 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
             )
             return {
                 "status": "ok",
-                "clear_version": max((row["clear_version"] for row in rows), key=int, default=None),
+                "clear_version": max(
+                    (row["clear_version"] for row in rows if row["clear_version"] is not None),
+                    key=int,
+                    default=None,
+                ),
                 "snapshot_changed": not bool(rows),
             }
         result = self._get_db().execute_raw(
             """
-            UPDATE feed_events
+            UPDATE feed_events AS item
                SET dismissed_at = now(),
                    dismissal_token = :dismissal_token,
                    read_at = COALESCE(read_at, now())
              WHERE user_id = :user_id AND (id <= :up_to_id
                OR id = ANY(CAST(:surfacing_ids AS BIGINT[])))
             """
+            + " AND NOT ("
+            + active_incident_sql("item", self._feed_source_columns(), feed_uuid_sql)
+            + ")"
             + (
                 " AND created_at<=:through_time RETURNING CAST(EXTRACT(EPOCH FROM dismissed_at)*1000000 AS BIGINT)::text AS clear_version"
                 if through_time

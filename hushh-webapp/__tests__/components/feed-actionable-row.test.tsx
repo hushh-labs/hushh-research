@@ -38,22 +38,20 @@ describe("FeedActionableRow", () => {
     expect(screen.queryByRole("dialog", { name: "Connect Google Drive" })).not.toBeInTheDocument();
   });
 
-  it("shows only the latest SMS for each sender without an older-incident disclosure", () => {
-    const base = actionable({ title: "Same name", person: { displayName: "Same name", photoUrl: null }, smsEmergency: { senderId: "sender-a" }, description: "Emergency SMS · Revoked", displayTimestamp: Date.parse("2026-08-12T09:00:00Z"), sortAt: 1 });
-    const active = { ...base, id: "active", emphasis: "emergency" as const, description: "Emergency SMS · Active", href: "/one/location?grantId=active&open=1&section=shared", chevron: true, sortAt: 2 };
-    const groups = groupFeedSmsAlerts([base, active, active, { ...base, id: "other", smsEmergency: { senderId: "sender-b" } }, { ...base, id: "unknown-a", smsEmergency: { senderId: "" } }, { ...base, id: "unknown-b", smsEmergency: { senderId: "" } }]);
-    expect(groups).toHaveLength(4);
-    const group = groups.find((entry) => entry.id === "sender-a")!;
-    expect(group.items.map((item) => item.id)).toEqual(["active"]);
-    expect(group.activeCount).toBe(1);
-    const { container } = render(<FeedSmsAlertGroup group={group} />);
+  it("keeps simultaneous emergencies from the same sender separate and folds only the same verified incident", () => {
+    const base = actionable({ title: "Same name", person: { displayName: "Same name", photoUrl: null }, smsEmergency: { senderId: "sender-a" }, description: "Emergency SMS · Active", emphasis: "emergency", displayTimestamp: Date.parse("2026-08-12T09:00:00Z"), sortAt: 1 });
+    const first = { ...base, id: "active-one", operationKey: "location-grant:one", href: "/one/location?grantId=one", chevron: true };
+    const second = { ...first, id: "active-two", operationKey: "location-grant:two", href: "/one/location?grantId=two", sortAt: 2 };
+    const groups = groupFeedSmsAlerts([first, second, second]);
+    expect(groups).toHaveLength(2);
+    expect(groups.every(group => group.activeCount === 1 && group.items.length === 1)).toBe(true);
+    const { container } = render(<>{groups.map(group => <FeedSmsAlertGroup key={group.id} group={group} />)}</>);
+    expect(screen.getAllByRole("link", { name: /Same name.*Emergency SMS · Active/ })).toHaveLength(2);
     expect(container.querySelector("details")).toBeNull();
-    expect(screen.getByRole("link", { name: /Same name.*Emergency SMS · Active/ })).toHaveAttribute("href", active.href);
-    expect(container.querySelectorAll('time[datetime="2026-08-12T09:00:00.000Z"]')).toHaveLength(1);
-    expect(screen.queryByText("Emergency SMS · Revoked")).not.toBeInTheDocument();
-    const ended = { ...base, id: "new-ended", sortAt: 3 };
-    expect(groupFeedSmsAlerts([active, ended])[0]?.latest.id).toBe("new-ended");
-    expect(groupFeedSmsAlerts([active, ended])[0]?.activeCount).toBe(0);
+    const ended = { ...first, id: "ended-one", emphasis: undefined, description: "Emergency SMS · Revoked", sortAt: 3 };
+    const updated = groupFeedSmsAlerts([first, second, ended]);
+    expect(updated.map(group => [group.latest.id, group.activeCount])).toEqual([["active-two", 1], ["ended-one", 0]]);
+    expect(groupFeedSmsAlerts([{ ...base, id: "unknown-a", smsEmergency: { senderId: "" } }, { ...base, id: "unknown-b", smsEmergency: { senderId: "" } }])).toHaveLength(2);
   });
 
   it("keeps SMS sent time in the text column and never invents a missing time", () => {
