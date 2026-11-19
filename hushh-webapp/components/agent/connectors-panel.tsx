@@ -42,7 +42,7 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { ConnectorVectorGlyph } from "./connector-brand-mark";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { connectVaultPlaid, disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { connectVaultPlaid, disconnectVaultPlaid, refreshVaultConnections, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -2157,6 +2157,9 @@ function OwnerConnectorsPanel({
     {
       id: "plaid",
       name: "Plaid",
+      accountDetail: plaidConnections.length
+        ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}`
+        : undefined,
       connected: plaidConnections.length > 0,
       onOpen: () => showConnector("plaid"),
       pending: disconnecting.plaid ? "disconnect" : undefined,
@@ -2167,7 +2170,9 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Sign-in needed"
-            : undefined,
+            : plaidConnections.length
+              ? "Connected"
+              : "Link bank & investment accounts",
     },
     ...(surface === "profile" ? ["instagram", "linkedin"].map((id): ConnectorListEntry => ({
       id,
@@ -2440,6 +2445,42 @@ function OwnerConnectorsPanel({
     } finally {
       if (liveUnlockOwner.current === unlockOwner) {
         changesInFlight.current.delete("plaid:connect");
+        setPlaidBusy(false);
+      }
+    }
+  }
+
+  async function refreshPlaidLive() {
+    if (!applicationOwnerId || !vaultOwnerToken || !vaultKey || plaidBusy ||
+        liveUnlockOwner.current !== unlockOwner || changesInFlight.current.has("plaid:refresh")) return;
+    changesInFlight.current.add("plaid:refresh");
+    setPlaidBusy(true);
+    setPlaidMessage("Refreshing live bank data…");
+    try {
+      const outcome = await refreshVaultConnections({
+        userId: applicationOwnerId,
+        vaultKey,
+        vaultOwnerToken,
+        financial: financial.data?.data,
+        force: true,
+      });
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      await financial.refresh?.({ force: true });
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      setPlaidMessage(
+        outcome.needsRelink.length > 0
+          ? "Reconnect needed before refreshing."
+          : outcome.refreshed > 0
+            ? "Live bank snapshot updated."
+            : outcome.failed > 0
+              ? "Could not refresh live bank data. Try again."
+              : "Bank records are already up to date.",
+      );
+    } catch {
+      if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not refresh live bank data. Try again.");
+    } finally {
+      if (liveUnlockOwner.current === unlockOwner) {
+        changesInFlight.current.delete("plaid:refresh");
         setPlaidBusy(false);
       }
     }
@@ -3050,12 +3091,16 @@ function OwnerConnectorsPanel({
               </section>
             )}
             {activeConnector === "plaid" && (
-              <section className="space-y-3" aria-label="Plaid connection details">
+              <section className="space-y-3 rounded-2xl border border-border bg-card/40 p-4" aria-label="Plaid connection details">
+                <div className="flex items-center gap-2.5">
+                  <ConnectorVectorGlyph id="plaid" variant="profile" />
+                  <h3 className="font-semibold text-foreground">Plaid</h3>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {plaidDetail.status}
                 </p>
                 {Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => (
-                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border p-3">
+                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-normal">{connection.institution_name || "Bank connection"}</p>
                       <p className="text-xs text-muted-foreground">{connection.status === "needs_relink" ? "Reconnect needed" : "Connected"}</p>
@@ -3066,11 +3111,18 @@ function OwnerConnectorsPanel({
                   </div>
                 ))}
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidDetail.message}</p>
-                {!plaidConnections.length && !financial.loading && !financial.error && (
-                  <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
-                    Connect a bank
-                  </Button>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {plaidConnections.length > 0 && !financial.loading && !financial.error && (
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void refreshPlaidLive(); }}>
+                      Refresh live
+                    </Button>
+                  )}
+                  {!plaidConnections.length && !financial.loading && !financial.error && (
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
+                      Connect a bank
+                    </Button>
+                  )}
+                </div>
               </section>
             )}
             {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid", ...(inProfile ? ["instagram", "linkedin"] : [])].includes(activeConnector ?? "") && (

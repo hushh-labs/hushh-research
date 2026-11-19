@@ -138,6 +138,11 @@ describe("supported connector catalog", () => {
     state.privatePlacement.mockResolvedValue(true);
     const view = render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
+    expect(await screen.findByTestId('private-plaid-connectors')).toBeInTheDocument();
+    expect(screen.getByTestId('private-connector-row-plaid')).toBeInTheDocument();
+    expect(screen.getByTestId('private-stripe-settings-group')).toBeInTheDocument();
+    expect(document.querySelector('img[data-connector-brand="plaid"][src="/icons/connectors/plaid.svg"]')).not.toBeNull();
+    expect(document.querySelector('img[data-connector-brand="stripe"][src="/icons/connectors/stripe.svg"]')).not.toBeNull();
     expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
     expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
     expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);

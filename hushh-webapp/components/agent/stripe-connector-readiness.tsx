@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ProfilePaymentsLink } from "@/components/profile/profile-account-link";
 import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -155,40 +156,70 @@ export function useStripeConnectorReadiness({ access, onPrepareRecovery }: {
 
 export type StripeConnectorReadinessModel = ReturnType<typeof useStripeConnectorReadiness>;
 
-export function StripeConnectorReadiness(props: { access: CustomConnectorAccess | null; onPrepareRecovery?: PrepareRecovery; model?: StripeConnectorReadinessModel }) {
-  return props.model ? <StripeConnectorReadinessView model={props.model} /> : <OwnedStripeConnectorReadiness {...props} />;
+export function StripeConnectorReadiness(props: { access: CustomConnectorAccess | null; onPrepareRecovery?: PrepareRecovery; model?: StripeConnectorReadinessModel; embedded?: boolean }) {
+  return props.model ? <StripeConnectorReadinessView model={props.model} embedded={props.embedded} /> : <OwnedStripeConnectorReadiness {...props} />;
 }
 function OwnedStripeConnectorReadiness(props: Parameters<typeof StripeConnectorReadiness>[0]) {
-  return <StripeConnectorReadinessView model={useStripeConnectorReadiness(props)} />;
+  return <StripeConnectorReadinessView model={useStripeConnectorReadiness(props)} embedded={props.embedded} />;
 }
-function StripeConnectorReadinessView({ model }: { model: StripeConnectorReadinessModel }) {
+function StripeConnectorReadinessView({ model, embedded = false }: { model: StripeConnectorReadinessModel; embedded?: boolean }) {
   const { access, onPrepareRecovery, busy, checking, status, verification, current, connect, check } = model;
-  return <section className="space-y-3" aria-label="Stripe connection readiness">
-    <div className="flex items-center gap-2.5">
-      <ConnectorVectorGlyph id="stripe" variant="profile" />
-      <h3 className="text-base font-medium text-foreground">Stripe</h3>
+  const statusBlock = (
+    <>
+      <p role="status" className="text-xs leading-relaxed text-muted-foreground">
+        {checking && current() ? "Checking Stripe tools and Sandbox account…" : STRIPE_CONNECTION_STATUS[status]}
+        {" "}{status !== "verified" && "Stripe account and balance tools still need verification."}
+      </p>
+      {status === "verified" && current() && verification?.verifiedAt && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Provider observation: {new Date(verification.verifiedAt).toLocaleString()}. Purchases still require Consent review.
+        </p>
+      )}
+    </>
+  );
+  const bodyBlock = (
+    <div className="space-y-2.5">
+      <p className="text-xs leading-relaxed text-muted-foreground">Use Payments and earnings to fund purchases and receive earnings. Stripe tool sign-in is optional for sharing.</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">Enable MCP access in your Stripe Sandbox, then sign in and select that Sandbox.</p>
+      <div className="flex flex-wrap gap-2 pt-0.5">
+        <Button asChild variant="outline" size="compact" className="min-h-11 whitespace-normal">
+          <ProfilePaymentsLink>Open payments and earnings</ProfilePaymentsLink>
+        </Button>
+        <Button variant="outline" size="compact" className="min-h-11 whitespace-normal" disabled={!access || !onPrepareRecovery || busy || checking} onClick={() => void connect()}>
+          {busy ? "Opening Stripe…" : "Connect or reconnect Stripe tools"}
+        </Button>
+        <Button variant="outline" size="compact" className="min-h-11 whitespace-normal" disabled={!access || busy || checking} onClick={() => void check()}>
+          {checking ? "Checking…" : "Check connection"}
+        </Button>
+      </div>
+      {!access && <p className="text-xs text-muted-foreground">Sign in and unlock your vault to connect Stripe.</p>}
+      {access && !onPrepareRecovery && <p className="text-xs text-muted-foreground">Open Connections from your profile to start Stripe sign-in.</p>}
     </div>
-    <p role="status" className="text-sm text-muted-foreground">
-      {checking && current() ? "Checking Stripe tools and Sandbox account…" : STRIPE_CONNECTION_STATUS[status]}
-      {" "}{status !== "verified" && "Stripe account and balance tools still need verification."}
-    </p>
-    {status === "verified" && current() && verification?.verifiedAt && <p className="text-sm text-muted-foreground">
-      Provider observation: {new Date(verification.verifiedAt).toLocaleString()}. Purchases still require Consent review.
-    </p>}
-    <p className="text-sm text-muted-foreground">Use Payments and earnings to fund purchases and receive earnings. Stripe tool sign-in is optional for sharing.</p>
-    <p className="text-sm text-muted-foreground">Enable MCP access in your Stripe Sandbox, then sign in and select that Sandbox.</p>
-    <div className="flex flex-wrap gap-2">
-      <Button asChild variant="outline" className="min-h-11">
-        <ProfilePaymentsLink>Open payments and earnings</ProfilePaymentsLink>
-      </Button>
-      <Button variant="outline" className="min-h-11" disabled={!access || !onPrepareRecovery || busy || checking} onClick={() => void connect()}>
-        {busy ? "Opening Stripe…" : "Connect or reconnect Stripe tools"}
-      </Button>
-      <Button variant="outline" className="min-h-11" disabled={!access || busy || checking} onClick={() => void check()}>
-        {checking ? "Checking…" : "Check connection"}
-      </Button>
-    </div>
-    {!access && <p className="text-sm text-muted-foreground">Sign in and unlock your vault to connect Stripe.</p>}
-    {access && !onPrepareRecovery && <p className="text-sm text-muted-foreground">Open Connections from your profile to start Stripe sign-in.</p>}
-  </section>;
+  );
+
+  if (embedded) {
+    return (
+      <section className="space-y-3" aria-label="Stripe connection readiness">
+        {statusBlock}
+        {bodyBlock}
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-2" aria-label="Stripe connection readiness">
+      <SettingsGroup title="Payments & Stripe" testId="private-stripe-settings-group">
+        <div className="flex items-start gap-3 px-4 pb-3 pt-3.5">
+          <ConnectorVectorGlyph id="stripe" variant="profile" className="mt-0.5" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="text-sm font-medium leading-tight text-foreground">Stripe</h3>
+            {statusBlock}
+          </div>
+        </div>
+        <div className="border-t border-border/50 px-4 py-3">
+          {bodyBlock}
+        </div>
+      </SettingsGroup>
+    </section>
+  );
 }
