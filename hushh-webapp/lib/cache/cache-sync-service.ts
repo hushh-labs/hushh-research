@@ -382,6 +382,10 @@ export class CacheSyncService {
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
 
     if (domain === "financial") {
       if (options?.portfolioData) {

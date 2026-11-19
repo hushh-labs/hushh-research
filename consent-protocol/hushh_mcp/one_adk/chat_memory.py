@@ -261,7 +261,10 @@ def _groups(contents: list[Any]) -> list[list[Any]]:
     groups: list[list[Any]] = []
     for content in contents:
         parts = content.parts or []
-        person = content.role == "user" and any(getattr(part, "text", None) for part in parts)
+        person = content.role == "user" and any(
+            getattr(part, "text", None) and not str(part.text).startswith("[TURN RUNTIME CONTEXT")
+            for part in parts
+        )
         tool_reply = any(getattr(part, "function_response", None) for part in parts)
         if not groups or (person and not tool_reply):
             groups.append([])

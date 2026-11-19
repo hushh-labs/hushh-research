@@ -1,9 +1,37 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
+import {
+  AgentConnectorContinuationContext,
+  ConnectorReadReceipt,
+  WorkspaceConnectorSetupCard,
+} from "@/components/agent/connector-read-receipt";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import { VaultContext } from "@/lib/vault/vault-context";
+
+const plaidState = vi.hoisted(() => ({
+  financialData: null as Record<string, unknown> | null,
+  connect: vi.fn(async () => ({ status: "connected" as const, institutionName: "First Platypus Bank" })),
+  refresh: vi.fn(async () => ({ refreshed: 1, failed: 0, needsRelink: [] as string[] })),
+  wikiSync: vi.fn(async () => true),
+}));
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
+  usePkmDomainResource: () => ({
+    data: plaidState.financialData ? { data: plaidState.financialData } : null,
+    loading: false,
+    error: null,
+    refresh: async () => ({ data: plaidState.financialData }),
+  }),
+}));
+vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
+  connectVaultPlaid: plaidState.connect,
+  refreshVaultConnections: plaidState.refresh,
+  vaultConnections: (financial: Record<string, unknown> | null | undefined) =>
+    ((financial?.connections_v1 as Record<string, unknown> | undefined) ?? {}),
+}));
+vi.mock("@/lib/kai/plaid-vault/wiki-posture-sync", () => ({
+  syncPlaidPostureToPersonalWikiBestEffort: plaidState.wikiSync,
+}));
 
 const gmailState = vi.hoisted(() => ({ connected: false, disconnect: vi.fn(async () => ({ connected: false })) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner", getIdToken: async () => "synthetic-id-token" }, userId: "synthetic-owner" }) }));
@@ -134,5 +162,48 @@ describe("Workspace connector setup card", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Drive · Connected"));
     expect(driveOverview).toHaveBeenCalledWith("synthetic-vault-owner-token");
     expect(screen.getByRole("button", { name: "Manage Drive" })).toBeInTheDocument();
+  });
+
+  it("renders inline Plaid and Stripe cards with official SVGs and completes inline Plaid connect -> Wiki -> Chat continuation", async () => {
+    const continueAfterConnectorSync = vi.fn();
+    plaidState.financialData = null;
+    plaidState.connect.mockClear();
+    plaidState.wikiSync.mockClear();
+
+    const { container } = render(
+      <VaultContext.Provider
+        value={{ vaultKey: "synthetic-vault-key", vaultOwnerToken: "synthetic-vault-owner-token" } as never}
+      >
+        <AgentConnectorContinuationContext.Provider value={{ continueAfterConnectorSync }}>
+          <WorkspaceConnectorSetupCard
+            experience={{ type: "one.workspace_connector_setup.v1", provider: "plaid", status: "connect_required" }}
+          />
+        </AgentConnectorContinuationContext.Provider>
+      </VaultContext.Provider>,
+    );
+
+    expect(container.querySelector('img[data-connector-brand="plaid"]')).toHaveAttribute(
+      "src",
+      "/icons/connectors/plaid.svg",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Connect bank" }));
+    await waitFor(() => expect(plaidState.connect).toHaveBeenCalledOnce());
+    await waitFor(() => expect(plaidState.wikiSync).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(continueAfterConnectorSync).toHaveBeenCalledWith(
+        expect.stringContaining("First Platypus Bank"),
+      ),
+    );
+
+    const stripeRender = render(
+      <WorkspaceConnectorSetupCard
+        experience={{ type: "one.workspace_connector_setup.v1", provider: "stripe", status: "connect_required" }}
+      />,
+    );
+    expect(stripeRender.container.querySelector('img[data-connector-brand="stripe"]')).toHaveAttribute(
+      "src",
+      "/icons/connectors/stripe.svg",
+    );
+    expect(screen.getByRole("button", { name: "Set up Stripe" })).toBeInTheDocument();
   });
 });

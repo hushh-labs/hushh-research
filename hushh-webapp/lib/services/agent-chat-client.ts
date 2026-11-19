@@ -594,6 +594,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Checking your saved connectors.",
     activity: "Checking your connectors",
   },
+  manage_connector: {
+    label: "Connectors",
+    message: "Checking your connector setup.",
+    activity: "Checking connector setup",
+  },
   probe_private_connector: {
     label: "Connectors",
     message: "Checking that server.",
@@ -954,14 +959,16 @@ const WORKSPACE_PROVIDER_NAMES: Record<string, string> = {
   gmail: "Gmail",
   drive: "Google Drive",
   calendar: "Google Calendar",
+  plaid: "Plaid",
+  stripe: "Stripe",
+  custom: "Connectors",
 };
 
 /**
- * Connector setup and reads name the Google product once the call's provider
- * is known, so "lets connect to Google Drive" reads "Google Drive · Checking
- * Google Drive access" rather than a generic connector row. Only the fixed
- * enum above ever labels a step; any other provider value keeps the generic
- * presentation.
+ * Connector setup and reads name the product once the call's provider is
+ * known, so "connect our bank account" reads "Plaid · Checking Plaid" rather
+ * than a generic connector row. Only the fixed enum above ever labels a step;
+ * any other provider value keeps the generic presentation.
  */
 function workspaceToolPresentation(
   toolName: string,
@@ -975,6 +982,13 @@ function workspaceToolPresentation(
   if (toolName === "read_workspace_tool") {
     return { label: name, message: `Reading ${name}.`, activity: `Reading ${name}` };
   }
+  if (toolName === "manage_connector") {
+    return {
+      label: name,
+      message: provider === "custom" ? "Checking your saved connectors." : `Preparing ${name} setup.`,
+      activity: provider === "custom" ? "Checking your connectors" : `Preparing ${name}`,
+    };
+  }
   return null;
 }
 
@@ -987,7 +1001,7 @@ export type RestoredActivityStep = {
   message: string;
   status: "done" | "waiting" | "blocked";
   tag?: "Read" | "Needs review" | "Public";
-  provider?: "gmail" | "drive" | "calendar";
+  provider?: "gmail" | "drive" | "calendar" | "plaid" | "stripe";
   toolName: string;
   /** Opaque owner connector id; the workspace resolves its name from the owner's vault. */
   connectorId?: string;
@@ -1031,8 +1045,8 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (!mcp && !presentation) return [];
     if (!["done", "waiting", "blocked", "interrupted"].includes(String(rawStatus))) return [];
     const status = rawStatus === "interrupted" ? "blocked" : rawStatus as "done" | "waiting" | "blocked";
-    const provider = ["gmail", "drive", "calendar"].includes(String(step.provider))
-      ? step.provider as "gmail" | "drive" | "calendar" : undefined;
+    const provider = ["gmail", "drive", "calendar", "plaid", "stripe"].includes(String(step.provider))
+      ? step.provider as "gmail" | "drive" | "calendar" | "plaid" | "stripe" : undefined;
     if (mcp) {
       const connectorId = typeof step.connectorId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(step.connectorId)
         ? step.connectorId : undefined;
@@ -1051,7 +1065,7 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (!presentation) return [];
     let message = presentation.message;
     if (rawStatus === "interrupted") message = "This step did not finish.";
-    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
+    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool" || toolName === "manage_connector") message = "Connector access checked.";
     else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
     else if (toolName === "probe_private_connector") message = "One checked that server.";
     else if (toolName === "read_selected_drive_search_result") {
@@ -1675,6 +1689,7 @@ async function streamAgentChatAttempt(input: {
   const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
+  let sawConnectorSetupCard = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const mcpReviews = new Map<string, {
@@ -2042,7 +2057,8 @@ async function streamAgentChatAttempt(input: {
       const workspaceConnectorTool =
         toolName === "discover_workspace_tools" ||
         toolName === "read_workspace_tool" ||
-        toolName === "inspect_private_connectors";
+        toolName === "inspect_private_connectors" ||
+        toolName === "manage_connector";
       if (toolName === "read_selected_drive_search_result") {
         const result = unwrapParkedActionResult(event.content);
         const payload = toolPayload(event.toolCallId, toolName);
@@ -2082,6 +2098,9 @@ async function streamAgentChatAttempt(input: {
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
         if (experience) {
+          if (experience.type === "one.workspace_connector_setup.v1") {
+            sawConnectorSetupCard = true;
+          }
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;
@@ -2109,6 +2128,9 @@ async function streamAgentChatAttempt(input: {
         };
         handlers.onToolResult?.(payload);
         if (experience) {
+          if (experience.type === "one.workspace_connector_setup.v1") {
+            sawConnectorSetupCard = true;
+          }
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;
@@ -2177,12 +2199,48 @@ async function streamAgentChatAttempt(input: {
         toolArgs.get(event.toolCallId),
       );
       if (experience) {
+        if (experience.type === "one.workspace_connector_setup.v1") {
+          sawConnectorSetupCard = true;
+        }
         // Redelivery can assign a new transport message while retaining the
         // same invocation. One invocation owns one evolving card.
         const eventId = event.toolCallId.trim() ||
           (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
           undefined;
         handlers.onStructuredExperience?.(experience, eventId);
+      } else if (!sawConnectorSetupCard) {
+        // Pre-upgrade Pod bridge: deployed Pods whose image predates manage_connector
+        // inspect app actions and return route.profile_net_worth_score / route.profile_payouts
+        // instead of rendering an inline Chat setup card. Upgrade it in-place here.
+        const rawText = typeof event.content === "string"
+          ? event.content
+          : JSON.stringify(event.content ?? "");
+        const promptText = input.message || "";
+        const isPlaidIntent =
+          parked?.actionId === "route.profile_net_worth_score" ||
+          (toolName === "list_app_actions" &&
+            rawText.includes("route.profile_net_worth_score") &&
+            /\b(connect|link|add|sync|refresh|plaid|bank|checking|savings|investment|credit|card|loan)\b/i.test(promptText));
+        const isStripeIntent =
+          parked?.actionId === "route.profile_payouts" ||
+          (toolName === "list_app_actions" &&
+            rawText.includes("route.profile_payouts") &&
+            /\b(stripe|payout|payouts|seller|earnings)\b/i.test(promptText));
+        const fallbackProvider = isPlaidIntent ? "plaid" : isStripeIntent ? "stripe" : null;
+        if (fallbackProvider) {
+          sawConnectorSetupCard = true;
+          const eventId = event.toolCallId.trim() ||
+            (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
+            undefined;
+          handlers.onStructuredExperience?.(
+            {
+              type: "one.workspace_connector_setup.v1",
+              provider: fallbackProvider,
+              status: "connect_required",
+            },
+            eventId,
+          );
+        }
       }
     },
     onActivitySnapshotEvent: ({ event }) => {

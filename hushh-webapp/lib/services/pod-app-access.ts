@@ -34,15 +34,18 @@ type PrewarmedGrantsEntry = {
 };
 let prewarmedChatGrants: PrewarmedGrantsEntry | null = null;
 const prewarmInFlight = new Map<string, Promise<void>>();
+const directGrantsInFlight = new Map<string, Promise<Record<string, string>>>();
 
 export function resetCachedChatGrantsForTests(): void {
   prewarmedChatGrants = null;
   prewarmInFlight.clear();
+  directGrantsInFlight.clear();
 }
 
 export function forgetAgentAnswers(): void {
   clearTransportAgentAnswers();
   prewarmedChatGrants = null;
+  directGrantsInFlight.clear();
 }
 
 function prewarmGrantsCacheKey(uid: string, endpoint: PinnedEndpoint): string {
@@ -452,11 +455,13 @@ async function chatGrantsFollowingEndpoint(
         grants: cached.grants,
       };
     }
+    const grants = await directChatGrantsDeduped(cacheKey, connection.endpoint, transport, signal);
     return {
       ...connection,
-      grants: await directChatGrants(connection.endpoint, transport, signal),
+      grants,
     };
   } catch (error) {
+    prewarmedChatGrants = null;
     if (!(error instanceof EndpointAdvancedError)) throw error;
     const ownerPod = await import("./owner-pod-endpoint");
     const next = await beforeTurnIsSent(async () => {
@@ -479,6 +484,27 @@ async function chatGrantsFollowingEndpoint(
       ...next,
       grants: await directChatGrants(next.endpoint, transport, signal),
     };
+  }
+}
+
+async function directChatGrantsDeduped(
+  cacheKey: string,
+  endpoint: PinnedEndpoint,
+  transport: OwnerPodTransport,
+  signal?: AbortSignal | null,
+): Promise<Record<string, string>> {
+  const existing = directGrantsInFlight.get(cacheKey);
+  if (existing) {
+    return untilCancelled(existing, signal);
+  }
+  const work = directChatGrants(endpoint, transport, signal);
+  directGrantsInFlight.set(cacheKey, work);
+  try {
+    return await untilCancelled(work, signal);
+  } finally {
+    if (directGrantsInFlight.get(cacheKey) === work) {
+      directGrantsInFlight.delete(cacheKey);
+    }
   }
 }
 
@@ -628,7 +654,7 @@ export async function prewarmOwnerPodChatAccess(ports: {
       await Promise.allSettled([
         alreadyFresh
           ? Promise.resolve()
-          : directChatGrants(connection.endpoint, transport)
+          : directChatGrantsDeduped(cacheKey, connection.endpoint, transport)
               .then((grants) => {
                 if (
                   Object.keys(grants).length > 0 &&

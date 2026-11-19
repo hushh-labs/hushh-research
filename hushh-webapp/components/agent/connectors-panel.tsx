@@ -2443,7 +2443,18 @@ function OwnerConnectorsPanel({
       if (liveUnlockOwner.current !== unlockOwner) return;
       setPlaidMessage(result.status === "connected" ? "Bank connected." :
         result.status === "blocked" ? result.reason : "");
-      if (result.status === "connected") await financial.refresh({ force: true });
+      if (result.status === "connected") {
+        await financial.refresh({ force: true });
+        const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+          "@/lib/kai/plaid-vault/wiki-posture-sync"
+        );
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId: applicationOwnerId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: financial.data?.data,
+        });
+      }
     } catch {
       if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not connect that bank. Try again.");
     } finally {
@@ -2470,6 +2481,17 @@ function OwnerConnectorsPanel({
       });
       if (liveUnlockOwner.current !== unlockOwner) return;
       await financial.refresh?.({ force: true });
+      if (outcome.refreshed > 0) {
+        const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+          "@/lib/kai/plaid-vault/wiki-posture-sync"
+        );
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId: applicationOwnerId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: financial.data?.data,
+        });
+      }
       if (liveUnlockOwner.current !== unlockOwner) return;
       setPlaidMessage(
         outcome.needsRelink.length > 0

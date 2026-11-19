@@ -178,17 +178,18 @@ function StripeConnectorReadinessView({ model, embedded = false }: { model: Stri
     </>
   );
   const bodyBlock = (
-    <div className="space-y-2.5">
-      <p className="text-xs leading-relaxed text-muted-foreground">Use Payments and earnings to fund purchases and receive earnings. Stripe tool sign-in is optional for sharing.</p>
-      <p className="text-xs leading-relaxed text-muted-foreground">Enable MCP access in your Stripe Sandbox, then sign in and select that Sandbox.</p>
-      <div className="flex flex-wrap gap-2 pt-0.5">
-        <Button asChild variant="outline" size="compact" className="min-h-11 whitespace-normal">
+    <div className="space-y-3">
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Use Payments and earnings to fund purchases and receive earnings. Enable MCP access in your Stripe Sandbox, then sign in and select that Sandbox.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button asChild variant="outline" size="compact" className="whitespace-nowrap">
           <ProfilePaymentsLink>Open payments and earnings</ProfilePaymentsLink>
         </Button>
-        <Button variant="outline" size="compact" className="min-h-11 whitespace-normal" disabled={!access || !onPrepareRecovery || busy || checking} onClick={() => void connect()}>
+        <Button variant="outline" size="compact" className="whitespace-nowrap" disabled={!access || !onPrepareRecovery || busy || checking} onClick={() => void connect()}>
           {busy ? "Opening Stripe…" : "Connect or reconnect Stripe tools"}
         </Button>
-        <Button variant="outline" size="compact" className="min-h-11 whitespace-normal" disabled={!access || busy || checking} onClick={() => void check()}>
+        <Button variant="outline" size="compact" className="whitespace-nowrap" disabled={!access || busy || checking} onClick={() => void check()}>
           {checking ? "Checking…" : "Check connection"}
         </Button>
       </div>

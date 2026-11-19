@@ -178,8 +178,18 @@ def _active_leaf_tools(intent_text: str, history_tools: set[str]) -> set[str]:
 
 
 def scope_leaf_tools_before_model(callback_context: Any, llm_request: Any) -> None:
-    """Before-model callback: prune unrelated leaf tool declarations for lower latency & tokens."""
+    """Before-model callback: prune unrelated leaf tool declarations when opted in.
+
+    Disabled by default so Gemini implicit and explicit prefix caches see a
+    stable ``config.tools`` signature across turns in a conversation.
+    """
     del callback_context
+    if os.getenv("HUSHH_ONE_TOOL_SCOPING_ENABLED", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
     if os.getenv("HUSHH_ONE_TOOL_SCOPING_DISABLED", "").strip().lower() in {
         "1",
         "true",

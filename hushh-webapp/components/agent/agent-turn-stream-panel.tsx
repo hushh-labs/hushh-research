@@ -108,7 +108,11 @@ export type AgentVisibleStreamEvent = {
 
 /** Only app-owned tool identities map to a product mark; provider text never does. */
 export function connectorBrandForTool(toolName: unknown, provider?: unknown): ConnectorBrand | null {
-  if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") {
+  if (
+    toolName === "discover_workspace_tools" ||
+    toolName === "read_workspace_tool" ||
+    toolName === "manage_connector"
+  ) {
     return connectorBrandFor(provider);
   }
   if (typeof toolName !== "string") return null;
