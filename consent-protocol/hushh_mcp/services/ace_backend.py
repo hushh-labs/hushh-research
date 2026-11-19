@@ -8,7 +8,7 @@ per-user GCP IAM Service Accounts (eliminating the 100-SA/project quota bottlene
 - Object storage uses prefix-scoped bearer capabilities (`POD_STORAGE_PREFIX_TOKEN_URL`);
 - Ingress is strictly internal (`ingress.internalOnly = True`);
 - `APP_SIGNING_KEY` and `POD_STORAGE_PREFIX_BEARER_TOKEN` are resolved via sandbox
-  secret references (`secretRef`) — never rendered inline.
+  secret references (`secretRef`): never rendered inline.
 """
 
 from __future__ import annotations
@@ -175,3 +175,29 @@ class AceComputeBackend:
                 },
             },
         }
+
+    def render_k8s_agent_sandbox_bundle(
+        self,
+        spec: PodSpec,
+        *,
+        namespace: str = "hussh-agents",
+        runtime_class: str = "microvm",
+        warm_pool_replicas: int = 8,
+    ) -> dict[str, dict[str, Any]]:
+        """Render portable GKE/EKS/AKS `extensions.agents.x-k8s.io/v1beta1` microVM manifests (#9744)."""
+        from hushh_mcp.operons.agent_sandbox.k8s_manifests import (
+            SUPPORTED_SANDBOX_RUNTIME_CLASSES,
+            render_agent_sandbox_bundle,
+        )
+
+        if runtime_class not in SUPPORTED_SANDBOX_RUNTIME_CLASSES:
+            raise ValueError(f"Unsupported sandbox runtimeClassName: {runtime_class!r}")
+        image = f"gcr.io/{self._cell_project}/consent-protocol-pod@{self._image_digest}"
+        return render_agent_sandbox_bundle(
+            claim_name=f"claim-{_slug(spec.hushh_id)}",
+            billing_space_id=str(spec.billing_space_id or spec.hushh_id),
+            image_ref=image,
+            namespace=namespace,
+            runtime_class=runtime_class,  # type: ignore[arg-type]
+            warm_pool_replicas=warm_pool_replicas,
+        )

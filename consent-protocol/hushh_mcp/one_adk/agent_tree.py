@@ -2706,9 +2706,18 @@ def _one_roster_tools(
             browser_task_hand_available,
             start_browser_task,
         )
+        from hushh_mcp.one_adk.terminal_tools import (
+            terminal_hand_available,
+            terminal_poll,
+            terminal_start,
+            terminal_stop,
+            terminal_write,
+        )
 
         if browser_task_hand_available():
             tools.append(start_browser_task)
+        if terminal_hand_available():
+            tools.extend([terminal_start, terminal_poll, terminal_write, terminal_stop])
     if allow_receipt_tools:
         from ag_ui_adk import AGUIToolset
 

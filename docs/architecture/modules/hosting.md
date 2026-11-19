@@ -25,13 +25,14 @@ Select hosting, verify AI access, provision or resume the recorded operation, th
 
 ## Components and dependencies
 
-Shared, GCP Cloud Run and Azure Container Apps use different provider authorities under existing placement and lifecycle contracts.
+Shared, GCP Cloud Run, Azure Container Apps, and the staged Kubernetes Agent Sandbox pool baseline use different provider authorities under existing placement and lifecycle contracts.
 
 ## Trust boundary and limits
 
-Unknown, unplaced and pending are distinct states. Managed hosting and cross-cloud transfer are not generally available. Removal reconciles only deployment-owned resources; cloud-only information loss must be reviewed.
+Unknown, unplaced and pending are distinct states. Managed hosting, Kubernetes warm-pool claims, and cross-cloud transfer are not generally available until Dev and UAT acceptance pass. Removal reconciles only deployment-owned resources; cloud-only information loss must be reviewed.
 
 ## Implementation and operation
 
 - [Private deployment operations](../../operations/hosting/dev-pod-first-light-runbook.md)
 - [Deployment standard](../deployment-standard.md)
+- [Agent Sandbox pool and Terminal plan](../../roadmap/personal-agent/agent-sandbox-microvm-plan.md)

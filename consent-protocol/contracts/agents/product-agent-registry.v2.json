@@ -5051,6 +5051,30 @@
           "required_scope": "browser.invoke"
         },
         {
+          "description": "Start one owner-authorized terminal command inside the isolated per-user microVM workspace and return a tracked process handle.",
+          "name": "terminal_start",
+          "py_func": "hushh_mcp.one_adk.terminal_tools.terminal_start",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Poll stdout, stderr, and exit state for a running or finished microVM terminal session.",
+          "name": "terminal_poll",
+          "py_func": "hushh_mcp.one_adk.terminal_tools.terminal_poll",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Send stdin text to a live interactive microVM terminal session.",
+          "name": "terminal_write",
+          "py_func": "hushh_mcp.one_adk.terminal_tools.terminal_write",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Terminate an active microVM terminal session and its child process group cleanly.",
+          "name": "terminal_stop",
+          "py_func": "hushh_mcp.one_adk.terminal_tools.terminal_stop",
+          "required_scope": "cap.one.invoke"
+        },
+        {
           "description": "Owner-authorized device canonical receipt list; current turn only.",
           "name": "list_recent_receipts",
           "py_func": "hushh_mcp.one_adk.receipt_client_tools.list_recent_receipts",
