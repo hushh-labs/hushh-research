@@ -19,7 +19,7 @@ export function PortfolioBriefing({
   needsAction = false,
   missing,
 }: {
-  review?: Pick<PortfolioReviewResponse, "score" | "takeaway" | "next_step">;
+  review?: Pick<PortfolioReviewResponse, "score" | "takeaway">;
   onOpen: () => void;
   needsAction?: boolean;
   missing?: string;
@@ -33,12 +33,6 @@ export function PortfolioBriefing({
           {needsAction ? <span className="ui-text-helper-text shrink-0 text-amber-600 dark:text-amber-400">Needs action</span> : null}
         </div>
         {review?.takeaway ? <p className="ui-text-row-description">{review.takeaway}</p> : null}
-        {review?.next_step ? (
-          <div className="space-y-1">
-            <h3 className="ui-text-row-description font-semibold !text-[var(--app-accent)]">Next step</h3>
-            <p className="ui-text-row-description">{review.next_step}</p>
-          </div>
-        ) : null}
         <dl className="flex items-baseline justify-between gap-3">
           <dt className="ui-text-row-description">Portfolio score</dt>
           <dd className="shrink-0 ui-text-row-description tabular-nums">

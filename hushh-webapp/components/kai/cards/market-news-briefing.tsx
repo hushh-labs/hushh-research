@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { NewspaperClipping } from "@/components/icons";
 import { getCompanyLogoUrl } from "@/components/kai/shared/symbol-avatar";
 import type { KaiHomeNewsItem } from "@/lib/services/api-service";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
@@ -46,7 +45,7 @@ const NEWS_SYMBOL_ALIASES: Record<string, readonly string[]> = {
 export function shouldShowNewsCompanyLogo(row: KaiHomeNewsItem): boolean {
   const symbol = normalizeMarketSymbol(row.symbol);
   const title = String(row.title || "").toLowerCase();
-  if (!symbol || !title) return false;
+  if (!symbol || symbol === "MARKET" || !title) return false;
 
   const aliases = [
     symbol.toLowerCase(),
@@ -68,22 +67,26 @@ export function marketNewsImageUrl(value: unknown): string | null {
 }
 
 export function OneMarketNewsCover({ row, className, thumbnail = false }: { row: KaiHomeNewsItem; index: number; className?: string; thumbnail?: boolean }) {
-  const articleImage = marketNewsImageUrl(thumbnail ? row.image_thumbnail_url || row.image_url : row.image_url);
-  const fallbackImage = marketNewsImageUrl(thumbnail ? row.image_url : row.image_thumbnail_url);
+  const articleImage = marketNewsImageUrl(row.image_url);
+  const thumbnailImage = marketNewsImageUrl(row.image_thumbnail_url);
   const logo = shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol: normalizeMarketSymbol(row.symbol) }) : null;
   const publisherLogo = marketNewsImageUrl(row.source_logo_url);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
-  const source = [articleImage, fallbackImage, logo, publisherLogo].find((url) => url && !failedUrls.includes(url));
-  useEffect(() => { setFailedUrls([]); }, [articleImage, fallbackImage, logo, publisherLogo]);
+  const photos = thumbnail ? [thumbnailImage, articleImage] : [articleImage, thumbnailImage];
+  const source = [...photos, publisherLogo, logo].find((url) => url && !failedUrls.includes(url));
+  const isLogo = source === publisherLogo || source === logo;
+  const publisherWords = row.source_name?.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const initials = publisherWords.slice(0, 2).map(word => Array.from(word)[0]).join("").toLocaleUpperCase() || "MN";
+  useEffect(() => { setFailedUrls([]); }, [articleImage, thumbnailImage, logo, publisherLogo]);
   return (
     <div className={cn("relative flex items-center justify-center overflow-hidden bg-muted text-muted-foreground", className || "h-[140px]")}>
       {source ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={source} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
-          data-publisher-logo={source === publisherLogo || source === logo ? "true" : undefined}
-          className={source !== logo && source !== publisherLogo ? "h-full w-full object-cover" : "h-12 w-12 object-contain"}
+          data-publisher-logo={isLogo ? "true" : undefined}
+          className={isLogo ? "h-12 w-12 object-contain" : "h-full w-full object-cover"}
           onError={() => setFailedUrls((current) => [...current, source])} />
-      ) : <NewspaperClipping className="h-7 w-7" aria-hidden="true" />}
+      ) : <span aria-hidden="true" className="text-base font-semibold tracking-wide">{initials}</span>}
     </div>
   );
 }
@@ -105,12 +108,12 @@ export function OneMarketNewsRow({ row, showSummary = false, className }: {
         className="group/news relative isolate flex min-h-11 w-full items-center gap-3 overflow-hidden rounded-sm px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
         <span className="min-w-0 flex-1">
-          <span className={cn(marketBriefingStyles.newsTitle, !showSummary && marketBriefingStyles.compactNewsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
+          <span className={cn(marketBriefingStyles.newsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
           <span className={cn(marketBriefingStyles.newsMetadata, "truncate")}>
             {row.source_name?.trim() || "Market news"}
             {published && <><span aria-hidden="true"> · </span><time dateTime={row.published_at ?? undefined}>{published}</time></>}
           </span>
-          {showSummary && row.summary ? <span className="mt-1 hidden text-xs leading-5 text-muted-foreground sm:line-clamp-1">{row.summary}</span> : null}
+          {showSummary ? <span className="mt-1 hidden h-5 text-xs leading-5 text-muted-foreground sm:line-clamp-1">{row.summary}</span> : null}
         </span>
         <OneMarketNewsCover row={row} index={0} thumbnail className="h-14 w-14 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover [&_img[data-publisher-logo]]:!object-contain [&_img[data-publisher-logo]]:!p-3 sm:h-16 sm:w-16" />
         <MaterialRipple variant="none" effect="fade" className="z-10" />
@@ -121,6 +124,7 @@ export function OneMarketNewsRow({ row, showSummary = false, className }: {
 
 export function OneMarketNewsBriefing({ rows, loading = false }: { rows: KaiHomeNewsItem[]; loading?: boolean }) {
   const stories = rows.slice(0, 4);
+  const showSummaries = stories.some((story) => Boolean(story.summary));
   if (!stories.length && loading) return (
     <div className={cn(marketBriefingStyles.typography, "grid sm:grid-cols-2 sm:gap-x-6")} role="status" aria-label="Loading market news" aria-busy="true">
       {[0, 1, 2, 3].map((slot) => (
@@ -138,7 +142,7 @@ export function OneMarketNewsBriefing({ rows, loading = false }: { rows: KaiHome
   return (
     <div className={cn(marketBriefingStyles.typography, "grid sm:grid-cols-2 sm:gap-x-6")}>
       {stories.map((row) => (
-        <OneMarketNewsRow key={row.url} row={row} showSummary className="sm:[&:nth-last-child(2)]:border-b-0" />
+        <OneMarketNewsRow key={row.url} row={row} showSummary={showSummaries} className="sm:[&:nth-last-child(2)]:border-b-0" />
       ))}
     </div>
   );

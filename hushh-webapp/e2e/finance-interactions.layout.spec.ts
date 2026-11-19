@@ -209,7 +209,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(measurements.font).toMatch(/Plus Jakarta Sans/);
       expect(measurements.headline).toEqual(["14px", "21px", "600"]);
       expect(measurements.metadata).toEqual(["12px", "18px"]);
-      expect(measurements.clamp).toBe("none");
+      expect(measurements.clamp).toBe("2");
       expect(measurements.cardOverflow).toBe(false);
       expect(measurements.pageOverflow).toBe(false);
       expect(measurements.railOverflow).toBe(false);
@@ -370,13 +370,18 @@ for (const width of [375, 393, 430]) {
     const headline = news.getByRole("button").first().locator("span > span").first();
     const type = await headline.evaluate(element => {
       const style = getComputedStyle(element);
-      return { family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
+      return {
+        family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize),
+        clamp: style.webkitLineClamp, height: element.clientHeight, lineHeight: parseFloat(style.lineHeight),
+        clipped: element.scrollHeight > element.clientHeight,
+      };
     });
     expect(type.family).toMatch(/Plus Jakarta Sans/);
     expect(Number(type.weight)).toBeGreaterThanOrEqual(600);
     expect(type.size).toBe(14);
-    expect(type.clamp).toBe("none");
-    expect(type.overflow).not.toBe("hidden");
+    expect(type.clamp).toBe("2");
+    expect(type.height).toBe(2 * type.lineHeight);
+    expect(type.clipped).toBe(true);
     const stocks = page.getByTestId("market-iphone-fixture");
     const row = stocks.getByTestId("market-pick-row").first();
     const cap = row.getByText("$850B cap", { exact: true });
@@ -423,6 +428,37 @@ for (const width of [375, 393, 430]) {
     }
   });
 }
+
+test("desktop Market news keeps thumbnails aligned through image failures", async ({ page }) => {
+  await page.route("https://images.example.test/**", route => {
+    if (route.request().url().includes("/story-")) return route.fulfill({ status: 404 });
+    return route.fulfill({ contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC1cAAAAASUVORK5CYII=", "base64") });
+  });
+  await mount(page, 1024);
+  const news = page.getByTestId("market-news-iphone-fixture");
+  const headline = news.getByText(/^Foreign investors bought shares/);
+  const height = await headline.evaluate(element => ({
+    visible: element.clientHeight, full: element.scrollHeight,
+    lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+  }));
+  expect(height.visible).toBe(2 * height.lineHeight);
+  expect(height.full).toBeGreaterThan(height.visible);
+  const covers = news.locator("article button > div:first-of-type");
+  await expect(covers).toHaveCount(4);
+  for (const [index, imagePath] of ["small.png", "large.png", "publisher.png"].entries()) {
+    const image = covers.nth(index).locator("img");
+    await image.scrollIntoViewIfNeeded();
+    await expect(image).toHaveAttribute("src", `https://images.example.test/${imagePath}`);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+  }
+  await expect(covers.nth(3).getByText("P", { exact: true })).toBeVisible();
+  const boxes = await Promise.all([0, 1, 2, 3].map(index => covers.nth(index).boundingBox()));
+  expect(boxes[0]!.y).toBeCloseTo(boxes[1]!.y, 0);
+  expect(boxes[2]!.y).toBeCloseTo(boxes[3]!.y, 0);
+  expect(boxes[0]!.x).toBeCloseTo(boxes[2]!.x, 0);
+  expect(boxes[1]!.x).toBeCloseTo(boxes[3]!.x, 0);
+});
 
 test("statement status keeps Cancel reachable while reading", async ({ page }) => {
   await mount(page);
