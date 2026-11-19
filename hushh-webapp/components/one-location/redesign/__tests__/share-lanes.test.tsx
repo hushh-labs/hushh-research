@@ -14,6 +14,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -418,9 +419,19 @@ describe("hub wiring", () => {
     expect(source).toContain(
       'groupGrantsByCounterpart(vm.manageSharingGrants ?? vm.activeOwnerGrants, "owner")',
     );
-    expect(source).toContain(
-      'groupGrantsByCounterpart(vm.receivedGrants, "recipient")',
-    );
+    const syntax = ts.createSourceFile("hub.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const recipientInputs: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && node.expression.getText(syntax) === "groupGrantsByCounterpart"
+          && node.arguments[1]?.getText(syntax) === '"recipient"') {
+        recipientInputs.push(node.arguments[0]?.getText(syntax) ?? "");
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(syntax);
+    // Exact Feed focus may narrow the grants first; each selected result still
+    // goes through the same grouping owner rather than rendering a raw list.
+    expect(recipientInputs.some(input => input.includes("vm.receivedGrants"))).toBe(true);
     expect(source).toContain("<ActiveShareComparison");
     expect(source).toContain("groups={ownerGrantGroups}");
     expect(source).toContain("{receivedGrantGroups.map((group) => {");

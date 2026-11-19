@@ -63,6 +63,7 @@ describe("navigation journeys", () => {
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
+      "feed.search_activity",
       // Circle invitations resolve one exact pending invitation. Joining the
       // circle does not create a Location share.
       "location.accept_circle_invite",

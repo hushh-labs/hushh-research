@@ -9827,7 +9827,7 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (["LOCATION_REQUEST_CHANGED", "LOCATION_REQUEST_EXPIRED", "LOCATION_REQUEST_NOT_PENDING", "LOCATION_REQUEST_NOT_FOUND", "LOCATION_EXTENSION_CHANGED"].includes(apiErrorCode(error) ?? "")) {
           invalidateRequestReview(request);
-          await refresh();
+          void refresh().catch(() => {});
         }
         trackOneLocationJourneyAction({
           action: "location_request_fulfilled",
@@ -9952,7 +9952,7 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (["LOCATION_REQUEST_CHANGED", "LOCATION_REQUEST_EXPIRED", "LOCATION_REQUEST_NOT_PENDING", "LOCATION_REQUEST_NOT_FOUND"].includes(apiErrorCode(error) ?? "")) {
           if (reviewed && revision === (reviewed.requestRevision ?? 1)) invalidateRequestReview(reviewed);
-          await refresh();
+          void refresh().catch(() => {});
         }
         trackOneLocationJourneyAction({
           action: "location_request_denied",
