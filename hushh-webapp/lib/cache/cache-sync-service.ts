@@ -792,7 +792,7 @@ export class CacheSyncService {
    */
   static onConnectionGraphMutated(
     userId: string,
-    options?: { broadcast?: boolean },
+    options?: { broadcast?: boolean; reason?: "mutation" | "reconcile" },
   ): void {
     if (!userId) return;
     CacheService.getInstance().invalidateMany([

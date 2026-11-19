@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -274,24 +275,29 @@ def publish_connection_graph_events(conn: Any, viewer_ids: set[str]) -> None:
         )
 
 
-def publish_connection_account_visibility_changes(user_ids: set[str]) -> None:
+def publish_connection_account_visibility_changes(
+    user_ids: set[str], *, connection: Connection | None = None
+) -> None:
     """Wake direct peers after a provider-confirmed availability change."""
     from db.db_client import get_db_connection
 
-    with get_db_connection() as conn:
-        rows = _all(
-            conn.execute(
-                text("""
+    with nullcontext(connection) if connection is not None else get_db_connection() as conn:
+        # The notification is best-effort; a failed query must not abort the
+        # caller's authoritative directory read or own its commit/rollback.
+        with conn.begin_nested() if connection is not None else nullcontext():
+            rows = _all(
+                conn.execute(
+                    text("""
                     SELECT user_b_id AS user_id FROM connections
                     WHERE status = 'active' AND user_a_id = ANY(CAST(:changed_ids AS TEXT[]))
                     UNION
                     SELECT user_a_id AS user_id FROM connections
                     WHERE status = 'active' AND user_b_id = ANY(CAST(:changed_ids AS TEXT[]))
                 """),
-                {"changed_ids": sorted(user_ids)},
+                    {"changed_ids": sorted(user_ids)},
+                )
             )
-        )
-        publish_connection_graph_events(conn, {str(row["user_id"]) for row in rows})
+            publish_connection_graph_events(conn, {str(row["user_id"]) for row in rows})
 
 
 class ConnectionGraphService:

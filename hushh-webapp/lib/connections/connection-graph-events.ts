@@ -8,6 +8,8 @@ const CONNECTION_GRAPH_CHANNEL = "hushh-connection-graph-v1";
 export type ConnectionGraphChangedDetail = {
   userId: string;
   changedAt: number;
+  /** Missing/unknown reasons remain confirmed mutations for older callers. */
+  reason?: "mutation" | "reconcile";
 };
 
 function normalizeDetail(
@@ -19,6 +21,7 @@ function normalizeDetail(
   return {
     userId,
     changedAt: Number.isFinite(changedAt) ? changedAt : Date.now(),
+    ...(value?.reason === "reconcile" ? { reason: "reconcile" as const } : {}),
   };
 }
 
@@ -30,10 +33,10 @@ function normalizeDetail(
  */
 export function dispatchConnectionGraphChanged(
   userId: string,
-  { broadcast = true }: { broadcast?: boolean } = {},
+  { broadcast = true, reason }: { broadcast?: boolean; reason?: ConnectionGraphChangedDetail["reason"] } = {},
 ): void {
   if (typeof window === "undefined") return;
-  const detail = normalizeDetail({ userId, changedAt: Date.now() });
+  const detail = normalizeDetail({ userId, changedAt: Date.now(), reason });
   if (!detail) return;
 
   window.dispatchEvent(
@@ -56,7 +59,7 @@ export function subscribeToConnectionGraphChanges(
 
   let lastDeliveredKey = "";
   const deliver = (detail: ConnectionGraphChangedDetail) => {
-    const key = `${detail.userId}:${detail.changedAt}`;
+    const key = `${detail.userId}:${detail.changedAt}:${detail.reason ?? "mutation"}`;
     if (key === lastDeliveredKey) return;
     lastDeliveredKey = key;
     listener(detail);
