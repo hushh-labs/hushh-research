@@ -6,6 +6,7 @@ import pytest
 from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
+from sqlalchemy.pool import QueuePool
 
 from db.db_client import DatabaseClient, DatabaseExecutionError, TableQuery
 
@@ -105,6 +106,44 @@ def test_execute_raw_retries_once_after_transient_connection_error(sqlite_engine
     assert result.data == [{"value": 1}]
     assert engine.connect_calls == 2
     assert engine.dispose_calls == 1
+
+
+@pytest.mark.parametrize("operation", ["raw", "table"])
+def test_pool_capacity_failure_preserves_pool_without_retries(monkeypatch, operation):
+    """A saturated pool must not create replacement capacity around its holders."""
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        poolclass=QueuePool,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=0.01,
+    )
+    original_connect = engine.connect
+    pool = engine.pool
+    connects = []
+    disposals = []
+    event.listen(engine, "engine_disposed", lambda _: disposals.append(True))
+    try:
+        with original_connect():
+
+            def connect():
+                connects.append(True)
+                return original_connect()
+
+            monkeypatch.setattr(engine, "connect", connect)
+            with pytest.raises(DatabaseExecutionError) as failure:
+                if operation == "raw":
+                    DatabaseClient(engine=engine).execute_raw("SELECT 1 AS value")
+                else:
+                    TableQuery("capacity_probe", engine).select("*").execute()
+            assert failure.value.status_code == 503
+            assert len(connects) == 1
+            assert disposals == []
+            assert engine.pool is pool
+        with original_connect() as connection:
+            assert connection.execute(text("SELECT 1")).scalar_one() == 1
+    finally:
+        engine.dispose()
 
 
 def test_upsert_supports_composite_conflict_columns(sqlite_engine):

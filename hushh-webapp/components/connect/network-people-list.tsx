@@ -124,8 +124,11 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
     if (!busy && navigator.onLine !== false) refresh(true);
   }, { enabled: Boolean(user && owner) });
   useEffect(() => subscribeToConnectionGraphChanges(event => {
-    if (event.userId === owner && !notifyingOwnRequest.current) refresh();
-  }), [owner, refresh]);
+    if (event.userId !== owner || notifyingOwnRequest.current) return;
+    const reconcile = mode === "discovery" && event.reason === "reconcile";
+    if (reconcile) pageCache.reconcile();
+    refresh(reconcile);
+  }), [owner, mode, pageCache, refresh]);
   useEffect(() => {
     const onFocus = () => {
       if (document.visibilityState !== "visible") return;

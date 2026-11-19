@@ -86,10 +86,13 @@ function openSharedStream(user: FeedUser, ownerId: string): SharedStream {
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
     isCurrent,
     isVisible: () => document.visibilityState !== "hidden",
-    dispatchFeed: ({ general, consent, connections, requestId, historyMutated, reconcileSms, reconcileConnections }) => {
+    dispatchFeed: ({ general, consent, connections, requestId, historyMutated, reconcileSms, reconcileConnections, connectionGraphChanged }) => {
       if (reconcileSms) dispatchSmsAlertsChanged(uid);
       // This stream already relays frames to sibling tabs.
-      if (reconcileConnections) CacheSyncService.onConnectionGraphMutated(uid, { broadcast: false });
+      if (reconcileConnections) CacheSyncService.onConnectionGraphMutated(uid, {
+        broadcast: false,
+        reason: connectionGraphChanged ? "mutation" : "reconcile",
+      });
       if (historyMutated) CacheSyncService.onFeedHistoryMutated(uid);
       else if (general && !consent && !reconcileConnections) CacheSyncService.onFeedChanged(uid);
       if (connections) {
