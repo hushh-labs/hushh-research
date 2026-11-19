@@ -47,6 +47,9 @@ const grants = () => new Response(JSON.stringify({
 const json409 = (detail: Record<string, unknown>) => new Response(JSON.stringify({ detail }), {
   status: 409, headers: { "content-type": "application/json" },
 });
+const fenced503 = () => new Response(JSON.stringify({
+  detail: { code: "fenced", message: "this incarnation no longer holds the pod" },
+}), { status: 503, headers: { "content-type": "application/json" } });
 const gatewayPage = () => new Response("<html>starting</html>", { status: 503, headers: { "content-type": "text/html" } });
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -263,6 +266,46 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     // Second turn still checks hub live so endpoint pinning rotation cannot be skipped.
     await ownerPodRequest("agent-chat", turnInit(), ports);
     expect(hub).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a fenced 503 on capabilities once and finishes the turn on the replacement pod", async () => {
+    let probes = 0;
+    const { fetch, ports } = harness(async () => grants(), async (url) => {
+      if (url === CAPABILITIES) {
+        probes += 1;
+        return probes === 1
+          ? fenced503()
+          : new Response("{}", { headers: { "content-type": "application/json" } });
+      }
+      return new Response("stream");
+    });
+    const onWaking = vi.fn();
+    const wait = vi.fn(async () => undefined);
+    const response = await sendWhileAgentWakes(
+      () => ownerPodRequest("agent-chat", turnInit(), ports),
+      { isOwnerAgent: async () => true, onWaking, wait, budgetMs: 60_000 },
+    );
+    expect(response.status).toBe(200);
+    expect(onWaking).toHaveBeenCalledOnce();
+    expect(wait).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES, CAPABILITIES, TURN]);
+  });
+
+  it("bounds fenced 503 handover retries to two and returns cleanly without looping to the deadline", async () => {
+    const { fetch, ports } = harness(
+      async () => grants(),
+      async (url) => (url === CAPABILITIES ? fenced503() : new Response("stream")),
+    );
+    const onWaking = vi.fn();
+    const wait = vi.fn(async () => undefined);
+    const response = await sendWhileAgentWakes(
+      () => ownerPodRequest("agent-chat", turnInit(), ports),
+      { isOwnerAgent: async () => true, onWaking, wait, budgetMs: 60_000 },
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ detail: { code: "fenced" } });
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES, CAPABILITIES, CAPABILITIES]);
   });
 });
 

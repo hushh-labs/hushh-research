@@ -199,7 +199,10 @@ async function authHeader(idToken: string): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${idToken}` };
 }
 
-const unreadCountInFlight = new Map<string, Promise<number>>();
+const unreadCountInFlight = new Map<
+  string,
+  { promise: Promise<number>; force: boolean; epoch: string }
+>();
 
 export class FeedService {
   private static async postMutation<T>(options: {
@@ -395,11 +398,13 @@ export class FeedService {
     const cacheKey = CACHE_KEYS.FEED_UNREAD_COUNT(options.userId);
     const cache = CacheService.getInstance();
     const epoch = currentFeedInvalidationEpoch(options.userId);
+    const existing = unreadCountInFlight.get(cacheKey);
     if (!options.force) {
       const cached = cache.get<number>(cacheKey);
       if (cached != null) return cached;
-      const inflight = unreadCountInFlight.get(cacheKey);
-      if (inflight) return inflight;
+      if (existing && existing.epoch === epoch) return existing.promise;
+    } else if (existing && existing.force && existing.epoch === epoch) {
+      return existing.promise;
     }
     const fetchUnread = async (): Promise<number> => {
       const response = await ApiService.apiFetch("/api/one/feed/unread-count", {
@@ -418,13 +423,15 @@ export class FeedService {
       return count;
     };
     const pending = fetchUnread().finally(() => {
-      if (unreadCountInFlight.get(cacheKey) === pending) {
+      if (unreadCountInFlight.get(cacheKey)?.promise === pending) {
         unreadCountInFlight.delete(cacheKey);
       }
     });
-    if (!options.force) {
-      unreadCountInFlight.set(cacheKey, pending);
-    }
+    unreadCountInFlight.set(cacheKey, {
+      promise: pending,
+      force: Boolean(options.force),
+      epoch,
+    });
     return pending;
   }
 

@@ -255,3 +255,75 @@ async def test_pod_chat_context_and_app_handle_fenced_pod_session_refused(monkey
         check=False,
     )
     assert probe.returncode == 0, probe.stderr or probe.stdout
+
+
+async def test_schedule_fenced_pod_retirement_is_cloud_only_and_idempotent():
+    import os
+    import signal
+
+    from hushh_mcp.services.pod_session_authority import (
+        _reset_fenced_pod_retirement_for_tests,
+        schedule_fenced_pod_retirement,
+    )
+
+    calls: list[tuple[int, int]] = []
+    _reset_fenced_pod_retirement_for_tests()
+    try:
+        # Local dev / test platforms must never receive SIGTERM.
+        assert (
+            schedule_fenced_pod_retirement(
+                "local_test",
+                platform_fn=lambda: "local",
+                kill_fn=lambda pid, sig: calls.append((pid, sig)),
+                delay_seconds=0.005,
+            )
+            is False
+        )
+        await asyncio.sleep(0.02)
+        assert calls == []
+
+        # Managed cloud pods retire once after flushing response, preferring arbiter ppid.
+        assert (
+            schedule_fenced_pod_retirement(
+                "http_session_refused",
+                platform_fn=lambda: "gcp",
+                kill_fn=lambda pid, sig: calls.append((pid, sig)),
+                delay_seconds=0.01,
+            )
+            is True
+        )
+        assert (
+            schedule_fenced_pod_retirement(
+                "duplicate",
+                platform_fn=lambda: "gcp",
+                kill_fn=lambda pid, sig: calls.append((pid, sig)),
+                delay_seconds=0.01,
+            )
+            is False
+        )
+        await asyncio.sleep(0.04)
+        expected_target = os.getppid() if os.getppid() >= 1 else os.getpid()
+        assert calls == [(expected_target, signal.SIGTERM)]
+
+        # If signaling parent raises PermissionError, fall back to os.getpid().
+        calls.clear()
+        _reset_fenced_pod_retirement_for_tests()
+
+        def _deny_parent(pid: int, sig: int) -> None:
+            if pid == os.getppid() and pid != os.getpid():
+                raise PermissionError("parent owned differently")
+            calls.append((pid, sig))
+
+        assert (
+            schedule_fenced_pod_retirement(
+                "fallback_pid",
+                platform_fn=lambda: "azure",
+                kill_fn=_deny_parent,
+                delay_seconds=0.01,
+            )
+            is True
+        )
+        await asyncio.sleep(0.04)
+        assert calls == [(os.getpid(), signal.SIGTERM)]
+    finally:
+        _reset_fenced_pod_retirement_for_tests()

@@ -151,6 +151,7 @@ class PodChatContext:
             ROLE_APP,
             SCOPE_PKM_READ,
             PodSessionRefused,
+            schedule_fenced_pod_retirement,
         )
 
         authority, claims = verified_session(
@@ -161,6 +162,8 @@ class PodChatContext:
         try:
             await authority.require_held()
         except PodSessionRefused as exc:
+            if exc.code == "fenced":
+                schedule_fenced_pod_retirement("chat_session_refused")
             raise _refuse(exc) from exc
 
     async def require_access(self) -> None:
