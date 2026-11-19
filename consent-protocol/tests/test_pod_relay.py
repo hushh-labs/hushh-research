@@ -285,17 +285,12 @@ async def test_direct_chat_grants_are_owner_bound_and_refuse_assignment_races():
     assert error.value.detail["code"] == "POD_ASSIGNMENT_CHANGED"
 
 
-@pytest.mark.asyncio
-async def test_direct_chat_grants_writes_single_audit_and_reuses_before_row(monkeypatch):
+def _configure_test_ed25519_hub(monkeypatch) -> None:
     import base64
     import json
-    from unittest.mock import AsyncMock
 
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    from api.routes.one.pod_relay import direct_chat_grants
-    from hushh_mcp.consent import token_signing
 
     private = Ed25519PrivateKey.generate()
     seed = private.private_bytes(
@@ -311,8 +306,33 @@ async def test_direct_chat_grants_writes_single_audit_and_reuses_before_row(monk
         json.dumps({"hushh-consent-hub": base64.b64encode(public).decode()}),
     )
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
-    token_signing.reset_caches()
 
+
+class _CountingRegistry:
+    def __init__(self, row_data: dict[str, Any]) -> None:
+        self.row = row_data
+        self.get_calls = 0
+        self.endpoint_calls = 0
+
+    async def get(self, user_id: str) -> Optional[dict]:
+        self.get_calls += 1
+        return self.row if self.row.get("user_id") == user_id else None
+
+    async def record_endpoint(self, **kwargs: Any) -> dict[str, Any]:
+        self.endpoint_calls += 1
+        return {"version": 1, "url": kwargs["url"], "podKeyId": kwargs["pod_key_id"]}
+
+
+@pytest.mark.asyncio
+async def test_direct_chat_grants_writes_single_audit_and_reuses_before_row(monkeypatch):
+    import base64
+    from unittest.mock import AsyncMock
+
+    from api.routes.one.pod_relay import direct_chat_grants
+    from hushh_mcp.consent import token_signing
+
+    _configure_test_ed25519_hub(monkeypatch)
+    token_signing.reset_caches()
     audit_inserts: list[dict[str, Any]] = []
 
     class _CountingLedger:
@@ -320,35 +340,7 @@ async def test_direct_chat_grants_writes_single_audit_and_reuses_before_row(monk
             audit_inserts.append(kwargs)
             return len(audit_inserts)
 
-    class _CountingRegistry:
-        def __init__(self, row_data: dict[str, Any]) -> None:
-            self.row = row_data
-            self.get_calls = 0
-            self.endpoint_calls = 0
-
-        async def get(self, user_id: str) -> Optional[dict]:
-            self.get_calls += 1
-            return self.row if self.row.get("user_id") == user_id else None
-
-        async def record_endpoint(
-            self,
-            *,
-            user_id: str,
-            hushh_id: str,
-            pod_key_id: str,
-            pod_public_key: str,
-            service_uid: str,
-            url: str,
-        ) -> dict[str, Any]:
-            self.endpoint_calls += 1
-            return {"version": 1, "url": url, "podKeyId": pod_key_id}
-
-    monkeypatch.setattr(
-        "hushh_mcp.services.consent_db.ConsentDBService",
-        lambda: _CountingLedger(),
-    )
-
-    pod_public_b64 = base64.b64encode(b"P" * 32).decode()
+    monkeypatch.setattr("hushh_mcp.services.consent_db.ConsentDBService", lambda: _CountingLedger())
     readiness = {
         "verified": True,
         "url": _POD_URL,
@@ -361,7 +353,7 @@ async def test_direct_chat_grants_writes_single_audit_and_reuses_before_row(monk
         "status": "provisioned",
         "deployment_target": "user_azure",
         "pod_key_id": "synthetic-key",
-        "pod_pubkey": pod_public_b64,
+        "pod_pubkey": base64.b64encode(b"P" * 32).decode(),
         "backend_metadata": {
             "url": _POD_URL,
             "serviceUid": "synthetic-incarnation",
@@ -370,14 +362,12 @@ async def test_direct_chat_grants_writes_single_audit_and_reuses_before_row(monk
         },
     }
     registry = _CountingRegistry(row)
-    issuer = AsyncMock(return_value={"email": "synthetic-scoped-grant"})
-
     try:
         result = await direct_chat_grants(
             hushh_id=_HUSHH,
             user_id=_OWNER,
             registry=registry,
-            issuer=issuer,
+            issuer=AsyncMock(return_value={"email": "synthetic-scoped-grant"}),
         )
     finally:
         token_signing.reset_caches()

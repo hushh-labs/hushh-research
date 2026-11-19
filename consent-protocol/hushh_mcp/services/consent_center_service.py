@@ -487,16 +487,15 @@ class ConsentCenterService:
         return any(needle in str(value or "").lower() for value in haystacks)
 
     async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
+        from hushh_mcp.services.consent_center_summary_helpers import list_identifiers_compat
+
+        read_only_mode = getattr(self, "_read_only", False) or getattr(
+            self, "_require_complete", False
+        )
         try:
-            if getattr(self, "_read_only", False) or getattr(self, "_require_complete", False):
-                try:
-                    identifiers = await self._identity.list_account_identifiers(
-                        normalized_user_id, refresh=False
-                    )
-                except TypeError:
-                    identifiers = await self._identity.list_account_identifiers(normalized_user_id)
-            else:
-                identifiers = await self._identity.list_account_identifiers(normalized_user_id)
+            identifiers = await list_identifiers_compat(
+                self._identity, normalized_user_id, read_only_mode
+            )
         except Exception as exc:
             if getattr(self, "_require_complete", False):
                 raise
@@ -591,14 +590,10 @@ class ConsentCenterService:
             and str(entry.get("counterpart_id") or "").strip()
         ]
         identity_ids.extend(person_user_ids.values())
-        use_read_only_get_many = (
-            getattr(self, "_read_only", False) or getattr(self, "_require_complete", False)
-        ) and callable(getattr(self._identity, "get_many", None))
-        identities = (
-            await self._identity.get_many(identity_ids)
-            if use_read_only_get_many
-            else await self._identity.ensure_many(identity_ids)
-        )
+        use_ro = getattr(self, "_read_only", False) or getattr(self, "_require_complete", False)
+        from hushh_mcp.services.consent_center_summary_helpers import fetch_identities_compat
+
+        identities = await fetch_identities_compat(self._identity, identity_ids, use_ro)
 
         hydrated: list[dict[str, Any]] = []
         for entry in entries:
@@ -1650,30 +1645,31 @@ class ConsentCenterService:
         }
 
     async def _load_investor_pending_entries(self, user_id: str) -> list[dict[str, Any]]:
+        from hushh_mcp.services.consent_center_summary_helpers import maybe_hydrate_entries
+
         identifiers = await self._owned_user_identifiers(user_id)
         pending = await self._consent_db.get_pending_requests(
-            user_id,
-            **self._identifier_filter_kwargs(user_id, identifiers),
+            user_id, **self._identifier_filter_kwargs(user_id, identifiers)
         )
-        entries = [self._normalize_pending(item) for item in pending]
-        return (
-            entries
-            if getattr(self, "_skip_summary_hydration", False)
-            else await self._hydrate_entry_identities(entries)
+        return await maybe_hydrate_entries(
+            self, [self._normalize_pending(item) for item in pending]
         )
 
     async def _load_investor_active_entries(self, user_id: str) -> list[dict[str, Any]]:
+        from hushh_mcp.services.consent_center_summary_helpers import maybe_hydrate_entries
+
         identifiers = await self._owned_user_identifiers(user_id)
         active = await self._consent_db.get_active_tokens(
-            user_id,
-            **self._identifier_filter_kwargs(user_id, identifiers),
+            user_id, **self._identifier_filter_kwargs(user_id, identifiers)
         )
-        entries = [self._normalize_active(item) for item in active]
-        if not getattr(self, "_skip_summary_hydration", False):
-            entries = await self._hydrate_entry_identities(entries)
+        entries = await maybe_hydrate_entries(
+            self, [self._normalize_active(item) for item in active]
+        )
         return self._annotate_person_bundles(entries)
 
     async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
+        from hushh_mcp.services.consent_center_summary_helpers import maybe_hydrate_entries
+
         identifiers = await self._owned_user_identifiers(user_id)
         history_result = await self._consent_db.get_audit_log(
             user_id,
@@ -1686,11 +1682,7 @@ class ConsentCenterService:
         ):
             raise RuntimeError("consent_source_history_incomplete")
         entries = [self._normalize_history(item) for item in history_result.get("items", [])]
-        return (
-            entries
-            if getattr(self, "_skip_summary_hydration", False)
-            else await self._hydrate_entry_identities(entries)
-        )
+        return await maybe_hydrate_entries(self, entries)
 
     async def _load_ria_outgoing_entries(self, user_id: str) -> list[dict[str, Any]]:
         return await self.list_outgoing_requests(user_id)
@@ -2162,29 +2154,18 @@ class ConsentCenterService:
                 for surface in ("pending", "active", "previous")
             )
         elif normalized_actor == "investor":
-            prev_skip_hydration = getattr(self, "_skip_summary_hydration", False)
-            self._skip_summary_hydration = True
-            try:
-                (
-                    location_counts,
-                    marketplace_buckets,
-                    pending_entries,
-                    active_entries,
-                    previous_entries,
-                    (connection_count, drive_counts),
-                ) = await asyncio.gather(
-                    self._location_counts_async(user_id),
-                    self._extra_buckets_async(user_id),
-                    self._load_investor_pending_entries(user_id),
-                    self._load_investor_active_entries(user_id),
-                    self._load_investor_previous_entries(user_id),
-                    asyncio.gather(
-                        self._incoming_connection_request_count(user_id),
-                        self._drive_counts(user_id),
-                    ),
-                )
-            finally:
-                self._skip_summary_hydration = prev_skip_hydration
+            from hushh_mcp.services.consent_center_summary_helpers import (
+                gather_investor_summary_inputs,
+            )
+
+            (
+                location_counts,
+                marketplace_buckets,
+                pending_entries,
+                active_entries,
+                previous_entries,
+                (connection_count, drive_counts),
+            ) = await gather_investor_summary_inputs(self, user_id)
 
             def contributor_count(surface: str) -> int:
                 bucket = {

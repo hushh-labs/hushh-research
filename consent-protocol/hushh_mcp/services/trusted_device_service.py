@@ -19,9 +19,7 @@ import json
 import os
 import re
 import secrets
-import threading
 import time
-from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -33,6 +31,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from db.db_client import JsonParam, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services import read_only_auth_cache as _auth_cache
 from hushh_mcp.services.developer_oauth_service import (
     OAuthValidationError,
     append_oauth_parameters,
@@ -44,29 +43,6 @@ _CHALLENGE_TTL_MS = 2 * 60 * 1000
 _PKCE_RE = re.compile(r"^[A-Za-z0-9_-]{43,128}$")
 _DEVICE_ID_RE = re.compile(r"^tdv_[A-Za-z0-9_-]{20,80}$")
 _AUTHORIZATION_ID_RE = re.compile(r"^tda_[A-Za-z0-9_-]{20,80}$")
-_ACTIVE_DEVICE_CACHE_TTL_SECONDS = 15.0
-_ACTIVE_DEVICE_CACHE_MAX_ENTRIES = 4096
-_ACTIVE_DEVICE_CACHE_LOCK = threading.RLock()
-_ACTIVE_DEVICE_CACHE: OrderedDict[tuple[str, str], float] = OrderedDict()
-
-
-def invalidate_active_device_cache(user_id: str, device_id: str | None = None) -> None:
-    """Evict cached active-device checks when a device is replaced or revoked."""
-    with _ACTIVE_DEVICE_CACHE_LOCK:
-        if device_id is not None:
-            _ACTIVE_DEVICE_CACHE.pop((user_id, device_id), None)
-            return
-        stale_keys = [key for key in _ACTIVE_DEVICE_CACHE if key[0] == user_id]
-        for key in stale_keys:
-            _ACTIVE_DEVICE_CACHE.pop(key, None)
-
-
-def _allow_read_only_device_cache() -> bool:
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        return False
-    from api.middlewares.observability import is_read_only_request
-
-    return is_read_only_request()
 
 
 class TrustedDeviceError(ValueError):
@@ -862,7 +838,9 @@ class TrustedDeviceService:
             created_at=now_ms,
         )
         if device["replaced_device_id"]:
-            invalidate_active_device_cache(str(row["user_id"]), str(row["replaced_device_id"]))
+            _auth_cache.invalidate_active_device_cache(
+                str(row["user_id"]), str(row["replaced_device_id"])
+            )
             self._store.audit(
                 user_id=device["user_id"],
                 device_id=device["device_id"],
@@ -876,27 +854,9 @@ class TrustedDeviceService:
         return [_safe_device(row) for row in self._store.list_devices(user_id=user_id)]
 
     def is_active_device(self, *, user_id: str, device_id: str) -> bool:
-        use_cache = _allow_read_only_device_cache()
-        key = (user_id, device_id)
-        if use_cache:
-            now = time.monotonic()
-            with _ACTIVE_DEVICE_CACHE_LOCK:
-                expires_at = _ACTIVE_DEVICE_CACHE.get(key)
-                if expires_at is not None and expires_at > now:
-                    _ACTIVE_DEVICE_CACHE.move_to_end(key)
-                    return True
-                if expires_at is not None:
-                    _ACTIVE_DEVICE_CACHE.pop(key, None)
-        active = self._store.get_active_device(user_id=user_id, device_id=device_id) is not None
-        if use_cache and active:
-            with _ACTIVE_DEVICE_CACHE_LOCK:
-                _ACTIVE_DEVICE_CACHE[key] = time.monotonic() + _ACTIVE_DEVICE_CACHE_TTL_SECONDS
-                _ACTIVE_DEVICE_CACHE.move_to_end(key)
-                while len(_ACTIVE_DEVICE_CACHE) > _ACTIVE_DEVICE_CACHE_MAX_ENTRIES:
-                    _ACTIVE_DEVICE_CACHE.popitem(last=False)
-        elif not active:
-            invalidate_active_device_cache(user_id, device_id)
-        return active
+        return _auth_cache.is_active_device_cached(
+            self._store, user_id=user_id, device_id=device_id
+        )
 
     def active_device(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
         """The active row's public facts for the pod-binding issuer: key and platform.
@@ -927,8 +887,7 @@ class TrustedDeviceService:
         app, and it never carries Puppy inference.
         """
         _validate_public_key(device_public_key)
-        clean_name = device_name.strip()
-        clean_platform = platform.strip().lower()
+        clean_name, clean_platform = device_name.strip(), platform.strip().lower()
         if not clean_name or len(clean_name) > 100:
             raise TrustedDeviceError(
                 "TRUSTED_DEVICE_INVALID_NAME", "A valid device name is required."
@@ -985,17 +944,9 @@ class TrustedDeviceService:
     def revoke_device(self, *, user_id: str, device_id: str) -> bool:
         if not _DEVICE_ID_RE.fullmatch(device_id):
             return False
-        now_ms = _now_ms()
-        revoked = self._store.revoke_device(user_id=user_id, device_id=device_id, now_ms=now_ms)
-        if revoked:
-            invalidate_active_device_cache(user_id, device_id)
-            self._store.audit(
-                user_id=user_id,
-                device_id=device_id,
-                event_type="device_revoked",
-                created_at=now_ms,
-            )
-        return revoked
+        return _auth_cache.revoke_and_invalidate_active_device(
+            self._store, user_id=user_id, device_id=device_id, now_ms=_now_ms()
+        )
 
     def device_status(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
         """Own-device liveness read for the native runtime.

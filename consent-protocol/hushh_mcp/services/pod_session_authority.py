@@ -772,6 +772,35 @@ async def build_pod_session_authority(
     return authority
 
 
+def retire_if_fenced_exception(exc: BaseException, reason: str) -> None:
+    """Retire this pod incarnation immediately if ``exc`` signals a fenced authority."""
+    if isinstance(exc, PodSessionRefused) and exc.code == "fenced":
+        schedule_fenced_pod_retirement(reason)
+
+
+async def pod_session_refused_handler(_request: Any, exc: PodSessionRefused) -> Any:
+    """Translate ``PodSessionRefused`` into structured JSON and retire fenced pods."""
+    from fastapi.responses import JSONResponse
+
+    retire_if_fenced_exception(exc, "http_session_refused")
+    return JSONResponse(
+        status_code=exc.status, content={"detail": {"code": exc.code, "message": exc.detail}}
+    )
+
+
+async def apply_heartbeat_courier_payload(payload: Any, applied_tombstones: list[str]) -> None:
+    """Apply pending tombstones and consent revocations returned on a heartbeat response."""
+    if isinstance(payload, dict) and payload.get("pendingTombstones"):
+        applied_tombstones.extend(await apply_pending_tombstones(payload))
+    if isinstance(payload, dict) and payload.get("consentRevocations"):
+        from hushh_mcp.services.pod_consent_revocation import install_revocation_list
+
+        authority = active_session_authority()
+        if authority is not None:
+            await authority.require_held()
+            install_revocation_list(payload["consentRevocations"])
+
+
 __all__ = [
     "APP_SCOPES",
     "BINDING_KIND",
@@ -795,11 +824,14 @@ __all__ = [
     "PodSessionAuthority",
     "PodSessionRefused",
     "active_session_authority",
+    "apply_heartbeat_courier_payload",
     "build_pod_session_authority",
     "canonical_json",
     "challenge_signing_payload",
     "derive_session_key",
     "expected_environment",
+    "pod_session_refused_handler",
+    "retire_if_fenced_exception",
     "role_for_platform",
     "schedule_fenced_pod_retirement",
     "set_active_session_authority",

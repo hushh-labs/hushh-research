@@ -3,14 +3,12 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 
-def test_read_only_tombstone_and_device_positive_caches(monkeypatch):
+def test_read_only_tombstone_negative_cache(monkeypatch):
     from api.middlewares.observability import _read_only_request_ctx
     from hushh_mcp.services import account_deletion_lifecycle_service as deletion_mod
-    from hushh_mcp.services import trusted_device_service as device_mod
+    from hushh_mcp.services import read_only_auth_cache
 
-    deletion_mod.invalidate_tombstone_cache()
-    device_mod.invalidate_active_device_cache("u_cache_1")
-
+    read_only_auth_cache.invalidate_tombstone_cache()
     db_tombstone_calls = 0
     tombstoned_flag = False
 
@@ -29,26 +27,23 @@ def test_read_only_tombstone_and_device_positive_caches(monkeypatch):
         yield _FakeConn()
 
     monkeypatch.setattr(
-        deletion_mod, "_allow_read_only_tombstone_cache", lambda: _read_only_request_ctx.get()
+        read_only_auth_cache, "allow_read_only_auth_cache", lambda: _read_only_request_ctx.get()
     )
     monkeypatch.setattr(deletion_mod, "get_db_connection", _fake_conn)
 
-    # Read-only request caches False once and invalidates on explicit call.
     tok = _read_only_request_ctx.set(True)
     try:
         assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is False
         assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is False
         assert db_tombstone_calls == 1
-        deletion_mod.invalidate_tombstone_cache("u_cache_1")
+        read_only_auth_cache.invalidate_tombstone_cache("u_cache_1")
         tombstoned_flag = True
         assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is True
-        # True results must never be cached.
         assert deletion_mod.AccountDeletionLifecycleService.is_tombstoned("u_cache_1") is True
         assert db_tombstone_calls == 3
     finally:
         _read_only_request_ctx.reset(tok)
 
-    # Mutations never read the cache even if an entry exists.
     tombstoned_flag = False
     tok = _read_only_request_ctx.set(False)
     try:
@@ -56,8 +51,15 @@ def test_read_only_tombstone_and_device_positive_caches(monkeypatch):
         assert db_tombstone_calls == 4
     finally:
         _read_only_request_ctx.reset(tok)
+    read_only_auth_cache.invalidate_tombstone_cache()
 
-    # Active device cache mirrors the same read-only contract + revoke invalidation.
+
+def test_read_only_active_device_positive_cache(monkeypatch):
+    from api.middlewares.observability import _read_only_request_ctx
+    from hushh_mcp.services import read_only_auth_cache
+    from hushh_mcp.services import trusted_device_service as device_mod
+
+    read_only_auth_cache.invalidate_active_device_cache("u_cache_1")
     store_lookups = 0
 
     class _FakeStore:
@@ -74,7 +76,7 @@ def test_read_only_tombstone_and_device_positive_caches(monkeypatch):
 
     svc = device_mod.TrustedDeviceService(store=_FakeStore())
     monkeypatch.setattr(
-        device_mod, "_allow_read_only_device_cache", lambda: _read_only_request_ctx.get()
+        read_only_auth_cache, "allow_read_only_auth_cache", lambda: _read_only_request_ctx.get()
     )
     dev_id = "tdv_" + ("a" * 24)
     tok = _read_only_request_ctx.set(True)
@@ -87,5 +89,4 @@ def test_read_only_tombstone_and_device_positive_caches(monkeypatch):
         assert store_lookups == 2
     finally:
         _read_only_request_ctx.reset(tok)
-    deletion_mod.invalidate_tombstone_cache()
-    device_mod.invalidate_active_device_cache("u_cache_1")
+    read_only_auth_cache.invalidate_active_device_cache("u_cache_1")

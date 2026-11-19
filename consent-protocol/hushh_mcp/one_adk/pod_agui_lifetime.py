@@ -254,3 +254,44 @@ class PodTimedADKAgent(TimedADKAgent):
                 # Keep the permit held while any cancellation-resistant producer
                 # is still running. Update handoff must never report false idle.
                 logger.error("pod_chat.cleanup_pending update_handoff=held")
+
+
+async def finish_pod_turn_snapshot(ctx: Any) -> None:
+    """Persist encrypted ADK session snapshot while still inside the stream lifecycle."""
+    await ctx.require_access()
+    await ctx.projection.snapshot(force_save=True)
+    await ctx.require_access()
+
+
+async def finish_pod_turn_post(ctx: Any, memory: Any, run_input: Any) -> None:
+    """Commit encrypted chat memory and recovery projection after stream events settle."""
+    if memory is None or not bool(await memory.commit(run_input)):
+        return
+    await ctx.require_access()
+    projection = getattr(ctx.authority, "recovery_projection", None)
+    if projection is not None:
+        await projection.recover(ctx.log, force_save=True)
+    await ctx.require_access()
+
+
+async def require_pod_chat_session_access(ctx: Any) -> None:
+    """Revalidate this request's authority; the repository owns its log fence."""
+    from fastapi import HTTPException
+
+    from api.routes.one.pod_session import _refuse, verified_session
+    from hushh_mcp.services.pod_session_authority import (
+        ROLE_APP,
+        SCOPE_PKM_READ,
+        PodSessionRefused,
+        schedule_fenced_pod_retirement,
+    )
+
+    authority, claims = verified_session(ctx.authorization, role=ROLE_APP, scope=SCOPE_PKM_READ)
+    if authority is not ctx.authority or claims != ctx.claims:
+        raise HTTPException(403, detail={"code": "POD_CHAT_SESSION_CHANGED"})
+    try:
+        await authority.require_held()
+    except PodSessionRefused as exc:
+        if exc.code == "fenced":
+            schedule_fenced_pod_retirement("chat_session_refused")
+        raise _refuse(exc) from exc

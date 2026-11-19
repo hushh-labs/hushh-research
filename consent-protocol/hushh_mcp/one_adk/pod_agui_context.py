@@ -13,6 +13,11 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
     PodAdkSessionProjection,
     PodAdkSessionRepository,
 )
+from hushh_mcp.one_adk.pod_agui_lifetime import (
+    finish_pod_turn_post,
+    finish_pod_turn_snapshot,
+    require_pod_chat_session_access,
+)
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
 
 _projection: PodAdkSessionProjection | None = None
@@ -20,20 +25,10 @@ _projection: PodAdkSessionProjection | None = None
 
 class PodChatContext:
     async def _finish_snapshot(self, _input: Any) -> None:
-        await self.require_access()
-        await self.projection.snapshot(force_save=True)
-        await self.require_access()
+        await finish_pod_turn_snapshot(self)
 
     async def _finish_post_turn(self, memory: Any, input: Any) -> None:
-        wrote = False
-        if memory is not None:
-            wrote = bool(await memory.commit(input))
-        if wrote:
-            await self.require_access()
-            projection = getattr(self.authority, "recovery_projection", None)
-            if projection is not None:
-                await projection.recover(self.log, force_save=True)
-            await self.require_access()
+        await finish_pod_turn_post(self, memory, input)
 
     async def _finish_turn(self, memory: Any, input: Any) -> None:
         await self._finish_snapshot(input)
@@ -146,25 +141,7 @@ class PodChatContext:
 
     async def _require_session_access(self) -> None:
         """Revalidate this request's authority; the repository owns its log fence."""
-        from api.routes.one.pod_session import _refuse, verified_session
-        from hushh_mcp.services.pod_session_authority import (
-            ROLE_APP,
-            SCOPE_PKM_READ,
-            PodSessionRefused,
-            schedule_fenced_pod_retirement,
-        )
-
-        authority, claims = verified_session(
-            self.authorization, role=ROLE_APP, scope=SCOPE_PKM_READ
-        )
-        if authority is not self.authority or claims != self.claims:
-            raise HTTPException(403, detail={"code": "POD_CHAT_SESSION_CHANGED"})
-        try:
-            await authority.require_held()
-        except PodSessionRefused as exc:
-            if exc.code == "fenced":
-                schedule_fenced_pod_retirement("chat_session_refused")
-            raise _refuse(exc) from exc
+        await require_pod_chat_session_access(self)
 
     async def require_access(self) -> None:
         await self._require_session_access()
