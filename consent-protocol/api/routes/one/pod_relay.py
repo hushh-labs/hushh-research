@@ -844,21 +844,37 @@ async def direct_chat_grants(
     repo = registry or PersonalAgentRegistryRepo()
     auditor = audit or PodAccessAuditService(registry=repo)
     try:
-        await auditor.authorize_owner_read(
-            user_id=user_id,
-            agent_id=PERSONAL_AGENT_ID,
-            scope=ConsentScope.PKM_READ.value,
-            hushh_id=hushh_id,
-            request_id=f"chat-grants:{hushh_id}",
-        )
+        if audit is None:
+            _, before_row = await auditor.authorize_owner_read_with_row(
+                user_id=user_id,
+                agent_id=PERSONAL_AGENT_ID,
+                scope=ConsentScope.PKM_READ.value,
+                hushh_id=hushh_id,
+                request_id=f"chat-grants:{hushh_id}",
+            )
+            before = before_row or {}
+        else:
+            await auditor.authorize_owner_read(
+                user_id=user_id,
+                agent_id=PERSONAL_AGENT_ID,
+                scope=ConsentScope.PKM_READ.value,
+                hushh_id=hushh_id,
+                request_id=f"chat-grants:{hushh_id}",
+            )
+            before = await repo.get(user_id) or {}
     except PodAccessDenied:
         raise HTTPException(403, detail={"code": "POD_OWNER_REQUIRED"}) from None
-    before = await repo.get(user_id) or {}
     uid = (before.get("backend_metadata") or {}).get("serviceUid")
     if _owner_binding_denials(before, hushh_id) or not uid:
         raise _not_ready(str(before.get("status") or ""))
     try:
-        endpoint = await (bindings or PodBindingService(registry=repo)).endpoint(user_id=user_id)
+        if bindings is None:
+            endpoint = await PodBindingService(registry=repo, audit=auditor).endpoint(
+                user_id=user_id,
+                authorized_row=before,
+            )
+        else:
+            endpoint = await bindings.endpoint(user_id=user_id)
     except PodBindingError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code}) from None
     grants = await (issuer or issue_pod_data_door_grants)(user_id)
