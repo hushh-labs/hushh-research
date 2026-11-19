@@ -7,6 +7,7 @@ These doors require the owner's app session with pkm.read, not pod.status.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -317,17 +318,20 @@ async def task_suggestions_route(
     door = await _door(x_consent_token, authorization)
     await _suggestion_owner(door)
     try:
-        # Existing bounded execution, drain admission, disconnect cancellation and cleanup.
-        async with _admitted(authorization, request):
-            raw = bytearray()
+        # Consume the authenticated bounded body before the existing disconnect
+        # watcher starts reading receive(); it must not consume request chunks.
+        raw = bytearray()
+        async with asyncio.timeout(25):
             async for chunk in request.stream():
                 raw.extend(chunk)
                 if len(raw) > 160_000:
                     raise _refuse(413, "TASK_REQUEST_TOO_LARGE")
-            try:
-                body = TaskSuggestionRequest.model_validate_json(raw)
-            except (ValidationError, ValueError):
-                raise _refuse(422, "INVALID_TASK_REQUEST") from None
+        try:
+            body = TaskSuggestionRequest.model_validate_json(raw)
+        except (ValidationError, ValueError):
+            raise _refuse(422, "INVALID_TASK_REQUEST") from None
+        # Existing bounded execution, drain admission, disconnect cancellation and cleanup.
+        async with _admitted(authorization, request):
             try:
                 result = await run_task_suggestions(body, **door)
             except HTTPException:

@@ -15,7 +15,7 @@ export function useTodoCapabilitySources(input: {
   const epoch = snapshotVaultSessionEpoch();
   const selectionKey = JSON.stringify(input.selectedCapabilities);
   const selection = useMemo<readonly TaskCapability[] | undefined>(() => selectionKey ? JSON.parse(selectionKey) : undefined, [selectionKey]);
-  const identity = useMemo(() => Symbol("todo-sources"), [userId, vaultOwnerToken, enabled, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, epoch, selection]);
+  const identity = useMemo(() => Symbol(`todo-sources-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${enabled}-${mailConnected}-${calendarConnected}-${mailStatusKnown}-${calendarStatusKnown}-${epoch}-${selection?.join(",") ?? "all"}`), [userId, vaultOwnerToken, enabled, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, epoch, selection]);
   const current = useRef(identity);
   current.current = identity;
   const provider = useRef(input.idTokenProvider);

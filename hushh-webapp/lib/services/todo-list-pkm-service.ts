@@ -212,9 +212,8 @@ function privateDomainData(
     ...current,
     _private: {
       ...privateData,
-      tasks,
+      ...(selectedCapabilities === undefined ? { tasks } : { selectedCapabilities }),
       updatedAt,
-      ...(selectedCapabilities === undefined ? {} : { selectedCapabilities }),
     },
   };
 }
