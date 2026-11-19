@@ -78,7 +78,7 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
 
 // These Calendar cases exercise the explicitly selected Shared runtime.
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getPersonalAgentStatus: mocks.getPersonalAgentStatus },
+  ApiService: { getPersonalAgentStatusForRouting: mocks.getPersonalAgentStatus },
 }));
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
