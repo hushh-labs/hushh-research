@@ -1,3 +1,5 @@
+import type { FeedActivityQuery } from "@/lib/feed/activity-query";
+export type { FeedActivityQuery } from "@/lib/feed/activity-query";
 import { ApiService } from "@/lib/services/api-service";
 import { bumpFeedPresentationRevision, currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
@@ -152,6 +154,14 @@ export type FeedItem = {
   /** Client-memory reading anchor, never sent to the API or persisted on disk. */
   presentationCreatedAt?: string;
   id: string;
+  scope_id?: string;
+  agent_label?: string;
+  activity_group_id?: string;
+  activity_revision?: string;
+  subagent_id?: string;
+  activity_kind?: "decision" | "outcome" | "routine";
+  search_events?: string[];
+  location_search_context?: { person: string; circle: string; check_in: boolean }[];
   source_domain: FeedSourceDomain;
   event_type: FeedEventType | string;
   actor_label: string | null;
@@ -164,8 +174,18 @@ export type FeedListResponse = {
   items: FeedItem[];
   next_cursor: string | null;
   unread_count: number;
-  /** Opaque owner received-message deletion revision; absent on older backends. */
+  /** Opaque revision of the owner's history presentation. */
   history_revision?: string | null;
+  clear_version?: string | null;
+  read_snapshot?: { up_to_id: string | null; through_time: string | null; fingerprint?: string | null } | null;
+};
+
+export type FeedActivityDetail = {
+  item: FeedItem;
+  milestones: FeedItem[];
+  more_milestones: boolean;
+  next_cursor: string | null;
+  state_source: "recorded_domain_outcomes";
 };
 
 /** A removal the server stored for this account. */
@@ -205,6 +225,35 @@ const unreadCountInFlight = new Map<
 >();
 
 export class FeedService {
+  /** Read-only owner activity; never updates the browse cache or read watermark. */
+  static async searchActivity(options: {
+    idToken: string; query: FeedActivityQuery; isEffectCurrent?: () => boolean;
+  }): Promise<Pick<FeedListResponse, "items" | "next_cursor"> & { top_hit?: {kind:"activity";item:FeedItem}|{kind:"person"|"client";label:string;href:string}|null;suggestion?:string|null }> {
+    const response = await ApiService.apiFetch("/api/one/feed/search", {
+      method: "POST", cache: "no-store", isEffectCurrent: options.isEffectCurrent,
+      headers: { ...(await authHeader(options.idToken)), "Content-Type": "application/json" },
+      body: JSON.stringify(options.query),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw feedRequestError(payload, response.status);
+    if (options.isEffectCurrent && !options.isEffectCurrent()) throw new DOMException("Session changed", "AbortError");
+    return payload;
+  }
+
+  static async activityDetail(options: {
+    idToken: string; itemId: string; beforeId?: string; isEffectCurrent?: () => boolean;
+  }): Promise<FeedActivityDetail> {
+    if (!/^[1-9][0-9]{0,18}$/.test(options.itemId)) throw new Error("Invalid activity");
+    const response = await ApiService.apiFetch(`/api/one/feed/${encodeURIComponent(options.itemId)}/activity${options.beforeId ? `?before_id=${encodeURIComponent(options.beforeId)}` : ""}`, {
+      method: "GET", cache: "no-store", isEffectCurrent: options.isEffectCurrent,
+      headers: await authHeader(options.idToken),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw feedRequestError(payload, response.status);
+    if (options.isEffectCurrent && !options.isEffectCurrent()) throw new DOMException("Session changed", "AbortError");
+    return payload;
+  }
+
   private static async postMutation<T>(options: {
     idToken: string;
     userId: string;
@@ -277,16 +326,21 @@ export class FeedService {
     idToken: string;
     userId: string;
     upToId: string;
+    throughTime?: string | null;
+    snapshotFingerprint?: string | null;
     isEffectCurrent?: () => boolean;
-  }): Promise<void> {
-    await this.postMutation<{ status: string }>({
+  }): Promise<string | null> {
+    const result = await this.postMutation<{ status: string; clear_version?: string | null; snapshot_changed?: boolean }>({
       idToken: options.idToken,
       userId: options.userId,
       isEffectCurrent: options.isEffectCurrent,
       path: "/api/one/feed/clear",
       // Preserve the full Postgres bigint on the wire.
-      body: { up_to_id: options.upToId },
+      body: { up_to_id: options.upToId, ...(options.throughTime ? { through_time: options.throughTime } : {}),
+        ...(options.snapshotFingerprint ? { snapshot_fingerprint: options.snapshotFingerprint } : {}) },
     });
+    if (result.snapshot_changed) throw new Error("Activity changed. Refresh and try again.");
+    return result.clear_version || null;
   }
 
   /**
@@ -438,6 +492,8 @@ export class FeedService {
   static async markRead(options: {
     idToken: string;
     upToId: string;
+    throughTime?: string;
+    snapshotFingerprint?: string | null;
     isEffectCurrent?: () => boolean;
   }): Promise<void> {
     const response = await ApiService.apiFetch("/api/one/feed/read", {
@@ -450,6 +506,8 @@ export class FeedService {
         // Keep bigint identifiers as decimal strings in JavaScript. Pydantic
         // validates/coerces the request without crossing Number's 53-bit limit.
         up_to_id: options.upToId,
+        ...(options.throughTime ? { through_time: options.throughTime } : {}),
+        ...(options.snapshotFingerprint ? { snapshot_fingerprint: options.snapshotFingerprint } : {}),
       }),
       isEffectCurrent: options.isEffectCurrent,
     });

@@ -18,7 +18,12 @@ from hushh_mcp.services.advisor_review_store import (
     require_accepted,
 )
 from hushh_mcp.services.direct_messages_service import DirectMessagesError, DirectMessagesService
-from hushh_mcp.services.finance_sharing_service import FinanceSharingService, one, require_advisor
+from hushh_mcp.services.finance_sharing_service import (
+    FinanceSharingError,
+    FinanceSharingService,
+    one,
+    require_advisor,
+)
 
 
 class AdvisorReviewService:
@@ -93,14 +98,30 @@ class AdvisorReviewService:
             )
             return project(load(conn, owner, str(body.requestId)), owner)
 
-    def history(self, viewer, current_ui=False):
+    def history(self, viewer, current_ui=False, *, pending_received=False):
         with self.db.engine.begin() as conn:
             expire(conn, viewer)
+            if pending_received:
+                try:
+                    require_advisor(conn, viewer)
+                except FinanceSharingError as exc:
+                    if exc.status_code == 403:
+                        return {"items": []}
+                    raise
             ids = (
                 conn.execute(
-                    text("""SELECT id FROM advisor_review_requests
-                WHERE :viewer IN(owner_user_id,advisor_user_id) ORDER BY created_at DESC,id DESC LIMIT 50"""),
-                    {"viewer": viewer},
+                    text("""SELECT r.id FROM advisor_review_requests r
+                WHERE :viewer IN(r.owner_user_id,r.advisor_user_id)
+                  AND (NOT :pending_received OR (
+                    r.advisor_user_id = :viewer AND r.status = 'pending'
+                    AND r.expires_at > clock_timestamp() AND r.envelope IS NOT NULL
+                    AND r.owner_envelope IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM direct_message_blocks b WHERE
+                      (b.blocker_user_id=r.owner_user_id AND b.blocked_user_id=:viewer)
+                      OR (b.blocker_user_id=:viewer AND b.blocked_user_id=r.owner_user_id))
+                  ))
+                ORDER BY r.created_at DESC,r.id DESC LIMIT 50"""),
+                    {"viewer": viewer, "pending_received": pending_received},
                 )
                 .scalars()
                 .all()
@@ -222,7 +243,9 @@ class AdvisorReviewService:
                 conn,
                 owner if counterpart_is_owner else advisor,
                 request_id,
-                "advisor_review_accepted" if action == "accept" else "advisor_review_updated",
+                {"accept": "advisor_review_accepted", "decline": "advisor_review_declined"}.get(
+                    action, "advisor_review_updated"
+                ),
                 role="owner" if counterpart_is_owner else "advisor",
             )
             return project(load(conn, viewer, request_id), viewer)

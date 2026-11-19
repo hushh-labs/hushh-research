@@ -11,6 +11,11 @@ FEED_METADATA_KEYS = frozenset(
     {
         "advisorReviewId",
         "viewerRole",
+        "workflow_id",
+        "send_action_id",
+        "send_state",
+        "bulk_share_id",
+        "connector_key",
         "scope_description",
         "scope",
         "counterpart_label",
@@ -26,6 +31,8 @@ FEED_METADATA_KEYS = frozenset(
         "requested_duration_hours",
         "is_extension",
         "request_id",
+        "recorded_grant_id",
+        "recorded_request_id",
         "grant_id",
         "referral_id",
         "direction",
@@ -71,6 +78,16 @@ FEED_METADATA_KEYS = frozenset(
         # one row where that distinction matters most. A short, bounded enum
         # written by our own service, carrying nothing about the person.
         "share_kind",
+        "check_in_operation_id",
+        "confirmed_count",
+        "intended_count",
+        "pending_count",
+        "current_location_status",
+        "current_check_in_available",
+        "current_circle_available",
+        "action_actor_label",
+        "membership_key",
+        "approval_mode",
         "person_ref",
         "bundle_id",
         # One Feed item per person-to-person request (migration 259): which

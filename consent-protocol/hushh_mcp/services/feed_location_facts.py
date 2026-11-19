@@ -1,0 +1,129 @@
+"""Bounded Location state and recorded actor facts for the owner Feed projection."""
+
+from typing import Any
+
+
+def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
+    joins, patches, required = [], [], {}
+    if has("one_location_share_grants") and has("one_location_access_requests"):
+        joins.append(f"""LEFT JOIN one_location_share_grants result_grant
+          ON result_grant.id={uuid_sql("to_jsonb(flr)->>'approved_grant_id'")}
+          AND result_grant.owner_user_id=flr.owner_user_id AND result_grant.recipient_user_id=flr.requester_user_id""")
+        patches.append("""jsonb_strip_nulls(jsonb_build_object(
+          'grant_id',COALESCE(flg.id,result_grant.id)::text,
+          'share_kind',COALESCE(f.metadata->>'share_kind',to_jsonb(flg)->'metadata'->>'share_kind',to_jsonb(result_grant)->'metadata'->>'share_kind'),
+          'current_location_status',COALESCE(to_jsonb(flg)->>'status',to_jsonb(result_grant)->>'status',
+            CASE WHEN to_jsonb(flr)->>'status'='pending' AND (to_jsonb(flr)->>'expires_at')::timestamptz<=clock_timestamp() THEN 'expired' ELSE to_jsonb(flr)->>'status' END),
+          'feed_audience',CASE WHEN f.user_id=COALESCE(flg.recipient_user_id,flr.requester_user_id) THEN 'recipient' WHEN flg.id IS NOT NULL OR flr.id IS NOT NULL THEN 'owner' END))""")
+        if not historical:
+            required["location_access_request"] = (
+                "flr.id IS NULL OR (COALESCE(to_jsonb(flr)->>'status','pending')<>'expired' AND NOT(COALESCE(to_jsonb(flr)->>'status','pending')='pending' AND COALESCE((to_jsonb(flr)->>'expires_at')::timestamptz<=clock_timestamp(),FALSE)))"
+            )
+    if has("one_location_circle_member_invites"):
+        joins.append(f"""LEFT JOIN one_location_circle_member_invites circle_invite
+          ON circle_invite.id={uuid_sql("COALESCE(f.metadata->>'invite_id',split_part(f.source_row_id,':',1))")}
+          AND f.user_id IN(circle_invite.inviter_user_id,circle_invite.invitee_user_id)""")
+        patches.append(
+            "jsonb_strip_nulls(jsonb_build_object('membership_key',circle_invite.metadata->>'membership_key'))"
+        )
+    if has("one_location_circles") and has("one_location_circle_memberships"):
+        patches.append(f"""jsonb_build_object('current_circle_available', EXISTS(
+          SELECT 1 FROM one_location_circles circle JOIN one_location_circle_memberships member
+          ON member.circle_id=circle.id AND member.user_id=f.user_id AND member.status='active'
+          WHERE circle.id={uuid_sql("f.metadata->>'circle_id'")} AND circle.status='active'))""")
+    if has("one_location_check_in_operations"):
+        joins.append(f"""LEFT JOIN one_location_check_in_operations check_in
+          ON check_in.id={uuid_sql("f.metadata->>'check_in_operation_id'")} AND check_in.owner_user_id=f.user_id""")
+        patches.append("jsonb_build_object('current_check_in_available',check_in.id IS NOT NULL)")
+    if has("one_location_events") and {"metadata", "actor_user_id"}.issubset(
+        columns["one_location_events"]
+    ):
+        joins.append("""LEFT JOIN LATERAL (SELECT e.* FROM one_location_events e
+          WHERE e.id=(SELECT min(candidate.id) FROM one_location_events candidate
+            WHERE candidate.event_type=f.event_type AND f.user_id IN(candidate.owner_user_id,candidate.recipient_user_id)
+            AND f.source_row_id IN(candidate.id::text,candidate.id::text||':'||'recipient',
+              CASE WHEN candidate.event_type IN('location_share_created','location_share_revoked','location_share_expired') THEN candidate.grant_id::text
+                WHEN candidate.event_type IN('location_share_shortened','location_share_duration_changed') AND NULLIF(candidate.metadata->>'client_operation_id','') IS NOT NULL
+                  THEN candidate.grant_id::text||':'||'operation'||':'||left(candidate.metadata->>'client_operation_id',160)
+                WHEN candidate.event_type='location_access_request' THEN candidate.request_id::text||':'||'revision'||':'||COALESCE(candidate.metadata->>'request_revision','1')
+                WHEN candidate.event_type IN('location_access_approved','location_access_denied') THEN candidate.request_id::text END)
+            HAVING count(*)=1)) recorded_location ON TRUE""")
+        patches.append("""jsonb_strip_nulls(jsonb_build_object(
+          'membership_key',CASE WHEN jsonb_typeof(recorded_location.metadata->'membership_key')='string' THEN left(recorded_location.metadata->>'membership_key',256) END,
+          'circle_id',CASE WHEN recorded_location.metadata->>'circle_id' ~* '^[0-9a-f-]{36}$' THEN recorded_location.metadata->>'circle_id' END,
+          'circle_name',CASE WHEN jsonb_typeof(recorded_location.metadata->'circle_name')='string' THEN left(recorded_location.metadata->>'circle_name',160) END,
+          'actor_is_self',CASE WHEN recorded_location.actor_user_id IS NOT NULL THEN recorded_location.actor_user_id=f.user_id END,
+          'reason',CASE WHEN recorded_location.metadata->>'reason' IN('owner_revoke','recipient_revoke','owner_shorten','recipient_shorten','expired','circle_membership_ended','circle_deleted','connection_disconnected') THEN recorded_location.metadata->>'reason' END,
+          'approval_mode',CASE WHEN recorded_location.metadata->>'approval_mode' IN('automatic','manual') THEN recorded_location.metadata->>'approval_mode' END,
+          'added_duration_hours',CASE WHEN jsonb_typeof(recorded_location.metadata->'added_duration_hours') IN('number','string') THEN left(recorded_location.metadata->>'added_duration_hours',32) END))""")
+    # Legacy duration receipts may omit share kind after the short-lived grant is purged.
+    # Correlate only this viewer's exact recorded grant, never names or a time window.
+    joins.append(f"""LEFT JOIN LATERAL (
+      SELECT origin.metadata FROM feed_events origin
+      WHERE f.source_domain='location' AND origin.user_id=f.user_id
+        AND origin.source_domain='location'
+        AND origin.event_type IN('location_share_created','location_share_unconfirmed')
+        AND {_history_grant_expr("origin", uuid_sql)}={_history_grant_expr("f", uuid_sql)}
+      ORDER BY origin.id DESC LIMIT 1) location_feed_origin ON TRUE""")
+    patches.append(
+        "jsonb_strip_nulls(jsonb_build_object('share_kind',COALESCE(f.metadata->>'share_kind',location_feed_origin.metadata->>'share_kind')))"
+    )
+    # A durable receipt is history identity, never authority for a live action.
+    patches.append(f"""CASE WHEN f.source_domain='location' AND f.event_type IN(
+      'location_share_created','location_share_revoked','location_share_expired','location_share_shortened','location_share_duration_changed')
+      THEN jsonb_strip_nulls(jsonb_build_object('recorded_grant_id',COALESCE(
+        {_history_grant_expr("f", uuid_sql)},NULLIF(f.metadata->>'recorded_grant_id','')))) ELSE '{{}}'::jsonb END""")
+    published_sos = f"""COALESCE(f.metadata->>'share_kind',location_feed_origin.metadata->>'share_kind','share')<>'sos' OR (
+      f.metadata->>'feed_audience'='recipient' AND EXISTS(SELECT 1 FROM feed_events published
+        WHERE published.user_id=f.user_id AND published.source_domain='location'
+          AND published.event_type='location_share_created' AND published.metadata->'feed_sms_confirmed'='true'::jsonb
+          AND {_history_grant_expr("published", uuid_sql)}={_history_grant_expr("f", uuid_sql)}))"""
+    for event in (
+        "location_share_created",
+        "location_share_revoked",
+        "location_share_expired",
+        "location_share_shortened",
+        "location_share_duration_changed",
+    ):
+        required[event] = published_sos
+    if has("one_location_check_in_operations") and not historical:
+        required["location_share_created"] = (
+            "("
+            + published_sos
+            + ") AND (check_in.id IS NULL OR COALESCE(to_jsonb(check_in)->>'state','pending')<>'pending')"
+        )
+    # A lifecycle label without an exact recorded operation is not reviewable.
+    for event in (
+        "location_share_created",
+        "location_share_revoked",
+        "location_share_expired",
+        "location_share_shortened",
+        "location_share_duration_changed",
+    ):
+        required[event] = (
+            "(" + required[event] + ") AND " + _history_grant_expr("f", uuid_sql) + " IS NOT NULL"
+        )
+    for event in (
+        "location_access_request",
+        "location_access_approved",
+        "location_access_denied",
+        "location_access_request_withdrawn",
+    ):
+        identity = f"COALESCE({uuid_sql("split_part(f.source_row_id,':',1)")},{uuid_sql("f.metadata->>'recorded_request_id'")},{uuid_sql("f.metadata->>'request_id'")}) IS NOT NULL"
+        # A source event can supply the verified request while its raw source is an audit id.
+        if has("one_location_access_requests"):
+            identity = "(flr.id IS NOT NULL OR " + identity + ")"
+        required[event] = "(" + required.get(event, "TRUE") + ") AND " + identity
+    circle_id = uuid_sql("f.metadata->>'circle_id'")
+    required["circle_member_added"] = (
+        f"{circle_id} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM feed_events ended WHERE ended.user_id=f.user_id AND ended.source_domain='location' AND ended.event_type='circle_deleted' AND COALESCE({uuid_sql("ended.metadata->>'circle_id'")},{uuid_sql("split_part(ended.source_row_id,':',1)")})={circle_id} AND (ended.created_at,ended.id)>(f.created_at,f.id))"
+    )
+    if has("feed_event_counterparts"):
+        required["circle_member_added"] += (
+            " AND NOT EXISTS (SELECT 1 FROM feed_event_counterparts self_add WHERE self_add.feed_event_id=f.id AND self_add.counterpart_user_id=f.user_id)"
+        )
+    return joins, patches, required
+
+
+def _history_grant_expr(alias, uuid_sql):
+    return f"COALESCE({uuid_sql(f'{alias}.source_row_id')}::text,{uuid_sql(f"{alias}.metadata->>'recorded_grant_id'")}::text,{uuid_sql(f"{alias}.metadata->>'grant_id'")}::text,{uuid_sql(f"split_part({alias}.source_row_id,':',1)")}::text)"

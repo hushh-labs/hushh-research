@@ -632,7 +632,12 @@ export function KaiAnalysisPageContent() {
   }, [router]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
-  const activeEntry = liveEntry || resolvedEntry;
+  const selectedSavedEntry = analysisEntryId
+    && resolvedEntry
+    && getAnalysisHistoryEntryRouteId(resolvedEntry) === analysisEntryId
+      ? resolvedEntry
+      : null;
+  const activeEntry = analysisEntryId ? selectedSavedEntry : liveEntry || resolvedEntry;
   const previewTickerRaw = useMemo(
     () => String(searchParams.get("ticker") || "").trim().toUpperCase(),
     [searchParams]
@@ -661,8 +666,9 @@ export function KaiAnalysisPageContent() {
     stocksActive && workspaceSelected &&
     !showHistoryWhileActive &&
     !shouldShowPreview &&
-    Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
+    Boolean(analysisEntryId ? selectedSavedEntry : liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
   const activeTicker = useMemo(() => {
+    if (analysisEntryId) return activeEntry?.ticker || "";
     if (focusedRunTask?.ticker) {
       return String(focusedRunTask.ticker).trim().toUpperCase();
     }
@@ -673,7 +679,7 @@ export function KaiAnalysisPageContent() {
       return String(analysisParams.ticker).trim().toUpperCase();
     }
     return activeEntry?.ticker ? String(activeEntry.ticker).trim().toUpperCase() : "";
-  }, [activeEntry?.ticker, activeRunTask?.ticker, analysisParams?.ticker, focusedRunTask?.ticker, liveIntentReady]);
+  }, [activeEntry?.ticker, activeRunTask?.ticker, analysisEntryId, analysisParams?.ticker, focusedRunTask?.ticker, liveIntentReady]);
   const previewTickerFromQuery = useMemo(() => {
     const rawTicker = String(searchParams.get("ticker") || "").trim().toUpperCase();
     if (!rawTicker) return "";
@@ -1280,12 +1286,12 @@ export function KaiAnalysisPageContent() {
               <div className="min-w-0 max-w-full">
                 {activeEntry ? (
                   <div className="space-y-3">
-                    {focusedRunTask?.persistenceState === "pending" ? (
+                    {!analysisEntryId && focusedRunTask?.persistenceState === "pending" ? (
                       <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
                         One is saving this debate to your PKM history.
                       </div>
                     ) : null}
-                    {focusedRunTask?.persistenceState === "failed" ? (
+                    {!analysisEntryId && focusedRunTask?.persistenceState === "failed" ? (
                       <div className="rounded-2xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <span>{focusedRunTask.persistenceError || "History save failed for this debate."}</span>
@@ -1315,7 +1321,7 @@ export function KaiAnalysisPageContent() {
                 )}
               </div>
               <div className="min-w-0 max-w-full">
-                {activeRunTask ? (
+                {!analysisEntryId && activeRunTask ? (
                   <DebateStreamView
                     runId={activeRunTask.runId}
                     ticker={activeRunTask.ticker}
@@ -1333,7 +1339,7 @@ export function KaiAnalysisPageContent() {
                     detailsExpanded={workspaceTab === "debate"}
                     onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
                   />
-                ) : focusedRunTask ? (
+                ) : !analysisEntryId && focusedRunTask ? (
                   <DebateStreamView
                     runId={focusedRunTask.runId}
                     ticker={focusedRunTask.ticker}
@@ -1351,7 +1357,7 @@ export function KaiAnalysisPageContent() {
                     detailsExpanded={workspaceTab === "debate"}
                     onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
                   />
-                ) : canStartNewRun && analysisParams ? (
+                ) : !analysisEntryId && canStartNewRun && analysisParams ? (
                   <DebateStreamView
                     ticker={analysisParams.ticker}
                     userId={analysisParams.userId}
@@ -1501,7 +1507,7 @@ export function KaiAnalysisPageContent() {
               showStartAction={false}
             />
           </KaiControlSurface>
-          {activeRunTask ? (
+          {!analysisEntryId && activeRunTask ? (
             <SurfaceCard accent="sky" className="w-full">
               <SurfaceCardContent className="px-3 py-2 text-xs text-accent-strong">
               Analysis for <span className="font-semibold">{activeRunTask.ticker}</span> is still

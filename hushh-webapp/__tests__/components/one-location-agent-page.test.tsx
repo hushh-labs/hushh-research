@@ -23,7 +23,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
-import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import * as locationNotifications from "@/lib/one-location/notifications";
 import * as liveMapModule from "@/components/one-location/live-map";
@@ -6205,9 +6204,10 @@ describe("OneLocationAgentPage", () => {
         return null;
       }
       const view = render(<><OneLocationAgentPage /><FirstCommitProbe /></>);
-      expect(firstCommit).toHaveBeenCalledWith(true, false);
+      expect(firstCommit).toHaveBeenCalledWith(status === "active", false);
       // The destination must stay visible while Next's query replacement is delayed.
-      expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+      if (status === "active") expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+      else expect(screen.getByText("This location share ended or is unavailable.")).toBeTruthy();
       expect(screen.queryByRole("heading", { name: "Location" })).toBeNull();
       if (status === "active") {
         expect(mockViewEnvelope).toHaveBeenCalledWith(expect.objectContaining({ grantId: "grant_sms" }));
@@ -6249,7 +6249,7 @@ describe("OneLocationAgentPage", () => {
     mockUseSearchParams.mockReturnValue(incoming.searchParams);
     view.rerender(<OneLocationAgentPage />);
     // Leave the query at its original notification URL; rendering cannot wait on replace.
-    expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+    expect(screen.getByText("This location share ended or is unavailable.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Location" })).toBeNull();
   });
 
@@ -6292,22 +6292,16 @@ describe("OneLocationAgentPage", () => {
                 },
               ],
       });
-      const href = presentFeedItem({
-        id: "feed-1",
-        source_domain: "location",
-        event_type: "location_share_created",
-        actor_label: "Trusted B",
-        metadata: { feed_audience: "recipient", duration_hours: 1 },
-        read: true,
-        created_at: "2026-09-01T00:00:00.000Z",
-      }).href!;
+      // Old push URLs still resolve the exact grant, while new ended Feed
+      // receipts stay in history and do not offer a live map destination.
+      const href = "/one/location?section=shared&grantId=grant_feed";
       mockUseSearchParams.mockReturnValue(
         new URL(href, "https://app.test").searchParams,
       );
       const view = render(<OneLocationAgentPage />);
       await waitFor(() =>
         expect(mockRouterReplace).toHaveBeenCalledWith(
-          "/one/location?action=shared-with-me",
+          "/one/location?grantId=grant_feed&action=shared-with-me",
           { scroll: false },
         ),
       );
@@ -6315,25 +6309,14 @@ describe("OneLocationAgentPage", () => {
       // Apply the real normalization with a fresh query object, as Next does.
       // This proves the intent settles and can be left, not just that replace ran.
       mockUseSearchParams.mockReturnValue(
-        new URLSearchParams("action=shared-with-me"),
+        new URLSearchParams("action=shared-with-me&grantId=grant_feed"),
       );
       mockRouterReplace.mockClear();
       view.rerender(<OneLocationAgentPage />);
-      expect(
-        await screen.findByRole("heading", { name: "Shared with me" }),
-      ).toBeTruthy();
-      if (status !== "expired") {
-        expect(
-          await screen.findByRole("button", {
-            name: "View shared location from Investor D",
-          }),
-        ).toBeTruthy();
-      } else {
-        expect(
-          screen.queryByRole("button", { name: /View shared location from/ }),
-        ).toBeNull();
-        expect(mockViewEnvelope).not.toHaveBeenCalled();
-      }
+      if (active) expect(await screen.findByRole("heading", {name:"Shared with me"})).toBeTruthy();
+      else expect(await screen.findByText("This location share ended or is unavailable.")).toBeTruthy();
+      expect(screen.queryByRole("button", {name:"View shared location from Investor D"})).toBeNull();
+      if (!active) expect(mockViewEnvelope).not.toHaveBeenCalled();
       expect(screen.queryByTitle("Live location map preview")).toBeNull();
       expect(mockRouterReplace).not.toHaveBeenCalled();
 

@@ -1,27 +1,16 @@
 "use client";
 
-/**
- * Unified Top Shell
- *
- * Single fixed component that owns the entire top chrome:
- *   1. Capacitor safe-area inset (notch / Dynamic Island)
- *   2. Header row  –  actor title · actions
- *   3. Optional route-owned contextual tab row
- *
- * One continuous solid top surface (no fade band) covers the signed-in
- * shell so page content scrolls cleanly underneath.
- *
- * All sizing uses CSS custom properties from globals.css
- * (--top-inset, --top-bar-h, --top-tabs-total, --top-glass-h, etc.)
- * so the layout works identically on web and native with zero
- * Capacitor.isNativePlatform() checks — env(safe-area-inset-top)
- * evaluates correctly in both environments.
+/** Owns safe-area inset, header actions and optional route tabs on one solid
+ * surface. Shared CSS sizing and env(safe-area-inset-top) cover web and native.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TopBarRouteAccessoryHost } from "./top-bar-route-accessory";
+import { visitFeedSearchRoute } from "@/lib/feed/feed-search-memory";
+import { openFeedSearch } from "@/lib/feed/feed-search-events";
 import { OnboardingRouteActions } from "@/components/onboarding/onboarding-route-actions";
 import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
+  Search,
   BriefcaseBusiness,
   Code2,
   AccentedKeyIcon,
@@ -409,6 +398,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  useEffect(()=>{if(pathname)visitFeedSearchRoute(pathname);},[pathname]);
   // The top bar is suppressed on every setup surface, so its avatar must not
   // spend a pool connection fetching an image nobody is looking at while a
   // first-run person waits on the gate. It still renders from cache, and
@@ -1243,6 +1233,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
+                        {pathname === "/one/feed" ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"

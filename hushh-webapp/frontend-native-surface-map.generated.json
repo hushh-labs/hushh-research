@@ -3137,8 +3137,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/feed/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "feed.search_activity"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -11081,5 +11083,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0757b692ad5a63294bcc804e1bd922ad404aa12b179389cff0fab45b4d9682b1"
+  "content_sha256": "343c59730b2a6c2567c2ae2973a53c05217646ce56418386f744ed818ef84591"
 }

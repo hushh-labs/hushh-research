@@ -19,6 +19,7 @@ from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token as require_vault_owner_token
 from api.middlewares.observability import get_request_id
@@ -38,6 +39,7 @@ from hushh_mcp.operons.kai.llm import (
     synthesize_debate_recommendation_card,
 )
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
@@ -3011,6 +3013,35 @@ async def analyze_run_stream(
             request=request,
         )
     )
+
+
+@router.post("/analyze/run/{run_id}/feed-result")
+async def analyze_run_feed_result(
+    run_id: RunId,
+    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
+    token_data: dict = Depends(hub_content_owner),
+):
+    """Project an owner client's acknowledgement of a saved background analysis.
+
+    The report itself is encrypted. The client calls only after saving it;
+    the server authenticates the owner and derives the run and ticker itself.
+    """
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
+    run = await _RUN_MANAGER.get_run(run_id)
+    if run is None or run.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    if run.status != "completed":
+        raise HTTPException(status_code=409, detail="Analysis run has not completed")
+    await run_in_threadpool(
+        FeedService().record_event,
+        user_id=user_id,
+        source_domain="kai",
+        event_type="kai_analysis_saved",
+        actor_label="Kai",
+        metadata={"ticker": run.ticker, "run_id": run.run_id},
+        source_row_id=run.run_id,
+    )
+    return {"status": "ok"}
 
 
 @router.post("/analyze/run/{run_id}/cancel")

@@ -196,6 +196,8 @@ export interface PortfolioData {
 export interface PortfolioReviewViewProps {
   /** Parsed portfolio data from Gemini */
   portfolioData: PortfolioData;
+  /** Open the current blocking field when it matches the Feed task. */
+  focusValidationField?: string | null;
   /** User ID for saving */
   userId: string;
   /** Vault key for encryption (optional; create/unlock flow may run later) */
@@ -686,6 +688,7 @@ function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation
 
 export function PortfolioReviewView({
   portfolioData: initialData,
+  focusValidationField,
   userId,
   vaultKey,
   vaultOwnerToken,
@@ -752,9 +755,14 @@ export function PortfolioReviewView({
   const handleSaveRef = useRef<() => Promise<void>>(async () => {});
   const saveInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
-  const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
-  const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(null);
-  const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(-1);
+  const [initialCorrection] = useState(() => {
+    if (!focusValidationField) return null;
+    const invalid = findHoldingValidationIssue(initialData.holdings || []);
+    return invalid?.issue.field === focusValidationField ? invalid : null;
+  });
+  const [editingHolding, setEditingHolding] = useState<Holding | null>(initialCorrection?.holding ?? null);
+  const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(initialCorrection?.issue ?? null);
+  const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(initialCorrection?.index ?? -1);
   const [managedPositionId, setManagedPositionId] = useState<string | null>(null);
   const [holdingsTab, setHoldingsTab] = useState<ReviewHoldingsFilter>("all");
 

@@ -360,7 +360,7 @@ function FeedActionableIdentity({
  * slot. SettingsRow's split-primary handling keeps the row tap and the
  * trailing buttons from nesting.
  */
-export function FeedActionableRow({ item }: { item: FeedActionable }) {
+export function FeedActionableRow({ item, onNavigate }: { item: FeedActionable; onNavigate?: (href: string) => void }) {
   const isLive = item.emphasis === "emergency";
   const indicator = item.spinning || isLive ? (
     <span aria-hidden="true" className={cn(
@@ -372,17 +372,8 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   const hasActions = item.actions.length > 0;
   const leading = (
     <span className="grid w-[30px] place-items-center">
-      {item.person ? (
+      {item.person && item.sourceLabel !== "Location" ? (
         <FeedActionableIdentity person={item.person} compact />
-      ) : item.id.startsWith("calendar:") ? (
-        <span data-slot="feed-domain-icon" className="grid size-[22px] place-items-center text-[color:var(--app-label)]" aria-hidden="true">
-          <svg viewBox="0 0 24 24" className="size-[22px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3.5" y="5" width="17" height="15.5" rx="3" />
-            <path stroke="var(--app-accent)" d="M3.5 9.8h17" />
-            <path d="M8 2.8v3.6M16 2.8v3.6" />
-            <circle cx="12" cy="14.9" r="1.7" fill="var(--app-accent)" stroke="none" />
-          </svg>
-        </span>
       ) : (
         <span data-slot="feed-domain-icon" className="grid size-[22px] place-items-center text-[color:var(--app-label)]" aria-hidden="true">
           <item.icon className="size-[22px]" />
@@ -395,21 +386,22 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     layout: "settings",
     density: "compact",
     leading,
-    leadingInteractive: Boolean(item.person?.userId || item.person?.personRef),
+    leadingInteractive: item.sourceLabel !== "Location" && Boolean(item.person?.userId || item.person?.personRef),
     title: item.smsEmergency ? (
       <span className="block min-w-0 space-y-0.5 py-1">
+        {item.sourceLabel ? <span data-slot="feed-source-label" className="block text-xs font-medium text-muted-foreground">{item.sourceLabel}</span> : null}
         <span data-profile-role="name" className="block whitespace-normal [overflow-wrap:anywhere]">{item.title}</span>
         <span data-profile-role="description" data-slot="feed-event-description" className="flex items-center gap-1.5 whitespace-normal text-muted-foreground">{indicator}{item.description}</span>
         <FeedSmsSentTime timestamp={item.displayTimestamp} />
       </span>
     ) : item.updateProgress ? (
       <span className="block min-w-0 space-y-2 py-1">
-        <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />
+        <FeedRowMetadata source={item.sourceLabel} title={item.title} description={item.description} indicator={indicator} />
         <AgentUpdateProgress update={item.updateProgress} />
       </span>
-    ) : <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />,
+    ) : <FeedRowMetadata source={item.sourceLabel} title={item.title} description={item.description} indicator={indicator} />,
     ariaLabel: item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". "),
-    textOverflow: item.smsEmergency || item.updateProgress ? "wrap" : "truncate",
+    textOverflow: "wrap",
     trailing: <>
       {!item.smsEmergency ? <FeedRowTimestamp timestamp={item.displayTimestamp} /> : null}
       <ActionButtons actions={item.actions} phoneActions={item.phoneActions} compact />
@@ -430,12 +422,14 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       <SettingsRow asChild {...shared} chevron={item.chevron}>
         <NavigationLink
           href={item.href}
+          onClick={() => onNavigate?.(item.href!)}
           prefetch={false}
           aria-label={item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". ")}
         />
       </SettingsRow>
     ) : (
       <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect ?? (item.href ? () => {
+        onNavigate?.(item.href!);
         if (router) router.push(item.href!);
         else if (typeof window !== "undefined") window.location.assign(item.href!);
       } : undefined)} />

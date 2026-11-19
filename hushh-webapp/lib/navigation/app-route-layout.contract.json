@@ -1228,10 +1228,18 @@
             "mode": "replace",
             "transitionMode": "contextual"
           }
+        },
+        {
+          "href": "/one/location?action=private-check-in&checkInId=20000000-1000-4000-8000-000000000003",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
         }
       ],
       "kind": "parent",
-      "reason": "The Location introduction unwinds optional panels, then Your people to Your place, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
+      "reason": "The Location introduction unwinds optional panels, then Your people to Your place, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session. A Check-In receipt first closes its fresh remaining-recipient review; route Back then removes the operation selector."
     }
   },
   {
@@ -1622,6 +1630,14 @@
           "href": "/one/gmail",
           "expected": {
             "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/gmail?workspace=kyc&from=%2Fone%2Ffeed",
+          "expected": {
+            "href": "/one/feed",
             "mode": "push",
             "transitionMode": "full"
           }
@@ -2804,6 +2820,14 @@
     "backVerification": {
       "cases": [
         {
+          "href": "/one/feed?funding_event=123",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
           "href": "/one/feed",
           "expected": {
             "href": "/one",
@@ -2957,6 +2981,14 @@
             "href": "/one/kai?tab=analysis",
             "mode": "replace",
             "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&analysis_id=run%3Asample&from=%2Fone%2Ffeed",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "push",
+            "transitionMode": "full"
           }
         },
         {
@@ -3376,6 +3408,22 @@
           "href": "/one/kai/import",
           "expected": {
             "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Ffeed&statement_id=stmt_sample",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Ffeed&stage=reviewing&import_run_id=import_run_sample",
+          "expected": {
+            "href": "/one/feed",
             "mode": "push",
             "transitionMode": "full"
           }
@@ -4745,6 +4793,14 @@
     },
     "backVerification": {
       "cases": [
+        {
+          "href": "/one/kai/portfolio/sources?reconnect=item_sample&from=%2Fone%2Ffeed",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
         {
           "href": "/one/kai/portfolio/sources",
           "expected": {
@@ -6984,6 +7040,14 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/ria/clients?from=%2Fone%2Ffeed",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "parent",
@@ -7032,6 +7096,14 @@
           "href": "/ria/clients/sample",
           "expected": {
             "href": "/ria/clients",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/ria/clients/sample?from=%2Fone%2Ffeed",
+          "expected": {
+            "href": "/one/feed",
             "mode": "push",
             "transitionMode": "full"
           }
@@ -7720,14 +7792,22 @@
             "transitionMode": "full"
           }
         },
-        {
-          "href": "/people/sample?from=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
-          "expected": {
-            "href": "/one/kai/portfolio/analysis",
-            "mode": "push",
-            "transitionMode": "full"
-          }
-        }
+{
+  "href": "/people/sample?from=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+  "expected": {
+    "href": "/one/kai/portfolio/analysis",
+    "mode": "push",
+    "transitionMode": "full"
+  }
+},
+{
+  "href": "/people/sample?from=%2Fone%2Ffeed",
+  "expected": {
+    "href": "/one/feed",
+    "mode": "push",
+    "transitionMode": "full"
+  }
+}
       ],
       "kind": "root",
       "reason": "Public person deep links have no trusted origin; tagged entries are tested separately. Signed-in network buttons open the shared preview journey, with no recursive from URLs. The deepest information request overlay dismisses before the network visit, then Back returns to the route profile. Known Forward visits restore only within the same owner and authentication generation. Anonymous profiles do not request network projections. Behavior: __tests__/components/person-profile-preview.test.tsx."

@@ -352,6 +352,12 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
+    id: "feed-transfer-history",
+    resolve: (pathname, searchParams) => pathname === ROUTES.ONE_FEED && searchParams?.get("funding_event") != null
+      ? { backHref: ROUTES.ONE_FEED, width: "content", align: "center", items: [{ label: "Feed", href: ROUTES.ONE_FEED }, { label: "Transfer history" }] }
+      : undefined,
+  },
+  {
     id: "kai-analysis-drill-in",
     resolve: (pathname, searchParams) => {
       if (pathname !== KAI_MARKET_PATH || searchParams?.get("tab") !== "analysis")
@@ -365,7 +371,9 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
 
       if (analysisEntryId || debateId) {
         return {
-          backHref: ROUTES.KAI_ANALYSIS,
+          backHref: searchParams?.get("from") === ROUTES.ONE_FEED
+            ? ROUTES.ONE_FEED
+            : ROUTES.KAI_ANALYSIS,
           width: "content",
           align: "center",
           items: [
@@ -449,7 +457,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
   },
   {
     id: "kai-portfolio-detail",
-    resolve: (pathname) => {
+    resolve: (pathname, searchParams) => {
       const portfolioDetailRoutes: Array<[string, string]> = [
         [ROUTES.KAI_PORTFOLIO_HOLDINGS, "Holdings"],
         [ROUTES.KAI_PORTFOLIO_ALLOCATION, "Allocation"],
@@ -460,7 +468,8 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
       for (const [route, label] of portfolioDetailRoutes) {
         if (pathname === route) {
           return {
-            backHref: ROUTES.KAI_PORTFOLIO,
+            backHref: route === ROUTES.KAI_PORTFOLIO_SOURCES && searchParams?.get("reconnect") &&
+              searchParams.get("from") === ROUTES.ONE_FEED ? ROUTES.ONE_FEED : ROUTES.KAI_PORTFOLIO,
             width: "content",
             align: "center",
             items: [
@@ -633,14 +642,14 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
   },
   {
     id: "ria-clients-root",
-    resolve: (pathname) => {
+    resolve: (pathname,searchParams) => {
       if (pathname !== ROUTES.RIA_CLIENTS) return undefined;
-      return { backHref: ROUTES.RIA_PROFILE, width: "profile", align: "center", items: [] };
+      return { backHref: searchParams?.get("from") === "/one/feed" ? "/one/feed" : ROUTES.RIA_PROFILE, width: "profile", align: "center", items: [] };
     },
   },
   {
     id: "ria-clients-nested",
-    resolve: (pathname) => {
+    resolve: (pathname,searchParams) => {
       if (!pathname.startsWith(`${ROUTES.RIA_CLIENTS}/`)) return undefined;
       const nestedPath = pathname.slice(`${ROUTES.RIA_CLIENTS}/`.length);
       const segments = nestedPath.split("/").filter(Boolean);
@@ -651,7 +660,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
 
       if (segments.length === 1) {
         return {
-          backHref: ROUTES.RIA_CLIENTS,
+          backHref: searchParams?.get("from") === "/one/feed" ? "/one/feed" : ROUTES.RIA_CLIENTS,
           width: "profile",
           align: "center",
           items: [

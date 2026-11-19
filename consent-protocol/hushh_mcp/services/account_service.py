@@ -46,6 +46,10 @@ from hushh_mcp.services.account_external_connector_erasure import (
 from hushh_mcp.services.account_external_connector_erasure import (
     clear_external_connector_data,
 )
+from hushh_mcp.services.account_location_cleanup import (
+    LOCATION_CLEANUP_QUERIES,
+    LOCATION_RELATIONSHIP_ERASURE_TABLES,
+)
 from hushh_mcp.services.account_personal_agent_erasure import (
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE as PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
 )
@@ -160,6 +164,7 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            **LOCATION_CLEANUP_QUERIES,
             "pod_migration_jobs": text("DELETE FROM pod_migration_jobs WHERE user_id = :user_id"),
             "webauthn_credentials": text(
                 "DELETE FROM webauthn_credentials WHERE user_id = :user_id"
@@ -211,12 +216,6 @@ class AccountService:
             ),
             "one_kyc_client_connectors": text(
                 "DELETE FROM one_kyc_client_connectors WHERE user_id = :user_id"
-            ),
-            "one_location_nearby_check_in_preferences": text(
-                "DELETE FROM one_location_nearby_check_in_preferences WHERE user_id = :user_id"
-            ),
-            "one_location_sos_voice_preferences": text(
-                "DELETE FROM one_location_sos_voice_preferences WHERE user_id = :user_id"
             ),
             "one_model_preferences": text(
                 "DELETE FROM one_model_preferences WHERE user_id = :user_id"
@@ -480,128 +479,11 @@ class AccountService:
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
-            "one_location_access_requests": text(
-                """
-                DELETE FROM one_location_access_requests
-                WHERE owner_user_id = :user_id
-                   OR requester_user_id = :user_id
-                   OR referred_by_user_id = :user_id
-                """
-            ),
-            "one_location_auto_approve_preferences": text(
-                "DELETE FROM one_location_auto_approve_preferences WHERE user_id = :user_id"
-            ),
-            "one_location_visibility_preferences": text(
-                "DELETE FROM one_location_visibility_preferences WHERE owner_user_id = :user_id"
-            ),
-            "one_location_visibility_exclusions": text(
-                """
-                DELETE FROM one_location_visibility_exclusions
-                WHERE owner_user_id = :user_id
-                   OR excluded_user_id = :user_id
-                """
-            ),
-            "one_location_map_preferences": text(
-                "DELETE FROM one_location_map_preferences WHERE user_id = :user_id"
-            ),
-            "one_location_network_connections": text(
-                """
-                DELETE FROM one_location_network_connections
-                WHERE user_a_id = :user_id
-                   OR user_b_id = :user_id
-                   OR inviter_user_id = :user_id
-                   OR invitee_user_id = :user_id
-                """
-            ),
-            "one_location_envelopes": text(
-                """
-                DELETE FROM one_location_envelopes
-                WHERE owner_user_id = :user_id
-                   OR recipient_user_id = :user_id
-                """
-            ),
-            "one_location_events": text(
-                """
-                DELETE FROM one_location_events
-                WHERE owner_user_id = :user_id
-                   OR actor_user_id = :user_id
-                   OR recipient_user_id = :user_id
-                """
-            ),
-            "one_location_nearby_presences": text(
-                """
-                DELETE FROM one_location_nearby_presences
-                WHERE owner_user_id = :user_id
-                """
-            ),
-            "one_location_nearby_visits": text(
-                """
-                DELETE FROM one_location_nearby_visits
-                WHERE owner_user_id = :user_id
-                """
-            ),
             # Deleting the rows is not the whole deletion: an average that still
             # counts a departed person's rating has not forgotten them. The
             # aggregate for every place they rated is recomputed from what is
             # left, in the same pass.
-            "one_location_place_ratings": text(
-                """
-                WITH removed AS (
-                  DELETE FROM one_location_place_ratings
-                  WHERE author_user_id = :user_id
-                  RETURNING place_id
-                ), touched AS (
-                  SELECT DISTINCT place_id FROM removed
-                )
-                UPDATE one_location_place_rating_aggregates AS agg
-                SET
-                  rating_count = COALESCE(fresh.rating_count, 0),
-                  rating_sum = COALESCE(fresh.rating_sum, 0),
-                  updated_at = NOW()
-                FROM touched
-                LEFT JOIN LATERAL (
-                  SELECT COUNT(*) AS rating_count, SUM(rating) AS rating_sum
-                  FROM one_location_place_ratings
-                  WHERE place_id = touched.place_id AND aggregatable
-                ) AS fresh ON TRUE
-                WHERE agg.place_id = touched.place_id
-                """
-            ),
-            "one_location_sms_contacts": text(
-                """
-                DELETE FROM one_location_sms_contacts
-                WHERE owner_user_id = :user_id
-                   OR contact_user_id = :user_id
-                """
-            ),
-            "one_location_public_invite_submissions": text(
-                """
-                DELETE FROM one_location_public_invite_submissions
-                WHERE owner_user_id = :user_id
-                   OR matched_user_id = :user_id
-                """
-            ),
-            "one_location_public_invites": text(
-                "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
-            ),
             "one_wallet_cards": text("DELETE FROM one_wallet_cards WHERE user_id = :user_id"),
-            "one_location_circle_invites": text(
-                """
-                DELETE FROM one_location_circle_invites
-                WHERE owner_user_id = :user_id
-                   OR claimed_by_user_id = :user_id
-                """
-            ),
-            "one_location_circle_member_invites": text(
-                """
-                DELETE FROM one_location_circle_member_invites
-                WHERE inviter_user_id = :user_id
-                   OR invitee_user_id = :user_id
-                """
-            ),
-            "one_location_circle_memberships": text(
-                "DELETE FROM one_location_circle_memberships WHERE user_id = :user_id"
-            ),
             # Scope proposals hold plain (no ON DELETE) foreign keys into
             # connection_requests, so they must be cleared first — including
             # rows owned by OTHER users that reference this user's requests,
@@ -665,32 +547,6 @@ class AccountService:
                 "DELETE FROM trusted_device_audit_events WHERE user_id = :user_id"
             ),
             "trusted_devices": text("DELETE FROM trusted_devices WHERE user_id = :user_id"),
-            "one_location_recipient_keys": text(
-                "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
-            ),
-            "one_location_referrals": text(
-                """
-                DELETE FROM one_location_referrals
-                WHERE owner_user_id = :user_id
-                   OR referring_user_id = :user_id
-                   OR referred_user_id = :user_id
-                """
-            ),
-            "kai_location_referrals": text(
-                """
-                DELETE FROM kai_location_referrals
-                WHERE owner_user_id = :user_id
-                   OR referrer_user_id = :user_id
-                   OR candidate_user_id = :user_id
-                """
-            ),
-            "one_location_share_grants": text(
-                """
-                DELETE FROM one_location_share_grants
-                WHERE owner_user_id = :user_id
-                   OR recipient_user_id = :user_id
-                """
-            ),
             "runtime_persona_state": text(
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
@@ -1791,23 +1647,7 @@ class AccountService:
             results=results,
         )
         for table_name in (
-            "one_location_auto_approve_preferences",
-            "one_location_visibility_exclusions",
-            "one_location_visibility_preferences",
-            "one_location_map_preferences",
-            "one_location_network_connections",
-            "one_location_events",
-            "one_location_nearby_presences",
-            "one_location_nearby_visits",
-            "one_location_place_ratings",
-            "one_location_sms_contacts",
-            "one_location_referrals",
-            "kai_location_referrals",
-            "one_location_public_invite_submissions",
-            "one_location_public_invites",
-            "one_location_circle_invites",
-            "one_location_circle_member_invites",
-            "one_location_circle_memberships",
+            *LOCATION_RELATIONSHIP_ERASURE_TABLES,
             "connection_scope_proposal_events",
             "connection_scope_proposals",
             "connection_requests",
@@ -2250,18 +2090,7 @@ class AccountService:
             "one_referral_attributions": False,
             "one_referral_codes": False,
             "one_agent_engagement_sessions": False,
-            "one_location_auto_approve_preferences": False,
-            "one_location_visibility_exclusions": False,
-            "one_location_visibility_preferences": False,
-            "one_location_map_preferences": False,
-            "one_location_network_connections": False,
-            "one_location_events": False,
-            "one_location_nearby_presences": False,
-            "one_location_nearby_visits": False,
-            "one_location_place_ratings": False,
-            "one_location_sms_contacts": False,
-            "one_location_referrals": False,
-            "kai_location_referrals": False,
+            **dict.fromkeys(LOCATION_RELATIONSHIP_ERASURE_TABLES, False),
             "one_location_access_requests": False,
             "one_location_envelopes": False,
             "one_location_public_invite_submissions": False,
@@ -2626,24 +2455,7 @@ class AccountService:
                     # Terms/Privacy acceptance history: FK-free (it precedes the
                     # actor profile) and kept across reset, so only here.
                     "account_legal_acceptances",
-                    "one_location_auto_approve_preferences",
-                    # Cross-user exclusions must go before their owner preference.
-                    "one_location_visibility_exclusions",
-                    "one_location_visibility_preferences",
-                    "one_location_map_preferences",
-                    "one_location_network_connections",
-                    "one_location_events",
-                    "one_location_nearby_presences",
-                    "one_location_nearby_visits",
-                    "one_location_place_ratings",
-                    "one_location_sms_contacts",
-                    "one_location_referrals",
-                    "kai_location_referrals",
-                    "one_location_public_invite_submissions",
-                    "one_location_public_invites",
-                    "one_location_circle_invites",
-                    "one_location_circle_member_invites",
-                    "one_location_circle_memberships",
+                    *LOCATION_RELATIONSHIP_ERASURE_TABLES,
                     "connection_scope_proposal_events",
                     "connection_scope_proposals",
                     "connection_requests",

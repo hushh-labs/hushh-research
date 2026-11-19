@@ -2196,6 +2196,7 @@ server-side, then bind both actions to that source.
 | GET | `/api/one/email/information-requests/preference?user_id={user_id}` | Firebase Bearer | Read the authenticated mailbox owner's monitoring preference. |
 | PATCH | `/api/one/email/information-requests/preference` | Firebase Bearer | Explicitly enable or disable transient server-side classification for that mailbox. Enabling captures a Gmail History baseline and makes one newest-first setup scan of up to 30 Inbox messages. |
 | GET | `/api/one/email/information-requests?limit={limit}&offset={offset}&view={active\|activity}` | Firebase + `VAULT_OWNER` | List the active detected queue (`active`, default) or terminal metadata-only activity (`activity`); no original email content is returned. |
+| GET | `/api/one/email/information-requests/{workflow_id}` | Firebase + `VAULT_OWNER` | Open the exact still-active request from Feed regardless of its position in the queue. Returns the existing metadata-only queue item, with private no-store caching. Closed and unavailable requests return 404. |
 | POST | `/api/one/email/information-requests/scan` | Firebase + `VAULT_OWNER` | Run a bounded owner-requested scan of Inbox messages added after the opt-in baseline. Already recorded, unchanged messages are not classified again. |
 | POST | `/api/one/email/information-requests/scan/stream` | Firebase + `VAULT_OWNER` | Run the same bounded new-mail scan as a named SSE stream. It sends the completed-email count and each newly persisted metadata-only request as it is found, then one final safe scan summary; it never sends source email content, addresses, or Gmail cursors. |
 | GET | `/api/one/email/information-requests/{workflow_id}/source-preview` | Firebase + `VAULT_OWNER` | Fetch the selected source email transiently for an owner-initiated chat or draft. The no-store response includes `from`, optional `reply_to`, subject, and readable body after current source-fingerprint validation. |
@@ -3977,6 +3978,9 @@ including invalidation of older generic Feed Undo tokens.
 | Method | Path | Feed history contract |
 | ------ | ---- | --------------------- |
 | GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |
+| POST | `/api/one/feed/funding-history` | Firebase and matching VAULT_OWNER. Body selects an owner's retained transfer by exact `item_id` or a status/date query; returns grouped current status and recorded milestones. This is historical Feed evidence from the retired shared funding service, with no amount or provider account information. |
+| POST | `/api/kai/analyze/run/{run_id}/feed-result?user_id=…` | Validates the VAULT_OWNER, exact run owner and terminal completion. The client acknowledges its successful encrypted analysis history save when the run completed outside Finance; the server derives ticker and idempotency from the run and never reads the report. |
+| GET | `/api/one/finance/advisor-reviews?pending_received=true` | Existing dual-auth history endpoint filtered before its result limit to pending, unexpired, unblocked incoming requests of the currently verified advisor. |
 | POST | `/api/one/feed/{item_id}/dismiss` | Marks this owner's presentation row hidden and read. Returns `{status:"ok",dismissal_token:"<UUID>"}` for a newly hidden row; missing, another owner's, or already hidden IDs return a null token. |
 | POST | `/api/one/feed/{item_id}/restore` | Body `{dismissal_token:"<UUID>"}`. Undoes only that exact dismissal, leaving the row read. Returns `{status:"ok",restored:boolean}`; missing, another owner's, or superseded tokens return false. |
 | POST | `/api/one/feed/clear` | Body `{up_to_id:"<positive Postgres bigint>"}`. Atomically marks this owner's existing rows through that ID hidden and read, and replaces their dismissal tokens so a stale Undo cannot revive them. Newer rows remain visible. Returns `{status:"ok"}`. |
@@ -4000,6 +4004,13 @@ so a successful latest batch cannot conceal an earlier failed batch. Confirmed
 delivery does not establish exhaustive search coverage or authorize unverified
 candidates. The proxy and native HTTP transport pass these additive fields;
 older servers safely omit them.
+
+Grouped document activity returns `activity_group_id` and
+`activity_revision` on request rows with a verified source identifier. The
+numeric row ID and timestamp identify the headline event. The separate numeric
+revision is used for Feed read, clear, and dismissal boundaries when an
+observed event arrives after the headline event. List and unread count group by
+the same request key before pagination.
 
 Current no-charge Drive completion adds the boolean
 `current_existing_access_nocharge` from participant-scoped live receipts. It is

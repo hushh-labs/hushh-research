@@ -186,11 +186,13 @@ export function useOneLocationConsentActions(
           if (!vaultOwnerToken) return;
 
           const promise = (async () => {
+            const reviewedRevision = entry.metadata?.request_revision;
+            if (typeof reviewedRevision !== "number" || !Number.isSafeInteger(reviewedRevision) || reviewedRevision < 1) throw new Error("Open the current location request to review it.");
             const state = await OneLocationService.getState(vaultOwnerToken);
             const request = state.requests.find(
               (item) => item.id === requestId,
             );
-            if (!request) {
+            if (!request || (request.requestRevision ?? 1) !== reviewedRevision) {
               throw new Error("This location request is no longer available.");
             }
             const requester = state.recipients.find(
@@ -206,6 +208,8 @@ export function useOneLocationConsentActions(
               requestId,
               approvalMode: "manual",
               durationHours: clampApprovalDurationHours(durationHours),
+              expectedRequestRevision: reviewedRevision,
+              reviewedExtension: request.extendsGrantId ? {grantId:String(entry.metadata?.extends_grant_id || ""),expiresAt:typeof entry.metadata?.extends_grant_expires_at === "string" ? entry.metadata.extends_grant_expires_at : null} : undefined,
             });
             const point = await OneLocationService.captureCurrentPosition();
             const envelope = await encryptLocationForRecipient({
@@ -268,7 +272,9 @@ export function useOneLocationConsentActions(
           if (!vaultOwnerToken) return;
 
           const promise = (async () => {
-            await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
+            const revision=entry.metadata?.request_revision;
+            if(typeof revision !== "number" || !Number.isSafeInteger(revision) || revision<1) throw new Error("Open the current location request to review it.");
+            await OneLocationService.denyRequest({ vaultOwnerToken, requestId,expectedRequestRevision:revision });
             return "Request denied.";
           })();
 

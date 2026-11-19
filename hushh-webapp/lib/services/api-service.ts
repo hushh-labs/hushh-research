@@ -6122,6 +6122,23 @@ export class ApiService {
     });
   }
 
+  static async publishSavedKaiAnalysis(data: {
+    runId: string;
+    userId: string;
+    vaultOwnerToken: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<Response> {
+    const query = new URLSearchParams({ user_id: data.userId }).toString();
+    return apiFetch(
+      `/api/kai/analyze/run/${encodeURIComponent(data.runId)}/feed-result?${query}`,
+      {
+        method: "POST",
+        isEffectCurrent: data.isEffectCurrent,
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      },
+    );
+  }
+
   static async cancelKaiDebateRun(data: {
     runId: string;
     userId: string;

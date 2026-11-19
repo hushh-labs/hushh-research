@@ -68,6 +68,19 @@ def make_due(store, event_id):
         )
 
 
+def test_payment_confirmation_is_a_quiet_request_milestone():
+    assert (
+        notification_payload(
+            {
+                "event_id": str(uuid4()),
+                "request_id": str(uuid4()),
+                "event_type": "document_share_payment_confirmed",
+            }
+        )
+        is None
+    )
+
+
 @pytest.mark.asyncio
 async def test_document_event_push_is_opaque_deduped_and_settled_as_dispatch_only(
     sharing, notification_store

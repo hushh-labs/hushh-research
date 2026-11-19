@@ -8,6 +8,7 @@
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/connected-systems/[systemId]/page.voice-action-contract.json",
     "hushh-webapp/app/one/email/page.voice-action-contract.json",
+    "hushh-webapp/app/one/feed/page.voice-action-contract.json",
     "hushh-webapp/app/one/files/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
@@ -236,6 +237,37 @@
           "auth_signed_in"
         ],
         "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_feed",
+      "surface_title": "Feed",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/feed/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one/feed"
+          ],
+          "screens": [
+            "one_feed"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
       },
       "search": {},
       "orchestration": {
@@ -4701,6 +4733,121 @@
             "settlement_target": {
               "route": "/one/gmail",
               "screen": "email_agent"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "feed.search_activity",
+      "surface_id": "one_feed",
+      "label": "Search Feed",
+      "aliases": [
+        "search my feed",
+        "find earlier activity",
+        "filter feed by agent"
+      ],
+      "search_keywords": [
+        "feed search",
+        "activity history",
+        "agent filter"
+      ],
+      "meaning": "Opens the owner’s read-only Feed search and applies an explicitly supplied query and known agent scope. Urgent emergencies remain pinned. Does not grant access, mark activity read, alter notifications or invent people or results.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "feed.search_activity"
+      },
+      "control_ids": [
+        "feed.search.open",
+        "feed.search.query",
+        "feed.search.scope"
+      ],
+      "state_exposure": [
+        "search open",
+        "selected public agent scope"
+      ],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.feed.search_activity",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {
+          "query": "string_optional",
+          "scope": "string_optional"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Search Feed",
+            "failure_behavior": "stop",
+            "action_id": "feed.search_activity",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
             }
           }
         ],

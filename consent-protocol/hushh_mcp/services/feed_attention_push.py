@@ -38,7 +38,6 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Protocol
 
 from hushh_mcp.branding import PRODUCT_NAME
@@ -69,7 +68,7 @@ NOTABLE_EVENT_TYPES: frozenset[str] = frozenset(
         "mail_message_failed",
         "mail_delivery_unconfirmed",
         "calendar_reconnect_required",
-        "kai_analysis_completed",
+        "kai_analysis_saved",
         "kyc_status_changed",
     }
 )
@@ -126,7 +125,7 @@ SELECT fe.id::TEXT AS item_id, fe.user_id, fe.event_type
 FROM feed_events AS fe
 WHERE fe.id > (SELECT COALESCE(MAX(id), 0) FROM feed_events) - $3
   AND fe.event_type = ANY($1::TEXT[])
-  AND fe.read_at IS NULL
+  AND fe.read_at IS NULL AND fe.dismissed_at IS NULL
   AND fe.created_at > NOW() - INTERVAL '1 hour'
   AND NOT EXISTS (
     SELECT 1 FROM one_attention_ledger AS l
@@ -179,6 +178,15 @@ class PostgresFeedAttentionStore:
         pool = await get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(_CANDIDATES_SQL, event_types, limit, SWEEP_ID_WINDOW)
+        from hushh_mcp.services.feed_service import FeedService
+
+        by_owner: dict[str, list[int]] = {}
+        for row in rows:
+            by_owner.setdefault(str(row["user_id"]), []).append(int(row["item_id"]))
+        admitted: set[tuple[str, str]] = set()
+        for owner, ids in by_owner.items():
+            items = await asyncio.to_thread(FeedService().attention_items, owner, ids)
+            admitted.update((owner, item_id) for item_id in items)
         return [
             FeedCandidate(
                 item_id=str(row["item_id"]),
@@ -186,6 +194,7 @@ class PostgresFeedAttentionStore:
                 event_type=str(row["event_type"]),
             )
             for row in rows
+            if (str(row["user_id"]), str(row["item_id"])) in admitted
         ]
 
     async def claim(self, *, user_id: str, item_id: str, daily_cap: int) -> str | None:
@@ -221,8 +230,6 @@ class PostgresFeedAttentionStore:
 
 async def get_offered_feed_item(*, user_id: str, item_id: str) -> Mapping[str, Any] | None:
     """The owner's feed row, only if the server actually sent an attention push for it."""
-    import json
-
     from db.connection import get_pool
     from hushh_mcp.services.feed_service import FeedService
 
@@ -233,18 +240,8 @@ async def get_offered_feed_item(*, user_id: str, item_id: str) -> Mapping[str, A
         row = await conn.fetchrow(_OFFERED_ITEM_SQL, user_id, int(item_id))
     if row is None:
         return None
-    record = dict(row)
-    if isinstance(record.get("metadata"), str):
-        try:
-            record["metadata"] = json.loads(record["metadata"])
-        except ValueError:
-            record["metadata"] = {}
-    created = record.get("created_at")
-    if isinstance(created, datetime):
-        record["created_at"] = created.isoformat()
-    # The same allowlist the Feed API applies: only bounded, renderable metadata.
-    item: dict[str, Any] = FeedService._to_item(record)
-    return item
+    items = await asyncio.to_thread(FeedService().attention_items, user_id, [int(item_id)])
+    return items.get(item_id)
 
 
 async def send_feed_attention_push(user_id: str, payload: dict[str, Any]) -> int:

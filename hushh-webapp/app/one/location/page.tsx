@@ -2,6 +2,7 @@
 
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 
+import { beginPrivateCheckIn, settlePrivateCheckIn } from "@/lib/one-location/check-in-operations";
 import { prepareCircleManagement, verifyCircleManagementReceipt, circleManagementResult,
   type CircleManagementAction, type CircleManagementBinding } from "@/lib/one-location/command-circle-management";
 import { OwnerOperationGate, SosOperationGate, stopSosShares } from "@/lib/one-location/command-sos";
@@ -170,7 +171,7 @@ import { useContactDiscoverabilityConsent } from "@/lib/contacts/use-contact-dis
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
-import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
+import { useLocationRequestReviews } from "@/lib/one-location/use-request-reviews";
 import { LocationBus } from "@/lib/one-location/location-bus";
 import {
   isPublishableAge,
@@ -222,8 +223,10 @@ import {
 } from "@/lib/one-location/duration-copy";
 import {
   resolveShareDurationHours,
+  privateShareDurationPayload,
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
+import { formatDateTime, expiresLabel, expiresCountdownLabel } from "@/lib/one-location/grant-time";
 import { parseTimestamp } from "@/lib/one-location/share-countdown";
 import { summarizeShareAudience, summarizeShareEndTimes } from "@/lib/one-location/grant-lanes";
 import { driveEtaText } from "@/app/one/location/drive-eta";
@@ -431,6 +434,7 @@ import {
   trackLocationFunnelStepCompleted,
 } from "@/lib/observability/growth";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
@@ -945,54 +949,6 @@ const INITIAL_CONTACT_SIGNAL_STATE: OneLocationContactSignalState = {
   syncedAt: null,
 };
 
-function formatDateTime(value?: string | null): string {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function expiresLabel(grant: OneLocationGrant): string {
-  if (grant.status === "revoked") return "Revoked";
-  if (grant.status === "expired") return "Expired";
-  if (grant.durationMode === "until_stopped") return "Until stopped";
-  return `Expires ${formatDateTime(grant.expiresAt)}`;
-}
-
-// Human, at-a-glance countdown to when a share auto-stops (e.g. "Stops in
-// 14 min"). This is a key confidence cue: the user can always see that sharing
-// is time-boxed and will end on its own. Falls back to the absolute time when
-// the window is long, and degrades gracefully if the timestamp is missing.
-function expiresCountdownLabel(
-  value?: string | null,
-  // Injected so every countdown on the screen ticks off one clock. Defaulted
-  // for the handful of callers that render once and do not need to move.
-  nowMs: number = Date.now(),
-): string | null {
-  if (!value) return null;
-  const expiresAt = new Date(value).getTime();
-  if (!Number.isFinite(expiresAt)) return null;
-  const diffMs = expiresAt - nowMs;
-  if (diffMs <= 0) return "Stopping now";
-  const minutes = Math.round(diffMs / 60000);
-  if (minutes < 60) {
-    return `Stops in ${minutes} min`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    const remMinutes = minutes % 60;
-    return remMinutes
-      ? `Stops in ${hours}h ${remMinutes}m`
-      : `Stops in ${hours}h`;
-  }
-  return `Stops ${formatDateTime(value)}`;
-}
-
 function looksLikeInternalIdentifier(value: string): boolean {
   const label = value.trim();
   if (!label) return false;
@@ -1272,27 +1228,6 @@ const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
 
 function publicInviteDurationHours(value: string): number {
   return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
-}
-
-function privateShareDurationPayload(value: string): {
-  durationHours?: number;
-  durationMode: "timed" | "until_stopped";
-} {
-  // No "today" branch: the token cannot reach here any more (the picker has
-  // no such rung, and `Number("today")` is NaN so the wheel rewrote it to
-  // "0.25" on sight). Anything else is clamped into the window the backend
-  // accepts — `gt=0, le=24` — rather than posted and rejected.
-  //
-  // The clamp itself lives in `resolveShareDurationHours` because the confirm
-  // step's "this replaces a live share" warning has to compare the duration
-  // that is actually POSTED. Two copies of the arithmetic would eventually
-  // disagree, and a warning that quotes a different number from the request is
-  // capable of promising a share the app does not create.
-  const hours = resolveShareDurationHours(value);
-  if (hours === null) {
-    return { durationMode: "until_stopped" };
-  }
-  return { durationHours: hours, durationMode: "timed" };
 }
 
 function privateShareDurationLabel(value: string): string {
@@ -3479,14 +3414,7 @@ export function OneLocationAgentPageContent({
     });
   }, [mapPresenceEnabled, setMapPresence]);
 
-  const pendingOwnerRequests = useMemo(
-    () =>
-      (state?.requests ?? []).filter(
-        (request) =>
-          request.ownerUserId === auth.userId && isLocationRequestPending(request, nowMs),
-      ),
-    [auth.userId, nowMs, state?.requests],
-  );
+  const { pending: pendingOwnerRequests, invalidate: invalidateRequestReview } = useLocationRequestReviews(state?.requests, auth.userId, nowMs);
   // Warm the shared position while the user is still reading the request.
   //
   // Approving publishes an encrypted point, so it needs a fix — and nothing on
@@ -3925,9 +3853,12 @@ export function OneLocationAgentPageContent({
   // The focused shared-with-me view keeps every active share live-refreshing when a
   // legacy build previously persisted an "unwatched" id. In the redesigned
   // UX, Dismiss owns preview presentation only and never changes grant reachability.
-  const activeVisibleReceivedGrants = USE_LOCATION_REDESIGN
-    ? activeReceivedGrants
-    : visibleReceivedGrants;
+  const focusReceivedGrantId = searchParams.get("grantId");
+  const activeVisibleReceivedGrants = (USE_LOCATION_REDESIGN ? activeReceivedGrants : visibleReceivedGrants)
+    .filter(grant => !focusReceivedGrantId || grant.id === focusReceivedGrantId);
+  // Update during render so a known revoke cannot be undone by an older decrypt.
+  const locationReadStateRef = useRef({ owner: auth.userId, token: vaultOwnerToken, grants: activeReceivedGrants });
+  locationReadStateRef.current = { owner: auth.userId, token: vaultOwnerToken, grants: activeReceivedGrants };
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
   const unwatchedActiveReceivedGrantCount = useMemo(() => {
@@ -6395,6 +6326,12 @@ export function OneLocationAgentPageContent({
     ): Promise<OneLocationViewOutcome> => {
       if (!auth.userId || !vaultOwnerToken) return "skipped";
       const activeUserId = auth.userId;
+      const epoch = snapshotVaultSessionEpoch();
+      const sameSession = () => shareComposerMountedRef.current && locationReadStateRef.current.owner === activeUserId
+        && locationReadStateRef.current.token === vaultOwnerToken && isVaultSessionEpochCurrent(epoch);
+      const currentRead = () => sameSession() && locationReadStateRef.current.grants.some(current =>
+        current.id === grant.id && current.status === "active" && current.recipientKeyId === grant.recipientKeyId);
+      if (!currentRead()) return "skipped";
       const silent = Boolean(options?.silent);
       const trigger =
         options?.trigger ?? (silent ? "foreground_interval" : "manual");
@@ -6411,7 +6348,7 @@ export function OneLocationAgentPageContent({
             // Live share, no point published yet. The backend reports this as a
             // success (see `allow_empty` in OneLocationService.viewEnvelope), so
             // there is nothing to decrypt and nothing has gone wrong.
-            if (!response.envelope) return null;
+            if (!currentRead() || !response.envelope) return null;
             try {
               return await decryptLocationEnvelope({
                 userId: activeUserId,
@@ -6426,11 +6363,13 @@ export function OneLocationAgentPageContent({
                 vaultKey &&
                 state?.myRecipientKey?.encryptedPrivateKeyJwk
               ) {
+                if (!currentRead()) return null;
                 await ensureVaultSyncedRecipientKey({
                   userId: activeUserId,
                   vaultKey,
                   remoteBackup: state.myRecipientKey,
                 }).catch(() => {});
+                if (!currentRead()) return null;
                 return await decryptLocationEnvelope({
                   userId: activeUserId,
                   envelope: response.envelope,
@@ -6440,6 +6379,7 @@ export function OneLocationAgentPageContent({
             }
           },
         });
+        if (!currentRead()) return "skipped";
         if (!point) {
           // Live share, first point not published yet. This is a success, not a
           // failure: hold the calm waiting copy and let the caller drop this
@@ -6463,7 +6403,7 @@ export function OneLocationAgentPageContent({
         // Writing it anyway would allocate a new workspace object and re-render
         // this whole surface every few seconds for no visible change.
         setDecryptedPoints((current) =>
-          samePlainLocationPoint(current[grant.id], point)
+          !currentRead() || samePlainLocationPoint(current[grant.id], point)
             ? current
             : { ...current, [grant.id]: point },
         );
@@ -6481,6 +6421,7 @@ export function OneLocationAgentPageContent({
         trackLocationShareReceived();
         return "published";
       } catch (error) {
+        if (!currentRead()) return "skipped";
         const keyUnavailable =
           error instanceof Error &&
           error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
@@ -6572,7 +6513,7 @@ export function OneLocationAgentPageContent({
         }
         return "error";
       } finally {
-        if (!silent) setBusy(null);
+        if (!silent && sameSession()) setBusy(null);
       }
     },
     [
@@ -9833,7 +9774,9 @@ export function OneLocationAgentPageContent({
           // manual owner action may override its duration.
           durationHours: automatic ? undefined : approvedHours,
           durationMode: automatic ? undefined : approvedMode,
-          expectedRequestRevision: options?.expectedRequestRevision,
+          expectedRequestRevision: options?.expectedRequestRevision ?? (automatic ? undefined : request.requestRevision ?? 1),
+          reviewedExtension: !automatic && request.extendsGrantId && options?.expectedRequestRevision == null
+            ? { grantId: request.extendsGrantId, expiresAt: request.extendsGrantExpiresAt ?? null } : undefined,
           autoApproveRuleVersion: automatic
             ? autoApprovePreference.ruleVersion
             : undefined,
@@ -9882,6 +9825,10 @@ export function OneLocationAgentPageContent({
         // reload only makes it feel slower than it is.
         return true;
       } catch (error) {
+        if (["LOCATION_REQUEST_CHANGED", "LOCATION_REQUEST_EXPIRED", "LOCATION_REQUEST_NOT_PENDING", "LOCATION_REQUEST_NOT_FOUND", "LOCATION_EXTENSION_CHANGED"].includes(apiErrorCode(error) ?? "")) {
+          invalidateRequestReview(request);
+          await refresh();
+        }
         trackOneLocationJourneyAction({
           action: "location_request_fulfilled",
           result: "error",
@@ -9902,6 +9849,8 @@ export function OneLocationAgentPageContent({
     },
     [
       durationHours,
+      refresh,
+      invalidateRequestReview,
       autoApprovePreference.ruleVersion,
       auth.userId,
       publishEnvelopeWithRetry,
@@ -9984,11 +9933,14 @@ export function OneLocationAgentPageContent({
   ]);
 
   const handleDeny = useCallback(
-    async (requestId: string) => {
+    async (requestId: string, expectedRequestRevision?: number) => {
       if (!vaultOwnerToken) return false;
+      const reviewed = pendingOwnerRequests.find(request => request.id === requestId);
+      const revision = expectedRequestRevision ?? reviewed?.requestRevision ?? (reviewed ? 1 : undefined);
+      if (revision == null) return false;
       setBusy("deny");
       try {
-        await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
+        await OneLocationService.denyRequest({ vaultOwnerToken, requestId, expectedRequestRevision: revision });
         trackOneLocationJourneyAction({
           action: "location_request_denied",
           routeId: "one_location",
@@ -9998,6 +9950,10 @@ export function OneLocationAgentPageContent({
         scheduleOneLocationStateRefresh("location_access_denied");
         return true;
       } catch (error) {
+        if (["LOCATION_REQUEST_CHANGED", "LOCATION_REQUEST_EXPIRED", "LOCATION_REQUEST_NOT_PENDING", "LOCATION_REQUEST_NOT_FOUND"].includes(apiErrorCode(error) ?? "")) {
+          if (reviewed && revision === (reviewed.requestRevision ?? 1)) invalidateRequestReview(reviewed);
+          await refresh();
+        }
         trackOneLocationJourneyAction({
           action: "location_request_denied",
           result: "error",
@@ -10012,7 +9968,7 @@ export function OneLocationAgentPageContent({
         setBusy(null);
       }
     },
-    [scheduleOneLocationStateRefresh, vaultOwnerToken],
+    [pendingOwnerRequests, invalidateRequestReview, refresh, scheduleOneLocationStateRefresh, vaultOwnerToken],
   );
 
   const handleRefer = useCallback(
@@ -10271,12 +10227,15 @@ export function OneLocationAgentPageContent({
       const checkInMessage =
         (messageValue || "").trim().slice(0, 160) || undefined;
       const owner = auth.userId;
-      const current = () => Boolean(owner && owner === shareAudienceOwnerUserIdRef.current && !request.commandSignal?.aborted
+      const epoch = snapshotVaultSessionEpoch();
+      const current = () => Boolean(owner && owner === shareAudienceOwnerUserIdRef.current && isVaultSessionEpochCurrent(epoch)
+        && locationReadStateRef.current.token === vaultOwnerToken && shareComposerMountedRef.current && !request.commandSignal?.aborted
         && (!request.commandOperationId || request.commandOwner === owner));
       if (!owner || !current()) return failedSelection;
       const lease = checkInOperations.current.begin(owner);
       if (!lease) return failedSelection;
       setBusy("share");
+      let receiptId: string | null = null;
       const succeededRecipientIds: string[] = [];
       const failedRecipientIds: string[] = [];
       const incomplete = () => ({ succeededRecipientIds, failedRecipientIds: recipientIds.filter((id)=>!succeededRecipientIds.includes(id)) });
@@ -10309,6 +10268,12 @@ export function OneLocationAgentPageContent({
           return failedSelection;
         }
         const durationHoursNum = Number(durationHoursValue) || 1;
+        const plan = await beginPrivateCheckIn(vaultOwnerToken, { clientOperationId, recipientIds,
+          durationHours:durationHoursNum, confirmedAt, sourceCircleId:request.sourceCircleId ?? null });
+        if (!current()) return incomplete();
+        receiptId = plan.id;
+        const confirmedIds = new Set(plan.targets.filter(target => target.grantId).map(target => target.userId));
+        succeededRecipientIds.push(...recipientIds.filter(id => confirmedIds.has(id)));
         const operationCachePrefix = `${
           auth.userId ?? "anonymous"
         }:${clientOperationId}:`;
@@ -10318,7 +10283,7 @@ export function OneLocationAgentPageContent({
           }
         }
         const preparedShares = await Promise.all(
-          selected.map(async (recipient) => {
+          selected.filter(recipient => !confirmedIds.has(recipient.userId)).map(async (recipient) => {
             const cacheKey = `${operationCachePrefix}${recipient.userId}:${
               recipient.keyId!
             }`;
@@ -10442,7 +10407,8 @@ export function OneLocationAgentPageContent({
           failedRecipientIds: remainingRecipientIds,
         };
       } finally {
-        if (checkInOperations.current.finish(owner,lease) && current()) setBusy((value)=>value === "share" ? null : value);
+        if (receiptId && current()) await settlePrivateCheckIn(vaultOwnerToken, receiptId).catch(() => { toast.error("Check-In receipt needs review"); });
+        if (checkInOperations.current.finish(owner,lease) && owner === shareAudienceOwnerUserIdRef.current && shareComposerMountedRef.current) setBusy((value)=>value === "share" ? null : value);
       }
     },
     [
@@ -12190,7 +12156,9 @@ export function OneLocationAgentPageContent({
       };
     }
     const request = resolved.match;
-    const acknowledged = await handleDeny(request.id);
+    const reviewedRevision = context?.preparedBinding?.requestRevision;
+    if (typeof reviewedRevision !== "number" || reviewedRevision !== (request.requestRevision ?? 1)) return { status: "blocked", summary: "That request changed. Review it again." };
+    const acknowledged = await handleDeny(request.id, reviewedRevision);
     if (!acknowledged) return { status: "failed", summary: "The request outcome needs review." };
     return {
       status: "succeeded" as const,
@@ -14330,6 +14298,7 @@ export function OneLocationAgentPageContent({
 
   const locationHubVm: LocationHubViewModel = {
     userId: auth.userId ?? null,
+    sourceLoaded: Boolean(state),
     canShare,
     savedPlacesBanner: {
       visible: Boolean(savedPlacesVaultSession &&

@@ -8,6 +8,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -359,6 +360,26 @@ async def scan_information_requests_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/{workflow_id}")
+async def get_active_information_request(
+    workflow_id: UUID,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
+) -> dict[str, Any]:
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        workflow = await _service().get_active_workflow(
+            user_id=user_id, workflow_id=str(workflow_id)
+        )
+    except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes storage errors
+        raise _as_http_error(exc) from exc
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Information request is no longer available.")
+    response.headers["Cache-Control"] = "private, no-store"
+    return workflow
 
 
 @router.post("/{workflow_id}/refresh-candidates")

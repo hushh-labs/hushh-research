@@ -31,7 +31,7 @@ export function isIncomingLocationRequestActionable(
 export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
   // Location projects expiry using server time. A handset clock must never
   // remove a live emergency's map link or make it eligible for Clear.
-  return grant.status === "active" && grant.shareKind === "sos";
+  return grant.status === "active" && grant.shareKind === "sos" && grant.feedSmsConfirmed === true;
 }
 
 /**
@@ -42,5 +42,5 @@ export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
  * explicitly clears it.
  */
 export function isSmsEmergencyGrant(grant: OneLocationGrant): boolean {
-  return grant.shareKind === "sos";
+  return grant.shareKind === "sos" && grant.feedSmsConfirmed === true;
 }

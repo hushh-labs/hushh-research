@@ -1259,6 +1259,10 @@ class PersonalGmailInformationRequestService:
             is not None
         )
 
+    async def get_active_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any] | None:
+        """Resolve an exact still-active request independently of the queue page."""
+        return await self._public_workflow_by_id(user_id=user_id, workflow_id=workflow_id)
+
     async def scan_enabled_users(self, *, max_users: int = 20) -> dict[str, int]:
         """Maintenance entrypoint for the scheduled personal-Gmail monitor.
 

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import require_firebase_auth
 from api.routes.one import gmail_information_requests as module
 
 
@@ -14,7 +14,7 @@ def _app(*, owner_user_id: str = "owner") -> TestClient:
     app = FastAPI()
     app.include_router(module.router)
     app.dependency_overrides[require_firebase_auth] = lambda: "owner"
-    app.dependency_overrides[require_vault_owner_token] = lambda: {
+    app.dependency_overrides[module.hub_content_owner] = lambda: {
         "user_id": owner_user_id,
         "token": "vault-owner-token",
     }
@@ -278,6 +278,25 @@ def test_source_preview_fetches_only_the_current_owner_selected_workflow():
         "user_id": "owner",
         "workflow_id": "workflow-1",
     }
+
+
+def test_exact_active_request_requires_the_same_vault_owner():
+    workflow_id = "c6390607-de4a-41c1-80d9-62ec0246728e"
+    path = f"/api/one/email/information-requests/{workflow_id}"
+    workflow = {"workflow_id": workflow_id, "status": "detected"}
+    service = type("Service", (), {})()
+    service.get_active_workflow = AsyncMock(side_effect=[workflow, None])
+    with patch.object(module, "_service", return_value=service):
+        assert _app(owner_user_id="another-owner").get(path).status_code == 403
+        service.get_active_workflow.assert_not_awaited()
+        response = _app().get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.json() == workflow
+        service.get_active_workflow.assert_awaited_once_with(
+            user_id="owner", workflow_id=workflow_id
+        )
+        assert _app().get(path).status_code == 404
 
 
 def test_source_preview_rejects_a_different_vault_owner():

@@ -41,6 +41,7 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import { mailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useMailKycDisplay } from "@/lib/gmail/use-mail-kyc-display";
+import { takeFeedKycSelection } from "@/lib/gmail/kyc-feed-selection";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
@@ -556,6 +557,7 @@ function GmailInformationRequestsWorkspace({
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
+  const [feedWorkflow, setFeedWorkflow] = useState<GmailInformationRequestWorkflow | null>(null);
   const idTokenProviderRef = useRef(idTokenProvider);
   const activityLoadingRef = useRef(false);
   const scanInFlightRef = useRef(false);
@@ -575,6 +577,33 @@ function GmailInformationRequestsWorkspace({
   );
 
   const readEpoch = snapshotVaultSessionEpoch();
+  useEffect(() => {
+    if (!active || !userId || !vaultOwnerToken || !isConnected) {
+      setFeedWorkflow(null);
+      return;
+    }
+    const workflowId = takeFeedKycSelection(userId);
+    if (!workflowId) return;
+    let current = true;
+    void (async () => {
+      try {
+        const firebaseIdToken = await idTokenProviderRef.current?.();
+        if (!firebaseIdToken || !current || !isVaultSessionEpochCurrent(readEpoch)) return;
+        const exact = await GmailInformationRequestsService.getActive({
+          firebaseIdToken, vaultOwnerToken, workflowId,
+        });
+        if (!current || !isVaultSessionEpochCurrent(readEpoch)) return;
+        setFeedWorkflow(exact);
+        setListView("requests");
+        setSelectedWorkflowId(exact.workflow_id);
+      } catch {
+        if (current && isVaultSessionEpochCurrent(readEpoch)) {
+          toast.error("Couldn’t open this information request. Try again in Feed.");
+        }
+      }
+    })();
+    return () => { current = false; };
+  }, [active, isConnected, readEpoch, userId, vaultOwnerToken]);
   const displaySnapshotRef = useRef(display.snapshot);
   displaySnapshotRef.current = display.snapshot;
   const refreshDisplayRef = useRef(display.refresh);
@@ -1119,7 +1148,7 @@ function GmailInformationRequestsWorkspace({
   const visibleRequestCount = Math.max(totalCount, workflows.length);
   const selectedWorkflow = workflows.find(
     (workflow) => workflow.workflow_id === selectedWorkflowId,
-  );
+  ) ?? (vaultOwnerToken && feedWorkflow?.workflow_id === selectedWorkflowId ? feedWorkflow : null);
   const monitoringActions = enabled ? (
     <>
       <Button

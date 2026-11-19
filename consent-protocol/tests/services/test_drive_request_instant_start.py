@@ -127,9 +127,10 @@ async def test_prompt_pass_sends_only_notices_that_need_no_grant(monkeypatch):
     prompt = await worker.run(
         max_jobs=20, deadline_seconds=35, event_types=PROMPT_NOTIFICATION_TYPES
     )
-    assert prompt["outcomes"] == {"settled": 3}
-    # An outcome reports shared files, so it stays queued for the pass after grants.
-    assert list(shares.pending) == ["1"]
+    assert prompt["outcomes"] == {"settled": 2}
+    # Delivery waits for grants. Payment settlement is processed in the
+    # ordinary pass, where the worker settles it without a push.
+    assert list(shares.pending) == ["1", "4"]
     questions.due.assert_not_awaited()
     # The pass asks the outbox for its own types, so it never reorders other notices.
     assert {call.kwargs.get("types") for call in shares.due.await_args_list} == {
@@ -137,7 +138,7 @@ async def test_prompt_pass_sends_only_notices_that_need_no_grant(monkeypatch):
     }
 
     full = await worker.run(max_jobs=20, deadline_seconds=35)
-    assert full["outcomes"] == {"settled": 2}
+    assert full["outcomes"] == {"settled": 3}
     assert not shares.pending and not questions.pending
     with pytest.raises(ValueError, match="invalid worker bounds"):
         await worker.run(event_types=frozenset({"document_share_unknown"}))

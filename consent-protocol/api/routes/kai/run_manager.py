@@ -17,10 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, cast
 
-from starlette.concurrency import run_in_threadpool
-
 import api.routes.kai.analyze_run_store as run_store
-from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +103,6 @@ class AnalyzeRunRecord:
     is_durable_replay: bool = False
     durable_state: Optional[run_store.DurableRunState] = None
     # Set once the "Analysis ready" Feed item has been written for this run.
-    completion_feed_recorded: bool = False
-    outcome_feed_recorded: bool = False
     # The frame that ended the run, kept for the sealed hand-off to another
     # process, and whether an attached local stream already delivered it.
     terminal_frame: Optional[RunFrame] = None
@@ -295,61 +290,6 @@ class KaiAnalyzeRunManager:
             run.condition.notify_all()
         return envelope if isinstance(envelope, dict) else None
 
-    async def _record_completion_feed(self, run: AnalyzeRunRecord) -> None:
-        """Write "Analysis ready" once the decision has reached the person's device.
-
-        The result is saved to the person's encrypted history by the client that
-        receives the decision; this server never holds it. A run that completes
-        with nobody attached (the stream never attached, the app was closed)
-        produces no saved result, so announcing it as ready sent people to an
-        analysis that did not exist. Only a completed, locally-owned run whose
-        terminal frame was handed to an attached stream is announced. Cancelled
-        and failed runs never are. The stable run id keeps retries harmless; the
-        optional durable store exposes no shared outbox, so this manager must not
-        invent a second DB authority.
-        """
-        if (
-            run.completion_feed_recorded
-            or run.is_durable_replay
-            or run.status != "completed"
-            or not run.terminal_delivered
-        ):
-            return
-        run.completion_feed_recorded = True
-        try:
-            await run_in_threadpool(
-                FeedService().record_event,
-                user_id=run.user_id,
-                source_domain="kai",
-                event_type="kai_analysis_completed",
-                actor_label="Finance",
-                metadata={"ticker": run.ticker, "run_id": run.run_id},
-                source_row_id=run.run_id,
-            )
-        except Exception:
-            logger.warning("kai_outcome_feed_projection_failed")
-
-    async def _record_outcome_feed(self, run: AnalyzeRunRecord) -> None:
-        if (
-            run.outcome_feed_recorded
-            or run.is_durable_replay
-            or run.status not in {"failed", "canceled"}
-        ):
-            return
-        run.outcome_feed_recorded = True
-        try:
-            await run_in_threadpool(
-                FeedService().record_event,
-                user_id=run.user_id,
-                source_domain="kai",
-                event_type=f"kai_analysis_{run.status}",
-                actor_label="Finance",
-                metadata={"ticker": run.ticker},
-                source_row_id=run.run_id,
-            )
-        except Exception:
-            logger.warning("kai_outcome_feed_projection_failed")
-
     async def _append_synthetic_terminal(
         self,
         run: AnalyzeRunRecord,
@@ -512,8 +452,6 @@ class KaiAnalyzeRunManager:
                         delivered=lambda: run.terminal_delivered,
                     )
                 )
-
-            await self._record_outcome_feed(run)
 
     async def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
@@ -739,7 +677,6 @@ class KaiAnalyzeRunManager:
                 yield frame
                 if frame is run.terminal_frame:
                     run.terminal_delivered = True
-                    await self._record_completion_feed(run)
 
             if terminal_reached:
                 return

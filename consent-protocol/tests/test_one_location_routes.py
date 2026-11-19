@@ -8,12 +8,11 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
-from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
+from tests.location_api_fixture import _client
 from tests.services.test_one_location_agent_service import (
     PUBLIC_LOCATION_SNAPSHOT,
     FourUserMemoryService,
@@ -32,12 +31,6 @@ class DatabaseExecutionError(Exception):
     )
     hint = "Retry later."
     status_code = 503
-
-
-class _MemoryNearbyPresenceService:
-    def purge_terminal(self, *, older_than_hours: float) -> dict[str, int]:
-        assert older_than_hours > 0
-        return {"expired": 0, "deleted": 0}
 
 
 class _AsyncLocationOnboardingRetention:
@@ -75,25 +68,6 @@ def _stub_durable_runtime_retention(
     )
     monkeypatch.setattr(one_location, "get_capability_run_store", lambda: run_retention)
     return draft_retention, run_retention
-
-
-def _client(
-    service: FourUserMemoryService, current_user: dict[str, str], monkeypatch
-) -> TestClient:
-    app = FastAPI()
-    app.state.command_purge = AsyncMock()
-    monkeypatch.setattr(CommandCheckpointStore, "purge_expired", app.state.command_purge)
-    app.include_router(one_location.router)
-    app.dependency_overrides[one_location.require_vault_owner_token] = lambda: {
-        "user_id": current_user["user_id"]
-    }
-    monkeypatch.setattr(one_location, "_service", lambda: service)
-    monkeypatch.setattr(
-        one_location,
-        "_nearby_presence_service",
-        _MemoryNearbyPresenceService,
-    )
-    return TestClient(app, raise_server_exceptions=False)
 
 
 def _register_key(client: TestClient, user: dict[str, str], user_id: str) -> None:
@@ -649,11 +623,11 @@ def test_manual_approval_route_requires_explicit_intent(monkeypatch) -> None:
 
     response = client.post(
         "/api/one/location/requests/request-1/approve",
-        json={"approvalMode": "manual", "durationHours": 1},
+        json={"approvalMode": "manual", "durationHours": 1, "expectedRequestRevision": 1},
     )
     no_override_response = client.post(
         "/api/one/location/requests/request-2/approve",
-        json={"approvalMode": "manual"},
+        json={"approvalMode": "manual", "expectedRequestRevision": 1},
     )
 
     assert response.status_code == 200
@@ -666,6 +640,7 @@ def test_manual_approval_route_requires_explicit_intent(monkeypatch) -> None:
             "duration_hours": 1,
             "duration_mode": None,
             "auto_approve_rule_version": None,
+            "expected_request_revision": 1,
         },
         {
             "owner_user_id": "owner-from-token",
@@ -674,6 +649,7 @@ def test_manual_approval_route_requires_explicit_intent(monkeypatch) -> None:
             "duration_hours": None,
             "duration_mode": None,
             "auto_approve_rule_version": None,
+            "expected_request_revision": 1,
         },
     ]
 
@@ -937,7 +913,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     current_user["user_id"] = user_a
     approve_d = client.post(
         f"/api/one/location/requests/{referral['request']['id']}/approve",
-        json={"approvalMode": "manual", "durationHours": 1},
+        json={"approvalMode": "manual", "durationHours": 1, "expectedRequestRevision": 1},
     )
     assert approve_d.status_code == 200
     grant_d = approve_d.json()["grant"]

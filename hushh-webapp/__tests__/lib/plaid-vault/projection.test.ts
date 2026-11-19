@@ -200,6 +200,14 @@ describe("applySnapshot", () => {
     };
     const next = applySnapshot(financial, "item_fp_a", errored, NOW);
     expect(next.connections_v1?.item_fp_a?.status).toBe("needs_relink");
+    expect(next.connections_v1?.item_fp_a?.reconnect_required_at).toBe(NOW);
+    const later = "2026-03-01T00:00:00Z";
+    expect(applySnapshot(next, "item_fp_a", errored, later).connections_v1?.item_fp_a?.reconnect_required_at).toBe(NOW);
+    const noAction = applySnapshot(next, "item_fp_a", {
+      ...errored,
+      item: { ...errored.item!, error: { code: "INVALID_ACCESS_TOKEN", message: "private" } },
+    }, later);
+    expect(noAction.connections_v1?.item_fp_a?.reconnect_required_at).toBeUndefined();
     expect(next.connections_v1?.item_fp_a?.transactions_cursor).toBe("fpa-cursor-page-1");
     expect(next.accounts_v1).toEqual(financial.accounts_v1);
     expect(next.holdings_v1).toEqual(financial.holdings_v1);

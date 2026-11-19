@@ -33,6 +33,48 @@ function item(
 const recipient = { feed_audience: "recipient" };
 
 describe("Drive rows in the Feed", () => {
+  it("opens grouped delivery from Feed with the confirmed count", () => {
+    const display = presentFeedItem({
+      ...item("document_share_outcome", {
+        ...recipient,
+        current_request_status: "completed",
+        current_delivery_confirmed_count: 2,
+      }),
+      activity_group_id: `document:${REQUEST}`,
+      activity_revision: "100",
+    });
+    expect(display.label).toBe("Ankit");
+    expect(display.description).toBe("2 files ready");
+    expect(display.href).toContain(encodeURIComponent(`document_share_request:${REQUEST}`));
+    expect(display.href).toContain("requestView=sent");
+    expect(display.href).toContain("from=%2Fone%2Ffeed");
+  });
+  it("names the one accessible file on a grouped partial delivery", () => {
+    const display = presentFeedItem({
+      ...item("document_share_outcome", {
+        ...recipient,
+        current_request_status: "partial",
+        current_delivery_total_count: 2,
+        current_delivery_confirmed_count: 1,
+      }),
+      activity_group_id: `document:${REQUEST}`,
+    });
+    expect(display.label).toBe("Ankit");
+    expect(display.description).toBe("1 of 2 files ready");
+  });
+
+  it("keeps confirmed payment and no-charge terms in the compact summary", () => {
+    const row = presentFeedItem({ ...item("document_share_outcome", {
+      ...recipient, current_request_status: "completed", current_delivery_confirmed_count: 2,
+      current_existing_access_nocharge: true,
+    }), activity_group_id: `document:${REQUEST}` });
+    expect(row.description).toBe("2 files ready · No charge");
+    const paid = presentFeedItem({ ...item("document_share_payment_confirmed", {
+      ...recipient, current_payment_status: "paid", current_payment_amount_cents: 200,
+    }), activity_group_id: `document:${REQUEST}` });
+    expect(paid.description).toBe("Paid $2");
+  });
+
   it.each([
     [recipient, "Files ready · Already had access · No charge"],
     [{}, "Files delivered · No payment due"],

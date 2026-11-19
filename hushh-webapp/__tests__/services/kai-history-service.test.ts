@@ -2,6 +2,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { TextEncoder } from "node:util";
 import { describe, expect, it, vi } from "vitest";
+import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
 
 import {
   compactAnalysisHistoryEntryForStorage,
@@ -75,7 +76,7 @@ describe("analysis history route identity", () => {
   });
 });
 
-it("reads legacy PKM history and keeps only the latest new result on this device without writing to PKM", async () => {
+it("reads legacy PKM history and keeps exact new runs on this device without writing to PKM", async () => {
   vi.stubGlobal("indexedDB", new IDBFactory());
   vi.stubGlobal("crypto", webcrypto);
   // Web Crypto in Node expects buffer sources from its own realm.
@@ -88,15 +89,25 @@ it("reads legacy PKM history and keeps only the latest new result on this device
     pkm.load.mockResolvedValue({ analysis_history: { MSFT: [legacy] } });
     const earlier = entry({ raw_card: { debate_run_id: "earlier" } });
     const latest = entry({ timestamp: "2026-08-11T12:00:00.000Z", raw_card: { debate_run_id: "latest" } });
+    const deviceLegacy = entry({ ticker: "IBM", raw_card: { debate_run_id: "device-legacy" } });
+    const resourceKey = "finance-analysis-history-v1";
+    await SecureDurableResourceService.write({ ...owner, resourceKey,
+      expected: await SecureDurableResourceService.version(owner.userId, resourceKey),
+      value: { IBM: deviceLegacy }, isCurrent: () => true });
     const save = (result: AnalysisHistoryEntry) => KaiHistoryService.saveAnalysis({ ...owner, entry: result, isCurrent: () => true });
 
-    await expect(save(earlier)).resolves.toBe(true);
     await expect(save(latest)).resolves.toBe(true);
     await expect(save(earlier)).resolves.toBe(true);
-    await expect(KaiHistoryService.getAllHistory(owner)).resolves.toEqual({ MSFT: [legacy], NVDA: [latest] });
+    await expect(save(earlier)).resolves.toBe(true);
+    await expect(KaiHistoryService.getAllHistory(owner)).resolves.toEqual({ MSFT: [legacy], IBM: [deviceLegacy], NVDA: [latest, earlier] });
     await expect(KaiHistoryService.getAllHistory({ ...owner, vaultKey: "bc".repeat(32) })).resolves.toEqual({ MSFT: [legacy] });
     await expect(KaiHistoryService.deleteEntry({ ...owner, ticker: "NVDA", timestamp: latest.timestamp, streamId: "latest" })).resolves.toBe(true);
-    await expect(KaiHistoryService.getAllHistory(owner)).resolves.toEqual({ MSFT: [legacy] });
+    const history = await KaiHistoryService.getAllHistory(owner);
+    expect(history).toEqual({ MSFT: [legacy], IBM: [deviceLegacy], NVDA: [earlier] });
+    expect(findAnalysisHistoryEntryByRouteId(history, "run:earlier")).toEqual(earlier);
+    expect(findAnalysisHistoryEntryByRouteId(history, "run:latest")).toBeNull();
+    await expect(KaiHistoryService.deleteTickerHistory({ ...owner, ticker: "NVDA" })).resolves.toBe(true);
+    await expect(KaiHistoryService.getAllHistory(owner)).resolves.toEqual({ MSFT: [legacy], IBM: [deviceLegacy] });
     expect(pkm.write).not.toHaveBeenCalled();
   } finally {
     vi.unstubAllGlobals();

@@ -1,7 +1,7 @@
 /**
  * Kai Analysis History Service
  *
- * Keeps the latest analysis per ticker in encrypted device storage.
+ * Keeps exact saved analyses in encrypted device storage.
  * Reads and supports explicit deletion of legacy PKM analyses.
  */
 
@@ -464,15 +464,12 @@ export class KaiHistoryService {
 
     try {
       await updateDeviceHistory(params, params.isCurrent, (history) => {
-        const current = history[ticker];
-        if (current && (
-          getAnalysisHistoryEntryRouteId(current) === getAnalysisHistoryEntryRouteId(entry) ||
-          (toEpochMs(current.timestamp) ?? 0) > (toEpochMs(entry.timestamp) ?? 0)
-        )) return false;
-        history[ticker] = { ...entry, ticker };
+        const routeId = getAnalysisHistoryEntryRouteId(entry);
+        if (Object.values(history).some(current => getAnalysisHistoryEntryRouteId(current) === routeId)) return false;
+        history[routeId] = { ...entry, ticker };
         return true;
       });
-      return true;
+      return params.isCurrent();
     } catch {
       // The run manager owns retries and the user-facing recovery state.
       return false;
@@ -513,13 +510,16 @@ export class KaiHistoryService {
     if (!isCurrent()) return {};
 
     const history = { ...legacy };
-    for (const [ticker, entry] of Object.entries(stored?.value ?? {})) {
+    for (const entry of Object.values(stored?.value ?? {})) {
+      const ticker = sanitizeTicker(entry.ticker);
+      if (!ticker) continue;
       const routeId = getAnalysisHistoryEntryRouteId(entry);
       history[ticker] = [
         entry,
         ...(history[ticker] ?? []).filter(candidate => getAnalysisHistoryEntryRouteId(candidate) !== routeId),
       ];
     }
+    for (const entries of Object.values(history)) entries.sort((a, b) => (toEpochMs(b.timestamp) ?? 0) - (toEpochMs(a.timestamp) ?? 0));
     return history;
   }
 
@@ -560,15 +560,15 @@ export class KaiHistoryService {
     const epoch = snapshotVaultSessionEpoch();
     try {
       const removedFromDevice = await updateDeviceHistory(params, () => isVaultSessionEpochCurrent(epoch), (history) => {
-        const key = sanitizeTicker(ticker);
-        const entry = history[key];
-        if (!entry) return false;
-        const matches = streamId
-          ? extractStreamId(entry) === streamId || extractRunId(entry) === streamId
-          : toEpochMs(entry.timestamp) === toEpochMs(timestamp) && toEpochMs(timestamp) !== null;
-        if (!matches) return false;
-        delete history[key];
-        return true;
+        let removed = false;
+        for (const [key, entry] of Object.entries(history)) {
+          if (sanitizeTicker(entry.ticker) !== sanitizeTicker(ticker)) continue;
+          const matches = streamId
+            ? extractStreamId(entry) === streamId || extractRunId(entry) === streamId
+            : toEpochMs(entry.timestamp) === toEpochMs(timestamp) && toEpochMs(timestamp) !== null;
+          if (matches) { delete history[key]; removed = true; }
+        }
+        return removed;
       });
       if (removedFromDevice) return true;
     } catch {
@@ -681,10 +681,11 @@ export class KaiHistoryService {
     try {
       const legacyTicker = normalizeTickerKey(await this.getLegacyHistory(params), ticker);
       const removedFromDevice = await updateDeviceHistory(params, () => isVaultSessionEpochCurrent(epoch), (history) => {
-        const key = sanitizeTicker(ticker);
-        if (!Object.hasOwn(history, key)) return false;
-        delete history[key];
-        return true;
+        let removed = false;
+        for (const [key, entry] of Object.entries(history)) {
+          if (sanitizeTicker(entry.ticker) === sanitizeTicker(ticker)) { delete history[key]; removed = true; }
+        }
+        return removed;
       });
       if (!legacyTicker) return removedFromDevice;
     } catch {

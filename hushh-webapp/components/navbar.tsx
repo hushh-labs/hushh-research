@@ -1,4 +1,3 @@
-// components/navbar.tsx
 // Bottom pill navigation + onboarding theme control.
 
 "use client";
@@ -22,6 +21,8 @@ import {
   Wallet,
 } from "@/components/icons";
 
+import { clearFeedSearch } from "@/lib/feed/feed-search-memory";
+import { resetFeedSearchView } from "@/lib/feed/feed-search-events";
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
@@ -180,10 +181,7 @@ function navOptionForKey(
   feedUnreadCount: number | null,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
-  // Feed is the single notification home in the persistent navigation. Its
-  // "Needs you" requests and unread feed_events overlap for several domains
-  // but not all of them. Counts alone cannot calculate that union exactly, so
-  // use an honest attention dot instead of double-counting or hiding activity.
+  // Pending decisions and history overlap; a dot avoids double-counting them.
   let badge: "dot" | undefined;
   if (key === "feed") {
     if ((pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0) {
@@ -437,6 +435,7 @@ export const Navbar = ({
         : "one",
     );
     if (action.type === "route") {
+      if(action.href === "/one/feed"){clearFeedSearch();resetFeedSearchView();}
       const nextAgentContext = resolveAgentNavigationContextForPath(
         action.href,
       );

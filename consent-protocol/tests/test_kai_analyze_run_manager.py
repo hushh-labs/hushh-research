@@ -219,13 +219,17 @@ def test_finalization_cancellation_releases_authority_without_changing_replay() 
         finalizing = asyncio.Event()
 
         async def generator(*args):
+            manager._store = Store()
             yield _frame(1, "decision", {"decision": "hold"}, terminal=True)
 
-        async def blocked_feed(run):
-            finalizing.set()
-            await asyncio.Event().wait()
+        class Store:
+            async def persist_started(self, **kwargs):
+                return None
 
-        manager._record_outcome_feed = blocked_feed
+            async def persist_terminal(self, **kwargs):
+                finalizing.set()
+                await asyncio.Event().wait()
+
         _, run = await manager.start_or_get_active(
             user_id="owner",
             debate_session_id="session",
@@ -251,7 +255,7 @@ def test_finalization_cancellation_releases_authority_without_changing_replay() 
     asyncio.run(scenario())
 
 
-def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_immutable() -> None:
+def test_kai_terminal_is_immutable_and_stream_delivery_is_not_a_save() -> None:
     run_manager_module = _load_run_manager_module()
     feed_calls: list[dict[str, Any]] = []
 
@@ -306,7 +310,7 @@ def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_imm
             await _deliver(run)
         assert feed_calls == []
 
-        # Delivered twice (reattach): announced exactly once.
+        # Two attached streams do not prove the result was saved.
         await _deliver(completed)
         await _deliver(completed)
 
@@ -316,14 +320,6 @@ def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_imm
     assert completed.terminal_event == "decision"
     assert completed.terminal_payload is not None
     assert completed.terminal_payload["decision"] == "hold"
-    assert undelivered.completion_feed_recorded is False
-    assert feed_calls == [
-        {
-            "user_id": "user_feed",
-            "source_domain": "kai",
-            "event_type": "kai_analysis_completed",
-            "actor_label": "Kai",
-            "metadata": {"ticker": "AAPL", "run_id": "run_stable"},
-            "source_row_id": "run_stable",
-        }
-    ]
+    assert undelivered.terminal_delivered is False
+    assert completed.terminal_delivered is True
+    assert feed_calls == []

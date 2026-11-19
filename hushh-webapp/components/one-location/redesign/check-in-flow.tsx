@@ -4,6 +4,9 @@ import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css"
 import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
 
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { createPrivateCheckInOperationId, isFreshReviewedPoint } from "@/lib/one-location/check-in-review";
+import type { CheckInOperation } from "@/lib/one-location/check-in-operations";
 import { ContactRow } from "@/components/one-location/redesign/contact-picker/check-in-contact-row";
 
 /**
@@ -81,8 +84,6 @@ const UNTIL_STOP_VALUE = "24";
 /** Default Check-In note sent to recipients and shown in their notification. */
 const DEFAULT_CHECK_IN_MESSAGE = "I've checked in here, let's catch up";
 const CHECK_IN_MESSAGE_MAX_LENGTH = 120;
-const REVIEWED_POINT_MAX_AGE_MS = 60_000;
-const REVIEWED_POINT_FUTURE_SKEW_MS = 30_000;
 const PRIVATE_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
 
 /** White surface card — design radius 12px, with a dark-mode variant. */
@@ -103,32 +104,6 @@ function accuracyLine(point: PlainLocationPoint | null): string | null {
   return `Accurate to about ${Math.round(accuracyM)} meters`;
 }
 
-function createPrivateCheckInOperationId(): string {
-  if (
-    typeof globalThis.crypto !== "undefined" &&
-    typeof globalThis.crypto.randomUUID === "function"
-  ) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `checkin-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 14)}`;
-}
-
-function isFreshReviewedPoint(
-  point: PlainLocationPoint | null,
-  nowMs: number,
-): point is PlainLocationPoint {
-  if (!point) return false;
-  const capturedAtMs = Date.parse(point.capturedAt);
-  if (!Number.isFinite(capturedAtMs)) return false;
-  const ageMs = nowMs - capturedAtMs;
-  return (
-    ageMs >= -REVIEWED_POINT_FUTURE_SKEW_MS &&
-    ageMs <= REVIEWED_POINT_MAX_AGE_MS
-  );
-}
-
 /** Section label that follows the shared readable settings scale. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -142,10 +117,12 @@ export function CheckInFlow({
   vm,
   onClose,
   entrySource,
+  resumeOperation,
 }: {
   vm: LocationHubViewModel;
   onClose: () => void;
   entrySource?: "nearby";
+  resumeOperation?: CheckInOperation;
 }) {
   const discardPrivateCheckInOperation =
     vm.onDiscardPrivateCheckInOperation;
@@ -163,14 +140,12 @@ export function CheckInFlow({
   // Nearby entry is deliberately empty: nearby presence never grants precise
   // location access, so every private recipient must be selected explicitly.
   const [search, setSearch] = useState("");
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [durationValue, setDurationValue] = useState("1");
+  const [checkedIds, setCheckedIds] = useState<string[]>(resumeOperation?.targets.filter(target => target.status === "pending").map(target => target.userId) ?? []);
+  const [durationValue, setDurationValue] = useState(String(resumeOperation?.durationHours ?? 1));
   const [untilStop, setUntilStop] = useState(false);
   const [message, setMessage] = useState(DEFAULT_CHECK_IN_MESSAGE);
-  const [completedRecipientIds, setCompletedRecipientIds] = useState<string[]>(
-    [],
-  );
-  const [seeded, setSeeded] = useState(entrySource === "nearby");
+  const [completedRecipientIds, setCompletedRecipientIds] = useState<string[]>(resumeOperation?.targets.filter(target => target.grantId).map(target => target.userId) ?? []);
+  const [seeded, setSeeded] = useState(Boolean(resumeOperation) || entrySource === "nearby");
   const [circleSelection, setCircleSelection] =
     useState<CircleRecipientSelection | null>(null);
   const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
@@ -193,18 +168,29 @@ export function CheckInFlow({
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
   const [mapViewportResetKey, setMapViewportResetKey] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const operationIdRef = useRef<string | null>(null);
+  const operationIdRef = useRef<string | null>(resumeOperation?.clientOperationId ?? null);
   const confirmedRecipientKeysRef = useRef<Record<string, string | null> | null>(
     null,
   );
   const contacts = useMemo(
     () =>
       mergeRecipientsByUserId(
-        vm.sosRecipients,
+        resumeOperation ? vm.sosRecipients.filter(recipient => resumeOperation.targets.some(target => target.status === "pending" && target.userId === recipient.userId)) : vm.sosRecipients,
         (circleSelection?.ready ?? []).map((target) => target.recipient),
       ),
-    [circleSelection, vm.sosRecipients],
+    [circleSelection, resumeOperation, vm.sosRecipients],
   );
+
+  const resolveNamedCircleRecipients = vm.onResolveNamedCircleRecipients;
+  useEffect(() => {
+    if (!resumeOperation?.sourceCircleId) return;
+    let current = true;
+    void resolveNamedCircleRecipients(resumeOperation.sourceCircleId, "location").then(selection => {
+      if (current) setCircleSelection({ ...selection, ready: selection.ready.filter(target =>
+        resumeOperation.targets.some(saved => saved.status === "pending" && saved.userId === target.recipient.userId)) });
+    }).catch(() => { if (current) toast.error("Remaining recipients unavailable"); });
+    return () => { current = false; };
+  }, [resumeOperation, resolveNamedCircleRecipients]);
 
   // Choosing a Circle ticks each ready member in the list below, and those rows
   // stay individually untickable. Once one is cleared the check-in is no longer
@@ -216,7 +202,7 @@ export function CheckInFlow({
   );
 
   const selectCircle = async (circleId: string) => {
-    if (circleLoadingId) return;
+    if (circleLoadingId || resumeOperation) return;
     if (circleSelection?.circle.id === circleId && circleFullySelected) {
       setCircleSelection(null);
       setCheckedIds([]);
@@ -356,8 +342,9 @@ export function CheckInFlow({
     const operationId = operationIdRef.current;
     if (!operationId) return;
     discardPrivateCheckInOperation(operationId);
-    operationIdRef.current = null;
+    operationIdRef.current = resumeOperation?.clientOperationId ?? null;
   }, [
+    resumeOperation,
     confirmationExpired,
     discardPrivateCheckInOperation,
     recipientKeyChanged,
@@ -395,6 +382,7 @@ export function CheckInFlow({
     }
     setConfirmedPoint(reviewedPoint);
     setConfirmedAt(confirmationTime);
+    const epoch = snapshotVaultSessionEpoch();
     setSubmitting(true);
     try {
       const result = await vm.onCheckIn({
@@ -408,9 +396,10 @@ export function CheckInFlow({
         commandSignal: commandContext?.signal,
         commandOwner: commandContext ? vm.userId ?? undefined : undefined,
         confirmedAt: confirmationTime,
-        sourceCircleId: retained ? retained.sourceCircleId : circleSelection?.circle.id ?? null,
+        sourceCircleId: retained ? retained.sourceCircleId : resumeOperation?.sourceCircleId ?? circleSelection?.circle.id ?? null,
         recipientSnapshots: contacts.filter((recipient) => recipientIds.includes(recipient.userId)),
       });
+      if (!isVaultSessionEpochCurrent(epoch)) return;
       if (result.succeededRecipientIds.length > 0) {
         setCompletedRecipientIds((current) => [
           ...new Set([...current, ...result.succeededRecipientIds]),
@@ -529,7 +518,7 @@ export function CheckInFlow({
     setConfirmedPoint(null);
     setConfirmedAt(null);
     setNowMs(Date.now());
-    operationIdRef.current = null;
+    operationIdRef.current = resumeOperation?.clientOperationId ?? null;
     confirmedRecipientKeysRef.current = null;
     privateDraft.current = null;
     privateDraftSalt.current = null;
@@ -664,7 +653,7 @@ export function CheckInFlow({
 
       {/* WHO SHOULD KNOW? */}
       <SectionLabel>Who should know?</SectionLabel>
-      {selectableCircles.length ? (
+      {!resumeOperation && selectableCircles.length ? (
         <div className={cn(CARD, "mb-2 overflow-hidden")}>
           {selectableCircles.map((circle, index) => {
             const selected =
@@ -778,7 +767,7 @@ export function CheckInFlow({
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          disabled={retryLocked}
+          disabled={retryLocked || Boolean(resumeOperation)}
           placeholder="Search contacts…"
           className="ui-text-input-value min-w-0 flex-1 bg-transparent outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
@@ -791,7 +780,7 @@ export function CheckInFlow({
                 key={recipient.userId}
                 checked={checkedIds.includes(recipient.userId)}
                 ready={vm.isRecipientShareReady(recipient)}
-                locked={retryLocked}
+                locked={retryLocked || Boolean(resumeOperation)}
                 completed={completedRecipientIds.includes(recipient.userId)}
                 label={vm.recipientLabel(recipient)}
                 photoUrl={recipient.photoUrl}
@@ -837,7 +826,7 @@ export function CheckInFlow({
             key={option.key}
             type="button"
             onClick={option.onClick}
-            disabled={retryLocked}
+            disabled={retryLocked || Boolean(resumeOperation)}
             style={{ flexGrow: option.grow, flexBasis: 0 }}
             className={cn(
               "whitespace-nowrap rounded-[7px] py-[9px] text-center text-[13px] transition-colors",
@@ -864,7 +853,7 @@ export function CheckInFlow({
           onChange={(event) =>
             setMessage(event.target.value.slice(0, CHECK_IN_MESSAGE_MAX_LENGTH))
           }
-          disabled={retryLocked}
+          disabled={retryLocked || Boolean(resumeOperation)}
           rows={2}
           placeholder={DEFAULT_CHECK_IN_MESSAGE}
           className="ui-text-input-value w-full resize-none bg-transparent outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"

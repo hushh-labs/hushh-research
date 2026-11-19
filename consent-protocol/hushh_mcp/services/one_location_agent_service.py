@@ -56,9 +56,9 @@ from hushh_mcp.services.directory_identity_service import (
     exclude_retired_account_ids,
 )
 from hushh_mcp.services.feed_location_policy import (
-    RECEIVED_GRANTS_FEED_SQL,
     with_cleared_feed_receipts,
 )
+from hushh_mcp.services.location_feed_publication import RECEIVED_GRANTS_SQL
 from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
@@ -1468,22 +1468,19 @@ class OneLocationAgentService:
                     status_code=409,
                 )
             if command and not prior and row:
-                grant = _loads_json(row.get("grant_row"))
-                envelope = _loads_json(row.get("envelope_row"))
-                if (
-                    not isinstance(grant, dict)
-                    or not isinstance(envelope, dict)
-                    or (_loads_json(grant.get("metadata")) or {}).get(
-                        "client_operation_fingerprint"
-                    )
-                    != params["_command_fingerprint"]
-                ):
-                    raise OneLocationAgentError(
-                        "LOCATION_OPERATION_CONFLICT",
-                        "The saved share differs from this command.",
-                        status_code=409,
-                    )
-                command.save(str(grant["id"]))
+                from hushh_mcp.services.location_private_share_verification import (
+                    save_verified_command_share,
+                )
+
+                save_verified_command_share(command, row, params)
+            from hushh_mcp.services.location_check_in_receipts import record_check_in_receipt
+
+            try:
+                record_check_in_receipt(connection, params, row)
+            except ValueError as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_CHECK_IN_CHANGED", "The reviewed Check-In changed.", status_code=409
+                ) from exc
             return (
                 {**dict(row), **({"_command_owned": True} if command_operation else {})}
                 if row is not None
@@ -3015,6 +3012,9 @@ class OneLocationAgentService:
             ),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
+            "feedSmsConfirmed": row.get("feed_sms_confirmed") is True,
+            "feedItemId": str(row["feed_item_id"]) if row.get("feed_item_id") is not None else None,
+            "feedConfirmedAt": _iso(row.get("feed_confirmed_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
             "latestEnvelopeId": str(row.get("latest_envelope_id") or "") or None,
@@ -3850,331 +3850,9 @@ class OneLocationAgentService:
         user_id: str | None = None,
         older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS,
     ) -> dict[str, Any]:
-        hours = max(1.0, min(float(older_than_hours or LOCATION_TERMINAL_RETENTION_HOURS), 168.0))
-        row = (
-            self._execute_one(
-                with_cleared_feed_receipts("""
-            WITH stale_grants AS (
-              SELECT id
-              FROM one_location_share_grants
-              WHERE ((
-                  status = 'expired'
-                  AND expires_at <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR (
-                  status = 'revoked'
-                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                ))
-                AND (
-                  :user_id IS NULL
-                  OR owner_user_id = :user_id
-                  OR recipient_user_id = :user_id
-                )
-              LIMIT 500
-            ),
-            stale_requests AS (
-              SELECT id
-              FROM one_location_access_requests
-              WHERE ((
-                  status IN ('approved', 'denied', 'cancelled')
-                  AND COALESCE(resolved_at, requested_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR (
-                  status = 'expired'
-                  AND COALESCE(resolved_at, expires_at, requested_at)
-                    <= NOW() - (:expired_request_hours * INTERVAL '1 hour')
-                )
-                OR approved_grant_id IN (SELECT id FROM stale_grants))
-                AND (NOT (COALESCE(metadata,'{}'::jsonb) ? 'command_operations')
-                     OR COALESCE(resolved_at, expires_at, requested_at) <= NOW()-INTERVAL '24 hours')
-                AND (
-                  :user_id IS NULL
-                  OR owner_user_id = :user_id
-                  OR requester_user_id = :user_id
-                  OR referred_by_user_id = :user_id
-                )
-              LIMIT 500
-            ),
-            stale_referrals AS (
-              SELECT id
-              FROM one_location_referrals
-              WHERE ((
-                  status IN ('approved', 'denied', 'cancelled')
-                  AND COALESCE(resolved_at, created_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR grant_id IN (SELECT id FROM stale_grants)
-                OR request_id IN (SELECT id FROM stale_requests))
-                AND (
-                  :user_id IS NULL
-                  OR owner_user_id = :user_id
-                  OR referring_user_id = :user_id
-                  OR referred_user_id = :user_id
-                )
-              LIMIT 500
-            ),
-            stale_public_invites AS (
-              SELECT id
-              FROM one_location_public_invites
-              WHERE ((
-                  status = 'expired'
-                  AND expires_at <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR (
-                  status = 'revoked'
-                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                ))
-                AND (
-                  :user_id IS NULL
-                  OR owner_user_id = :user_id
-                )
-              LIMIT 500
-            ),
-            stale_public_submissions AS (
-              SELECT id
-              FROM one_location_public_invite_submissions
-              WHERE ((
-                  status IN ('approved', 'denied', 'cancelled')
-                  AND COALESCE(resolved_at, submitted_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR invite_id IN (SELECT id FROM stale_public_invites)
-                OR request_id IN (SELECT id FROM stale_requests))
-                AND (
-                  :user_id IS NULL
-                  OR owner_user_id = :user_id
-                  OR matched_user_id = :user_id
-                )
-              LIMIT 500
-            ),
-            stale_circle_invites AS (
-              SELECT id
-              FROM one_location_circle_invites
-              WHERE (
-                (
-                  status IN ('claimed', 'expired')
-                  AND COALESCE(claimed_at, updated_at, expires_at, created_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR (
-                  status = 'revoked'
-                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-              )
-              AND (
-                :user_id IS NULL
-                OR owner_user_id = :user_id
-                OR claimed_by_user_id = :user_id
-              )
-              LIMIT 500
-            ),
-            stale_named_circle_codes AS (
-              SELECT id
-              FROM one_location_circle_invite_codes
-              WHERE (
-                (
-                  status IN ('expired', 'revoked')
-                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
-                    <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-                OR (
-                  status = 'active'
-                  AND expires_at <= NOW() - (:hours * INTERVAL '1 hour')
-                )
-              )
-              AND (
-                :user_id IS NULL
-                OR created_by_user_id = :user_id
-              )
-              LIMIT 500
-            ),
-            expired_named_circle_member_invite_candidates AS (
-              SELECT invite.id
-              FROM one_location_circle_member_invites invite
-              WHERE invite.status = 'pending'
-                AND invite.expires_at <= NOW()
-                AND (
-                  :user_id IS NULL
-                  OR invite.inviter_user_id = :user_id
-                  OR invite.invitee_user_id = :user_id
-                )
-              ORDER BY invite.expires_at, invite.id
-              LIMIT 500
-              FOR UPDATE SKIP LOCKED
-            ),
-            expired_named_circle_member_invites AS (
-              UPDATE one_location_circle_member_invites invite
-              SET status = 'expired',
-                  updated_at = NOW()
-              FROM expired_named_circle_member_invite_candidates candidate
-              WHERE invite.id = candidate.id
-              RETURNING invite.id
-            ),
-            stale_named_circle_member_invites AS (
-              SELECT invite.id
-              FROM one_location_circle_member_invites invite
-              WHERE invite.status IN (
-                  'accepted',
-                  'declined',
-                  'cancelled',
-                  'expired'
-                )
-                AND COALESCE(
-                  invite.responded_at,
-                  invite.cancelled_at,
-                  invite.updated_at,
-                  invite.expires_at,
-                  invite.created_at
-                ) <= NOW() - (:hours * INTERVAL '1 hour')
-                AND (
-                  :user_id IS NULL
-                  OR invite.inviter_user_id = :user_id
-                  OR invite.invitee_user_id = :user_id
-                )
-                AND (SELECT COUNT(*) FROM expired_named_circle_member_invites) >= 0
-              LIMIT 500
-            ),
-            deleted_events AS (
-              DELETE FROM one_location_events e
-              WHERE e.grant_id IN (SELECT id FROM stale_grants)
-                 OR e.request_id IN (SELECT id FROM stale_requests)
-                 OR e.referral_id IN (SELECT id FROM stale_referrals)
-                 OR (
-                   e.event_type IN (
-                     'location_public_invite_created',
-                     'location_public_invite_revoked',
-                     'location_public_invite_submitted'
-                   )
-                   AND (
-                     e.metadata->>'invite_id' IN (
-                       SELECT id::text FROM stale_public_invites
-                     )
-                     OR e.metadata->>'submission_id' IN (
-                       SELECT id::text FROM stale_public_submissions
-                     )
-                   )
-                 )
-                 OR (
-                   e.event_type IN (
-                     'location_circle_invite_created',
-                     'location_circle_invite_claimed',
-                     'location_circle_invite_revoked',
-                     'location_one_network_joined'
-                   )
-                   AND e.metadata->>'invite_id' IN (
-                     SELECT id::text FROM stale_circle_invites
-                   )
-                 )
-              RETURNING id
-            ),
-            deleted_public_submissions AS (
-              DELETE FROM one_location_public_invite_submissions s
-              WHERE s.id IN (SELECT id FROM stale_public_submissions)
-                AND (SELECT COUNT(*) FROM deleted_events) >= 0
-              RETURNING id
-            ),
-            deleted_envelopes AS (
-              DELETE FROM one_location_envelopes e
-              WHERE e.grant_id IN (SELECT id FROM stale_grants)
-                AND (SELECT COUNT(*) FROM deleted_public_submissions) >= 0
-              RETURNING id
-            ),
-            deleted_referrals AS (
-              DELETE FROM one_location_referrals r
-              WHERE (
-                  r.id IN (SELECT id FROM stale_referrals)
-                  OR r.grant_id IN (SELECT id FROM stale_grants)
-                  OR r.request_id IN (SELECT id FROM stale_requests)
-                )
-                AND (SELECT COUNT(*) FROM deleted_envelopes) >= 0
-              RETURNING id
-            ),
-            deleted_requests AS (
-              DELETE FROM one_location_access_requests req
-              WHERE req.id IN (SELECT id FROM stale_requests)
-                AND (SELECT COUNT(*) FROM deleted_referrals) >= 0
-              RETURNING id
-            ),
-            feed_clear_candidates AS (
-              SELECT g.id AS grant_id, g.recipient_user_id, g.recipient_cleared_at AS cleared_at
-              FROM one_location_share_grants g
-              WHERE g.id IN (SELECT id FROM stale_grants)
-                AND g.recipient_cleared_at IS NOT NULL
-            ),
-            hidden_cleared_receipts AS (__CLEARED_FEED_RECEIPTS__),
-            deleted_grants AS (
-              DELETE FROM one_location_share_grants g
-              WHERE g.id IN (SELECT id FROM stale_grants)
-                AND (SELECT COUNT(*) FROM deleted_requests) >= 0
-                AND (SELECT COUNT(*) FROM hidden_cleared_receipts) >= 0
-              RETURNING id
-            ),
-            deleted_public_invites AS (
-              DELETE FROM one_location_public_invites i
-              WHERE i.id IN (SELECT id FROM stale_public_invites)
-                AND (SELECT COUNT(*) FROM deleted_grants) >= 0
-              RETURNING id
-            ),
-            deleted_circle_invites AS (
-              DELETE FROM one_location_circle_invites i
-              WHERE i.id IN (SELECT id FROM stale_circle_invites)
-                AND (SELECT COUNT(*) FROM deleted_public_invites) >= 0
-              RETURNING id
-            ),
-            deleted_named_circle_codes AS (
-              DELETE FROM one_location_circle_invite_codes code
-              WHERE code.id IN (SELECT id FROM stale_named_circle_codes)
-                AND (SELECT COUNT(*) FROM deleted_circle_invites) >= 0
-              RETURNING id
-            ),
-            deleted_named_circle_member_invites AS (
-              DELETE FROM one_location_circle_member_invites invite
-              WHERE invite.id IN (
-                  SELECT id FROM stale_named_circle_member_invites
-                )
-                AND (SELECT COUNT(*) FROM deleted_named_circle_codes) >= 0
-              RETURNING id
-            )
-            SELECT
-              (SELECT COUNT(*) FROM deleted_grants) AS deleted_grants,
-              (SELECT COUNT(*) FROM deleted_envelopes) AS deleted_envelopes,
-              (SELECT COUNT(*) FROM deleted_requests) AS deleted_requests,
-              (SELECT COUNT(*) FROM deleted_referrals) AS deleted_referrals,
-              (SELECT COUNT(*) FROM deleted_public_invites) AS deleted_public_invites,
-              (SELECT COUNT(*) FROM deleted_circle_invites) AS deleted_circle_invites,
-              (SELECT COUNT(*) FROM deleted_named_circle_codes) AS deleted_named_circle_codes,
-              (SELECT COUNT(*) FROM deleted_named_circle_member_invites)
-                AS deleted_named_circle_member_invites,
-              (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
-              (SELECT COUNT(*) FROM deleted_events) AS deleted_events
-            """),
-                {
-                    "user_id": user_id,
-                    "hours": hours,
-                    "expired_request_hours": LOCATION_EXPIRED_REQUEST_RETENTION_HOURS,
-                },
-            )
-            or {}
-        )
-        return {
-            "deleted_grants": int(row.get("deleted_grants") or 0),
-            "deleted_envelopes": int(row.get("deleted_envelopes") or 0),
-            "deleted_requests": int(row.get("deleted_requests") or 0),
-            "deleted_referrals": int(row.get("deleted_referrals") or 0),
-            "deleted_public_invites": int(row.get("deleted_public_invites") or 0),
-            "deleted_circle_invites": int(row.get("deleted_circle_invites") or 0),
-            "deleted_named_circle_codes": int(row.get("deleted_named_circle_codes") or 0),
-            "deleted_named_circle_member_invites": int(
-                row.get("deleted_named_circle_member_invites") or 0
-            ),
-            "deleted_public_submissions": int(row.get("deleted_public_submissions") or 0),
-            "deleted_events": int(row.get("deleted_events") or 0),
-            "retention_hours": hours,
-        }
+        from hushh_mcp.services.location_retention import purge_terminal_work
+
+        return purge_terminal_work(self, user_id=user_id, older_than_hours=older_than_hours)
 
     def purge_terminal_work(
         self, *, older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS
@@ -7426,85 +7104,11 @@ class OneLocationAgentService:
     def view_latest_envelope(
         self, *, recipient_user_id: str, grant_id: str, allow_empty: bool = False
     ) -> dict[str, Any]:
-        self._expire_stale_grants(recipient_user_id)
-        grant_row = self._execute_one(
-            """
-            SELECT
-              g.*,
-              owner.display_name AS owner_display_name,
-              owner.phone_number AS owner_phone_number,
-              EXISTS (
-                SELECT 1
-                FROM one_location_recipient_keys active_key
-                WHERE active_key.user_id = g.recipient_user_id
-                  AND active_key.key_id = g.recipient_key_id
-                  AND active_key.status = 'active'
-              ) AS recipient_key_active
-            FROM one_location_share_grants g
-            LEFT JOIN actor_identity_cache owner ON owner.user_id = g.owner_user_id
-            WHERE g.id = CAST(:grant_id AS UUID)
-              AND g.recipient_user_id = :recipient_user_id
-            LIMIT 1
-            """,
-            {"recipient_user_id": recipient_user_id, "grant_id": grant_id},
+        from hushh_mcp.services.location_envelope_reader import read_latest_envelope
+
+        return read_latest_envelope(
+            self, recipient_user_id=recipient_user_id, grant_id=grant_id, allow_empty=allow_empty
         )
-        if not grant_row:
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND", "No approved location share was found.", status_code=404
-            )
-        if str(grant_row.get("status") or "") != "active":
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=410
-            )
-        if not bool(grant_row.get("recipient_key_active")):
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_ACTIVE",
-                "The secure recipient key changed. Ask the owner to share again.",
-                status_code=410,
-            )
-        row = self._execute_one(
-            """
-            SELECT *
-            FROM one_location_envelopes
-            WHERE grant_id = CAST(:grant_id AS UUID)
-              AND recipient_user_id = :recipient_user_id
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            {"recipient_user_id": recipient_user_id, "grant_id": grant_id},
-        )
-        if not row:
-            # "The share is live, the owner just hasn't published a point yet"
-            # is a normal state on the happy path — the recipient opens One the
-            # moment they are granted access, before the owner's first GPS fix
-            # lands. Callers that opt in get that as a success with a null
-            # envelope so it never surfaces as a failed request; callers that
-            # do not keep the original 404 contract they already branch on.
-            if allow_empty:
-                return {
-                    "grant": self._grant_payload(grant_row),
-                    "envelope": None,
-                    "status": "awaiting_first_publish",
-                }
-            raise OneLocationAgentError(
-                "LOCATION_ENVELOPE_MISSING",
-                "The owner has not published an encrypted location envelope yet.",
-                status_code=404,
-            )
-        self._insert_event(
-            owner_user_id=str(grant_row.get("owner_user_id") or ""),
-            actor_user_id=recipient_user_id,
-            recipient_user_id=recipient_user_id,
-            grant_id=grant_id,
-            envelope_id=str(row.get("id") or "") or None,
-            event_type="location_share_viewed",
-            metadata={"status": "ciphertext_returned"},
-        )
-        return {
-            "grant": self._grant_payload(grant_row),
-            "envelope": self._envelope_payload(row),
-            "status": "published",
-        }
 
     def get_auto_approve_preference(self, *, user_id: str) -> dict[str, Any]:
         """Return the server-authoritative standing approval rule.
@@ -9433,7 +9037,7 @@ class OneLocationAgentService:
             ),
             (
                 "received_grants",
-                RECEIVED_GRANTS_FEED_SQL,
+                RECEIVED_GRANTS_SQL,
                 {"user_id": user_id, "source_limit": None if require_complete else 50},
             ),
             (
@@ -9721,7 +9325,10 @@ class OneLocationAgentService:
                 "keyRegisteredAt": _iso(_mrk.get("key_created_at")),
             }
 
+        from hushh_mcp.services.location_check_in_operations import pending_check_ins
+
         return {
+            "checkInOperations": pending_check_ins(user_id, self._execute_many),
             "recipients": recipients,
             "circles": named_circles,
             "autoApprovePreference": auto_approve_preference,
@@ -11078,6 +10685,7 @@ class OneLocationAgentService:
         duration_mode: str | None = None,
         auto_approve_rule_version: int | None = None,
         expected_request_revision: int | None = None,
+        reviewed_extension: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Grant the requested access and resolve the ask in one transaction.
 
@@ -11209,24 +10817,18 @@ class OneLocationAgentService:
                     status_code=404,
                 )
             requester_user_id = str(request_row.get("requester_user_id") or "")
-            if requester_user_id != expected_requester_user_id or (
-                expected_request_revision is not None
-                and int(request_row.get("request_revision") or 1) != expected_request_revision
-            ):
-                raise OneLocationAgentError(
-                    "LOCATION_REQUEST_CHANGED",
-                    "This request changed. Review it again.",
-                    status_code=409,
-                )
-            if expected_request_revision is not None and request_row.get("extends_grant_id"):
-                # Command receipts do not yet pin the mutable grant used by
-                # extension arithmetic. Keep those approvals on the authored
-                # review screen; never widen a confirmed timed command here.
-                raise OneLocationAgentError(
-                    "LOCATION_EXTENSION_REVIEW_REQUIRED",
-                    "Review this extension against the current share before approving it.",
-                    status_code=409,
-                )
+            from hushh_mcp.services.location_review_binding import reviewed_request_share
+
+            reviewed_live_share = reviewed_request_share(
+                self,
+                request_row=request_row,
+                owner_user_id=owner_user_id,
+                requester_user_id=requester_user_id,
+                expected_requester_user_id=expected_requester_user_id,
+                expected_request_revision=expected_request_revision,
+                reviewed_extension=reviewed_extension,
+                automatic=automatic,
+            )
 
             automatic_preference: dict[str, Any] | None = None
             automatic_scope = ""
@@ -11361,7 +10963,7 @@ class OneLocationAgentService:
                 # it gave back. Bounded by the day ceiling, needs the same pair
                 # in the same second, and it errs toward more access rather
                 # than the destroyed access this whole change is about.
-                live_share = self._active_grant_between(
+                live_share = reviewed_live_share or self._active_grant_between(
                     owner_user_id=owner_user_id,
                     recipient_user_id=requester_user_id,
                     is_sos_lane=False,
@@ -11585,7 +11187,9 @@ class OneLocationAgentService:
             "recipient": approved_recipient,
         }
 
-    def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
+    def deny_request(
+        self, *, owner_user_id: str, request_id: str, expected_request_revision: int | None = None
+    ) -> dict[str, Any]:
         with self._event_bound_writer():
             self._repair_legacy_direct_request_deadlines(owner_user_id)
             row = self._execute_one(
@@ -11595,36 +11199,24 @@ class OneLocationAgentService:
                 WHERE id = CAST(:request_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'pending'
+                  AND (CAST(:expected_revision AS BIGINT) IS NULL OR request_revision=:expected_revision)
                   AND (expires_at IS NULL OR expires_at > clock_timestamp())
                 RETURNING *
                 """,
-                {"owner_user_id": owner_user_id, "request_id": request_id},
+                {
+                    "owner_user_id": owner_user_id,
+                    "request_id": request_id,
+                    "expected_revision": expected_request_revision,
+                },
             )
             if not row:
-                existing = self._execute_one(
-                    """
-                    SELECT status, expires_at,
-                           (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
-                    FROM one_location_access_requests
-                    WHERE id = CAST(:request_id AS UUID)
-                      AND owner_user_id = :owner_user_id
-                    LIMIT 1
-                    """,
-                    {"owner_user_id": owner_user_id, "request_id": request_id},
-                )
-                if existing and (
-                    str(existing.get("status") or "") == "expired"
-                    or bool(existing.get("request_expired"))
-                ):
-                    raise OneLocationAgentError(
-                        "LOCATION_REQUEST_EXPIRED",
-                        "This location request has expired.",
-                        status_code=410,
-                    )
-                raise OneLocationAgentError(
-                    "LOCATION_REQUEST_NOT_FOUND",
-                    "Pending location access request was not found.",
-                    status_code=404,
+                from hushh_mcp.services.location_review_binding import reject_stale_denial
+
+                reject_stale_denial(
+                    self,
+                    owner_user_id=owner_user_id,
+                    request_id=request_id,
+                    expected_request_revision=expected_request_revision,
                 )
             requester_user_id = str(row.get("requester_user_id") or "") or None
             requester_label = _identity_notification_label(

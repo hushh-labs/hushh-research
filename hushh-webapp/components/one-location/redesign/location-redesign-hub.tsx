@@ -19,6 +19,11 @@
  */
 
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import { resolveLocationNotificationFocus } from "@/lib/one-location/notification-focus";
+export { resolveLocationDeepLinkFocus } from "@/lib/one-location/notification-focus";
+export type { LocationDeepLinkFocus } from "@/lib/one-location/notification-focus";
+import { LocationIncidentReceipt } from "./location-incident-receipt";
+import { CheckInOperationReview } from "./check-in-operation-review";
 import {
   useCallback,
   useEffect,
@@ -391,6 +396,7 @@ export type LocationHubViewModel = {
   savedPlacesBanner?: SavedPlacesBannerProps & { visible: boolean };
   /* identity / gating */
   userId: string | null;
+  sourceLoaded?: boolean;
   canShare: boolean;
   shareDeliveryPending: boolean;
   busy: string | null;
@@ -967,74 +973,6 @@ const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
  * opens a focused flow (e.g. Shared with me / Needs my review); `nextTab`
  * selects a hub tab.
  */
-export type LocationDeepLinkFocus = {
-  detailAction: Extract<FlowKind, "needs-review" | "shared-with-me"> | null;
-  nextTab: LocationHubTab | null;
-};
-
-/**
- * Resolve where a location deep link should land. An explicit `section` (set by
- * the notification "Open" action) ALWAYS wins over the id-presence heuristics:
- * an approval notification carries BOTH the newly created grantId and the
- * originating requestId, so only the section separates "Shared with me"
- * (section=shared) from "Needs my review" (section=approvals). Checking
- * `hasRequest` before the section — as the previous inline logic did — stranded
- * an approved requester on "Needs my review". The id checks remain as fallbacks
- * for legacy links that omit the section.
- */
-export function resolveLocationDeepLinkFocus(input: {
-  section: string;
-  hasRequest: boolean;
-  hasGrant: boolean;
-  hasSubmission: boolean;
-}): LocationDeepLinkFocus {
-  const { section, hasRequest, hasGrant, hasSubmission } = input;
-  if (section === "approvals" || section === "my_requests") {
-    return { detailAction: "needs-review", nextTab: null };
-  }
-  if (section === "shared") {
-    return { detailAction: "shared-with-me", nextTab: null };
-  }
-  if (section === "public_responses") {
-    return { detailAction: null, nextTab: "links" };
-  }
-  if (section === "people") {
-    return { detailAction: null, nextTab: "people" };
-  }
-  if (hasRequest) {
-    return { detailAction: "needs-review", nextTab: null };
-  }
-  if (hasGrant) {
-    return { detailAction: "shared-with-me", nextTab: null };
-  }
-  if (hasSubmission) {
-    return { detailAction: null, nextTab: "links" };
-  }
-  return { detailAction: null, nextTab: null };
-}
-
-/** Resolve legacy notification intent without overriding a later explicit navigation. */
-function resolveLocationNotificationFocus(
-  params: Pick<URLSearchParams, "get">,
-): LocationDeepLinkFocus {
-  if (params.get(FLOW_ACTION_PARAM)?.trim()) {
-    return { detailAction: null, nextTab: null };
-  }
-  const section = params.get("section")?.trim() ?? "";
-  const view = params.get(LOCATION_HUB_TAB_PARAM)?.trim();
-  // Back and tab changes can retain a notification's ids. A named hub view
-  // closes that detail; an explicit notification section still names its target.
-  if (!section && (view === "now" || view === "people" || view === "links")) {
-    return { detailAction: null, nextTab: null };
-  }
-  return resolveLocationDeepLinkFocus({
-    section,
-    hasRequest: Boolean(params.get("requestId")?.trim()),
-    hasGrant: Boolean(params.get("grantId")?.trim()),
-    hasSubmission: Boolean(params.get("submissionId")?.trim()),
-  });
-}
-
 // People lists (Ready people / Pending invites) can grow long. Cap their height
 // and let them scroll internally so a large Circle doesn't stretch the page into
 // an endless column. ~max-h fits roughly 5 cards before scrolling; a thin,
@@ -1202,6 +1140,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
+      params.delete("checkInId");
       params.delete("circleId");
       params.delete(FLOW_SOURCE_PARAM);
       // Always name the tab, including the default one. Returning to Now by
@@ -1244,6 +1183,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[detailAction]);
       } else {
         params.delete(FLOW_ACTION_PARAM);
+      params.delete("checkInId");
         // Name the tab, default included: a notification that resolves to the
         // plain hub would otherwise leave an empty query, which the App Router
         // declines to navigate to, stranding the person on the notification's
@@ -1459,6 +1399,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
+      params.delete("checkInId");
       params.delete("circleId");
       params.delete(FLOW_SOURCE_PARAM);
       // Name the tab the flow is closing onto, default included. Dropping
@@ -1517,6 +1458,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     if (relocatedTab) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
+      params.delete("checkInId");
       params.set(LOCATION_HUB_TAB_PARAM, relocatedTab);
       // No toast: the screen did not go away, it became this tab, and the
       // person is looking at it.
@@ -1526,6 +1468,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     if (RETIRED_ACTIONS.has(action)) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
+      params.delete("checkInId");
       // Same reason as everywhere else in this file: dropping `?action=` was
       // often the only change, and that navigation does not happen. The toast
       // said the action was gone while the retired screen stayed on screen.
@@ -1624,6 +1567,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
         const params = new URLSearchParams(searchParams.toString());
         params.delete(FLOW_ACTION_PARAM);
+      params.delete("checkInId");
         params.delete(FLOW_SOURCE_PARAM);
         const qs = params.toString();
         router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -1666,6 +1610,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             setReason={setReason}
             onClose={closeFlow}
           />
+        ) : flow === "check-in" && searchParams.get("checkInId") ? (
+          <CheckInOperationReview key={`${vm.userId}:${searchParams.get("checkInId")}`} id={searchParams.get("checkInId")!} vm={vm} onClose={() => closeFlow()} />
         ) : flow === "check-in" ? (
           <CheckInFlow
             vm={vm}
@@ -1790,6 +1736,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           flow === "needs-review" ? (
           <LocationDetailFlow
             kind={flow}
+            focusGrantId={searchParams.get(flow === "needs-review" ? "requestId" : "grantId")}
+            feedItemId={searchParams.get("feedItemId")}
             vm={vm}
             collapsedGrantIds={collapsedGrantIds}
             onRequestLocation={() => openFlow("ask")}
@@ -2535,6 +2483,7 @@ function LocationDetailFlow({
   kind,
   vm,
   focusGrantId,
+  feedItemId,
   collapsedGrantIds,
   onRequestLocation,
   onStartShare,
@@ -2547,6 +2496,7 @@ function LocationDetailFlow({
   /** Grant id from a notification deep link (?grantId=...) to scroll to and
    * briefly highlight once its card is on screen. */
   focusGrantId?: string | null;
+  feedItemId?: string | null;
   collapsedGrantIds: Set<string>;
   onRequestLocation?: () => void;
   /** Opens the share composer AND its flow. Seeding the composer alone
@@ -2565,8 +2515,8 @@ function LocationDetailFlow({
     [vm.activeOwnerGrants, vm.manageSharingGrants],
   );
   const receivedGrantGroups = useMemo(
-    () => groupGrantsByCounterpart(vm.receivedGrants, "recipient"),
-    [vm.receivedGrants],
+    () => groupGrantsByCounterpart(focusGrantId ? vm.receivedGrants.filter(grant => grant.id === focusGrantId) : vm.receivedGrants, "recipient"),
+    [vm.receivedGrants, focusGrantId],
   );
   const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
 
@@ -2653,7 +2603,7 @@ function LocationDetailFlow({
   // briefly on its own if the card isn't in the DOM yet (state still loading).
   useEffect(() => {
     if (
-      (kind !== "shared-with-me" && kind !== "needs-review") ||
+      (kind !== "shared-with-me" && kind !== "needs-review" && kind !== "active-shares") ||
       !focusGrantId
     ) {
       return;
@@ -2664,9 +2614,7 @@ function LocationDetailFlow({
       if (cancelled) return;
       const focusAttribute =
         kind === "needs-review" ? "data-request-id" : "data-grant-id";
-      const node = document.querySelector(
-        `[${focusAttribute}="${focusGrantId}"]`,
-      );
+      const node = [...document.querySelectorAll<HTMLElement>(`[${focusAttribute}]`)].find(candidate => candidate.getAttribute(focusAttribute) === focusGrantId);
       if (!node) {
         if (attempts++ < 20) setTimeout(tryHighlight, 250);
         return;
@@ -2719,6 +2667,10 @@ function LocationDetailFlow({
     },
   }[kind];
 
+  if (kind === "shared-with-me" && focusGrantId && !receivedGrantGroups.length) {
+    if (!vm.sourceLoaded) return <p role="status">Loading this share…</p>;
+    return <LocationIncidentReceipt itemId={feedItemId} owner={vm.userId} />;
+  }
   return (
     <div className="space-y-5" data-testid={`one-location-${kind}`}>
       <TaskFlowHeader
@@ -2777,11 +2729,10 @@ function LocationDetailFlow({
               // grant of a group is the SMS one whenever there is one: the
               // card's map, its "view" affordance and its badge all follow the
               // share that matters most.
-              const grant = group.primaryGrant;
+              const grant = group.grants.find(candidate => candidate.id === focusGrantId) ?? group.primaryGrant;
               const multiLane = group.grants.length > 1;
-              const lanesExpanded = expandedLaneUserIds.has(
-                group.counterpartUserId,
-              );
+              const lanesExpanded = expandedLaneUserIds.has(group.counterpartUserId)
+                || Boolean(focusGrantId && group.grants.some(candidate => candidate.id === focusGrantId && candidate.id !== group.primaryGrant.id));
               const lanesId = `one-location-received-lanes-${group.counterpartUserId}`;
               const ownerName = vm.grantOwnerLabel(grant);
               const point = vm.decryptedPoints[grant.id];
@@ -2791,7 +2742,7 @@ function LocationDetailFlow({
               return (
                 <div key={group.counterpartUserId} data-grant-id={grant.id}>
                   <SharedWithMeCard userId={group.counterpartUserId}
-                    isSmsTriggered={Boolean(group.smsGrant)}
+                    isSmsTriggered={grant.shareKind === "sos"}
                     name={ownerName}
                     photoUrl={grant.ownerPhotoUrl}
                     statusLine={
@@ -3962,6 +3913,7 @@ function CircleInvitationsDialog({
                     <p data-location-row-description="" className="mt-0.5 break-words text-[13px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
                       Invited by {inviter}
                     </p>
+                    <p className="mt-1 text-xs text-muted-foreground">Location sharing stays separate.</p>
                   </div>
                   <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-1">
                     <Button data-location-type-role="utility-action"

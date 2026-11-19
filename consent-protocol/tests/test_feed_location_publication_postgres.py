@@ -156,25 +156,25 @@ def test_unpublished_sms_draft_cannot_displace_confirmed_alert(publication_db):
     with db.begin() as c:
         publish(c, draft)
     assert len(receipts(db)) == 4
-    assert listed_ids(session(db), OWNER) == [receipts(db)[-1]["id"]]
+    assert set(listed_ids(session(db), OWNER)) == {first[0], receipts(db)[-1]["id"]}
     with db.begin() as c:
         publish(c, draft)
     assert len(receipts(db)) == 4
-    assert session(db).unread_count(OWNER) == 1
+    assert session(db).unread_count(OWNER) == 2
 
 
-def test_recipient_stop_is_not_incoming_but_owner_stop_is_quiet(publication_db):
+def test_recipient_and_owner_stops_are_exact_quiet_history(publication_db):
     db = publication_db
     grant = create_grant(db, share_kind="live")
-    initial_revision = session(db).list_feed(OWNER)["history_revision"]
     with db.begin() as c:
         audit(c, grant, "location_share_revoked", actor=OWNER, share_kind="live")
-    assert listed_ids(session(db), OWNER) == []
-    assert session(db).list_feed(OWNER)["history_revision"] != initial_revision
+    stopped = listed_ids(session(db), OWNER)
+    assert stopped == [receipts(db)[-1]["id"]]
+    assert session(db).unread_count(OWNER) == 0
     owner_stopped = create_grant(db, share_kind="live")
     with db.begin() as c:
         audit(c, owner_stopped, "location_share_revoked", share_kind="live")
-    assert listed_ids(session(db), OWNER) == [receipts(db)[-1]["id"]]
+    assert set(listed_ids(session(db), OWNER)) == {*stopped, receipts(db)[-1]["id"]}
     assert session(db).unread_count(OWNER) == 0
 
 
@@ -267,7 +267,7 @@ def test_legacy_draft_backfill_replay_clear_and_source_cleanup(publication_db, m
     assert newest["source_row_id"] == draft
     apply(db, MIGRATION)
     assert receipts(db)[1]["metadata"]["feed_sms_confirmed"] is False
-    assert listed_ids(session(db), OWNER) == [newest["id"]]
+    assert set(listed_ids(session(db), OWNER)) == {rows[0]["id"], newest["id"]}
     apply(db, ROOT / "db/migrations/rollback/458_location_feed_confirmed_incidents.rollback.sql")
     token = session(db).dismiss(OWNER, item_id=newest["id"])["dismissal_token"]
     with db.begin() as c:
@@ -290,8 +290,8 @@ def test_legacy_draft_backfill_replay_clear_and_source_cleanup(publication_db, m
                 "DELETE FROM one_location_share_grants; DELETE FROM one_location_events; DELETE FROM one_location_envelopes"
             )
         )
-    assert listed_ids(session(db), OWNER) == []
-    assert session(db).unread_count(OWNER) == 0
+    assert listed_ids(session(db), OWNER) == [rows[0]["id"]]
+    assert session(db).unread_count(OWNER) == 1
 
 
 def test_replayed_legacy_draft_after_rollback_is_quarantined_without_identity_loss(publication_db):

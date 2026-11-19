@@ -1941,7 +1941,7 @@
       "route_pattern": "/one/feed",
       "page_file": "app/one/feed/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.feed",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1970,14 +1970,16 @@
         "allowed_families": []
       },
       "canonical_screen": "one_feed",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "voice_contract_file": "app/one/feed/page.voice-action-contract.json",
+      "action_ids": [
+        "feed.search_activity"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-feed"
     },
     {

@@ -555,7 +555,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
       photoUrl: "https://example.test/priya.png", userId: "friend-1",
     });
     const row = result.current.actionables[0];
-    expect(row.actions.map(action => action.key)).toEqual(["decline", "accept"]);
+    expect(row.actions.map(action => action.key)).toEqual(["review"]);
     expect(row.phoneActions?.map(action => action.key)).toEqual(["review"]);
     row.phoneActions?.[0]?.run();
     expect(mocks.push).toHaveBeenCalledWith(row.todo?.href);
@@ -582,7 +582,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(result.current.actionables).toHaveLength(21);
     expect(overflow).toMatchObject({
       title: "View all pending requests",
-      description: "1 more pending request is waiting in Consent Center.",
+      description: "1 more",
       href: "/one/consent?tab=pending&from=%2Fone%2Ffeed",
       chevron: true,
       actions: [],

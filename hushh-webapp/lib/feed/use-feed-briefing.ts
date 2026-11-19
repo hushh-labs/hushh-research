@@ -39,6 +39,7 @@ export type FeedKycBriefing = {
 export type UseFeedBriefingResult = {
   upcomingEvents: RedactedCalendarEvent[];
   pendingKyc: FeedKycBriefing | null;
+  pendingKycRequests?: FeedKycBriefing[];
   needsReplyCount: number;
   kycLoading: boolean;
   kycError: boolean;
@@ -103,8 +104,8 @@ export function useFeedBriefing({
   });
   const [kyc, setKyc] = useState<{
     scope: symbol;
-    value: FeedKycBriefing | null;
-  }>({ scope, value: null });
+    value: FeedKycBriefing[];
+  }>({ scope, value: [] });
   const [refreshKey, setRefreshKey] = useState(0);
   const [kycStatus, setKycStatus] = useState({
     scope,
@@ -185,7 +186,7 @@ export function useFeedBriefing({
 
   useEffect(() => {
     if (!userId || !vaultOwnerToken || !gmailConnected) {
-      setKyc({ scope, value: null });
+      setKyc({ scope, value: [] });
       setKycStatus({ scope, loading: false, error: false });
       return;
     }
@@ -200,28 +201,24 @@ export function useFeedBriefing({
         const result = await GmailInformationRequestsService.list({
           firebaseIdToken,
           vaultOwnerToken,
-          limit: 1,
+          limit: 25,
         });
-        const latest = result.workflows.find(
-          (workflow) => workflow.status === "detected",
-        );
         if (!current || !isVaultSessionEpochCurrent(epoch)) return;
         setKyc({
           scope,
-          value: latest
-            ? {
-                count: Math.max(result.total_count, 1),
-                workflowId: latest.workflow_id,
-                receivedAt: latest.received_at,
-                createdAt: latest.created_at ?? null,
-              }
-            : null,
+          value: result.workflows.filter((workflow) => workflow.status === "detected")
+            .map((workflow) => ({
+              count: Math.max(result.total_count, 1),
+              workflowId: workflow.workflow_id,
+              receivedAt: workflow.received_at,
+              createdAt: workflow.created_at ?? null,
+            })),
         });
       } catch {
         // A private briefing failure must not replace Feed's durable activity
         // with an error state. The Gmail workspace remains available to retry.
         if (current && isVaultSessionEpochCurrent(epoch)) {
-          setKyc({ scope, value: null });
+          setKyc({ scope, value: [] });
           setKycStatus({ scope, loading: false, error: true });
         }
       } finally {
@@ -244,9 +241,11 @@ export function useFeedBriefing({
     refreshKey,
   ]);
 
+  const pendingKycRequests = kyc.scope === scope && vaultOwnerToken ? kyc.value : [];
   return {
     upcomingEvents: upcoming.events,
-    pendingKyc: kyc.scope === scope && vaultOwnerToken ? kyc.value : null,
+    pendingKyc: pendingKycRequests[0] ?? null,
+    pendingKycRequests,
     kycLoading:
       Boolean(userId && vaultOwnerToken) &&
       (gmail.loadingStatus || (kycStatus.scope === scope && kycStatus.loading)),

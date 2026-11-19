@@ -89,7 +89,7 @@ test("explicit Feed typography survives outside the page shell", async ({ page }
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`Feed uses one text line and right-side times at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+    test(`Feed separates title and activity with readable right-side times at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1100 });
       await page.goto(await buildFixture(dark));
       await awaitProductFont(page);
@@ -116,7 +116,7 @@ for (const dark of [false, true]) {
           titleWidth: t.width,
           titleHeight: t.height,
           descriptionHeight: d.height,
-          textCenterDelta: Math.abs((t.top + t.height / 2) - (d.top + d.height / 2)),
+          descriptionGap: d.top - t.bottom,
           timeCenterDelta: stamp ? Math.abs((box.top + box.height / 2) - (stamp.top + stamp.height / 2)) : null,
           timeWidth: stamp?.width,
           timeLeft: stamp?.left,
@@ -125,7 +125,7 @@ for (const dark of [false, true]) {
           overflow: [...row.querySelectorAll('*')].some(node => {
             if (node.classList.contains('sr-only')) return false;
             const rect = node.getBoundingClientRect();
-            // Text can extend inside an ellipsis box; the visible box itself cannot.
+            // Neither the text track nor the trailing controls may escape the row.
             return rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1);
           }),
           actions: buttons.map(node => ({ height: node.getBoundingClientRect().height, top: node.getBoundingClientRect().top })),
@@ -135,16 +135,15 @@ for (const dark of [false, true]) {
         expect.soft(row.titleSize, row.label ?? "").toBe("13px");
         expect.soft(row.descriptionSize).toBe("12px");
         if (row.timeSize) expect.soft(row.timeSize).toBe("12px");
-        expect.soft(row.titleHeight).toBeLessThanOrEqual(17);
-        expect.soft(row.descriptionHeight).toBeLessThanOrEqual(17);
-        expect.soft(row.textCenterDelta).toBeLessThanOrEqual(1);
+        expect.soft(row.titleHeight).toBeGreaterThan(0);
+        expect.soft(row.descriptionHeight).toBeGreaterThan(0);
+        expect.soft(row.descriptionGap, row.label ?? "").toBeGreaterThanOrEqual(1);
         if (row.timeCenterDelta != null) {
           expect.soft(row.timeCenterDelta).toBeLessThanOrEqual(1);
           expect.soft(row.timeWidth).toBeGreaterThan(40);
           expect.soft(row.timeLeft).toBeGreaterThanOrEqual(row.copyRight - 1);
         }
-        expect.soft(row.height).toBeGreaterThanOrEqual(52);
-        expect.soft(row.height).toBeLessThanOrEqual(60);
+        expect.soft(row.height).toBeGreaterThanOrEqual(64);
         expect.soft(row.titleWidth, row.label ?? "").toBeGreaterThan(20);
         expect.soft(row.overflow, row.label ?? "").toBe(false);
         for (const action of row.actions) expect.soft(action.height).toBeGreaterThanOrEqual(44);
@@ -159,13 +158,17 @@ for (const dark of [false, true]) {
       }
       await expect(page.locator('[data-testid="feed-actionable-android-connection"]').getByRole("button", { name: /^Report/ })).toBeVisible();
       await expect(page.locator("button button, button a, a button")).toHaveCount(0);
-      const sms = page.getByTestId("feed-actionable-sms-emergency:incident-0");
-      await expect(page.getByTestId("feed-sms-alert-group")).toHaveCount(0);
-      await expect(page.getByTestId("feed-actionable-sms-emergency:incident-1")).toHaveCount(0);
-      await expect(page.getByTestId("feed-actionable-sms-emergency:incident-2")).toHaveCount(0);
-      await expect(sms.getByRole("link", { name: /Emergency SMS · Active/ })).toBeVisible();
-      const sentTimes = sms.locator('time');
-      await expect(sentTimes).toHaveCount(1);
+      const sms = page.getByTestId("feed-sms-alert-group");
+      const live = page.getByRole("region", { name: "Live" });
+      await expect(live.getByRole("link", { name: /Emergency SMS · Active/ })).toHaveCount(2);
+      await expect(live.locator("details")).toHaveCount(0);
+      await expect(sms.locator("summary")).toContainText("2 recent SMS alerts · All ended");
+      await expect(sms.locator("summary time")).toBeVisible();
+      await sms.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await expect(sms).toHaveAttribute("open", "");
+      const sentTimes = page.locator('[data-testid^="feed-actionable-sms-emergency:"] time');
+      await expect(sentTimes).toHaveCount(4);
       for (const stamp of await sentTimes.all()) {
         await expect(stamp).toBeVisible();
         const box = await stamp.boundingBox();

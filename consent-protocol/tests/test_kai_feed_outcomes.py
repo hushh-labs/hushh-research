@@ -2,13 +2,13 @@
 
 import asyncio
 import json
-import threading
 import uuid
 from contextvars import ContextVar
 
 import pytest
+from fastapi import HTTPException
 
-from api.routes.kai import import_run_manager, run_manager
+from api.routes.kai import import_run_manager, run_manager, stream
 
 
 class Request:
@@ -34,7 +34,7 @@ def setup_run(monkeypatch, importing):
         def record_event(self, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr(module, "FeedService", Feed)
+    monkeypatch.setattr(module, "FeedService", Feed, raising=False)
     if importing:
         manager = module.KaiPortfolioImportRunManager(store=False)
         run = module.PortfolioImportRunRecord(
@@ -94,12 +94,7 @@ def test_first_terminal_is_delivered_once_and_end_cursor_is_not_delivery(monkeyp
         )
 
     asyncio.run(scenario())
-    assert len(calls) == 1
-    assert calls[0]["event_type"] == (
-        "kai_import_completed" if importing else "kai_analysis_completed"
-    )
-    assert calls[0]["user_id"] == "owner" and calls[0]["source_row_id"] == "run"
-    assert "private" not in json.dumps(calls)
+    assert run.terminal_delivered and calls == []
 
 
 @pytest.mark.parametrize("importing", [False, True])
@@ -116,9 +111,7 @@ def test_worker_terminal_outcome_without_an_attached_stream(monkeypatch, importi
     asyncio.run(manager._run_worker(run, generator))
     expected = "canceled" if outcome == "aborted" else "failed"
     assert run.status == expected and run.terminal_frame is not None
-    assert len(calls) == 1
-    assert calls[0]["event_type"] == f"kai_{'import' if importing else 'analysis'}_{expected}"
-    assert "private" not in json.dumps(calls)
+    assert calls == []
 
 
 @pytest.mark.parametrize("importing", [False, True])
@@ -142,70 +135,36 @@ def test_completion_wins_over_cancel_intent_and_late_generator_error(monkeypatch
     assert cleanup == [True]
 
 
-@pytest.mark.parametrize("importing", [False, True])
-def test_feed_constructor_failure_does_not_abort_worker_cleanup(monkeypatch, importing):
-    manager, run, _, module = setup_run(monkeypatch, importing)
+@pytest.mark.asyncio
+async def test_feed_result_checks_run_owner_and_completed_state(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
 
-    class BrokenFeed:
-        def __init__(self):
-            raise RuntimeError("feed down")
+    run = SimpleNamespace(user_id="owner", run_id="run-1", status="completed", ticker="AAPL")
+    monkeypatch.setattr(stream._RUN_MANAGER, "get_run", AsyncMock(return_value=run))
+    record = Mock()
+    monkeypatch.setattr(stream, "FeedService", lambda: SimpleNamespace(record_event=record))
 
-    monkeypatch.setattr(module, "FeedService", BrokenFeed)
-    if importing:
-        manager._active_by_user[run.user_id] = run.run_id
-    else:
-        manager._active_by_session[(run.user_id, run.debate_session_id)] = run.run_id
+    def owner_token(*, user_id, token_data):
+        assert token_data["user_id"] == user_id
 
-    async def generator(*args):
-        yield frame("error")
+    monkeypatch.setattr(stream, "_require_stream_owner_token", owner_token)
+    with pytest.raises(HTTPException) as wrong_owner:
+        await stream.analyze_run_feed_result("run-1", "other", {"user_id": "other"})
+    assert wrong_owner.value.status_code == 404
+    run.status = "failed"
+    with pytest.raises(HTTPException) as failed:
+        await stream.analyze_run_feed_result("run-1", "owner", {"user_id": "owner"})
+    assert failed.value.status_code == 409
+    record.assert_not_called()
 
-    asyncio.run(manager._run_worker(run, generator))
-    assert run.status == "failed" and run.completed_at is not None
-    assert not (manager._active_by_user if importing else manager._active_by_session)
-
-
-@pytest.mark.parametrize("importing", [False, True])
-def test_slow_feed_runs_after_authoritative_terminal_receipt(monkeypatch, importing):
-    manager, run, _, module = setup_run(monkeypatch, importing)
-    release = threading.Event()
-    entered = threading.Event()
-    receipts = []
-
-    class SlowFeed:
-        def record_event(self, **kwargs):
-            entered.set()
-            release.wait(timeout=5)
-
-    class Store:
-        async def persist_terminal(self, **kwargs):
-            receipts.append(kwargs)
-
-        async def get(self, **kwargs):
-            return None
-
-    async def noop(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(module, "FeedService", SlowFeed)
-    monkeypatch.setattr(module.run_store, "owner_heartbeat", noop)
-    monkeypatch.setattr(module.run_store, "serve_relay", noop)
-    manager._store = Store()
-    if importing:
-        manager._active_by_user[run.user_id] = run.run_id
-    else:
-        manager._active_by_session[(run.user_id, run.debate_session_id)] = run.run_id
-
-    async def generator(*args):
-        yield frame("error")
-
-    async def scenario():
-        worker = asyncio.create_task(manager._run_worker(run, generator))
-        try:
-            assert await asyncio.to_thread(entered.wait, 3)
-            assert receipts[0]["status"] == "failed"
-            assert not (manager._active_by_user if importing else manager._active_by_session)
-        finally:
-            release.set()
-            await worker
-
-    asyncio.run(scenario())
+    run.status = "completed"
+    await stream.analyze_run_feed_result("run-1", "owner", {"user_id": "owner"})
+    record.assert_called_once_with(
+        user_id="owner",
+        source_domain="kai",
+        event_type="kai_analysis_saved",
+        actor_label="Kai",
+        metadata={"ticker": "AAPL", "run_id": "run-1"},
+        source_row_id="run-1",
+    )

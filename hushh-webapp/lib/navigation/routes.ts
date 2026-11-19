@@ -31,10 +31,32 @@ export function buildKaiMarketRoute(
 }
 
 /** Retain the Finance screen that opened the statement import flow. */
-export function buildKaiImportRoute(from: string) {
+export function buildKaiImportRoute(from: string, statementId?: string) {
   return withQuery(ROUTES.KAI_IMPORT, {
     from: normalizeInternalRouteHref(from),
+    statement_id: statementId,
   });
+}
+
+export function buildKaiImportReviewRoute(runId: string, fixField?: string) {
+  return withQuery(ROUTES.KAI_IMPORT, {
+    from: ROUTES.ONE_FEED,
+    stage: "reviewing",
+    import_run_id: runId,
+    fix_field: fixField,
+  });
+}
+
+export function buildKaiReconnectRoute(itemId: string) {
+  return withQuery(ROUTES.KAI_PORTFOLIO_SOURCES, { reconnect: itemId, from: ROUTES.ONE_FEED });
+}
+
+export function historicalFundingFeedHref(id: string) {
+  return withQuery(ROUTES.ONE_FEED, { funding_event: id });
+}
+
+export function savedAnalysisFeedHref(id: string) {
+  return buildKaiMarketRoute("analysis", { analysis_id: id, from: ROUTES.ONE_FEED });
 }
 
 export function buildKaiPortfolioSectionRoute(

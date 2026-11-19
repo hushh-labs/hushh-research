@@ -8,11 +8,12 @@ import type { FeedItem } from "@/lib/services/feed-service";
 vi.mock("@/lib/feed/feed-item-renderers", () => ({
   presentFeedItem: (item: FeedItem) => ({
     icon: MapPin,
-    domainLabel: "Location",
+    domainLabel: item.source_domain === "social" ? "Connect" : "Location",
     label: "Someone shared location",
     description: "A routine location share.",
     href: item.metadata.hrefEnabled ? "/one/location" : null,
     person: item.metadata.person ?? null,
+    symbol: item.metadata.ticker,
   }),
 }));
 
@@ -72,7 +73,27 @@ describe("FeedRow", () => {
     expect(container.querySelector('[data-slot="feed-event-time"]')?.parentElement)
       .toHaveClass("items-center");
     expect(screen.getByTestId("feed-row").querySelector("[data-person-row-action]")?.parentElement)
-      .toHaveClass("min-h-[52px]");
+      .toHaveClass("min-h-[64px]");
+  });
+
+  it.each(["mail_message_sent", "kyc_status_changed", "kai_analysis_saved", "unknown_event"])("keeps the canonical icon when %s has no custom glyph", event_type => {
+    const { container } = render(<FeedRow item={feedItem({ event_type })} onOpen={() => {}} />);
+    expect(container.querySelector('[data-slot="feed-domain-icon"] svg')).not.toBeNull();
+  });
+
+  it("uses bundled company art and falls back visibly if it cannot load", () => {
+    const { container } = render(<FeedRow item={feedItem({ metadata: { ticker: "AAPL" } })} onOpen={() => {}} />);
+    const logo = container.querySelector('[data-symbol-avatar] img')!;
+    expect(logo).toHaveAttribute("src", "/logos/apple.svg");
+    fireEvent.error(logo);
+    expect(container.querySelector('[data-symbol-avatar]')).toHaveTextContent("A");
+    expect(container.querySelector('[data-symbol-avatar] img')).toBeNull();
+  });
+
+  it("keeps an activity icon for an unbundled ticker without a provider request", () => {
+    const { container } = render(<FeedRow item={feedItem({ metadata: { ticker: "MSFT" } })} onOpen={() => {}} />);
+    expect(container.querySelector('[data-slot="feed-domain-icon"] svg')).not.toBeNull();
+    expect(container.querySelector("img")).toBeNull();
   });
 
   it("never renders the old relative time format", () => {
@@ -88,6 +109,7 @@ describe("FeedRow", () => {
     const { container } = render(
       <FeedRow
         item={feedItem({
+          source_domain: "social",
           metadata: {
             person: { displayName: "Manish Kumar Gupta", photoUrl: photo },
           },
@@ -104,6 +126,15 @@ describe("FeedRow", () => {
       "compact",
     );
     expect(screen.getByText("MG")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("keeps Location's source icon and label when a person has a photo", () => {
+    const { container } = render(<FeedRow item={feedItem({ metadata: {
+      person: { displayName: "Ankit", photoUrl: "https://example.test/ankit.png" },
+    } })} onOpen={() => {}} />);
+    expect(screen.getByText("Location")).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="feed-domain-icon"] svg')).not.toBeNull();
+    expect(container.querySelector('[data-slot="avatar"]')).toBeNull();
   });
 
   it("shows the unread dot when the item is unread", () => {

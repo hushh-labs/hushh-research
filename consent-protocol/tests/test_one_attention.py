@@ -252,7 +252,7 @@ async def test_sweep_pushes_only_notable_claimed_rows_and_frees_undelivered_slot
         [
             FeedCandidate("1", OWNER, "mail_information_request_detected"),
             FeedCandidate("2", OWNER, "consent_requested"),  # has its own push
-            FeedCandidate("3", OWNER, "kai_analysis_completed"),
+            FeedCandidate("3", OWNER, "kai_analysis_saved"),
             FeedCandidate("4", OWNER, "mail_reconnect_required"),
             FeedCandidate("5", "no-device-uid", "kyc_status_changed"),
             FeedCandidate("6", OWNER, "calendar_reconnect_required"),

@@ -26,15 +26,14 @@ threadpool dispatch offloads the blocking call without a manual
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 import math
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime
+from typing import Any, Unpack
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -45,6 +44,13 @@ from hushh_mcp.services.direct_messages_service import (
     DirectMessagesError,
 )
 from hushh_mcp.services.drive_request_outcome_view import request_outcome_view
+from hushh_mcp.services.feed_activity_dto import (
+    activity_fields,
+    chat_activity_fields,
+    snapshot_fields,
+)
+from hushh_mcp.services.feed_activity_policy import POLICY_REVISION
+from hushh_mcp.services.feed_activity_reader import FeedActivityReader
 from hushh_mcp.services.feed_counterpart_projection import (
     COUNTERPART_PHOTO_KEY as _COUNTERPART_PHOTO_KEY,
 )
@@ -56,8 +62,22 @@ from hushh_mcp.services.feed_drive_fold import (
     DRIVE_OUTCOME_EVENT,
     drive_rows_revealed_by_removal,
 )
-from hushh_mcp.services.feed_location_policy import apply_location_feed_policy
+from hushh_mcp.services.feed_group_queries import (
+    _DISMISS_SQL,
+    _GROUPED_FEED_COUNT_SELECT,
+    _GROUPED_FEED_CTE,
+    _GROUPED_FEED_PAGE_SELECT,
+    _SOURCE_EVENTS_SQL,
+)
 from hushh_mcp.services.feed_metadata_keys import FEED_METADATA_KEYS
+from hushh_mcp.services.feed_payment_projection import requester_payment_projection
+from hushh_mcp.services.feed_read_snapshot import (
+    SNAPSHOT_FINGERPRINT_SQL,
+    guarded_acknowledgment_sql,
+    mark_read_snapshot,
+)
+from hushh_mcp.services.feed_search_contract import FeedSearchCriteria
+from hushh_mcp.services.feed_source_context import load_source_columns, source_events_sql
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
@@ -90,74 +110,8 @@ POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
 _FEED_SELECT_COLUMNS = (
     "id,source_domain,event_type,actor_label,metadata,source_row_id,read_at,created_at"
 )
-# Keep source event facts intact while read/dismissal are owner preferences.
-# Group presentation before pagination, so an older page cannot repeat a chat.
-# Historical PWM attention rows represent failed or empty research, not an
-# actionable draft. Exclude them before pagination and unread counts.
-_GROUPED_FEED_CTE = """
-WITH keyed AS (
-  SELECT f.*,
-    CASE WHEN f.source_domain = 'location' AND f.event_type = 'location_circle_message'
-      AND NULLIF(f.metadata->>'circle_id', '') IS NOT NULL
-      THEN 'circle:' || (f.metadata->>'circle_id')
-    WHEN f.source_domain = 'connections' AND f.event_type = 'direct_message_received'
-      AND c.id IS NOT NULL THEN 'direct:' || c.id::text
-    ELSE 'feed:' || f.id::text END AS thread_key
-  FROM feed_events f
-  LEFT JOIN messages m ON f.source_domain = 'connections'
-    AND f.event_type = 'direct_message_received' AND m.id = CASE
-      WHEN f.source_row_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-      THEN f.source_row_id::uuid ELSE NULL END
-  LEFT JOIN conversations c ON c.id = m.conversation_id AND (
-    (c.participant_a_user_id = m.sender_user_id AND c.participant_b_user_id = :user_id)
-    OR (c.participant_b_user_id = m.sender_user_id AND c.participant_a_user_id = :user_id))
-  WHERE f.user_id = :user_id
-    AND NOT (f.source_domain = 'connections' AND f.event_type = 'direct_message_received'
-      AND (m.deleted_for_recipient_at IS NOT NULL OR m.deleted_for_everyone_at IS NOT NULL))
-    AND NOT (f.source_domain = 'pwm' AND f.event_type = 'pwm_research'
-      AND COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial'))
-    AND (f.source_domain <> 'calendar_email_followup' OR EXISTS (
-      SELECT 1 FROM calendar_email_followup_requests r
-      JOIN calendar_email_followup_monitors fm
-        ON fm.user_id=r.user_id AND fm.account_id=r.account_id
-      WHERE r.id::text=f.metadata->>'request_id'
-        AND r.user_id=f.user_id AND r.account_id=f.metadata->>'account_id'
-        AND r.revision::text=split_part(f.source_row_id, ':', 2)
-        AND r.reminder_sent_revision=r.revision
-        AND r.state IN ('pending','snoozed') AND r.suppressed_at IS NULL
-        AND fm.enabled=TRUE AND fm.notifications_enabled=TRUE
-        AND calendar_email_followup_grant_current(fm)
-    ))
-), bounded AS (
-  SELECT keyed.*,
-    max(id) FILTER (WHERE dismissed_at IS NOT NULL)
-      OVER (PARTITION BY thread_key) AS last_dismissed_id
-  FROM keyed
-), ranked AS (
-  SELECT bounded.*, row_number() OVER (PARTITION BY thread_key ORDER BY id DESC) AS thread_rank,
-    count(*) FILTER (WHERE dismissed_at IS NULL AND
-      (last_dismissed_id IS NULL OR id > last_dismissed_id))
-      OVER (PARTITION BY thread_key) AS thread_message_count,
-    count(*) FILTER (WHERE read_at IS NULL AND dismissed_at IS NULL AND
-      (last_dismissed_id IS NULL OR id > last_dismissed_id))
-      OVER (PARTITION BY thread_key) AS thread_unread_count
-  FROM bounded
-), grouped AS (SELECT * FROM ranked WHERE thread_rank = 1 AND dismissed_at IS NULL)
-"""
-# These query fragments are fixed module constants. Recipient, cursor and page
-# size are supplied exclusively through execute_raw's bind-parameter mapping.
-_GROUPED_FEED_PAGE_SELECT = """
-  SELECT id, source_domain, event_type, actor_label, metadata, source_row_id, created_at,
-    CASE WHEN thread_unread_count > 0 THEN NULL ELSE COALESCE(read_at, created_at) END AS read_at,
-    thread_key, thread_message_count, thread_unread_count
-  FROM grouped WHERE (CAST(:cursor AS bigint) IS NULL OR id < CAST(:cursor AS bigint))
-  ORDER BY id DESC LIMIT :page_size
-"""
-_GROUPED_FEED_COUNT_SELECT = """
-  SELECT count(*) AS unread_count FROM grouped WHERE thread_unread_count > 0
-"""
-_GROUPED_FEED_PAGE_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_PAGE_SELECT
-_GROUPED_FEED_COUNT_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_COUNT_SELECT
+# These projections carry the opaque ID from a participant-scoped Drive request.
+# Drive questions use a different request table and keep their own rows.
 # The owner's live rows of the Drive request the target row belongs to. The
 # event list is feed_drive_fold.DRIVE_LIFECYCLE_EVENTS.
 _DRIVE_REQUEST_ROWS_SQL = """
@@ -319,18 +273,6 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
     return safe
 
 
-def _aware_instant(value: object) -> datetime | None:
-    """A timezone-aware instant from a database value, or None."""
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    if not isinstance(value, datetime):
-        return None
-    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-
-
 def _safe_photo_url(value: object) -> str | None:
     """Preserve complete public photos, never a truncated/unloadable image.
 
@@ -443,53 +385,32 @@ class FeedService:
     ) -> dict[str, Any]:
         """Keyset-paginated feed items, newest first.
 
-        ``cursor`` is the ``id`` of the last item the caller already has;
-        an append-only, live-growing feed drifts under page-number
-        pagination, so this always walks strictly backwards by id.
+        The opaque owner row cursor anchors meaningful time and ID. Existing
+        numeric cursors remain valid when a source updates an older row.
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
         db = self._get_db()
-        # Read before the page: a concurrent deletion may conservatively label
-        # newer rows with an older revision, never stale rows with a newer one.
+        # Include the visibility policy in the revision so clients drop pages
+        # cached before the filter. Read before the page to protect deletions.
         revision_rows = (
             db.execute_raw(
-                """SELECT md5(concat_ws(':', 'important-incoming-v2',
-                count(*) FILTER (WHERE m.deleted_for_recipient_at IS NOT NULL),
-                max(m.deleted_for_recipient_at),
-                count(*) FILTER (WHERE m.deleted_for_everyone_at IS NOT NULL),
-                max(m.deleted_for_everyone_at),
-                (SELECT concat_ws(':', count(*), max(hidden.dismissed_at))
-                   FROM feed_events hidden
-                  WHERE hidden.user_id = :user_id AND hidden.dismissed_at IS NOT NULL),
-                (SELECT concat_ws(':', count(*), max(g.recipient_cleared_at))
-                   FROM one_location_share_grants g
-                  WHERE g.recipient_user_id = :user_id AND g.recipient_cleared_at IS NOT NULL),
-                (SELECT count(*) - count(DISTINCT peer.counterpart_user_id)
-                   FROM feed_events receipt
-                   JOIN feed_event_counterparts peer ON peer.feed_event_id = receipt.id
-                  WHERE receipt.user_id = :user_id AND receipt.source_domain = 'location'
-                    AND receipt.event_type = 'location_share_created'
-                    AND receipt.metadata->>'feed_audience' = 'recipient'
-                    AND receipt.metadata->>'share_kind' = 'sos'
-                    AND receipt.metadata->'feed_sms_confirmed' = 'true'::jsonb),
-                (SELECT count(*) FROM feed_events settled
-                  WHERE settled.user_id = :user_id
-                    AND settled.metadata->>'actor_is_self' = 'true'
-                    AND ((settled.source_domain = 'location' AND settled.event_type IN
-                      ('location_share_revoked','location_share_shortened')) OR
-                      (settled.source_domain = 'connections' AND settled.event_type IN
-                      ('connection_accepted','connection_rejected','connection_revoked')))))) AS history_revision
-            FROM feed_events f
-            JOIN messages m ON m.id = CASE WHEN f.source_row_id ~*
-              '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              THEN f.source_row_id::uuid ELSE NULL END
-            JOIN conversations c ON c.id = m.conversation_id
-            WHERE f.user_id = :user_id AND f.source_domain = 'connections'
-              AND f.event_type = 'direct_message_received'
-              AND m.sender_user_id <> :user_id
-              AND :user_id IN (c.participant_a_user_id, c.participant_b_user_id)
+                self._grouped_feed_sql(count=False).removesuffix(_GROUPED_FEED_PAGE_SELECT)
+                + f"""
+            SELECT {SNAPSHOT_FINGERPRINT_SQL} AS snapshot_fingerprint, md5(concat_ws(':',:policy_revision,
+              count(*) FILTER(WHERE f.dismissed_at IS NOT NULL),max(f.dismissed_at),
+              COALESCE(string_agg(concat_ws(':',f.id,f.metadata->>'workflow_id',f.metadata->>'request_id'),
+                '|' ORDER BY f.id) FILTER(WHERE NOT f.source_action_required OR
+                  (f.source_domain='location' AND f.metadata->>'grant_id' IS NOT NULL AND f.metadata->>'request_id' IS NOT NULL)),''),
+              count(*) FILTER(WHERE m.deleted_for_recipient_at IS NOT NULL),max(m.deleted_for_recipient_at),
+              count(*) FILTER(WHERE m.deleted_for_everyone_at IS NOT NULL),max(m.deleted_for_everyone_at))) AS history_revision,
+              max(f.id) AS snapshot_id, statement_timestamp() AS snapshot_time,
+              CAST(EXTRACT(EPOCH FROM max(f.dismissed_at))*1000000 AS BIGINT)::text AS clear_version
+            FROM source_events f LEFT JOIN messages m ON f.source_domain='connections'
+              AND f.event_type='direct_message_received' AND m.id=CASE
+                WHEN f.source_row_id ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
+                THEN f.source_row_id::uuid END
             """,
-                {"user_id": user_id},
+                {"user_id": user_id, "policy_revision": POLICY_REVISION},
             ).data
             or []
         )
@@ -502,19 +423,50 @@ class FeedService:
         )
         has_more = len(rows) > bounded_limit
         rows = rows[:bounded_limit]
-        rows = self._with_counterpart_photos(user_id, rows)
-        rows = self._with_direct_message_previews(user_id, rows)
-        rows = self._with_wallet_card_grants(user_id, rows)
-        rows = self._with_wallet_card_requests(user_id, rows)
-        rows = self._with_drive_payment_status(user_id, rows)
-        rows = calendar_context.with_calendar_request_context(self._get_db, user_id, rows)
+        rows = self._present_activity_rows(user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
             "items": [self._to_item(row, user_id) for row in rows],
             "next_cursor": next_cursor,
             "unread_count": self.unread_count(user_id),
-            "history_revision": revision_rows[0]["history_revision"] if revision_rows else None,
+            **snapshot_fields(revision_rows),
         }
+
+    def _present_activity_rows(
+        self, user_id: str, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        rows = self._with_counterpart_photos(user_id, rows)
+        rows = self._with_direct_message_previews(user_id, rows)
+        rows = self._with_wallet_card_grants(user_id, rows)
+        rows = self._with_wallet_card_requests(user_id, rows)
+        rows = self._with_drive_payment_status(user_id, rows)
+        return calendar_context.with_calendar_request_context(self._get_db, user_id, rows)
+
+    def _activity_reader(
+        self, *, historical: bool = False, include_dismissed: bool = False
+    ) -> FeedActivityReader:
+        return FeedActivityReader(
+            cte=self._grouped_feed_sql(
+                count=False, historical=historical, include_dismissed=include_dismissed
+            ).removesuffix(_GROUPED_FEED_PAGE_SELECT),
+            db=self._get_db(),
+            present=self._present_activity_rows,
+            photos=self._with_counterpart_photos,
+            item=self._to_item,
+            max_limit=_MAX_LIMIT,
+        )
+
+    def search_activity(
+        self, user_id: str, **criteria: Unpack[FeedSearchCriteria]
+    ) -> dict[str, Any]:
+        return self._activity_reader(historical=True).search_activity(user_id, **criteria)
+
+    def operation_detail(
+        self, user_id: str, *, item_id: int, before_id: int | None = None
+    ) -> dict[str, Any] | None:
+        return self._activity_reader(historical=True, include_dismissed=True).operation_detail(
+            user_id, item_id=item_id, before_id=before_id
+        )
 
     def _with_drive_payment_status(
         self, user_id: str, rows: list[dict[str, Any]]
@@ -614,10 +566,15 @@ class FeedService:
                       JOIN drive_bulk_share_effects e ON e.share_id=b.share_id AND e.user_id=b.user_id
                       JOIN drive_bulk_share_files selected ON selected.share_id=e.share_id
                         AND selected.user_id=e.user_id AND selected.position=e.position
-                      WHERE r.status='partial' AND b.origin_request_id=r.request_id
+                      WHERE r.status IN ('partial','completed') AND b.origin_request_id=r.request_id
                         AND b.user_id=r.user_id AND b.approved_at IS NOT NULL
                         AND e.recipient_user_id=r.recipient_user_id
                         AND (b.progressive_batch=FALSE OR selected.origin_request_id=r.request_id)
+                        AND b.expires_at>clock_timestamp()
+                        AND NOT EXISTS (
+                          SELECT 1 FROM drive_request_bulk_removals removal
+                          WHERE removal.share_id=e.share_id AND removal.position=e.position
+                            AND removal.recipient_user_id=e.recipient_user_id)
                     ) delivery ON TRUE
                     WHERE r.recipient_user_id=:user_id OR r.user_id=:user_id
                     """,
@@ -654,9 +611,28 @@ class FeedService:
             projection: dict[str, Any] = {}
             metadata.pop("current_existing_access_nocharge", None)
             metadata.pop("current_outcome_reason", None)
+            is_document_group = str(row.get("thread_key") or "").startswith("document:")
+            if is_document_group and current:
+                projection.update(
+                    {
+                        "feed_audience": "owner" if current["viewer_is_owner"] else "recipient",
+                        "current_request_status": current.get("current_request_status"),
+                        "current_request_expired": current.get("current_request_expired") is True,
+                        "current_access_stopped": current.get("current_access_stopped") is True,
+                        "current_payment_status": current.get("current_payment_status"),
+                    }
+                )
+                for field in ("current_payment_amount_cents", "current_refund_amount_cents"):
+                    amount = current.get(field)
+                    if type(amount) is int and amount >= 0:
+                        projection[field] = amount
             if (
                 row.get("event_type") == "document_share_outcome"
                 and current.get("current_request_status") == "partial"
+            ) or (
+                is_document_group
+                and current.get("current_request_status") in {"partial", "completed"}
+                and current.get("current_access_stopped") is not True
             ):
                 # Historical outcome rows use current participant-scoped receipts,
                 # not payment state or the ambiguous request-level partial flag.
@@ -737,60 +713,7 @@ class FeedService:
 
     @staticmethod
     def _requester_payment_projection(event_type: str, current: dict[str, Any]) -> dict[str, Any]:
-        """The shared payment view state for the requester's own payment rows.
-
-        A confirmed-payment row changes only when that payment arrived after
-        the request closed (it is refunded, never "confirmed"); otherwise the
-        historical confirmation stays as it was.
-        """
-        if current.get("view_payment_required") is not True:
-            return {}
-        if (
-            event_type == "document_share_payment_confirmed"
-            and current.get("view_reconciliation_reason") != "request_closed"
-        ):
-            return {}
-        from hushh_mcp.services.drive_request_payment_view import requester_payment_view
-
-        checkout_expires_at = _aware_instant(current.get("current_checkout_expires_at"))
-        status = current.get("current_payment_status")
-        readiness = current.get("current_owner_payout_account_ready")
-        view = requester_payment_view(
-            payment_required=True,
-            request_status=str(current.get("current_request_status") or ""),
-            request_expires_at=_aware_instant(current.get("current_request_expires_at")),
-            now=datetime.now(timezone.utc),
-            access_stopped=current.get("current_access_stopped") is True,
-            preparation_error_code=current.get("view_preparation_error_code"),
-            quoted_amount_cents=current.get("view_quoted_amount_cents"),
-            order=(
-                {
-                    "status": status,
-                    "amount_cents": current.get("current_payment_amount_cents"),
-                    "checkout_bound": checkout_expires_at is not None,
-                    "checkout_expires_at": checkout_expires_at,
-                    "reconciliation_reason": current.get("view_reconciliation_reason"),
-                }
-                if isinstance(status, str)
-                else None
-            ),
-            refund=(
-                {
-                    "status": current["view_refund_status"],
-                    "amount_cents": current.get("view_refund_amount_cents"),
-                }
-                if isinstance(current.get("view_refund_status"), str)
-                else None
-            ),
-            owner_payout_ready=readiness if type(readiness) is bool else None,
-        )
-        projection: dict[str, Any] = {"current_payment_state": view["state"]}
-        if event_type == "document_share_payment_confirmed":
-            projection["current_request_status"] = current.get("current_request_status")
-            refund = view.get("refund")
-            if refund is not None and type(refund.get("amountCents")) is int:
-                projection["current_refund_amount_cents"] = refund["amountCents"]
-        return projection
+        return requester_payment_projection(event_type, current)
 
     def _with_counterpart_photos(
         self, user_id: str, rows: list[dict[str, Any]]
@@ -934,13 +857,22 @@ class FeedService:
         except Exception:
             return False
 
-    def _grouped_feed_sql(self, *, count):
-        wallet_access = self._wallet_card_access_installed()
-        wallet_requests = self._wallet_card_requests_installed()
-        cte = _WALLET_GROUPED_FEED_CTE if wallet_access else _GROUPED_FEED_CTE
+    def _feed_source_columns(self) -> dict[str, set[str]]:
+        cached = getattr(self, "_feed_source_shape", None)
+        if cached is None:
+            cached = load_source_columns(self._get_db().execute_raw)
+            self._feed_source_shape = cached
+        return cached
+
+    def _grouped_feed_sql(
+        self, *, count, historical: bool = False, include_dismissed: bool = False
+    ):
+        cte = (
+            _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
+        )
         if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
             cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
-        if wallet_requests:
+        if self._wallet_card_requests_installed():
             cte = cte.replace(
                 "    WHEN f.source_domain = 'connections'",
                 "    WHEN wr.id IS NOT NULL THEN 'wallet-request:' || wr.id::text\n    WHEN f.source_domain = 'connections'",
@@ -948,15 +880,15 @@ class FeedService:
                 "  WHERE f.user_id = :user_id",
                 "  LEFT JOIN wallet_card_requests wr ON wr.message_id=m.id AND wr.target_user_id=:user_id AND wr.requester_user_id=m.sender_user_id AND c.id IS NOT NULL\n  WHERE f.user_id = :user_id",
             )
-        cte = apply_location_feed_policy(
-            cte, wallet_access=wallet_access, wallet_requests=wallet_requests
+        cte = cte.replace(
+            _SOURCE_EVENTS_SQL,
+            source_events_sql(
+                self._feed_source_columns(),
+                historical=historical,
+                include_dismissed=include_dismissed,
+            ),
         )
-        select = _GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT
-        # A quiet latest outcome replaces its earlier unread creation in place.
-        select = select.replace(
-            "thread_unread_count > 0", "thread_unread_count > 0 AND NOT feed_silent"
-        )
-        return cte + select
+        return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
 
     def _universal_wallet_installed(self):
         try:
@@ -1325,20 +1257,20 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
               FROM jsonb_array_elements_text(CAST(:grant_ids_json AS JSONB))
             )
             SELECT
-              grant.id::TEXT AS source_row_id,
+              share_grant.id::TEXT AS source_row_id,
               CASE
-                WHEN grant.owner_user_id = :user_id
+                WHEN share_grant.owner_user_id = :user_id
                   THEN COALESCE(NULLIF(BTRIM(recipient.custom_photo_url), ''), NULLIF(BTRIM(recipient.photo_url), ''))
-                WHEN grant.recipient_user_id = :user_id
+                WHEN share_grant.recipient_user_id = :user_id
                   THEN COALESCE(NULLIF(BTRIM(owner_identity.custom_photo_url), ''), NULLIF(BTRIM(owner_identity.photo_url), ''))
               END AS counterpart_photo_url
-            FROM one_location_share_grants grant
-            JOIN requested_ids ids ON ids.grant_id = grant.id::TEXT
+            FROM one_location_share_grants share_grant
+            JOIN requested_ids ids ON ids.grant_id = share_grant.id::TEXT
             LEFT JOIN actor_identity_cache recipient
-              ON recipient.user_id = grant.recipient_user_id
+              ON recipient.user_id = share_grant.recipient_user_id
             LEFT JOIN actor_identity_cache owner_identity
-              ON owner_identity.user_id = grant.owner_user_id
-            WHERE grant.owner_user_id = :user_id OR grant.recipient_user_id = :user_id
+              ON owner_identity.user_id = share_grant.owner_user_id
+            WHERE share_grant.owner_user_id = :user_id OR share_grant.recipient_user_id = :user_id
             """,
             {"user_id": user_id, "grant_ids_json": json.dumps(sorted(grant_ids))},
         )
@@ -1373,6 +1305,67 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
             {"user_id": user_id, "request_ids_json": json.dumps(sorted(request_ids))},
         )
 
+    def historical_funding(
+        self, user_id: str, *, item_id: int | None = None, terms: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Read retained owner Feed records for the retired transfer service.
+
+        Timestamps describe when One recorded the update. A Feed row is not
+        evidence of the provider's original transaction detail or event time.
+        """
+        rows = (
+            self._get_db()
+            .execute_raw(
+                _GROUPED_FEED_CTE
+                + """
+            , matching AS (
+              SELECT g.id, g.thread_key, g.metadata, g.created_at
+              FROM grouped g
+              WHERE substr(g.thread_key, 1, 15) = 'legacy-funding:'
+                AND (CAST(:item_id AS bigint) IS NULL OR g.thread_key = (
+                  SELECT thread_key FROM keyed WHERE id = :item_id AND dismissed_at IS NULL
+                ))
+                AND NOT EXISTS (
+                  SELECT 1 FROM unnest(CAST(:terms AS text[])) AS q(term)
+                  WHERE strpos(lower(concat_ws(' ',
+                    'historical transfer funding', g.metadata->>'user_facing_status',
+                    CASE upper(g.metadata->>'direction')
+                      WHEN 'INCOMING' THEN 'deposit' WHEN 'OUTGOING' THEN 'withdrawal' END,
+                    to_char(g.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD FMMonth DD YYYY')
+                  )), q.term) = 0
+                )
+              ORDER BY g.id DESC
+              LIMIT 50
+            )
+            SELECT g.id AS item_id, g.metadata, g.created_at,
+              jsonb_agg(jsonb_build_object(
+                'status', k.metadata->>'user_facing_status', 'recordedAt', k.created_at
+              ) ORDER BY k.created_at, k.id) AS milestones
+            FROM matching g JOIN keyed k ON k.thread_key = g.thread_key
+            GROUP BY g.id, g.metadata, g.created_at
+            ORDER BY g.id DESC
+            """,
+                {"user_id": user_id, "item_id": item_id, "terms": terms or []},
+            )
+            .data
+            or []
+        )
+        return [
+            {
+                "itemId": str(row["item_id"]),
+                "status": row["metadata"]["user_facing_status"],
+                "direction": {"INCOMING": "deposit", "OUTGOING": "withdrawal"}.get(
+                    str(row["metadata"].get("direction") or "").upper(), "transfer"
+                ),
+                "recordedAt": row["created_at"],
+                "milestones": row["milestones"],
+            }
+            for row in rows
+        ]
+
+    def attention_items(self, user_id: str, item_ids: list[int]) -> dict[str, dict[str, Any]]:
+        return self._activity_reader().attention_items(user_id, item_ids)
+
     def unread_count(self, user_id: str) -> int:
         db = self._get_db()
         rows = (
@@ -1384,23 +1377,21 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         )
         return int(rows[0]["unread_count"] or 0) if rows else 0
 
-    def mark_read(self, user_id: str, *, up_to_id: int) -> dict[str, Any]:
-        """Mark unread items read, up to and including ``up_to_id``.
-
-        Fired once when the Feed page opens (mirrors Instagram/Twitter's
-        "opening the tab clears the badge" convention), not per-item.
-        """
-        db = self._get_db()
-        now_iso = datetime.now(tz=timezone.utc).isoformat()
-        query = (
-            db.table("feed_events")
-            .update({"read_at": now_iso})
-            .eq("user_id", user_id)
-            .is_("read_at", None)
+    def mark_read(
+        self,
+        user_id: str,
+        *,
+        up_to_id: int,
+        through_time: datetime | None = None,
+        snapshot_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        return mark_read_snapshot(
+            self._get_db(),
+            user_id,
+            up_to_id=up_to_id,
+            through_time=through_time,
+            snapshot_fingerprint=snapshot_fingerprint,
         )
-        query = query.lte("id", up_to_id)
-        query.execute()
-        return {"status": "ok"}
 
     def _drive_rows_surfaced(
         self,
@@ -1443,6 +1434,11 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
 
         return self._drive_rows_surfaced(user_id, rows, removed)
 
+    def _operation_rows_for_dismissal(self, user_id: str, item_id: int) -> list[int]:
+        if not self._feed_source_columns():
+            return []
+        return self._activity_reader()._operation_rows_for_dismissal(user_id, item_id)
+
     def dismiss(self, user_id: str, *, item_id: int) -> dict[str, Any]:
         """Hide the owner's displayed row and older members of its visual group.
 
@@ -1451,49 +1447,17 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         or any other device. ``dismissed_ids`` lists every row hidden.
         """
         token = str(uuid4())
+        operation_ids = self._operation_rows_for_dismissal(user_id, item_id)
         surfacing_ids = self._drive_rows_surfaced_by_dismissal(user_id, item_id)
         rows = (
             self._get_db()
             .execute_raw(
-                """
-            WITH target AS (
-              SELECT source_domain, event_type,
-                     NULLIF(metadata->>'bundle_id', '') AS bundle_id,
-                     NULLIF(metadata->>'request_id', '') AS request_id
-                FROM feed_events
-               WHERE user_id = :user_id AND id = :item_id
-                 AND dismissed_at IS NULL
-            )
-            UPDATE feed_events AS item
-               SET dismissed_at = now(),
-                   dismissal_token = :dismissal_token,
-                   read_at = COALESCE(item.read_at, now())
-              FROM target
-             WHERE item.user_id = :user_id
-               AND item.dismissed_at IS NULL
-               AND (item.id = :item_id OR (
-                 target.source_domain = 'consent'
-                 AND target.event_type IN ('consent_requested', 'consent_granted', 'consent_revoked')
-                 AND target.bundle_id IS NOT NULL
-                 AND item.source_domain = 'consent'
-                 AND item.event_type = target.event_type
-                 AND item.metadata->>'bundle_id' = target.bundle_id
-                 AND item.id <= :item_id
-               ) OR (
-                 target.source_domain = 'connected_systems'
-                 AND target.event_type = 'document_share_outcome'
-                 AND target.request_id IS NOT NULL
-                 AND item.source_domain = 'connected_systems'
-                 AND item.event_type = 'document_share_outcome'
-                 AND item.metadata->>'request_id' = target.request_id
-                 AND item.id <= :item_id
-               ) OR item.id = ANY(CAST(:surfacing_ids AS BIGINT[])))
-            RETURNING id, dismissal_token
-            """,
+                _DISMISS_SQL,
                 {
                     "user_id": user_id,
                     "item_id": item_id,
                     "dismissal_token": token,
+                    "operation_ids": operation_ids,
                     "surfacing_ids": surfacing_ids,
                 },
             )
@@ -1539,7 +1503,14 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         )
         return {"status": "ok", "restored": any(row.get("id") == item_id for row in rows)}
 
-    def clear(self, user_id: str, *, up_to_id: int) -> dict[str, str]:
+    def clear(
+        self,
+        user_id: str,
+        *,
+        up_to_id: int,
+        through_time: datetime | None = None,
+        snapshot_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
         """Dismiss only the owner's current snapshot, leaving later events live.
 
         A Drive row stored above the watermark that the Feed was folding behind
@@ -1555,7 +1526,29 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         surfacing_ids = self._drive_rows_surfaced(
             user_id, newer_drive_rows, lambda item: int(item["id"]) <= up_to_id
         )
-        self._get_db().execute_raw(
+        if snapshot_fingerprint is not None:
+            rows = (
+                self._get_db()
+                .execute_raw(
+                    guarded_acknowledgment_sql(clear=True),
+                    {
+                        "user_id": user_id,
+                        "up_to_id": up_to_id,
+                        "through_time": through_time,
+                        "snapshot_fingerprint": snapshot_fingerprint,
+                        "surfacing_ids": surfacing_ids,
+                        "dismissal_token": str(uuid4()),
+                    },
+                )
+                .data
+                or []
+            )
+            return {
+                "status": "ok",
+                "clear_version": max((row["clear_version"] for row in rows), key=int, default=None),
+                "snapshot_changed": not bool(rows),
+            }
+        result = self._get_db().execute_raw(
             """
             UPDATE feed_events
                SET dismissed_at = now(),
@@ -1563,26 +1556,28 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
                    read_at = COALESCE(read_at, now())
              WHERE user_id = :user_id AND (id <= :up_to_id
                OR id = ANY(CAST(:surfacing_ids AS BIGINT[])))
-            """,
+            """
+            + (
+                " AND created_at<=:through_time RETURNING CAST(EXTRACT(EPOCH FROM dismissed_at)*1000000 AS BIGINT)::text AS clear_version"
+                if through_time
+                else ""
+            ),
             {
+                **({"through_time": through_time} if through_time else {}),
                 "user_id": user_id,
                 "up_to_id": up_to_id,
                 "dismissal_token": str(uuid4()),
                 "surfacing_ids": surfacing_ids,
             },
         )
+        if through_time is not None:
+            rows = result.data or []
+            return {"status": "ok", "clear_version": rows[0]["clear_version"] if rows else None}
         return {"status": "ok"}
 
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
-        if (
-            row.get("source_domain") == "location"
-            and row.get("event_type") in _LOCATION_GRANT_EVENT_TYPES
-        ):
-            grant_id = metadata.get("grant_id") or _uuid_prefix(str(row.get("source_row_id") or ""))
-            if grant_id:
-                metadata["grant_id"] = grant_id
         if row.get("source_domain") == "calendar_email_followup":
             # Only this owner-scoped reminder may expose its opaque Calendar
             # selector. The shared metadata allowlist still excludes account
@@ -1599,20 +1594,11 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         metadata.pop("wallet_card_grant_id", None)
         metadata.pop("wallet_card_request_id", None)
         metadata.pop("wallet_card_request_status", None)
-        if str(row.get("thread_key", "")).startswith(("circle:", "direct:")):
-            # Computed from authenticated source rows, never persisted metadata.
-            metadata["chat_thread_key"] = str(row["thread_key"])
-            metadata["chat_message_count"] = min(9999, int(row.get("thread_message_count") or 0))
-            metadata["chat_unread_count"] = min(9999, int(row.get("thread_unread_count") or 0))
-        elif str(row.get("thread_key", "")).startswith(
-            ("location-share:", "location-sms:", "circle-membership:", "connection-outcome:")
-        ):
-            # An opaque presentation identity; never expose server-side peer ids.
-            metadata["feed_group_key"] = hashlib.sha256(str(row["thread_key"]).encode()).hexdigest()
-            metadata["feed_silent"] = row.get("event_type") in {
-                "location_share_expired",
-                "location_share_revoked",
-            }
+        if str(row.get("thread_key", "")).startswith("legacy-funding:"):
+            metadata["retained_funding_history"] = True
+        metadata.update(chat_activity_fields(row))
+        if row.get("feed_silent") is True:
+            metadata["feed_silent"] = True
         if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
             card_request = row.get("_wallet_card_request")
             if isinstance(card_request, dict) and _direct_message_source_id(
@@ -1670,13 +1656,9 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         ):
             metadata["user_facing_status"] = "no_files_shared"
         return {
-            "id": str(row.get("id")),
-            "source_domain": row.get("source_domain"),
-            "event_type": row.get("event_type"),
+            **activity_fields(row, metadata),
             "actor_label": _bounded_text(row.get("actor_label"), limit=_MAX_ACTOR_LABEL_LENGTH),
             "metadata": metadata,
-            "read": row.get("read_at") is not None,
-            "created_at": row.get("created_at"),
         }
 
 

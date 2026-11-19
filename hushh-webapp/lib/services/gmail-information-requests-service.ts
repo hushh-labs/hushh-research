@@ -154,6 +154,17 @@ function isWorkflow(value: unknown): value is GmailInformationRequestWorkflow {
 }
 
 export class GmailInformationRequestsService {
+  static getActive(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    workflowId: string;
+  }): Promise<GmailInformationRequestWorkflow> {
+    return apiJson<GmailInformationRequestWorkflow>(
+      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}`,
+      { headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken) },
+    );
+  }
+
   static getPreference(input: {
     userId: string;
     firebaseIdToken: string;
