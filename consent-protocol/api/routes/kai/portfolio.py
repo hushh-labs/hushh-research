@@ -1348,7 +1348,7 @@ def _derive_analyze_eligibility(
         return False, "excluded_cash"
     if listing_status == "fixed_income":
         return False, "excluded_fixed_income"
-    if listing_status == "non_sec_common_equity":
+    if listing_status == "non_sec_common_equity" or kind == "fund_or_etf_ticker":
         return False, "excluded_non_sec_common_equity"
     if not is_investable:
         return False, "excluded_missing_equity_classification"
@@ -1449,29 +1449,17 @@ def _normalize_raw_holding_row(row: dict[str, Any], idx: int) -> dict[str, Any]:
     )
     if symbol_classification.symbol:
         normalized_symbol = symbol_classification.symbol
-    is_cash_equivalent = symbol_classification.trust_tier == "cash_equivalent"
-    is_investable = bool(symbol_classification.tradable) and not is_cash_equivalent
-    instrument_kind = "equity"
-    asset_type_hint = raw_asset_type.lower()
-    if is_cash_equivalent:
+    instrument_kind = normalize_instrument_kind_v2(
+        row.get("instrument_kind"),
+        raw_asset_type,
+        security_listing_status=raw_listing_status,
+        symbol_kind=raw_symbol_kind,
+        is_sec_common_equity_ticker=raw_is_sec_common_equity is True,
+    )
+    if instrument_kind == "other" and symbol_classification.trust_tier == "cash_equivalent":
         instrument_kind = "cash_equivalent"
-    elif any(h in asset_type_hint for h in ("bond", "fixed income", "treasury", "municipal")):
-        instrument_kind = "fixed_income"
-    elif any(
-        h in asset_type_hint for h in ("real estate", "reit", "commodity", "gold", "real asset")
-    ):
-        instrument_kind = "real_asset"
-    elif any(h in asset_type_hint for h in ("fund", "etf", "stock", "equity")):
-        instrument_kind = "equity"
-    elif symbol_classification.tradable and not is_cash_equivalent and identifier_type == "ticker":
-        # Treat ticker-like tradable holdings as equity when statement asset_type is missing.
-        instrument_kind = "equity"
-    elif raw_symbol_kind in {"us_common_equity_ticker", "fund_or_etf_ticker"}:
-        instrument_kind = "equity"
-    elif raw_is_sec_common_equity is True:
-        instrument_kind = "equity"
-    else:
-        instrument_kind = "other"
+    is_cash_equivalent = instrument_kind == "cash_equivalent"
+    is_investable = bool(symbol_classification.tradable) and not is_cash_equivalent
 
     symbol_source = raw_symbol_source
     if symbol_source not in {
@@ -1827,8 +1815,8 @@ def _aggregate_holdings_by_symbol(rows: list[dict[str, Any]]) -> list[dict[str, 
             existing["identifier_type"] = row.get("identifier_type")
         if not existing.get("symbol_cusip") and row.get("symbol_cusip"):
             existing["symbol_cusip"] = row.get("symbol_cusip")
-        if not existing.get("instrument_kind") and row.get("instrument_kind"):
-            existing["instrument_kind"] = row.get("instrument_kind")
+        if row.get("instrument_kind") and existing.get("instrument_kind") in (None, "", "other"):
+            existing["instrument_kind"] = row["instrument_kind"]
         if not existing.get("symbol_source") and row.get("symbol_source"):
             existing["symbol_source"] = row.get("symbol_source")
         if str(existing.get("symbol_kind") or "").strip().lower() in {"", "unknown"} and row.get(
@@ -1840,7 +1828,7 @@ def _aggregate_holdings_by_symbol(rows: list[dict[str, Any]]) -> list[dict[str, 
             "unknown",
         } and row.get("security_listing_status"):
             existing["security_listing_status"] = row.get("security_listing_status")
-        if (
+        if row.get("is_sec_common_equity_ticker") is True or (
             existing.get("is_sec_common_equity_ticker") is None
             and row.get("is_sec_common_equity_ticker") is not None
         ):
@@ -2434,16 +2422,31 @@ def _create_import_sse_response(
     )
 
 
-def _infer_instrument_kind_light(
+def _classify_import_listing(
+    row: dict[str, Any],
     *,
     symbol: str,
     name: str,
     asset_type: str,
-    instrument_kind: object = None,
-) -> tuple[str, bool]:
-    """Compatibility facade: issuer names and ticker fragments never decide kind."""
-    kind = normalize_instrument_kind_v2(instrument_kind, asset_type)
-    return kind, kind == "cash_equivalent"
+    instrument_kind: str,
+) -> tuple[str, str]:
+    if instrument_kind == "cash_equivalent":
+        return "cash_identifier", "cash_or_sweep"
+    if instrument_kind == "fixed_income":
+        return "bond_or_fixed_income_id", "fixed_income"
+    if not _PICK_TICKER_RE.match(symbol):
+        return "unknown", "unknown"
+    listing_status = str(row.get("security_listing_status") or "").strip().lower()
+    symbol_kind = str(row.get("symbol_kind") or "").strip().lower()
+    if (
+        listing_status == "non_sec_common_equity"
+        or symbol_kind == "fund_or_etf_ticker"
+        or any(token in f"{name} {asset_type}".lower() for token in ("etf", "fund"))
+    ):
+        return "fund_or_etf_ticker", "non_sec_common_equity"
+    if instrument_kind == "equity":
+        return "us_common_equity_ticker", "sec_common_equity"
+    return "unknown", "unknown"
 
 
 def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str, Any]:
@@ -2479,12 +2482,15 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
         or ""
     )
 
-    instrument_kind, is_cash_equivalent = _infer_instrument_kind_light(
-        symbol=symbol,
-        name=name,
-        asset_type=asset_type,
-        instrument_kind=row.get("instrument_kind"),
+    instrument_kind = normalize_instrument_kind_v2(
+        row.get("instrument_kind"),
+        asset_type,
+        security_listing_status=row.get("security_listing_status"),
+        symbol_kind=row.get("symbol_kind"),
+        is_sec_common_equity_ticker=_coerce_optional_bool(row.get("is_sec_common_equity_ticker"))
+        is True,
     )
+    is_cash_equivalent = instrument_kind == "cash_equivalent"
     # Only an explicitly classified cash position may receive the cash identifier.
     if not symbol and is_cash_equivalent:
         symbol = "CASH"
@@ -2511,23 +2517,9 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
         except Exception:
             price = None
 
-    symbol_kind = "unknown"
-    security_listing_status = "unknown"
-    if is_cash_equivalent:
-        symbol_kind = "cash_identifier"
-        security_listing_status = "cash_or_sweep"
-    elif instrument_kind == "fixed_income":
-        symbol_kind = "bond_or_fixed_income_id"
-        security_listing_status = "fixed_income"
-    elif instrument_kind in {"equity", "real_asset"} and _PICK_TICKER_RE.match(symbol):
-        # Preserve the existing fund-vehicle exclusion independently of allocation kind.
-        if any(token in f"{name} {asset_type}".lower() for token in ("etf", "fund")):
-            symbol_kind = "fund_or_etf_ticker"
-            security_listing_status = "non_sec_common_equity"
-        else:
-            symbol_kind = "us_common_equity_ticker"
-            security_listing_status = "sec_common_equity"
-
+    symbol_kind, security_listing_status = _classify_import_listing(
+        row, symbol=symbol, name=name, asset_type=asset_type, instrument_kind=instrument_kind
+    )
     is_sec_common_equity_ticker = security_listing_status == "sec_common_equity"
     is_investable = bool(is_sec_common_equity_ticker) and not is_cash_equivalent
     analyze_eligible, analyze_eligible_reason = _derive_analyze_eligibility(

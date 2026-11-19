@@ -310,11 +310,6 @@ function inferHoldingIdentifierType(holding: Holding): "ticker" | "cusip" | "der
   return "derived";
 }
 
-function inferInstrumentKind(holding: Holding, isCashEquivalent: boolean): string {
-  return normalizeHoldingInstrumentKind(holding.instrument_kind, holding.asset_type)
-    ?? (isCashEquivalent ? "cash_equivalent" : "other");
-}
-
 function inferAnalyzeEligibility(
   holding: Holding,
   isInvestable: boolean,
@@ -363,14 +358,15 @@ function isAuthFailureMessage(message: string): boolean {
 }
 
 function normalizeHoldingForStorage({ pending_delete: _pendingDelete, ...holding }: Holding): Holding {
-  const isCashEquivalent = isCashEquivalentHolding(holding);
+  const instrumentKind = normalizeHoldingInstrumentKind(holding);
+  const isCashEquivalent = instrumentKind === "cash_equivalent";
   const identifierType = inferHoldingIdentifierType(holding);
   const isInvestable = !isCashEquivalent && identifierType === "ticker";
   const analyzeEligible = inferAnalyzeEligibility(holding, isInvestable);
   return {
     ...holding,
     identifier_type: identifierType,
-    instrument_kind: inferInstrumentKind(holding, isCashEquivalent),
+    instrument_kind: instrumentKind,
     is_cash_equivalent: isCashEquivalent,
     is_investable: isInvestable,
     analyze_eligible: analyzeEligible,
@@ -588,27 +584,17 @@ function hasAllocationValues(allocation: AssetAllocation): boolean {
   );
 }
 
-function isCashLikeHolding(holding: Holding): boolean {
-  const symbol = String(holding.symbol || "").trim().toUpperCase();
-  const name = String(holding.name || "").trim().toLowerCase();
-  const assetType = String(holding.asset_type || "").trim().toLowerCase();
-  if (symbol === "CASH" || symbol === "SWEEP" || symbol === "MMF") return true;
-  if (name.includes("cash") || name.includes("sweep")) return true;
-  if (assetType.includes("cash") || assetType.includes("money market")) return true;
-  return false;
-}
-
 function deriveCashFromHoldings(holdings: Holding[]): number | undefined {
-  const cash = holdings.filter(isCashLikeHolding);
+  const cash = holdings.filter((holding) => normalizeHoldingInstrumentKind(holding) === "cash_equivalent");
   return cash.length ? cash.reduce((sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0), 0) : undefined;
 }
 
 function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation {
-  const bucketTotals: Record<"cash" | "equities" | "bonds" | "real_assets" | "other", number> = {
-    cash: 0,
-    equities: 0,
-    bonds: 0,
-    real_assets: 0,
+  const bucketTotals = {
+    cash_equivalent: 0,
+    equity: 0,
+    fixed_income: 0,
+    real_asset: 0,
     other: 0,
   };
 
@@ -618,31 +604,7 @@ function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation
     const marketValue = toFiniteNumber(holding.market_value) ?? 0;
     if (marketValue <= 0) continue;
 
-    const hint =
-      `${holding.instrument_kind || ""} ${holding.asset_type || ""} ${holding.name || ""}`.toLowerCase();
-
-    let bucket: keyof typeof bucketTotals = "other";
-    if (isCashLikeHolding(holding) || holding.is_cash_equivalent) bucket = "cash";
-    else if (hint.includes("bond") || hint.includes("fixed income") || hint.includes("treasury")) {
-      bucket = "bonds";
-    } else if (
-      hint.includes("real estate") ||
-      hint.includes("real asset") ||
-      hint.includes("reit") ||
-      hint.includes("commod")
-    ) {
-      bucket = "real_assets";
-    } else if (
-      hint.includes("equity") ||
-      hint.includes("stock") ||
-      hint.includes("etf") ||
-      hint.includes("fund") ||
-      hint.includes("adr")
-    ) {
-      bucket = "equities";
-    }
-
-    bucketTotals[bucket] += marketValue;
+    bucketTotals[normalizeHoldingInstrumentKind(holding)] += marketValue;
     totalMarketValue += marketValue;
   }
 
@@ -652,14 +614,14 @@ function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation
   };
 
   return compactRecord({
-    cash_pct: fromValue("cash"),
-    cash_value: bucketTotals.cash || undefined,
-    equities_pct: fromValue("equities"),
-    equities_value: bucketTotals.equities || undefined,
-    bonds_pct: fromValue("bonds"),
-    bonds_value: bucketTotals.bonds || undefined,
-    real_assets_pct: fromValue("real_assets"),
-    real_assets_value: bucketTotals.real_assets || undefined,
+    cash_pct: fromValue("cash_equivalent"),
+    cash_value: bucketTotals.cash_equivalent || undefined,
+    equities_pct: fromValue("equity"),
+    equities_value: bucketTotals.equity || undefined,
+    bonds_pct: fromValue("fixed_income"),
+    bonds_value: bucketTotals.fixed_income || undefined,
+    real_assets_pct: fromValue("real_asset"),
+    real_assets_value: bucketTotals.real_asset || undefined,
     other_pct: fromValue("other"),
     other_value: bucketTotals.other || undefined,
   } satisfies AssetAllocation) as AssetAllocation;

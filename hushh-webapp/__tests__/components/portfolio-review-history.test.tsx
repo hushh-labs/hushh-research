@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { expect, it, vi } from "vitest";
 import { PortfolioReviewView } from "@/components/kai/views/portfolio-review-view";
 import { DashboardMasterView } from "@/components/kai/views/dashboard-master-view";
+import { buildDashboardPortfolioModel } from "@/components/kai/views/dashboard-portfolio-model";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 
 const saved = vi.hoisted(() => ({ domain: null as Record<string, unknown> | null, current: {} as Record<string, unknown>, cache: vi.fn(), reload: vi.fn() }));
@@ -41,6 +42,36 @@ it("retains supplied balance observations in the confirmed stored portfolio and 
   const sources = saved.domain?.sources as { statement: { snapshots: Array<{ canonical_v2: unknown }> } };
   expect(sources.statement.snapshots[0]?.canonical_v2).toMatchObject({ historical_values: history });
   await waitFor(() => expect(saved.cache.mock.calls.at(-1)?.[1]).toMatchObject({ historical_values: history }));
+});
+
+it("uses Dashboard instrument buckets in Review and in the saved allocation fallback", async () => {
+  saved.domain = null;
+  saved.current = {};
+  const portfolio: PortfolioData = { total_value: 1_000, holdings: [
+    { symbol: "GS", name: "Goldman Sachs", instrument_kind: "other", asset_type: "stock", quantity: 1, price: 400, market_value: 400 },
+    { symbol: "AGG", name: "Aggregate ETF", instrument_kind: "fixed_income", asset_type: "etf", quantity: 1, price: 100, market_value: 100 },
+    { symbol: "GLD", name: "Gold Shares ETF", instrument_kind: "real_asset", asset_type: "etf", quantity: 1, price: 200, market_value: 200 },
+    { symbol: "TEST", name: "Treasury Growth ETF", instrument_kind: "other", asset_type: "etf", quantity: 1, price: 100, market_value: 100 },
+    { symbol: "CASH", name: "Cash", quantity: 0, price: 0, market_value: 200 },
+  ] };
+  const dashboard = Object.fromEntries(buildDashboardPortfolioModel(portfolio).allocation.map((bucket) => [bucket.key, bucket.value]));
+  expect(dashboard).toEqual({ equity: 400, fixed_income: 100, real_asset: 200, other: 100, cash_equivalent: 200 });
+
+  render(<PortfolioReviewView userId="synthetic-owner" portfolioData={portfolio}
+    onSaveComplete={vi.fn()} onReimport={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Asset Allocation" }));
+  expect(screen.getByText("40.0%")).toBeVisible();
+  expect(screen.getByText("Bonds")).toBeVisible();
+  expect(screen.getByText("Real Assets")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: /Save.*Vault/i }));
+
+  await waitFor(() => expect(saved.domain?.portfolio).toMatchObject({ asset_allocation: {
+    equities_value: dashboard.equity, equities_pct: 40,
+    bonds_value: dashboard.fixed_income, bonds_pct: 10,
+    real_assets_value: dashboard.real_asset, real_assets_pct: 20,
+    other_value: dashboard.other, other_pct: 10,
+    cash_value: dashboard.cash_equivalent, cash_pct: 20,
+  } }));
 });
 
 it("opens the actual invalid entry on portfolio confirmation instead of a generic save error", async () => {

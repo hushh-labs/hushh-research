@@ -4244,10 +4244,11 @@ No silent success is emitted on terminal failures.
 An extracted holding can declare `instrument_kind` as `equity`, `fixed_income`,
 `real_asset`, `cash_equivalent`, `other`, or `null`. The extractor owns
 this assessment from statement evidence, including the underlying category of
-funds. Normalization preserves valid declared kinds and accepts exact legacy
-`asset_type` aliases; ticker and issuer-name fragments do not decide allocation.
-Missing or unsupported categories remain unresolved instead of being inferred
-from a ticker. Review and dashboard allocation use this same metadata contract.
+funds. Normalization preserves concrete declared kinds. Missing, unsupported or
+`other` kinds resolve through exact legacy `asset_type` aliases and then listing
+metadata. Holdings without category evidence stay `other`. Review and dashboard
+allocation use this metadata contract, and Analyze eligibility retains its fund,
+cash and fixed income exclusions.
 This contract does not silently repair previously saved statement snapshots;
 their correction requires a separately verified owner-authorized path.
 

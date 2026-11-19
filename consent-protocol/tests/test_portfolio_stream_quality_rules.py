@@ -28,7 +28,7 @@ from hushh_mcp.kai_import.quality_v2 import build_holdings_quality_report_v2
         ("QQQ", "Equity Fund ETF", "equity", "equity", "equity"),
         ("CD", "Certificate of Deposit", "certificate_of_deposit", None, "fixed_income"),
         ("", "Cash balance", "cash", None, "cash_equivalent"),
-        ("GS", "The Goldman Sachs Group, Inc.", "stock", "other", "other"),
+        ("GS", "The Goldman Sachs Group, Inc.", "stock", "other", "equity"),
         ("MCD", "McDonald's Corporation", None, None, "other"),
         ("AGG", "Aggregate Bond ETF", "etf", None, "other"),
     ],
@@ -58,6 +58,63 @@ def test_current_import_preserves_declared_instrument_classification(
         assert row["analyze_eligible"] is False
     if expected_kind == "other":
         assert row["analyze_eligible"] is False
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [{"security_listing_status": "sec_common_equity"}, {"symbol_kind": "us_common_equity_ticker"}],
+)
+def test_import_resolves_legacy_listing_metadata_when_kind_and_asset_type_are_unresolved(listing):
+    row = _normalize_import_holding_light(
+        {"symbol": "AMZN", "instrument_kind": "other", "market_value": 100, **listing}, 0
+    )
+    assert row["instrument_kind"] == "equity"
+    assert row["tradable"] and row["analyze_eligible"]
+
+
+def test_equity_allocation_does_not_override_the_fund_listing_exclusion():
+    row = _normalize_import_holding_light(
+        {
+            "symbol": "POTX",
+            "asset_type": "Equities",
+            "instrument_kind": "other",
+            "security_listing_status": "non_sec_common_equity",
+            "symbol_kind": "fund_or_etf_ticker",
+            "market_value": 100,
+        },
+        0,
+    )
+    assert row["instrument_kind"] == "equity"
+    assert row["security_listing_status"] == "non_sec_common_equity"
+    assert row["analyze_eligible"] is False
+
+
+@pytest.mark.parametrize(
+    "symbol,kind", [("AGG", "fixed_income"), ("GLD", "real_asset"), ("QQQ", "other")]
+)
+def test_secondary_normalizer_preserves_typed_etfs_and_leaves_generic_etfs_unresolved(symbol, kind):
+    row = _normalize_raw_holding_row(
+        {"symbol": symbol, "asset_type": "etf", "instrument_kind": kind, "market_value": 100}, 0
+    )
+    assert row["instrument_kind"] == kind
+    assert row["market_value"] == 100
+    assert row["analyze_eligible"] is False
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_grouped_allocation_resolves_metadata_from_either_lot_order(reverse):
+    rows = [
+        _normalize_import_holding_light(
+            {"symbol": "GS", "instrument_kind": kind, "quantity": 1, "price": 100}, index
+        )
+        for index, kind in enumerate(("other", "equity"))
+    ]
+    if reverse:
+        rows.reverse()
+    [holding] = _aggregate_holdings_by_symbol(rows)
+    assert holding["instrument_kind"] == "equity"
+    assert holding["is_sec_common_equity_ticker"] is True
+    assert holding["market_value"] == 200
 
 
 def test_current_import_keeps_issuer_fragments_out_of_allocation():

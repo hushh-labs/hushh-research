@@ -1,13 +1,8 @@
 import type { PortfolioData } from "@/components/kai/types/portfolio";
-import { normalizeHoldingInstrumentKind } from "@/lib/kai/brokerage/instrument-kind";
+import { normalizeHoldingInstrumentKind, type HoldingInstrumentKind } from "@/lib/kai/brokerage/instrument-kind";
 import { groupHoldingPositions, type HoldingPosition } from "@/lib/kai/holding-positions";
 
-export type DashboardAssetBucket =
-  | "cash_equivalent"
-  | "equity"
-  | "fixed_income"
-  | "real_asset"
-  | "other";
+export type DashboardAssetBucket = HoldingInstrumentKind;
 
 export interface DashboardPosition {
   id: string;
@@ -173,37 +168,6 @@ function inferAliases(rawSymbol: string, name: string): string[] {
   return dedupeStrings(aliases);
 }
 
-function classifyAssetBucket({
-  assetType,
-  instrumentKind,
-  securityListingStatus,
-  symbolKind,
-  isSecCommonEquityTicker,
-  isCashEquivalent,
-}: {
-  assetType: string;
-  instrumentKind?: string;
-  securityListingStatus?: string;
-  symbolKind?: string;
-  isSecCommonEquityTicker?: boolean;
-  isCashEquivalent?: boolean;
-}): DashboardAssetBucket {
-  if (isCashEquivalent) return "cash_equivalent";
-  const declaredKind = normalizeHoldingInstrumentKind(instrumentKind, assetType);
-  if (declaredKind !== null) return declaredKind;
-  const normalizedListingStatus = String(securityListingStatus || "")
-    .trim()
-    .toLowerCase();
-  const normalizedSymbolKind = String(symbolKind || "").trim().toLowerCase();
-  if (normalizedListingStatus === "cash_or_sweep") return "cash_equivalent";
-  if (normalizedListingStatus === "fixed_income") return "fixed_income";
-  if (normalizedListingStatus === "sec_common_equity") return "equity";
-  if (normalizedSymbolKind === "us_common_equity_ticker") return "equity";
-  if (isSecCommonEquityTicker) return "equity";
-
-  return "other";
-}
-
 function toPosition(raw: HoldingPosition, index: number): DashboardPosition | null {
   const rawSymbol = toText(raw.symbol).toUpperCase();
   const name = toText(raw.name);
@@ -226,19 +190,11 @@ function toPosition(raw: HoldingPosition, index: number): DashboardPosition | nu
 
   const sector = toText(raw.sector) || null;
   const assetType = toText(raw.asset_type || raw.asset_class) || null;
-  const explicitCashEquivalent = Boolean(raw.is_cash_equivalent);
   const explicitInvestableRaw = raw.is_investable;
   const explicitInvestable =
     typeof explicitInvestableRaw === "boolean" ? explicitInvestableRaw : null;
-  const assetBucket = classifyAssetBucket({
-    assetType: assetType || "",
-    instrumentKind: toText(raw.instrument_kind),
-    securityListingStatus: toText(raw.security_listing_status),
-    symbolKind: toText(raw.symbol_kind),
-    isSecCommonEquityTicker: Boolean(raw.is_sec_common_equity_ticker),
-    isCashEquivalent: explicitCashEquivalent,
-  });
-  const isCashEquivalent = explicitCashEquivalent || assetBucket === "cash_equivalent";
+  const assetBucket = normalizeHoldingInstrumentKind(raw);
+  const isCashEquivalent = assetBucket === "cash_equivalent";
   const marketValue = toPositiveNumber(raw.market_value);
 
   const debateEligible =

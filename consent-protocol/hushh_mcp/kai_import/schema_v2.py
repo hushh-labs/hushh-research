@@ -60,13 +60,36 @@ _ASSET_TYPE_KINDS = {
 }
 
 
-def normalize_instrument_kind_v2(instrument_kind: object, asset_type: object) -> str:
-    """Adopt the extractor's category; normalize only explicit legacy type aliases."""
+def normalize_instrument_kind_v2(
+    instrument_kind: object,
+    asset_type: object,
+    *,
+    security_listing_status: object = None,
+    symbol_kind: object = None,
+    is_sec_common_equity_ticker: bool = False,
+) -> str:
+    """Resolve allocation from declared kind, exact aliases, and listing metadata."""
     kind = str(instrument_kind or "").strip().lower()
-    if kind in INSTRUMENT_KINDS_V2:
+    if kind in INSTRUMENT_KINDS_V2 and kind != "other":
         return kind
-    if kind:
-        return "other"
     asset_key = str(asset_type or "").strip().lower().replace("-", "_").replace(" ", "_")
     # ETF/fund alone does not establish its underlying asset category.
-    return _ASSET_TYPE_KINDS.get(asset_key, "other")
+    asset_kind = _ASSET_TYPE_KINDS.get(asset_key)
+    if asset_kind is not None:
+        return asset_kind
+
+    status = str(security_listing_status or "").strip().lower()
+    listing_kind = str(symbol_kind or "").strip().lower()
+    if status == "cash_or_sweep":
+        return "cash_equivalent"
+    if status == "fixed_income":
+        return "fixed_income"
+    if status == "non_sec_common_equity" or listing_kind == "fund_or_etf_ticker":
+        return "other"
+    if (
+        status == "sec_common_equity"
+        or listing_kind == "us_common_equity_ticker"
+        or is_sec_common_equity_ticker
+    ):
+        return "equity"
+    return "other"
