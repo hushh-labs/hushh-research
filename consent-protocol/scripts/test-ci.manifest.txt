@@ -1747,3 +1747,8 @@ tests/services/test_calendar_email_followup_reader.py
 tests/test_calendar_followup_scheduler_contract.py
 tests/test_calendar_followup_deploy_gate.py
 tests/scripts/test_db_data_health.py
+
+# #9744 Wave 1 FedRAMP High Agent Sandbox warm pool, CAS sync, Sentinel egress, and ADK Terminal.
+tests/services/test_agent_sandbox_fedramp_controls.py
+tests/services/test_workspace_cas_sync_store.py
+tests/services/test_agent_sandbox_process_and_adk_terminal.py
