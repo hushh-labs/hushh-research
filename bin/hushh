@@ -83,6 +83,7 @@ Consent Protocol package commands:
   typecheck
   test
   test-ci
+  floci
   security
   accuracy
   ci
@@ -772,7 +773,7 @@ run_protocol() {
     sync|check-sync|push|push-force|verify-upstream-ci|verify-ci-parity|setup|verify-setup)
       exec bash "$REPO_ROOT/scripts/protocol/subtree.sh" "$subcommand" "$@"
       ;;
-    dev|lint|format|format-check|fix|typecheck|test|test-ci|security|accuracy|ci|clean)
+    dev|lint|format|format-check|fix|typecheck|test|test-ci|floci|security|accuracy|ci|clean)
       cd "$REPO_ROOT/consent-protocol"
       exec ./bin/consent-protocol "$subcommand" "$@"
       ;;

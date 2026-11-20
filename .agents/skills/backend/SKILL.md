@@ -74,5 +74,6 @@ Non-owned surfaces:
 
 ```bash
 ./bin/hushh protocol --help
+./bin/hushh protocol floci
 cd consent-protocol && python3 -m pytest tests -q
 ```

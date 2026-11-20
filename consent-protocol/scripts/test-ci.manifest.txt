@@ -1732,7 +1732,12 @@ tests/test_control_plane_retention_runner.py
 tests/test_floci_aws_wire_conformance.py
 # Wave 6 Hub Zero-Role Capability & Custody Broker and Tri-Cloud Floci (GCP + Azure) wire conformance.
 tests/test_floci_gcp_azure_wire_conformance.py
+tests/test_floci_umbrella_cell_and_hosted_azure.py
+tests/test_pod_prefix_storage_gateway.py
 tests/test_pod_capability_broker.py
+tests/test_pod_activation_and_upgrade_clearance.py
+tests/services/test_pod_workspace_9511.py
+tests/test_pooled_sandbox_cutover.py
 
 # Wave 17 Dev Horizontal Umbrella Cell scale-out and 14-day two-key source-pod retirement policy.
 tests/services/test_umbrella_scaleout_and_source_retirement.py

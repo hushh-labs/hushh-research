@@ -25,14 +25,9 @@ Use this reference when selecting backend/multi-cloud tests, auditing storage or
 ## Authoritative Floci Wire Suite Bundle
 
 ```bash
-cd consent-protocol && ./.venv/bin/python -m pytest \
-  tests/test_floci_aws_wire_conformance.py \
-  tests/test_floci_gcp_azure_wire_conformance.py \
-  tests/test_provider_capability_registry_and_aws_parity.py \
-  tests/test_pod_capability_broker.py \
-  tests/test_pod_activation_and_upgrade_clearance.py \
-  tests/services/test_wiki_phase5_floci_conformance.py \
-  tests/services/test_pod_workspace_9511.py -q
+./bin/hushh protocol floci
+# or inside consent-protocol:
+./bin/consent-protocol floci
 ```
 
 ## CI Validation Profile Calibration
