@@ -1,7 +1,7 @@
 BEGIN;
 -- Explicit private Check-In intent and saved ciphertext receipts. No point,
 -- precise place, note, map or message body belongs in these workflow records.
-CREATE TABLE one_location_check_in_operations (
+CREATE TABLE IF NOT EXISTS one_location_check_in_operations (
  id UUID PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
  client_operation_id TEXT NOT NULL CHECK(length(client_operation_id) BETWEEN 1 AND 160),
  duration_hours NUMERIC NOT NULL CHECK(duration_hours>0 AND duration_hours<=24),
@@ -11,7 +11,7 @@ CREATE TABLE one_location_check_in_operations (
  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(), settled_at TIMESTAMPTZ,
  UNIQUE(owner_user_id,client_operation_id)
 );
-CREATE TABLE one_location_check_in_targets (
+CREATE TABLE IF NOT EXISTS one_location_check_in_targets (
  operation_id UUID NOT NULL REFERENCES one_location_check_in_operations(id) ON DELETE CASCADE,
  target_id UUID NOT NULL DEFAULT gen_random_uuid(),
  recipient_user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE SET NULL, confirmed_grant_id UUID, confirmed_envelope_id UUID,
@@ -21,12 +21,12 @@ CREATE TABLE one_location_check_in_targets (
  CHECK((confirmed_grant_id IS NULL AND confirmed_envelope_id IS NULL AND confirmed_at IS NULL)
     OR (confirmed_grant_id IS NOT NULL AND confirmed_envelope_id IS NOT NULL AND confirmed_at IS NOT NULL))
 );
-CREATE INDEX one_location_check_in_grant ON one_location_check_in_targets(confirmed_grant_id) WHERE confirmed_grant_id IS NOT NULL;
-CREATE INDEX one_location_check_in_retention ON one_location_check_in_operations(settled_at) WHERE settled_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS one_location_check_in_grant ON one_location_check_in_targets(confirmed_grant_id) WHERE confirmed_grant_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS one_location_check_in_retention ON one_location_check_in_operations(settled_at) WHERE settled_at IS NOT NULL;
 COMMENT ON TABLE one_location_check_in_operations IS 'Owner-only private Check-In plan; 12-hour terminal workflow retention. Saved Feed receipts retain bounded counts, never points or private notes.';
 COMMENT ON TABLE one_location_check_in_targets IS 'Exact intended audience and atomic grant/envelope receipt; no location ciphertext or private note duplicated. Cascade with owner operation.';
 -- A grant ending updates the same Check-In operation, with dated outcome steps.
-CREATE FUNCTION one_location_check_in_grant_ended() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION one_location_check_in_grant_ended() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
  IF NEW.status='active' OR OLD.status=NEW.status THEN RETURN NEW; END IF;
  -- Do not lock another operation while a new share replaces this grant.
@@ -36,11 +36,12 @@ BEGIN
  WHERE confirmed_grant_id=NEW.id;
  RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS one_location_check_in_grant_ended ON one_location_share_grants;
 CREATE TRIGGER one_location_check_in_grant_ended AFTER UPDATE OF status ON one_location_share_grants
 FOR EACH ROW EXECUTE FUNCTION one_location_check_in_grant_ended();
 
 -- Attach only closed, scalar transition facts after the existing projections.
-CREATE FUNCTION one_location_feed_transition_facts() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION one_location_feed_transition_facts() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE source_key TEXT; operation UUID; origin_request UUID;
 BEGIN
  source_key := CASE
@@ -74,10 +75,11 @@ SELECT CASE WHEN count(*)=1 THEN min(id::text)::uuid END INTO origin_request
  AND f.source_row_id IN(NEW.id::text,NEW.id::text||':recipient',source_key);
  RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS zz_one_location_feed_transition_facts ON one_location_events;
 CREATE TRIGGER zz_one_location_feed_transition_facts AFTER INSERT ON one_location_events
 FOR EACH ROW EXECUTE FUNCTION one_location_feed_transition_facts();
  -- Capture the old incarnation before a future rejoin can overwrite joined_at.
-CREATE FUNCTION one_location_feed_membership_facts() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION one_location_feed_membership_facts() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE key TEXT;
 BEGIN
  IF OLD.status<>'active' OR NEW.status NOT IN('left','removed') THEN RETURN NEW; END IF;
@@ -88,6 +90,7 @@ BEGIN
  AND source_row_id=NEW.circle_id::text||':'||NEW.user_id||':'||NEW.joined_at::text;
  RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS zz_one_location_feed_membership_facts ON one_location_circle_memberships;
 CREATE TRIGGER zz_one_location_feed_membership_facts AFTER UPDATE OF status ON one_location_circle_memberships
 FOR EACH ROW EXECUTE FUNCTION one_location_feed_membership_facts();
 
