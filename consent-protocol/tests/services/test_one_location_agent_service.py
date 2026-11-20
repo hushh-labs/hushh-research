@@ -9417,7 +9417,10 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     assert "recipientClearedAt" not in owned[sos["id"]]
     assert all("recipientClearedAt" not in grant for grant in owned.values())
     assert all(
-        "feedLatestSms" not in grant and "feedSmsConfirmed" not in grant for grant in owned.values()
+        not {"feedLatestSms", "feedSmsConfirmed", "feedItemId", "feedConfirmedAt"}.intersection(
+            grant
+        )
+        for grant in owned.values()
     )
 
 

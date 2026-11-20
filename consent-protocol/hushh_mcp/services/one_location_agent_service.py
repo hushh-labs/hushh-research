@@ -3012,9 +3012,6 @@ class OneLocationAgentService:
             ),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
-            "feedSmsConfirmed": row.get("feed_sms_confirmed") is True,
-            "feedItemId": str(row["feed_item_id"]) if row.get("feed_item_id") is not None else None,
-            "feedConfirmedAt": _iso(row.get("feed_confirmed_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
             "latestEnvelopeId": str(row.get("latest_envelope_id") or "") or None,
@@ -9350,6 +9347,9 @@ class OneLocationAgentService:
                 {
                     **payload,
                     "recipientClearedAt": _iso(row.get("recipient_cleared_at")),
+                    "feedItemId": str(row["feed_item_id"])
+                    if row.get("feed_item_id") is not None
+                    else None,
                     "feedConfirmedAt": _iso(row.get("feed_confirmed_at")),
                     **(
                         {"feedLatestSms": row["feed_latest_sms"]}

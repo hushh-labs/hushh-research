@@ -58,6 +58,7 @@ function UnlockedFileSearch({ criteria, revision, onCount, capture }: Options & 
     const next = { ...(append ? old : {}) };
     result.forEach((value, index) => {
       const audience = roles[index];
+      if (audience === undefined) return;
       if (value.status === "rejected") { next[audience] = { files: append ? old[audience]?.files || [] : [], cursor: old[audience]?.cursor || null, failed: true, checked: true }; return; }
       const { files, nextCursor } = value.value.page;
       next[audience] = { files: [...new Map([...(append ? old[audience]?.files || [] : []), ...files].map(file => [file.fileRef, file])).values()], cursor: nextCursor, checked: true };

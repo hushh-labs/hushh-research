@@ -1477,7 +1477,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read the person's Location sharing/setup, device permission (separate from app sharing), active and incoming share counts, pending requests, active links, Save My Soul, and map visibility. Read only. This does not read or change the device's Location updates switch.",
+      "description": "Read the person's Location sharing/setup, device permission (separate from app sharing), active and incoming share counts, pending requests, active links, Save My Soul, and map visibility. Read only. This does not read or change this device's Location updates switch.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_now",
       "name": "get_location_status",

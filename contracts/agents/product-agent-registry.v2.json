@@ -5612,7 +5612,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "71bc8dc2f911c79e5e32e1ea1e4d9f811134012e75bcb5093caa5579c7a7b44f",
+      "system_instruction_sha256": "e2517632f1e5194f09ce91ac7c21fb46a64ca8ae7c62f285f2cbf0368f881441",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

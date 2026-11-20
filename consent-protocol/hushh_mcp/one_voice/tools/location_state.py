@@ -1087,7 +1087,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         description=(
             "Read the person's Location sharing/setup, device permission (separate from app "
             "sharing), active and incoming share counts, pending requests, active links, "
-            "Save My Soul, and map visibility. Read only. This does not read or change the "
+            "Save My Soul, and map visibility. Read only. This does not read or change this "
             "device's Location updates switch."
         ),
         handler=get_location_status,
