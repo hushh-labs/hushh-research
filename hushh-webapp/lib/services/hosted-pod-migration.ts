@@ -190,7 +190,7 @@ export function parseHostedSourceRetirementItems(raw: unknown): HostedSourceReti
       resourceHint: asString(entry.resourceHint),
       detachedAt: asString(entry.detachedAt),
       graceReapAfter: asString(entry.graceReapAfter),
-      daysRemaining: Math.max(0, asNumber(entry.daysRemaining, 14)),
+      daysRemaining: Math.max(0, asNumber(entry.daysRemaining, 3)),
       graceExpired: entry.graceExpired === true,
       ownerConfirmed: entry.ownerConfirmed === true,
       confirmedAt: typeof entry.confirmedAt === "string" ? entry.confirmedAt : null,

@@ -1054,6 +1054,14 @@ def main() -> int:
     bind_host = str(os.environ.get("SENTINEL_BIND_HOST") or "")
     raw_allow_hosts = str(os.environ.get("SENTINEL_SYSTEM_ALLOW_HOSTS") or "")
     allow_hosts = [part.strip() for part in raw_allow_hosts.split(",") if part.strip()]
+    if (os.environ.get("SENTINEL_DISABLE_GOOGLE_OIDC_CERTS") or "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        for cert_host in ("www.googleapis.com", "oauth2.googleapis.com"):
+            if cert_host not in allow_hosts:
+                allow_hosts.append(cert_host)
     runtime = SentinelProxyRuntime(
         hmac_key=raw_hmac,
         control_token=control_token,

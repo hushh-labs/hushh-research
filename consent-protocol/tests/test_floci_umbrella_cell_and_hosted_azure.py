@@ -605,7 +605,7 @@ async def test_e2e_owner_byoc_azure_migration_to_hushone_inc_hosted_slot_zero_lo
     assert meta["endpointVersion"] == 4
     assert meta["bindings"]["dev-1"]["version"] == 2
     assert meta["detachedPlacements"][0]["deploymentTarget"] == "user_azure"
-    assert meta["detachedPlacements"][0]["graceDays"] == 14
+    assert meta["detachedPlacements"][0]["graceDays"] == 3
     assert any(call.startswith("release:") for call in handoff_calls)
 
     status_view = await get_owner_hosted_azure_migration_status(
@@ -1076,7 +1076,7 @@ async def test_hosted_azure_migration_fresh_pod_log_opt_in_and_fail_closed_guard
     assert res_strict["status"] == "failed"
     assert reg_strict.row["deployment_target"] == "user_azure"
 
-    # Explicit allow_fresh_pod_log=True succeeds ONLY on POD_REFUSED_400 with 14-day grace.
+    # Explicit allow_fresh_pod_log=True succeeds ONLY on POD_REFUSED_400 with 3-day grace.
     PodSkeletonPoolService.reset_process_claims()
     reg_opt = _InMemoryRegistryRepo(_source_row())
     jobs_opt = _InMemoryMigrationJobRepo()
@@ -1106,7 +1106,7 @@ async def test_hosted_azure_migration_fresh_pod_log_opt_in_and_fail_closed_guard
     assert res_opt["directPromoted"] is True
     assert reg_opt.row["deployment_target"] == "azure"
     assert reg_opt.row["backend_metadata"]["migrationMode"] == "fresh_pod_log_with_source_grace"
-    assert reg_opt.row["backend_metadata"]["detachedPlacements"][0]["graceDays"] == 14
+    assert reg_opt.row["backend_metadata"]["detachedPlacements"][0]["graceDays"] == 3
 
     # Non-400 transport failures MUST still fail closed even when allow_fresh_pod_log=True.
     PodSkeletonPoolService.reset_process_claims()
@@ -1595,7 +1595,7 @@ def test_switch_over_sql_executes_against_real_postgres_registry_columns(
         assert updated["status"] == "provisioned"
         assert updated["placement_epoch"] == 3
         assert updated["user_cloud_resource_group"] is None
-        assert updated["backend_metadata"]["detachedPlacements"][0]["graceDays"] == 14
+        assert updated["backend_metadata"]["detachedPlacements"][0]["graceDays"] == 3
     finally:
         engine.dispose()
 

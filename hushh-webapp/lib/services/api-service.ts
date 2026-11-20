@@ -2031,6 +2031,7 @@ export class ApiService {
 
   static async adoptPooledSandbox(options?: {
     allowCleanSlate?: boolean;
+    removePriorCloudResources?: boolean;
     isEffectCurrent?: () => boolean;
   }): Promise<{
     status: string;
@@ -2039,6 +2040,9 @@ export class ApiService {
     hushhId: string;
     podUrl: string;
     detachedPriorHost: boolean;
+    migrationMode?: string;
+    syncedRecordCount?: number;
+    backgroundCleanupQueued?: boolean;
   }> {
     const token = await this.getFirebaseToken();
     const response = await apiFetch("/api/one/runtime/pooled-sandbox/adopt", {
@@ -2050,6 +2054,9 @@ export class ApiService {
       },
       body: JSON.stringify({
         allowCleanSlate: options?.allowCleanSlate === true,
+        ...(options?.removePriorCloudResources === true
+          ? { removePriorCloudResources: true }
+          : {}),
       }),
     });
     const payload = await response.json().catch(() => null);

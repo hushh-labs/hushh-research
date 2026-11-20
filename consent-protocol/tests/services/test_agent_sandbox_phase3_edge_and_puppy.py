@@ -76,6 +76,8 @@ def _clean_pod_env() -> Generator[None, None, None]:
         "CONSENT_ED25519_PUBLIC_KEYS",
         "OWNER_FEED_ED25519_PUBLIC_KEYS",
         "HUSSH_POD_TURN_ENABLED",
+        "HUSSH_POD_MIGRATION_ENABLED",
+        "HUSSH_POD_TICK_AUDIENCE",
         "POD_AGENT_MEMORY_ENABLED",
         "POD_DIRECTIVE_TRANSPORT_ENABLED",
         "HUSSH_POD_BROWSER_ENABLED",
@@ -190,7 +192,6 @@ class _LocalStandbyClaimClient(SandboxClaimPort):
     ) -> ClaimedSandboxEndpoint:
         self.counter += 1
         sandbox_name = f"sbx-live-{self.counter}"
-        port = _free_port()
         holder: dict[str, Any] = {}
 
         def _launch_fake_pod(bind_host: str, target_port: int) -> None:
@@ -241,7 +242,7 @@ class _LocalStandbyClaimClient(SandboxClaimPort):
 
         runtime = VirginStandbyRuntime(
             bind_host="127.0.0.1",
-            port=port,
+            port=0,
             activation_guard=self.activation_guard,
             tmp_dir=self.tmp_dir,
             asgi_launcher=_launch_fake_pod,
@@ -288,7 +289,7 @@ async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(
         admin_header_value=admin_check,
         pod_url_base="https://edge.dev.example",
         claim_timeout_s=15.0,
-        health_poll_timeout_s=10.0,
+        health_poll_timeout_s=15.0,
         clock_s=lambda: now_clock["t"],
     )
     gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
@@ -461,7 +462,6 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         ) -> ClaimedSandboxEndpoint:
             self.counter += 1
             sandbox_name = f"sbx-stream-{self.counter}"
-            port = _free_port()
             holder: dict[str, Any] = {}
 
             def _launch_fake_pod(bind_host: str, target_port: int) -> None:
@@ -481,6 +481,8 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
                         "gw_url": os.environ.get("HUSSH_MODEL_GATEWAY_URL"),
                         "has_surrogate": bool(os.environ.get("HUSSH_MODEL_GATEWAY_TOKEN")),
                         "turn_enabled": os.environ.get("HUSSH_POD_TURN_ENABLED"),
+                        "migration_enabled": os.environ.get("HUSSH_POD_MIGRATION_ENABLED"),
+                        "tick_audience": os.environ.get("HUSSH_POD_TICK_AUDIENCE"),
                     }
 
                 @pod_app.post("/api/one/turn/stream")
@@ -500,7 +502,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
 
             runtime = VirginStandbyRuntime(
                 bind_host="127.0.0.1",
-                port=port,
+                port=0,
                 activation_guard=self.activation_guard,
                 tmp_dir=self.tmp_dir,
                 asgi_launcher=_launch_fake_pod,
@@ -534,7 +536,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         sentinel_vertex_location="global",
         enable_prefix_storage=True,
         claim_timeout_s=15.0,
-        health_poll_timeout_s=10.0,
+        health_poll_timeout_s=15.0,
     )
     gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
     gw_port = _free_port()
@@ -582,6 +584,8 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
             )
             assert body["has_surrogate"] is True
             assert body["turn_enabled"] == "true"
+            assert body["migration_enabled"] == "true"
+            assert body["tick_audience"] == "https://edge.dev.example/u/owner_cors"
             assert sentinel_runtime.lease_for_ip("127.0.0.1")[1] == "owner_cors"
 
             # 3. SSE streams cleanly

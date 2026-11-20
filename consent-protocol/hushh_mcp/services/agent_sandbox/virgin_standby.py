@@ -186,6 +186,10 @@ class VirginStandbyRuntime:
                 if self.path not in {"/health", "/healthz", "/readyz", "/"}:
                     self._send_json(404, {"code": "NOT_FOUND"})
                     return
+                if runtime.activated:
+                    # Wait until uvicorn takes over the port before reporting Ready.
+                    self._send_json(503, {"status": "activating_handoff"})
+                    return
                 self._send_json(200, build_readiness_payload(uid=runtime._uid))
 
             def do_POST(self) -> None:  # noqa: N802
@@ -240,6 +244,7 @@ class VirginStandbyRuntime:
                     os.environ["HUSSH_POD_PRIVATE_KEY_FILE"] = str(key_file)
                     os.environ["HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD"] = "1"
                     os.environ.setdefault("HUSSH_POD_TURN_ENABLED", "true")
+                    os.environ.setdefault("HUSSH_POD_MIGRATION_ENABLED", "true")
                     os.environ.setdefault("POD_AGENT_MEMORY_ENABLED", "true")
                     os.environ.setdefault("POD_DIRECTIVE_TRANSPORT_ENABLED", "true")
                     os.environ.setdefault("HUSSH_POD_BROWSER_ENABLED", "true")
@@ -255,7 +260,7 @@ class VirginStandbyRuntime:
 
                     ensure_pod_sandbox_signing_key()
                     for opt_field, env_names in (
-                        ("pod_url", ("POD_URL",)),
+                        ("pod_url", ("POD_URL", "HUSSH_POD_TICK_AUDIENCE")),
                         ("hub_url", ("HUSSH_HUB_URL", "HUSSH_HUB_BASE_URL")),
                         (
                             "scheduler_caller_emails",

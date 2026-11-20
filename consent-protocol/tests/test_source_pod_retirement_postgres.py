@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Real PostgreSQL constraint-trigger & sweeper tests for 14-day source-pod retirement."""
+"""Real PostgreSQL constraint-trigger & sweeper tests for 3-day source-pod retirement."""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ async def test_postgres_two_key_retirement_preserves_detached_custody_and_founde
 
     t0 = datetime(2026, 11, 18, 0, 0, tzinfo=timezone.utc)
     past_grace = (t0 - timedelta(hours=2)).isoformat()
-    future_grace = (t0 + timedelta(days=13)).isoformat()
+    future_grace = (t0 + timedelta(days=2)).isoformat()
 
     founder_hold = {
         "detachedAt": "2026-11-01T00:00:00+00:00",
@@ -153,7 +153,7 @@ async def test_postgres_two_key_retirement_preserves_detached_custody_and_founde
         "user_cloud_tenant_id": "11111111-1111-1111-1111-111111111111",
         "user_cloud_subscription_id": "22222222-2222-2222-2222-222222222222",
         "user_cloud_resource_group": "rg-owner-hold",
-        "graceDays": 14,
+        "graceDays": 3,
         "graceReapAfter": future_grace,
         "backend_metadata": {"notificationCheckpoint": {"phase": "observed"}},
     }
@@ -165,7 +165,7 @@ async def test_postgres_two_key_retirement_preserves_detached_custody_and_founde
             "/subscriptions/3f5a1e87-97d6-4f05-b4ce-0e2cc675e118/resourceGroups/"
             "rg-hussh-cell-dev-eastus2-01/providers/Microsoft.App/containerApps/ca-pod-slot02"
         ),
-        "graceDays": 14,
+        "graceDays": 3,
         "graceReapAfter": past_grace,
         "backend_metadata": {
             "cellId": "cell-az-eastus2-dev-01",
@@ -179,7 +179,7 @@ async def test_postgres_two_key_retirement_preserves_detached_custody_and_founde
         "external_agent_id": "pod-old-gcp-123",
         "user_cloud_project": "hushh-pda-dev",
         "user_cloud_region": "us-central1",
-        "graceDays": 14,
+        "graceDays": 3,
         "graceReapAfter": past_grace,
         "backend_metadata": {"notificationCheckpoint": {"phase": "observed"}},
     }
