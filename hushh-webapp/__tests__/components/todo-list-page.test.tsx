@@ -279,6 +279,21 @@ describe("TodoListPage row actions", () => {
     expect(editor.changeDraft({ ...draft, title: "Late old editor" } as never)).toBe(false);
   });
 
+  it.each(["wallet", "messages", "ria", "pkm"] as const)("reports unavailable selected %s reads instead of claiming no pending work", async capability => {
+    mocks.events = [];
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [], selectedCapabilities: [capability] });
+    mocks.reads = [{ coverage: { capability, count: 0, status: "unavailable" }, evidence: [] }];
+    const view = render(<TodoListPage />);
+    expect(await screen.findByText("Some tasks couldn’t load.")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "No tasks yet" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    expect(mocks.retrySources).toHaveBeenCalledOnce();
+    mocks.reads = [{ coverage: { capability, count: 0, status: "ready" }, evidence: [] }];
+    view.rerender(<TodoListPage />);
+    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(screen.queryByText("Some tasks couldn’t load.")).not.toBeInTheDocument();
+  });
+
   it("shows a truthful empty collection and distinguishes completed-only state", async () => {
     mocks.events = [];
     const view = render(<TodoListPage />);

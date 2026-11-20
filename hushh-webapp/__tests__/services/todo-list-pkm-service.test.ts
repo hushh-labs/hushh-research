@@ -214,6 +214,17 @@ function mockSuccessfulWrite() {
 }
 
 describe("TodoListPkmService", () => {
+  it.each([
+    ["2024-02-29", "2024-02-29"], ["2099-01-01", "2099-01-01"],
+    [" 2026-11-20 ", "2026-11-20"], ["2026-02-31", null],
+    ["2025-02-29", null], ["2026-04-31", null], ["2026-13-01", null],
+    ["2026-01-00", null], ["0000-01-01", null], ["2026-11-20junk", null],
+  ])("normalizes the saved calendar date %s without dropping its task", (date, expected) => {
+    const state = readTodoListState({ _private: { tasks: [{ ...task, date, time: "99:99" }] } });
+    expect(state.tasks).toHaveLength(1);
+    expect(state.tasks[0]).toMatchObject({ id: task.id, title: task.title, date: expected, time: null });
+  });
+
   it("changes only the selected task and preserves unknown saved fields and opaque records", async () => {
     const save = mockSuccessfulWrite();
     const changed = { ...task, futureField: { keep: "selected" } };

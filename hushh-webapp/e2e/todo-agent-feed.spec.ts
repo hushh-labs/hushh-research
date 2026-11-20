@@ -30,7 +30,9 @@ for (const width of [393, 1280]) {
     await page.getByRole("button", { name: "Task sources", exact: true }).click();
     await dialog.getByRole("checkbox", { name: "Consent", exact: true }).uncheck();
     await expect(dialog.getByRole("checkbox", { name: "Consent", exact: true })).toBeChecked();
-    await expect(dialog.getByText("Couldn’t save. Try again.")).toBeVisible();
+    await expect(dialog.getByRole("alert")).toHaveText("Couldn’t save. Try again.");
+    const failureBox = (await dialog.getByRole("alert").boundingBox())!;
+    expect(failureBox.y + failureBox.height).toBeLessThanOrEqual(900);
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Toggle save failure" }).click();
     await page.getByRole("button", { name: "Review Alex's connection request", exact: true }).click();
@@ -47,7 +49,7 @@ for (const width of [393, 1280]) {
     await detail.getByRole("button", { name: "Mark as not completed", exact: true }).click();
     await expect(detail.getByRole("status")).toHaveText("To do");
     await remove.click();
-    await detail.getByRole("button", { name: "Remove task", exact: true }).click();
+    await expect(page.getByText("Remove this task?", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -72,6 +74,8 @@ test.beforeAll(async () => {
   );
   const overrides: Record<string, string> = {
     "hooks/use-auth.ts": "useAuth",
+    "lib/firebase/config.ts": "app,auth,prepareRecaptchaVerifier,resetRecaptcha",
+    "lib/services/auth-service.ts": "AuthService",
     "lib/vault/vault-context.tsx": "useVault",
     "lib/feed/use-feed-actionables.ts": "useFeedActionables",
     "lib/feed/use-feed-briefing.ts": "useFeedBriefing",
@@ -110,6 +114,7 @@ test.beforeAll(async () => {
           const relative = path.relative(root, clean).split(path.sep).join("/");
           if (overrides[relative])
             return `export {${overrides[relative]}} from ${JSON.stringify(boundary)};`;
+          if (clean.endsWith("/node_modules/next/navigation.js")) return `export {useSearchParams,usePathname,useRouter} from ${JSON.stringify(boundary)};`;
           if (clean.endsWith("/node_modules/next/link.js"))
             return `export {default} from ${JSON.stringify(boundary)};`;
         },
