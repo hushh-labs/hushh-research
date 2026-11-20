@@ -30,8 +30,9 @@ export function TodoTaskSources({ persistence, selected, coverage, evidence, loa
   return <>
     <Button variant="none" effect="fade" size="compact" disabled={disabled} onClick={() => setOpen(true)}>Task sources</Button>
     <Sheet open={open} onOpenChange={next => { if (!saving) setOpen(next); }}>
-      <SheetContent side="bottom" className="mx-auto max-h-[85dvh] sm:max-w-lg overflow-y-auto rounded-t-3xl">
+      <SheetContent side="bottom" className="mx-auto max-h-[85dvh] sm:max-w-lg overflow-hidden rounded-t-3xl">
         <SheetHeader><SheetTitle>Task sources</SheetTitle><SheetDescription>Choose what contributes to your tasks.</SheetDescription></SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="divide-y">
           {taskCapabilities().map(source => {
             const id = source.id as TaskCapability, checked = selected.includes(id);
@@ -42,8 +43,9 @@ export function TodoTaskSources({ persistence, selected, coverage, evidence, loa
             </label>;
           })}
         </div>
-        {error ? <p role="status">Couldn’t save. Try again.</p> : null}
         <TodoAgentSuggestions {...persistence} selectedCapabilities={selected} coverage={coverage} evidence={evidence.filter(item => !item.pendingTitle)} loading={loading || saving} onRefresh={onRefresh} onSaved={onSaved} />
+        </div>
+        {error ? <p role="alert" className="shrink-0 text-sm text-destructive">Couldn’t save. Try again.</p> : null}
       </SheetContent>
     </Sheet>
   </>;

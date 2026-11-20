@@ -21,7 +21,8 @@ import {
   SectionLabel,
 } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
-import { taskSort, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { normalizeTodoDate, taskSort, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { cn } from "@/lib/utils";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
@@ -48,8 +49,9 @@ function isSameLocalDay(left: Date, right: Date): boolean {
 }
 
 function dateFromKey(value: string | null): Date | null {
-  if (!value) return null;
-  const date = new Date(`${value}T00:00:00`);
+  const key = normalizeTodoDate(value);
+  if (!key) return null;
+  const date = new Date(`${key}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -81,10 +83,11 @@ export { taskSort } from "@/lib/todos/todo-list-model";
 export function groupByDate(tasks: TodoItem[]): DateGroup[] {
   const groups = new Map<string, DateGroup>();
   for (const task of [...tasks].sort(taskSort)) {
-    const id = task.date ?? "anytime";
+    const date = normalizeTodoDate(task.date);
+    const id = date ?? "anytime";
     const group = groups.get(id) ?? {
       id,
-      label: task.date ? formatDateLabel(task.date) : "Any time",
+      label: date ? formatDateLabel(date) : "Any time",
       overdue: isOverdue(task),
       tasks: [],
     };
@@ -203,10 +206,10 @@ export function TodoRow({
   });
   const source = task.sourceAgent;
   const time = task.time
-    ? new Intl.DateTimeFormat(undefined, {
+    ? formatLocalDateTime(`1970-01-01T${task.time}:00`, {
         hour: "numeric",
         minute: "2-digit",
-      }).format(new Date(`1970-01-01T${task.time}:00`))
+      })
     : source === "calendar" && task.date
       ? "All day"
       : null;

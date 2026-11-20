@@ -182,3 +182,15 @@ export default function Link({
     </a>
   );
 }
+
+// Isolated Next route context for the Tasks browser fixture.
+export function useSearchParams() { return new URLSearchParams(window.location.search); }
+export function usePathname() { return "/one/tasks"; }
+export function useRouter() { return { push: (href: string) => change({ href }), replace: (href: string) => change({ href }), refresh: () => {} }; }
+
+// Firebase/provider calls stay synthetic even through native workspace imports.
+export const app = null;
+export const auth = null;
+export const AuthService = { getCurrentUser: () => ({ uid: "fixture-owner" }), getIdToken: async () => "fixture-only" };
+export const prepareRecaptchaVerifier = () => { throw new Error("Authentication mutations are outside this fixture"); };
+export const resetRecaptcha = () => {};
