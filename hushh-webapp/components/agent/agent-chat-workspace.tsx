@@ -227,7 +227,6 @@ import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
-  isRoutineReadinessTool,
   connectorBrandForTool,
   AgentActivityMark,
   agentActivityIconForTool,

@@ -18,7 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
-import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import { CacheService } from "@/lib/services/cache-service";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { cn } from "@/lib/utils";
