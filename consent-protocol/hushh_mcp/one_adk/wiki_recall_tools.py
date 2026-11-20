@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 WIKI_RECALL_SCHEMA = "hussh.wiki.recall.v1"
 WIKI_TOOL_NAMES: frozenset[str] = frozenset({"search_wiki", "read_wiki_page", "trace_claim"})
-STATE_WIKI_CLIENT_READY = "hussh:wiki_client_ready"
+STATE_WIKI_CLIENT_READY = "temp:hussh:wiki_client_ready"
 STATE_WIKI_PENDING = "hussh:wiki_pending_calls"
 STATE_WIKI_HOT_DIGEST = "temp:hussh:wiki_hot_digest"
 STATE_WIKI_RESULT = "temp:hussh:wiki_result"
