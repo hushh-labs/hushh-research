@@ -186,6 +186,21 @@ async def _recipient_binding(
                FROM developer_connector_keys WHERE app_id=$1 AND status='active'""",
             app_id,
         )
+        if not key:
+            has_any_registered_key = await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM developer_connector_keys WHERE app_id=$1)",
+                app_id,
+            )
+            if not has_any_registered_key:
+                meta_key_id = str(metadata.get("connector_key_id") or "").strip()
+                meta_pub_key = str(metadata.get("connector_public_key") or "").strip()
+                meta_alg = str(metadata.get("connector_wrapping_alg") or "").strip()
+                if meta_key_id and meta_pub_key and meta_alg:
+                    key = {
+                        "connector_key_id": meta_key_id,
+                        "connector_public_key": meta_pub_key,
+                        "connector_wrapping_alg": meta_alg,
+                    }
         duration = int(metadata.get("expiry_hours") or 24) * 3600
         purpose = str(metadata.get("reason") or "")
     return payer, key, duration, purpose
