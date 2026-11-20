@@ -606,9 +606,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
           </div>
         ) : null}
-        {writeReady && emailReadError ? (
+        {writeReady && (emailReadError || (liveTasks.sourceError && !agentLoadError && !calendarReadError)) ? (
           <div className="flex items-center gap-2" role="status">
-            <HelperText as="p">Email tasks couldn’t load.</HelperText>
+            <HelperText as="p">{emailReadError ? "Email tasks couldn’t load." : "Some tasks couldn’t load."}</HelperText>
             <Button variant="none" effect="fade" size="compact" onClick={() => { void liveTasks.refreshSources(); }}>Retry</Button>
           </div>
         ) : null}
@@ -669,7 +669,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             onDelete={requestDelete}
             onOpen={setDetail}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading || liveTasks.sourceError ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
