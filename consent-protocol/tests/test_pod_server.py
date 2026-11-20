@@ -30,6 +30,7 @@ def test_pod_mounts_the_agent_and_health_surface():
     paths = _paths()
     for expected in (
         "/health",
+        "/healthz",
         "/health/ready",
         "/pod/info",
         "/api/one/a2a/card",
@@ -395,6 +396,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/todos/suggestions",
         "/api/one/pod/todos/suggestions/status",
         "/health",
+        "/healthz",
         "/health/ready",
         # Capabilities remain private; only liveness is public. Each command/Files route
         # enforces its scoped session; worker verifies its exact queue identity instead.

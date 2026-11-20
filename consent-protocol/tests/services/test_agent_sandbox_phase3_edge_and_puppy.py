@@ -83,6 +83,10 @@ def _clean_pod_env() -> Generator[None, None, None]:
         "GOOGLE_GENAI_USE_VERTEXAI",
         "ACE_SANDBOX_ID",
         "ENVIRONMENT",
+        "HUSSH_POD_METADATA_IDENTITY_DISABLED",
+        "POD_HOST_KIND",
+        "POD_FILES_ENABLED",
+        "HUSSH_POD_FILES_ENABLED",
     )
     saved = {k: os.environ.get(k) for k in tracked}
     reset_pod_keypair_cache_for_tests()
@@ -620,3 +624,66 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         for cname in list(claim_client.runtimes):
             claim_client.delete_claim(cname)
         sentinel_runtime.stop()
+
+
+def test_virgin_standby_prewarm_and_hub_broker_activation_envs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Standby prewarm must succeed without APP_SIGNING_KEY and set zero-metadata + Files envs."""
+    from hushh_mcp.services.agent_sandbox.virgin_standby import prewarm_runtime_imports
+
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    prewarm_runtime_imports()
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+    priv = X25519PrivateKey.generate()
+    priv_b64 = base64.b64encode(
+        priv.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+    ).decode("ascii")
+
+    launched: dict[str, Any] = {}
+
+    def _capture_launcher(host: str, port: int) -> None:
+        launched["host"] = host
+        launched["port"] = port
+        launched["metadata_disabled"] = os.environ.get("HUSSH_POD_METADATA_IDENTITY_DISABLED")
+        launched["files_enabled"] = os.environ.get("POD_FILES_ENABLED")
+        launched["host_kind"] = os.environ.get("POD_HOST_KIND")
+
+    runtime = VirginStandbyRuntime(
+        bind_host="127.0.0.1",
+        port=0,
+        tmp_dir=tmp_path,
+        asgi_launcher=_capture_launcher,
+        uid=10001,
+    )
+    runtime.start_background()
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            assert client.get(f"http://127.0.0.1:{runtime.port}/healthz").status_code == 200
+            act = client.post(
+                f"http://127.0.0.1:{runtime.port}/internal/v1/activate-lease",
+                json={
+                    "hushh_id": "ha1_prewarm_check",
+                    "owner_id": "owner-prewarm",
+                    "lease_id": "lease_prewarm",
+                    "pod_private_key_b64": priv_b64,
+                    "sandbox_name": "sbx-prewarm",
+                    "pod_storage_prefix_token_url": (
+                        "https://dev.api.hussh.ai/api/one/pod/storage-gateway/pods/ha1_prewarm_check"
+                    ),
+                },
+            )
+            assert act.status_code == 200
+    finally:
+        runtime.stop()
+
+    assert launched.get("metadata_disabled") == "1"
+    assert launched.get("files_enabled") == "true"
+    assert launched.get("host_kind") == "gcp_ace"

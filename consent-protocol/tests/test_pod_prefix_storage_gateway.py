@@ -182,3 +182,81 @@ async def test_prefix_storage_gateway_roundtrip_commit_log_and_fences(
                 await fresh_epoch_store.get("head.json")
     finally:
         set_storage_gateway_overrides_for_tests()
+
+
+async def test_files_prefix_store_supports_subprefix_workspace_and_hub_broker_custody(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from hushh_mcp.services.pod_files import runtime as files_runtime
+    from hushh_mcp.services.pod_files.library import FilesRefused
+    from hushh_mcp.services.pod_files.storage import FilesPrefixStore
+
+    secret = "prefix_gateway_test_secret_material_32b"  # noqa: S105
+    base_url = "http://127.0.0.1:8080/api/one/pod/storage-gateway/pods/ha1_ws_01"
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("APP_SIGNING_KEY", "test-signing-key-32-chars-minimum-01")
+    monkeypatch.setenv(BROKER_SEAL_SECRET_ENV, secret)
+    monkeypatch.setenv(PREFIX_ALLOW_LOOPBACK_HTTP_ENV, "1")
+    monkeypatch.setenv("POD_STORAGE_PREFIX_TOKEN_URL", base_url)
+    monkeypatch.setenv("HUSSH_POD_CUSTODY_MODE", "hub_broker")
+
+    backing = LocalObjectStore(tmp_path / "gw")
+    reg = _FakeRegistry(
+        {
+            "user_id": "owner-ws-01",
+            "hushh_id": "ha1_ws_01",
+            "placement_epoch": 1,
+            "status": "provisioned",
+            "backend_metadata": {},
+        }
+    )
+    set_storage_gateway_overrides_for_tests(
+        store_factory=lambda: backing, registry_factory=lambda: reg
+    )
+
+    try:
+        app = FastAPI()
+        app.include_router(gateway_router)
+        with TestClient(app) as http:
+            adapter = _TestClientRequestsAdapter(http)
+
+            def token_provider() -> tuple[str, int]:
+                token, _claims = mint_prefix_gateway_token(
+                    hushh_id="ha1_ws_01",
+                    owner_id="owner-ws-01",
+                    placement_epoch=1,
+                    ttl_seconds=600,
+                )
+                return token, 600
+
+            files_store = FilesPrefixStore(
+                base_url, subprefix="files/v1", token_provider=token_provider, session=adapter
+            )
+            assert files_runtime.custody_key_reference() == "hub_broker"
+            retention = await files_store.verify_bucket("hub_broker")
+            assert retention["custodyMode"] == "hub_broker"
+            with pytest.raises(FilesRefused):
+                await files_store.verify_bucket("wrong-kms")
+
+            ver = await files_store.put_if_generation("entries/item1.bin", b"cipher-file", ABSENT)
+            assert ver is not None
+            raw = await backing.get("pods/ha1_ws_01/files/v1/entries/item1.bin")
+            assert raw == b"cipher-file"
+            listed, next_cur = await files_store.list_page("entries", limit=10)
+            assert listed == ["entries/item1.bin"]
+            assert next_cur == ""
+
+            ws_store = files_runtime._resolve_pod_root_workspace_store(files_store)
+            assert isinstance(ws_store, FilesPrefixStore)
+            assert ws_store._subprefix == ""
+            ws_ver = await ws_store.put_if_generation(
+                "workspaces/v1/ws_default/heads/current", b"cipher-ws", ABSENT
+            )
+            assert ws_ver is not None
+            assert (
+                await backing.get("pods/ha1_ws_01/workspaces/v1/ws_default/heads/current")
+                == b"cipher-ws"
+            )
+    finally:
+        set_storage_gateway_overrides_for_tests()

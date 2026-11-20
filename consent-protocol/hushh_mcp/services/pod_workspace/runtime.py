@@ -49,6 +49,11 @@ def current_pod_host_kind() -> str:
         return explicit
     if os.getenv("CONTAINER_APP_NAME"):
         return "azure_container_apps"
+    if (
+        os.getenv("ACE_SANDBOX_ID")
+        or (os.getenv("HUSSH_POD_CUSTODY_MODE") or "").strip().lower() == "hub_broker"
+    ):
+        return "gcp_ace"
     return "gcp_cloud_run"
 
 

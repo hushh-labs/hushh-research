@@ -487,6 +487,12 @@ def _self_report() -> dict:
     return report
 
 
+@app.get("/healthz", tags=["Health"])
+def healthz() -> dict:
+    """Kubernetes SandboxTemplate readinessProbe alias mirroring /health."""
+    return health.health()
+
+
 @app.get("/pod/public-key", tags=["pod"])
 def pod_public_key() -> dict:
     """This pod's PUBLIC key, for the hub to record against this agent's row.
