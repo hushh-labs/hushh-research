@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useState, type FormEvent } from "react";
+import { FocusScope } from "@radix-ui/react-focus-scope";
+import { usePathname } from "next/navigation";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 import {
   Sheet,
@@ -14,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
+import styles from "./todo-add-item-sheet.module.css";
 
 export type EditableTodoFields = {
   title: string;
@@ -30,12 +34,18 @@ export function TodoAddItemSheet({
   open,
   saving,
   error,
+  presentation = "sheet",
+  onBackChange,
+  onCloseAutoFocus,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
   saving: boolean;
   error?: string | null;
+  presentation?: "sheet" | "pane";
+  onBackChange?: (handler: (() => boolean) | null) => void;
+  onCloseAutoFocus?: () => void;
   onOpenChange: (open: boolean) => void;
   onSave: (input: EditableTodoFields) => Promise<void>;
 }) {
@@ -44,6 +54,19 @@ export function TodoAddItemSheet({
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
+  const titleId = useId();
+  const pathname = usePathname() ?? "/one/todos";
+  const back = useCallback(() => {
+    if (!open) return false;
+    if (!saving) onOpenChange(false);
+    return true;
+  }, [open, saving, onOpenChange]);
+  useBackLayer(pathname, presentation === "pane" && open ? 4 : 0, back);
+  useLayoutEffect(() => {
+    if (presentation !== "pane" || !open) return;
+    onBackChange?.(back);
+    return () => onBackChange?.(null);
+  }, [presentation, open, onBackChange, back]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,29 +88,21 @@ export function TodoAddItemSheet({
     });
   };
 
-  return (
-    <Sheet
-      modal
-      open={open}
-      onOpenChange={(next) => {
-        if (!saving) onOpenChange(next);
-      }}
-    >
-      <SheetContent
-        side="bottom"
-        className="mx-auto max-w-none gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
-        showCloseButton={!saving}
-      >
-        <form onSubmit={(event) => void submit(event)}>
-          <SheetHeader className="px-5 pb-3 pt-2 text-left">
+  const form = (
+        <form className={presentation === "pane" ? styles.form : styles.scheduleForm} onSubmit={(event) => void submit(event)}>
+          {presentation === "pane" ? (
+            <header className={styles.paneHeader}>
+              <h3 id={titleId} className={styles.paneTitle}>Add item</h3>
+            </header>
+          ) : <SheetHeader className="px-5 pb-3 pt-2 text-left">
             <SheetTitle className="text-xl tracking-[-0.02em]">
               Add item
             </SheetTitle>
             <SheetDescription className="sr-only">
               This stays encrypted in Agent One.
             </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 px-5 pb-2">
+          </SheetHeader>}
+          <div className={presentation === "pane" ? styles.body : "space-y-4 px-5 pb-2"}>
             <div className="space-y-1.5">
               <Label htmlFor="todo-title" className="sr-only">
                 Title
@@ -102,8 +117,8 @@ export function TodoAddItemSheet({
                 maxLength={240}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+            <div className={styles.schedule}>
+              <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="todo-date">Date</Label>
                 <Input
                   id="todo-date"
@@ -111,9 +126,10 @@ export function TodoAddItemSheet({
                   value={date}
                   onChange={(event) => setDate(event.target.value)}
                   disabled={saving}
+                  className={styles.scheduleInput}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="todo-time">Time</Label>
                 <Input
                   id="todo-time"
@@ -121,6 +137,7 @@ export function TodoAddItemSheet({
                   value={time}
                   onChange={(event) => setTime(event.target.value)}
                   disabled={saving}
+                  className={styles.scheduleInput}
                 />
               </div>
             </div>
@@ -152,8 +169,8 @@ export function TodoAddItemSheet({
               </Button>
             )}
           </div>
-          {error ? <p role="alert" className="px-5 pt-3 text-sm text-destructive">{error}</p> : null}
-          <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
+          {error ? <p role="alert" className="shrink-0 px-4 pt-3 text-sm text-destructive">{error}</p> : null}
+          <SheetFooter className="shrink-0 flex-row items-center justify-end gap-2 px-4 pt-4">
             <Button
               type="button"
               variant="none"
@@ -173,6 +190,34 @@ export function TodoAddItemSheet({
             </Button>
           </SheetFooter>
         </form>
+  );
+
+  if (presentation === "pane") return open ? (
+    <FocusScope loop trapped asChild onUnmountAutoFocus={event => {
+      if (onCloseAutoFocus) {
+        event.preventDefault();
+        onCloseAutoFocus();
+      }
+    }}>
+      <section role="dialog" aria-labelledby={titleId} data-state="open" data-todo-editor-pane className={styles.pane}
+        onKeyDown={event => {
+          if (event.key === "Escape" && !event.defaultPrevented) {
+            event.preventDefault();
+            event.stopPropagation();
+            back();
+          }
+        }}>
+        {form}
+      </section>
+    </FocusScope>
+  ) : null;
+
+  return (
+    <Sheet modal open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }}>
+      <SheetContent side="bottom"
+        className="mx-auto max-w-none gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
+        showCloseButton={!saving}>
+        {form}
       </SheetContent>
     </Sheet>
   );

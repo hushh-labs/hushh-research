@@ -46,6 +46,7 @@ export function OneTodoPreview({
   const [detail, setDetail] = useState<{ identity: symbol; task: TodoItem } | null>(null);
   const [snapshot, setSnapshot] = useState({ identity, tasks: [] as TodoItem[], loading: true, error: false, savingTaskId: null as string | null });
   const [editorOpen, setEditorOpen] = useState(false);
+  const addTrigger = useRef<HTMLButtonElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const current = ready && snapshot.identity === identity;
@@ -172,15 +173,15 @@ export function OneTodoPreview({
 
   return (
     <div className={workspace.workspace} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
-      <header className={workspace.toolbar}>
+      <header className={workspace.toolbar} inert={editorOpen || undefined}>
         <h3>Your tasks</h3>
         <div className={workspace.tools}>
           {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources presentation="pane" onOpenChange={setSourcesOpen} onBackChange={onDetailBackChange} persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
             isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} /> : null}
-          <button type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => { setSaveError(false); setEditorOpen(true); }}><Plus aria-hidden /></button>
+          <button ref={addTrigger} type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => { setSaveError(false); setEditorOpen(true); }}><Plus aria-hidden /></button>
         </div>
       </header>
-      <div className={workspace.list} inert={sourcesOpen || undefined}>
+      <div className={workspace.list} inert={sourcesOpen || editorOpen || undefined}>
 
       {ready && (error || sourceError) ? (
         <div className={styles.notice} role="status">
@@ -213,6 +214,9 @@ export function OneTodoPreview({
       )}
       </div>
       <TodoAddItemSheet
+        presentation="pane"
+        onBackChange={onDetailBackChange}
+        onCloseAutoFocus={() => addTrigger.current?.focus()}
         open={editorOpen}
         saving={Boolean(savingTaskId)}
         error={saveError ? "Couldn’t save. Try again." : null}
