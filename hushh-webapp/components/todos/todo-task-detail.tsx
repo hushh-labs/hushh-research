@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
-import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { groupByDate } from "./todo-list-presentation";
 
 /** One detail view; mutations keep their existing encrypted persistence owner. */
@@ -17,8 +18,8 @@ export function TodoTaskDetail({ task, busy, error, onBack, onToggle, onRemove, 
   onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
   const pathname = usePathname() ?? ROUTES.ONE_TASKS;
-  const date = task.date ? groupByDate([task])[0]?.label : null;
-  const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
+  const date = normalizeTodoDate(task.date) ? groupByDate([task])[0]?.label : null;
+  const time = task.time ? formatLocalDateTime(`1970-01-01T${task.time}:00`, { hour: "numeric", minute: "2-digit" }) : null;
   const back = useCallback(() => {
     if (busy) return true;
     onBack();
