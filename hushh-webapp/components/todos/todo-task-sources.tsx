@@ -43,9 +43,8 @@ export function TodoTaskSources({ persistence, selected, coverage, loading, disa
       <header className={styles.pickerHeader}><div><h3>Task sources</h3><p>Choose what contributes to your tasks.</p></div><button type="button" className={styles.close} aria-label="Close task sources" disabled={saving} onClick={() => setVisible(false)}><X aria-hidden /></button></header>
       <div className={styles.pickerBody}>
         {taskCapabilities().map(source => { const id = source.id as TaskCapability; return <label className={styles.sourceRow} key={id}><span className={styles.sourceName}><ClipboardList aria-hidden />{source.title}</span><span className={styles.switchHit}><Switch aria-label={source.title} checked={selected.includes(id)} disabled={saving || disabled} onCheckedChange={checked => void save(id, checked)} /></span></label>; })}
-        {error ? <p role="status">Could not save. Try again.</p> : null}
       </div>
-      <footer className={styles.pickerFooter}><span>{selected.length} sources selected</span><button type="button" className={styles.done} disabled={saving} onClick={() => setVisible(false)}>Done</button></footer>
+      <footer className={styles.pickerFooter}>{error ? <span role="alert">Could not save. Try again.</span> : <span>{selected.length} sources selected</span>}<button type="button" className={styles.done} disabled={saving} onClick={() => setVisible(false)}>Done</button></footer>
     </section></FocusScope> : null}
   </>;
   return <>

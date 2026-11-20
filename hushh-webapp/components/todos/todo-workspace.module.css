@@ -1,3 +1,4 @@
+.workspace, .detail { --muted-foreground: color-mix(in oklab, var(--foreground) 68%, var(--background)); }
 .workspace { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; height: 100%; font-family: var(--font-app-body); }
 .toolbar { display: flex; flex-wrap: wrap; flex: none; align-items: center; justify-content: space-between; gap: 4px; min-height: 58px; padding: 5px 14px; }
 .toolbar h3 { --foundation-title3-size: 19px; --foundation-title3-line: 1.4; --foundation-title3-weight: 600; --foundation-title3-tracking: -.45px; margin: 0; }
