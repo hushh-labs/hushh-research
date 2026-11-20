@@ -74,7 +74,7 @@ export async function approvePaidOwnerTerms(
     state.paidApprovals.current.add(consent.id);
 
     const latest =
-      approval.status === "approved_funded" && !request.purchase?.id
+      approval.status === "approved_funded"
         ? await ScopeCommerceService.scopeRequest(firebaseToken, consent.id)
         : request;
     requireCurrent();
