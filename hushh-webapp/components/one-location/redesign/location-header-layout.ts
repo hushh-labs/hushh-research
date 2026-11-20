@@ -11,7 +11,7 @@
  * tap target while the visual track stays compact.
  */
 export const LOCATION_HEADER_ACTIONS_CLASSNAME =
-  "flex min-h-11 shrink-0 items-center border-r border-border/60 pr-2 sm:pr-3";
+  "flex min-h-11 shrink-0 items-center pr-2 sm:pr-3";
 
 export const LOCATION_HEADER_STATUS_CLASSNAME =
   "block max-w-24 whitespace-normal text-center font-[family-name:var(--font-app-body)] ui-text-row-description tracking-[-0.01em] text-[color:var(--app-secondary-label)]";
