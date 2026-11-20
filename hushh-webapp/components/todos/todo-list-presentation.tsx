@@ -188,11 +188,13 @@ export function TodoRow({
   saving,
   onToggle,
   onDelete,
+  onOpen,
 }: {
   task: TodoItem;
   saving: boolean;
   onToggle: (task: TodoItem, complete: boolean) => void;
   onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
+  onOpen?: (task: TodoItem) => void;
 }) {
   const swipe = useRowSwipe({
     enabled: !saving,
@@ -224,7 +226,7 @@ export function TodoRow({
             task.status === "done" && "text-muted-foreground line-through",
           )}
         >
-          {task.title}
+          {onOpen ? <button type="button" className="min-h-11 w-full text-left" disabled={saving} onClick={() => onOpen(task)}>{task.title}</button> : task.title}
         </MediumRowLabel>
         <div className="flex shrink-0 items-center">
           <CircularCheckbox
@@ -496,16 +498,18 @@ export function DueReceiptsSection({
 
 export function TodoRows({
   tasks,
-  savingTaskId,
+  savingTaskIds,
   dueReceipts = [],
   onToggle,
   onDelete,
+  onOpen,
 }: {
   tasks: TodoItem[];
-  savingTaskId: string | null;
+  savingTaskIds: ReadonlySet<string>;
   dueReceipts?: DueReceiptItem[];
   onToggle: (task: TodoItem, complete: boolean) => void;
   onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
+  onOpen?: (task: TodoItem) => void;
 }) {
   const groups = groupByDate(tasks);
   const anytimeGroup = groups.find((g) => g.id === "anytime");
@@ -543,9 +547,10 @@ export function TodoRows({
               <TodoRow
                 key={task.id}
                 task={task}
-                saving={savingTaskId === task.id}
+                saving={savingTaskIds.has(task.id)}
                 onToggle={onToggle}
                 onDelete={onDelete}
+                onOpen={onOpen}
               />
             ))}
           </SurfaceInset>
@@ -574,9 +579,10 @@ export function TodoRows({
               <TodoRow
                 key={task.id}
                 task={task}
-                saving={savingTaskId === task.id}
+                saving={savingTaskIds.has(task.id)}
                 onToggle={onToggle}
                 onDelete={onDelete}
+                onOpen={onOpen}
               />
             ))}
           </SurfaceInset>

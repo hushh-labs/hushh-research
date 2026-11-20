@@ -46,7 +46,7 @@ const targets = [
   "hushh-webapp/components/vault/vault-method-prompt.tsx",
   "hushh-webapp/components/vault/recovery-key-dialog.tsx",
   "hushh-webapp/app/profile/page.tsx",
-  ".agents/skills/codex-skill-authoring/scripts/init_skill.py",
+  ".agents/skills/skill-authoring/scripts/init_skill.py",
   ".agents/skills/repo-context/scripts/repo_scan.py",
   ".agents/skills/repo-operations/scripts/ci_monitor.py",
   ".agents/skills",

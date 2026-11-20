@@ -8,6 +8,9 @@ import re
 from db.hosted_custody_qualification import QUALIFIED_FAMILY_SETTING
 
 _WORKER_EVENT_SUCCESSOR_SHA256 = "460ee7e26e2e65acd6937e29284f5d5f0c38013829337e8aa5ec03c27173a91c"
+_HOSTED_AZURE_TARGET_CHECK_SUCCESSOR_SHA256 = (
+    "c5a37bdd87803d685ecc19cf34b586f763ab59ace212a775ce90c80d1aa63910"
+)
 
 
 def _qualify_vm_publication_successor(sql: str) -> str:
@@ -74,11 +77,32 @@ def _qualify_worker_event_successor(sql: str) -> str:
     return sql.replace(anchor, replacement, 1)
 
 
+def _qualify_hosted_azure_target_check_successor(sql: str) -> str:
+    """Admit migration 461's hosted-azure deployment_target check during 420 replay."""
+    from db.migration_authority import MigrationAuthorityError
+
+    anchor = (
+        "ELSIF encode(sha256(convert_to(actual,'UTF8')),'hex') NOT IN "
+        "('15c9243d622f15d2ca2690cb232af88e3e51b5d586e72042b9000177cc4cc300') THEN\n"
+        "  RAISE EXCEPTION 'Unqualified schema drift: personal_agent_registry_deployment_target_check';"
+    )
+    replacement = (
+        "ELSIF encode(sha256(convert_to(actual,'UTF8')),'hex') NOT IN "
+        "('15c9243d622f15d2ca2690cb232af88e3e51b5d586e72042b9000177cc4cc300',"
+        f"'{_HOSTED_AZURE_TARGET_CHECK_SUCCESSOR_SHA256}') THEN\n"
+        "  RAISE EXCEPTION 'Unqualified schema drift: personal_agent_registry_deployment_target_check';"
+    )
+    if sql.count(anchor) != 1:
+        raise MigrationAuthorityError("Private-agent deployment_target check guard shape changed")
+    return sql.replace(anchor, replacement, 1)
+
+
 def qualify_private_agent_successors(sql: str) -> str:
     """Accept only measured successor validators under the full custody-family GUC."""
     sql = _qualify_vm_publication_successor(sql)
     sql = _qualify_erasure_substrate_successor(sql)
-    return _qualify_worker_event_successor(sql)
+    sql = _qualify_worker_event_successor(sql)
+    return _qualify_hosted_azure_target_check_successor(sql)
 
 
 FOOTPRINT = """EXISTS(SELECT 1 FROM pg_attribute

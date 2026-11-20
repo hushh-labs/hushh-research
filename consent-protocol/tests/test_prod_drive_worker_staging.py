@@ -349,12 +349,15 @@ def test_readonly_validation_does_not_create_activation_intent(
     else:
         WORKER.validate(receipt, Path(str(path) + ".scheduler.json"), allow_retirement=True)
     assert not Path(str(path) + ".activation.json").exists()
-    assert len(stage_ports.mutations) == 1
+    assert len(stage_ports.mutations) == 2
 
 
+@pytest.mark.parametrize("protected", ["true", "false"])
 def test_cold_staging_preserves_controls_and_activates_exact_candidate(
-    stage_ports, tmp_path, monkeypatch
+    stage_ports, tmp_path, monkeypatch, protected
 ):
+    monkeypatch.setenv("PROTECTED_DOCUMENT_DELIVERY_ENABLED", protected)
+    expected_mutations = 2 if protected == "true" else 1
     path = tmp_path / "intent.json"
     before = copy.deepcopy(stage_ports.value)
     digest = _stage(path, monkeypatch)
@@ -365,7 +368,24 @@ def test_cold_staging_preserves_controls_and_activates_exact_candidate(
     assert WORKER.controls(stage_ports.value) == WORKER.controls(before)
     assert stage_ports.value["spec"]["traffic"] == before["spec"]["traffic"]
     assert stage_ports.value["status"]["traffic"] == before["status"]["traffic"]
-    assert stage_ports.jobs == SNAPSHOT and len(stage_ports.mutations) == 1
+    assert stage_ports.jobs == SNAPSHOT and len(stage_ports.mutations) == expected_mutations
+    if protected == "true":
+        initial = stage_ports.mutations[0]["spec"]
+        assert initial["traffic"] == [
+            *before["spec"]["traffic"],
+            WORKER.startup_target({"candidate": NEW}),
+        ]
+        assert (
+            initial["template"]["metadata"]["annotations"][
+                "run.googleapis.com/health-check-disabled"
+            ]
+            == "false"
+        )
+    else:
+        assert (
+            "run.googleapis.com/health-check-disabled"
+            not in stage_ports.mutations[0]["spec"]["template"]["metadata"]["annotations"]
+        )
     snapshot = tmp_path / "activation-scheduler.json"
     snapshot.write_text(json.dumps(stage_ports.jobs))
     assert WORKER.admission(path, snapshot, prepare_only=True) == NEW
@@ -374,7 +394,48 @@ def test_cold_staging_preserves_controls_and_activates_exact_candidate(
         "DRIVE_WORKER_ACTIVATION_INTENT_SHA256", hashlib.sha256(activation.read_bytes()).hexdigest()
     )
     assert WORKER.admission(path, snapshot, prepare_only=False) == NEW
-    assert len(stage_ports.mutations) == 1  # Admission never redeploys or promotes.
+    assert (
+        len(stage_ports.mutations) == expected_mutations
+    )  # Admission never redeploys or promotes.
+
+
+@pytest.mark.parametrize("invalid_case", ["", "non_staged_name", "serving_traffic"])
+def test_ordinary_stage_recovers_from_unserved_retired_staged_template(
+    stage_ports, tmp_path, monkeypatch, invalid_case
+):
+    unserved_name = (
+        WORKER.SERVICE + "-00099-manual"
+        if invalid_case == "non_staged_name"
+        else WORKER.SERVICE + "-s-99999-1"
+    )
+    unserved = copy.deepcopy(stage_ports.revisions[OLD])
+    unserved["metadata"].update(name=unserved_name, uid="unserved-uid")
+    unserved["spec"]["containers"][0]["image"] = (
+        "gcr.io/hushh-pda/consent-protocol@sha256:" + "d" * 64
+    )
+    stage_ports.revisions[unserved_name] = unserved
+    stage_ports.value["spec"]["template"] = {
+        "metadata": copy.deepcopy(unserved["metadata"]),
+        "spec": copy.deepcopy(unserved["spec"]),
+    }
+    stage_ports.value["status"].update(
+        latestCreatedRevisionName=unserved_name,
+        latestReadyRevisionName=OLD,
+    )
+    if invalid_case == "serving_traffic":
+        stage_ports.value["spec"]["traffic"].append(
+            {"revisionName": unserved_name, "percent": 0, "tag": "live"}
+        )
+    path = tmp_path / "intent.json"
+    if invalid_case:
+        with pytest.raises(ValueError, match="worker_latest_template_is_not_serving_revision"):
+            WORKER.prepare(path)
+        assert not stage_ports.mutations
+        return
+    _stage(path, monkeypatch)
+    assert len(stage_ports.mutations) == 2
+    assert stage_ports.value["spec"]["traffic"] == [{"revisionName": OLD, "percent": 100}]
+    assert stage_ports.value["status"]["latestReadyRevisionName"] == NEW
 
 
 @pytest.mark.parametrize(
@@ -440,7 +501,7 @@ def test_activation_refuses_stale_or_unhealthy_candidate(stage_ports, tmp_path, 
         monkeypatch.delenv("DRIVE_WORKER_ACTIVATION_INTENT_SHA256")
     with pytest.raises(ValueError):
         WORKER.admission(path, snapshot, prepare_only=False)
-    assert len(stage_ports.mutations) == 1
+    assert len(stage_ports.mutations) == 2
 
 
 @pytest.mark.parametrize("bad", ["latest", "pool", "launcher", "public", "missing_policy"])

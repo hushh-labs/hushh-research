@@ -8,7 +8,7 @@ export type PortfolioReviewResponse = {
   score: number | null;
   takeaway: string;
   reason: string;
-  next_step: string;
+  next_step: string | null;
   advisor_reason: string | null;
 };
 

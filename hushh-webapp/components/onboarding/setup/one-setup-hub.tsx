@@ -75,6 +75,11 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
+import { MemoryImportHeader, MemoryImportStep } from "./memory-import-step";
+import memoryImportStyles from "./memory-import-step.module.css";
+import { ownerChatMemory } from "@/lib/agent/chat-memory-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -98,7 +103,7 @@ export function OneSetupHub() {
   const emailPreference = useMarketingPreference(ownerId ?? null, "setup");
   const initialContacts = useInitialContacts();
   const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
   const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
@@ -110,6 +115,25 @@ export function OneSetupHub() {
   );
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const [memoryImportOwner, setMemoryImportOwner] = useState<string | null>(null);
+  const [memoryImportInitialText, setMemoryImportInitialText] = useState("");
+  const memoryImportOpen = Boolean(ownerId && memoryImportOwner === ownerId);
+  const memoryImportDraft = useRef<{ userId: string; text: string } | null>(null);
+  useEffect(() => {
+    memoryImportDraft.current = null;
+    setMemoryImportInitialText("");
+    return () => { memoryImportDraft.current = null; };
+  }, [ownerId]);
+  useBackLayer(ROUTES.ONE_SETUP, memoryImportOpen ? 1 : 0, () => {
+    if (dismissing || vaultDialogOpen) return true;
+    setMemoryImportOwner(null);
+    setMemoryImportInitialText("");
+    setLocalFirstStage("idle");
+    setVaultInvitationOpen(false);
+    setFinalizationError(null);
+    memoryImportDraft.current = null;
+    return true;
+  });
   /**
    * Local-first sequencing (Workstream D4), OFF by default.
    *
@@ -370,10 +394,9 @@ export function OneSetupHub() {
   // Hosting and AI access remain separate durable prerequisites, presented
   // together by the existing agent setup wizard.
 
-  // Capability setup is optional, but the root vault is not. Finish setup is
-  // therefore the only exit from the hub and always leads to vault setup when
-  // the vault is not already unlocked.
-  const masterActionLabel = "Finish setup";
+  // Continue opens optional memory import. Finish/Skip on that step retain
+  // the existing mandatory vault boundary before opening Chat.
+  const masterActionLabel = "Continue";
   const hubStateLoading =
     isLoading || isEnriching || runtimeChoiceState === "loading";
 
@@ -381,12 +404,16 @@ export function OneSetupHub() {
   // navigate the person to any capability they ask for.
   usePublishVoiceSurfaceMetadata({
     screenId: "one_setup_hub",
-    title: "Set up One",
-    purpose:
-      "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
-    actions: hubStateLoading
+    title: memoryImportOpen ? "Import memory" : "Set up One",
+    purpose: memoryImportOpen
+      ? "Optionally bring memory from another agent. Copy the prompt, paste its reply, then Finish setup or Skip."
+      : "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
+    actions: hubStateLoading || dismissing
       ? []
-      : [
+      : memoryImportOpen ? [
+          { id: "memory_import_finish", actionId: "setup.hub_master_ack", label: "Finish setup", purpose: "Import pasted details into private memory, or continue if empty." },
+          { id: "memory_import_skip", actionId: "setup.memory_import_skip", label: "Skip", purpose: "Continue without importing this draft." },
+        ] : [
           ...visibleItems.map((item) => ({
             id: item.id,
             actionId: getOneSetupCapability(item.id)?.setupActionId,
@@ -402,9 +429,9 @@ export function OneSetupHub() {
             : [
                 {
                   id: "master_ack",
-                  actionId: "setup.hub_master_ack",
+                  actionId: "setup.hub_continue",
                   label: masterActionLabel,
-                  purpose: "Finish setup and protect what you save.",
+                  purpose: "Continue to the optional memory import step.",
                 },
               ]),
         ],
@@ -477,6 +504,20 @@ export function OneSetupHub() {
       // enter the route or conversation history.
       if (!shouldShowContactsWelcome()) queueEntryWelcome(ownerId);
       await completion;
+      // Handoff only after setup succeeds: Skip never leaves an import queued
+      // by a failed setup attempt. The owner runtime survives this screen.
+      const imported = memoryImportDraft.current;
+      if (imported?.userId === ownerId && imported.text.trim()) {
+        const memory = ownerChatMemory({
+          userId: ownerId, vaultKey, vaultEpoch: snapshotVaultSessionEpoch(),
+          token: vaultOwnerToken, readToken: getVaultOwnerToken,
+        });
+        const conversationId = "onboarding-memory-import";
+        memory.queueSnapshot({ conversationId, messages: [{
+          id: crypto.randomUUID(), conversationId, role: "user", content: imported.text,
+        }] });
+        memoryImportDraft.current = null;
+      }
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       if (localFirstEnabled) {
@@ -502,6 +543,12 @@ export function OneSetupHub() {
     try {
       await finalize;
     } catch (error) {
+      // The optional local-first story unmounts the paste field before vault
+      // setup. Return to it with its RAM draft intact if finalization fails.
+      setMemoryImportInitialText(memoryImportDraft.current?.userId === ownerId ? memoryImportDraft.current.text : "");
+      setLocalFirstStage("idle");
+      setVaultDialogOpen(false);
+      setVaultInvitationOpen(false);
       setFinalizationError(
         error instanceof Error
           ? error.message
@@ -523,6 +570,7 @@ export function OneSetupHub() {
     ownerId,
     vaultKey,
     vaultOwnerToken,
+    getVaultOwnerToken,
   ]);
 
   useEffect(() => {
@@ -618,7 +666,7 @@ export function OneSetupHub() {
     setLocalFirstStage("explainer");
   };
 
-  const handleMasterAck = async () => {
+  const handleMasterAck = async (memoryText?: string) => {
     if (dismissing) {
       return {
         status: "blocked" as const,
@@ -722,6 +770,18 @@ export function OneSetupHub() {
         };
       }
 
+      if (memoryText === undefined) {
+        setMemoryImportOwner(ownerId);
+        return { status: "succeeded" as const, summary: "Import your memory, or skip to start fresh." };
+      }
+      if (memoryText.trim()) {
+        if (memoryImportDraft.current?.userId !== ownerId || memoryImportDraft.current.text !== memoryText) {
+          memoryImportDraft.current = { userId: ownerId, text: memoryText };
+        }
+      } else {
+        memoryImportDraft.current = null;
+      }
+
       if (!isVaultUnlocked) {
         if (localFirstEnabled) {
           setLocalFirstStage("guided_connection");
@@ -762,20 +822,10 @@ export function OneSetupHub() {
 
   // Voice and the visible shared terminal action drive the same mandatory
   // root-completion boundary.
-  useLocalOnboardingActionHandler("setup.hub_master_ack", async () => {
+  useLocalOnboardingActionHandler("setup.hub_continue", async () => {
     return handleMasterAck();
   });
 
-  // Name the first mandatory prerequisite in the shared header.
-  const summary = hubStateLoading
-    ? "One moment…"
-    : setupPrerequisitesComplete
-      ? "Add more any time."
-      : !cloudComplete
-        ? "Choose where your agent lives first."
-        : !runtimeChoiceComplete
-          ? "Finish your agent setup."
-          : "Finish setting up One.";
   const localFirstSequenceActive =
     localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
   // A centered story-screen takeover (the local-first sequence) is a full screen
@@ -789,7 +839,7 @@ export function OneSetupHub() {
       as="main"
       width="reading"
       fitContent
-      className={`relative isolate max-w-[600px] ${styles.hubPage}`}
+      className={`relative isolate max-w-[600px] ${memoryImportOpen ? memoryImportStyles.page : styles.hubPage}`}
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -806,18 +856,21 @@ export function OneSetupHub() {
           gone). */}
       {!storyTakeoverActive ? (
         <AppPageHeaderRegion>
+          {memoryImportOpen ? (
+            <MemoryImportHeader busy={dismissing} onSkip={() => void handleMasterAck("")} />
+          ) : (
           <PageHeader
             title={
               !hubStateLoading && setupPrerequisitesComplete ? "You're all set" : "Set up One"
             }
-            description={summary}
             accent="neutral"
             className={styles.setupHeader}
           />
+          )}
         </AppPageHeaderRegion>
       ) : null}
 
-      <AppPageContentRegion className={styles.setupContent}>
+      <AppPageContentRegion className={memoryImportOpen ? memoryImportStyles.content : styles.setupContent}>
         {localFirstSequenceActive ? (
           localFirstStage === "guided_connection" ||
           localFirstStage === "migrating" ? (
@@ -842,6 +895,8 @@ export function OneSetupHub() {
           ) : (
             <BufferHandoffScreen />
           )
+        ) : memoryImportOpen ? (
+          <MemoryImportStep key={ownerId} busy={dismissing} onFinish={handleMasterAck} initialText={memoryImportInitialText} />
         ) : hubStateLoading ? (
           <SetupHubLoadingState />
         ) : (
@@ -865,11 +920,11 @@ export function OneSetupHub() {
                   description={
                     cloudComplete
                       ? runtimeChoiceComplete
-                        ? "Your hosting and AI choices are saved."
-                        : "Finish choosing AI access in your agent setup."
+                        ? undefined
+                        : "Choose AI access."
                       : cloudSetupRunning
-                        ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
+                        ? "Setup continues in the background."
+                        : "Choose where One runs."
                   }
                   href={buildOneSetupCloudRoute(returnTo)}
                   voiceControlId="one_setup_tile_cloud"
@@ -890,11 +945,9 @@ export function OneSetupHub() {
                   id="phone"
                   title="Verify your phone"
                   description={
-                    phoneVerified
-                      ? "Verified. Your agent's record is minted from this number."
-                      : cloudComplete
-                        ? "Your agent's record is minted from your verified number."
-                        : "After choosing where your agent lives."
+                    !phoneVerified && cloudComplete
+                      ? "Your number is used for your agent’s ID."
+                      : undefined
                   }
                   href={buildPhoneMandateRoute(ROUTES.ONE_SETUP)}
                   voiceControlId="one_setup_tile_phone"
@@ -988,8 +1041,8 @@ export function OneSetupHub() {
               ) : null}
             </div>
             <div className="mt-6 space-y-4">
-              <PwmResearchDisclosure className="mb-4" />
-              <SettingsGroup title="Email preferences">
+              <PwmResearchDisclosure className="mb-4" compact />
+              <SettingsGroup>
                 <MarketingPreferencePanel model={emailPreference} />
               </SettingsGroup>
             </div>
@@ -1004,10 +1057,10 @@ export function OneSetupHub() {
                 loading={dismissing}
                 onClick={() => void handleMasterAck()}
                 data-testid="one-setup-master-ack"
-                data-voice-control-id="one-setup-master-ack"
-                data-voice-action-id="setup.hub_master_ack"
+                data-voice-control-id="one-setup-continue"
+                data-voice-action-id="setup.hub_continue"
                 data-voice-label={masterActionLabel}
-                data-voice-purpose="Finish setup and protect what you save."
+                data-voice-purpose="Continue to the optional memory import step."
               >
                 {masterActionLabel}
               </Button>
@@ -1020,14 +1073,14 @@ export function OneSetupHub() {
             className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
           >
             <span>{finalizationError}</span>
-            <Button
+            {!memoryImportOpen ? <Button
               type="button"
               variant="none"
               effect="fade"
               onClick={() => void handleMasterAck()}
             >
               Try again
-            </Button>
+            </Button> : null}
           </div>
         ) : null}
       </AppPageContentRegion>

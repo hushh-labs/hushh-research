@@ -1,6 +1,8 @@
+import { Capacitor } from "@capacitor/core";
 import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import { AuthService } from "./auth-service";
-import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { hasAuthSessionIdentity, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { markAgentAnswered, sendChatTurn } from "./pod-chat-turn-transport";
 export { forgetAgentAnswers } from "./pod-chat-turn-transport";
 import {
@@ -25,15 +27,11 @@ type AccessPorts = {
 
 function capturePodOwner() {
   const principal = snapshotValidatedAuthSessionPrincipal();
-  if (!principal || AuthService.getCurrentUser()?.uid !== principal.firebaseUid)
+  if (!principal || !isFirebaseSessionOwnerCurrent(principal))
     throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
   return principal;
 }
 
-function podOwnerIsCurrent(principal: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionPrincipal>>): boolean {
-  return isValidatedAuthSessionOwnerCurrent(principal)
-    && AuthService.getCurrentUser()?.uid === principal.firebaseUid;
-}
 function refuseRetiredOwner(isCurrent?: () => boolean): void {
   if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
 }
@@ -65,6 +63,8 @@ const OWNER_POD_ROUTES = new Set([
   "tasks/control",
   "calendar/events",
   "gmail/todos",
+  "todos/suggestions",
+  "todos/suggestions/status",
 ]);
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -156,7 +156,7 @@ export async function ownerPodRequest(
   let { endpoint, session, directVerifiedAt } = connection;
   if (expectedHushhId && endpoint.hushhId !== expectedHushhId)
     throw new Error("POD_DIRECT_OWNER_MISMATCH");
-  if (!podOwnerIsCurrent(admittedOwner))
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner))
     throw new Error("POD_OWNER_CHANGED");
   let body = init.body;
   if (chatTurn) {
@@ -169,7 +169,7 @@ export async function ownerPodRequest(
       init.signal,
     );
     ({ endpoint, session, directVerifiedAt } = admitted);
-    if (!podOwnerIsCurrent(admittedOwner))
+    if (!isFirebaseSessionOwnerCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
     turn.forwardedProps = {
       ...(turn.forwardedProps && typeof turn.forwardedProps === "object"
@@ -182,10 +182,10 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
-  if (route === "calendar/events" || route === "gmail/todos") {
+  if (["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
+    const post = route === "calendar/events" || route === "todos/suggestions";
     if (session.role !== "app" || !session.scopes.includes("pkm.read") ||
-      method !== (route === "calendar/events" ? "POST" : "GET") ||
-      (route === "gmail/todos" && body != null)) {
+      method !== (post ? "POST" : "GET") || (!post && body != null)) {
       throw new Error("POD_TASK_SOURCE_READ_REFUSED");
     }
   }
@@ -246,7 +246,7 @@ export async function ownerPodRequest(
         route.slice("connectors/".length),
         { userId: uid, endpoint, session, transport },
       );
-      if (!podOwnerIsCurrent(admittedOwner))
+      if (!isFirebaseSessionOwnerCurrent(admittedOwner))
         throw new Error("POD_OWNER_CHANGED");
     }
   }
@@ -268,7 +268,7 @@ export async function ownerPodRequest(
       session,
       transport,
     });
-    if (!podOwnerIsCurrent(admittedOwner))
+    if (!isFirebaseSessionOwnerCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
   }
   refuseCancelled();
@@ -291,13 +291,13 @@ export async function ownerPodRequest(
     ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt, session, () => {
         refuseCancelled();
         refuseRetiredOwner(ports.isCurrent);
-        if (!podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch))
+        if (!isFirebaseSessionOwnerCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch))
           throw new Error("POD_OWNER_CHANGED");
       })
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
   if (!isAgentStillWaking(response))
     markAgentAnswered(endpoint.url);
-  if (!podOwnerIsCurrent(admittedOwner))
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner))
     throw new Error("POD_OWNER_CHANGED");
   if (response.ok && route === "agent-chat")
     ports.onChatAdmission?.(endpoint.hushhId);
@@ -491,7 +491,7 @@ export async function reconnectOwnerPod(
   const admittedOwner = capturePodOwner();
   const uid = admittedOwner.ownerId;
   const status = await ports.hosting();
-  if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   if (!isPrivateHostingMode(status.hostingMode) || status.state !== "active") {
     throw new Error("POD_DIRECT_PRIVATE_REQUIRED");
   }
@@ -507,7 +507,7 @@ export async function reconnectOwnerPod(
     await ports.transport(),
     true,
   );
-  if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   const probe = await ports.fetch(`${endpoint.url}/api/one/pod/status`, {
     method: "GET",
     credentials: "omit",
@@ -546,18 +546,23 @@ export async function agentChatRequest(
  */
 export async function introMayReachHub(
   hosting: () => Promise<{ hostingMode?: string }>,
+  confirmedNativeGuest = false,
 ): Promise<boolean> {
-  if (!AuthService.getCurrentUser()) return true;
   const admittedOwner = snapshotValidatedAuthSessionPrincipal();
-  if (!admittedOwner || !podOwnerIsCurrent(admittedOwner)) return false;
-  const uid = admittedOwner.ownerId;
-  const ownerPod = await import("./owner-pod-endpoint");
-  if (await ownerPod.loadPinnedEndpoint(uid).catch(() => null)) return false;
-  const mode = await hosting().then(
-    (status) => status.hostingMode,
-    () => undefined,
-  );
-  return podOwnerIsCurrent(admittedOwner) && mode === "shared";
+  if (!admittedOwner) {
+    return !hasAuthSessionIdentity() && !AuthService.getCurrentUser()
+      && (!Capacitor.isNativePlatform() || confirmedNativeGuest);
+  }
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner)) return false;
+  try {
+    const { loadPinnedEndpoint } = await import("./owner-pod-endpoint");
+    if (await loadPinnedEndpoint(admittedOwner.ownerId)) return false;
+    if (!isFirebaseSessionOwnerCurrent(admittedOwner)) return false;
+    const status = await hosting();
+    return isFirebaseSessionOwnerCurrent(admittedOwner) && status.hostingMode === "shared";
+  } catch {
+    return false;
+  }
 }
 
 /** Shared by chat and review; a direct failure must never fall back to the hub. */
@@ -568,6 +573,7 @@ export async function usesOwnerPod(
   const uid = admittedOwner.ownerId;
   const ownerPod = await import("./owner-pod-endpoint");
   let usePod = Boolean(await ownerPod.loadPinnedEndpoint(uid));
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   if (!usePod) {
     const status = await hosting();
     if (isPrivateHostingMode(status.hostingMode)) usePod = true;
@@ -582,7 +588,7 @@ export async function usesOwnerPod(
       });
     }
   }
-  if (!podOwnerIsCurrent(admittedOwner))
+  if (!isFirebaseSessionOwnerCurrent(admittedOwner))
     throw new Error("POD_OWNER_CHANGED");
   return usePod;
 }

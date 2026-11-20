@@ -8,7 +8,7 @@ beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); mocks.token.mockResolv
   mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012" })));
 });
 const posts = () => mocks.fetch.mock.calls.filter((call) => call[1].method === "POST");
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function fixture() {
   const identity = await import("@/lib/auth/session-owner");
   identity.publishValidatedAuthSessionOwner("owner-a");
@@ -16,6 +16,40 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
+    "withholds observations during a %s reviewer run while product operations complete",
+    async reviewerMutationPolicy => {
+      const f = await fixture();
+      vi.stubGlobal("__HUSHH_NATIVE_TEST__", {
+        enabled: true, autoReviewerLogin: true, reviewerMutationPolicy,
+      });
+      f.observeProductAction("calendar.event.create", "started");
+      f.observeProductEvent("one_memory_action", "detail_edited", "success");
+      const attempt = f.captureProductAttempt("chat:agent_one", "owner-a");
+      attempt.started();
+      attempt.settled("returned");
+      const result = { status: "succeeded" };
+      expect(await f.observeDispatch("calendar.event.create", Promise.resolve(result))).toBe(result);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mocks.token).not.toHaveBeenCalled();
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retires an in-flight observation when the reviewer becomes read-only", async () => {
+    const f = await fixture();
+    let resolveAdmission!: (response: Response) => void;
+    mocks.fetch.mockImplementationOnce(() => new Promise<Response>(resolve => { resolveAdmission = resolve; }));
+    f.observeProductAction("calendar.event.create", "started");
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(1));
+    vi.stubGlobal("__HUSHH_NATIVE_TEST__", {
+      enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only",
+    });
+    resolveAdmission(new Response(JSON.stringify({ enabled: true, generation: "original-epoch" })));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(0);
+  });
+
   const navigation = () => ({ status: "started" as const, actionId: "setup.open_calendar", label: "Connect your calendar",
     routeBefore: "/one/setup", routeAfter: "/one/setup/calendar", screenBefore: "one_setup", screenAfter: "one_setup_calendar",
     resultSummary: "PRIVATE_RESULT", data: { privateValue: "PRIVATE_VALUE" } });

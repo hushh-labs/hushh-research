@@ -148,7 +148,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), mutual count with up to two previews (`mutualConnectionPreviews`; `mutualConnectionPreview` is the first), `canBrowseConnections`, and nullable `visibleConnectionCount`. The count uses the unfiltered shared list's eligibility, excludes the viewer, and caps at 501 for the **500+** label. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance. `query` searches names (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. Viewer discovery with `degree=3&include_suggestions=true` returns one paginated stream in `items`: qualified third-degree people first, then eligible public people without direct or mutual connections. Suggestions have `networkDegree: null` and `suggestionReason: public_profile` (or `name_match` during name search). `page`, `limit` and `hasMore` cover the complete stream, including viewers with no graph connections. Public listing or environment enrollment, active-account and block checks apply before pagination; current database eligibility is rechecked after profile loading. Fixed-corpus ordering uses cohort, name rank, name and unique user identity; concurrent eligibility or name changes can move offset pages. Other degrees, omitted suggestion opt-in, and another person’s list retain exact graph behavior. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects the exact shortest eligible distance over active accepted connections. Both intermediaries on a third-degree path must allow discovery. `query` searches names within that graph set (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. The legacy `include_suggestions` flag is accepted and has no effect. A viewer with no eligible paths receives an empty list. Direct, second-degree, fourth-degree and unrelated people are excluded from the third-degree filter. Current eligibility and path permissions are rechecked after profile loading. The service refuses a result whose degree or permission changed during the read so that the caller can retry. |
 | `GET /api/one/connections/network/visibility` | The caller's own extended network discovery preference, retaining the compatibility key `shareConnectionList`. Missing or existing accounts default to false. This preference does not restrict accepted direct connections from viewing the caller's eligible connection count and list. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's extended network discovery preference. Account reset clears this permission. |
 
@@ -859,6 +859,15 @@ fixture transport remains application-only. Isolated phone proof remains
 available to recovery flows. A legacy client cannot write a new claim through
 `/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
 the updated native clients and frontend before rolling out that enforcement.
+
+`GET /api/account/identity` reads only the authenticated application owner's saved
+identity through the read-only Firebase dependency. It returns
+`{success, user_id, identity}` with `Cache-Control: private, no-store`. An absent
+record stays `identity: null`. This request performs no Firebase synchronization
+or claim write. Reviewer phone hydration uses this read and retains the existing
+owner, generation and publication-order checks, plus the identity-cache subscription.
+Read-only reviewer activity collection is suppressed at scope capture and dispatch.
+
 After an occupied-number deletion is admitted, the consumed real-SMS proof never
 authorizes a follow-up claim. The interface reports deletion requested and requires
 fresh verification; an uncertain deletion response is reconciled by observation.
@@ -2666,6 +2675,33 @@ merging two businesses merely because their names or contact details overlap.
 
 ### One task inventory and reviewed suggestions
 
+Task Sources saves the owner's selected capability IDs inside the encrypted
+`one_todos._private.selectedCapabilities` branch using the existing PKM write
+coordinator. Missing preferences retain the legacy nine-source selection; an
+empty list means all sources are off. Choices must load successfully before
+source collection starts. Disabled sources are excluded from collection,
+automatic projections and model inputs; manual tasks and private completion or
+dismissal records are preserved. Public discovery summaries contain counters,
+never source preferences. Coverage remains bounded and reports unavailable or
+partial reads explicitly; Memory supplies refresh metadata, not its contents.
+
+Private owners use `GET /api/one/pod/todos/suggestions/status` and
+`POST /api/one/pod/todos/suggestions`, through the existing admitted owner-direct
+transport. The body and result match the Shared suggestion contract below.
+These doors require the current app-role `pkm.read` session, a held incarnation
+and the matching pod owner. Hub consent-token relays, foreign owners and fenced
+sessions are refused. Inference uses the owner's configured native runtime,
+never the Shared model credential or a Shared fallback. Existing drain admission,
+concurrency bounds, disconnect cancellation and final authority revalidation
+apply. Model failures and validation errors disclose no supplied content and
+responses are private/no-store. Explicit processing consent and a separate
+owner-confirmed Add remain required. No task action or background schedule is
+executed. The existing rollout flag is unchanged.
+
+Local service/HTTP and browser-fixture checks cover the integrated contracts.
+Live private-owner/model acceptance must be repeated after a separately
+authorized deployment; local fixture checks do not establish deployed behavior.
+
 One profile To-do and `/one/todos` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
@@ -2686,11 +2722,30 @@ authority and Shared placement, checked before processing and before release.
 The bounded input rotates across represented capabilities so one large queue
 cannot crowd out every other source. It is rate limited to three requests per
 minute and accepts only
-`{allow_model_processing: true, sources}`: 1-100 strict records containing
+`{allow_model_processing: true, sources, selected_capabilities?}`: 1-100 strict records containing
 `ref` (`s` followed by 1-4 digits), one of the nine capability IDs, a 1-240
 character summary, and `already_pending`. The client requires explicit processing
 approval and excludes message bodies, card details and Memory contents. Owner
 IDs, tokens, provider IDs and URLs are not included in the prompt.
+
+`selected_capabilities` optionally limits processing to a unique list of at most
+nine IDs: `messages`, `finance`, `wallet`, `location`, `ria`, `gmail`, `calendar`,
+`pkm`, and `consent`. Omission or `null` preserves existing all-source behavior;
+`[]` selects none. Only summaries from selected capabilities reach the model,
+and returned references must belong to that selected evidence. If no supplied
+summary is selected, the endpoint returns `{items: []}` without a model call,
+while retaining owner revalidation and the rollout check. Source selection is
+request-scoped: it does not grant connector access, fetch sources, or persist
+preferences. Clients remain responsible for omitting unselected summaries from
+requests and keeping durable owner preferences in their existing encrypted store.
+
+Sources explicitly marked `already_pending: true` are excluded before model
+dispatch and cannot be returned as suggestions. Duplicate input references are
+still rejected across the complete submitted collection, including excluded
+sources. If only pending or unselected evidence remains, the model is not called;
+the endpoint returns an empty list after the normal authority and rollout checks.
+This is a guard on explicit task state, not a second task store: completion and
+dismissal continue to belong to the existing encrypted task records.
 
 One's manifest-owned `one_todo_suggestions` single-turn gene has no tools or
 conversation history. Its strict response is `{items: [{source_ref,title,reason}]}`,
@@ -2708,6 +2763,13 @@ of the same gene is separate acceptance work. Web and native use the existing
 One API proxy/ApiService transport. Mock/schema tests do not qualify live model
 behavior or real-provider completeness. See the
 [semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-one-task-suggestions).
+
+Invalid task-suggestion input, including malformed JSON and rejected source
+fields, returns HTTP 422 with `{detail: "Invalid task suggestion request."}` and
+`Cache-Control: private, no-store`. Rejected summaries and validation internals
+are not reflected in the response. The route retains the existing private
+handling of owner-admission errors and does not dispatch the suggestion service
+for invalid input.
 
 ### One Google Calendar
 
@@ -3849,13 +3911,13 @@ Cached hints alone never authorize completion. This preserves the native
 same-number/linked Continue path without requiring an SDK phone link for an
 already saved backend-only claim.
 
-Account settings on web, iOS, and Android show a phone as linked when a fresh
-Firebase read for the signed-in UID matches the verified application claim.
-An existing app-only or mismatched phone shows a verification action. The
-Account editor uses the existing provider-link flow, including when the user
-enters the same number already saved in Hussh. A provider link pending app
-persistence can be retried without another SMS through the exact-phone finalizer.
-Legacy claims remain available to flows that use the application identity.
+Your account and Personal World Model show the masked verified application
+phone. Personal World Model uses this binding for its research identity.
+Account settings offer **Change** when a fresh Firebase read for the signed-in
+UID agrees with the application claim. **Manage** lets the owner link a saved
+number to their sign-in account or verify a new number. The editor still
+requires provider proof when the owner enters an app-only number. A provider
+link pending app persistence can be retried through the exact-phone finalizer.
 An identity lookup failure is retryable availability uncertainty, not a removed
 phone. Auth state retains the known same-session claim, accepts later exact-owner
 cache updates, and fences delayed responses against account changes and newer
@@ -4056,7 +4118,8 @@ token check. v2 frames:
 - `hello {v, heartbeat_ms, max_lifetime_ms, live}` first.
 - `feed_reset {}` on connect and after a LISTEN resync: reread the snapshot.
 - `feed_changed` with an event `id` and `{request_id}` for one document
-  request, or `{}` for any other Feed write.
+  request or `{}` for an ordinary Feed write. A targeted reread carries only
+  `reason` (`consent_mutated`, `connection_mutated`, or `history_mutated`).
 - `payout_changed {kinds, request_ids}`. Kinds are `wallet`, `earnings`,
   `bank_payouts`, `account` and `balance`; a doorbell with missing or unknown
   kinds lists them all. `request_ids` holds at most 20 IDs and is empty when the

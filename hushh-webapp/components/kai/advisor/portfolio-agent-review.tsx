@@ -135,11 +135,10 @@ export function PortfolioAgentReview({
             </div>
           ) : review ? (
             <>
-              <h3 className={styles.reviewNextLabel}>Next step</h3>
-              <p className="ui-text-row-label-emphasized">{review.next_step}</p>
+              <p className="ui-text-row-label-emphasized">{review.takeaway}</p>
               <details className="ui-text-row-description">
                 <summary className="w-fit cursor-pointer">Why this matters</summary>
-                <p>{review.takeaway} {review.reason}</p>
+                <p>{review.reason}</p>
                 {review.advisor_reason ? <p>{review.advisor_reason}</p> : null}
               </details>
             </>

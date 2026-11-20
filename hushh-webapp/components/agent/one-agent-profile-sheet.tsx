@@ -74,7 +74,8 @@ function OneFeedPreview({
         force: options?.force,
       }),
   });
-  useFeedLiveRefresh(() => {
+  useFeedLiveRefresh((scope) => {
+    if (scope === "connections") return;
     void refresh({ force: true });
   });
   const clearedThrough = readFeedClearedThroughId(ownerId);
@@ -148,11 +149,12 @@ type OneAgentProfileProps = {
 function NativeOneAgentProfile({ open, onOpenChange, modelControl, nativeReady = false, presenceState = "connected" }: OneAgentProfileProps) {
   const { user, userId } = useAuth();
   const context = JSON.stringify([userId, snapshotVaultSessionEpoch(), "one-profile"]);
+  const todoBack = useRef<(() => boolean) | null>(null);
   const close = () => onOpenChange(false);
   return <NativeFeaturePage pane open={open && nativeReady && !!user} title="One"
     owner={userId} context={context} backLabel="Back to Chat" closeLabel="Close One profile"
-    bodyClassName={styles.nativeBody} onBack={close} onClose={close}>
-    <OneProfileContent open={open && nativeReady} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} />
+    bodyClassName={styles.nativeBody} onBack={() => { if (!todoBack.current?.()) close(); }} onClose={close}>
+    <OneProfileContent open={open && nativeReady} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} onTodoBackChange={handler => { todoBack.current = handler; }} />
   </NativeFeaturePage>;
 }
 
@@ -167,9 +169,11 @@ function WebOneAgentProfile({
   modelControl,
   presenceState = "connected",
 }: OneAgentProfileProps) {
+  const todoBack = useRef<(() => boolean) | null>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent side="right" className={styles.sheet} data-app-side-pane showCloseButton={false} contentDragDismiss={false}
+        onEscapeKeyDown={event => { if (todoBack.current?.()) event.preventDefault(); }}
         onCloseAutoFocus={event => {
           if (triggerRef?.current?.isConnected) { event.preventDefault(); triggerRef.current.focus(); }
         }}>
@@ -180,7 +184,7 @@ function WebOneAgentProfile({
           </button>
         </SheetClose>
         <SheetDescription className="sr-only">One profile and activity.</SheetDescription>
-        <OneProfileContent open={open} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} sheet />
+        <OneProfileContent open={open} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} sheet onTodoBackChange={handler => { todoBack.current = handler; }} />
       </SheetContent>
     </Sheet>
   );
@@ -188,12 +192,13 @@ function WebOneAgentProfile({
 
 /** One content model and hierarchy across renderers; no duplicated identity,
  * feed policy, private-name projection or tab/action authority. */
-function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "connected", sheet = false }: OneAgentProfileProps & { sheet?: boolean }) {
+function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "connected", sheet = false, onTodoBackChange }: OneAgentProfileProps & { sheet?: boolean; onTodoBackChange?: (handler: (() => boolean) | null) => void }) {
   const { user, userId } = useAuth();
   const profileName = useOneDisplayName(open);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const router = useRouter();
   const [tab, setTab] = useState("feed");
+  const [todoDetail, setTodoDetail] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const changeTab = (value: string) => {
     setTab(value);
@@ -221,12 +226,14 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
         isVaultUnlocked={isVaultUnlocked}
+        onDetailBackChange={onTodoBackChange}
+        onDetailModeChange={setTodoDetail}
       />
     );
   }
 
 
-  return <div className={styles.content}>
+  return <div className={styles.content} data-todo-active={tab === "todo"} data-todo-detail={tab === "todo" && todoDetail}>
         <div className={styles.hero}>
           <div className={styles.avatar}>
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
@@ -251,7 +258,7 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
           </div>
           <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
-            <TabsContent value="todo">{todo}</TabsContent>
+            <TabsContent value="todo" className={styles.todoTab}>{todo}</TabsContent>
             <TabsContent value="profile">
               <div className={styles.profile}>
                 <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />

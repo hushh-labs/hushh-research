@@ -43,8 +43,7 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
             "items": [
                 {
                     "publicPersonRef": person_ref,
-                    "networkDegree": None,
-                    "suggestionReason": "public_profile",
+                    "networkDegree": 3,
                 }
             ],
             "page": 2,
@@ -56,8 +55,8 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
         )
         assert suggestions.status_code == 200
         assert suggestions.headers["cache-control"] == "private, no-store"
-        assert suggestions.json()["items"][0]["networkDegree"] is None
-        assert suggestions.json()["items"][0]["suggestionReason"] == "public_profile"
+        assert suggestions.json()["items"][0]["networkDegree"] == 3
+        assert "suggestionReason" not in suggestions.json()["items"][0]
         service.return_value.browse.assert_called_once_with(
             "user-a",
             person_ref=None,

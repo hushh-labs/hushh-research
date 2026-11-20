@@ -2389,7 +2389,7 @@ def build_one_intro_text_agent(
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(include_thoughts=False),
+            thinking_config=_one_chat_thinking_config(model, include_summaries=False),
         ),
     )
 
@@ -2814,6 +2814,7 @@ def build_one_text_agent(
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
 
     track_current_consent, finance_before_model, finance_after_model = finance_model_callbacks(
         lookup=consent_bundle_lookup or _requester_bundle, before_model=_one_consent_before_model
@@ -2858,6 +2859,7 @@ def build_one_text_agent(
             document_period_before_model,
             email_memory_before_model,
             guest_before_model,
+            scope_leaf_tools_before_model,
             timed_one_before_model,
             club_queued_input,
             chat_memory_before_model,

@@ -391,7 +391,7 @@ export function SosPanel({
   return (
     <section
       data-testid="sms-safety-screen"
-      className="mx-auto flex w-full max-w-[560px] flex-col px-4 pb-6 pt-4 sm:px-0 sm:pt-8"
+      className="flex min-w-0 w-full flex-col pb-6"
     >
       <header className="space-y-2">
         <h1 className="ui-text-page-title">

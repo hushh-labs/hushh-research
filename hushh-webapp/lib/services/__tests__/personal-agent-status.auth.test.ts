@@ -16,8 +16,17 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const authState = vi.hoisted(() => ({
+  user: null as { uid: string } | null,
+  native: false,
+  nativeToken: vi.fn(),
+}));
+
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdToken: vi.fn(async () => "firebase-id-token") },
+  AuthService: {
+    getIdToken: vi.fn(async () => "firebase-id-token"),
+    getCurrentUser: vi.fn(() => authState.user),
+  },
 }));
 
 // Spread the real module: `api-service` pulls in `lib/capacitor/index.ts`, which calls
@@ -27,9 +36,15 @@ vi.mock("@capacitor/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@capacitor/core")>();
   return {
     ...actual,
-    Capacitor: { ...actual.Capacitor, isNativePlatform: () => false, getPlatform: () => "web" },
+    Capacitor: { ...actual.Capacitor, isNativePlatform: () => authState.native, getPlatform: () => authState.native ? "ios" : "web" },
   };
 });
+
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+vi.mock("@/lib/capacitor", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/capacitor")>(),
+  HushhAuth: { getIdToken: authState.nativeToken },
+}));
 
 import { ApiService } from "@/lib/services/api-service";
 
@@ -44,6 +59,11 @@ function mockFetchOnce(body: unknown, ok = true, status = 200) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  ApiService.clearRoutingHostingBurstCache();
+  publishValidatedAuthSessionPrincipal(null);
+  authState.user = null;
+  authState.native = false;
+  authState.nativeToken.mockReset();
 });
 
 describe("ApiService.getPersonalAgentStatus", () => {
@@ -98,5 +118,83 @@ describe("ApiService.getPersonalAgentStatus", () => {
     await expect(ApiService.getPersonalAgentStatus()).rejects.toThrow(
       "AGENT_STATUS_UNAVAILABLE:401",
     );
+  });
+
+  it("reuses settled byoc routing status within 5s, skips unsettled states, and invalidates on principal switch", async () => {
+    authState.user = { uid: "fb-1" };
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "fb-1",
+      ownerId: "owner-1",
+      accountGeneration: 1,
+    });
+    const spy = vi
+      .spyOn(ApiService, "apiFetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ hostingMode: "byoc", state: "provisioning" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ hostingMode: "byoc", state: "active", hushhId: "ha1_1" }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ hostingMode: "shared", state: "idle" }),
+      } as unknown as Response);
+
+    const unsettled = await ApiService.getPersonalAgentStatusForRouting();
+    expect(unsettled.state).toBe("provisioning");
+    const activeFirst = await ApiService.getPersonalAgentStatusForRouting();
+    const activeSecond = await ApiService.getPersonalAgentStatusForRouting();
+    expect(activeFirst.hushhId).toBe("ha1_1");
+    expect(activeSecond.hushhId).toBe("ha1_1");
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    authState.user = { uid: "fb-2" };
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "fb-2",
+      ownerId: "owner-2",
+      accountGeneration: 2,
+    });
+    const switched = await ApiService.getPersonalAgentStatusForRouting();
+    expect(switched.hostingMode).toBe("shared");
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it("routes a native-only session and discards a status from a retired sign-in of the same account", async () => {
+    authState.native = true;
+    const principal = { firebaseUid: "firebase-owner", ownerId: "application-owner", accountGeneration: 1 };
+    publishValidatedAuthSessionPrincipal(principal);
+    const token = `header.${btoa(JSON.stringify({ sub: principal.firebaseUid }))}.signature`;
+    authState.nativeToken.mockResolvedValue({ idToken: token });
+    let settle!: (response: Response) => void;
+    const spy = vi.spyOn(ApiService, "apiFetch")
+      .mockImplementationOnce(() => new Promise<Response>(resolve => { settle = resolve; }))
+      .mockResolvedValueOnce(Response.json({ hostingMode: "shared", state: "active" }));
+    const retired = ApiService.getPersonalAgentStatusForRouting();
+    const rejected = expect(retired).rejects.toThrow("POD_OWNER_CHANGED");
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce());
+    publishValidatedAuthSessionPrincipal(null);
+    publishValidatedAuthSessionPrincipal(principal);
+    await expect(ApiService.getPersonalAgentStatusForRouting()).resolves.toMatchObject({ hostingMode: "shared" });
+    settle(Response.json({ hostingMode: "byoc", state: "active" }));
+    await rejected;
+    await expect(ApiService.getPersonalAgentStatusForRouting()).resolves.toMatchObject({ hostingMode: "shared" });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(new Headers(spy.mock.calls[1]?.[1]?.headers).get("Authorization")).toBe(`Bearer ${token}`);
+  });
+
+  it("does not probe hosting with a native token from a different Firebase user", async () => {
+    authState.native = true;
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "firebase-owner", ownerId: "application-owner", accountGeneration: 1 });
+    authState.nativeToken.mockResolvedValue({
+      idToken: `header.${btoa(JSON.stringify({ sub: "other-user" }))}.signature`,
+    });
+    const spy = mockFetchOnce({ hostingMode: "shared" });
+    await expect(ApiService.getPersonalAgentStatusForRouting()).rejects.toThrow("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    expect(spy).not.toHaveBeenCalled();
   });
 });

@@ -56,6 +56,13 @@ import { useVault } from "@/lib/vault/vault-context";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 
+type SavedLocationsSession = {
+  userId: string | null;
+  vaultKey: string | null;
+  vaultOwnerToken: string | null;
+};
+const EMPTY_SAVED_LOCATIONS: SavedLocation[] = [];
+
 export function SavedLocationsSection() {
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
@@ -72,7 +79,12 @@ export function SavedLocationsSection() {
     vaultOwnerToken,
   });
   const locationControl = useOneLocationControlState(userId);
-  const [locations, setLocations] = useState<SavedLocation[]>([]);
+  const [retainedLocations, setLocations] = useState<SavedLocation[]>([]);
+  const [locationsSession, setLocationsSession] = useState<SavedLocationsSession | null>(null);
+  // A completed load attempt does not establish ownership of retained data.
+  const locations = isVaultUnlocked && locationsSession?.userId === userId &&
+    locationsSession?.vaultKey === vaultKey && locationsSession?.vaultOwnerToken === vaultOwnerToken
+    ? retainedLocations : EMPTY_SAVED_LOCATIONS;
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -121,16 +133,38 @@ export function SavedLocationsSection() {
   const reconcileTaskRef = useRef<Promise<void> | null>(null);
   const reconcileQueuedRef = useRef(false);
 
+  const resetPrivatePlaces = useCallback(() => {
+    captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
+    setLocations([]);
+    setLocationsSession(null);
+    setLoadError(null);
+    setExpandedId(null);
+    setEditingLocation(null);
+    setOfferPrefill(null);
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+    setSaveLocationAddress(null);
+    setSaveLocationAddressLoading(false);
+    setSaveLocationSaving(false);
+    setCapturing(false);
+    setRemovingId(null);
+    setFavoritingId(null);
+    setRepairingId(null);
+    setLoading(false);
+  }, []);
+
   // Keep a "latest session" ref so async callbacks can detect when the vault
   // session changed mid-flight. Updated in an effect (not during render) to
   // satisfy the react-hooks/refs rule.
   useEffect(() => {
     vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+    resetPrivatePlaces();
     addressLookupsRef.current.clear();
     categoryLookupsRef.current.clear();
     setResolvedAddresses({});
     setResolvedCategories({});
-  }, [userId, vaultKey, vaultOwnerToken]);
+  }, [resetPrivatePlaces, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     setRendererDisclosureAccepted(
@@ -187,6 +221,7 @@ export function SavedLocationsSection() {
         !isCurrentVaultSession(session)
       ) return;
       setLocations(sortSavedLocationsForDisplay(list));
+      setLocationsSession(session);
     } catch {
       if (
         requestId !== reloadRequestIdRef.current ||
@@ -298,20 +333,8 @@ export function SavedLocationsSection() {
 
   useEffect(() => {
     if (hasVaultAccess) return;
-    captureRequestIdRef.current += 1;
-    addressResolutionIdRef.current += 1;
-    setLocations([]);
-    setSaveLocationModalOpen(false);
-    setSaveLocationPoint(null);
-    setSaveLocationAddress(null);
-    setSaveLocationAddressLoading(false);
-    setSaveLocationSaving(false);
-    setCapturing(false);
-    setRemovingId(null);
-    setFavoritingId(null);
-    setRepairingId(null);
-    setLoading(false);
-  }, [hasVaultAccess]);
+    resetPrivatePlaces();
+  }, [hasVaultAccess, resetPrivatePlaces]);
 
   useEffect(() => {
     if (!hasVaultAccess || !userId || !vaultOwnerToken || loadedUserId !== userId ||
@@ -337,6 +360,9 @@ export function SavedLocationsSection() {
         }
         requested.delete(key);
         if (cancelled || !isCurrentVaultSession(session)) return;
+        // Retry unavailable metadata on the next focus/online reconciliation.
+        // A recognized "other" category remains a successful, deduplicated lookup.
+        if (!category) lookups.delete(key);
         setResolvedCategories((current) => ({ ...current, [key]: category }));
       }
     };
@@ -560,6 +586,7 @@ export function SavedLocationsSection() {
         }));
         addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         setEditingLocation(null);
@@ -631,6 +658,7 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         toast.success("Saved location removed.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
@@ -652,6 +680,7 @@ export function SavedLocationsSection() {
       const next = await favoriteSavedLocation({ context: session, id: location.id });
       if (!isCurrentVaultSession(session)) return;
       setLocations(sortSavedLocationsForDisplay(next));
+      setLocationsSession(session);
       setExpandedId(null);
       toast.success("Added to favorites.", { className: connectTypography.toast });
     } catch {
@@ -685,6 +714,7 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         toast.success("Address updated.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
@@ -772,16 +802,37 @@ export function SavedLocationsSection() {
       locations: locations.filter((location) => location.savedFrom === "check_in"),
     },
   ].filter(
-    (group) => group.key === "favorite" || (hasVaultAccess && !loading && !loadError),
+    (group) =>
+      group.key === "favorite" ||
+      (hasVaultAccess && (locations.length > 0 || (!loading && !loadError))),
   );
 
   return (
     <>
       <section
         aria-label="Saved Locations"
+        aria-busy={loading}
         className="w-full min-w-0 space-y-6"
         data-testid="settings-saved-locations"
       >
+        {hasVaultAccess && locations.length > 0 && loadError ? (
+          <div role="status" className="flex min-w-0 items-center justify-between gap-3">
+            <p
+              data-location-type-role="helper"
+              className="text-sm text-[color:var(--app-secondary-label)]"
+            >
+              Couldn’t refresh saved places. Your saved list is still shown.
+            </p>
+            <button
+              data-location-type-role="utility-action"
+              type="button"
+              onClick={() => void reload()}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center px-3 text-[color:var(--app-accent)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
         {placeGroups.map((group) => (
           <section key={group.key} aria-label={group.title} className="min-w-0">
             <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
@@ -822,7 +873,7 @@ export function SavedLocationsSection() {
                     </p>
                   </div>
                 </div>
-              ) : loading ? (
+              ) : loading && locations.length === 0 ? (
                 <div
                   className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
                   role="status" data-location-type-role="status"
@@ -830,7 +881,7 @@ export function SavedLocationsSection() {
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   Loading saved places…
                 </div>
-              ) : loadError ? (
+              ) : loadError && locations.length === 0 ? (
                 <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
                   <p data-location-type-role="helper" className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
                     {loadError}

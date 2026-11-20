@@ -125,6 +125,19 @@ while a write might still complete. Cleanup validates the exact owner prefix, de
 bounded version batches and waits for soft-deletion/retention to complete. Trash is
 reversible metadata, not physical deletion. Never drop inventory to bypass cleanup.
 
+For an already-empty erasing library blocked by a disabled-policy retained-object
+query, `scripts/ops/reconcile_uat_shared_files.py` defaults to a dry run. Apply
+requires protected UAT source, verified operator ADC, unchanged retained writer
+sources and canonical qualification of the accepted deletion inventory. Durable,
+bucket-scoped enrollment guards and truthful maintenance reservations fence writes
+and erasure across process loss before a conditional temporary policy change.
+Successful retained-object absence, conditional policy restoration, propagation
+and unchanged other-object inventory precede the canonical erasure receipt. No
+objects or account cleanup claims are deleted or changed. Failures retain owned
+guards; `--resume` verifies exact ownership and reconciles uncertain policy writes
+from the persisted dispatch intent and the operator's provider audit receipt.
+An HTTP400 or a partial observation never establishes absence.
+
 Private Gemini and Azure keys are sealed directly to the admitted pod for validation
 and use; encrypted vault backup follows acceptance. A backup failure does not
 silently replace the accepted private connection.

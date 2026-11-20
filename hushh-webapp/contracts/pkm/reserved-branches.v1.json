@@ -25,7 +25,6 @@
     "portfolio_statement_delete": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "kai_analysis_completion": {"feature": "finance", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "kai_history_delete_entry_button": {"feature": "finance", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
-    "kai_history_delete_ticker_button": {"feature": "finance", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "kai_profile_preference_confirm": {"feature": "finance", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "kai_onboarding_completion": {"feature": "finance", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "kai_nav_tour_state": {"feature": "finance", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
@@ -135,7 +134,7 @@
         "plaid_vault_connect", "plaid_vault_refresh", "plaid_vault_view_upgrade", "plaid_vault_disconnect",
         "kai_dashboard_portfolio_save", "kai_dashboard_portfolio_clear", "kai_manage_portfolio_save", "kai_portfolio_review_confirm",
         "portfolio_source_change", "portfolio_statement_change", "portfolio_statement_delete",
-        "kai_analysis_completion", "kai_history_delete_entry_button", "kai_history_delete_ticker_button",
+        "kai_analysis_completion", "kai_history_delete_entry_button",
         "kai_profile_preference_confirm", "kai_onboarding_completion", "kai_nav_tour_state", "kai_profile_setup_sync",
         "one_setup_finance_finalize", "profile_financial_context_save", "profile_financial_context_delete"
       ],

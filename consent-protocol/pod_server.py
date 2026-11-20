@@ -94,6 +94,10 @@ from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_public_key_payload,
     pod_signing_public_payload,
 )
+from hushh_mcp.services.pod_session_authority import (  # noqa: E402
+    PodSessionRefused,
+    schedule_fenced_pod_retirement,
+)
 
 # MAKE THE POD SPEAK. Without these two lines a pod is silent, and a silent pod is
 # an undebuggable one.
@@ -261,6 +265,16 @@ async def _hub_unavailable(_request: Request, _exc: PodHubUnavailable) -> JSONRe
     hushh-pda-dev on 2026-08-04, where a hub that refused the pod surfaced as a raw 500.
     """
     return JSONResponse(status_code=503, content={"detail": "hub unavailable"})
+
+
+@app.exception_handler(PodSessionRefused)
+async def _pod_session_refused(_request: Request, exc: PodSessionRefused) -> JSONResponse:
+    if exc.code == "fenced":
+        schedule_fenced_pod_retirement("http_session_refused")
+    return JSONResponse(
+        status_code=exc.status,
+        content={"detail": {"code": exc.code, "message": exc.detail}},
+    )
 
 
 for _router in _POD_ROUTERS:
@@ -681,6 +695,10 @@ async def _heartbeat_once(client: Any) -> bool:
         if authority is not None:
             await authority.require_held()
             body["consentIncarnation"] = current_revocation_binding().to_dict()
+    except PodSessionRefused as exc:
+        if exc.code == "fenced":
+            schedule_fenced_pod_retirement("heartbeat_fenced")
+        logger.info("pod.consent_binding_unavailable reason=%s", type(exc).__name__)
     except Exception as exc:  # noqa: BLE001 - unavailable lease is never a claimed incarnation
         logger.info("pod.consent_binding_unavailable reason=%s", type(exc).__name__)
     if _APPLIED_TOMBSTONES:
@@ -735,6 +753,10 @@ async def _heartbeat_once(client: Any) -> bool:
             if authority is not None:
                 await authority.require_held()
                 install_revocation_list(payload["consentRevocations"])
+    except PodSessionRefused as exc:
+        if exc.code == "fenced":
+            schedule_fenced_pod_retirement("heartbeat_fenced")
+        logger.warning("pod.tombstone_courier_failed %s", type(exc).__name__)
     except Exception as exc:  # noqa: BLE001 - the beat was recorded; courier work is best effort
         logger.warning("pod.tombstone_courier_failed %s", type(exc).__name__)
     return True

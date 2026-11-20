@@ -11,14 +11,24 @@ export function wakingChatTransport(
   init: RequestInit | undefined,
   onWaking: () => void,
   onChatAdmission: (hushhId: string) => void,
+  isCurrent?: () => boolean,
 ): Promise<Response> {
   return sendWhileAgentWakes(
-    () => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true, onChatAdmission),
+    () => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true, onChatAdmission, isCurrent),
     {
       signal: init?.signal,
       onWaking,
-      isOwnerAgent: async () =>
-        (await import("@/lib/services/pod-app-access")).usesOwnerPod(() => ApiService.getPersonalAgentStatus()),
+      isOwnerAgent: async () => {
+        const { usesOwnerPod } = await import("@/lib/services/pod-app-access");
+        if (isCurrent && !isCurrent()) return false;
+        const ownAgent = await usesOwnerPod(() => {
+          if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
+          return typeof ApiService.getPersonalAgentStatusForRouting === "function"
+            ? ApiService.getPersonalAgentStatusForRouting()
+            : ApiService.getPersonalAgentStatus();
+        });
+        return ownAgent && (isCurrent?.() ?? true);
+      },
     },
   );
 }

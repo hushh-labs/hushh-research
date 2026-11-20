@@ -7,6 +7,7 @@ import { useLayoutEffect } from "react";
 
 const mocks = vi.hoisted(() => ({
   insights: vi.fn(),
+  followupStatus: vi.fn(), followupPost: vi.fn(), followupScan: vi.fn(),
   invitations: vi.fn().mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true }),
   today: vi.fn(),
   availability: vi.fn(),
@@ -22,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   getIdToken: vi.fn(),
   vaultOwnerToken: "owner-token" as string | null,
   router: { push: vi.fn(), replace: vi.fn() },
+}));
+
+vi.mock("@/lib/services/calendar-followups-service", () => ({
+  CalendarFollowupsService: { status: mocks.followupStatus, post: mocks.followupPost, scan: mocks.followupScan },
 }));
 
 vi.mock("@/lib/services/calendar-insights-service", () => ({
@@ -63,6 +68,7 @@ vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { CalendarTimelineRow, availabilityTimeRangeLabel } from "@/components/calendar/calendar-schedule-presentation";
 import { GoogleCalendarError } from "@/lib/services/google-calendar-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
@@ -1103,11 +1109,13 @@ describe("CalendarConnectedWorkspace", () => {
   it("abandons a prior owner's Schedule read before its Firebase token resolves", async () => {
     mocks.vaultOwnerToken = null;
     let settleOldToken!: (value: string) => void;
-    mocks.getIdToken.mockImplementationOnce(() => new Promise(resolve => { settleOldToken = resolve; }));
+    const oldToken = new Promise<string>(resolve => { settleOldToken = resolve; });
+    mocks.getIdToken.mockImplementation(() => oldToken);
     mocks.today.mockResolvedValueOnce(dailyResponse(dailyEvents));
     const view = render(workspace("owner-a"));
-    await waitFor(() => expect(mocks.getIdToken).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.getIdToken).toHaveBeenCalled());
     expect(mocks.today).not.toHaveBeenCalled();
+    mocks.getIdToken.mockResolvedValue("firebase-owner-token");
     view.rerender(workspace("owner-b"));
     await screen.findByRole("button", { name: /^Current partner meeting/i });
     await act(async () => settleOldToken("prior-owners-firebase-token"));
@@ -1229,4 +1237,20 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onDisconnect).toHaveBeenCalledOnce();
     expect(mocks.onConnect).not.toHaveBeenCalled();
   });
+});
+
+
+it("starts granted email follow-ups from the Calendar board without a vault before Insights opens", async () => {
+  publishValidatedAuthSessionOwner("owner");
+  mocks.vaultOwnerToken = null;
+  mocks.getIdToken.mockResolvedValue("synthetic-id-token");
+  mocks.followupStatus.mockResolvedValue({ mail_connected: true, monitoring_enabled: false, background_available: true });
+  mocks.followupPost.mockResolvedValue({ monitoring_enabled: true });
+  mocks.followupScan.mockResolvedValue({ state: "pending" });
+  render(workspace());
+  await waitFor(() => expect(mocks.followupPost).toHaveBeenCalledWith("preferences", expect.objectContaining({
+    account_id: "default", enabled: true, initialize_only: true,
+  }), "synthetic-id-token", expect.any(AbortSignal)));
+  await waitFor(() => expect(mocks.followupScan).toHaveBeenCalledOnce());
+  expect(screen.queryByText("Follow-ups")).not.toBeInTheDocument();
 });

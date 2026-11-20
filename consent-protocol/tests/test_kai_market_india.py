@@ -32,7 +32,10 @@ def _quote(symbol: str, price: float, change: float, points: list[dict[str, floa
 
 def _quotes() -> dict[str, dict]:
     series = _points(100, 101, 102, 103, 104, 106)
-    quotes = {symbol: _quote(symbol, 106, 1.92, series) for symbol in india_market.india_symbols()}
+    symbols = {symbol for _, symbol in india_market.INDIA_INDICES} | set(
+        india_market.INDIA_SECTORS.values()
+    )
+    quotes = {symbol: _quote(symbol, 106, 1.92, series) for symbol in symbols}
     quotes["^NSEI"] = _quote("^NSEI", 25299.35, 0.42, series)
     quotes["^CNXMETAL"] = _quote("^CNXMETAL", 100, 0, _points(100))  # one point: no return
     return quotes
@@ -108,7 +111,8 @@ async def test_india_view_refreshes_while_the_us_session_is_closed(monkeypatch):
     async def movers() -> dict:
         return india_market.build_india_movers(_mover_rows())
 
-    monkeypatch.setattr(india_market, "fetch_india_quotes", quotes)
+    monkeypatch.setattr(india_market, "fetch_india_indices", quotes)
+    monkeypatch.setattr(india_market, "fetch_india_sector_quotes", quotes)
     monkeypatch.setattr(india_market, "fetch_india_news", news)
     monkeypatch.setattr(india_market, "fetch_india_movers", movers)
 
@@ -137,7 +141,8 @@ async def test_total_india_outage_returns_a_degraded_payload_instead_of_failing(
     monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
     monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
     monkeypatch.setattr(market_insights, "_fetch_market_status_for_exchange", status)
-    monkeypatch.setattr(india_market, "fetch_india_quotes", down)
+    monkeypatch.setattr(india_market, "fetch_india_indices", down)
+    monkeypatch.setattr(india_market, "fetch_india_sector_quotes", down)
     monkeypatch.setattr(india_market, "fetch_india_news", down)
     monkeypatch.setattr(india_market, "fetch_india_movers", down)
 
@@ -202,23 +207,28 @@ def test_nse_stock_change_is_measured_from_the_previous_session_not_a_stale_clos
     # The duplicate live bar for the last session collapses, so the change is 1339.7 vs 1335.4.
     assert row["change_pct"] == pytest.approx((1339.7 / 1335.4 - 1) * 100)
     assert row["symbol"] == "RELIANCE" and row["company_name"] == "Reliance Industries Limited"
-    assert (
-        india_market.parse_nse_chart(
-            {**chart, "timestamp": [base], "indicators": {"quote": [{"close": [1300.0]}]}}, "X"
-        )
-        is None
+    with_no_today_bar = {**chart, "timestamp": [base, base + day]}
+    assert india_market.parse_nse_chart(with_no_today_bar, "RELIANCE")[
+        "change_pct"
+    ] == pytest.approx(row["change_pct"])
+    assert india_market.parse_nse_chart({**chart, "timestamp": [base + 2 * day]}, "X") is None
+
+
+def test_india_movers_rank_one_session_and_keep_provider_timestamps():
+    rows = _mover_rows()
+    rows[0] = {**rows[0], "as_of": "2026-11-12T09:55:00+00:00"}
+    rows.append(
+        {**rows[0], "symbol": "OLD", "change_pct": 50, "as_of": "2026-11-11T10:01:00+00:00"}
     )
-
-
-def test_india_movers_rank_gainers_and_losers_and_share_one_timestamp():
-    movers = india_market.build_india_movers(_mover_rows())
+    movers = india_market.build_india_movers(rows)
     assert [row["symbol"] for row in movers["gainers"]][:3] == ["TATASTEEL", "HINDALCO", "SBIN"]
     assert [row["symbol"] for row in movers["losers"]][:3] == ["WIPRO", "INFY", "TECHM"]
     assert "ITC" not in [
         row["symbol"] for row in (*movers["gainers"], *movers["losers"])
     ]  # flat is neither
-    assert movers["universe_size"] == 7 and movers["degraded"] is False
-    assert {row["as_of"] for row in movers["gainers"]} == {"2026-11-12T10:01:00+00:00"}
+    assert movers["universe_size"] == 7 and movers["degraded"] is True
+    assert movers["gainers"][0]["as_of"] == "2026-11-12T09:55:00+00:00"
+    assert movers["as_of"] == "2026-11-12T10:01:00+00:00"
 
 
 @pytest.mark.asyncio
@@ -234,24 +244,22 @@ async def test_index_cards_draw_the_last_session_and_never_a_month_line_beside_a
     async def fake(symbols, *, range_period="1d"):
         if range_period == "1d":
             return [
-                {"ticker": symbol, "sparkline": session, "sparkline_points": session_points}
+                _quote(symbol, 25299.0, 0.2, session_points)
                 for symbol in symbols
                 if symbol != "^BSESN"
             ]
         return [_quote(symbol, 106, 0.18, month) for symbol in symbols]
 
     monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", fake)
-    quotes = await india_market.fetch_india_quotes()
+    quotes = await india_market.fetch_india_indices()
+    sectors = await india_market.fetch_india_sector_quotes()
     assert quotes["^NSEI"]["sparkline"] == session
     assert (
         india_market.build_india_overview(quotes, STATUS)[0]["sparkline_points"] == session_points
     )
-    assert quotes["^NSEI"]["sparkline_points"] == month
-    assert quotes["^NSEI"]["change_percent"] == 0.18  # the day change still comes from daily closes
-    assert (
-        quotes["^BSESN"]["sparkline"] is None
-    )  # no intraday data: neutral guide, not a month line
-    assert len(quotes["^CNXAUTO"]["sparkline_points"]) == 22  # sector returns still use the month
+    assert quotes["^NSEI"]["change_percent"] == 0.2
+    assert india_market.build_india_overview(quotes, STATUS)[1]["sparkline"] is None
+    assert len(sectors["^CNXAUTO"]["sparkline_points"]) == 22
 
 
 @pytest.mark.asyncio
@@ -264,7 +272,7 @@ async def test_news_recovers_without_waiting_for_the_cached_india_home(monkeypat
     async def news(_days):
         nonlocal calls
         calls += 1
-        if calls <= 2:
+        if calls == 1:
             raise RuntimeError("news unavailable")
         return [{"title": "India markets", "url": "https://example.com/news"}]
 
@@ -277,7 +285,8 @@ async def test_news_recovers_without_waiting_for_the_cached_india_home(monkeypat
     monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
     monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
     monkeypatch.setattr(market_insights, "_fetch_market_status_for_exchange", status)
-    monkeypatch.setattr(india_market, "fetch_india_quotes", quotes)
+    monkeypatch.setattr(india_market, "fetch_india_indices", quotes)
+    monkeypatch.setattr(india_market, "fetch_india_sector_quotes", quotes)
     monkeypatch.setattr(india_market, "fetch_india_news", news)
     monkeypatch.setattr(india_market, "fetch_india_movers", movers)
     assert (await market_insights._get_india_market_payload("user_a", 7))["news_tape"] == []

@@ -55,7 +55,7 @@ Review the current PR head, not stale history, and decide whether the change is 
 25. Return the parent worktree to the recorded developer branch after any temporary PR checkout, detached HEAD, review worktree, or queue-monitoring branch movement.
 26. Before the final response, update the active working report when one exists. For `tmp/pr-governance-live-report.md`, this means updating the progress ledger, per-PR register entries, head SHAs, lanes, batch counts, recommended next order, and terminal queue/smoke evidence.
 27. If the working report has a live update checklist, execute it before closing the turn.
-28. Treat early stop as process drift. Codex should not need a user reminder to continue monitoring or refresh the working record once it initiated the merge path.
+28. Treat early stop as process drift. Agents should not need a user reminder to continue monitoring or refresh the working record once they initiated the merge path.
 29. Hand off only when the blocker lives inside another owner family.
 30. Do not imply approval or recommend merge while blocker findings remain on the current merge candidate.
 

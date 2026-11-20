@@ -11,7 +11,7 @@ const mockTransport = vi.hoisted(() => ({
   addMessage: vi.fn(),
   setMessages: vi.fn(),
   nativeMode: false,
-  outcome: "success" as "success" | "interrupt" | "cancelled",
+  outcome: "success" as "success" | "interrupt",
   emitEvents: null as null | ((subscriber: Record<string, (input: any) => void>) => void),
   aborted: false,
   // Mirrors @ag-ui/client 0.0.59 on a non-2xx response (measured): the
@@ -168,6 +168,11 @@ import {
 
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
+
+function streamGuestIntro(input: Parameters<typeof streamAgentIntro>[0]) {
+  publishValidatedAuthSessionOwner(null);
+  return streamAgentIntro(input);
+}
 
 describe("chat attempt observation boundary", () => {
   beforeEach(() => {
@@ -1441,22 +1446,65 @@ describe("AG-UI Agent One client", () => {
   });
 
   it("uses the same AG-UI endpoint before vault unlock", async () => {
-    await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
+    await expect(streamGuestIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",
     });
     expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
   });
 
-  it.each(["full", "intro"])("does not report a server-cancelled %s run as completed", async tier => {
-    mockTransport.outcome = "cancelled";
+  it.each(["full", "intro"])("does not complete a server-cancelled %s run through the locked AG-UI transport", async tier => {
+    mockTransport.nativeMode = true;
+    const wire = [
+      { type: "RUN_STARTED", threadId: "cancelled-thread", runId: "cancelled-run" },
+      { type: "RUN_FINISHED", threadId: "cancelled-thread", runId: "cancelled-run", outcome: { type: "cancelled" } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+    const transport = tier === "intro" ? ApiService.apiFetchStream : ApiService.agentChatRequest;
+    vi.mocked(transport).mockResolvedValueOnce(new Response(wire, {
+      headers: { "content-type": "text/event-stream" },
+    }));
     const onComplete = vi.fn();
     const onInterrupt = vi.fn();
-    const turn = tier === "intro"
-      ? streamAgentIntro({ message: "Hello", handlers: { onComplete, onInterrupt } })
-      : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", handlers: { onComplete, onInterrupt } });
-    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
-    expect(onComplete).not.toHaveBeenCalled();
-    expect(onInterrupt).not.toHaveBeenCalled();
+    try {
+      const turn = tier === "intro"
+        ? streamGuestIntro({ message: "Hello", handlers: { onComplete, onInterrupt } })
+        : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", handlers: { onComplete, onInterrupt } });
+      await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(onInterrupt).not.toHaveBeenCalled();
+    } finally {
+      mockTransport.nativeMode = false;
+    }
+  });
+
+  it.each(["full", "intro"])("does not complete an aborted %s run through the real AG-UI transport", async tier => {
+    mockTransport.nativeMode = true;
+    const controller = new AbortController();
+    const wire = [
+      { type: "RUN_STARTED", threadId: "cancelled-thread", runId: "cancelled-run" },
+      { type: "TEXT_MESSAGE_START", messageId: "cancelled-message", role: "assistant" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "cancelled-message", delta: "Hello" },
+      { type: "TEXT_MESSAGE_END", messageId: "cancelled-message" },
+      { type: "RUN_FINISHED", threadId: "cancelled-thread", runId: "cancelled-run" },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+    const transport = tier === "intro" ? ApiService.apiFetchStream : ApiService.agentChatRequest;
+    vi.mocked(transport).mockResolvedValueOnce(new Response(wire, {
+      headers: { "content-type": "text/event-stream" },
+    }));
+    const onComplete = vi.fn();
+    const onInterrupt = vi.fn();
+    const handlers = { onComplete, onInterrupt, onToken: () => controller.abort() };
+    try {
+      const turn = tier === "intro"
+        ? streamGuestIntro({ message: "Hello", signal: controller.signal, handlers })
+        : streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token", signal: controller.signal, handlers });
+      if (tier === "intro") await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+      else await expect(turn).resolves.toMatchObject({ detached: false });
+      expect(controller.signal.aborted).toBe(true);
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(onInterrupt).not.toHaveBeenCalled();
+    } finally {
+      mockTransport.nativeMode = false;
+    }
   });
 
   it.each(["full", "intro"])("drops reasoning before SDK storage in the %s tier", async (tier) => {
@@ -1482,7 +1530,7 @@ describe("AG-UI Agent One client", () => {
       expect(subscriber.onReasoningMessageContentEvent).toBeUndefined();
     };
     const result = tier === "intro"
-      ? await streamAgentIntro({ message: "Hello" })
+      ? await streamGuestIntro({ message: "Hello" })
       : await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello", vaultOwnerToken: "owner-token" });
     expect(result.text).toBe("Hello");
     expect(privateMessage.content).toBe("Private reasoning");
@@ -2144,7 +2192,7 @@ describe("a chat turn never waits forever", () => {
 
     // The pre-vault turn uses the same endpoint and must not report success.
     const introError = vi.fn();
-    await expect(streamAgentIntro({ message: "hello", handlers: { onError: introError } }))
+    await expect(streamGuestIntro({ message: "hello", handlers: { onError: introError } }))
       .rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
     expect(introError).toHaveBeenCalledTimes(1);
   });

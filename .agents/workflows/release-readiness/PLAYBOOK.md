@@ -9,7 +9,7 @@ Run the canonical repo checks, advisory checks, and release-focused audits befor
 ## Steps
 
 1. Start with `repo-operations` and use `owner skill only` as the default narrow path.
-2. Run the repo-operations Branch Preservation Gate before checking out release SHAs, dispatching deploys, or creating hotfix branches.
+2. Run the repo-operations Branch Preservation Gate before checking out release SHAs, dispatching deploys, or creating temporary release worktrees.
 3. Use `.agents/skills/repo-operations/references/admin-release-sop.md` for every merge, Admin bypass, deployment, rollback, and environment-promotion transition.
 4. Open only the required reads listed in `workflow.json` plus the selected skill manifests.
 5. Run the required commands first, then the verification bundle.
@@ -22,5 +22,5 @@ Run the canonical repo checks, advisory checks, and release-focused audits befor
 1. treating advisory findings as invisible
 2. shipping without docs parity
 3. skipping native checks when mobile surfaces changed
-4. dispatching or fixing from a temporary branch without restoring the preserved developer branch
-5. letting `main` hotfixes drift away from the active development branch
+4. orphaning an uncleaned temporary worktree or leaving the root checkout off the active base (`dev` or `uat`) after release
+5. letting `main` hotfixes drift away from `uat` and `dev`

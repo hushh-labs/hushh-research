@@ -100,7 +100,7 @@ Before every state-changing checkpoint, ask one researched operator question:
 3. `Risk if accepted blindly`: stale heads, changed CI, unsafe edits, noisy comments, or unfair attribution.
 4. `Decision needed`: approve the checkpoint, reduce/split it, or refresh first.
 
-Do not ask the operator to find facts Codex can verify.
+Do not ask the operator to find facts agents can verify.
 
 ## Dynamic Decision Wave Sizing
 

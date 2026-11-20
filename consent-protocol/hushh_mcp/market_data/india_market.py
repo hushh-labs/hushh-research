@@ -12,7 +12,7 @@ import math
 import re
 import urllib.parse
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -20,7 +20,8 @@ from zoneinfo import ZoneInfo
 import httpx
 from defusedxml import ElementTree as DefusedET
 
-from hushh_mcp.market_data.movers import assemble_movers
+from hushh_mcp.market_data.movers import assemble_movers, observation_time
+from hushh_mcp.services.market_news_images import publisher_logo_url
 
 INDIA_INDICES: tuple[tuple[str, str], ...] = (
     ("NIFTY 50", "^NSEI"),
@@ -58,15 +59,12 @@ NSE_LARGE_CAPS: tuple[str, ...] = (
     "SBILIFE", "HDFCLIFE", "INDUSINDBK", "BPCL", "BRITANNIA", "SHRIRAMFIN", "TRENT", "BEL",
     "ETERNAL", "JIOFIN", "INDIGO",
 )  # fmt: skip
+INDIA_MOVERS_MIN_COVERAGE = len(NSE_LARGE_CAPS) * 4 // 5
+INDIA_MOVERS_MAX_QUOTE_SPREAD = timedelta(minutes=20)
 INDIA_MOVERS_CONCURRENCY = 5
 INDIA_MOVERS_DEADLINE_SECONDS = 12.0
 INDIA_NEWS_QUERY = "NIFTY OR SENSEX OR NSE OR BSE"
 INDIA_NEWS_LIMIT = 20
-
-
-def india_symbols() -> list[str]:
-    ordered = [symbol for _, symbol in INDIA_INDICES] + list(INDIA_SECTORS.values())
-    return list(dict.fromkeys(ordered))
 
 
 def _finite(value: Any) -> float | None:
@@ -75,32 +73,20 @@ def _finite(value: Any) -> float | None:
     return float(value) if math.isfinite(value) else None
 
 
-async def fetch_india_quotes() -> dict[str, dict[str, Any]]:
-    """One-month daily history for every symbol, then the last session's intraday line for the indices."""
+async def fetch_india_indices() -> dict[str, dict[str, Any]]:
+    """Current index observations with the matching regular-session chart."""
     from hushh_mcp.operons.kai.fetchers import _fetch_yahoo_quotes
 
-    rows = await _fetch_yahoo_quotes(india_symbols(), range_period="1mo")
-    quotes = {str(row.get("ticker") or "").upper(): row for row in rows if row.get("ticker")}
-    index_symbols = [symbol for _, symbol in INDIA_INDICES]
-    try:
-        intraday = await _fetch_yahoo_quotes(index_symbols, range_period="1d")
-    except Exception:
-        intraday = []
-    lines = {str(row.get("ticker") or "").upper(): row.get("sparkline") for row in intraday}
-    intraday_points = {
-        str(row.get("ticker") or "").upper(): row.get("sparkline_points") for row in intraday
-    }
-    for symbol in index_symbols:
-        row = quotes.get(symbol)
-        if row is None:
-            continue
-        line = lines.get(symbol)
-        # The change shown is one session, so the line is that session. A month-long line would
-        # sit beside a one-day change and contradict it (a red day on a rising line), so with no
-        # intraday data the card shows the neutral guide instead.
-        row["sparkline"] = line if isinstance(line, list) and len(line) >= 2 else None
-        row["intraday_points"] = intraday_points.get(symbol) if row["sparkline"] else None
-    return quotes
+    rows = await _fetch_yahoo_quotes([symbol for _, symbol in INDIA_INDICES], range_period="1d")
+    return {row["ticker"]: row for row in rows if row.get("ticker")}
+
+
+async def fetch_india_sector_quotes() -> dict[str, dict[str, Any]]:
+    """Daily history for the sector returns, independent of current index levels."""
+    from hushh_mcp.operons.kai.fetchers import _fetch_yahoo_quotes
+
+    rows = await _fetch_yahoo_quotes(list(INDIA_SECTORS.values()), range_period="1mo")
+    return {row["ticker"]: row for row in rows if row.get("ticker")}
 
 
 def build_india_overview(
@@ -125,7 +111,7 @@ def build_india_overview(
                 "source": str(quote.get("source") or "Unavailable"),
                 "degraded": not quote or bool(quote.get("is_stale")),
                 "sparkline": quote.get("sparkline") or None,
-                "sparkline_points": quote.get("intraday_points") or None,
+                "sparkline_points": quote.get("sparkline_points") or None,
             }
         )
     out.append(
@@ -176,14 +162,6 @@ def build_india_sectors(quotes: dict[str, dict[str, Any]]) -> tuple[list[dict[st
     return rows, "ok" if len(rows) == len(INDIA_SECTORS) else "partial"
 
 
-def _publisher_logo(url: str | None) -> str | None:
-    """Google News carries no article images, so each headline gets its publisher's mark."""
-    host = urllib.parse.urlsplit(str(url or "")).hostname or ""
-    if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}", host.lower()):
-        return None
-    return f"https://www.google.com/s2/favicons?domain={host.lower()}&sz=128"
-
-
 def parse_india_news(xml_text: str) -> list[dict[str, Any]]:
     """Newest first, one row per headline, publisher suffix removed from the title."""
     try:
@@ -221,7 +199,7 @@ def parse_india_news(xml_text: str) -> list[dict[str, Any]]:
                     "url": url,
                     "published_at": published.astimezone(UTC).isoformat(),
                     "source_name": source_name or "Google News",
-                    "source_logo_url": _publisher_logo(
+                    "source_logo_url": publisher_logo_url(
                         source_node.get("url") if source_node is not None else None
                     ),
                     "provider": "google_news_rss",
@@ -272,34 +250,58 @@ def parse_nse_chart(chart: dict[str, Any], name: str) -> dict[str, Any] | None:
             continue
         # Yahoo can add a second, live bar for the same session; one bar per session, last wins.
         sessions[datetime.fromtimestamp(stamp, tz=zone).date()] = float(close)
-    ordered = [sessions[day] for day in sorted(sessions)]
     price = _finite(meta.get("regularMarketPrice"))
-    if len(ordered) < 2 or price is None or price <= 0:
-        return None
-    # chartPreviousClose is the start of the range and previousClose has been stale for Indian
-    # symbols, so the change is measured from the previous session's own close.
     stamp = _finite(meta.get("regularMarketTime"))
+    if price is None or price <= 0 or stamp is None:
+        return None
+
+    observed = datetime.fromtimestamp(stamp, tz=UTC)
+    quote_day = observed.astimezone(zone).date()
+    prior_days = [day for day in sessions if day < quote_day]
+    if not prior_days:
+        return None
+    # The current session's daily bar can be absent at the open or already present.
+    # Use the latest close strictly before the provider quote's trading date.
+    previous_close = sessions[max(prior_days)]
     return {
         "symbol": name,
         "company_name": str(meta.get("longName") or meta.get("shortName") or name).strip(),
         "price": price,
-        "change_pct": (price / ordered[-2] - 1) * 100,
+        "change_pct": (price / previous_close - 1) * 100,
         "volume": _finite(meta.get("regularMarketVolume")),
-        "as_of": datetime.fromtimestamp(stamp, tz=UTC).isoformat() if stamp else None,
+        "as_of": observed.isoformat(),
         "source_tags": ["Yahoo Finance", "NSE"],
         "degraded": False,
     }
 
 
 def build_india_movers(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Best and worst of the names that returned data, stamped with the latest session time."""
-    stamps = [row["as_of"] for row in rows if row.get("as_of")]
-    latest = max(stamps) if stamps else datetime.now(UTC).isoformat()
-    shared = [{**row, "as_of": latest} for row in rows]
+    """Rank observations from the latest NSE session and retain their own timestamps."""
+    zone = ZoneInfo("Asia/Kolkata")
+    timed = [
+        (stamp, row) for row in rows if (stamp := observation_time(row.get("as_of"))) is not None
+    ]
+    latest = max((stamp for stamp, _ in timed), default=None)
+    session = latest.astimezone(zone).date() if latest else None
+    current = [
+        row
+        for stamp, row in timed
+        if latest is not None
+        and stamp.astimezone(zone).date() == session
+        and latest - stamp <= INDIA_MOVERS_MAX_QUOTE_SPREAD
+    ]
     payload, _ = assemble_movers(
-        {"gainers": shared, "losers": shared, "active": shared}, {}, latest
+        {"gainers": current, "losers": current, "active": current},
+        {},
+        datetime.now(UTC).isoformat(),
     )
-    return {**payload, "universe": "nse_large_caps", "universe_size": len(rows)}
+    coverage = len({row["symbol"] for row in current})
+    return {
+        **payload,
+        "universe": "nse_large_caps",
+        "universe_size": coverage,
+        "degraded": bool(payload["degraded"]) or coverage < INDIA_MOVERS_MIN_COVERAGE,
+    }
 
 
 async def fetch_india_movers() -> dict[str, Any]:
@@ -347,7 +349,10 @@ async def fetch_india_movers() -> dict[str, Any]:
         if row:
             rows.append(row)
     if rows:
-        return build_india_movers(rows)
+        snapshot = build_india_movers(rows)
+        if throttled.is_set() or pending:
+            snapshot["degraded"] = True
+        return snapshot
     # Nothing came back, usually the provider rate limit. The caller keeps showing the last
     # good list from the shared cache, so this only has to say why.
     reason = "rate_limited" if throttled.is_set() else "unavailable"
@@ -364,26 +369,31 @@ async def load_india_home(
     fallback_status: Callable[[], dict[str, Any]],
     fetch_movers: Callable[[], Awaitable[dict[str, Any]]] | None = None,
     fetch_news: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
+    fetch_indices: Callable[[], Awaitable[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Fetch the three India modules together and report each one's provider state.
 
     Raises only when there is nothing at all to show, so a total outage is never cached
     as a healthy payload; a partial outage returns what loaded and says what did not.
     """
-    quotes_out, news_out, status_out, movers_out = await asyncio.gather(
-        fetch_india_quotes(),
+    quotes_out, sector_out, news_out, status_out, movers_out = await asyncio.gather(
+        (fetch_indices or fetch_india_indices)(),
+        fetch_india_sector_quotes(),
         (fetch_news or (lambda: fetch_india_news(days_back)))(),
         fetch_status(),
         (fetch_movers or fetch_india_movers)(),
         return_exceptions=True,
     )
-    if isinstance(quotes_out, BaseException) and isinstance(news_out, BaseException):
+    if isinstance(quotes_out, BaseException) and all(
+        isinstance(outcome, BaseException) for outcome in (news_out, movers_out, sector_out)
+    ):
         raise quotes_out
     quotes = {} if isinstance(quotes_out, BaseException) else quotes_out
     news = [] if isinstance(news_out, BaseException) else news_out
     status_payload = fallback_status() if isinstance(status_out, BaseException) else status_out
     movers = None if isinstance(movers_out, BaseException) else movers_out
-    sectors, sector_state = build_india_sectors(quotes)
+    sector_quotes = {} if isinstance(sector_out, BaseException) else sector_out
+    sectors, sector_state = build_india_sectors(sector_quotes)
     provider_status = {
         "india_quotes": _provider_state(quotes_out) if quotes else "failed",
         "india_sectors": sector_state if sector_state != "unavailable" else "failed",

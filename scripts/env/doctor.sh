@@ -439,12 +439,11 @@ case "$PROFILE" in
         SOURCE_READY=false
       fi
 
-      if [ -n "$BACKEND_FIREBASE_JSON" ] && ! is_placeholder "$BACKEND_FIREBASE_JSON"; then
-        add_check "cloudsql_proxy_credentials" "pass" "FIREBASE_ADMIN_CREDENTIALS_JSON is present for proxy auth"
-      else
-        add_check "cloudsql_proxy_credentials" "fail" "FIREBASE_ADMIN_CREDENTIALS_JSON is missing or still a template placeholder"
-        SOURCE_READY=false
-      fi
+      proxy_cred_result="$(python3 "$SCRIPT_DIR/local_runtime_parity.py" resolve-proxy-credentials --env-file "$BACKEND_SOURCE" --check-only || true)"
+      proxy_cred_status="${proxy_cred_result%%|*}"
+      proxy_cred_detail="${proxy_cred_result#*|}"
+      add_check "cloudsql_proxy_credentials" "${proxy_cred_status:-fail}" "${proxy_cred_detail:-Cloud SQL proxy credentials check failed}"
+      [ "$proxy_cred_status" = "pass" ] || SOURCE_READY=false
     else
       add_check "cloudsql_proxy_binary" "warn" "local is not configured for local DB proxying"
     fi

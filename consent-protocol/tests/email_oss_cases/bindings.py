@@ -218,28 +218,24 @@ async def test_email_selection_survives_token_refresh_but_not_account_switch(
     )
     gmail = SimpleNamespace(read_execution_grant_binding=AsyncMock(return_value=live_grant))
     binding = SimpleNamespace(
-        require_current=lambda: None,
-        endpoint="https://synthetic.invalid/v1",
-        token_supplier=lambda: "synthetic",
-        capabilities={
-            "one_text_root": {
-                "deployment": "synthetic-approved-one",
-                "reasoning_effort": "none",
-                "text_verbosity": "low",
-            }
-        },
+        auth_mode="vertex_adc",
+        project="synthetic-project",
+        primary_location="global",
+        validate_model=lambda model: model,
     )
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     monkeypatch.setattr(
-        "hushh_mcp.runtime_providers.managed_azure.ManagedAzureBinding.from_environment",
+        "hushh_mcp.runtime_providers.ManagedGeminiRuntimeBinding.from_environment",
         lambda: binding,
     )
     model_arguments = {}
+    close = AsyncMock()
 
     def model_factory(**kwargs):
         model_arguments.update(kwargs)
-        return object()
+        return SimpleNamespace(aclose=close)
 
-    monkeypatch.setattr("langchain_openai.ChatOpenAI", model_factory)
+    monkeypatch.setattr("langchain_google_genai.ChatGoogleGenerativeAI", model_factory)
     async with owner_email_runtime(
         gmail=gmail,
         user_id="owner",
@@ -252,12 +248,43 @@ async def test_email_selection_survives_token_refresh_but_not_account_switch(
     ) as (runtime, _admitted):
         execution = runtime.execution_factory(None)
         assert bool(execution.observed_messages) is not account_changed
-        assert model_arguments["model"] == "synthetic-approved-one"
-        assert model_arguments["reasoning"] == {"effort": "low"}
-        assert model_arguments["verbosity"] == "low"
+        assert model_arguments["model"] == "gemini-4-argon"
+        assert model_arguments["thinking_level"] == "medium"
+        assert model_arguments["vertexai"] is True
+        assert model_arguments["location"] == "global"
+        assert model_arguments["max_retries"] == 2
         if not account_changed:
             assert execution.grant_binding == live_grant
             assert execution.observed_messages["m1"]["thread_id"] == "t1"
+    close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("connected", [True, False])
+async def test_mail_connection_status_only_returns_current_connected_address(connected):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.email_oss.binding_helpers import connection_status_port
+
+    gmail = SimpleNamespace(
+        get_status=AsyncMock(
+            return_value={
+                "connected": connected,
+                "connection_state": "connected" if connected else "needs_reauth",
+                "google_email": "linked@example.test",
+                "google_sub": "internal-account-id",
+            }
+        )
+    )
+    admitted = AsyncMock()
+    read_status = connection_status_port(gmail, admitted, "owner")
+    result = await read_status(None)
+    gmail.get_status.assert_awaited_once_with(user_id="owner")
+    assert result.get("google_email") == ("linked@example.test" if connected else None)
+    assert "google_sub" not in result
+
+    admitted.side_effect = [None, PermissionError("owner authority ended")]
+    with pytest.raises(PermissionError, match="owner authority ended"):
+        await read_status(None)
 
 
 @pytest.mark.parametrize(

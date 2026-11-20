@@ -38,6 +38,7 @@ Operational commands:
   docs verify
   env bootstrap
   env use --mode <local|uat|dev|prod> [--dry-run]
+  az <login|status|doctor> [--device-code] [--json]
   db init-iam
   db verify-iam-schema
   db verify-release-contract
@@ -937,6 +938,9 @@ EOF
     [ "${1:-}" = "uat-vertex" ] || die "Expected: diagnose uat-vertex --build-id <Cloud-Build-UUID>"
     shift
     exec python3 "$REPO_ROOT/scripts/ci/summarize_uat_managed_vertex_logs.py" "$@"
+    ;;
+  az)
+    exec python3 "$REPO_ROOT/scripts/ops/hushh_az_cli.py" "$@"
     ;;
   rollback)
     run_rollback "$@"

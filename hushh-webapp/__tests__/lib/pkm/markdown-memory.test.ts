@@ -1102,6 +1102,25 @@ it.each(["# Soul.md", "# Memory\n\n> Owner-provided information for One. Treat i
   },
 );
 
+it.each([false, true])("keeps the last saved memory active when replacement storage fails (throws=%s)", async throws => {
+  const markdown = "# Memory\n\n- Last saved preference.\n";
+  const checkpoint = { version: 1 as const, editGeneration: 0, conversations: {}, requests: [] };
+  getStaleFirst.mockResolvedValue({ data: { markdown, _chat_memory: checkpoint } });
+  await loadMarkdownMemory(syncParams);
+  savePreparedDomain.mockImplementation(async params => {
+    await params.build({ currentDomainData: { markdown, _chat_memory: checkpoint } });
+    if (throws) throw new Error("Storage unavailable");
+    return { success: false, message: "Storage unavailable" };
+  });
+  const replacement = replaceChatMarkdownMemory({ ...syncParams, markdown: "- Unsaved new preference\n",
+    expectedMarkdown: markdown, expectedPersisted: true, expectedCheckpoint: checkpoint, checkpoint,
+    beforeEffect: async () => {} });
+  if (throws) await expect(replacement).rejects.toThrow("Storage unavailable");
+  else expect(await replacement).toMatchObject({ success: false });
+  expect(peekMarkdownMemory("user-1")?.markdown).toBe(markdown);
+  expect(markdownMemoryToAgentContext(peekMarkdownMemory("user-1")!).text).toBe(markdown);
+});
+
 it("does not invent Markdown headings when the owner has no saved LTM", async () => {
   getStaleFirst.mockResolvedValue(null);
   const memory = await loadMarkdownMemory(syncParams);

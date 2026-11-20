@@ -162,6 +162,27 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
 
+      const status = page.getByTestId("market-header-status");
+      const refresh = page.getByRole("button", { name: "Refresh market home" });
+      const heading = page.getByRole("heading", { name: "US markets", exact: true });
+      await expect(status).toHaveText("Closed (exchange calendar)");
+      const [indicator, label, refreshBox, headingBox] = await Promise.all([
+        status.locator("[aria-hidden=true]").boundingBox(),
+        status.getByText("Closed (exchange calendar)").boundingBox(),
+        refresh.boundingBox(),
+        heading.boundingBox(),
+      ]);
+      if (width < 640) {
+        expect(label!.y).toBeGreaterThan(refreshBox!.y + refreshBox!.height);
+        expect(indicator!.x + indicator!.width).toBeLessThan(label!.x);
+        expect(headingBox!.y).toBeLessThan(refreshBox!.y + refreshBox!.height);
+        expect(refreshBox!.x + refreshBox!.width).toBeLessThanOrEqual(width);
+      } else {
+        expect(label!.y).toBeLessThan(refreshBox!.y + refreshBox!.height);
+        expect(label!.x + label!.width).toBeLessThan(indicator!.x);
+        expect(indicator!.x).toBeLessThan(refreshBox!.x);
+      }
+
       await expectMarketMiniCharts(page);
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
@@ -188,7 +209,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(measurements.font).toMatch(/Plus Jakarta Sans/);
       expect(measurements.headline).toEqual(["14px", "21px", "600"]);
       expect(measurements.metadata).toEqual(["12px", "18px"]);
-      expect(measurements.clamp).toBe("none");
+      expect(measurements.clamp).toBe("2");
       expect(measurements.cardOverflow).toBe(false);
       expect(measurements.pageOverflow).toBe(false);
       expect(measurements.railOverflow).toBe(false);
@@ -349,13 +370,18 @@ for (const width of [375, 393, 430]) {
     const headline = news.getByRole("button").first().locator("span > span").first();
     const type = await headline.evaluate(element => {
       const style = getComputedStyle(element);
-      return { family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
+      return {
+        family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize),
+        clamp: style.webkitLineClamp, height: element.clientHeight, lineHeight: parseFloat(style.lineHeight),
+        clipped: element.scrollHeight > element.clientHeight,
+      };
     });
     expect(type.family).toMatch(/Plus Jakarta Sans/);
     expect(Number(type.weight)).toBeGreaterThanOrEqual(600);
     expect(type.size).toBe(14);
-    expect(type.clamp).toBe("none");
-    expect(type.overflow).not.toBe("hidden");
+    expect(type.clamp).toBe("2");
+    expect(type.height).toBe(2 * type.lineHeight);
+    expect(type.clipped).toBe(true);
     const stocks = page.getByTestId("market-iphone-fixture");
     const row = stocks.getByTestId("market-pick-row").first();
     const cap = row.getByText("$850B cap", { exact: true });
@@ -403,6 +429,37 @@ for (const width of [375, 393, 430]) {
   });
 }
 
+test("desktop Market news keeps thumbnails aligned through image failures", async ({ page }) => {
+  await page.route("https://images.example.test/**", route => {
+    if (route.request().url().includes("/story-")) return route.fulfill({ status: 404 });
+    return route.fulfill({ contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC1cAAAAASUVORK5CYII=", "base64") });
+  });
+  await mount(page, 1024);
+  const news = page.getByTestId("market-news-iphone-fixture");
+  const headline = news.getByText(/^Foreign investors bought shares/);
+  const height = await headline.evaluate(element => ({
+    visible: element.clientHeight, full: element.scrollHeight,
+    lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+  }));
+  expect(height.visible).toBe(2 * height.lineHeight);
+  expect(height.full).toBeGreaterThan(height.visible);
+  const covers = news.locator("article button > div:first-of-type");
+  await expect(covers).toHaveCount(4);
+  for (const [index, imagePath] of ["small.png", "large.png", "publisher.png"].entries()) {
+    const image = covers.nth(index).locator("img");
+    await image.scrollIntoViewIfNeeded();
+    await expect(image).toHaveAttribute("src", `https://images.example.test/${imagePath}`);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+  }
+  await expect(covers.nth(3).getByText("P", { exact: true })).toBeVisible();
+  const boxes = await Promise.all([0, 1, 2, 3].map(index => covers.nth(index).boundingBox()));
+  expect(boxes[0]!.y).toBeCloseTo(boxes[1]!.y, 0);
+  expect(boxes[2]!.y).toBeCloseTo(boxes[3]!.y, 0);
+  expect(boxes[0]!.x).toBeCloseTo(boxes[2]!.x, 0);
+  expect(boxes[1]!.x).toBeCloseTo(boxes[3]!.x, 0);
+});
+
 test("statement status keeps Cancel reachable while reading", async ({ page }) => {
   await mount(page);
   const importStatus = page.getByTestId("finance-import-status");
@@ -411,6 +468,28 @@ test("statement status keeps Cancel reachable while reading", async ({ page }) =
   await expect(importStatus.getByText("Checking holdings")).toBeVisible();
   await importStatus.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByTestId("action-result")).toHaveText("Cancelled");
+});
+
+test("desktop portfolio overview aligns the top cards with the second row", async ({ page }) => {
+  await mount(page, 1024);
+  const overview = page.getByTestId("portfolio-overview");
+  const top = overview.locator(":scope > div").nth(0).locator(":scope > [data-slot=card]");
+  const insights = overview.locator(":scope > div").nth(1).locator(":scope > [data-slot=card]");
+  const boxes = await Promise.all([
+    top.nth(0).boundingBox(), top.nth(1).boundingBox(),
+    insights.nth(0).boundingBox(), insights.nth(1).boundingBox(),
+  ]);
+  expect(boxes[0]!.width).toBeCloseTo(boxes[1]!.width);
+  expect(boxes[0]!.x).toBeCloseTo(boxes[2]!.x);
+  expect(boxes[1]!.x).toBeCloseTo(boxes[3]!.x);
+  const [statementHeading, reviewHeading, reviewAction] = await Promise.all([
+    overview.getByRole("heading", { name: "Statement portfolio value" }).boundingBox(),
+    overview.getByRole("heading", { name: "Portfolio review" }).boundingBox(),
+    overview.getByRole("button", { name: "View analysis" }).boundingBox(),
+  ]);
+  expect(statementHeading!.y).toBeCloseTo(reviewHeading!.y);
+  expect(statementHeading!.x - boxes[0]!.x).toBeCloseTo(reviewHeading!.x - boxes[1]!.x);
+  expect(boxes[1]!.y + boxes[1]!.height - reviewAction!.y - reviewAction!.height).toBeCloseTo(16);
 });
 
 for (const width of [320, 393, 768]) {

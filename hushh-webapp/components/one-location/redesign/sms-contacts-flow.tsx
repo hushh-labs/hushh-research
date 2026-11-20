@@ -192,12 +192,8 @@ export function SmsContactsFlow({
     // so the top bar keeps the single back control, the SMS trail and the
     // profile avatar.
     <section data-testid="sms-contacts-screen">
-      {/* 430px is a phone, not a layout. Held at every width it left most of a
-          tablet or a desktop window as empty grey while the lists below scrolled
-          inside a narrow ribbon. The column grows with the viewport instead, and
-          stops at 960px so the rows never stretch into unreadable full-bleed
-          lines. */}
-      <div className="mx-auto w-full max-w-[430px] md:max-w-[680px] xl:max-w-[720px]">
+      {/* The Location shell owns the bounded page width and responsive gutters. */}
+      <div className="min-w-0 w-full">
         <TaskFlowHeader
           title="Emergency contacts"
           description="Choose who receives your Save My Soul alerts."

@@ -903,18 +903,20 @@ neighbors shared by the viewer and the target: zero has no control, one opens th
 available profile (resolving a missing preview through one mutual page), and more
 than one opens a list. An unavailable single profile explains that state.
 
-**Extended network** shows third-degree connections and up to four suggested
-people in one list. Third-degree rows come first and carry their degree.
-Suggestions use eligible verified advisor profiles or name matches from the
-people directory, with a reason on each row. The tab uses the existing profile
-preview and connection request controls. With no results and no active search,
-**Back to Find people** closes the dialog and restores the source.
+**Extended network** shows people whose shortest eligible connection path has
+three active edges. Both intermediaries must allow discovery. Search and
+pagination stay within this third-degree set. Each result carries its degree
+and uses the existing profile preview and connection request controls.
+An empty list explains how connecting with people grows the network.
+**Back to Find people** closes the dialog and restores the directory, where
+new users can find their first connections. The UI filters legacy mixed
+responses by degree during staggered releases.
 
-Opening the discovery dialog loads each filter's first page and reuses it
-while the dialog and viewer session remain active. A sent request updates
-that person's row in place. Search changes, foreground returns and other
-connection graph changes retire the affected reads before displaying new
-results.
+An authenticated Connect entry preloads discovery. The All results start first,
+then the other filters' first pages load. Repeated filters and Back reuse fresh
+pages for the same viewer and query. A sent request updates that person's row
+in place. Search results are scoped to the exact query, and connection graph
+changes invalidate affected pages immediately.
 
 Signed-in profiles show network details under the hero's contact details. The
 connection count opens the paginated list after the server confirms that
@@ -934,9 +936,26 @@ dismissal restores the original control and preserves the mounted source picker.
 The existing history owner stores opaque counters only. Visit identities and list
 query/filter/page/scroll/focus snapshots are bounded to 64 memory entries and are
 cleared by owner/authentication-generation changes. List snapshots expire after
-15 minutes; list people are re-fetched before display on return, focus, visibility
-or graph changes. Denied lists clear people immediately. Cold reload or evicted
-visit memory returns to the authored route, without reconstructing private history.
+15 minutes. Authorized pages for mutuals and someone's connections may be reused
+for two minutes within the open preview journey. Closing the preview disposes
+those pages. Discovery keeps the authenticated viewer's last successful pages in
+the bounded session cache. Returning after the two-minute freshness age or changing
+to a previously viewed filter paints that snapshot while a fresh read reconciles
+it. The list remains busy until reconciliation settles; readiness, focus and
+scroll restoration wait for that read. Foreground refreshes also preserve the
+current result while checking availability. This display-only snapshot is never
+used for private mutual or connection lists. Graph changes, authentication changes
+and denied reads clear affected rows immediately.
+
+Feed resume and stream-gap repair are reconciliation hints, not confirmed graph
+mutations. They abort older discovery reads, expire all filters and immediately
+revalidate while retaining their session display snapshots. Explicit graph changes
+win when coalesced with recovery hints; private lists remain strict on either signal.
+Network directory identity reads reuse the caller's transaction connection, including
+generation checks and isolated visibility notifications, without borrowing another
+pool slot or changing the caller's statement budget.
+Cold reload or evicted visit memory returns to the authored route without
+reconstructing private history.
 
 Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.test.tsx`
 and `connections-service.test.ts` in the nearest frontend suites. These prove the

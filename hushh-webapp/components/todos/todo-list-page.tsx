@@ -61,6 +61,9 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
+import { TodoTaskSources } from "./todo-task-sources";
+import { TodoTaskDetail } from "./todo-task-detail";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -281,11 +284,18 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
+  const [selected, setSelected] = useState<readonly TaskCapability[]>([]);
+  const [choicesLoaded, setChoicesLoaded] = useState(false);
+  const [detail, setDetail] = useState<TodoItem | null>(null);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [itemsLoadError, setItemsLoadError] = useState(false);
   const itemsLoadRevision = useRef(0);
-  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [savingTaskIds, setSavingTaskIds] = useState<ReadonlySet<string>>(() => new Set());
+  const taskWrites = useRef(new Map<string, symbol>());
+  const [creatingTask, setCreatingTask] = useState(false);
+  const createPending = useRef(false);
+  const isSaving = creatingTask || savingTaskIds.size > 0;
   const [completedOpen, setCompletedOpen] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState<TodoItem | null>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
@@ -305,19 +315,19 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     [user],
   );
   const liveTasks = useTodoLiveTasks({
-    userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
+    userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady && choicesLoaded, tasks, selectedCapabilities: selected,
   });
   const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading } = liveTasks;
   const gmail = useGmailConnectorStatus({
-    userId,
-    idTokenProvider: user ? idTokenProvider : null,
+    userId: writeReady && selected.includes("gmail") ? userId : null,
+    idTokenProvider: user && selected.includes("gmail") ? idTokenProvider : null,
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   const cachedReceipts = useMemo(() => {
-    if (!writeReady || !receiptAccountKey) return null;
+    if (!writeReady || !selected.includes("gmail") || !receiptAccountKey) return null;
     return getCachedGmailReceipts(userId, receiptAccountKey);
-  }, [receiptAccountKey, userId, writeReady]);
+  }, [receiptAccountKey, userId, writeReady, selected]);
   const dueReceipts = useMemo(() => {
     if (!cachedReceipts) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
@@ -343,6 +353,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       });
       if (revision !== itemsLoadRevision.current) return;
       setTasks(state.tasks);
+      setSelected(state.selectedCapabilities ?? taskCapabilitySchema.options);
+      setChoicesLoaded(true);
     } catch {
       if (revision !== itemsLoadRevision.current) return;
       setItemsLoadError(true);
@@ -373,9 +385,27 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     return result;
   };
 
+  // Claim synchronously so retained callbacks cannot dispatch twice before
+  // React commits the disabled controls. Other tasks keep their own tokens.
+  const beginTaskWrite = (id: string) => {
+    if (!isCurrent() || taskWrites.current.has(id)) return null;
+    const token = Symbol(id);
+    taskWrites.current.set(id, token);
+    setSavingTaskIds(new Set(taskWrites.current.keys()));
+    return token;
+  };
+  const currentTaskWrite = (id: string, token: symbol) =>
+    isCurrent() && taskWrites.current.get(id) === token;
+  const finishTaskWrite = (id: string, token: symbol) => {
+    if (taskWrites.current.get(id) !== token) return;
+    taskWrites.current.delete(id);
+    if (isCurrent()) setSavingTaskIds(new Set(taskWrites.current.keys()));
+  };
+
   const saveTask = async (input: EditableTodoFields) => {
-    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
-    setSavingTaskId("new-item");
+    if (!isCurrent() || !writeReady || !userId || !vaultKey || !vaultOwnerToken || createPending.current || taskWrites.current.size > 0) return;
+    createPending.current = true;
+    setCreatingTask(true);
 
     const operation = createTodo(
       { ...input, type: "manual" },
@@ -394,12 +424,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     } catch {
       // The shared promise toast owns the failure state.
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      createPending.current = false;
+      if (isCurrent()) setCreatingTask(false);
     }
   };
 
   const toggleTask = async (task: TodoItem, complete: boolean) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    const token = beginTaskWrite(task.id);
+    if (!token) return;
     const nextStatus: "pending" | "done" = complete ? "done" : "pending";
     const optimistic: TodoItem = {
       ...task,
@@ -408,7 +441,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       deletedAt: null,
       updatedAt: new Date().toISOString(),
     };
-    setSavingTaskId(task.id);
     setTasks((current) =>
       current.some((item) => item.id === task.id)
         ? current.map((item) => (item.id === task.id ? optimistic : item))
@@ -429,32 +461,29 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       await operation;
     } catch {
-      if (!isCurrent()) return;
+      if (!currentTaskWrite(task.id, token)) return;
       setTasks((current) =>
-        current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? task : item))
-          : current,
+        current.map((item) => (item === optimistic ? task : item)),
       );
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      finishTaskWrite(task.id, token);
     }
   };
 
   const deleteTask = async (task: TodoItem) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    const token = beginTaskWrite(task.id);
+    if (!token) return;
     const tombstone: TodoItem = {
       ...task,
       status: "deleted",
       deletedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    setSavingTaskId(task.id);
     setTasks((current) =>
-      task.type === "automatic"
-        ? current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? tombstone : item))
-          : [tombstone, ...current]
-        : current.filter((item) => item.id !== task.id),
+      current.some((item) => item.id === task.id)
+        ? current.map((item) => (item.id === task.id ? tombstone : item))
+        : [tombstone, ...current],
     );
     const operation = TodoListPkmService.remove({
       userId,
@@ -471,14 +500,12 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       await operation;
     } catch {
-      if (!isCurrent()) return;
+      if (!currentTaskWrite(task.id, token)) return;
       setTasks((current) =>
-        current.some((item) => item.id === task.id)
-          ? current.map((item) => (item.id === task.id ? task : item))
-          : [task, ...current],
+        current.map((item) => (item === tombstone ? task : item)),
       );
     } finally {
-      if (isCurrent()) setSavingTaskId(null);
+      finishTaskWrite(task.id, token);
     }
   };
 
@@ -494,6 +521,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
         : null);
     setDeleteRequest(task);
   };
+
+  const currentDetail = detail && (tasks.find(task => task.id === detail.id) ?? pending.find(task => task.id === detail.id) ?? detail);
+  if (writeReady && currentDetail && currentDetail.status !== "deleted") return <AppPageShell as="main" width="reading" fitContent><AppPageContentRegion><TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => void toggleTask(task, complete)} onRemove={task => { void deleteTask(task).then(() => setDetail(null)); }} /></AppPageContentRegion></AppPageShell>;
 
   return (
     <AppPageShell
@@ -527,9 +557,10 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           }).format(new Date())}
           title="Your tasks"
           titleRole="agent"
-          actionsInlineMobile
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2">
+              {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoTaskSources persistence={{ userId, vaultKey, vaultOwnerToken }} selected={selected} coverage={liveTasks.coverage} loading={liveTasks.sourceLoading} disabled={itemsLoading || !itemsLoaded || itemsLoadError || isSaving}
+                isCurrent={isCurrent} onChange={setSelected} /> : null}
               {writeReady && agentLoadError ? (
                 <Button
                   variant="none"
@@ -633,19 +664,20 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           <TodoRows
             tasks={pending}
             dueReceipts={dueReceipts}
-            savingTaskId={savingTaskId}
+            savingTaskIds={savingTaskIds}
             onToggle={toggleTask}
             onDelete={requestDelete}
+            onOpen={setDetail}
           />
         ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               <MediumRowLabel as="h2" data-profile-role="name">
-                {tasks.length === 0 && completed.length === 0 ? "No tasks yet" : "No pending tasks"}
+                {tasks.every(task => task.status === "deleted") ? "No tasks yet" : "No pending tasks"}
               </MediumRowLabel>
               <HelperText as="p" data-profile-role="description" className="mt-1">
-                {tasks.length === 0 && completed.length === 0
+                {tasks.every(task => task.status === "deleted")
                   ? "Add an item to get started."
                   : "New tasks will appear here."}
               </HelperText>
@@ -704,9 +736,10 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
               {completedOpen ? (
                 <TodoRows
                   tasks={completed}
-                  savingTaskId={savingTaskId}
+                  savingTaskIds={savingTaskIds}
                   onToggle={toggleTask}
                   onDelete={requestDelete}
+                  onOpen={setDetail}
                 />
               ) : null}
             </div>
@@ -717,7 +750,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       {writeReady ? (
         <TodoAddItemSheet
           open={editorOpen}
-          saving={savingTaskId !== null}
+          saving={isSaving}
           onOpenChange={setEditorOpen}
           onSave={saveTask}
         />

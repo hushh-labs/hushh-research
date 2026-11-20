@@ -74,5 +74,5 @@ Non-owned surfaces:
 ```bash
 python3 .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help
 python3 -m py_compile .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```

@@ -110,15 +110,22 @@ for (const width of [320, 393, 768, 1440]) {
     await preview.getByRole("textbox", { name: "Search network by name" }).fill("Second");
     const connect = preview.getByRole("button", { name: "Connect with Second Degree Person" });
     await expect(connect).toBeVisible();
+    await preview.getByRole("button", { name: "Open Second Degree Person's profile" }).click();
+    await expect(preview.getByRole("heading", { name: "Second Degree Person", exact: true })).toBeVisible();
+    const readsBeforeReturning = await page.locator("html").getAttribute("data-network-list-reads");
+    await back();
+    await expect(preview.getByRole("button", { name: "Open Second Degree Person's profile" })).toBeFocused();
+    await expect(page.locator("html")).toHaveAttribute("data-network-list-reads", readsBeforeReturning!);
     await expect.poll(async () => {
       const [connectBounds, profileBounds] = await Promise.all([
         connect.boundingBox(),
         preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox(),
       ]);
-      return connectBounds && profileBounds
-        ? profileBounds.x + profileBounds.width - connectBounds.x
-        : Number.POSITIVE_INFINITY;
-    }).toBeLessThanOrEqual(0);
+      return Boolean(connectBounds && profileBounds && (
+        profileBounds.x + profileBounds.width <= connectBounds.x ||
+        profileBounds.y + profileBounds.height <= connectBounds.y
+      ));
+    }).toBe(true);
     expect(await connect.evaluate(button => {
       const row = button.closest("li")!;
       return row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight) - button.getBoundingClientRect().right;
@@ -159,6 +166,7 @@ for (const width of [320, 393, 768, 1440]) {
     await page.evaluate(() => history.forward());
     await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
     await back();
+    await expect(preview).toHaveCount(0);
     await source.getByRole("button", { name: "Explore your network", exact: true }).click();
     await expect(preview.getByRole("heading", { name: "Your network", exact: true })).toBeVisible();
     await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
@@ -175,9 +183,9 @@ for (const width of [320, 393, 768, 1440]) {
     await page.screenshot({ path: testInfo.outputPath(`network-discovery-${width}.png`) });
     await preview.getByRole("button", { name: "Extended network", exact: true }).click();
     const extended = preview.getByRole("list", { name: "Extended network people" });
-    await expect(extended.getByRole("listitem")).toHaveCount(2);
+    await expect(extended.getByRole("listitem")).toHaveCount(1);
     await expect(extended.getByRole("listitem").nth(0)).toContainText("Third Degree Person");
-    await expect(extended.getByRole("listitem").nth(1)).toContainText("Suggested · Verified advisor");
+    await expect(extended.getByText("Suggested · Verified advisor")).toHaveCount(0);
     expect(await extended.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`extended-network-established-${width}.png`) });
     await preview.getByRole("button", { name: "Open Third Degree Person's profile" }).click();
@@ -194,8 +202,8 @@ for (const width of [320, 393, 768, 1440]) {
   });
 }
 
-for (const width of [393, 1440]) {
-  test(`extended network helps a new user find and request a connection at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [320, 393, 1440]) {
+  test(`extended network guides a new user to Find people at ${width}px`, async ({ page }, testInfo) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width, height: width < 480 ? 780 : 900 });
@@ -210,26 +218,26 @@ for (const width of [393, 1440]) {
     await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
     await preview.getByRole("button", { name: "Extended network", exact: true }).click();
     const results = preview.getByRole("list", { name: "Extended network people" });
-    await expect(results.getByRole("listitem")).toHaveCount(1);
-    await expect(results.getByText("Suggested · Verified advisor")).toBeVisible();
+    const guidance = preview.getByText("No 3rd-degree connections to show yet. Connect with people you know to grow your network.");
+    await expect(guidance).toBeVisible();
+    await expect(results).toHaveCount(0);
+    await preview.getByRole("button", { name: "My connections", exact: true }).click();
+    await expect(preview.getByText("No profiles to show right now.")).toBeVisible();
+    await preview.getByRole("button", { name: "Extended network", exact: true }).click();
+    await expect(guidance).toBeVisible();
+    await expect(preview.getByText("Loading connections…")).toHaveCount(0);
+    const scroller = preview.locator("[data-network-scroll-owner]");
+    expect((await preview.evaluate(node => node.clientWidth))).toBeLessThan(width);
+    expect(await scroller.evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath(`extended-network-new-${width}.png`) });
     const search = preview.getByRole("textbox", { name: "Search people by name" });
-    await search.fill("No matches");
+    await search.fill("Priya");
     await expect(preview.getByText("No profiles to show for this name.")).toBeVisible();
     await expect(results).toHaveCount(0);
-    await search.fill("Priya");
-    await expect(results.getByText("Suggested · Name match")).toBeVisible();
-    const originalList = await results.elementHandle();
-    await results.getByRole("button", { name: "Connect with Priya Anand" }).click();
-    await expect(results.getByText("Request sent", { exact: true })).toBeVisible();
-    expect(await originalList?.evaluate(element => element.isConnected)).toBe(true);
-    await results.getByRole("button", { name: "Open Priya Anand's profile" }).click();
-    const profile = page.locator("[data-person-profile-preview]");
-    await expect(profile.getByRole("heading", { name: "Priya Anand", exact: true })).toBeVisible();
-    await profile.getByRole("button", { name: "Back to previous screen" }).click();
-    await expect(search).toHaveValue("Priya");
-    await expect(results.getByRole("button", { name: "Open Priya Anand's profile" })).toBeFocused();
-    await preview.getByRole("button", { name: "Back to previous screen" }).click();
+    await search.fill("");
+    await expect(guidance).toBeVisible();
+    await preview.getByRole("button", { name: "Back to Find people" }).click();
+    await expect(preview).toHaveCount(0);
     await expect(explore).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);

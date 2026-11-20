@@ -1,12 +1,19 @@
 """Bounded final graph qualification; each statement has one authority snapshot."""
 
-from hushh_mcp.services.connection_mutuals import PAGE_MUTUAL_CONNECTIONS_SQL
+from hushh_mcp.services.connection_mutuals import (
+    MUTUAL_DIRECTORY_FILTER_SQL,
+    PAGE_MUTUAL_CONNECTIONS_SQL,
+)
 from hushh_mcp.services.directory_candidate_statement import DIRECTORY_PROFILE_ELIGIBILITY_SQL
 
-QUALIFIED_DEGREES_SQL = """
+# A new eligible mutual outside the observed frontier requires a retry.
+# Checking the full graph here avoids depending on the two displayed portraits.
+QUALIFIED_DEGREES_SQL = f"""
 WITH admitted AS MATERIALIZED (
-    SELECT user_id, connection_list_shared FROM actor_profiles
-    WHERE user_id = ANY(CAST(:admitted AS TEXT[])) AND public_profile_status = 'active'
+    SELECT profile.user_id, profile.connection_list_shared FROM actor_profiles profile
+    WHERE profile.user_id = ANY(CAST(:admitted AS TEXT[]))
+      AND profile.public_profile_status = 'active'
+      AND (profile.user_id = :viewer OR ({DIRECTORY_PROFILE_ELIGIBILITY_SQL}))
 ), raw_edges AS (
     SELECT user_a_id AS source_id, user_b_id AS peer_id FROM connections
     WHERE status = 'active' AND user_a_id = ANY(CAST(:admitted AS TEXT[]))
@@ -39,14 +46,24 @@ WITH admitted AS MATERIALIZED (
     JOIN edges last ON last.source_id = middle.peer_id
     WHERE :max_degree >= 3 AND f.user_id <> middle.peer_id
       AND last.peer_id <> f.user_id
-)
-SELECT user_id, MIN(degree) AS degree, FALSE AS overflow FROM paths
+), distances AS (
+SELECT user_id, MIN(degree) AS degree FROM paths
 WHERE user_id = ANY(CAST(:candidates AS TEXT[])) AND user_id <> :viewer
   AND (SELECT COUNT(*) FROM edges) < :edge_limit
 GROUP BY user_id
+)
+SELECT distance.user_id, distance.degree, FALSE AS overflow FROM distances distance
+WHERE distance.degree < 3 OR NOT EXISTS (
+    SELECT 1 FROM raw_edges newcomer
+    JOIN actor_profiles profile ON profile.user_id = newcomer.peer_id
+    WHERE newcomer.source_id = :viewer
+      AND profile.user_id <> ALL(CAST(:observed_first_degree AS TEXT[]))
+      AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL})
+      AND ({MUTUAL_DIRECTORY_FILTER_SQL.replace(":mutual_target_user_id", "distance.user_id")})
+)
 UNION ALL
 SELECT NULL, NULL, TRUE WHERE (SELECT COUNT(*) FROM edges) >= :edge_limit
-"""
+"""  # nosec B608 -- module-owned SQL only; request values remain bound.
 
 QUALIFIED_TARGET_ROWS_SQL = """
 SELECT peer.user_id,

@@ -66,6 +66,54 @@ function mockSuccessfulWrite() {
 }
 
 describe("TodoListPkmService", () => {
+  it("changes only the selected task and preserves unknown saved fields and opaque records", async () => {
+    const save = mockSuccessfulWrite();
+    const changed = { ...task, futureField: { keep: "selected" } };
+    const retained = { ...task, id: "todo_other", futureField: { keep: "unrelated" } };
+    const opaque = { id: "future_record", schemaVersion: 8, payload: { keep: true } };
+    await TodoListPkmService.setStatus({ ...persistence, task, status: "done" });
+    const plan = await save.mock.calls[0]![0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [changed, retained, opaque], selectedCapabilities: ["calendar"] } },
+    });
+    const records = (plan.domainData._private as Record<string, unknown>).tasks;
+    expect(records).toContainEqual(retained);
+    expect(records).toContainEqual(opaque);
+    expect(records).toContainEqual(expect.objectContaining({ id: task.id, status: "done", futureField: changed.futureField }));
+    expect(readTodoListState(plan.domainData).selectedCapabilities).toEqual(["calendar"]);
+    expect(plan.summary.item_count).toBe(2);
+    expect(() => save.mock.calls[0]![0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: { futureSchema: 8 } } },
+    })).toThrow("unsupported_task_records");
+    const duplicates = [
+      { ...task, title: "Older", updatedAt: "2026-10-06T08:00:00.000Z", extension: "older" },
+      { ...task, title: "Newer", updatedAt: "2026-10-08T08:00:00.000Z", extension: "newer" },
+    ];
+    expect(() => save.mock.calls[0]![0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: duplicates } },
+    })).toThrow("ambiguous_task_identity");
+    await TodoListPkmService.saveSourceChoices({ ...persistence, selectedCapabilities: [] });
+    const choices = await save.mock.calls[1]![0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: duplicates } },
+    });
+    expect((choices.domainData._private as Record<string, unknown>).tasks).toEqual(duplicates);
+    await createTodo({ id: opaque.id, title: "A new task" }, persistence);
+    expect(() => save.mock.calls[2]![0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [opaque] } },
+    })).toThrow("unsupported_task_identity");
+  });
+  it("saves source choices only in encrypted private memory, preserves tasks and reloads all-off", async () => {
+    const save = mockSuccessfulWrite();
+    const retained = { ...task, ownerExtension: "preserve" };
+    await TodoListPkmService.saveSourceChoices({ ...persistence, selectedCapabilities: [] });
+    const plan = await save.mock.calls[0][0].build({ ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [retained], unrelated: "preserved" } },
+    });
+    expect(plan.domainData).toMatchObject({ _private: { selectedCapabilities: [], tasks: [task], unrelated: "preserved" } });
+    expect(((plan.domainData as Record<string, unknown>)._private as Record<string, unknown>).tasks).toEqual([retained]);
+    expect(plan.summary).not.toHaveProperty("selectedCapabilities");
+    expect(readTodoListState(plan.domainData as Record<string, unknown>)).toMatchObject({ selectedCapabilities: [], tasks: [task] });
+    expect(readTodoListState({ selectedCapabilities: ["gmail"], _private: { tasks: [task] } })).not.toHaveProperty("selectedCapabilities");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

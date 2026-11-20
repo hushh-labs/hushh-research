@@ -6314,91 +6314,91 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py|main|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/compact_kernel_smoke.py|main|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py",
+      "path": ".agents/skills/skill-authoring/scripts/compact_kernel_smoke.py",
       "symbol": "main",
       "value": 85
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py|render_report|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py|render_report|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py",
+      "path": ".agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py",
       "symbol": "render_report",
       "value": 88
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/init_skill.py|main|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/init_skill.py|main|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/init_skill.py",
+      "path": ".agents/skills/skill-authoring/scripts/init_skill.py",
       "symbol": "main",
       "value": 98
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py|audit|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/skill_fleet_audit.py|audit|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_fleet_audit.py",
       "symbol": "audit",
       "value": 163
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py|validate_admin_release_contract|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/skill_lint.py|validate_admin_release_contract|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_lint.py",
       "symbol": "validate_admin_release_contract",
       "value": 242
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py|validate_skill_manifests|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/skill_lint.py|validate_skill_manifests|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_lint.py",
       "symbol": "validate_skill_manifests",
       "value": 113
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py|validate_special_skill_contracts|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/skill_lint.py|validate_special_skill_contracts|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_lint.py",
       "symbol": "validate_special_skill_contracts",
       "value": 396
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py|validate_truth_first_contract|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/skill_lint.py|validate_truth_first_contract|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_lint.py",
       "symbol": "validate_truth_first_contract",
       "value": 139
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py|validate_workflows|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/skill_lint.py|validate_workflows|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_lint.py",
       "symbol": "validate_workflows",
       "value": 81
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/skills/codex-skill-authoring/scripts/trigger_evals.py|run|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/skills/skill-authoring/scripts/trigger_evals.py|run|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/skills/codex-skill-authoring/scripts/trigger_evals.py",
+      "path": ".agents/skills/skill-authoring/scripts/trigger_evals.py",
       "symbol": "run",
       "value": 145
     },
@@ -17969,10 +17969,10 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py||module exceeds the advisory operon budget",
+      "key": "module_size|.agents/skills/skill-authoring/scripts/skill_lint.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": ".agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "path": ".agents/skills/skill-authoring/scripts/skill_lint.py",
       "symbol": null,
       "value": 1468
     },
@@ -74229,28 +74229,28 @@
         ".agents/skills/autonomous-rca-governance/scripts/rca_runner.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py",
-        ".agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py"
+        ".codex/skills/skill-authoring/scripts/compact_kernel_smoke.py",
+        ".agents/skills/skill-authoring/scripts/compact_kernel_smoke.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py",
-        ".agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py"
+        ".codex/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py",
+        ".agents/skills/skill-authoring/scripts/founder_wiki_workspace_audit.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/init_skill.py",
-        ".agents/skills/codex-skill-authoring/scripts/init_skill.py"
+        ".codex/skills/skill-authoring/scripts/init_skill.py",
+        ".agents/skills/skill-authoring/scripts/init_skill.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py",
-        ".agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py"
+        ".codex/skills/skill-authoring/scripts/skill_fleet_audit.py",
+        ".agents/skills/skill-authoring/scripts/skill_fleet_audit.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/skill_lint.py",
-        ".agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+        ".codex/skills/skill-authoring/scripts/skill_lint.py",
+        ".agents/skills/skill-authoring/scripts/skill_lint.py"
       ],
       [
-        ".codex/skills/codex-skill-authoring/scripts/trigger_evals.py",
-        ".agents/skills/codex-skill-authoring/scripts/trigger_evals.py"
+        ".codex/skills/skill-authoring/scripts/trigger_evals.py",
+        ".agents/skills/skill-authoring/scripts/trigger_evals.py"
       ],
       [
         ".codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
@@ -75175,12 +75175,12 @@
         "review": "Inherited integrated source debt, exact parent byte match. Structural ceiling only; no claim of product readiness or universal security. Existing budgets and all other findings retained."
       },
       {
-        "key": "function_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py|validate_truth_first_contract|function exceeds the advisory gene budget",
+        "key": "function_size|.agents/skills/skill-authoring/scripts/skill_lint.py|validate_truth_first_contract|function exceeds the advisory gene budget",
         "rank": 0,
         "before": 134,
         "after": 139,
         "source_sha256": "3ec51cbe44f51f97d65e86e202531d2c597cf9981be5abd3905dbec6f01aa7f7",
-        "parent_path": ".codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "parent_path": ".codex/skills/skill-authoring/scripts/skill_lint.py",
         "provenance": "reviewed_composition",
         "review": "Reviewed canonical-source relocation and validation changes: preserve authority, explicit manifest/practice classification, fail-closed root loading, generated-adapter reproducibility and negative controls. Identity move alone grants no larger ceiling."
       },
@@ -76265,12 +76265,12 @@
         "review": "Read-only frontend review: preserve native extraction with pod/Puppy, provider-aware AI, owner-generation and PKM processing consent. Nearest authority/reopen tests retained. Cohesive inherited owner; no line-count-only split."
       },
       {
-        "key": "module_size|.agents/skills/codex-skill-authoring/scripts/skill_lint.py||module exceeds the advisory operon budget",
+        "key": "module_size|.agents/skills/skill-authoring/scripts/skill_lint.py||module exceeds the advisory operon budget",
         "rank": 0,
         "before": 1458,
         "after": 1468,
         "source_sha256": "3ec51cbe44f51f97d65e86e202531d2c597cf9981be5abd3905dbec6f01aa7f7",
-        "parent_path": ".codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "parent_path": ".codex/skills/skill-authoring/scripts/skill_lint.py",
         "provenance": "reviewed_composition",
         "review": "Reviewed canonical-source relocation and validation changes: preserve authority, explicit manifest/practice classification, fail-closed root loading, generated-adapter reproducibility and negative controls. Identity move alone grants no larger ceiling."
       },

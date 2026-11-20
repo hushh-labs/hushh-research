@@ -1371,7 +1371,7 @@ jobs:
           UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'false' }}
           UAT_ONE_MAGIC_INTELLIGENCE_PHASE: ${{ vars.ONE_MAGIC_INTELLIGENCE_PHASE_UAT || '1' }}
           UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT || '' }}
-          UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'ankit@hushh.ai,i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
           UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT || 'jhumma@hushh.ai' }}
           UAT_CONNECTIONS_PANEL_V2: ${{ vars.CONNECTIONS_PANEL_V2_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CONNECTION: ${{ vars.GOOGLE_DRIVE_CONNECTION_UAT || 'false' }}
@@ -1949,7 +1949,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for secret_name in SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM; do
+          for secret_name in SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM SUPPORT_EMAIL_TO; do
             sender="$(gcloud secrets versions access latest \
               --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}")"
             if [ "${sender}" != "one@hushh.ai" ]; then
@@ -1957,6 +1957,16 @@ jobs:
               exit 1
             fi
           done
+          mode="$(gcloud secrets versions access latest \
+            --secret=SUPPORT_EMAIL_MODE --project="${{ env.GCP_PROJECT_ID }}")"
+          if [ "${mode}" != "live" ]; then
+            echo "SUPPORT_EMAIL_MODE must equal live before backend deployment." >&2
+            exit 1
+          fi
+          if [ -f scripts/ops/reconcile_oauth_and_mail_posture.py ]; then
+            python3 scripts/ops/reconcile_oauth_and_mail_posture.py \
+              --verify-deploy --project "${{ env.GCP_PROJECT_ID }}" --environment uat
+          fi
 
       - name: Resolve curated connector secrets
         id: curated-secrets

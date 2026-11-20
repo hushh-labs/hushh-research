@@ -43,7 +43,7 @@ describe("TodoRows presentation", () => {
       <TodoRows
         tasks={tasks}
         dueReceipts={dueReceipts}
-        savingTaskId={null}
+        savingTaskIds={new Set()}
         onToggle={vi.fn()}
         onDelete={vi.fn()}
       />,

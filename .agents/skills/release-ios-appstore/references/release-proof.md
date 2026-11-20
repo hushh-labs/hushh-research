@@ -106,7 +106,7 @@ These operator checks complement existing workflow gates; prose is not an automa
 ## Identity / governance
 
 The actor and rerunner must have current `deploy-production` team membership.
-The trusted `scripts/ci/assert-governed-actor.py --surface production` admission refuses otherwise. Confirm before
+The trusted `scripts/ci/assert-governed-actor.py` (`--surface production`) admission refuses otherwise. Confirm before
 Gate 1. Do not weaken branch protection and do not accept Apple Program License Agreements or enter
 the Apple ID password — those are the user's to perform.
 

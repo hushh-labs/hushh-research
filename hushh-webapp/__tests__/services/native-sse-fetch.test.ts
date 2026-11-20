@@ -157,6 +157,25 @@ describe("nativeStreamFetch", () => {
     expect(plugin.listeners.size).toBe(0);
   });
 
+  it("does not open when its owner session retires during native listener registration", async () => {
+    let register!: () => void;
+    plugin.addListener.mockImplementationOnce((_name, listener) => new Promise(resolve => {
+      register = () => {
+        plugin.listeners.add(listener);
+        resolve({ remove: () => plugin.listeners.delete(listener) });
+      };
+    }));
+    const pending = nativeStreamFetch("/api/one/agent-chat", {
+      method: "POST",
+      isEffectCurrent: () => owner.current,
+    });
+    owner.current = false;
+    register();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(plugin.open).not.toHaveBeenCalled();
+    expect(plugin.listeners.size).toBe(0);
+  });
+
   it("streams raw bytes as they arrive, preserving SSE framing across chunks", async () => {
     openedWith();
     const pending = nativeStreamFetch("/api/one/agent-chat", {

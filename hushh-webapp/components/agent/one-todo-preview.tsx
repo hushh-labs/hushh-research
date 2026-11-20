@@ -1,18 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import { ClipboardList } from "@/components/icons";
-import { SurfaceInset } from "@/components/app-ui/surfaces";
-import { Button } from "@/lib/morphy-ux/button";
+import { ClipboardList, Plus } from "@/components/icons";
 import { TodoListPkmService, createTodo, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 import { TodoAddItemSheet, type EditableTodoFields } from "@/components/todos/todo-add-item-sheet";
-import { TodoRow, DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
+import { DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
+import { TodoTaskSources } from "@/components/todos/todo-task-sources";
+import { TodoTaskDetail } from "@/components/todos/todo-task-detail";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { getCachedGmailReceipts, cachedGmailReceiptDisplayItems } from "@/lib/profile/gmail-receipts-cache";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./one-agent-profile-sheet.module.css";
+import workspace from "@/components/todos/todo-workspace.module.css";
+import { TodoCompactRow } from "@/components/todos/todo-compact-row";
 
 export function OneTodoPreview({
   user,
@@ -20,6 +23,8 @@ export function OneTodoPreview({
   vaultKey,
   vaultOwnerToken,
   isVaultUnlocked,
+  onDetailBackChange,
+  onDetailModeChange,
 }: {
   user: User;
   /** Validated application owner (useAuth().userId); `user` supplies only the Firebase ID token. */
@@ -27,6 +32,8 @@ export function OneTodoPreview({
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   isVaultUnlocked: boolean;
+  onDetailBackChange?: (handler: (() => boolean) | null) => void;
+  onDetailModeChange?: (open: boolean) => void;
 }) {
   const ready = Boolean(ownerId && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const epoch = snapshotVaultSessionEpoch();
@@ -34,8 +41,12 @@ export function OneTodoPreview({
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const requestRef = useRef(0);
+  const [selected, setSelected] = useState<readonly TaskCapability[]>([]);
+  const [choicesOwner, setChoicesOwner] = useState<symbol | null>(null);
+  const [detail, setDetail] = useState<{ identity: symbol; task: TodoItem } | null>(null);
   const [snapshot, setSnapshot] = useState({ identity, tasks: [] as TodoItem[], loading: true, error: false, savingTaskId: null as string | null });
   const [editorOpen, setEditorOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const current = ready && snapshot.identity === identity;
   const tasks = useMemo(() => current ? snapshot.tasks : [], [current, snapshot.tasks]);
@@ -50,7 +61,11 @@ export function OneTodoPreview({
     setSnapshot(previous => ({ identity, tasks: previous.identity === identity ? previous.tasks : [], loading: true, error: false, savingTaskId: null }));
     try {
       const state = await TodoListPkmService.load({ userId: ownerId, vaultKey, vaultOwnerToken });
-      if (isCurrent()) setSnapshot({ identity, tasks: state.tasks, loading: false, error: false, savingTaskId: null });
+      if (isCurrent()) {
+        setSelected(state.selectedCapabilities ?? taskCapabilitySchema.options);
+        setChoicesOwner(identity);
+        setSnapshot({ identity, tasks: state.tasks, loading: false, error: false, savingTaskId: null });
+      }
     } catch {
       if (isCurrent()) setSnapshot(previous => ({ ...previous, loading: false, error: true }));
     }
@@ -66,22 +81,22 @@ export function OneTodoPreview({
     [user],
   );
   const gmail = useGmailConnectorStatus({
-    userId: ready ? ownerId : null,
-    idTokenProvider: ready ? idTokenProvider : null,
+    userId: ready && current && choicesOwner === identity && selected.includes("gmail") ? ownerId : null,
+    idTokenProvider: ready && current && choicesOwner === identity && selected.includes("gmail") ? idTokenProvider : null,
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   const cachedReceipts = useMemo(() => {
-    if (!ready || !receiptAccountKey) return null;
+    if (!ready || !current || choicesOwner !== identity || !selected.includes("gmail") || !receiptAccountKey) return null;
     return getCachedGmailReceipts(ownerId, receiptAccountKey);
-  }, [ready, receiptAccountKey, ownerId]);
+  }, [ready, current, choicesOwner, identity, selected, receiptAccountKey, ownerId]);
 
   const dueReceipts = useMemo(() => {
     if (!cachedReceipts) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
   }, [cachedReceipts]);
 
-  const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
+  const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready && current && choicesOwner === identity, tasks, selectedCapabilities: selected });
   const openTasks = live.pending;
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
   const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.emailReadError);
@@ -123,7 +138,6 @@ export function OneTodoPreview({
     }
   };
   const toggleTask = (task: TodoItem, complete: boolean) => persistTask(task, complete ? "done" : "pending");
-  const deleteTask = (task: TodoItem) => persistTask(task, "deleted");
   const saveManualTask = async (input: EditableTodoFields) => {
     if (!ready || !vaultKey || !vaultOwnerToken || loading || savingTaskId || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return;
     const request = ++requestRef.current;
@@ -148,23 +162,25 @@ export function OneTodoPreview({
     }
   };
 
+  const currentDetail = detail?.identity === identity && (tasks.find(item => item.id === detail.task.id) ?? live.pending.find(item => item.id === detail.task.id) ?? detail.task);
+  const detailVisible = Boolean(currentDetail && current && ready && currentDetail.status !== "deleted");
+  useLayoutEffect(() => { onDetailModeChange?.(detailVisible); return () => onDetailModeChange?.(false); }, [detailVisible, onDetailModeChange]);
+  if (currentDetail && current && ready && currentDetail.status !== "deleted") return <TodoTaskDetail
+    task={currentDetail} busy={loading || Boolean(savingTaskId)} onBack={() => setDetail(null)} onToggle={toggleTask}
+    onDetailBackChange={onDetailBackChange}
+    onRemove={task => { void persistTask(task, "deleted").then(() => setDetail(null)); }} />;
+
   return (
-    <div className={`${styles.todo} profile-home-content`} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
-      <div className={styles.sectionHeading}>
-        <h3 data-profile-role="header">To-do list</h3>
-        <Button
-          type="button"
-          variant="blue"
-          effect="fade"
-          size="compact"
-          className="border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] px-3 hover:bg-[color:var(--app-card-surface-default-solid)]"
-          data-todo-add-item="true"
-          disabled={!ready || loading || Boolean(savingTaskId)}
-          onClick={() => setEditorOpen(true)}
-        >
-          Add item
-        </Button>
-      </div>
+    <div className={workspace.workspace} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
+      <header className={workspace.toolbar}>
+        <h3>Your tasks</h3>
+        <div className={workspace.tools}>
+          {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources presentation="pane" onOpenChange={setSourcesOpen} onBackChange={onDetailBackChange} persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
+            isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} /> : null}
+          <button type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => setEditorOpen(true)}><Plus aria-hidden /></button>
+        </div>
+      </header>
+      <div className={workspace.list} inert={sourcesOpen || undefined}>
 
       {ready && saveError ? (
         <div className={styles.notice} role="status">
@@ -193,62 +209,15 @@ export function OneTodoPreview({
           <span>Tasks and due payments will appear here.</span>
         </div>
       ) : (
-        <div className="space-y-3">
-          {/* 1. Any time section comes FIRST */}
-          {anytimeGroup ? (
-            <section key={anytimeGroup.id} className="space-y-2">
-              <h4 data-profile-role="group-label" className="px-1">
-                {anytimeGroup.label}
-              </h4>
-              <SurfaceInset className="divide-y divide-border/60 p-0">
-                {anytimeGroup.tasks.map((task) => (
-                  <TodoRow
-                    key={task.id}
-                    task={task}
-                    saving={loading || Boolean(savingTaskId)}
-                    onToggle={toggleTask}
-                    onDelete={deleteTask}
-                  />
-                ))}
-              </SurfaceInset>
-            </section>
-          ) : null}
-
-          {/* 2. Receipts in between */}
-          {dueReceipts.length > 0 ? (
-            <section className="space-y-2">
-              <h4 data-profile-role="group-label" className="px-1">
-                Receipts & Due Payments
-              </h4>
-              <SurfaceInset className="divide-y divide-border/60 p-0">
-                {dueReceipts.map((receipt) => (
-                  <DueReceiptRow key={receipt.id} receipt={receipt} />
-                ))}
-              </SurfaceInset>
-            </section>
-          ) : null}
-
-          {/* 3. Dated events below */}
-          {datedGroups.map((group) => (
-            <section key={group.id} className="space-y-2">
-              <h4 data-profile-role="group-label" className="px-1">
-                {group.label}
-              </h4>
-              <SurfaceInset className="divide-y divide-border/60 p-0">
-                {group.tasks.map((task) => (
-                  <TodoRow
-                    key={task.id}
-                    task={task}
-                    saving={loading || Boolean(savingTaskId)}
-                    onToggle={toggleTask}
-                    onDelete={deleteTask}
-                  />
-                ))}
-              </SurfaceInset>
-            </section>
-          ))}
+        <div>
+          {[...datedGroups, ...(anytimeGroup ? [anytimeGroup] : [])].map(group => <section key={group.id}>
+            <h4 className={workspace.groupLabel}>{group.label}</h4>
+            {group.tasks.map(task => <TodoCompactRow key={task.id} task={task} saving={loading || Boolean(savingTaskId)} onToggle={toggleTask} onOpen={task => setDetail({ identity, task })} />)}
+          </section>)}
+          {dueReceipts.length ? <section><h4 className={workspace.groupLabel}>Receipts & Due Payments</h4>{dueReceipts.map(receipt => <DueReceiptRow key={receipt.id} receipt={receipt} />)}</section> : null}
         </div>
       )}
+      </div>
       <TodoAddItemSheet
         open={editorOpen}
         saving={Boolean(savingTaskId)}

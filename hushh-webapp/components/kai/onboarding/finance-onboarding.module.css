@@ -352,6 +352,12 @@
   overscroll-behavior-y: contain;
   padding: 12px 4px 4px;
 }
+.embeddedSourcePicker { max-height: none; }
+.embeddedSourcePicker .sourceContent {
+  overflow: visible;
+  overscroll-behavior-y: auto;
+  padding-inline: 0;
+}
 .importHeading { margin-bottom: 16px; }
 .sourceGrid {
   display: grid;
