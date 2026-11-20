@@ -429,3 +429,110 @@ def test_fabricated_scope_and_unknown_fields_fail_contract_validation() -> None:
             {"request_ref": "req_0123456789abcdef0123456789ab", "user_id": "leak"},
             schemas["check-consent-status"],
         )
+
+
+def _fake_unregistered_mcp_connection(
+    *, has_any_registered_key: bool, pub_b64: str, fingerprint: str, handle: str
+):
+    metadata = {
+        "developer_app_id": "app_self_serve",
+        "scope_handle": handle,
+        "connector_key_id": "ephem-key-1",
+        "connector_public_key": pub_b64,
+        "connector_wrapping_alg": "X25519-AES256-GCM",
+        "recipient_key_fingerprint": fingerprint,
+        "expiry_hours": 24,
+        "reason": "MCP subscription test",
+        "refresh_policy": "continuous_until_expiry",
+    }
+
+    class _FakeConn:
+        async def fetchrow(self, sql: str, *_args):
+            if "FROM consent_audit" in sql:
+                return {
+                    "user_id": "owner_1",
+                    "agent_id": "developer:app_self_serve",
+                    "scope": "attr.financial.cashflow.*",
+                    "action": "REQUESTED",
+                    "metadata": metadata,
+                    "expires_at": None,
+                    "poll_timeout_at": None,
+                    "issued_at": 1700000000000,
+                }
+            if "FROM one_information_request_items" in sql:
+                return None
+            if "FROM developer_apps" in sql:
+                return {
+                    "owner_firebase_uid": "payer_1",
+                    "agent_id": "developer:app_self_serve",
+                    "status": "active",
+                }
+            if "FROM developer_connector_keys" in sql:
+                return None
+            raise AssertionError(f"Unexpected fetchrow SQL: {sql}")
+
+        async def fetchval(self, sql: str, *_args):
+            if "FROM developer_connector_keys" in sql:
+                return has_any_registered_key
+            raise AssertionError(f"Unexpected fetchval SQL: {sql}")
+
+    return _FakeConn()
+
+
+@pytest.mark.asyncio
+async def test_unregistered_developer_app_resolves_ephemeral_request_key(monkeypatch) -> None:
+    import base64
+
+    from hushh_mcp.consent.export_envelope import connector_key_fingerprint
+    from hushh_mcp.services import scope_commerce_requests
+
+    pub_b64 = base64.b64encode(b"x" * 32).decode("ascii")
+    fingerprint = connector_key_fingerprint(pub_b64)
+    handle = "s_cashflow_handle"
+
+    async def _fake_handle(*_args, **_kwargs) -> str:
+        return handle
+
+    monkeypatch.setattr(scope_commerce_requests, "authoritative_scope_handle", _fake_handle)
+    conn = _fake_unregistered_mcp_connection(
+        has_any_registered_key=False,
+        pub_b64=pub_b64,
+        fingerprint=fingerprint,
+        handle=handle,
+    )
+    resolved = await scope_commerce_requests.resolve_commerce_request(
+        "req_ephemeral_1", "owner_1", connection=conn
+    )
+    assert resolved["connector_public_key"] == pub_b64
+    assert resolved["connector_key_id"] == "ephem-key-1"
+    assert resolved["refresh_policy"] == "continuous_until_expiry"
+
+
+@pytest.mark.asyncio
+async def test_revoked_registered_developer_app_refuses_metadata_key_fallback(monkeypatch) -> None:
+    import base64
+
+    from hushh_mcp.consent.export_envelope import connector_key_fingerprint
+    from hushh_mcp.services import scope_commerce_requests
+
+    pub_b64 = base64.b64encode(b"y" * 32).decode("ascii")
+    fingerprint = connector_key_fingerprint(pub_b64)
+    handle = "s_cashflow_handle"
+
+    async def _fake_handle(*_args, **_kwargs) -> str:
+        return handle
+
+    monkeypatch.setattr(scope_commerce_requests, "authoritative_scope_handle", _fake_handle)
+    conn = _fake_unregistered_mcp_connection(
+        has_any_registered_key=True,
+        pub_b64=pub_b64,
+        fingerprint=fingerprint,
+        handle=handle,
+    )
+    with pytest.raises(
+        scope_commerce_requests.CommerceRequestError,
+        match="recipient_or_scope_unavailable",
+    ):
+        await scope_commerce_requests.resolve_commerce_request(
+            "req_revoked_1", "owner_1", connection=conn
+        )
