@@ -188,7 +188,6 @@ def policy() -> ReportingPolicy:
             not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain)
             for domain in domains
         )
-        or not (ids or emails or domains)
     ):
         raise RuntimeError("Invalid UAT Metrics policy")
     revision = hashlib.sha256(
