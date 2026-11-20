@@ -146,29 +146,6 @@ async def test_net_worth_projection_requires_owner_and_reaches_only_finance():
         consume_request_secret(reference)
 
 
-@pytest.mark.asyncio
-async def test_selected_analysis_admission_requires_owner_and_forbids_unknown_fields():
-    from hushh_mcp.one_adk.analysis_turn_context import admit_analysis_result
-    from hushh_mcp.one_adk.request_secrets import resolve_request_secret
-
-    result = {
-        "ticker": "NVDA",
-        "runId": "run-1",
-        "decision": "hold",
-        "finalStatement": "Synthetic analysis",
-        "confidence": 0.7,
-        "completedAt": "2026-11-19T12:00:00Z",
-    }
-    forwarded = {"financeAnalysisResult": result}
-    secret = admit_analysis_result(forwarded, owner_admitted=True)
-    assert "Synthetic analysis" in resolve_request_secret(secret)
-    assert "financeAnalysisResult" not in forwarded
-    assert not admit_analysis_result({"financeAnalysisResult": result}, owner_admitted=False)
-    assert not admit_analysis_result(
-        {"financeAnalysisResult": {**result, "holdings": []}}, owner_admitted=True
-    )
-
-
 def test_stock_preview_history_retains_only_the_ticker() -> None:
     from hushh_mcp.one_adk.history_descriptors import _safe_agent_history_metadata
 
@@ -193,3 +170,31 @@ def test_stock_preview_history_retains_only_the_ticker() -> None:
     assert (
         _safe_agent_history_metadata(history_event(payload, tool_name="get_market_quotes")) is None
     )
+
+
+def test_market_gainers_card_has_typed_chat_authority_and_read_only_history() -> None:
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.one_adk.finance_chat_cards import (
+        finance_card_history_descriptor,
+        show_market_gainers,
+    )
+    from hushh_mcp.one_adk.state_keys import STATE_USER_ID
+
+    def context(surface: str, user_id: str | None):
+        return SimpleNamespace(state={STATE_EXECUTION_SURFACE: surface, STATE_USER_ID: user_id})
+
+    kind = "one.finance_top_gainers.v1"
+    result = show_market_gainers(context("typed_chat", "owner"))
+    assert result == {"status": "card_offered", "structured": {"type": kind}}
+    assert show_market_gainers(context("typed_chat", None)) == {"status": "unavailable"}
+    assert show_market_gainers(context("voice", "owner")) == {"status": "unavailable"}
+
+    def part(name: str):
+        response = {**result, "structured": {**result["structured"], "gainers": ["UNTRUSTED"]}}
+        return SimpleNamespace(function_response=SimpleNamespace(name=name, response=response))
+
+    assert finance_card_history_descriptor(part("show_market_gainers")) == {
+        "activityType": kind,
+        "content": {"type": kind, "historical": True},
+    }
+    assert finance_card_history_descriptor(part("get_market_quotes")) is None

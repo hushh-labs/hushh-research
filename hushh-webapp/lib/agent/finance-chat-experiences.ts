@@ -2,6 +2,13 @@ import { asRecord, unwrapToolResult } from "./tool-result-envelope";
 
 export const FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE = "one.finance_stock_preview.v1" as const;
 export const FINANCE_PORTFOLIO_EXPERIENCE_TYPE = "one.finance_portfolio.v1" as const;
+export const FINANCE_TOP_GAINERS_EXPERIENCE_TYPE = "one.finance_top_gainers.v1" as const;
+
+type FinanceTopGainersExperience = {
+  type: typeof FINANCE_TOP_GAINERS_EXPERIENCE_TYPE;
+  historical?: true;
+};
+
 export type FinancePortfolioSection = "holdings" | "allocation" | "performance" | "sources";
 type FinancePortfolioExperience = { type: typeof FINANCE_PORTFOLIO_EXPERIENCE_TYPE; section: FinancePortfolioSection };
 
@@ -10,7 +17,16 @@ type FinanceStockPreviewExperience = {
   ticker: string;
 };
 
-export type FinanceCardExperience = FinancePortfolioExperience | FinanceStockPreviewExperience;
+export type FinanceCardExperience =
+  | FinancePortfolioExperience
+  | FinanceStockPreviewExperience
+  | FinanceTopGainersExperience;
+
+export function parseFinanceTopGainers(content: unknown): FinanceTopGainersExperience | null {
+  const record = asRecord(content);
+  if (record?.type !== FINANCE_TOP_GAINERS_EXPERIENCE_TYPE) return null;
+  return { type: FINANCE_TOP_GAINERS_EXPERIENCE_TYPE, ...(record.historical === true && { historical: true }) };
+}
 
 export function parseFinanceStockPreview(content: unknown): FinanceStockPreviewExperience | null {
   const record = asRecord(content);
@@ -32,6 +48,10 @@ export function parseFinanceToolResult(toolName: string | null | undefined, cont
   if (toolName === "show_stock_preview") {
     const result = unwrapToolResult(content);
     return result?.status === "preview_offered" ? parseFinanceStockPreview(result.structured) : null;
+  }
+  if (toolName === "show_market_gainers") {
+    const result = unwrapToolResult(content);
+    return result?.status === "card_offered" ? parseFinanceTopGainers(result.structured) : null;
   }
   if (toolName === "show_portfolio_card") {
     const result = unwrapToolResult(content);

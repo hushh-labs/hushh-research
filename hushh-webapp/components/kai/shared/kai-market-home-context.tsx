@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { normalizeMarketSymbol } from "@/lib/kai/market-symbol";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { KaiFinancialResourceService, useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
@@ -12,7 +13,8 @@ import { usMarketRefreshSession, useMarketLiveRefresh } from "@/lib/kai/use-mark
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
-import { ApiService, type KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import { useKaiCompanyNews } from "@/lib/kai/use-kai-company-news";
 import { getKaiActivePickSource, setKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 
 function toSymbolsKey(symbols: string[]): string {
@@ -20,11 +22,7 @@ function toSymbolsKey(symbols: string[]): string {
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
 }
 
-export function normalizeMarketSymbol(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .toUpperCase();
-}
+export { normalizeMarketSymbol } from "@/lib/kai/market-symbol";
 
 function normalizeTrackedSymbols(
   symbols: string[] | null | undefined,
@@ -437,11 +435,7 @@ function useKaiMarketHomeController() {
     [activePickSource],
   );
 
-  const loadCompanyNews = useCallback(async (symbol: string, signal: AbortSignal, market: "US" | "IN" = "US") => {
-    if (!userId || !vaultOwnerToken) throw new Error("Unlock your vault to load company news");
-    const page = await ApiService.getKaiMarketNews({ userId, vaultOwnerToken, symbols: [symbol], limit: 15, market, signal });
-    return page.items;
-  }, [userId, vaultOwnerToken]);
+  const loadCompanyNews = useKaiCompanyNews(userId, vaultOwnerToken);
 
   return {
     payload,

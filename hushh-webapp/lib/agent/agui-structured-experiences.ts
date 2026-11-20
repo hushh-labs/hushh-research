@@ -1,4 +1,13 @@
-import { FINANCE_PORTFOLIO_EXPERIENCE_TYPE, FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE, parseFinancePortfolio, parseFinanceStockPreview, parseFinanceToolResult, type FinanceCardExperience } from "./finance-chat-experiences";
+import {
+  FINANCE_PORTFOLIO_EXPERIENCE_TYPE,
+  FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE,
+  FINANCE_TOP_GAINERS_EXPERIENCE_TYPE,
+  parseFinancePortfolio,
+  parseFinanceStockPreview,
+  parseFinanceTopGainers,
+  parseFinanceToolResult,
+  type FinanceCardExperience,
+} from "./finance-chat-experiences";
 import { asRecord, parseRecord, unwrapToolResult } from "./tool-result-envelope";
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
 import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
@@ -751,6 +760,7 @@ export function parseSharedWithMeCard(content: unknown): SharedWithMeCardExperie
 
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [FINANCE_PORTFOLIO_EXPERIENCE_TYPE]: parseFinancePortfolio,
+  [FINANCE_TOP_GAINERS_EXPERIENCE_TYPE]: parseFinanceTopGainers,
   [FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE]: parseFinanceStockPreview,
   [SHARED_WITH_ME_CARD_EXPERIENCE_TYPE]: parseSharedWithMeCard,
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,

@@ -151,6 +151,40 @@ describe("DebateRunManagerService start gate", () => {
     expect(manager.getTask("fresh-run")?.status).toBe("running");
   });
 
+  it("exposes the canonical completed result only for the run owner", async () => {
+    const manager = await loadManager([]);
+    apiMocks.getActiveKaiDebateRun.mockResolvedValueOnce(response(404));
+    apiMocks.startKaiDebateRunStream.mockResolvedValueOnce(response(200));
+    apiMocks.consumeCanonicalKaiStream.mockImplementationOnce(async (...args: unknown[]) => {
+      await announceRun("result-run")(...args);
+      const emit = args[1] as (envelope: Record<string, unknown>) => void;
+      emit({
+        schema_version: "1.0",
+        stream_id: "run_result-run",
+        stream_kind: "stock_analyze",
+        seq: 2,
+        event: "decision",
+        terminal: true,
+        payload: {
+          run_id: "result-run",
+          ticker: "AAPL",
+          decision: "hold",
+          confidence: 0.72,
+          final_statement: "Synthetic decision.",
+          agent_votes: { investor: "hold" },
+        },
+      });
+    });
+
+    await manager.ensureRun(ensureParams);
+    await vi.waitFor(() => expect(manager.getResultForRun("result-run", "user-1")).toMatchObject({
+      ticker: "AAPL",
+      final_statement: "Synthetic decision.",
+      agent_votes: { investor: "hold" },
+    }));
+    expect(manager.getResultForRun("result-run", "other-owner")).toBeNull();
+  });
+
   it("does not attach or start when a restored card asks for a different ticker", async () => {
     const manager = await loadManager([]);
     apiMocks.getActiveKaiDebateRun.mockResolvedValue(response(200, { run: runPayload("other-run") }));

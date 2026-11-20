@@ -1,11 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
 import type { DebateRunManagerState, DebateRunTask } from "@/lib/services/debate-run-manager";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 
 const ports = vi.hoisted(() => ({
-  preview: vi.fn(), prepare: vi.fn(), start: vi.fn(), resume: vi.fn(), reconnect: vi.fn(),
+  preview: vi.fn(), prepare: vi.fn(), start: vi.fn(), resume: vi.fn(), reconnect: vi.fn(), result: vi.fn(),
   state: (_state: DebateRunManagerState) => {},
   event: (_event: KaiStreamEnvelope) => {},
   subscribed: vi.fn(),
@@ -13,6 +13,7 @@ const ports = vi.hoisted(() => ({
   isVaultUnlocked: true,
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "owner" }) }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: ports.isVaultUnlocked, vaultOwnerToken: "owner-token", vaultKey: "key" }),
 }));
@@ -24,12 +25,13 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({
     ports.handler = options.enabled ? handler : null;
   },
 }));
-vi.mock("@/components/kai/cards/stock-comparison-preview", () => ({ StockComparisonPreview: () => null }));
-vi.mock("@/components/kai/views/analysis-summary-view", () => ({ AnalysisSummaryView: () => null }));
+vi.mock("@/components/kai/views/history-detail-view", () => ({
+  HistoryDetailView: () => <p>Saved decision record</p>,
+}));
 vi.mock("@/lib/services/debate-run-manager", () => ({
   DebateRunManagerService: {
     ensureRun: ports.start, resumeActiveRun: ports.resume, reconnectRun: ports.reconnect,
-    getResultForRun: () => null,
+    getResultForRun: ports.result,
     subscribe: (listener: typeof ports.state) => { ports.state = listener; ports.subscribed(); return () => {}; },
     subscribeRunEvents: (_id: string, listener: typeof ports.event) => { ports.event = listener; return () => {}; },
   },
@@ -61,7 +63,7 @@ describe("Finance stock analysis in chat", () => {
   it("refuses a gateway invocation without this card's confirmation", async () => {
     render(<FinanceStockPreviewCard ticker="NVDA" allowStart onConfirm={confirmThroughGateway} />);
     openCard();
-    const start = await screen.findByRole("button", { name: "Confirm and start debate" });
+    const start = await screen.findByRole("button", { name: "Start debate" });
     await waitFor(() => expect(start).toBeEnabled());
     const result = await ports.handler?.({}, { humanConfirmationToken: "model-supplied" });
     expect(result).toMatchObject({ status: "blocked" });
@@ -71,7 +73,7 @@ describe("Finance stock analysis in chat", () => {
   it("starts only after confirmation, reconnects that exact run, then keeps the result visible if saving fails", async () => {
     render(<FinanceStockPreviewCard ticker="NVDA" allowStart onConfirm={confirmThroughGateway} />);
     openCard();
-    const start = await screen.findByRole("button", { name: "Confirm and start debate" });
+    const start = await screen.findByRole("button", { name: "Start debate" });
     await waitFor(() => expect(start).toBeEnabled());
     expect(ports.start).not.toHaveBeenCalled();
     fireEvent.click(start);
@@ -88,9 +90,11 @@ describe("Finance stock analysis in chat", () => {
     publish({ streamState: "paused" });
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
     expect(ports.reconnect).toHaveBeenCalledWith(expect.objectContaining({ runId: "run-1", userId: "owner" }));
+    ports.result.mockReturnValue({ ticker: "NVDA", decision: "hold", final_statement: "Canonical result" });
     publish({ status: "completed", persistenceState: "failed",
       finalDecision: { decision: "hold", confidence: 0.8, finalStatement: "Synthetic decision" } });
-    expect(screen.getByText("Synthetic decision")).toBeVisible();
+    expect(screen.getByText("Company Strength")).toBeVisible();
+    expect(ports.result).toHaveBeenCalledWith("run-1", "owner");
     expect(screen.getByText("The result is ready. It could not be saved to Finance history.")).toBeVisible();
     expect(ports.start).toHaveBeenCalledTimes(1);
   });
@@ -109,7 +113,7 @@ describe("Finance stock analysis in chat", () => {
     ports.prepare.mockReturnValue(new Promise(resolve => { complete = resolve; }));
     const view = render(<FinanceStockPreviewCard ticker="NVDA" allowStart onConfirm={confirmThroughGateway} />);
     openCard();
-    const start = await screen.findByRole("button", { name: "Confirm and start debate" });
+    const start = await screen.findByRole("button", { name: "Start debate" });
     await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
     ports.isVaultUnlocked = false;
@@ -119,12 +123,12 @@ describe("Finance stock analysis in chat", () => {
     expect(ports.start).not.toHaveBeenCalled();
   });
 
-  it("keeps the started run visible if the card becomes historical during dispatch", async () => {
+  it("retains exact-run reconnect after a newer chat message arrives during dispatch", async () => {
     let finish!: (value: unknown) => void;
     ports.start.mockReturnValue(new Promise(resolve => { finish = resolve; }));
     const view = render(<FinanceStockPreviewCard ticker="NVDA" allowStart onConfirm={confirmThroughGateway} />);
     openCard();
-    const start = await screen.findByRole("button", { name: "Confirm and start debate" });
+    const start = await screen.findByRole("button", { name: "Start debate" });
     await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
     await waitFor(() => expect(ports.start).toHaveBeenCalledTimes(1));
@@ -134,21 +138,41 @@ describe("Finance stock analysis in chat", () => {
     await waitFor(() => expect(ports.subscribed).toHaveBeenCalled());
     publish();
     expect(screen.getByText("Starting research…")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Confirm and start debate" })).toBeNull();
+    publish({ streamState: "paused" });
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(ports.reconnect).toHaveBeenCalledWith(expect.objectContaining({ runId: "run-1", userId: "owner" }));
+    expect(screen.queryByRole("button", { name: "Start debate" })).toBeNull();
   });
 
-  it("selects a completed run for a follow-up only on explicit click", async () => {
-    const selected = vi.fn();
-    render(<FinanceStockPreviewCard ticker="NVDA" allowStart onSelectResult={selected} onConfirm={confirmThroughGateway} />);
+  it("keeps the rationale out of the transcript and opens the completed analysis in a dialog", async () => {
+    render(<FinanceStockPreviewCard ticker="NVDA" allowStart onConfirm={confirmThroughGateway} />);
     openCard();
-    const start = await screen.findByRole("button", { name: "Confirm and start debate" });
+    const start = await screen.findByRole("button", { name: "Start debate" });
     await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
     await waitFor(() => expect(ports.subscribed).toHaveBeenCalled());
+    ports.result.mockReturnValue({
+      ticker: "NVDA",
+      decision: "hold",
+      final_statement: "Detailed investment rationale",
+      raw_card: { short_recommendation: "Detailed investment rationale" },
+    });
     publish({ status: "completed", persistenceState: "saved",
       finalDecision: { decision: "hold", confidence: 0.8, finalStatement: "Synthetic decision" } });
-    expect(selected).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Ask One about this analysis" }));
-    expect(selected).toHaveBeenCalledWith("run-1");
+    expect(screen.queryByText("Detailed investment rationale")).toBeNull();
+    expect(screen.queryByText("What to consider")).toBeNull();
+    const url = window.location.href;
+    fireEvent.click(screen.getByRole("button", { name: "Open analysis" }));
+    const dialog = await screen.findByRole("dialog", { name: "NVDA analysis" });
+    expect(within(dialog).getByText("What to consider")).toBeVisible();
+    expect(within(dialog).getAllByText("Detailed investment rationale").length).toBeGreaterThan(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Full debate and research" }));
+    expect(within(dialog).getByText("Debate transcript unavailable for this run.")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Detailed record and sources" }));
+    expect(within(dialog).getByText("Saved decision record")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("button", { name: "Open analysis" })).toBeVisible();
+    expect(window.location.href).toBe(url);
   });
 });

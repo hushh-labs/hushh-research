@@ -27,6 +27,17 @@ def show_portfolio_card(section: str, tool_context: ToolContext) -> dict[str, An
     }
 
 
+TOP_GAINERS_CARD_TYPE = "one.finance_top_gainers.v1"
+
+
+def show_market_gainers(tool_context: ToolContext) -> dict[str, Any]:
+    """Show the latest U.S. market gainers as a card in signed-in typed Chat."""
+    state = tool_context.state
+    if state.get(STATE_EXECUTION_SURFACE) != "typed_chat" or not state.get(STATE_USER_ID):
+        return {"status": "unavailable"}
+    return {"status": "card_offered", "structured": {"type": TOP_GAINERS_CARD_TYPE}}
+
+
 def show_stock_preview(ticker: str, tool_context: ToolContext) -> dict[str, Any]:
     """Offer the stock analysis review card in signed-in typed Chat. Pass one ticker."""
     state = tool_context.state
@@ -71,5 +82,23 @@ def _safe_portfolio_descriptor(part: Any) -> dict[str, Any] | None:
     return {"activityType": kind, "content": {"type": kind, "section": section}}
 
 
+def _safe_gainers_descriptor(part: Any) -> dict[str, Any] | None:
+    function_response = getattr(part, "function_response", None)
+    if getattr(function_response, "name", None) != "show_market_gainers":
+        return None
+    response = _record(getattr(function_response, "response", None)) or {}
+    structured = _record(response.get("structured")) or {}
+    if response.get("status") != "card_offered" or structured.get("type") != TOP_GAINERS_CARD_TYPE:
+        return None
+    return {
+        "activityType": TOP_GAINERS_CARD_TYPE,
+        "content": {"type": TOP_GAINERS_CARD_TYPE, "historical": True},
+    }
+
+
 def finance_card_history_descriptor(part: Any) -> dict[str, Any] | None:
-    return _safe_stock_preview_descriptor(part) or _safe_portfolio_descriptor(part)
+    return (
+        _safe_stock_preview_descriptor(part)
+        or _safe_portfolio_descriptor(part)
+        or _safe_gainers_descriptor(part)
+    )

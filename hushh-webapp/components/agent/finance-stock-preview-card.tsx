@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { SurfaceCard, SurfaceCardContent, SurfaceInset } from "@/components/app-ui/surfaces";
+import { CardTitle, MediumRowLabel, RowDescription } from "@/components/app-ui/typography";
+import { ChevronDown } from "@/components/icons";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
+import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-view";
+import { HistoryDebateReplay } from "@/components/kai/views/history-debate-replay";
+import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
+import { formatCurrency } from "@/lib/kai/market-value-format";
 import { prepareStockDebate } from "@/lib/kai/prepare-stock-debate";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 import { useStockPreview } from "@/lib/kai/use-stock-preview";
 import { Button } from "@/lib/morphy-ux/button";
+import type { KaiStockPreviewResponse } from "@/lib/services/api-service";
 import { DebateRunManagerService, type DebateRunTask } from "@/lib/services/debate-run-manager";
 import { useVault } from "@/lib/vault/vault-context";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
@@ -20,11 +31,25 @@ const RESEARCH_STEPS: Record<string, string> = {
   insight_extracted: "Reviewing research findings…",
 };
 
+function AnalysisDetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Collapsible className="rounded-xl bg-card">
+      <CollapsibleTrigger className="group flex min-h-12 w-full items-center justify-between gap-3 rounded-[inherit] px-4 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        {title}
+        <ChevronDown aria-hidden="true" className="size-4 shrink-0 group-data-[state=open]:rotate-180" />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-4 pb-4">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function FinanceDebateResult({
-  runId, userId, vaultOwnerToken, vaultKey, allowActions, onSelectResult,
-}: { runId: string; userId: string; vaultOwnerToken: string; vaultKey: string; allowActions: boolean; onSelectResult?: (runId: string) => void }) {
+  runId, userId, vaultOwnerToken, vaultKey,
+}: { runId: string; userId: string; vaultOwnerToken: string; vaultKey: string }) {
   const [task, setTask] = useState<DebateRunTask | null>(null);
   const [progress, setProgress] = useState("Starting research…");
+  const [detailOpen, setDetailOpen] = useState(false);
+  const openAnalysisRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const unsubscribeState = DebateRunManagerService.subscribe(state => {
@@ -45,7 +70,7 @@ function FinanceDebateResult({
           {task.streamState === "paused" ? "Live updates paused."
             : task.streamState === "reconnecting" ? "Reconnecting to this debate…" : progress}
         </p>
-        {allowActions && task.streamState === "paused" ? (
+        {task.streamState === "paused" ? (
           <Button size="sm" onClick={() => void DebateRunManagerService.reconnectRun({
             runId, userId, vaultOwnerToken, vaultKey,
           })}>Reconnect</Button>
@@ -57,30 +82,84 @@ function FinanceDebateResult({
     return <p role="status">{task.status === "canceled" ? "Debate cancelled." : "Debate could not finish."}</p>;
   }
 
+  const result = DebateRunManagerService.getResultForRun(runId, userId);
   return (
     <div className="space-y-2">
-      <p role="status">Analysis complete.</p>
-      <p className="text-sm">{task.finalDecision?.finalStatement || "The decision details are unavailable."}</p>
-      {allowActions && task.finalDecision?.finalStatement && onSelectResult ? (
-        <Button size="sm" onClick={() => onSelectResult(runId)}>Ask One about this analysis</Button>
-      ) : null}
-      {task.persistenceState === "saved" ? <p className="text-sm">Saved to Finance history.</p> : null}
-      {task.persistenceState === "pending" ? <p role="status">Saving to Finance history…</p> : null}
+      {result ? (
+        <>
+          <AnalysisSummaryView entry={result} compact embedded showHeader={false} userId={userId} />
+          <Button ref={openAnalysisRef} type="button" size="sm" aria-haspopup="dialog" onClick={() => setDetailOpen(true)}>
+            Open analysis
+          </Button>
+          <AdaptiveDetailSurface
+            open={detailOpen}
+            onOpenChange={setDetailOpen}
+            onCloseAutoFocus={event => {
+              event.preventDefault();
+              openAnalysisRef.current?.focus();
+            }}
+            title={`${result.ticker} analysis`}
+            mobilePresentation="sheet"
+            surfaceClassName={financeStyles.detail}
+          >
+            {detailOpen ? (
+              <div className="min-w-0 space-y-4">
+                <AnalysisSummaryView entry={result} embedded showHeader={false} userId={userId} />
+                <AnalysisDetailSection title="Full debate and research">
+                  <HistoryDebateReplay entry={result} />
+                </AnalysisDetailSection>
+                <AnalysisDetailSection title="Detailed record and sources">
+                  <HistoryDetailView entry={result} embedded showHeader={false} userId={userId} />
+                </AnalysisDetailSection>
+              </div>
+            ) : null}
+          </AdaptiveDetailSurface>
+        </>
+      ) : (
+        <p role="status" className="ui-text-row-description">Analysis details are unavailable.</p>
+      )}
+      {task.persistenceState === "saved" ? <p className="ui-text-row-description text-muted-foreground">Saved to Finance history.</p> : null}
+      {task.persistenceState === "pending" ? <p role="status" className="ui-text-row-description text-muted-foreground">Saving to Finance history…</p> : null}
       {task.persistenceState === "failed" ? (
         <div className="space-y-2">
           <p role="status">The result is ready. It could not be saved to Finance history.</p>
-          {allowActions ? <Button size="sm" onClick={() => void DebateRunManagerService.retryTaskPersistence(
+          <Button size="sm" onClick={() => void DebateRunManagerService.retryTaskPersistence(
             runId, { userId, vaultKey },
           )}>
             Retry saving
-          </Button> : null}
+          </Button>
         </div>
       ) : null}
     </div>
   );
 }
 
-export function FinanceStockPreviewCard({ ticker, allowStart = false, onSelectResult, onConfirm }: { ticker: string; allowStart?: boolean; onSelectResult?: (runId: string) => void; onConfirm?: (confirmation: string) => Promise<void> }) {
+function FinanceStockReview({ preview }: { preview: KaiStockPreviewResponse }) {
+  useMarketCurrency();
+  const quote = preview.quote;
+  const company = quote?.company_name?.trim();
+  const source = preview.pick_sources?.find(item => item.id === preview.active_pick_source)?.label ||
+    preview.list_match?.label;
+  return (
+    <SurfaceInset className="space-y-2 px-3 py-2.5">
+      {company && company !== preview.symbol ? <MediumRowLabel as="p">{company}</MediumRowLabel> : null}
+      <dl className="grid grid-cols-2 gap-3">
+        <div className="min-w-0">
+          <RowDescription as="dt">Debate source</RowDescription>
+          <MediumRowLabel as="dd" className="break-words">{source || "Unavailable"}</MediumRowLabel>
+        </div>
+        <div className="min-w-0 text-right">
+          <RowDescription as="dt">Market quote</RowDescription>
+          <MediumRowLabel as="dd" className="tabular-nums">
+            {quote?.price != null && quote.price > 0 ? formatCurrency(quote.price) : "Unavailable"}
+          </MediumRowLabel>
+        </div>
+      </dl>
+    </SurfaceInset>
+  );
+}
+
+export function FinanceStockPreviewCard({ ticker, allowStart = false, onConfirm }: { ticker: string; allowStart?: boolean; onConfirm?: (confirmation: string) => Promise<void> }) {
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
   const [open, setOpen] = useState(false);
@@ -143,7 +222,7 @@ export function FinanceStockPreviewCard({ ticker, allowStart = false, onSelectRe
         const existing = await DebateRunManagerService.resumeActiveRun({
           ...credentials, expectedTicker: ticker, signal: controller.signal, onRunFound: bindRun,
         });
-        if (!controller.signal.aborted && !existing) setNotice("No active debate for this stock was found.");
+        if (!controller.signal.aborted && !existing) setNotice(`No active ${ticker} debate.`);
         return Boolean(existing);
       }
       setStartAttempted(true);
@@ -155,7 +234,7 @@ export function FinanceStockPreviewCard({ ticker, allowStart = false, onSelectRe
       });
       if (controller.signal.aborted) return false;
       if (result.kind === "blocked") {
-        setNotice("A debate is already running. Use Resume if it is for this stock.");
+        setNotice("A debate is already running. Choose Resume debate to check.");
         return false;
       }
       bindRun(result.task);
@@ -183,40 +262,46 @@ export function FinanceStockPreviewCard({ ticker, allowStart = false, onSelectRe
   }
 
   return (
-    <details className="rounded-xl border border-border p-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="cursor-pointer font-medium">{ticker} stock analysis</summary>
-      {open ? (
-        <div className="mt-3 space-y-3">
-          {!userId || !ownerToken || !vaultKey ? (
-            <p className="text-sm text-muted-foreground">Sign in and unlock your vault to view the analysis.</p>
-          ) : currentRun ? (
-            <FinanceDebateResult key={currentRun.runId} runId={currentRun.runId} userId={userId}
-              vaultOwnerToken={ownerToken} vaultKey={vaultKey} allowActions={allowStart} onSelectResult={onSelectResult} />
-          ) : (
-            <>
-              <StockComparisonPreview compact preview={preview} loading={loading}
-                error={error ? "Could not load the stock preview. Close and reopen it to retry." : null}
-                showStartAction={false} />
-              {allowStart && !startAttempted ? (
-                <>
-                  <p className="text-sm text-muted-foreground">The debate uses your Finance profile and portfolio when available.</p>
-                  <Button size="sm" data-voice-control-id="analysis_start_preview" disabled={!canConfirm || !onConfirm}
-                    onClick={() => {
-                      const confirmation = crypto.randomUUID();
-                      pendingConfirmation.current = confirmation;
-                      void onConfirm?.(confirmation).finally(() => {
-                        if (pendingConfirmation.current === confirmation) pendingConfirmation.current = null;
-                      });
-                    }}>Confirm and start debate</Button>
-                </>
-              ) : null}
-              <Button size="sm" variant="none" disabled={pending}
-                onClick={() => void operate("resume")}>Resume active {ticker} debate</Button>
-              {pending || notice ? <p role="status">{pending ? "Connecting to Finance…" : notice}</p> : null}
-            </>
-          )}
-        </div>
-      ) : null}
-    </details>
+    <SurfaceCard>
+      <details className="group" onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-[var(--surface-card-content-px)] py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <CardTitle as="span">{ticker} stock analysis</CardTitle>
+          <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground group-open:rotate-180" />
+        </summary>
+        {open ? (
+          <SurfaceCardContent className="space-y-3">
+            {!userId || !ownerToken || !vaultKey ? (
+              <p className="text-sm text-muted-foreground">Sign in and unlock your vault to view the analysis.</p>
+            ) : currentRun ? (
+              <FinanceDebateResult key={currentRun.runId} runId={currentRun.runId} userId={userId}
+                vaultOwnerToken={ownerToken} vaultKey={vaultKey} />
+            ) : (
+              <>
+                {loading ? <p role="status" className="ui-text-row-description">Loading stock preview…</p> : null}
+                {error ? <p role="status" className="ui-text-row-description">Could not load the preview. Close and reopen to retry.</p> : null}
+                {preview ? <FinanceStockReview preview={preview} /> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  {!startAttempted ? (
+                    <Button type="button" size="sm" data-voice-control-id="analysis_start_preview" disabled={!canConfirm || !onConfirm}
+                      onClick={() => {
+                        const confirmation = crypto.randomUUID();
+                        pendingConfirmation.current = confirmation;
+                        void onConfirm?.(confirmation).finally(() => {
+                          if (pendingConfirmation.current === confirmation) pendingConfirmation.current = null;
+                        });
+                      }}>Start debate</Button>
+                  ) : null}
+                  <Button type="button" size="sm" variant="plain"
+                    disabled={pending} onClick={() => void operate("resume")}>
+                    Resume debate
+                  </Button>
+                </div>
+                {pending || notice ? <RowDescription as="p" role="status">{pending ? "Connecting to Finance…" : notice}</RowDescription> : null}
+              </>
+            )}
+          </SurfaceCardContent>
+        ) : null}
+      </details>
+    </SurfaceCard>
   );
 }

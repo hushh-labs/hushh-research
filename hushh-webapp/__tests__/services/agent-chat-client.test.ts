@@ -1223,15 +1223,6 @@ describe("AG-UI Agent One client", () => {
     expect(onDriveBatchProgress).not.toHaveBeenCalled();
   });
 
-  it("forwards the explicitly selected analysis result in the current turn", async () => {
-    const financeAnalysisResult = { ticker: "NVDA", runId: "run-1", decision: "hold",
-      finalStatement: "Synthetic decision", confidence: 0.8, completedAt: "2026-11-19T12:00:00Z" };
-    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
-      message: "Explain this analysis", conversationId: "thread-1", vaultOwnerToken: "owner-token",
-      financeAnalysisResult, handlers: {} });
-    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.financeAnalysisResult).toEqual(financeAnalysisResult);
-  });
-
   it("forwards the versioned agent-safe PKM packet on every chat turn", async () => {
     const pkmContext = "Private-agent PKM context (agent-safe-pkm/v1):\n- Preferences > Tone: concise";
 

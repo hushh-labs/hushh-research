@@ -36,6 +36,15 @@ describe("AG-UI structured experience registry", () => {
     })).toBeNull();
   });
 
+  it("renders only a Top Gainers descriptor from the dedicated successful tool", () => {
+    const type = "one.finance_top_gainers.v1";
+    const result = { status: "card_offered", structured: { type, gainers: [{ symbol: "FAKE" }], href: "/one/kai" } };
+    expect(parseAgentToolResultExperience("show_market_gainers", result)).toEqual({ type });
+    expect(parseAgentToolResultExperience("get_market_quotes", result)).toBeNull();
+    expect(parseAgentToolResultExperience("show_market_gainers", { ...result, status: "unavailable" })).toBeNull();
+    expect(parseAgentActivityExperience(type, { ...result.structured, historical: true })).toEqual({ type, historical: true });
+  });
+
   it("accepts a ticker-only preview from the stock preview tool and rejects invalid descriptors", () => {
     const structured = { type: "one.finance_stock_preview.v1", ticker: "BRK-B" };
     const result = { status: "preview_offered", structured };

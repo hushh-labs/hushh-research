@@ -1103,20 +1103,13 @@ class DebateRunManager {
     }
   }
 
-  private async persistDecisionHistory(
-    runId: string,
-    task: DebateRunTask,
-  ): Promise<void> {
-    const secrets = this.runSecrets.get(runId);
-    if (!secrets?.vaultKey || !isVaultSessionEpochCurrent(secrets.vaultEpoch)) {
-      this.upsertTask({
-        ...task,
-        persistenceState: "failed",
-        persistenceError: "Missing vault credentials for history persistence.",
-      });
-      return;
-    }
+  getResultForRun(runId: string, userId: string): AnalysisHistoryEntry | null {
+    const task = this.getTask(runId);
+    if (!task || task.userId !== userId || task.status !== "completed" || !task.finalDecision) return null;
+    return this.buildResultEntry(runId, task);
+  }
 
+  private buildResultEntry(runId: string, task: DebateRunTask): AnalysisHistoryEntry {
     const buffer = this.runBuffers.get(runId) || [];
     const decisionEnvelope = [...buffer]
       .reverse()
@@ -1128,13 +1121,13 @@ class DebateRunManager {
     const transcript = buildTranscriptFromEnvelopes(buffer);
     const rawCard = buildDecisionHistoryRawCard(payload, runId);
 
-    const entry: AnalysisHistoryEntry = {
+    return {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),
       timestamp:
         typeof payload.analysis_updated_at === "string" &&
         payload.analysis_updated_at.trim().length > 0
           ? payload.analysis_updated_at
-          : nowIso(),
+          : task.completedAt || nowIso(),
       decision: String(
         payload.decision || task.finalDecision?.decision || "hold",
       ),
@@ -1154,6 +1147,23 @@ class DebateRunManager {
       debate_transcript:
         transcript as AnalysisHistoryEntry["debate_transcript"],
     };
+  }
+
+  private async persistDecisionHistory(
+    runId: string,
+    task: DebateRunTask,
+  ): Promise<void> {
+    const secrets = this.runSecrets.get(runId);
+    if (!secrets?.vaultKey || !isVaultSessionEpochCurrent(secrets.vaultEpoch)) {
+      this.upsertTask({
+        ...task,
+        persistenceState: "failed",
+        persistenceError: "Missing vault credentials for history persistence.",
+      });
+      return;
+    }
+
+    const entry = this.buildResultEntry(runId, task);
 
     const pendingTask = this.upsertTask({
       ...task,

@@ -48,7 +48,6 @@ from hushh_mcp.one_adk.agui_factory import (
 )
 from hushh_mcp.one_adk.agui_factory import _DurableSessionManager as _DurableSessionManager
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, TimedADKAgent
-from hushh_mcp.one_adk.analysis_turn_context import STATE_ANALYSIS_RESULT, admit_analysis_result
 from hushh_mcp.one_adk.consent_continuation import (
     ConsentContinuationError,
     continued_outcomes,
@@ -583,9 +582,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         else "",
         **email_memory,
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
-        STATE_ANALYSIS_RESULT: admit_analysis_result(
-            forwarded, owner_admitted=bool(token and user_id)
-        ),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,

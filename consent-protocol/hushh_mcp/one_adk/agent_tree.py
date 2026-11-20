@@ -110,7 +110,6 @@ from hushh_mcp.one_adk.agui_turn_timing import (
     timed_one_before_agent,
     timed_one_before_model,
 )
-from hushh_mcp.one_adk.analysis_turn_context import selected_analysis_instruction
 from hushh_mcp.one_adk.consent_continuation import (
     block_tools_during_consent_answer,
     consent_continuation_instruction,
@@ -142,7 +141,11 @@ from hushh_mcp.one_adk.feed_attention import (
     block_tools_during_feed_attention,
     feed_attention_instruction,
 )
-from hushh_mcp.one_adk.finance_chat_cards import show_portfolio_card, show_stock_preview
+from hushh_mcp.one_adk.finance_chat_cards import (
+    show_market_gainers,
+    show_portfolio_card,
+    show_stock_preview,
+)
 from hushh_mcp.one_adk.finance_market_tools import (
     MARKET_QUOTES_TOOL_NAME,
     TICKER_NEWS_TOOL_NAME,
@@ -534,6 +537,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'take me to location' selects route.one_location, while 'share my location' "
     "selects the governed location action below; questions about Gmail information "
     "requests belong in Email rather than a retired KYC route. "
+    "In signed-in typed Chat, use show_market_gainers when the person asks to see "
+    "the latest U.S. market gainers or today's top gainers without specifying a market. "
+    "The card displays Finance's available quotes with their timestamps inside the conversation. "
+    "Keep the person in Chat for this request. If you add a reply, say only that you opened "
+    "the Top Gainers card in Chat. The card loads quotes independently and reports their "
+    "availability. Do not claim the card contains results, give rankings, or trigger navigation. "
     "In signed-in typed Chat, when the person asks to see their portfolio holdings, "
     "allocation, performance, or sources, call show_portfolio_card with the requested "
     "section. The card reads the portfolio in the unlocked client. "
@@ -848,7 +857,6 @@ def _one_runtime_instruction(context: Any) -> str:
 
         return (
             _compose_one_runtime_instruction(context)
-            + selected_analysis_instruction(context)
             + str(turn_clock(context))
             + follow_up_instruction(state_getter)
             + reaction_instruction(state_getter)
@@ -2456,7 +2464,6 @@ def _finance_runtime_instruction(context: Any) -> str:
         str(_KAI_MANIFEST.system_instruction)
         + FINANCE_MARKET_GROUNDING_RULE
         + _bounded_finance_context(context)
-        + selected_analysis_instruction(context)
         + (
             f"\n\nCurrent owner-authorized nws_report (information only): {report}"
             if report
@@ -2567,6 +2574,7 @@ def _one_roster_tools(
         list_app_actions,
         show_stock_preview,
         show_portfolio_card,
+        show_market_gainers,
         open_gmail_email_draft,
         open_gmail_information_request_reply,
         AgentTool(agent=_build_finance_agent(model=specialist_model)),

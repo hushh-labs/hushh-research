@@ -13,9 +13,8 @@ const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const appOrigin = new URL(process.env.REVIEWER_APP_ORIGIN || "https://uat.one.hussh.ai").origin;
 const ticker = "MSFT";
 const stockPrompt = `Analyze ${ticker} in this chat. Show the stock analysis preview so I can confirm it.`;
-const followUp = "What conclusion did the selected analysis reach? Use only that analysis.";
 const portfolioPrompt = "Show my portfolio allocation in this chat.";
-const intendedPrompts = [stockPrompt, followUp, portfolioPrompt];
+const intendedPrompts = [stockPrompt, portfolioPrompt];
 const timeoutMs = 420_000;
 let submittedPrompts = 0;
 let starts = 0;
@@ -42,7 +41,6 @@ try {
         const body = request.postDataJSON();
         const prompt = body.messages?.filter((message) => message.role === "user").at(-1)?.content;
         if (submittedPrompts >= intendedPrompts.length || prompt !== intendedPrompts[submittedPrompts]) return false;
-        if (prompt === followUp && body.forwardedProps?.financeAnalysisResult?.ticker !== ticker) return false;
         submittedPrompts += 1;
         return true;
       }
@@ -80,7 +78,7 @@ try {
   await newChat.click();
   await send(stockPrompt);
   await page.getByText(`${ticker} stock analysis`, { exact: true }).click();
-  const confirm = page.getByRole("button", { name: "Confirm and start debate", exact: true });
+  const confirm = page.getByRole("button", { name: "Start debate", exact: true });
   await confirm.waitFor({ state: "visible" });
   requireCondition(starts === 0, "The debate started without confirmation.");
 
@@ -100,23 +98,32 @@ try {
   }
   const replayBefore = reattachCount;
   await card.getByRole("button", { name: "Reconnect", exact: true }).click();
-  await card.getByText("Analysis complete.", { exact: true }).waitFor({ timeout: timeoutMs });
+  const openAnalysis = card.getByRole("button", { name: "Open analysis", exact: true });
+  await openAnalysis.waitFor({ timeout: timeoutMs });
   requireCondition(reattachCount > replayBefore && starts === 1, "Reconnect must reattach without starting another debate.");
   await card.getByText("Saved to Finance history.", { exact: true }).waitFor({ timeout: timeoutMs });
   await reviewer.assertVaultContinuity(page, "Finance debate");
 
-  phase = "grounded follow-up";
-  await card.getByRole("button", { name: "Ask One about this analysis", exact: true }).click();
-  await send(followUp);
-  requireCondition(submittedPrompts === 2, "The selected result did not reach the follow-up request.");
+  phase = "read-only analysis details";
+  const chatUrl = page.url();
+  requireCondition(await card.getByText("What to consider", { exact: true }).count() === 0, "The chat card should contain only the analysis overview.");
+  await openAnalysis.click();
+  const details = page.getByRole("dialog", { name: `${ticker} analysis`, exact: true });
+  await details.getByText("Full debate and research", { exact: true }).waitFor();
+  await details.getByText("Detailed record and sources", { exact: true }).waitFor();
+  requireCondition(page.url() === chatUrl && submittedPrompts === 1 && starts === 1, "Opening analysis must stay in chat and reuse the completed debate.");
+  await page.keyboard.press("Escape");
+  await details.waitFor({ state: "hidden" });
+  await openAnalysis.waitFor({ state: "visible" });
+  requireCondition(page.url() === chatUrl, "Closing analysis must return to the same chat.");
 
   phase = "portfolio";
   await send(portfolioPrompt);
   await page.locator('[data-message-role="assistant"]').last().getByText("Allocation", { exact: true }).waitFor();
   requireCondition(new URL(page.url()).pathname === "/", "Finance unexpectedly navigated away from chat.");
   await reviewer.assertVaultContinuity(page, "Finance portfolio");
-  requireCondition(submittedPrompts === 3 && starts === 1, "Unexpected Finance mutation count.");
-  console.log("PASS Finance preview, confirmed debate, live progress, reconnect, save, grounded follow-up, portfolio card, and vault continuity.");
+  requireCondition(submittedPrompts === 2 && starts === 1, "Unexpected Finance mutation count.");
+  console.log("PASS Finance preview, confirmed debate, live progress, reconnect, save, analysis detail panel, portfolio card, and vault continuity.");
 } catch {
   // Playwright errors can include DOM or request details. Only emit the step.
   console.error(`FAIL Finance reviewer rehearsal at ${phase}.`);

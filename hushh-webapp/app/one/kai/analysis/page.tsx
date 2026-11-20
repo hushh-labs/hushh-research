@@ -8,21 +8,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
-import {
-  APP_MEASURE_STYLES,
-  AppPageContentRegion,
-} from "@/components/app-ui/app-page-shell";
+import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-ui/surfaces";
-import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
+import { DebateStreamView } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { AnalysisHistoryDashboard } from "@/components/kai/views/analysis-history-dashboard";
 import { KaiStocksView } from "@/components/kai/views/kai-stocks-view";
 import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-context";
 import { KaiAnalysisPreviewView } from "@/components/kai/views/kai-analysis-preview-view";
 import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-view";
+import { HistoryDebateReplay } from "@/components/kai/views/history-debate-replay";
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
@@ -42,7 +40,6 @@ import { trackEvent } from "@/lib/observability/client";
 import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
-import { RoundTabsCard } from "@/components/kai/views/round-tabs-card";
 import {
   DebateRunManagerService,
   type DebateRunTask,
@@ -96,48 +93,6 @@ function extractDebateId(entry: AnalysisHistoryEntry | null): string | null {
     return streamId.trim();
   }
   return null;
-}
-
-function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
-  const [collapsedRounds, setCollapsedRounds] = useState<Record<number, boolean>>({
-    1: true,
-    2: false,
-  });
-
-  if (!entry.debate_transcript) {
-    return (
-      <div
-        className="mx-auto w-full rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground"
-        style={APP_MEASURE_STYLES.reading}
-      >
-        Debate transcript unavailable for this run.
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
-      <RoundTabsCard
-        roundNumber={1}
-        title="Initial Deep Analysis"
-        description="Agents analyzed source information independently."
-        isCollapsed={collapsedRounds[1] ?? true}
-        onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
-        agentStates={entry.debate_transcript.round1 as Record<string, AgentState>}
-      />
-      {entry.debate_transcript.round2 &&
-      Object.keys(entry.debate_transcript.round2).length > 0 ? (
-        <RoundTabsCard
-          roundNumber={2}
-          title="Strategic Debate"
-          description="Agents challenged and refined positions."
-          isCollapsed={collapsedRounds[2] ?? false}
-          onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
-          agentStates={entry.debate_transcript.round2 as Record<string, AgentState>}
-        />
-      ) : null}
-    </div>
-  );
 }
 
 export function KaiAnalysisPageContent() {

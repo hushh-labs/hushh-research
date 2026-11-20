@@ -195,7 +195,6 @@ export function isInformativeActivityEvent(
 
 export type AgentTurnStreamPanelProps = {
   allowFinancePreviewStart?: boolean;
-  onSelectFinanceResult?: (runId: string) => void;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   streamEvents: AgentVisibleStreamEvent[];
   responseText: string;
@@ -377,7 +376,6 @@ export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
 
 export function AgentTurnStreamPanel({
   allowFinancePreviewStart,
-  onSelectFinanceResult,
   onConfirmFinanceAnalysis,
   streamEvents,
   responseText,
@@ -499,7 +497,6 @@ export function AgentTurnStreamPanel({
                 key={id}
                 experience={experience}
                 allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
-                onSelectFinanceResult={onSelectFinanceResult}
                 onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}
                 onInformationRequestSubmitted={onInformationRequestSubmitted
