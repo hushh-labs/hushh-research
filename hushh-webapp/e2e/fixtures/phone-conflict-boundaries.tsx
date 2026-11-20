@@ -15,7 +15,9 @@ type FixtureUser = {
 };
 type Auth = { name: string; app: { name: string; options: Record<string, unknown> }; currentUser: FixtureUser | null; settings: Record<string, unknown> };
 const listeners = new Set<(user: FixtureUser | null) => void>();
-const apps: { name: string; options: Record<string, unknown> }[] = [];
+const apps: { name: string; options: Record<string, unknown> }[] = [
+  { name: "[DEFAULT]", options: { apiKey: "synthetic-only", projectId: "synthetic-auth" } },
+];
 const stores = new Map<string, Auth>();
 let selected = "previous";
 
@@ -36,7 +38,10 @@ function user(value: { uid: string; provider: string; phone: string | null }): F
     providerData: [{ providerId: value.provider }],
     getIdToken: async () => (await sdk("token", { uid: value.uid })).token,
     getIdTokenResult: async () => ({ signInProvider: value.provider }),
-    reload: async () => undefined };
+    reload: async function () {
+      const latest = await sdk("state");
+      if (latest.user?.uid === this.uid) this.phoneNumber = latest.user.phone;
+    } };
 }
 export function initializeApp(options: Record<string, unknown>, name = "[DEFAULT]") {
   const app = { name, options }; apps.push(app); return app;
@@ -94,8 +99,8 @@ export class PhoneAuthProvider {
   async verifyPhoneNumber(phone: string, _verifier?: unknown) { return (await sdk("send", { phone })).verificationId; }
   static credential(verificationId: string, verificationCode: string) { return { verificationId, verificationCode }; }
 }
-export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string }) {
-  const result = await sdk("verify", credential);
+export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string } | { toJSON: () => object }) {
+  const result = await sdk("verify", "toJSON" in credential ? credential.toJSON() : credential);
   const value = { ...user(result.user), getIdToken: async () => result.token };
   publish(auth, value); return { user: value };
 }

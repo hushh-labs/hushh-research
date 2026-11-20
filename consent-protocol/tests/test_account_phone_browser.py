@@ -44,7 +44,9 @@ class RecordedFirebase:
         self.claims: dict[str, dict] = {}
         self.auth_times = {uid: int(time.time()) for uid in OWNERS.values()}
         self.challenges: dict[str, dict] = {}
+        self.proofs: dict[str, int] = {}
         self.phone = PHONE
+        self.phone_holder = "previous"
         self.unlink_count = 0
         self.sends = 0
 
@@ -52,7 +54,7 @@ class RecordedFirebase:
         return {
             "uid": OWNERS[name],
             "provider": self.provider,
-            "phone": self.phone if name == "previous" else None,
+            "phone": self.phone if name == self.phone_holder else None,
         }
 
     def token(self, uid: str, *, phone: bool = False, stamp: int | None = None):
@@ -87,7 +89,9 @@ class RecordedFirebase:
             raise ValueError("unknown fixture identity")
         return SimpleNamespace(
             uid=uid,
-            phone_number=self.phone if uid == OWNERS["previous"] else None,
+            phone_number=self.phone
+            if self.phone_holder and uid == OWNERS[self.phone_holder]
+            else None,
             email=f"{uid}@example.test",
             email_verified=True,
             display_name="Synthetic account",
@@ -136,7 +140,41 @@ class RecordedFirebase:
                 self.challenges[challenge] = {"created": int(time.time()), "spent": False}
                 self.sends += 1
                 return {"verificationId": challenge}
+            if operation == "link":
+                challenge = self.challenges.get(body.get("sessionInfo"))
+                if body.get("idToken") not in self.claims:
+                    return Response(
+                        json.dumps({"error": {"message": "INVALID_ID_TOKEN"}}),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                if not challenge or challenge["spent"] or body.get("code") != "123456":
+                    return Response(
+                        json.dumps({"error": {"message": "INVALID_CODE"}}),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                challenge["spent"] = True
+                if self.phone_holder is None:
+                    self.phone_holder = self.active
+                    return {
+                        "localId": OWNERS[self.active],
+                        "phoneNumber": PHONE,
+                        "isNewUser": False,
+                    }
+                proof = str(uuid4())
+                self.proofs[proof] = challenge["created"]
+                return {"temporaryProof": proof, "phoneNumber": PHONE, "isNewUser": False}
             if operation == "verify":
+                proof = body.get("temporaryProof")
+                if proof:
+                    stamp = self.proofs.pop(proof, None)
+                    if stamp is None or body.get("phoneNumber") != PHONE:
+                        raise HTTPException(400)
+                    return {
+                        "user": {**self.describe("previous"), "provider": "phone"},
+                        "token": self.token(OWNERS["previous"], phone=True, stamp=stamp),
+                    }
                 challenge = self.challenges.get(body.get("verificationId"))
                 if not challenge or challenge["spent"] or body.get("verificationCode") != "123456":
                     return Response(
@@ -314,8 +352,10 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
             "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "delete" else "true"
         )
         recorded.phone = PHONE
+        recorded.phone_holder = "previous"
         recorded.claims.clear()
         recorded.challenges.clear()
+        recorded.proofs.clear()
         recorded.unlink_count = 0
         recorded.sends = 0
         return {"ready": True}
@@ -325,7 +365,10 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         if scenario not in {"delete", "delete_linked"}:
             raise HTTPException(404)
         # Controlled scheduler delivery; canonical lease, journal and SQL writer.
-        return {"settled": await worker.drain(limit=1)}
+        settled = await worker.drain(limit=1)
+        if scenario == "delete_linked" and settled:
+            recorded.phone_holder = None
+        return {"settled": settled}
 
     @app.post("/__phone_fixture/assert/{scenario}")
     async def assert_persisted(scenario: str):
