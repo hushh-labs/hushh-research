@@ -5364,6 +5364,7 @@ function ShareFlow({
         <div className={SHARE_CONFIRM_ACTIONS_CLASSNAME}>
           <FlowActionGroup
             stacked
+            separateSecondary={false}
             primary={
               <Button
                 // Unchanged for every share that takes nothing away. When one
