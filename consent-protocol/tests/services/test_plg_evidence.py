@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth_read_only
 from api.routes.one import plg
+from hushh_mcp import runtime_settings
 from hushh_mcp.hushh_adk import product_activity as sdk
 from hushh_mcp.services import marketing_preferences
 from hushh_mcp.services import plg_audience as audience
@@ -33,6 +35,20 @@ PLAN = "pkm_plan_abcdefghijkl"
 COMMIT = derive_pkm_mutation_commit_id(
     user_id=ACCOUNT["accountId"], domain="home_projects", plan_id=PLAN
 )
+
+
+def test_retained_uat_fields_do_not_activate_main_legacy_runtime(monkeypatch):
+    keys = (
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_attempt_email_enabled",
+    )
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in keys:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(dict.fromkeys(keys, True)))
+    runtime_settings.hydrate_runtime_environment()
+    assert all(key.upper() not in os.environ for key in keys)
 
 
 @pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
