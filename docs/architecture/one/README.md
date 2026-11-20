@@ -2,6 +2,8 @@
 
 [Architecture](../README.md)
 
+People communication: [disabled People calling implementation](./people-calling.md).
+
 ## Visual Map
 
 ```mermaid
