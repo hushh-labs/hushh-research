@@ -38,6 +38,28 @@ def _screen_state(tool_context: ToolContext) -> dict[str, Any]:
 
 async def _admit_connector_owner(tool_context: ToolContext, provider: str) -> str | None:
     if pod_mode():
+        if provider in {"plaid", "stripe", "custom"}:
+            from hushh_mcp.one_adk.request_secrets import _PREFIX as REQUEST_SECRET_PREFIX
+            from hushh_mcp.services.pod_owner_cloud import pod_owner_user_id
+            from hushh_mcp.services.pod_session_authority import LOCAL_TOKEN_PREFIX
+
+            state = getattr(tool_context, "state", None)
+            if state is None or state.get(STATE_EXECUTION_SURFACE) != "typed_chat":
+                return None
+            owner = str(state.get("hussh:user_id") or "").strip()
+            expected = pod_owner_user_id()
+            if not owner or getattr(tool_context, "user_id", None) != owner:
+                return None
+            if expected and owner != expected:
+                return None
+            reference = str(state.get("hussh:consent_token") or "")
+            if not reference.startswith(REQUEST_SECRET_PREFIX):
+                return None
+            try:
+                token = str(resolve_request_secret(reference) or "")
+            except Exception:  # noqa: BLE001
+                return None
+            return owner if token.startswith(LOCAL_TOKEN_PREFIX) else None
         return await pod_tool_owner(tool_context, provider)
     state = getattr(tool_context, "state", None)
     if (
@@ -101,10 +123,14 @@ async def manage_connector(
 ) -> dict[str, Any]:
     """Open or inspect an inline connector setup card inside Chat.
 
-    Use when the person asks to connect, add an account to, refresh, or check
-    the setup status of Plaid (`plaid`: bank, checking, savings, card,
-    investment, loan), Stripe (`stripe`: seller payouts), Google Workspace
-    (`drive`, `gmail`, `calendar`), or private MCP connectors (`custom`).
+    For Plaid (`plaid`): call `manage_connector` ONLY when no bank is connected
+    yet or the owner explicitly asks to link/add another bank (`operation="connect"`
+    or `"add_account"`). When Plaid is already connected and the owner asks to
+    fetch, refresh, sync, or inspect balances/accounts/holdings/loans/bills, call
+    `sync_plaid_connector` or `read_plaid_mirror` directly so the browser runs the
+    sync or read in this same turn instead of pausing on a setup card.
+    Also handles Stripe (`stripe`: seller payouts), Google Workspace (`drive`,
+    `gmail`, `calendar`), and private MCP connectors (`custom`).
     """
     normalized_provider = str(provider or "").strip().lower()
     normalized_op = str(operation or "connect").strip().lower()

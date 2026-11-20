@@ -1093,22 +1093,33 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         else ""
     )
     if callable(state_getter):
+        from hushh_mcp.one_adk.plaid_connector_tools import (
+            STATE_PLAID_CLIENT_READY,
+            STATE_PLAID_POSTURE,
+            plaid_posture_instruction,
+        )
         from hushh_mcp.one_adk.wiki_recall_tools import (
             STATE_WIKI_CLIENT_READY,
             STATE_WIKI_HOT_DIGEST,
+            pod_files_wiki_enabled,
             wiki_recall_instruction,
         )
 
         wiki_tools_enabled = bool(
             state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
-            and (
-                (pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"})
-                or state_getter(STATE_WIKI_CLIENT_READY) is True
-            )
+            and (pod_files_wiki_enabled() or state_getter(STATE_WIKI_CLIENT_READY) is True)
         )
         memory_instruction += wiki_recall_instruction(
             state_getter(STATE_WIKI_HOT_DIGEST),
             tools_available=wiki_tools_enabled,
+        )
+        plaid_tools_enabled = bool(
+            state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and state_getter(STATE_PLAID_CLIENT_READY) is True
+        )
+        memory_instruction += plaid_posture_instruction(
+            state_getter(STATE_PLAID_POSTURE),
+            tools_available=plaid_tools_enabled,
         )
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
@@ -1237,6 +1248,15 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
             "urgent phrasing -- call list_app_actions with their own words first, "
             "every time, rather than guessing from a label that only partly fits. "
             "Do not call open_screen or google_search instead of a matching current control."
+            + (
+                " Exception in typed chat: when a dedicated connector, personal-wiki, receipt, "
+                "consent-sharing, or memory tool (or CONNECTED PLAID FINANCIAL POSTURE / "
+                "CONSENTED TURN INFORMATION) directly answers or executes the request, call "
+                "that dedicated tool or answer directly in one pass without calling "
+                "list_app_actions first."
+                if callable(state_getter) and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+                else ""
+            )
         )
 
     layer_instruction = ""
@@ -2806,14 +2826,13 @@ def _one_roster_tools(
     if allow_receipt_tools:
         from ag_ui_adk import AGUIToolset
 
+        from hushh_mcp.one_adk.plaid_connector_tools import PLAID_TOOL_NAMES
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
-        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
+        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
 
-        client_tool_names = (
-            set(RECEIPT_TOOL_NAMES)
-            if pod_mode()
-            else (set(RECEIPT_TOOL_NAMES) | set(WIKI_TOOL_NAMES))
-        )
+        client_tool_names = set(RECEIPT_TOOL_NAMES) | set(PLAID_TOOL_NAMES)
+        if not pod_files_wiki_enabled():
+            client_tool_names |= set(WIKI_TOOL_NAMES)
         tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
     return tools
 
@@ -2853,14 +2872,17 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     boundary = before_external_read_tool(tool, args, tool_context)
     if boundary:
         return boundary
+    from hushh_mcp.one_adk.plaid_connector_tools import before_plaid_connector_tool
     from hushh_mcp.one_adk.receipt_client_tools import before_receipt_tool
+    from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool, pod_files_wiki_enabled
 
     receipt_guard = before_receipt_tool(tool, args, tool_context)
     if receipt_guard:
         return receipt_guard
-    if not pod_mode():
-        from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool
-
+    plaid_guard = before_plaid_connector_tool(tool, args, tool_context)
+    if plaid_guard:
+        return plaid_guard
+    if not pod_files_wiki_enabled():
         return before_wiki_recall_tool(tool, args, tool_context)
     return None
 
@@ -2915,6 +2937,7 @@ def build_one_text_agent(
     google_search_model = search_model_for_text_head(text_model, google_search_model)
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
+    from hushh_mcp.one_adk.plaid_connector_tools import plaid_after_model, plaid_before_model
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
     from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
     from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
@@ -2961,6 +2984,7 @@ def build_one_text_agent(
             finance_before_model,
             receipt_before_model,
             wiki_before_model,
+            plaid_before_model,
             document_period_before_model,
             scope_leaf_tools_before_model,
             timed_one_before_model,
@@ -2973,6 +2997,7 @@ def build_one_text_agent(
             timed_one_after_model,
             receipt_after_model,
             wiki_after_model,
+            plaid_after_model,
             chat_memory_after_model,
         ],
         # Preserve the configured Chat thinking level for measured comparison.

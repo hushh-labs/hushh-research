@@ -2,7 +2,9 @@ import { PodNotReachedError, PodSendUnconfirmedError, isAgentStillWaking, notRea
 import { legacyReceiptResult } from "@/lib/mail/receipt-availability";
 import {
   admittedPodActionIds,
+  clientWikiRecallVersion,
   hasPodReceiptTools,
+  plaidConnectorToolVersion,
   projectPodActionTools,
   projectPodReceiptTools,
   receiptToolVersion,
@@ -62,7 +64,13 @@ function legacyReceiptResults(request: RequestInit): RequestInit {
  */
 const receiptCapabilities = new WeakMap<
   object,
-  { version: 0 | 1; admittedActions: ReadonlySet<string> | null; checkedAt: number }
+  {
+    version: 0 | 1;
+    plaidVersion: 0 | 1;
+    clientWikiVersion: 0 | 1;
+    admittedActions: ReadonlySet<string> | null;
+    checkedAt: number;
+  }
 >();
 
 export async function sendChatTurn(
@@ -78,6 +86,8 @@ export async function sendChatTurn(
   const cached = session ? receiptCapabilities.get(session) : undefined;
   const freshCache = cached && now - cached.checkedAt <= AGENT_AWAKE_MS ? cached : undefined;
   let version = freshCache?.version;
+  let plaidVersion: 0 | 1 = freshCache?.plaidVersion ?? 0;
+  let clientWikiVersion: 0 | 1 = freshCache?.clientWikiVersion ?? 0;
   let admittedActions = freshCache?.admittedActions ?? null;
   const recentlyAdmitted =
     typeof directVerifiedAt === "number" &&
@@ -136,9 +146,17 @@ export async function sendChatTurn(
       }
       const payload = await probe.json().catch(() => null);
       version = receiptToolVersion(payload);
+      plaidVersion = plaidConnectorToolVersion(payload);
+      clientWikiVersion = clientWikiRecallVersion(payload);
       admittedActions = admittedPodActionIds(payload);
       if (session) {
-        receiptCapabilities.set(session, { version, admittedActions, checkedAt: Date.now() });
+        receiptCapabilities.set(session, {
+          version,
+          plaidVersion,
+          clientWikiVersion,
+          admittedActions,
+          checkedAt: Date.now(),
+        });
       }
     } else {
       void probe.body?.cancel().catch(() => undefined);
@@ -153,7 +171,10 @@ export async function sendChatTurn(
     request = projectPodReceiptTools(request, version);
     if (version === 1) request = legacyReceiptResults(request);
   }
-  request = projectPodActionTools(request, admittedActions);
+  request = projectPodActionTools(request, admittedActions, {
+    plaidVersion,
+    clientWikiVersion,
+  });
   try {
     const response = await fetch(`${url}/api/one/pod/agent-chat`, request);
     // A gateway can time out after the pod accepted the turn. Only the earlier

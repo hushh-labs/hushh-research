@@ -1,10 +1,12 @@
 /** Negotiate new client tools without breaking an owner's older installed pod. */
 import { WIKI_TOOL_NAMES } from "@/lib/files/wiki/recall-client-tools";
+import { PLAID_TOOL_NAMES } from "@/lib/kai/plaid-vault/plaid-chat-client-contract";
 import { RECEIPT_TOOL_DECLARATIONS, RECEIPT_FUNCTIONS } from "@/lib/mail/receipt-analysis";
 import { canonicalJson } from "./owner-pod-crypto";
 
 const receiptNames = new Set<string>(RECEIPT_FUNCTIONS);
 const clientOnlySharedWikiNames = new Set<string>(WIKI_TOOL_NAMES);
+const plaidToolNames = new Set<string>(PLAID_TOOL_NAMES);
 type Item = Record<string, unknown>;
 const record = (value: unknown): Item =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Item) : {};
@@ -64,6 +66,26 @@ export function admittedPodActionIds(value: unknown): ReadonlySet<string> | null
   return new Set(raw);
 }
 
+export function plaidConnectorToolVersion(value: unknown): 0 | 1 {
+  const capabilities = record(value);
+  if (!Object.hasOwn(capabilities, "plaidConnectorToolVersion")) return 0;
+  if (capabilities.plaidConnectorToolVersion === 0) return 0;
+  if (capabilities.plaidConnectorToolVersion !== 1) {
+    throw new Error("POD_CHAT_CAPABILITIES_INVALID");
+  }
+  return 1;
+}
+
+export function clientWikiRecallVersion(value: unknown): 0 | 1 {
+  const capabilities = record(value);
+  if (!Object.hasOwn(capabilities, "clientWikiRecallVersion")) return 0;
+  if (capabilities.clientWikiRecallVersion === 0) return 0;
+  if (capabilities.clientWikiRecallVersion !== 1) {
+    throw new Error("POD_CHAT_CAPABILITIES_INVALID");
+  }
+  return 1;
+}
+
 function decodeActionToolId(name: string): string | null {
   if (!name.startsWith("hussh_action_")) return null;
   const encoded = name.slice("hussh_action_".length);
@@ -80,40 +102,58 @@ function decodeActionToolId(name: string): string | null {
 }
 
 /**
- * Private pods mount `PodWikiRecallToolset` server-side and refuse client-side
- * Shared-wiki tool declarations (`AGENT_TOOL_NOT_ADMITTED`), as well as any
- * newer `hussh_action_*` entry not yet in the installed pod's action gateway.
+ * Negotiate client-side Shared-wiki recall tools, Plaid connector client tools,
+ * and newer `hussh_action_*` entries against the installed pod's capabilities.
  */
 export function projectPodActionTools(
   request: RequestInit,
   admittedActionIds: ReadonlySet<string> | null | undefined,
+  options?: { plaidVersion?: 0 | 1; clientWikiVersion?: 0 | 1 },
 ): RequestInit {
   if (typeof request.body !== "string") return request;
+  const allowPlaid = options?.plaidVersion === 1;
+  const allowClientWiki = options?.clientWikiVersion === 1;
   const turn = record(JSON.parse(request.body));
   const forwarded = record(turn.forwardedProps);
-  const hasSharedWikiProps =
-    Object.hasOwn(forwarded, "wikiClientReady") ||
-    Object.hasOwn(forwarded, "wikiHotDigest");
+  const stripSharedWikiProps =
+    !allowClientWiki &&
+    (Object.hasOwn(forwarded, "wikiClientReady") ||
+      Object.hasOwn(forwarded, "wikiHotDigest") ||
+      Object.hasOwn(forwarded, "wikiToolResults"));
+  const stripPlaidProps =
+    !allowPlaid &&
+    (Object.hasOwn(forwarded, "plaidClientReady") ||
+      Object.hasOwn(forwarded, "plaidPosture") ||
+      Object.hasOwn(forwarded, "plaidToolResults"));
   const tools = Array.isArray(turn.tools) ? turn.tools : null;
   const filtered = tools
     ? tools.filter((value: unknown) => {
         const tool = record(value);
         const name = String(tool.name ?? "");
-        if (clientOnlySharedWikiNames.has(name)) return false;
+        if (!allowClientWiki && clientOnlySharedWikiNames.has(name)) return false;
+        if (!allowPlaid && plaidToolNames.has(name)) return false;
         if (!admittedActionIds || !name.startsWith("hussh_action_")) return true;
         const actionId = decodeActionToolId(name);
         return actionId !== null && admittedActionIds.has(actionId);
       })
     : null;
   const toolsChanged = Boolean(tools && filtered && filtered.length !== tools.length);
-  if (!toolsChanged && !hasSharedWikiProps) return request;
+  if (!toolsChanged && !stripSharedWikiProps && !stripPlaidProps) return request;
   if (toolsChanged && filtered) {
     turn.tools = filtered;
   }
-  if (hasSharedWikiProps) {
+  if (stripSharedWikiProps || stripPlaidProps) {
     const nextForwarded = { ...forwarded };
-    delete nextForwarded.wikiClientReady;
-    delete nextForwarded.wikiHotDigest;
+    if (stripSharedWikiProps) {
+      delete nextForwarded.wikiClientReady;
+      delete nextForwarded.wikiHotDigest;
+      delete nextForwarded.wikiToolResults;
+    }
+    if (stripPlaidProps) {
+      delete nextForwarded.plaidClientReady;
+      delete nextForwarded.plaidPosture;
+      delete nextForwarded.plaidToolResults;
+    }
     turn.forwardedProps = nextForwarded;
   }
   return { ...request, body: JSON.stringify(turn) };

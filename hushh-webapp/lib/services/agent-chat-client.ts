@@ -1,4 +1,12 @@
-import { loadAgentTurnNws } from "@/lib/kai/plaid-vault/agent-turn-nws";
+import { loadAgentTurnFinancialProjection } from "@/lib/kai/plaid-vault/agent-turn-nws";
+import {
+  PLAID_TOOL_DECLARATIONS,
+  PLAID_TOOL_NAMES,
+  executePlaidConnectorClientTool,
+  normalizePlaidToolRequest,
+  type PlaidConnectorEnvelope,
+  type PlaidToolName,
+} from "@/lib/kai/plaid-vault/plaid-chat-client-tools";
 import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
@@ -598,6 +606,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Connectors",
     message: "Checking your connector setup.",
     activity: "Checking connector setup",
+  },
+  sync_plaid_connector: {
+    label: "Plaid",
+    message: "Synced live balances from your linked institutions.",
+    activity: "Syncing live Plaid balances",
+  },
+  read_plaid_mirror: {
+    label: "Plaid",
+    message: "Checked your connected financial accounts.",
+    activity: "Reading connected accounts",
   },
   probe_private_connector: {
     label: "Connectors",
@@ -1368,8 +1386,11 @@ async function streamAgentChatAttempt(input: {
   // Callers may have started their catalog read beside Soul preparation. For
   // other callers, overlap it with the derived key and optional location read.
   const initialConnectorProjection = connectorProjection();
-  const nwsProjection = input.pkmContext && !input.consentContinuation && !input.financeShare &&
-    !input.feedAttention && !recovered ? loadAgentTurnNws(input, mcpSessionCurrent) : Promise.resolve(null);
+  const financialProjection = input.vaultKey && input.vaultOwnerToken &&
+    (input.pkmContext || !input.specialistFocus || input.specialistFocus === "finance") &&
+    !input.consentContinuation && !input.financeShare && !input.feedAttention && !recovered
+    ? loadAgentTurnFinancialProjection(input, mcpSessionCurrent)
+    : Promise.resolve({ nwsReport: null, plaidPosture: "" });
   void initialConnectorProjection.catch(() => undefined);
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
@@ -1402,7 +1423,7 @@ async function streamAgentChatAttempt(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
-  const wikiEligible = Boolean(
+  const plaidEligible = Boolean(
     input.vaultKey &&
       input.vaultOwnerToken &&
       !input.consentContinuation &&
@@ -1410,6 +1431,10 @@ async function streamAgentChatAttempt(input: {
       !input.feedAttention &&
       !recovered,
   );
+  if (plaidEligible) {
+    tools.push(...(PLAID_TOOL_DECLARATIONS as unknown as Tool[]));
+  }
+  const wikiEligible = plaidEligible;
   const resolveTurnSharedWiki = async (): Promise<{
     wiki: SharedWikiLibrary | null;
     wikiHotDigest: string;
@@ -1683,6 +1708,16 @@ async function streamAgentChatAttempt(input: {
     }>
   >();
   const wikiArgs = new Map<string, string>();
+  const plaidCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: PlaidToolName;
+      request: Record<string, unknown>;
+      result: PlaidConnectorEnvelope;
+    }>
+  >();
+  const plaidArgs = new Map<string, string>();
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
@@ -1833,6 +1868,55 @@ async function streamAgentChatAttempt(input: {
       })),
     );
   };
+  const startPlaidCall = (
+    toolCallId: string,
+    operation: PlaidToolName,
+    args: unknown,
+  ) => {
+    if (plaidCalls.has(toolCallId)) return;
+    const buffered = plaidArgs.get(toolCallId);
+    plaidArgs.delete(toolCallId);
+    let parsedArgs: unknown = args;
+    if (buffered && buffered !== "!") {
+      try {
+        parsedArgs = JSON.parse(buffered);
+      } catch {
+        parsedArgs = args;
+      }
+    }
+    if (!receiptSessionCurrent() || plaidCalls.size >= 4 || buffered === "!") {
+      failure = new Error("Plaid connector request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    let request: Record<string, unknown>;
+    try {
+      request = normalizePlaidToolRequest(operation, parsedArgs);
+    } catch {
+      failure = new Error("Plaid connector request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    plaidCalls.set(
+      toolCallId,
+      executePlaidConnectorClientTool(operation, request, {
+        userId: input.userId,
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        isCurrent: receiptSessionCurrent,
+        signal: input.signal,
+      }).then((result) => ({
+        toolCallId,
+        toolName: operation,
+        request,
+        result,
+      })),
+    );
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
@@ -1852,6 +1936,10 @@ async function streamAgentChatAttempt(input: {
         }
         if (typeof id === "string" && WIKI_TOOL_NAMES.includes(name as WikiToolName)) {
           startWikiCall(id, name as WikiToolName, {});
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && PLAID_TOOL_NAMES.includes(name as PlaidToolName)) {
+          startPlaidCall(id, name as PlaidToolName, {});
           return { stopPropagation: true };
         }
       }
@@ -1908,6 +1996,7 @@ async function streamAgentChatAttempt(input: {
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
       if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
+      if (PLAID_TOOL_NAMES.includes(event.toolCallName as PlaidToolName)) plaidArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
@@ -1921,6 +2010,12 @@ async function streamAgentChatAttempt(input: {
       if (wikiBuffered !== undefined) {
         const next = wikiBuffered + (event.delta ?? "");
         wikiArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const plaidBuffered = plaidArgs.get(event.toolCallId);
+      if (plaidBuffered !== undefined) {
+        const next = plaidBuffered + (event.delta ?? "");
+        plaidArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
         return;
       }
       const buffered = confirmationArgs.get(event.toolCallId);
@@ -1937,6 +2032,10 @@ async function streamAgentChatAttempt(input: {
       }
       if (WIKI_TOOL_NAMES.includes(toolCallName as WikiToolName)) {
         startWikiCall(event.toolCallId, toolCallName as WikiToolName, toolCallArgs);
+        return;
+      }
+      if (PLAID_TOOL_NAMES.includes(toolCallName as PlaidToolName)) {
+        startPlaidCall(event.toolCallId, toolCallName as PlaidToolName, toolCallArgs);
         return;
       }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
@@ -2005,6 +2104,16 @@ async function streamAgentChatAttempt(input: {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
         payload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (PLAID_TOOL_NAMES.includes(toolName as PlaidToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message =
+          toolName === "sync_plaid_connector"
+            ? "Live Plaid balances synced for this turn."
+            : "Connected financial accounts checked for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2208,39 +2317,6 @@ async function streamAgentChatAttempt(input: {
           (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
           undefined;
         handlers.onStructuredExperience?.(experience, eventId);
-      } else if (!sawConnectorSetupCard) {
-        // Pre-upgrade Pod bridge: deployed Pods whose image predates manage_connector
-        // inspect app actions and return route.profile_net_worth_score / route.profile_payouts
-        // instead of rendering an inline Chat setup card. Upgrade it in-place here.
-        const rawText = typeof event.content === "string"
-          ? event.content
-          : JSON.stringify(event.content ?? "");
-        const promptText = input.message || "";
-        const isPlaidIntent =
-          parked?.actionId === "route.profile_net_worth_score" ||
-          (toolName === "list_app_actions" &&
-            rawText.includes("route.profile_net_worth_score") &&
-            /\b(connect|link|add|sync|refresh|plaid|bank|checking|savings|investment|credit|card|loan)\b/i.test(promptText));
-        const isStripeIntent =
-          parked?.actionId === "route.profile_payouts" ||
-          (toolName === "list_app_actions" &&
-            rawText.includes("route.profile_payouts") &&
-            /\b(stripe|payout|payouts|seller|earnings)\b/i.test(promptText));
-        const fallbackProvider = isPlaidIntent ? "plaid" : isStripeIntent ? "stripe" : null;
-        if (fallbackProvider) {
-          sawConnectorSetupCard = true;
-          const eventId = event.toolCallId.trim() ||
-            (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
-            undefined;
-          handlers.onStructuredExperience?.(
-            {
-              type: "one.workspace_connector_setup.v1",
-              provider: fallbackProvider,
-              status: "connect_required",
-            },
-            eventId,
-          );
-        }
       }
     },
     onActivitySnapshotEvent: ({ event }) => {
@@ -2339,7 +2415,7 @@ async function streamAgentChatAttempt(input: {
         finishTerminalRun();
         return;
       }
-      if (receiptCalls.size || wikiCalls.size) {
+      if (receiptCalls.size || wikiCalls.size || plaidCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
         finishTerminalRun();
@@ -2493,7 +2569,10 @@ async function streamAgentChatAttempt(input: {
   });
   const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
   try {
-    const [connectors, nwsReport] = await Promise.all([initialConnectorProjection, nwsProjection]);
+    const [connectors, { nwsReport, plaidPosture }] = await Promise.all([
+      initialConnectorProjection,
+      financialProjection,
+    ]);
     assertTurnSessionCurrent();
     await runUntilTerminal({
       tools,
@@ -2501,6 +2580,8 @@ async function streamAgentChatAttempt(input: {
       forwardedProps: {
         ...connectors,
         ...(nwsReport ? { nwsReport } : {}),
+        ...(plaidEligible ? { plaidClientReady: true } : {}),
+        ...(plaidPosture ? { plaidPosture } : {}),
         timezone,
         turnLocation,
         pkmContext: effectivePkmContext,
@@ -2587,7 +2668,83 @@ async function streamAgentChatAttempt(input: {
           communicationPreferences,
           ...(sharedWikiSession ? { wikiClientReady: true } : {}),
           ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          ...(plaidEligible ? { plaidClientReady: true } : {}),
+          ...(plaidPosture ? { plaidPosture } : {}),
           wikiToolResults,
+          emailDraftContract: 2,
+        },
+      });
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Ask again.");
+      }
+    }
+    for (
+      let plaidRound = 0;
+      plaidRound < 3 && plaidCalls.size && !failure && !detached && !input.signal?.aborted;
+      plaidRound += 1
+    ) {
+      const plaidToolResults = await Promise.all(plaidCalls.values());
+      plaidCalls.clear();
+      if (mcpReviews.size) {
+        throw new Error(
+          "Plaid connector sync must complete in its own authorized turn. Ask again.",
+        );
+      }
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+      for (const item of plaidToolResults) {
+        const donePayload = toolPayload(item.toolCallId, item.toolName);
+        donePayload.raw = { protocol: "ag-ui", toolName: item.toolName };
+        donePayload.message =
+          item.toolName === "sync_plaid_connector"
+            ? item.result.status === "connect_required"
+              ? "Plaid Link is ready."
+              : "Live Plaid balances synced."
+            : "Connected financial accounts checked.";
+        handlers.onToolResult?.(donePayload);
+        if (
+          !sawConnectorSetupCard &&
+          (item.toolName === "sync_plaid_connector" || item.result.status === "connect_required")
+        ) {
+          sawConnectorSetupCard = true;
+          handlers.onStructuredExperience?.(
+            {
+              type: "one.workspace_connector_setup.v1",
+              provider: "plaid",
+              status:
+                item.result.status === "connect_required"
+                  ? "connect_required"
+                  : "manage_available",
+            },
+            item.toolCallId,
+          );
+        }
+      }
+      agent.setMessages(
+        plaidToolResults.map((item) => ({
+          id: crypto.randomUUID(),
+          role: "tool" as const,
+          toolCallId: item.toolCallId,
+          content: JSON.stringify({
+            schema: "plaid_result.v1",
+            operation: item.toolName,
+            ephemeral_result: true,
+          }),
+        })),
+      );
+      await runUntilTerminal({
+        tools,
+        context: [],
+        forwardedProps: {
+          timezone,
+          screenContext: input.screenContext,
+          communicationPreferences,
+          ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+          ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          ...(plaidEligible ? { plaidClientReady: true } : {}),
+          ...(plaidPosture ? { plaidPosture } : {}),
+          plaidToolResults,
           emailDraftContract: 2,
         },
       });
