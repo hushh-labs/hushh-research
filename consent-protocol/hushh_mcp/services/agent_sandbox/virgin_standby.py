@@ -67,16 +67,27 @@ def _derive_public_descriptor(raw_priv: bytes) -> tuple[str, str]:
 
 def prewarm_runtime_imports() -> None:
     """Pre-import heavy SDK modules during warm-pool standby to cut activation latency."""
+    import anthropic  # noqa: F401,PLC0415
     import cryptography.hazmat.primitives.asymmetric.ed25519  # noqa: F401,PLC0415
     import fastapi  # noqa: F401,PLC0415
+    import google.adk  # noqa: F401,PLC0415
+    import google.adk.agents  # noqa: F401,PLC0415
+    import google.adk.apps  # noqa: F401,PLC0415
     import google.adk.models  # noqa: F401,PLC0415
+    import google.adk.runners  # noqa: F401,PLC0415
+    import google.adk.sessions.in_memory_session_service  # noqa: F401,PLC0415
     import google.genai  # noqa: F401,PLC0415
     import httpx  # noqa: F401,PLC0415
+    import openai  # noqa: F401,PLC0415
+    import pydantic  # noqa: F401,PLC0415
+    import requests  # noqa: F401,PLC0415
+    import starlette  # noqa: F401,PLC0415
     import uvicorn  # noqa: F401,PLC0415
     import websockets  # noqa: F401,PLC0415
 
-    # Warm one_adk/text runtime without importing pod_server before activation env vars arrive.
-    from hushh_mcp.one_adk import text_runtime  # noqa: F401,PLC0415
+    import api.middlewares.observability  # noqa: F401,PLC0415
+    import api.middlewares.pod_ingress  # noqa: F401,PLC0415
+    import api.routes.health  # noqa: F401,PLC0415
 
 
 def _default_asgi_launcher(bind_host: str, port: int) -> None:
@@ -172,8 +183,12 @@ class VirginStandbyRuntime:
                 self.wfile.write(body)
 
             def do_GET(self) -> None:  # noqa: N802
-                if self.path not in {"/healthz", "/readyz", "/"}:
+                if self.path not in {"/health", "/healthz", "/readyz", "/"}:
                     self._send_json(404, {"code": "NOT_FOUND"})
+                    return
+                if runtime.activated:
+                    # Wait until uvicorn takes over the port before reporting Ready.
+                    self._send_json(503, {"status": "activating_handoff"})
                     return
                 self._send_json(200, build_readiness_payload(uid=runtime._uid))
 
@@ -229,6 +244,7 @@ class VirginStandbyRuntime:
                     os.environ["HUSSH_POD_PRIVATE_KEY_FILE"] = str(key_file)
                     os.environ["HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD"] = "1"
                     os.environ.setdefault("HUSSH_POD_TURN_ENABLED", "true")
+                    os.environ.setdefault("HUSSH_POD_MIGRATION_ENABLED", "true")
                     os.environ.setdefault("POD_AGENT_MEMORY_ENABLED", "true")
                     os.environ.setdefault("POD_DIRECTIVE_TRANSPORT_ENABLED", "true")
                     os.environ.setdefault("HUSSH_POD_BROWSER_ENABLED", "true")
@@ -244,7 +260,7 @@ class VirginStandbyRuntime:
 
                     ensure_pod_sandbox_signing_key()
                     for opt_field, env_names in (
-                        ("pod_url", ("POD_URL",)),
+                        ("pod_url", ("POD_URL", "HUSSH_POD_TICK_AUDIENCE")),
                         ("hub_url", ("HUSSH_HUB_URL", "HUSSH_HUB_BASE_URL")),
                         (
                             "scheduler_caller_emails",
@@ -279,8 +295,15 @@ class VirginStandbyRuntime:
                         os.environ["POD_STORAGE_BACKEND"] = "commit_log"
                         os.environ["HUSSH_POD_CUSTODY_MODE"] = "hub_broker"
                         os.environ["POD_DURABLE_IDENTITY_ENABLED"] = "1"
+                        os.environ.setdefault("HUSSH_POD_METADATA_IDENTITY_DISABLED", "1")
+                        os.environ.setdefault("POD_HOST_KIND", "gcp_ace")
+                        os.environ.setdefault("POD_FILES_ENABLED", "true")
+                        os.environ.setdefault("HUSSH_POD_FILES_ENABLED", "true")
                     elif not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
                         os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
+                    if str(payload.get("sandbox_name") or "").strip():
+                        os.environ.setdefault("HUSSH_POD_METADATA_IDENTITY_DISABLED", "1")
+                        os.environ.setdefault("POD_HOST_KIND", "gcp_ace")
 
                     deploy_env = str(payload.get("deploy_env") or "").strip().lower()
                     if deploy_env in {"dev", "development", "uat"}:

@@ -12,10 +12,10 @@ executes the full 10-stage ``run_migration`` chain:
 5. Verify byte-identical ``source_head_sha == target_head_sha`` and ``record_count``
    without Hub plaintext decryption
 6. Atomically flip ``personal_agent_registry`` (`deployment_target="azure"`), archiving
-   prior coordinates into ``detachedPlacements`` with a 14-day non-destructive grace
+   prior coordinates into ``detachedPlacements`` with a 3-day non-destructive grace
    period and preserving monotonic device-binding & endpoint version floors
 7. Non-destructively release source handoff (retaining owner's resource group during
-   the 14-day grace window) and immediately promote ``external`` -> ``direct`` ingress.
+   the 3-day grace window) and immediately promote ``external`` -> ``direct`` ingress.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffClient
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SOURCE_GRACE_DAYS = 14
+_DEFAULT_SOURCE_GRACE_DAYS = 3
 
 
 def _now_iso() -> str:
@@ -470,7 +470,7 @@ class HostedAzureFreshFallbackSteps(LiveMigrationSteps):
     records intentionally refuse whole-log export (HTTP 400) so ciphertext is never
     re-sealed into an unreadable state. When ``allow_fresh_pod_log=True`` is explicitly
     requested, ONLY ``POD_REFUSED_400`` admits a fresh pod commit log while retaining the
-    untouched BYOC resource group under the 14-day grace period; network, auth, and 5xx
+    untouched BYOC resource group under the 3-day grace period; network, auth, and 5xx
     errors still fail closed before switch-over.
     """
 
@@ -738,11 +738,11 @@ async def execute_owner_migration_to_hosted_azure(
                     admission["migrationMode"] = mode
 
     def _non_destructive_source_grace() -> None:
-        # Preserve owner's personal BYOC Resource Group for the 14-day grace period;
+        # Preserve owner's personal BYOC Resource Group for the 3-day grace period;
         # release the old pod's drain safely so it can still be audited if needed.
         try:
             handoff.release(operation_id=op_id, incarnation=source_incarnation)
-        except Exception:  # noqa: BLE001 - source host is detached; 14-day grace governs cleanup
+        except Exception:  # noqa: BLE001 - source host is detached; 3-day grace governs cleanup
             logger.info("hosted_azure_migration.source_grace_retained")
 
     ctx = MigrationContext(

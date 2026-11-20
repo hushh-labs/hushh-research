@@ -76,6 +76,8 @@ def _clean_pod_env() -> Generator[None, None, None]:
         "CONSENT_ED25519_PUBLIC_KEYS",
         "OWNER_FEED_ED25519_PUBLIC_KEYS",
         "HUSSH_POD_TURN_ENABLED",
+        "HUSSH_POD_MIGRATION_ENABLED",
+        "HUSSH_POD_TICK_AUDIENCE",
         "POD_AGENT_MEMORY_ENABLED",
         "POD_DIRECTIVE_TRANSPORT_ENABLED",
         "HUSSH_POD_BROWSER_ENABLED",
@@ -83,6 +85,10 @@ def _clean_pod_env() -> Generator[None, None, None]:
         "GOOGLE_GENAI_USE_VERTEXAI",
         "ACE_SANDBOX_ID",
         "ENVIRONMENT",
+        "HUSSH_POD_METADATA_IDENTITY_DISABLED",
+        "POD_HOST_KIND",
+        "POD_FILES_ENABLED",
+        "HUSSH_POD_FILES_ENABLED",
     )
     saved = {k: os.environ.get(k) for k in tracked}
     reset_pod_keypair_cache_for_tests()
@@ -186,7 +192,6 @@ class _LocalStandbyClaimClient(SandboxClaimPort):
     ) -> ClaimedSandboxEndpoint:
         self.counter += 1
         sandbox_name = f"sbx-live-{self.counter}"
-        port = _free_port()
         holder: dict[str, Any] = {}
 
         def _launch_fake_pod(bind_host: str, target_port: int) -> None:
@@ -237,7 +242,7 @@ class _LocalStandbyClaimClient(SandboxClaimPort):
 
         runtime = VirginStandbyRuntime(
             bind_host="127.0.0.1",
-            port=port,
+            port=0,
             activation_guard=self.activation_guard,
             tmp_dir=self.tmp_dir,
             asgi_launcher=_launch_fake_pod,
@@ -284,7 +289,7 @@ async def test_edge_gateway_http_ws_continuity_internal_block_and_reaper(
         admin_header_value=admin_check,
         pod_url_base="https://edge.dev.example",
         claim_timeout_s=15.0,
-        health_poll_timeout_s=10.0,
+        health_poll_timeout_s=15.0,
         clock_s=lambda: now_clock["t"],
     )
     gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
@@ -457,7 +462,6 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         ) -> ClaimedSandboxEndpoint:
             self.counter += 1
             sandbox_name = f"sbx-stream-{self.counter}"
-            port = _free_port()
             holder: dict[str, Any] = {}
 
             def _launch_fake_pod(bind_host: str, target_port: int) -> None:
@@ -477,6 +481,8 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
                         "gw_url": os.environ.get("HUSSH_MODEL_GATEWAY_URL"),
                         "has_surrogate": bool(os.environ.get("HUSSH_MODEL_GATEWAY_TOKEN")),
                         "turn_enabled": os.environ.get("HUSSH_POD_TURN_ENABLED"),
+                        "migration_enabled": os.environ.get("HUSSH_POD_MIGRATION_ENABLED"),
+                        "tick_audience": os.environ.get("HUSSH_POD_TICK_AUDIENCE"),
                     }
 
                 @pod_app.post("/api/one/turn/stream")
@@ -496,7 +502,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
 
             runtime = VirginStandbyRuntime(
                 bind_host="127.0.0.1",
-                port=port,
+                port=0,
                 activation_guard=self.activation_guard,
                 tmp_dir=self.tmp_dir,
                 asgi_launcher=_launch_fake_pod,
@@ -530,7 +536,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         sentinel_vertex_location="global",
         enable_prefix_storage=True,
         claim_timeout_s=15.0,
-        health_poll_timeout_s=10.0,
+        health_poll_timeout_s=15.0,
     )
     gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
     gw_port = _free_port()
@@ -578,6 +584,8 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
             )
             assert body["has_surrogate"] is True
             assert body["turn_enabled"] == "true"
+            assert body["migration_enabled"] == "true"
+            assert body["tick_audience"] == "https://edge.dev.example/u/owner_cors"
             assert sentinel_runtime.lease_for_ip("127.0.0.1")[1] == "owner_cors"
 
             # 3. SSE streams cleanly
@@ -620,3 +628,67 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         for cname in list(claim_client.runtimes):
             claim_client.delete_claim(cname)
         sentinel_runtime.stop()
+
+
+def test_virgin_standby_prewarm_and_hub_broker_activation_envs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Standby prewarm must succeed without APP_SIGNING_KEY and set zero-metadata + Files envs."""
+    from hushh_mcp.services.agent_sandbox.virgin_standby import prewarm_runtime_imports
+
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    prewarm_runtime_imports()
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+    priv = X25519PrivateKey.generate()
+    priv_b64 = base64.b64encode(
+        priv.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+    ).decode("ascii")
+
+    launched: dict[str, Any] = {}
+
+    def _capture_launcher(host: str, port: int) -> None:
+        launched["host"] = host
+        launched["port"] = port
+        launched["metadata_disabled"] = os.environ.get("HUSSH_POD_METADATA_IDENTITY_DISABLED")
+        launched["files_enabled"] = os.environ.get("POD_FILES_ENABLED")
+        launched["host_kind"] = os.environ.get("POD_HOST_KIND")
+
+    runtime = VirginStandbyRuntime(
+        bind_host="127.0.0.1",
+        port=0,
+        tmp_dir=tmp_path,
+        asgi_launcher=_capture_launcher,
+        uid=10001,
+    )
+    runtime.start_background()
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            assert client.get(f"http://127.0.0.1:{runtime.port}/health").status_code == 200
+            assert client.get(f"http://127.0.0.1:{runtime.port}/healthz").status_code == 200
+            act = client.post(
+                f"http://127.0.0.1:{runtime.port}/internal/v1/activate-lease",
+                json={
+                    "hushh_id": "ha1_prewarm_check",
+                    "owner_id": "owner-prewarm",
+                    "lease_id": "lease_prewarm",
+                    "pod_private_key_b64": priv_b64,
+                    "sandbox_name": "sbx-prewarm",
+                    "pod_storage_prefix_token_url": (
+                        "https://dev.api.hussh.ai/api/one/pod/storage-gateway/pods/ha1_prewarm_check"
+                    ),
+                },
+            )
+            assert act.status_code == 200
+    finally:
+        runtime.stop()
+
+    assert launched.get("metadata_disabled") == "1"
+    assert launched.get("files_enabled") == "true"
+    assert launched.get("host_kind") == "gcp_ace"

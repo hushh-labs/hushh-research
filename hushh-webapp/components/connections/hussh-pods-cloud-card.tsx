@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
-import { ArrowRight, CheckIcon } from "@/components/icons";
+import { ArrowRight, CheckIcon, X } from "@/components/icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +43,9 @@ import {
   type HostedSourceRetirementItem,
 } from "@/lib/services/hosted-pod-migration";
 import { cn } from "@/lib/utils";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+
+export const SANDBOX_CUTOVER_PILL_STORAGE_KEY = "hussh:sandbox-cutover-pill";
 
 const MIGRATION_STEPS = [
   "Locking current pod",
@@ -131,16 +134,78 @@ export function HostedPodDualCloudMarks({ className }: { className?: string }) {
 }
 
 function formatSafetyWindowDate(iso: string | null | undefined): string {
-  if (!iso) return "14 days";
+  if (!iso) return "3 days";
   const parsed = Date.parse(iso);
-  if (!Number.isFinite(parsed)) return "14 days";
+  if (!Number.isFinite(parsed)) return "3 days";
   try {
     return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
       new Date(parsed),
     );
   } catch {
-    return "14 days";
+    return "3 days";
   }
+}
+
+export function SandboxCutoverStatusPill() {
+  const [notice, setNotice] = useState<{
+    backgroundCleanupQueued: boolean;
+    migrationMode?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+      setNotice({
+        backgroundCleanupQueued: parsed.backgroundCleanupQueued === true,
+        migrationMode:
+          typeof parsed.migrationMode === "string" ? parsed.migrationMode : undefined,
+      });
+    } catch {
+      // Ignore storage access errors in restricted webviews.
+    }
+  }, []);
+
+  if (!notice) return null;
+
+  const label = notice.backgroundCleanupQueued
+    ? "Personal Sandbox ready · Prior cloud cleanup running in background"
+    : "Personal Sandbox ready";
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--app-top-bar-height,3.5rem)+0.75rem)] z-40 flex justify-center px-4">
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="sandbox-cutover-ready-pill"
+        className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--app-accent-border)] bg-[color:var(--app-card-surface-default)]/95 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-md"
+      >
+        <span
+          aria-hidden="true"
+          className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--app-accent)]"
+        />
+        <span className="truncate">{label}</span>
+        <button
+          type="button"
+          aria-label="Dismiss notification"
+          data-testid="sandbox-cutover-pill-dismiss"
+          onClick={() => {
+            try {
+              window.sessionStorage.removeItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY);
+            } catch {
+              // Ignore storage access errors.
+            }
+            setNotice(null);
+          }}
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--app-text-secondary)] hover:bg-background hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function HusshPodsActiveCard({
@@ -164,7 +229,7 @@ export function HusshPodsActiveCard({
   const confirmBusyRef = useRef(false);
 
   const canInspectSourceRetirement =
-    provider === "azure" &&
+    (provider === "azure" || isPersonalSandbox) &&
     isHostedAzureMigrationAvailable() &&
     typeof ApiService.getHostedSourceRetirementStatus === "function";
 
@@ -218,7 +283,7 @@ export function HusshPodsActiveCard({
       });
       toastHandle = morphyToast.promiseText(request, {
         loading: "Saving confirmation…",
-        success: "Confirmed. Prior pod will retire after its 14-day window.",
+        success: "Confirmed. Prior pod will retire after its 3-day window.",
         error: (err) =>
           err instanceof Error && err.message
             ? err.message
@@ -293,7 +358,7 @@ export function HusshPodsActiveCard({
         </div>
         <p className="text-sm text-[var(--app-text-secondary)]">
           {provider === "azure"
-            ? "Your agent runs on Microsoft Azure in Hussh’s managed cell. Your prior cloud setup stays untouched during its 14-day safety window."
+            ? "Your agent runs on Microsoft Azure in Hussh’s managed cell. Your prior cloud setup stays untouched during its 3-day safety window."
             : provider === "gcp"
               ? "Your agent runs on Google Cloud in a dedicated pod managed by Hussh."
               : isPersonalSandbox
@@ -315,7 +380,7 @@ export function HusshPodsActiveCard({
                   data-testid="hussh-pods-retirement-complete"
                   className="text-xs text-[var(--app-text-secondary)]"
                 >
-                  14-day safety window complete ·{" "}
+                  3-day safety window complete ·{" "}
                   {activeGraceItem.ownerCloudCleanupReady
                     ? "Hussh access revoked; you may remove the old cloud resources anytime."
                     : "Prior pod retired."}
@@ -331,8 +396,10 @@ export function HusshPodsActiveCard({
               ) : (
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {activeGraceItem.graceExpired
-                    ? "14-day safety window complete · Confirm comfort on Azure to retire the prior pod."
-                    : `${activeGraceItem.daysRemaining}d left in 14-day safety window`}
+                    ? `3-day safety window complete · Confirm comfort on ${
+                        isPersonalSandbox ? "Personal Sandbox" : "Azure"
+                      } to retire the prior pod.`
+                    : `${activeGraceItem.daysRemaining}d left in 3-day safety window`}
                 </p>
               )}
             </div>
@@ -356,17 +423,19 @@ export function HusshPodsActiveCard({
         <AlertDialog open={confirmOpen} onOpenChange={(open) => !confirmBusy && setConfirmOpen(open)}>
           <AlertDialogContent size="default">
             <AlertDialogHeader>
-              <AlertDialogTitle>Confirm your new Azure pod?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {isPersonalSandbox ? "Confirm your Personal Sandbox?" : "Confirm your new Azure pod?"}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Your prior setup ({activeGraceItem.sourceLabel}) stays untouched until its 14-day
+                Your prior setup ({activeGraceItem.sourceLabel}) stays untouched until its 3-day
                 safety window ends on {formatSafetyWindowDate(activeGraceItem.graceReapAfter)}. After
                 that date, your confirmation allows automated retirement.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <p className="text-sm text-[var(--app-text-secondary)]">
               {activeGraceItem.sourceKind === "byoc"
-                ? "For your own cloud, Hussh only revokes its own observer access — never deleting your resource group or vault."
-                : "Your prior managed pod will be retired only after the 14-day window expires."}
+                ? "For your own cloud, Hussh only revokes its own observer access, never deleting your resource group or vault."
+                : "Your prior managed pod will be retired only after the 3-day window expires."}
             </p>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={confirmBusy}>Not yet</AlertDialogCancel>
@@ -470,6 +539,9 @@ export function HusshPodsMigrationCard({
       });
       await toastHandle.unwrap();
       if (isEffectCurrent()) {
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
         dispatchFeedStateChanged();
         onMigrated?.();
       }
@@ -563,7 +635,7 @@ export function HusshPodsMigrationCard({
 
         <p className="text-sm text-[var(--app-text-secondary)]">
           Move your dedicated agent to a pre-warmed Azure pod managed by Hussh. Your memory stays
-          intact, and your current cloud stays untouched for 14 days.
+          intact, and your current cloud stays untouched for 3 days.
         </p>
 
         {isJobRunning ? (
@@ -627,7 +699,7 @@ export function HusshPodsMigrationCard({
           </Button>
           {ownerCloudProvider(sourceTarget) === null ? null : (
             <span className="text-xs text-[var(--app-text-secondary)]">
-              14-day rollback window kept on your old cloud
+              3-day rollback window kept on your old cloud
             </span>
           )}
         </div>
@@ -655,7 +727,7 @@ export function HusshPodsMigrationCard({
           </div>
           <p className="text-sm text-[var(--app-text-secondary)]">
             Your vault and encrypted memory stay intact. Your previous cloud remains untouched for
-            14 days.
+            3 days.
           </p>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
@@ -675,12 +747,14 @@ export function HusshPodsMigrationCard({
 
 export function PooledSandboxSwitchCard({
   hasAssignedCloudPod,
+  isOwnerCloud = false,
   sourceCloudLabel,
   onSwitched,
   owningRoute,
   embedded = false,
 }: {
   hasAssignedCloudPod: boolean;
+  isOwnerCloud?: boolean;
   sourceCloudLabel?: string | null;
   onSwitched?: () => void;
   owningRoute: Parameters<typeof useBackLayer>[0];
@@ -689,16 +763,25 @@ export function PooledSandboxSwitchCard({
   const { user } = useAuth();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [progressStep, setProgressStep] = useState(0);
+  const [removePriorCloudResources, setRemovePriorCloudResources] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const busyRef = useRef(false);
 
   useBackLayer(owningRoute, busy ? 2 : 0, () => true);
 
+  const switchSteps = [
+    hasAssignedCloudPod ? "Locking prior pod" : "Preparing workspace",
+    "Waking Personal Sandbox",
+    "Syncing encrypted history",
+    "Opening live session",
+  ] as const;
+
   const title = hasAssignedCloudPod
     ? "Switch to Hussh Personal Sandbox"
     : "Start in Hussh Personal Sandbox";
   const body = hasAssignedCloudPod
-    ? "Move to an instant Hussh-managed Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI. Your encrypted Vault stays intact. Unsynced workspace state on your previous cloud pod stays there, and your cloud account is not modified."
+    ? "Switch to an instant Hussh-managed Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI. Encrypted conversations sync automatically when your previous pod is reachable (or start fresh automatically if it is offline), while your encrypted Vault stays intact."
     : "Skip custom cloud setup and start right away in an isolated Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI.";
   const buttonLabel = hasAssignedCloudPod
     ? busy
@@ -718,13 +801,24 @@ export function PooledSandboxSwitchCard({
 
     setConfirmOpen(false);
     setErrorMessage(null);
+    setProgressStep(0);
     busyRef.current = true;
     setBusy(true);
+
+    const progressTimer =
+      typeof window !== "undefined"
+        ? window.setInterval(() => {
+            setProgressStep((prev) => (prev < 2 ? prev + 1 : prev));
+          }, 450)
+        : null;
 
     let toastHandle: ReturnType<typeof morphyToast.promiseText> | undefined;
     try {
       const request = ApiService.adoptPooledSandbox({
         allowCleanSlate: true,
+        ...(isOwnerCloud && removePriorCloudResources
+          ? { removePriorCloudResources: true }
+          : {}),
         isEffectCurrent,
       });
       toastHandle = morphyToast.promiseText(request, {
@@ -738,16 +832,43 @@ export function PooledSandboxSwitchCard({
             : "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
         isCurrent: isEffectCurrent,
       });
-      await toastHandle.unwrap();
+      const adopted = (await toastHandle.unwrap()) as Awaited<typeof request> | undefined;
+      if (progressTimer !== null) {
+        window.clearInterval(progressTimer);
+      }
       if (isEffectCurrent()) {
+        setProgressStep(3);
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
         if (ownerId) {
           await PreVaultUserStateService.bootstrapState(ownerId, {
             force: true,
           }).catch(() => undefined);
         }
+        try {
+          window.sessionStorage.setItem(
+            SANDBOX_CUTOVER_PILL_STORAGE_KEY,
+            JSON.stringify({
+              backgroundCleanupQueued: Boolean(
+                adopted?.backgroundCleanupQueued ?? hasAssignedCloudPod,
+              ),
+              migrationMode: adopted?.migrationMode ?? "fresh_start",
+            }),
+          );
+        } catch {
+          // Ignore storage restrictions.
+        }
         if (isEffectCurrent()) {
           dispatchFeedStateChanged();
           onSwitched?.();
+          requestInternalAppNavigation({
+            href: ROUTES.HOME,
+            replace: false,
+            scroll: false,
+            source: "programmatic",
+            transitionMode: "full",
+          });
         }
       }
     } catch (err) {
@@ -759,6 +880,9 @@ export function PooledSandboxSwitchCard({
         );
       }
     } finally {
+      if (progressTimer !== null) {
+        window.clearInterval(progressTimer);
+      }
       if (!isEffectCurrent()) {
         const toastId = toastHandle?.valueOf();
         if (typeof toastId === "number" || typeof toastId === "string") {
@@ -803,6 +927,68 @@ export function PooledSandboxSwitchCard({
 
         <p className="text-sm text-[var(--app-text-secondary)]">{body}</p>
 
+        {busy ? (
+          <div
+            data-testid="pooled-sandbox-switch-progress"
+            aria-live="polite"
+            className="space-y-2.5 rounded-xl border border-[var(--app-border)] bg-background p-3"
+          >
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-semibold text-foreground">
+                {switchSteps[progressStep] ?? switchSteps[0]}…
+              </span>
+              <span className="tabular-nums text-[var(--app-text-secondary)]">
+                {Math.min(100, (progressStep + 1) * 25)}%
+              </span>
+            </div>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--app-card-surface-default)]"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.min(100, (progressStep + 1) * 25)}
+            >
+              <div
+                data-testid="pooled-sandbox-switch-progress-bar"
+                className="h-full w-full origin-left rounded-full bg-[color:var(--app-accent)] transition-transform duration-300"
+                style={{ transform: `scaleX(${Math.min(1, (progressStep + 1) * 0.25)})` }}
+              />
+            </div>
+            <ol className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {switchSteps.map((label, index) => {
+                const done = index < progressStep;
+                const currentStep = index === progressStep;
+                return (
+                  <li
+                    key={label}
+                    className={cn(
+                      "flex items-center gap-2 text-xs",
+                      done || currentStep
+                        ? "font-medium text-foreground"
+                        : "text-[var(--app-text-secondary)]",
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                        done
+                          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                          : currentStep
+                            ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)]"
+                            : "border-[var(--app-border)]",
+                      )}
+                    >
+                      {done ? <CheckIcon className="h-2.5 w-2.5" weight="bold" /> : null}
+                    </span>
+                    <span>{label}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        ) : null}
+
         {errorMessage ? (
           <p
             role="alert"
@@ -845,9 +1031,22 @@ export function PooledSandboxSwitchCard({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <p className="text-sm text-[var(--app-text-secondary)]">
-              Your encrypted Vault stays intact. Unsynced workspace state on your previous cloud pod
-              stays there, and your cloud account is not modified.
+              {isOwnerCloud
+                ? "Your encrypted Vault stays intact, and encrypted history syncs automatically when reachable. Your prior cloud stays untouched for a 3-day safety window unless you choose background removal below."
+                : "Your encrypted Vault stays intact, and encrypted history syncs automatically when your previous pod is reachable (otherwise a 3-day safety window applies)."}
             </p>
+            {isOwnerCloud ? (
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-[var(--app-border)] bg-background p-3 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={removePriorCloudResources}
+                  onChange={(e) => setRemovePriorCloudResources(e.target.checked)}
+                  data-testid="pooled-sandbox-remove-cloud-checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-[var(--app-border)] accent-[color:var(--app-accent)]"
+                />
+                <span>Also remove Hussh pod resources from my cloud in the background</span>
+              </label>
+            ) : null}
             <AlertDialogFooter>
               <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
               <AlertDialogAction

@@ -834,7 +834,7 @@ def umbrella_cell_auto_scaleout_enabled() -> bool:
 
 
 def source_pod_retirement_sweep_enabled() -> bool:
-    """Enable the 14-day two-key source-pod retirement sweep in ``dev`` only."""
+    """Enable the 3-day two-key source-pod retirement sweep in ``dev`` only."""
     from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
 
     if deploy_lane() != "dev":

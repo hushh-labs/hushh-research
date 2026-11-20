@@ -32,6 +32,7 @@ import {
 import { AuthService } from "@/lib/services/auth-service";
 import { decodeFirebaseTokenSubject } from "@/lib/auth/firebase-token-subject";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
+import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
 import {
   extractHostedMigrationErrorMessage,
@@ -2030,6 +2031,7 @@ export class ApiService {
 
   static async adoptPooledSandbox(options?: {
     allowCleanSlate?: boolean;
+    removePriorCloudResources?: boolean;
     isEffectCurrent?: () => boolean;
   }): Promise<{
     status: string;
@@ -2038,6 +2040,9 @@ export class ApiService {
     hushhId: string;
     podUrl: string;
     detachedPriorHost: boolean;
+    migrationMode?: string;
+    syncedRecordCount?: number;
+    backgroundCleanupQueued?: boolean;
   }> {
     const token = await this.getFirebaseToken();
     const response = await apiFetch("/api/one/runtime/pooled-sandbox/adopt", {
@@ -2049,6 +2054,9 @@ export class ApiService {
       },
       body: JSON.stringify({
         allowCleanSlate: options?.allowCleanSlate === true,
+        ...(options?.removePriorCloudResources === true
+          ? { removePriorCloudResources: true }
+          : {}),
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -4651,7 +4659,7 @@ export class ApiService {
     let pin = await ownerPod.loadPinnedEndpoint(uid);
     if (!pin) {
       const hosting = await ApiService.getPersonalAgentStatus();
-      if (hosting.hostingMode !== "byoc" || hosting.state !== "active") return null;
+      if (!isPrivateHostingMode(hosting.hostingMode) || hosting.state !== "active") return null;
       if (hosting.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
       const transport = await ApiService.ownerPodTransport();
       try {

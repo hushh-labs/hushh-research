@@ -118,6 +118,7 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           <SettingsGroup title="Personal Sandbox" density="compact" headingClassName="!mt-5">
             <PooledSandboxSwitchCard
               hasAssignedCloudPod={mode === "byoc" || mode === "hussh_pods"}
+              isOwnerCloud={mode === "byoc"}
               sourceCloudLabel={
                 mode === "byoc"
                   ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||

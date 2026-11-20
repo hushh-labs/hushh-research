@@ -275,7 +275,15 @@ class SandboxEdgeGatewayManager:
                 try:
                     h_resp = await client.get(f"{base_url}/health", timeout=2.0)
                     if h_resp.status_code == 200:
-                        return pub_b64, pod_key_id
+                        try:
+                            health_body = h_resp.json()
+                        except Exception:  # noqa: BLE001 - non-JSON health is still not virgin_ready
+                            health_body = None
+                        if (
+                            not isinstance(health_body, dict)
+                            or health_body.get("status") != "virgin_ready"
+                        ):
+                            return pub_b64, pod_key_id
                 except httpx.HTTPError:
                     pass
                 await asyncio.sleep(0.08)

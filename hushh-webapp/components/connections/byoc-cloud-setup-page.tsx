@@ -697,6 +697,7 @@ function OwnerCloudSetupPage({ user, owner }: {
             {pooledSwitchAvailable ? (
               <PooledSandboxSwitchCard
                 hasAssignedCloudPod
+                isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
                 owningRoute={ROUTES.ONE_SETUP_CLOUD}
@@ -709,6 +710,7 @@ function OwnerCloudSetupPage({ user, owner }: {
             {pooledSwitchAvailable ? (
               <PooledSandboxSwitchCard
                 hasAssignedCloudPod
+                isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
                 owningRoute={ROUTES.ONE_SETUP_CLOUD}
@@ -759,6 +761,7 @@ function OwnerCloudSetupPage({ user, owner }: {
             {pooledSwitchAvailable ? (
               <PooledSandboxSwitchCard
                 hasAssignedCloudPod
+                isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
                 owningRoute={ROUTES.ONE_SETUP_CLOUD}
@@ -784,6 +787,7 @@ function OwnerCloudSetupPage({ user, owner }: {
             {pooledSwitchAvailable ? (
               <PooledSandboxSwitchCard
                 hasAssignedCloudPod
+                isOwnerCloud
                 sourceCloudLabel={existing.projectId}
                 onSwitched={refreshAgent}
                 owningRoute={ROUTES.ONE_SETUP_CLOUD}
@@ -811,6 +815,7 @@ function OwnerCloudSetupPage({ user, owner }: {
               {pooledSwitchAvailable ? (
                 <PooledSandboxSwitchCard
                   hasAssignedCloudPod
+                  isOwnerCloud
                   sourceCloudLabel={ownerCloudSourceLabel ?? reservedProjectId}
                   onSwitched={refreshAttach}
                   owningRoute={ROUTES.ONE_SETUP_CLOUD}

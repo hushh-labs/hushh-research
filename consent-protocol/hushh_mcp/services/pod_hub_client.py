@@ -60,6 +60,26 @@ _TOKEN_REFRESH_SKEW_SECONDS = 300
 # spend a failed lookup per request, so an absence is remembered this long and the
 # request goes out signed only.
 _METADATA_ABSENT_RETRY_SECONDS = 60
+_METADATA_PROBE_TIMEOUT_SECONDS = 1.5
+_PROCESS_METADATA_LOCK = threading.Lock()
+_PROCESS_METADATA_ABSENT_UNTIL = 0.0
+
+
+def _metadata_identity_disabled() -> bool:
+    raw = (os.getenv("HUSSH_POD_METADATA_IDENTITY_DISABLED") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _is_process_metadata_absent(now: float) -> bool:
+    with _PROCESS_METADATA_LOCK:
+        return now < _PROCESS_METADATA_ABSENT_UNTIL
+
+
+def _mark_process_metadata_absent(until: float) -> None:
+    global _PROCESS_METADATA_ABSENT_UNTIL
+    with _PROCESS_METADATA_LOCK:
+        if until > _PROCESS_METADATA_ABSENT_UNTIL:
+            _PROCESS_METADATA_ABSENT_UNTIL = until
 
 
 @dataclass(frozen=True)
@@ -175,12 +195,13 @@ class PodHubClient:
         now = time.time()
         if self._token and now < self._token_expiry:
             return self._token
+        probe_timeout = min(float(self._timeout), _METADATA_PROBE_TIMEOUT_SECONDS)
         try:
             r = self._session.get(
                 _METADATA_IDENTITY_URL,
                 params={"audience": self._base, "format": "full"},
                 headers=_METADATA_HEADERS,
-                timeout=self._timeout,
+                timeout=probe_timeout,
             )
         except Exception as exc:  # noqa: BLE001 - surface as a typed failure
             raise PodHubUnavailable(f"metadata server unreachable: {type(exc).__name__}") from exc
@@ -195,12 +216,21 @@ class PodHubClient:
 
     def _google_identity_token(self) -> Optional[str]:
         """The Google ID token, or None when this pod has no metadata server to ask."""
-        if time.time() < self._metadata_absent_until:
+        if _metadata_identity_disabled():
+            self._metadata_failure = "metadata identity disabled"
+            return None
+        now = time.time()
+        if now < self._metadata_absent_until:
+            return None
+        if self._session is requests and _is_process_metadata_absent(now):
             return None
         try:
             return self._identity_token()
         except PodHubUnavailable as exc:
-            self._metadata_absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
+            absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
+            self._metadata_absent_until = absent_until
+            if self._session is requests:
+                _mark_process_metadata_absent(absent_until)
             self._metadata_failure = str(exc)
             return None
 

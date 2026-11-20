@@ -555,6 +555,66 @@ async def test_adopt_pooled_sandbox_switches_gcp_provisioned_needs_reinit_and_ho
         _assert_clean_ace_row(reg.rows[uid])
         if expect_detached:
             assert len(reg.rows[uid]["backend_metadata"]["detachedPlacements"]) == 1
+            from hushh_mcp.services.source_pod_retirement import (  # noqa: PLC0415
+                iter_grace_governed_detached_placements,
+            )
+
+            grace_items = iter_grace_governed_detached_placements(reg.rows[uid])
+            assert len(grace_items) == 1
+            assert grace_items[0].placement_id in reg.rows[uid]["backend_metadata"].get(
+                "sourcePodRetirements", {}
+            )
+
+
+async def test_adopt_pooled_sandbox_preserves_prior_source_pod_retirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_cutover(monkeypatch)
+    prior_rec = {
+        "status": "owner_confirmed",
+        "ownerConfirmed": True,
+        "graceReapAfter": "2026-12-01T00:00:00Z",
+    }
+    reg = _FakeRegistry(
+        {
+            "uid-az-hosted": {
+                "user_id": "uid-az-hosted",
+                "hushh_id": "ha1_az_hosted",
+                "status": "provisioned",
+                "deployment_target": "azure",
+                "backend": "azure",
+                "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+                "updated_at": "2026-11-18T00:00:00Z",
+                "backend_metadata": {
+                    "tenancy": "hussh-hosted",
+                    "url": "https://ca-pod-slot01.example.azurecontainerapps.io",
+                    "hostedAzureAdmission": {"cellId": "cell-az-eastus2-dev-01"},
+                    "sourcePodRetirements": {"ret_existing_123": prior_rec},
+                    "detachedPlacements": [
+                        {
+                            "detachedAt": "2026-11-01T00:00:00Z",
+                            "backend": "user_azure",
+                            "deployment_target": "user_azure",
+                            "graceReapAfter": "2026-11-15T00:00:00Z",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+    verdict = await adopt_pooled_sandbox_for_owner(
+        user_id="uid-az-hosted",
+        allow_clean_slate=True,
+        registry=reg,
+        job_repo=_FakeJobs(),
+        migration_job_repo=_FakeMigrationJobs(),
+        grant_service=_FakeGrants(),
+        detach_fn=_make_fake_detach(reg),
+    )
+    assert verdict["detachedPriorHost"] is True
+    retirements = reg.rows["uid-az-hosted"]["backend_metadata"]["sourcePodRetirements"]
+    assert retirements["ret_existing_123"] == prior_rec
+    assert len(retirements) == 2
 
 
 @pytest.mark.parametrize(
@@ -853,3 +913,207 @@ async def test_adopt_pooled_sandbox_route_maps_http_responses(
     assert resp.deploymentTarget == "ace"
     assert resp.detachedPriorHost is True
     assert marked == ["u-1"]
+
+
+async def test_adopt_pooled_sandbox_lossless_sync_and_fail_closed_head_sha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_cutover(monkeypatch)
+    reg = _FakeRegistry(
+        {
+            "uid-lossless-az": {
+                "user_id": "uid-lossless-az",
+                "hushh_id": "ha1_lossless_az",
+                "status": "provisioned",
+                "deployment_target": "azure",
+                "backend": "azure",
+                "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+                "updated_at": "2026-11-20T09:00:00Z",
+                "backend_metadata": {
+                    "tenancy": "hussh-hosted",
+                    "url": "https://ca-pod-slot01.example.azurecontainerapps.io",
+                    "hostedAzureAdmission": {"cellId": "cell-az-eastus2-dev-01"},
+                },
+            }
+        }
+    )
+
+    handoff_calls: list[str] = []
+
+    class _FakeHandoff:
+        def _request(self, method: str, path: str, **_kw: Any) -> dict[str, Any]:
+            handoff_calls.append(f"{method}:{path}")
+            return {"state": "accepting", "incarnation": "rev-1"}
+
+        def prepare_and_wait(
+            self, *, operation_id: str, incarnation: str, **_kw: Any
+        ) -> dict[str, Any]:
+            handoff_calls.append(f"prepare:{operation_id}:{incarnation}")
+            return {"operationId": operation_id, "incarnation": incarnation, "activeWork": 0}
+
+        def release(self, *, operation_id: str, incarnation: str, **_kw: Any) -> dict[str, Any]:
+            handoff_calls.append(f"release:{operation_id}:{incarnation}")
+            return {"state": "accepting"}
+
+    class _MismatchedImportTransport:
+        def export_from(self, **_kw: Any) -> dict[str, Any]:
+            return {"bundle": {"cipher": "b"}, "headSha": "a" * 64, "recordCount": 2}
+
+        def import_into(self, **_kw: Any) -> dict[str, Any]:
+            return {
+                "headSha": "b" * 64,
+                "recordCount": 2,
+                "sourceHeadSha": "a" * 64,
+                "matchesSource": False,
+            }
+
+    woken: list[str] = []
+
+    async def _wake(url: str) -> None:
+        woken.append(url)
+
+    # Negative control: mismatched destination SHA must fail closed BEFORE detaching source pod.
+    with pytest.raises(ValueError, match="verification failed"):
+        await adopt_pooled_sandbox_for_owner(
+            user_id="uid-lossless-az",
+            allow_clean_slate=True,
+            registry=reg,
+            job_repo=_FakeJobs(),
+            migration_job_repo=_FakeMigrationJobs(),
+            grant_service=_FakeGrants(),
+            detach_fn=_make_fake_detach(reg),
+            migration_transport=_MismatchedImportTransport(),
+            handoff_factory=lambda _u, _h: _FakeHandoff(),
+            wake_sandbox_fn=_wake,
+        )
+    assert reg.upserts == []
+    assert reg.rows["uid-lossless-az"]["deployment_target"] == "azure"
+    assert any(c.startswith("release:") for c in handoff_calls)
+
+    class _MatchingTransport:
+        def export_from(self, **kw: Any) -> dict[str, Any]:
+            handoff_calls.append(f"export:{kw['hushh_id']}")
+            return {"bundle": {"cipher": "ok"}, "headSha": "c" * 64, "recordCount": 3}
+
+        def import_into(self, **kw: Any) -> dict[str, Any]:
+            handoff_calls.append(f"import:{kw['hushh_id']}")
+            return {
+                "headSha": "c" * 64,
+                "recordCount": 3,
+                "sourceHeadSha": "c" * 64,
+                "matchesSource": True,
+            }
+
+    sweeps: list[str] = []
+    verdict = await adopt_pooled_sandbox_for_owner(
+        user_id="uid-lossless-az",
+        allow_clean_slate=True,
+        registry=reg,
+        job_repo=_FakeJobs(),
+        migration_job_repo=_FakeMigrationJobs(),
+        grant_service=_FakeGrants(),
+        detach_fn=_make_fake_detach(reg),
+        migration_transport=_MatchingTransport(),
+        handoff_factory=lambda _u, _h: _FakeHandoff(),
+        wake_sandbox_fn=_wake,
+        trigger_retirement_sweep_fn=lambda: sweeps.append("triggered"),
+    )
+    assert verdict["migrationMode"] == "lossless_commit_log"
+    assert verdict["syncedRecordCount"] == 3
+    assert verdict["backgroundCleanupQueued"] is True
+    assert sweeps == ["triggered"]
+    retirements = reg.rows["uid-lossless-az"]["backend_metadata"]["sourcePodRetirements"]
+    rec = next(iter(retirements.values()))
+    assert rec["status"] == "ready_for_retirement"
+    assert rec["ownerConfirmed"] is True
+    assert rec["graceDays"] == 0
+
+
+async def test_adopt_pooled_sandbox_dead_byoc_falls_back_to_3_day_grace_and_opt_in_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffUnavailable
+
+    _enable_cutover(monkeypatch)
+
+    class _DeadHandoff:
+        def _request(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise PodUpgradeHandoffUnavailable("pod lifecycle request unavailable: ConnectTimeout")
+
+    reg = _FakeRegistry(
+        {
+            "uid-dead-az": {
+                "user_id": "uid-dead-az",
+                "hushh_id": "ha1_dead_az",
+                "status": "migrating",
+                "deployment_target": "user_azure",
+                "backend": "user_azure",
+                "external_agent_id": "/subscriptions/expired/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-dead",
+                "user_cloud_subscription_id": "22222222-2222-2222-2222-222222222222",
+                "user_cloud_resource_group": "rg-dead",
+                "updated_at": "2026-11-20T09:00:00Z",
+                "backend_metadata": {"url": "https://dead-az.example.azurecontainerapps.io"},
+            },
+            "uid-opt-del": {
+                "user_id": "uid-opt-del",
+                "hushh_id": "ha1_opt_del",
+                "status": "provisioned",
+                "deployment_target": "user_gcp",
+                "backend": "user_gcp",
+                "external_agent_id": "pod-byoc-gcp-1",
+                "user_cloud_project": "owner-proj-1",
+                "updated_at": "2026-11-20T09:00:00Z",
+                "backend_metadata": {"url": "https://dead-gcp.run.app"},
+            },
+        }
+    )
+
+    async def _wake(_url: str) -> None:
+        return None
+
+    sweeps: list[str] = []
+    verdict_dead = await adopt_pooled_sandbox_for_owner(
+        user_id="uid-dead-az",
+        allow_clean_slate=True,
+        remove_prior_cloud_resources=False,
+        registry=reg,
+        job_repo=_FakeJobs(),
+        migration_job_repo=_FakeMigrationJobs(),
+        grant_service=_FakeGrants(),
+        detach_fn=_make_fake_detach(reg),
+        handoff_factory=lambda _u, _h: _DeadHandoff(),
+        wake_sandbox_fn=_wake,
+        trigger_retirement_sweep_fn=lambda: sweeps.append("triggered"),
+    )
+    assert verdict_dead["migrationMode"] == "clean_slate_fallback"
+    assert verdict_dead["syncedRecordCount"] == 0
+    assert sweeps == []
+    dead_rec = next(
+        iter(reg.rows["uid-dead-az"]["backend_metadata"]["sourcePodRetirements"].values())
+    )
+    assert dead_rec["graceDays"] == 3
+    assert dead_rec["ownerConfirmed"] is False
+    assert dead_rec["status"] == "awaiting_owner_confirmation"
+
+    verdict_del = await adopt_pooled_sandbox_for_owner(
+        user_id="uid-opt-del",
+        allow_clean_slate=True,
+        remove_prior_cloud_resources=True,
+        registry=reg,
+        job_repo=_FakeJobs(),
+        migration_job_repo=_FakeMigrationJobs(),
+        grant_service=_FakeGrants(),
+        detach_fn=_make_fake_detach(reg),
+        handoff_factory=lambda _u, _h: _DeadHandoff(),
+        wake_sandbox_fn=_wake,
+        trigger_retirement_sweep_fn=lambda: sweeps.append("triggered"),
+    )
+    assert verdict_del["backgroundCleanupQueued"] is True
+    assert sweeps == ["triggered"]
+    del_rec = next(
+        iter(reg.rows["uid-opt-del"]["backend_metadata"]["sourcePodRetirements"].values())
+    )
+    assert del_rec["graceDays"] == 0
+    assert del_rec["ownerConfirmed"] is True
+    assert del_rec["removePriorCloudResources"] is True
+    assert del_rec["status"] == "ready_for_retirement"

@@ -1480,7 +1480,7 @@ async def get_hosted_source_retirement_status_route(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    """Read the owner's 14-day source-pod retirement window & confirmation state."""
+    """Read the owner's 3-day source-pod retirement window & confirmation state."""
     _require_dev_hosted_azure_lane()
     from hushh_mcp.services.source_pod_retirement import (
         get_owner_source_pod_retirement_status,
@@ -1496,7 +1496,7 @@ async def confirm_hosted_source_retirement_route(
     body: HostedSourceRetirementConfirmRequest | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    """Record explicit owner confirmation to retire the prior pod once the 14-day window expires."""
+    """Record explicit owner confirmation to retire the prior pod once the 3-day window expires."""
     _require_dev_hosted_azure_lane()
     from hushh_mcp.services.source_pod_retirement import (
         confirm_owner_source_pod_retirement,
@@ -1518,6 +1518,7 @@ async def confirm_hosted_source_retirement_route(
 
 class PooledSandboxAdoptRequest(BaseModel):
     allowCleanSlate: bool = Field(default=False)
+    removePriorCloudResources: bool = Field(default=False)
 
 
 class PooledSandboxAdoptResponse(BaseModel):
@@ -1527,6 +1528,9 @@ class PooledSandboxAdoptResponse(BaseModel):
     hushhId: str
     podUrl: str
     detachedPriorHost: bool
+    migrationMode: str = "fresh_start"
+    syncedRecordCount: int = 0
+    backgroundCleanupQueued: bool = False
 
 
 @router.post("/pooled-sandbox/adopt", response_model=PooledSandboxAdoptResponse)
@@ -1540,11 +1544,15 @@ async def adopt_pooled_sandbox_route(
     del request
     from hushh_mcp.services.pooled_sandbox_cutover import adopt_pooled_sandbox_for_owner
 
+    adopt_kwargs: dict[str, Any] = {
+        "user_id": firebase_uid,
+        "allow_clean_slate": bool(body.allowCleanSlate if body else False),
+    }
+    if bool(body and body.removePriorCloudResources):
+        adopt_kwargs["remove_prior_cloud_resources"] = True
+
     try:
-        verdict = await adopt_pooled_sandbox_for_owner(
-            user_id=firebase_uid,
-            allow_clean_slate=bool(body.allowCleanSlate if body else False),
-        )
+        verdict = await adopt_pooled_sandbox_for_owner(**adopt_kwargs)
     except PermissionError as exc:
         raise HTTPException(
             status_code=404,

@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
-from hushh_mcp.services.pod_files.storage import FilesGcsStore
+from hushh_mcp.services.pod_files.storage import FilesGcsStore, FilesPrefixStore
 from hushh_mcp.services.pod_workspace import (
     WorkspaceCheckpointLibrary,
     WorkspaceCliRuntime,
@@ -30,7 +30,12 @@ def custody_key_reference() -> str:
     """The same owner key reference for operation and retention checks."""
     from hushh_mcp.services.byoc_key_custody import KEY_VAULT_KEY_ENV, KMS_KEY_ENV
 
-    return str(os.getenv(KEY_VAULT_KEY_ENV) or os.getenv(KMS_KEY_ENV) or "")
+    raw = str(os.getenv(KEY_VAULT_KEY_ENV) or os.getenv(KMS_KEY_ENV) or "").strip()
+    if raw:
+        return raw
+    if (os.getenv("HUSSH_POD_CUSTODY_MODE") or "").strip().lower() == "hub_broker":
+        return "hub_broker"
+    return ""
 
 
 def active_library() -> FilesLibrary:
@@ -58,8 +63,12 @@ def active_library() -> FilesLibrary:
             await authority.require_held()
 
         from hushh_mcp.services.pod_platform import workload_platform
+        from hushh_mcp.services.pod_s3_object_store import PREFIX_TOKEN_URL_ENV
 
-        if workload_platform() == "azure":
+        prefix_token_url = (os.getenv(PREFIX_TOKEN_URL_ENV) or "").strip()
+        if prefix_token_url:
+            store = FilesPrefixStore(prefix_token_url, subprefix="files/v1")
+        elif workload_platform() == "azure":
             from .azure_storage import FilesAzureStore
 
             url = os.environ["POD_STORAGE_AZURE_BLOB_URL"].rstrip("/") + "/files/v1"
@@ -101,7 +110,19 @@ def active_wiki_library() -> WikiLibrary:
 def _resolve_pod_root_workspace_store(files_store: Any) -> Any:
     """Place `workspaces/v1/<ws_id>` under the pod root prefix rather than `files/v1/workspaces/v1`."""
     from hushh_mcp.services.pod_platform import workload_platform
+    from hushh_mcp.services.pod_s3_object_store import PREFIX_TOKEN_URL_ENV
 
+    if isinstance(files_store, FilesPrefixStore):
+        prefix_token_url = (
+            os.getenv(PREFIX_TOKEN_URL_ENV) or f"{files_store._origin}/{files_store._base_prefix}"
+        ).strip()
+        if prefix_token_url:
+            return FilesPrefixStore(
+                prefix_token_url,
+                subprefix="",
+                token_provider=files_store._token_provider,
+                session=files_store._session,
+            )
     if isinstance(files_store, FilesGcsStore) and os.getenv("POD_STORAGE_GCS_BUCKET"):
         root_prefix = os.getenv("POD_STORAGE_GCS_PREFIX", "").strip("/")
         if root_prefix:

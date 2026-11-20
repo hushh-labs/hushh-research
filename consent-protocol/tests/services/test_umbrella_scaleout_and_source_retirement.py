@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Unit & contract tests for Dev horizontal Umbrella Cell scale-out and 14-day source retirement."""
+"""Unit & contract tests for Dev horizontal Umbrella Cell scale-out and 3-day source retirement."""
 
 from __future__ import annotations
 
@@ -643,8 +643,41 @@ def test_source_retirement_projection_skips_founder_holds_and_respects_byoc_boun
         arm_client=arm,  # type: ignore[arg-type]
     )
     assert res["ownerCloudCleanupReady"] is True
+    assert res["ownerCloudResourcesDeleted"] is False
     assert all("/providers/Microsoft.Authorization/roleAssignments/" in d[0] for d in arm.deletes)
     assert len(arm.deletes) >= 1
+
+    # Opt-in BYOC Azure removal deletes ONLY the detached container app + Hussh roles.
+    arm_del = _RecordingArm()
+    arm_del.lists[f"{scope}/providers/Microsoft.Authorization/roleAssignments"] = []
+    byoc_entry_with_app = {
+        **byoc_entry,
+        "external_agent_id": "pod-owner-byoc-01",
+    }
+    res_del = _retire_byoc_azure_observer_sync(
+        gp=GraceDetachedPlacement(
+            placement_id=pid,
+            entry=byoc_entry_with_app,
+            detached_at=byoc_entry["detachedAt"],
+            grace_reap_after=reap_past,
+            reap_at=now - timedelta(days=1),
+            source_target="user_azure",
+            source_provider="azure",
+            source_kind="byoc",
+            source_label="Your Azure",
+            resource_hint="rg-owner-byoc",
+        ),
+        active_external_ids=set(),
+        remove_resources=True,
+        arm_client=arm_del,  # type: ignore[arg-type]
+    )
+    assert res_del["ownerCloudCleanupReady"] is True
+    assert res_del["ownerCloudResourcesDeleted"] is True
+    assert any(
+        d[0]
+        == "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/rg-owner-byoc/providers/Microsoft.App/containerApps/pod-owner-byoc-01"
+        for d in arm_del.deletes
+    )
 
     # Slot recycle refuses if slot is still bound to active primary row.
     with pytest.raises(RuntimeError, match="still bound"):
@@ -745,5 +778,47 @@ def test_source_retirement_routes_and_startup_worker_fence(monkeypatch: pytest.M
         monkeypatch.setattr(listener_lifecycle, "_STARTUP_BACKGROUND_TASKS", set())
         await server.startup_source_pod_retirement_worker()
         assert not listener_lifecycle._STARTUP_BACKGROUND_TASKS
+
+    # Verify ledger-backed graceReapAfter + hostedAzureAdmission cellId fallback.
+    ledger_pid = compute_placement_id(
+        {
+            "detachedAt": "2026-11-20T09:00:00Z",
+            "backend": "azure",
+            "deployment_target": "azure",
+            "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+        }
+    )
+    ledger_row = {
+        "backend_metadata": {
+            "detachedPlacements": [
+                {
+                    "detachedAt": "2026-11-20T09:00:00Z",
+                    "backend": "azure",
+                    "deployment_target": "azure",
+                    "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+                    "backend_metadata": {
+                        "hostedAzureAdmission": {"cellId": "cell-az-eastus2-dev-01"}
+                    },
+                }
+            ],
+            "sourcePodRetirements": {
+                ledger_pid: {
+                    "status": "awaiting_owner_confirmation",
+                    "ownerConfirmed": False,
+                    "graceDays": 3,
+                    "graceReapAfter": "2026-11-23T09:00:00Z",
+                }
+            },
+        }
+    }
+    ledger_items = iter_grace_governed_detached_placements(ledger_row)
+    assert len(ledger_items) == 1
+    assert ledger_items[0].placement_id == ledger_pid
+    assert ledger_items[0].resource_hint == "cell-az-eastus2-dev-01"
+    built = build_source_retirement_items(
+        ledger_row, now=datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)
+    )
+    assert built[0]["daysRemaining"] == 3
+    assert built[0]["resourceHint"] == "cell-az-eastus2-dev-01"
 
     asyncio.run(_exercise_startup())

@@ -15,6 +15,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
+import { SandboxCutoverStatusPill } from "@/components/connections/hussh-pods-cloud-card";
 import { useVault } from "@/lib/vault/vault-context";
 
 function HomeContent() {
@@ -183,6 +184,7 @@ function HomeContent() {
         />
         <VaultLockGuard>
           <PhoneMandateGuard>
+            <SandboxCutoverStatusPill />
             <Suspense
               fallback={
                 <HushhLoader stage="workspace" label="Loading chat…" />

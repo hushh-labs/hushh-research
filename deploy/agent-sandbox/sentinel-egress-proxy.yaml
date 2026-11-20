@@ -61,7 +61,7 @@ spec:
             - name: SENTINEL_MODEL_GATEWAY_PORT
               value: "8082"
             - name: SENTINEL_SYSTEM_ALLOW_HOSTS
-              value: dev.api.hussh.ai,uat.api.hussh.ai,api.hussh.ai
+              value: dev.api.hussh.ai,uat.api.hussh.ai,api.hussh.ai,www.googleapis.com,oauth2.googleapis.com
             - name: SENTINEL_AUDIT_LOG_PATH
               value: /var/run/hussh-audit/sentinel-audit.jsonl
             - name: SENTINEL_AUDIT_HMAC_KEY

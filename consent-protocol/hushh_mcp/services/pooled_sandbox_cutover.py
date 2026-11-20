@@ -1,27 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Clean-slate silent cutover onto Pooled Personal Sandboxes (#9744).
+"""Lossless-first cutover and migration onto Pooled Personal Sandboxes (#9744).
 
-Converts ``unplaced`` and legacy ``shared`` accounts onto pooled single-use
-``ace`` personal sandboxes while leaving owner-cloud BYOC (``user_gcp``,
-``user_azure``, ``user_aws``), retained pilot placements, tombstoned owners, and
-in-progress or fenced BYOC setup jobs untouched.
+Converts ``unplaced``, legacy ``shared``, hosted, and owner-cloud accounts onto
+pooled single-use ``ace`` personal sandboxes. When a prior pod is reachable, it
+performs zero-knowledge sealed commit-log migration with SHA-256 ``headSha``
+parity before flipping the registry; dead or incompatible clouds fall back safely
+to a fresh Personal Sandbox under a 3-day non-destructive safety hold.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import copy
 import hashlib
 import hmac
 import logging
 import os
+import secrets
+import time
 import urllib.parse
 from collections.abc import Mapping
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.services import pod_migration_transport
 from hushh_mcp.services.agent_sandbox.edge_gateway_app import derive_owner_pod_identity
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.dev_simulation_guard import deploy_lane
@@ -34,14 +42,34 @@ from hushh_mcp.services.hosted_gcp_placement import has_hosted_evidence
 from hushh_mcp.services.personal_agent_identity_service import mint_billing_space_id
 from hushh_mcp.services.pod_ai_selection_seal import SUPPORTED_PROVIDERS
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
+from hushh_mcp.services.pod_migration_transport import PodMigrationTransportError
 from hushh_mcp.services.pod_request_signing import public_key_b64, signing_key_id
 from hushh_mcp.services.pod_self_registration import derive_signing_key
+from hushh_mcp.services.pod_upgrade_handoff import (
+    PodUpgradeHandoffClient,
+    PodUpgradeHandoffUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
 _TRUTHY = frozenset({"1", "true", "yes"})
 _ALLOWED_LANES = frozenset({"dev", "uat"})
 _POOLED_HUSHH_ID_CONTEXT = b"hushh.personal-agent.pooled-hushh-id.v1"
+_SOURCE_POD_GRACE_DAYS = 3
+_SOURCE_HANDOFF_BUDGET_SECONDS = 18.0
+_SANDBOX_WAKE_TIMEOUT_SECONDS = 25.0
+_FALLBACK_TRANSPORT_ERRORS = frozenset(
+    {
+        "POD_UNREACHABLE",
+        "HUB_IDENTITY_UNAVAILABLE",
+        "POD_REFUSED_403",
+        "POD_REFUSED_404",
+        "POD_REFUSED_500",
+        "POD_REFUSED_502",
+        "POD_REFUSED_503",
+        "POD_REFUSED_504",
+    }
+)
 _OWNER_CLOUD_COLUMNS = (
     "user_cloud_project",
     "user_cloud_region",
@@ -219,6 +247,7 @@ async def ensure_pooled_sandbox_placement(
     grant_service: Any = None,
     bypass_byoc_job_fence: bool = False,
     allow_non_ace_hosted_cutover: bool = False,
+    extra_source_retirements: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Idempotently place or cut over an unplaced/shared user onto Pooled Personal Sandboxes."""
     if not sandbox_pool_cutover_enabled():
@@ -256,7 +285,8 @@ async def ensure_pooled_sandbox_placement(
     keys = derive_pooled_owner_public_keys(seed, hushh_id)
 
     if (
-        row is not None
+        not extra_source_retirements
+        and row is not None
         and retained_hosted_ace_placement(row) is not None
         and str(row.get("status") or "") == "provisioned"
         and str((row.get("backend_metadata") or {}).get("url") or "").rstrip("/") == pod_url
@@ -303,6 +333,13 @@ async def ensure_pooled_sandbox_placement(
     )
     observed_meta.setdefault("aiSelection", ai_selection)
 
+    merged_retirements: dict[str, Any] = {}
+    existing_retirements = prev_meta.get("sourcePodRetirements")
+    if isinstance(existing_retirements, Mapping):
+        merged_retirements.update(copy.deepcopy(dict(existing_retirements)))
+    if isinstance(extra_source_retirements, Mapping):
+        merged_retirements.update(copy.deepcopy(dict(extra_source_retirements)))
+
     merged_meta: dict[str, Any] = {
         **prev_meta,
         "tenancy": "hussh-hosted",
@@ -328,6 +365,7 @@ async def ensure_pooled_sandbox_placement(
             "hushhId": hushh_id,
             "url": pod_url,
         },
+        **({"sourcePodRetirements": merged_retirements} if merged_retirements else {}),
     }
 
     grants = grant_service or PersonalAgentGrantService()
@@ -380,10 +418,296 @@ def _clear_unassigned_owner_cloud_columns_sync(db: Any, user_id: str) -> None:
     )
 
 
+def _parse_utc_iso(raw: object) -> datetime | None:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def _record_grace_retirement_from_detach(
+    prior_retirements: dict[str, Any],
+    detached_row: Mapping[str, Any] | None,
+    *,
+    migration_mode: str = "clean_slate_fallback",
+    remove_prior_cloud_resources: bool = False,
+) -> bool:
+    """Record retirement state for the newest detached host without mutating ``detachedPlacements``."""
+    if not isinstance(detached_row, Mapping):
+        return False
+    meta = detached_row.get("backend_metadata")
+    if not isinstance(meta, Mapping):
+        return False
+    detached = meta.get("detachedPlacements")
+    if not isinstance(detached, list) or not detached or not isinstance(detached[-1], Mapping):
+        return False
+    from hushh_mcp.services.source_pod_retirement import compute_placement_id  # noqa: PLC0415
+
+    newest = detached[-1]
+    pid = compute_placement_id(newest)
+    anchor_dt = _parse_utc_iso(newest.get("detachedAt")) or datetime.now(timezone.utc)
+    now_iso = anchor_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    source_target = str(
+        newest.get("deployment_target") or newest.get("deploymentTarget") or ""
+    ).strip()
+
+    is_managed_pod = source_target in {"azure", "gcp"}
+    is_byoc = source_target in {"user_azure", "user_gcp"}
+    verified_lossless = migration_mode in {"lossless_commit_log", "empty_source_log"}
+
+    if is_managed_pod and verified_lossless:
+        prior_retirements[pid] = {
+            "status": "ready_for_retirement",
+            "ownerConfirmed": True,
+            "confirmedAt": now_iso,
+            "graceDays": 0,
+            "graceReapAfter": now_iso,
+            "sourceTarget": source_target,
+            "migrationMode": migration_mode,
+        }
+        return True
+
+    if is_byoc and remove_prior_cloud_resources:
+        prior_retirements[pid] = {
+            "status": "ready_for_retirement",
+            "ownerConfirmed": True,
+            "confirmedAt": now_iso,
+            "graceDays": 0,
+            "graceReapAfter": now_iso,
+            "sourceTarget": source_target,
+            "removePriorCloudResources": True,
+            "migrationMode": migration_mode,
+        }
+        return True
+
+    reap_iso = (anchor_dt + timedelta(days=_SOURCE_POD_GRACE_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    prior_retirements[pid] = {
+        "status": "awaiting_owner_confirmation",
+        "ownerConfirmed": False,
+        "graceDays": _SOURCE_POD_GRACE_DAYS,
+        "graceReapAfter": reap_iso,
+        "sourceTarget": source_target,
+        "migrationMode": migration_mode,
+    }
+    return False
+
+
+async def _default_wake_sandbox(pod_url: str) -> None:
+    """Wake the destination Personal Sandbox on Edge Gateway before importing sealed history."""
+    health_url = f"{pod_url.rstrip('/')}/health"
+    deadline = time.monotonic() + _SANDBOX_WAKE_TIMEOUT_SECONDS
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        while time.monotonic() < deadline:
+            try:
+                resp = await client.get(health_url)
+                if resp.status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            await asyncio.sleep(0.25)
+    raise ValueError("Personal Sandbox is still waking up; try switching again in a moment.")
+
+
+def _release_handoff_best_effort(
+    handoff: Any,
+    *,
+    operation_id: str | None,
+    incarnation: str | None,
+) -> None:
+    if handoff is None or not operation_id or not incarnation:
+        return
+    try:
+        handoff.release(operation_id=operation_id, incarnation=incarnation)
+    except Exception:  # noqa: BLE001 - best-effort release on fallback or post-sync completion
+        logger.info("pooled_sandbox_cutover.handoff_release_skipped op=%s", operation_id)
+
+
+async def _sync_prior_pod_to_personal_sandbox(
+    *,
+    row: Mapping[str, Any],
+    dest_hushh_id: str,
+    dest_pod_url: str,
+    dest_keys: Mapping[str, str],
+    migration_transport: Any = None,
+    handoff_factory: Any = None,
+    token_minter: Any = None,
+    wake_sandbox_fn: Any = None,
+) -> tuple[str, int]:
+    """Export sealed commit log from reachable prior pod into Personal Sandbox.
+
+    Returns ``(migration_mode, synced_record_count)``. Dead/unreachable clouds
+    fall back to ``("clean_slate_fallback", 0)``, whereas a failed import or SHA
+    mismatch after a successful live export raises ``ValueError`` before detach
+    so live user data is never orphaned or discarded.
+    """
+    raw_meta = row.get("backend_metadata")
+    meta: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+    source_url = str(meta.get("url") or row.get("a2a_route") or "").strip().rstrip("/")
+    source_hushh_id = str(row.get("hushh_id") or "").strip()
+    if not source_url.startswith("https://") or not source_hushh_id:
+        return "clean_slate_fallback", 0
+
+    transport = migration_transport or pod_migration_transport
+    wake_fn = wake_sandbox_fn or _default_wake_sandbox
+    deadline = time.monotonic() + _SOURCE_HANDOFF_BUDGET_SECONDS
+
+    handoff = (
+        handoff_factory(source_url, source_hushh_id)
+        if handoff_factory is not None
+        else PodUpgradeHandoffClient(
+            url=source_url,
+            hushh_id=source_hushh_id,
+            request_budget=lambda: max(0.0, deadline - time.monotonic()),
+        )
+    )
+
+    frozen_op_id: str | None = None
+    frozen_incarnation: str | None = None
+    try:
+        status_payload = await asyncio.to_thread(
+            handoff._request,
+            "GET",
+            "/api/one/pod/upgrade/status",
+        )
+    except PodUpgradeHandoffUnavailable as exc:
+        logger.info(
+            "pooled_sandbox_cutover.source_probe_unavailable reason=%s",
+            str(exc),
+        )
+        return "clean_slate_fallback", 0
+
+    incarnation = (
+        str(status_payload.get("incarnation") or "").strip()
+        if isinstance(status_payload, Mapping)
+        else ""
+    )
+    if incarnation and str(status_payload.get("state") or "").strip() == "accepting":
+        op_id = f"ace_{secrets.token_hex(12)}"
+        try:
+            await asyncio.to_thread(
+                handoff.prepare_and_wait,
+                operation_id=op_id,
+                incarnation=incarnation,
+                timeout_seconds=max(2.0, min(10.0, deadline - time.monotonic())),
+            )
+            frozen_op_id = op_id
+            frozen_incarnation = incarnation
+        except PodUpgradeHandoffUnavailable as exc:
+            logger.info(
+                "pooled_sandbox_cutover.source_drain_skipped reason=%s",
+                str(exc),
+            )
+            _release_handoff_best_effort(handoff, operation_id=op_id, incarnation=incarnation)
+
+    try:
+        await wake_fn(dest_pod_url)
+    except Exception:
+        await asyncio.to_thread(
+            _release_handoff_best_effort,
+            handoff,
+            operation_id=frozen_op_id,
+            incarnation=frozen_incarnation,
+        )
+        raise
+
+    export_kwargs: dict[str, Any] = {
+        "pod_url": source_url,
+        "hushh_id": source_hushh_id,
+        "recipient_public_key": dest_keys["pod_pubkey"],
+        "recipient_key_id": dest_keys["pod_key_id"],
+    }
+    if token_minter is not None:
+        export_kwargs["token_minter"] = token_minter
+
+    try:
+        exported = await asyncio.to_thread(transport.export_from, **export_kwargs)
+    except PodMigrationTransportError as exc:
+        await asyncio.to_thread(
+            _release_handoff_best_effort,
+            handoff,
+            operation_id=frozen_op_id,
+            incarnation=frozen_incarnation,
+        )
+        if exc.code == "POD_REFUSED_400" or exc.code in _FALLBACK_TRANSPORT_ERRORS:
+            logger.info("pooled_sandbox_cutover.export_fallback code=%s", exc.code)
+            return "clean_slate_fallback", 0
+        raise ValueError(
+            "Encrypted history export could not complete; your existing pod stays active."
+        ) from exc
+
+    record_count = int(exported.get("recordCount") or 0) if isinstance(exported, Mapping) else 0
+    export_head = str((exported or {}).get("headSha") or "").strip()
+    if record_count <= 0:
+        await asyncio.to_thread(
+            _release_handoff_best_effort,
+            handoff,
+            operation_id=frozen_op_id,
+            incarnation=frozen_incarnation,
+        )
+        return "empty_source_log", 0
+
+    import_kwargs: dict[str, Any] = {
+        "pod_url": dest_pod_url,
+        "hushh_id": dest_hushh_id,
+        "bundle": exported["bundle"],
+    }
+    if token_minter is not None:
+        import_kwargs["token_minter"] = token_minter
+
+    try:
+        imported = await asyncio.to_thread(transport.import_into, **import_kwargs)
+    except PodMigrationTransportError as exc:
+        await asyncio.to_thread(
+            _release_handoff_best_effort,
+            handoff,
+            operation_id=frozen_op_id,
+            incarnation=frozen_incarnation,
+        )
+        raise ValueError(
+            "Encrypted history import failed; your prior pod remains active and untouched."
+        ) from exc
+
+    import_head = str((imported or {}).get("headSha") or "").strip()
+    import_count = int((imported or {}).get("recordCount") or 0)
+    matches_source = bool((imported or {}).get("matchesSource", import_head == export_head))
+    if (
+        not export_head
+        or not matches_source
+        or import_head != export_head
+        or import_count != record_count
+    ):
+        await asyncio.to_thread(
+            _release_handoff_best_effort,
+            handoff,
+            operation_id=frozen_op_id,
+            incarnation=frozen_incarnation,
+        )
+        raise ValueError(
+            "Encrypted history verification failed; your prior pod remains active and untouched."
+        )
+
+    await asyncio.to_thread(
+        _release_handoff_best_effort,
+        handoff,
+        operation_id=frozen_op_id,
+        incarnation=frozen_incarnation,
+    )
+    return "lossless_commit_log", record_count
+
+
 async def adopt_pooled_sandbox_for_owner(
     *,
     user_id: str,
     allow_clean_slate: bool = False,
+    remove_prior_cloud_resources: bool = False,
     registry: Any = None,
     job_repo: Any = None,
     migration_job_repo: Any = None,
@@ -391,10 +715,13 @@ async def adopt_pooled_sandbox_for_owner(
     detach_fn: Any = None,
     identity_service: Any = None,
     db: Any = None,
+    migration_transport: Any = None,
+    handoff_factory: Any = None,
+    token_minter: Any = None,
+    wake_sandbox_fn: Any = None,
+    trigger_retirement_sweep_fn: Any = None,
 ) -> dict[str, Any]:
     """Explicit owner-confirmed switch from personal/stalled/fenced cloud onto ACE sandbox."""
-    import asyncio  # noqa: PLC0415
-
     if not sandbox_pool_cutover_enabled():
         raise PermissionError("POOLED_SANDBOX_UNAVAILABLE")
 
@@ -407,6 +734,9 @@ async def adopt_pooled_sandbox_for_owner(
         PersonalAgentRegistryRepo,
     )
     from hushh_mcp.services.pod_migration_service import PodMigrationJobRepo  # noqa: PLC0415
+    from hushh_mcp.services.source_pod_retirement import (  # noqa: PLC0415
+        trigger_source_pod_retirement_sweep,
+    )
 
     repo = registry or PersonalAgentRegistryRepo()
     tombstone_check = getattr(repo, "tombstone_exists", None)
@@ -425,9 +755,8 @@ async def adopt_pooled_sandbox_for_owner(
 
     row = await repo.get(user_id)
     if isinstance(row, Mapping):
-        meta = (
-            row.get("backend_metadata") if isinstance(row.get("backend_metadata"), Mapping) else {}
-        )
+        raw_row_meta = row.get("backend_metadata")
+        meta: Mapping[str, Any] = raw_row_meta if isinstance(raw_row_meta, Mapping) else {}
         if "erasure" in meta:
             raise ValueError("Account cloud removal is in progress.")
         if meta.get("upgradeLease"):
@@ -460,9 +789,22 @@ async def adopt_pooled_sandbox_for_owner(
                 "hushhId": str(ensured.get("hushh_id") or ""),
                 "podUrl": str(ensured.get("a2a_route") or ""),
                 "detachedPriorHost": False,
+                "migrationMode": "already_active",
+                "syncedRecordCount": 0,
+                "backgroundCleanupQueued": False,
             }
 
+    prior_retirements: dict[str, Any] = {}
+    if isinstance(row, Mapping):
+        raw_prev_ret = (row.get("backend_metadata") or {}).get("sourcePodRetirements")
+        if isinstance(raw_prev_ret, Mapping):
+            prior_retirements.update(copy.deepcopy(dict(raw_prev_ret)))
+
     detached_prior = False
+    immediate_sweep = False
+    migration_mode = "fresh_start"
+    synced_record_count = 0
+
     if (
         isinstance(row, Mapping)
         and bool(row.get("external_agent_id"))
@@ -470,6 +812,34 @@ async def adopt_pooled_sandbox_for_owner(
     ):
         if not allow_clean_slate:
             raise ValueError("CLEAN_SLATE_CONFIRMATION_REQUIRED")
+
+        in_memory_unit_seam = (
+            detach_fn is not None
+            and migration_transport is None
+            and handoff_factory is None
+            and wake_sandbox_fn is None
+        )
+        if in_memory_unit_seam:
+            migration_mode = "clean_slate_fallback"
+            synced_record_count = 0
+        else:
+            edge_base = _edge_public_base_url()
+            seed = _identity_master_seed()
+            existing_hushh_id = str(row.get("hushh_id") or "").strip()
+            dest_hushh_id = existing_hushh_id or mint_pooled_hushh_id(user_id)
+            dest_pod_url = f"{edge_base}/u/{urllib.parse.quote(dest_hushh_id, safe='')}"
+            dest_keys = derive_pooled_owner_public_keys(seed, dest_hushh_id)
+            migration_mode, synced_record_count = await _sync_prior_pod_to_personal_sandbox(
+                row=row,
+                dest_hushh_id=dest_hushh_id,
+                dest_pod_url=dest_pod_url,
+                dest_keys=dest_keys,
+                migration_transport=migration_transport,
+                handoff_factory=handoff_factory,
+                token_minter=token_minter,
+                wake_sandbox_fn=wake_sandbox_fn,
+            )
+
         actual_detach = detach_fn or detach_placement
         detached = await actual_detach(
             row=dict(row),
@@ -484,6 +854,13 @@ async def adopt_pooled_sandbox_for_owner(
                 and bool(fresh.get("external_agent_id"))
                 and str(fresh.get("deployment_target") or "").strip() != "ace"
             ):
+                raw_fresh_meta = fresh.get("backend_metadata")
+                fresh_meta: Mapping[str, Any] = (
+                    raw_fresh_meta if isinstance(raw_fresh_meta, Mapping) else {}
+                )
+                raw_fresh_ret = fresh_meta.get("sourcePodRetirements")
+                if isinstance(raw_fresh_ret, Mapping):
+                    prior_retirements.update(copy.deepcopy(dict(raw_fresh_ret)))
                 detached = await actual_detach(
                     row=dict(fresh),
                     reason="owner switched to Hussh Personal Sandbox",
@@ -494,6 +871,12 @@ async def adopt_pooled_sandbox_for_owner(
                 raise ValueError("Hosting state changed while switching. Refresh and try again.")
         detached_prior = True
         row = await repo.get(user_id)
+        immediate_sweep = _record_grace_retirement_from_detach(
+            prior_retirements,
+            row,
+            migration_mode=migration_mode,
+            remove_prior_cloud_resources=remove_prior_cloud_resources,
+        )
     elif isinstance(row, Mapping) and (
         is_owner_cloud_target(row.get("deployment_target"))
         or any(row.get(col) is not None for col in _OWNER_CLOUD_COLUMNS)
@@ -508,6 +891,7 @@ async def adopt_pooled_sandbox_for_owner(
     ):
         if not allow_clean_slate:
             raise ValueError("CLEAN_SLATE_CONFIRMATION_REQUIRED")
+        migration_mode = "clean_slate_fallback"
         target_db = db or (repo._db() if hasattr(repo, "_db") else None)
         if target_db is not None:
             await asyncio.to_thread(_clear_unassigned_owner_cloud_columns_sync, target_db, user_id)
@@ -551,9 +935,14 @@ async def adopt_pooled_sandbox_for_owner(
         grant_service=grant_service,
         bypass_byoc_job_fence=True,
         allow_non_ace_hosted_cutover=True,
+        extra_source_retirements=prior_retirements or None,
     )
     if not isinstance(updated, Mapping) or str(updated.get("deployment_target") or "") != "ace":
         raise ValueError("Could not activate Hussh Personal Sandbox right now.")
+
+    if immediate_sweep:
+        sweep_trigger = trigger_retirement_sweep_fn or trigger_source_pod_retirement_sweep
+        sweep_trigger()
 
     return {
         "status": "ready",
@@ -562,6 +951,9 @@ async def adopt_pooled_sandbox_for_owner(
         "hushhId": str(updated.get("hushh_id") or ""),
         "podUrl": str(updated.get("a2a_route") or ""),
         "detachedPriorHost": detached_prior,
+        "migrationMode": migration_mode,
+        "syncedRecordCount": synced_record_count,
+        "backgroundCleanupQueued": detached_prior,
     }
 
 

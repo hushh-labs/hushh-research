@@ -1,17 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Automated 14-day two-key source-pod retirement policy (Dev lane).
+"""Automated 3-day two-key source-pod retirement policy (Dev lane).
 
 Enforces the two-key post-migration retirement contract:
-1. Owners never lose their prior pod during the 14-day grace window (`graceReapAfter`),
+1. Owners never lose their prior pod during the 3-day grace window (`graceReapAfter`),
    and un-dated founder/legacy entries without an explicit `graceReapAfter` are never
    touched automatically.
 2. Retirement executes **only** after BOTH:
-   - the 14-day safety window expires (`now >= graceReapAfter`), AND
+   - the grace window expires (`now >= graceReapAfter`, 3-day safety hold or immediate after
+     verified lossless sync / opt-in background cleanup), AND
    - the owner explicitly confirms satisfaction with their new pod (`ownerConfirmed=True`).
 3. Sovereign BYOC clouds (`user_azure`, `user_gcp`) respect Hussh's zero-delete trust
-   boundary: Hussh revokes only its own observer RBAC bindings (never deleting the
-   owner's resource group, storage, or Key Vault) and surfaces cleanup readiness.
+   boundary by default: Hussh revokes only its own observer RBAC bindings unless the
+   owner explicitly checks "Also remove Hussh pod resources from my cloud in the background".
 4. Hub Postgres `backend_metadata.detachedPlacements` elements remain 100% immutable so
    retention constraint triggers never trip; retirement ledger state lives strictly under
    sibling key `backend_metadata.sourcePodRetirements`.
@@ -145,14 +146,11 @@ def _source_descriptor(entry: Mapping[str, Any]) -> tuple[str, str, str, str, st
         project = str(entry.get("user_cloud_project") or "").strip()
         return ("gcp", "gcp", "hussh_pods", "Hussh Pods · Google Cloud", project)
     if target == "azure":
-        cell = str(
-            (
-                (entry.get("backend_metadata") or {})
-                if isinstance(entry.get("backend_metadata"), Mapping)
-                else {}
-            ).get("cellId")
-            or ""
-        ).strip()
+        raw_meta = entry.get("backend_metadata")
+        meta: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+        raw_admission = meta.get("hostedAzureAdmission")
+        admission: Mapping[str, Any] = raw_admission if isinstance(raw_admission, Mapping) else {}
+        cell = str(meta.get("cellId") or admission.get("cellId") or "").strip()
         return ("azure", "azure", "hussh_pods", "Hussh Pods · Microsoft Azure", cell)
     if target == "user_azure":
         rg = str(entry.get("user_cloud_resource_group") or "").strip()
@@ -180,7 +178,7 @@ class GraceDetachedPlacement:
 def iter_grace_governed_detached_placements(
     row: Mapping[str, Any] | None,
 ) -> list[GraceDetachedPlacement]:
-    """Return detached placements carrying an explicit 14-day ``graceReapAfter`` timestamp."""
+    """Return detached placements carrying an explicit 3-day ``graceReapAfter`` timestamp."""
     if not isinstance(row, Mapping):
         return []
     metadata = row.get("backend_metadata")
@@ -189,11 +187,20 @@ def iter_grace_governed_detached_placements(
     detached = metadata.get("detachedPlacements")
     if not isinstance(detached, Sequence) or isinstance(detached, (str, bytes)):
         return []
+    raw_ledger = metadata.get("sourcePodRetirements")
+    ledger: Mapping[str, Any] = raw_ledger if isinstance(raw_ledger, Mapping) else {}
     items: list[GraceDetachedPlacement] = []
     for entry in detached:
         if not isinstance(entry, Mapping):
             continue
-        reap_raw = str(entry.get("graceReapAfter") or "").strip()
+        placement_id = compute_placement_id(entry)
+        ledger_rec = ledger.get(placement_id)
+        ledger_reap = (
+            str(ledger_rec.get("graceReapAfter") or "").strip()
+            if isinstance(ledger_rec, Mapping)
+            else ""
+        )
+        reap_raw = str(entry.get("graceReapAfter") or "").strip() or ledger_reap
         reap_dt = _parse_iso(reap_raw)
         if reap_dt is None:
             # Explicit hold entries (no graceReapAfter) stay preserved untouched.
@@ -201,7 +208,7 @@ def iter_grace_governed_detached_placements(
         target, provider, kind, label, hint = _source_descriptor(entry)
         items.append(
             GraceDetachedPlacement(
-                placement_id=compute_placement_id(entry),
+                placement_id=placement_id,
                 entry=entry,
                 detached_at=str(entry.get("detachedAt") or "").strip(),
                 grace_reap_after=reap_raw,
@@ -225,19 +232,14 @@ def build_source_retirement_items(
     if not isinstance(row, Mapping):
         return []
     current = now or _now_dt()
-    metadata = (
-        row.get("backend_metadata") if isinstance(row.get("backend_metadata"), Mapping) else {}
-    )
-    ledger = (
-        metadata.get("sourcePodRetirements")
-        if isinstance(metadata.get("sourcePodRetirements"), Mapping)
-        else {}
-    )
+    raw_meta = row.get("backend_metadata")
+    metadata: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+    raw_ledger = metadata.get("sourcePodRetirements")
+    ledger: Mapping[str, Any] = raw_ledger if isinstance(raw_ledger, Mapping) else {}
     items: list[dict[str, Any]] = []
     for gp in iter_grace_governed_detached_placements(row):
-        rec = (
-            ledger.get(gp.placement_id) if isinstance(ledger.get(gp.placement_id), Mapping) else {}
-        )
+        raw_rec = ledger.get(gp.placement_id)
+        rec: Mapping[str, Any] = raw_rec if isinstance(raw_rec, Mapping) else {}
         owner_confirmed = bool(rec.get("ownerConfirmed") is True)
         grace_expired = current >= gp.reap_at
         seconds_left = max(0.0, (gp.reap_at - current).total_seconds())
@@ -556,9 +558,11 @@ def _retire_hosted_azure_slot_sync(
 def _retire_byoc_azure_observer_sync(
     *,
     gp: GraceDetachedPlacement,
+    active_external_ids: set[str] | None = None,
+    remove_resources: bool = False,
     arm_client: ArmClient | None = None,
 ) -> dict[str, Any]:
-    """Revoke only Hussh observer/removal role assignments on owner RG; never delete resources."""
+    """Revoke Hussh observer bindings; optionally delete Hussh pod app if owner opted in."""
     tenant_id = str(gp.entry.get("user_cloud_tenant_id") or "").strip()
     subscription_id = str(gp.entry.get("user_cloud_subscription_id") or "").strip()
     rg = str(gp.entry.get("user_cloud_resource_group") or "").strip()
@@ -566,6 +570,7 @@ def _retire_byoc_azure_observer_sync(
         return {
             "status": "retired_byoc_observer_revoked",
             "ownerCloudCleanupReady": True,
+            "ownerCloudResourcesDeleted": False,
             "revokedRoleAssignmentCount": 0,
         }
 
@@ -574,6 +579,31 @@ def _retire_byoc_azure_observer_sync(
         getattr(token_bundle, "object_id", "") or os.getenv("HUSSH_AZURE_APP_OBJECT_ID", "")
     ).strip()
     arm = arm_client or ArmClient(lambda: token_bundle.access_token)  # type: ignore[union-attr]
+
+    resources_deleted = False
+    if remove_resources:
+        ext_id = str(gp.entry.get("external_agent_id") or "").strip()
+        active_lower = active_external_ids or set()
+        if ext_id and ext_id.lower() not in active_lower:
+            app_resource_id = (
+                ext_id
+                if ext_id.startswith("/subscriptions/")
+                else f"/subscriptions/{subscription_id}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{ext_id}"
+            )
+            try:
+                resources_deleted = bool(
+                    arm.delete(
+                        app_resource_id,
+                        api_version=API_VERSIONS["container_apps"],
+                        op="source_retirement_delete_byoc_pod",
+                    )
+                )
+            except ArmError as exc:
+                if exc.kind not in {"not_found", "forbidden", "unauthorized"}:
+                    logger.info(
+                        "source_pod_retirement.byoc_azure_app_delete_skipped kind=%s",
+                        exc.kind,
+                    )
 
     scope = f"/subscriptions/{subscription_id}/resourceGroups/{rg}"
     list_path = f"{scope}/providers/Microsoft.Authorization/roleAssignments"
@@ -585,10 +615,11 @@ def _retire_byoc_azure_observer_sync(
             op="source_retirement_list_byoc_roles",
         )
     except ArmError as exc:
-        if exc.kind in {"forbidden", "unauthorized"}:
+        if exc.kind in {"forbidden", "unauthorized", "not_found"}:
             return {
                 "status": "retired_byoc_observer_revoked",
                 "ownerCloudCleanupReady": True,
+                "ownerCloudResourcesDeleted": resources_deleted,
                 "revokedRoleAssignmentCount": 0,
                 "alreadyRevokedByOwner": True,
             }
@@ -614,12 +645,53 @@ def _retire_byoc_azure_observer_sync(
             ):
                 revoked += 1
         except ArmError as exc:
-            if exc.kind not in {"not_found", "forbidden"}:
+            if exc.kind not in {"not_found", "forbidden", "unauthorized"}:
                 raise
     return {
         "status": "retired_byoc_observer_revoked",
         "ownerCloudCleanupReady": True,
+        "ownerCloudResourcesDeleted": resources_deleted,
         "revokedRoleAssignmentCount": revoked,
+    }
+
+
+def _retire_byoc_gcp_observer_sync(
+    *,
+    gp: GraceDetachedPlacement,
+    active_external_ids: set[str],
+    remove_resources: bool = False,
+) -> dict[str, Any]:
+    """Complete BYOC GCP retirement; best-effort delete detached pod only if owner opted in."""
+    resources_deleted = False
+    if remove_resources:
+        service = str(gp.entry.get("external_agent_id") or "").strip()
+        project = str(gp.entry.get("user_cloud_project") or "").strip()
+        region = str(gp.entry.get("user_cloud_region") or "us-central1").strip()
+        if service and project and service.lower() not in active_external_ids:
+            try:
+                creds, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                creds.refresh(google.auth.transport.requests.Request())
+                url = (
+                    f"https://run.googleapis.com/v2/projects/{project}/locations/"
+                    f"{region}/services/{service}"
+                )
+                resp = requests.delete(
+                    url,
+                    headers={"Authorization": f"Bearer {creds.token}"},
+                    timeout=20,
+                )
+                resources_deleted = resp.status_code in (200, 202, 204)
+            except Exception as exc:  # noqa: BLE001 - BYOC cleanup stays non-blocking on expired/revoked creds
+                logger.info(
+                    "source_pod_retirement.byoc_gcp_delete_skipped err=%s",
+                    type(exc).__name__,
+                )
+    return {
+        "status": "retired_byoc_observer_revoked",
+        "ownerCloudCleanupReady": True,
+        "ownerCloudResourcesDeleted": resources_deleted,
     }
 
 
@@ -685,7 +757,7 @@ class RetirementPassReport:
 
 
 class SourcePodRetirementSweeper:
-    """Two-key 14-day source-pod retirement worker (grace expiry AND owner confirmation)."""
+    """Two-key 3-day source-pod retirement worker (grace expiry AND owner confirmation)."""
 
     def __init__(
         self,
@@ -736,16 +808,10 @@ class SourcePodRetirementSweeper:
             user_id = str(row.get("user_id") or "").strip()
             if not user_id:
                 continue
-            metadata = (
-                row.get("backend_metadata")
-                if isinstance(row.get("backend_metadata"), Mapping)
-                else {}
-            )
-            ledger = (
-                metadata.get("sourcePodRetirements")
-                if isinstance(metadata.get("sourcePodRetirements"), Mapping)
-                else {}
-            )
+            raw_meta = row.get("backend_metadata")
+            metadata: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+            raw_ledger = metadata.get("sourcePodRetirements")
+            ledger: Mapping[str, Any] = raw_ledger if isinstance(raw_ledger, Mapping) else {}
             for gp in iter_grace_governed_detached_placements(row):
                 rec = ledger.get(gp.placement_id)
                 if not isinstance(rec, Mapping):
@@ -760,6 +826,7 @@ class SourcePodRetirementSweeper:
                     continue
 
                 try:
+                    remove_resources = bool(rec.get("removePriorCloudResources") is True)
                     if gp.source_target == "azure":
                         outcome = await asyncio.to_thread(
                             _retire_hosted_azure_slot_sync,
@@ -781,13 +848,17 @@ class SourcePodRetirementSweeper:
                         outcome = await asyncio.to_thread(
                             _retire_byoc_azure_observer_sync,
                             gp=gp,
+                            active_external_ids=active_external_ids,
+                            remove_resources=remove_resources,
                             arm_client=self._byoc_arm_client,
                         )
                     else:
-                        outcome = {
-                            "status": "retired_byoc_observer_revoked",
-                            "ownerCloudCleanupReady": True,
-                        }
+                        outcome = await asyncio.to_thread(
+                            _retire_byoc_gcp_observer_sync,
+                            gp=gp,
+                            active_external_ids=active_external_ids,
+                            remove_resources=remove_resources,
+                        )
 
                     def _record_retired(
                         _row_dict: dict[str, Any],
@@ -890,7 +961,7 @@ def start_source_pod_retirement_loop(
     initial_delay_seconds: float = _DEFAULT_INITIAL_DELAY_SECONDS,
     sweep_lock: Optional[FleetSweepLock] = None,
 ) -> asyncio.Task[Any] | None:
-    """Attach the fleet-serialized 14-day source-pod retirement worker in Dev mode only."""
+    """Attach the fleet-serialized 3-day source-pod retirement worker in Dev mode only."""
     if pod_mode() or not source_pod_retirement_sweep_enabled():
         return None
     worker = sweeper or SourcePodRetirementSweeper()
