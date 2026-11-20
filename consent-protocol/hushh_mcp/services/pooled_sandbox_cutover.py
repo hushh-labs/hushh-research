@@ -32,6 +32,7 @@ from hushh_mcp.services.hosted_ace_placement import (
 from hushh_mcp.services.hosted_azure_placement import has_hosted_azure_evidence
 from hushh_mcp.services.hosted_gcp_placement import has_hosted_evidence
 from hushh_mcp.services.personal_agent_identity_service import mint_billing_space_id
+from hushh_mcp.services.pod_ai_selection_seal import SUPPORTED_PROVIDERS
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
 from hushh_mcp.services.pod_request_signing import public_key_b64, signing_key_id
 from hushh_mcp.services.pod_self_registration import derive_signing_key
@@ -49,6 +50,26 @@ _OWNER_CLOUD_COLUMNS = (
     "user_cloud_tenant_id",
     "user_cloud_subscription_id",
     "user_cloud_resource_group",
+)
+_STALE_NON_ACE_METADATA_KEYS = frozenset(
+    {
+        "bindings",
+        "endpoint",
+        "directReadiness",
+        "provisionAttempt",
+        "setupNonce",
+        "installedRelease",
+        "observed",
+        "credential",
+        "hostedAzureAdmission",
+        "tenantId",
+        "subscriptionId",
+        "resourceGroup",
+        "image",
+        "image_digest",
+        "region",
+        "livenessMode",
+    }
 )
 _BLOCKING_BYOC_STAGES = frozenset(
     {
@@ -166,14 +187,18 @@ async def has_blocking_byoc_setup_job(user_id: str, *, job_repo: Any = None) -> 
     return False
 
 
-def _should_preserve_existing_row(row: Mapping[str, Any] | None) -> bool:
+def _should_preserve_existing_row(
+    row: Mapping[str, Any] | None, *, allow_non_ace_hosted_cutover: bool = False
+) -> bool:
     if row is None:
         return False
     if is_owner_cloud_target(row.get("deployment_target")):
         return True
     if any(row.get(col) is not None for col in _OWNER_CLOUD_COLUMNS):
         return True
-    if has_hosted_evidence(row) or has_hosted_azure_evidence(row):
+    if not allow_non_ace_hosted_cutover and (
+        has_hosted_evidence(row) or has_hosted_azure_evidence(row)
+    ):
         return True
     meta = row.get("backend_metadata")
     if isinstance(meta, Mapping):
@@ -192,6 +217,8 @@ async def ensure_pooled_sandbox_placement(
     registry: Any = None,
     job_repo: Any = None,
     grant_service: Any = None,
+    bypass_byoc_job_fence: bool = False,
+    allow_non_ace_hosted_cutover: bool = False,
 ) -> dict[str, Any] | None:
     """Idempotently place or cut over an unplaced/shared user onto Pooled Personal Sandboxes."""
     if not sandbox_pool_cutover_enabled():
@@ -210,10 +237,14 @@ async def ensure_pooled_sandbox_placement(
     tombstone_check = getattr(repo, "tombstone_exists", None)
     if callable(tombstone_check) and await tombstone_check(user_id):
         return row
-    if _should_preserve_existing_row(row):
+    if _should_preserve_existing_row(
+        row, allow_non_ace_hosted_cutover=allow_non_ace_hosted_cutover
+    ):
         return row
-    if not has_hosted_ace_evidence(row) and await has_blocking_byoc_setup_job(
-        user_id, job_repo=job_repo
+    if (
+        not bypass_byoc_job_fence
+        and not has_hosted_ace_evidence(row)
+        and await has_blocking_byoc_setup_job(user_id, job_repo=job_repo)
     ):
         return row
 
@@ -231,6 +262,7 @@ async def ensure_pooled_sandbox_placement(
         and str((row.get("backend_metadata") or {}).get("url") or "").rstrip("/") == pod_url
         and str(row.get("pod_pubkey") or "") == keys["pod_pubkey"]
         and str(row.get("pod_signing_pubkey") or "") == keys["pod_signing_pubkey"]
+        and (row.get("backend_metadata") or {}).get("ready") is True
     ):
         return dict(row)
 
@@ -242,16 +274,34 @@ async def ensure_pooled_sandbox_placement(
         or hashlib.sha256(f"pooled-sandbox:{user_id}".encode("utf-8")).hexdigest()
     )
 
-    prev_meta = (
+    raw_prev_meta = (
         dict(row["backend_metadata"])
         if isinstance(row, Mapping) and isinstance(row.get("backend_metadata"), Mapping)
         else {}
+    )
+    # Strip stale legacy cloud keys when entering ACE while preserving
+    # detachedPlacements and puppy* keys byte-for-byte for PostgreSQL triggers.
+    prev_meta = (
+        raw_prev_meta
+        if has_hosted_ace_evidence(row)
+        else {k: v for k, v in raw_prev_meta.items() if k not in _STALE_NON_ACE_METADATA_KEYS}
     )
     raw_ver = prev_meta.get("endpointVersion")
     endpoint_version = raw_ver if isinstance(raw_ver, int) and raw_ver >= 1 else 1
     service_uid = f"ace-pool-{hushh_id}"
     lane = deploy_lane()
     owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+
+    existing_observed = prev_meta.get("observed")
+    ai_selection = {
+        "version": 1,
+        "providers": list(SUPPORTED_PROVIDERS),
+        "defaultVerification": True,
+    }
+    observed_meta: dict[str, Any] = (
+        {**existing_observed} if isinstance(existing_observed, Mapping) else {}
+    )
+    observed_meta.setdefault("aiSelection", ai_selection)
 
     merged_meta: dict[str, Any] = {
         **prev_meta,
@@ -261,7 +311,9 @@ async def ensure_pooled_sandbox_placement(
         "serviceUid": service_uid,
         "url": pod_url,
         "ingress": "direct",
+        "ready": True,
         "endpointVersion": endpoint_version,
+        "observed": observed_meta,
         "directReadiness": {
             "verified": True,
             "url": pod_url,
@@ -304,7 +356,217 @@ async def ensure_pooled_sandbox_placement(
     return dict(updated) if isinstance(updated, Mapping) else row
 
 
+def _clear_unassigned_owner_cloud_columns_sync(db: Any, user_id: str) -> None:
+    db.execute_raw(
+        """
+        UPDATE public.personal_agent_registry
+        SET status = 'unprovisioned',
+            backend = NULL,
+            deployment_target = NULL,
+            user_cloud_project = NULL,
+            user_cloud_region = NULL,
+            user_cloud_bootstrap_sa = NULL,
+            user_cloud_authorized_at = NULL,
+            user_cloud_tenant_id = NULL,
+            user_cloud_subscription_id = NULL,
+            user_cloud_resource_group = NULL,
+            updated_at = now()
+        WHERE user_id = :user_id
+          AND external_agent_id IS NULL
+          AND NOT (coalesce(backend_metadata, '{}'::jsonb) ? 'erasure')
+          AND NOT (coalesce(backend_metadata, '{}'::jsonb) ? 'upgradeLease')
+        """,
+        {"user_id": user_id},
+    )
+
+
+async def adopt_pooled_sandbox_for_owner(
+    *,
+    user_id: str,
+    allow_clean_slate: bool = False,
+    registry: Any = None,
+    job_repo: Any = None,
+    migration_job_repo: Any = None,
+    grant_service: Any = None,
+    detach_fn: Any = None,
+    identity_service: Any = None,
+    db: Any = None,
+) -> dict[str, Any]:
+    """Explicit owner-confirmed switch from personal/stalled/fenced cloud onto ACE sandbox."""
+    import asyncio  # noqa: PLC0415
+
+    if not sandbox_pool_cutover_enabled():
+        raise PermissionError("POOLED_SANDBOX_UNAVAILABLE")
+
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService  # noqa: PLC0415
+    from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo  # noqa: PLC0415
+    from hushh_mcp.services.personal_agent_placement_detach import (  # noqa: PLC0415
+        detach_placement,
+    )
+    from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+        PersonalAgentRegistryRepo,
+    )
+    from hushh_mcp.services.pod_migration_service import PodMigrationJobRepo  # noqa: PLC0415
+
+    repo = registry or PersonalAgentRegistryRepo()
+    tombstone_check = getattr(repo, "tombstone_exists", None)
+    if callable(tombstone_check) and await tombstone_check(user_id):
+        raise ValueError("Account deletion is in progress.")
+
+    jobs = job_repo or ByocSetupJobRepo()
+    setup_job = await jobs._current(user_id)
+    if isinstance(setup_job, Mapping) and str(setup_job.get("status") or "").strip() == "running":
+        raise ValueError("A cloud setup job is currently running. Wait for it to finish first.")
+
+    mig_repo = migration_job_repo or PodMigrationJobRepo()
+    mig_job = await mig_repo.get(user_id)
+    if isinstance(mig_job, Mapping) and str(mig_job.get("status") or "").strip() == "running":
+        raise ValueError("A pod migration is currently running. Wait for it to finish first.")
+
+    row = await repo.get(user_id)
+    if isinstance(row, Mapping):
+        meta = (
+            row.get("backend_metadata") if isinstance(row.get("backend_metadata"), Mapping) else {}
+        )
+        if "erasure" in meta:
+            raise ValueError("Account cloud removal is in progress.")
+        if meta.get("upgradeLease"):
+            raise ValueError("An agent update is currently running. Try again after it settles.")
+        vm_power = meta.get("vmPower")
+        if isinstance(vm_power, Mapping) and str(vm_power.get("phase") or "").strip() not in {
+            "",
+            "ready",
+        }:
+            raise ValueError("Your cloud VM is currently changing power state.")
+        attempt = meta.get("provisionAttempt")
+        if isinstance(attempt, Mapping) and str(attempt.get("phase") or "") != "provisioned":
+            raise ValueError("An unfinished cloud provisioning attempt is holding this slot.")
+
+        if has_hosted_ace_evidence(row) and str(row.get("status") or "") == "provisioned":
+            ensured = await ensure_pooled_sandbox_placement(
+                user_id=user_id,
+                existing_row=dict(row),
+                registry=repo,
+                job_repo=jobs,
+                grant_service=grant_service,
+                bypass_byoc_job_fence=True,
+            )
+            if not isinstance(ensured, Mapping):
+                raise ValueError("Could not refresh Personal Sandbox placement.")
+            return {
+                "status": "ready",
+                "hostingMode": "hussh_pods",
+                "deploymentTarget": "ace",
+                "hushhId": str(ensured.get("hushh_id") or ""),
+                "podUrl": str(ensured.get("a2a_route") or ""),
+                "detachedPriorHost": False,
+            }
+
+    detached_prior = False
+    if (
+        isinstance(row, Mapping)
+        and bool(row.get("external_agent_id"))
+        and str(row.get("deployment_target") or "").strip() != "ace"
+    ):
+        if not allow_clean_slate:
+            raise ValueError("CLEAN_SLATE_CONFIRMATION_REQUIRED")
+        actual_detach = detach_fn or detach_placement
+        detached = await actual_detach(
+            row=dict(row),
+            reason="owner switched to Hussh Personal Sandbox",
+            db=db,
+            allow_stalled_states=True,
+        )
+        if detached is None:
+            fresh = await repo.get(user_id)
+            if (
+                isinstance(fresh, Mapping)
+                and bool(fresh.get("external_agent_id"))
+                and str(fresh.get("deployment_target") or "").strip() != "ace"
+            ):
+                detached = await actual_detach(
+                    row=dict(fresh),
+                    reason="owner switched to Hussh Personal Sandbox",
+                    db=db,
+                    allow_stalled_states=True,
+                )
+            if detached is None:
+                raise ValueError("Hosting state changed while switching. Refresh and try again.")
+        detached_prior = True
+        row = await repo.get(user_id)
+    elif isinstance(row, Mapping) and (
+        is_owner_cloud_target(row.get("deployment_target"))
+        or any(row.get(col) is not None for col in _OWNER_CLOUD_COLUMNS)
+        or (
+            not has_hosted_ace_evidence(row)
+            and (
+                str(row.get("deployment_target") or "").strip() in {"gcp", "azure"}
+                or has_hosted_evidence(row)
+                or has_hosted_azure_evidence(row)
+            )
+        )
+    ):
+        if not allow_clean_slate:
+            raise ValueError("CLEAN_SLATE_CONFIRMATION_REQUIRED")
+        target_db = db or (repo._db() if hasattr(repo, "_db") else None)
+        if target_db is not None:
+            await asyncio.to_thread(_clear_unassigned_owner_cloud_columns_sync, target_db, user_id)
+            row = await repo.get(user_id)
+        elif callable(getattr(repo, "clear_unassigned_owner_cloud", None)):
+            await repo.clear_unassigned_owner_cloud(user_id)
+            row = await repo.get(user_id)
+        else:
+            stored = (
+                repo.rows.get(user_id) if isinstance(getattr(repo, "rows", None), dict) else None
+            )
+            for target_row in (stored, row):
+                if isinstance(target_row, dict):
+                    for col in _OWNER_CLOUD_COLUMNS:
+                        target_row[col] = None
+                    target_row["deployment_target"] = None
+                    target_row["backend"] = None
+                    target_row["status"] = "unprovisioned"
+            if isinstance(stored, dict):
+                row = await repo.get(user_id)
+            else:
+                cleared_copy = dict(row)
+                for col in _OWNER_CLOUD_COLUMNS:
+                    cleared_copy[col] = None
+                cleared_copy["deployment_target"] = None
+                cleared_copy["backend"] = None
+                cleared_copy["status"] = "unprovisioned"
+                row = cleared_copy
+
+    if row is None:
+        id_svc = identity_service or ActorIdentityService()
+        identity = (await id_svc.get_many([user_id])).get(user_id) or {}
+        if identity.get("phone_verified") is not True:
+            raise ValueError("Verify your phone number first.")
+
+    updated = await ensure_pooled_sandbox_placement(
+        user_id=user_id,
+        existing_row=dict(row) if isinstance(row, Mapping) else None,
+        registry=repo,
+        job_repo=jobs,
+        grant_service=grant_service,
+        bypass_byoc_job_fence=True,
+        allow_non_ace_hosted_cutover=True,
+    )
+    if not isinstance(updated, Mapping) or str(updated.get("deployment_target") or "") != "ace":
+        raise ValueError("Could not activate Hussh Personal Sandbox right now.")
+
+    return {
+        "status": "ready",
+        "hostingMode": "hussh_pods",
+        "deploymentTarget": "ace",
+        "hushhId": str(updated.get("hushh_id") or ""),
+        "podUrl": str(updated.get("a2a_route") or ""),
+        "detachedPriorHost": detached_prior,
+    }
+
+
 __all__ = [
+    "adopt_pooled_sandbox_for_owner",
     "derive_pooled_owner_public_keys",
     "ensure_pooled_sandbox_placement",
     "has_blocking_byoc_setup_job",

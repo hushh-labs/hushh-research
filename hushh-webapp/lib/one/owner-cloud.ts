@@ -116,6 +116,11 @@ export function isHostedAzureMigrationAvailable(): boolean {
   return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }
 
+/** Whether switching onto Pooled Personal Sandbox is available on this build. */
+export function isPooledSandboxSwitchAvailable(): boolean {
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
+}
+
 /** A private mode chooses direct admission; it never establishes authority. */
 export function isPrivateHostingMode(mode: unknown): boolean {
   return mode === "byoc" || mode === "hussh_pods";

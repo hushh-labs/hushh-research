@@ -1,5 +1,5 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { useAgentSettingsController } from "@/components/profile/use-agent-settings-controller";
 import { useNativeAgentSettings } from "@/components/profile/use-native-agent-settings";
@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   inspectHosting: vi.fn(),
   hostedMigrationStatus: vi.fn(),
   migrateToHostedAzure: vi.fn(),
+  adoptPooledSandbox: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -56,6 +57,7 @@ vi.mock("@/lib/services/api-service", () => ({
     inspectPersonalAgentHosting: mocks.inspectHosting,
     getHostedAzureMigrationStatus: mocks.hostedMigrationStatus,
     migrateToHostedAzure: mocks.migrateToHostedAzure,
+    adoptPooledSandbox: mocks.adoptPooledSandbox,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -76,12 +78,25 @@ function status(mode: string, extra: object = {}, update = NO_UPDATE) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("owner");
   mocks.promiseToast.mockImplementation((request: Promise<unknown>) => ({
     unwrap: () => request,
     valueOf: () => 42,
   }));
+  mocks.adoptPooledSandbox.mockResolvedValue({
+    status: "ready",
+    hostingMode: "hussh_pods",
+    deploymentTarget: "ace",
+    hushhId: "ha1_sandbox",
+    podUrl: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_sandbox",
+    detachedPriorHost: true,
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("owner hosting and software settings", () => {
@@ -642,14 +657,16 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("renders the graphical Azure migration card in Dev and submits only after confirmation", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+  it("renders the graphical Azure migration card when explicitly enabled outside Dev and submits only after confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
     mocks.hostedMigrationStatus.mockResolvedValue({
       job: null,
       deploymentTarget: "gcp",
       registryStatus: "provisioned",
       cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
-      cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+      cellPool: { environment: "uat", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
     });
     mocks.migrateToHostedAzure.mockResolvedValue({
       jobId: "mig_1",
@@ -674,6 +691,46 @@ describe("owner hosting and software settings", () => {
     fireEvent.click(confirm);
     await waitFor(() => expect(mocks.migrateToHostedAzure).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
-    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    { mode: "byoc", deploymentTarget: "user_gcp", cloudProject: "owner-gcp", expectConfirm: true },
+    { mode: "byoc", deploymentTarget: "user_azure", cloudProject: "eastus2", expectConfirm: true },
+    { mode: "hussh_pods", deploymentTarget: "gcp", cloudProject: undefined, expectConfirm: true },
+    { mode: "hussh_pods", deploymentTarget: "azure", cloudProject: undefined, expectConfirm: true },
+    { mode: "pending", deploymentTarget: "user_azure", cloudProject: undefined, expectConfirm: false },
+  ] as const)(
+    "renders Personal Sandbox switch in Dev instead of legacy migration for $mode/$deploymentTarget",
+    async ({ mode, deploymentTarget, cloudProject, expectConfirm }) => {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+      status(mode, { state: "active", deploymentTarget, cloudProject, featureEnabled: true });
+
+      render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+      const card = await screen.findByTestId("pooled-sandbox-switch-card");
+      expect(screen.queryByTestId("hussh-pods-migration-route")).toBeNull();
+      expect(card).toHaveTextContent(
+        expectConfirm ? "Switch to Hussh Personal Sandbox" : "Start in Hussh Personal Sandbox",
+      );
+
+      fireEvent.click(screen.getByTestId("pooled-sandbox-switch-trigger"));
+      if (expectConfirm) {
+        expect(mocks.adoptPooledSandbox).not.toHaveBeenCalled();
+        fireEvent.click(await screen.findByTestId("pooled-sandbox-switch-confirm"));
+      }
+      await waitFor(() => expect(mocks.adoptPooledSandbox).toHaveBeenCalledOnce());
+      await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    },
+  );
+
+  it("shows multi-cloud Personal Sandbox identity for ace and hides switch card", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    const card = await screen.findByTestId("hussh-pods-connected");
+    expect(card).toHaveAttribute("data-provider", "ace");
+    expect(card).toHaveTextContent("Isolated Personal Sandbox across Google Cloud and Microsoft Azure");
+    expect(screen.getByTestId("hussh-pods-active-dual-cloud")).toBeInTheDocument();
+    expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
   });
 });

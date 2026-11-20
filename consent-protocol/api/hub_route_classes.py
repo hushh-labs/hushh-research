@@ -453,6 +453,7 @@ GET /api/one/runtime/byoc/project/suggest
 GET /api/one/runtime/byoc/setup/status
 GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
+POST /api/one/runtime/pooled-sandbox/adopt
 POST /api/one/runtime/shared/select
 POST /api/one/runtime/standby/sync
 POST /api/one/sandbox/claims

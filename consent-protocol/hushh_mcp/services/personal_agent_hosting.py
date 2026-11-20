@@ -208,14 +208,20 @@ def shared_choice_is_current(row: dict | None, choice: dict | None) -> bool:
 
 
 def setup_job_superseded_by_detach(row: dict | None, setup_job: dict) -> bool:
-    """A setup job for a placement the owner has since detached is history.
+    """A setup job for a placement the owner has since detached or left for ACE is history.
 
     Detaching (``personal_agent_placement_detach``) releases the slot and records the
     old placement under ``detachedPlacements``. A job created before that detach is
     not a current choice any more; reading it as one leaves the person with no home
-    and no way to pick a new one. A job without readable times falls back to the
-    project match for an attached job.
+    and no way to pick a new one. Similarly, when an owner explicitly adopts Pooled
+    Personal Sandbox (``ace``) over a historical non-running BYOC setup job, the old
+    setup job is superseded history without mutating the audit row. A job without
+    readable times falls back to the project match for an attached job.
     """
+    from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+
+    if has_hosted_ace_evidence(row) and str(setup_job.get("status") or "").strip() != "running":
+        return True
     detach = _last_detach(row)
     if detach is None:
         return False

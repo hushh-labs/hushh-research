@@ -7,6 +7,7 @@ import {
   isAzureHomeSelectable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
   isPrivatePodBinding,
   ownerCloudProvider,
 } from "@/lib/one/owner-cloud";
@@ -92,5 +93,15 @@ describe("the owner-cloud question", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
     expect(isHostedPodTierUnderMaintenance()).toBe(false);
+  });
+
+  it("enables Personal Sandbox switching only on the hosted dev build", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    expect(isPooledSandboxSwitchAvailable()).toBe(true);
+
+    for (const env of ["uat", "production", "development", "staging", "", "dev-uat"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
+      expect(isPooledSandboxSwitchAvailable()).toBe(false);
+    }
   });
 });
