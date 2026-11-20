@@ -165,6 +165,21 @@ function cachedBackendPhoneIsMissing(userId: string): boolean {
   return backendPhoneIsMissing(cachedBackendPhoneIdentity(userId), userId);
 }
 
+async function refreshPhoneIdentity(user: User, ownerId: string): Promise<AccountIdentity | null> {
+  const readOnly = shouldSkipAmbientIdentityHydrationForAutomation();
+  try {
+    return await AccountIdentityService.refreshCurrentUserIdentity(user,
+      readOnly ? { readOnly: true } : { force: true, requireSuccess: true });
+  } catch (error) {
+    if (readOnly) throw error;
+    // Provider downtime cannot erase an existing app claim. A read-only
+    // negative cannot confirm provider absence and must remain retryable.
+    const saved = await AccountIdentityService.refreshCurrentUserIdentity(user, { readOnly: true }).catch(() => null);
+    if (verifiedBackendPhoneNumber(saved, ownerId)) return saved;
+    throw error;
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -333,6 +348,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     lifetime: number;
     promise: Promise<string | null>;
   } | null>(null);
+  const checkedPhoneRecoveryRef = useRef<{
+    firebaseUid: string;
+    ownerId: string;
+    generation: number | null;
+  } | null>(null);
   const authRecoveryInFlightRef = useRef(false);
   const terminalInvalidationLatchRef = useRef<{
     invalidatedUserId: string | null;
@@ -473,7 +493,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!currentUser?.uid || !ownerId) return null;
     const generation = getAuthSessionGeneration();
     const lifetime = phoneRecoveryLifetimeRef.current;
-    const isCurrent = () => userRef.current?.uid === currentUser.uid &&
+    const isCurrent = () => userRef.current?.uid === currentUser.uid && principalRef.current?.ownerId === ownerId &&
       generation === getAuthSessionGeneration() && lifetime === phoneRecoveryLifetimeRef.current;
 
     const cachedIdentity = AccountIdentityService.peekCachedIdentity(
@@ -510,13 +530,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // shadow. Contact normalization needs an authoritative region, so this
       // missing-phone path must consult Firebase even when that cache is fresh.
       const identity = await withinAccountSessionValidationBudget(
-        AccountIdentityService.refreshCurrentUserIdentity(
-          currentUser,
-          { force: true },
-        ),
+        refreshPhoneIdentity(currentUser, ownerId),
         Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
       );
       if (!isCurrent()) return null;
+      if (!shouldSkipAmbientIdentityHydrationForAutomation() &&
+        (verifiedBackendPhoneNumber(identity, ownerId) || backendPhoneIsMissing(identity, ownerId))) {
+        checkedPhoneRecoveryRef.current = { firebaseUid: currentUser.uid, ownerId, generation };
+      }
 
       // A newer claim can publish after this read returns but before the
       // awaiting consumer resumes. Preserve that canonical phone evidence.
@@ -558,7 +579,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [setPhoneNumberStatus]);
 
   useEffect(() => {
-    if (!user || !accountPrincipal || shouldSkipAmbientIdentityHydrationForAutomation()) return;
+    if (!user || !accountPrincipal) return;
     const expectedUid = user.uid;
     const ownerId = accountPrincipal.ownerId;
     const generation = getAuthSessionGeneration();
@@ -575,14 +596,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       retryTimer = null;
     };
     const freshIdentity = () => cachedBackendPhoneIdentity(ownerId);
+    const needsNegativeRecovery = () => {
+      if (shouldSkipAmbientIdentityHydrationForAutomation() || phoneVerificationOwnerRef.current === expectedUid) return false;
+      const checked = checkedPhoneRecoveryRef.current;
+      return checked?.firebaseUid !== expectedUid || checked.ownerId !== ownerId || checked.generation !== generation;
+    };
     const hasFreshPhoneEvidence = () => {
       const identity = freshIdentity();
-      return Boolean(verifiedBackendPhoneNumber(identity, ownerId) || backendPhoneIsMissing(identity, ownerId));
+      return Boolean(verifiedBackendPhoneNumber(identity, ownerId) ||
+        (backendPhoneIsMissing(identity, ownerId) && !needsNegativeRecovery()));
     };
     const applyPhoneIdentity = (identity: AccountIdentity | null | undefined) => {
       if (!isCurrent()) return false;
       const verifiedPhone = verifiedBackendPhoneNumber(identity, ownerId);
       if (verifiedPhone) {
+        checkedPhoneRecoveryRef.current = { firebaseUid: expectedUid, ownerId, generation };
         phoneNumberRef.current = verifiedPhone;
         setPhoneNumber(verifiedPhone);
         setPhoneNumberStatus("verified");
@@ -591,21 +619,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setPhoneNumber(null);
         setPhoneNumberStatus("missing");
       } else return false;
-      clearRetry();
+      if (verifiedPhone || !needsNegativeRecovery()) clearRetry();
       return true;
     };
     const recover = async () => {
       if (!isCurrent() || running || !canReachBackend()) return;
-      if (applyPhoneIdentity(freshIdentity())) return;
+      const cached = freshIdentity();
+      // A restored negative cache predates this admission. Confirm it once
+      // with the current provider; a completed negative or active OTP stays put.
+      if (applyPhoneIdentity(cached) &&
+        (!backendPhoneIsMissing(cached, ownerId) || !needsNegativeRecovery())) return;
       clearRetry();
       running = true;
       try {
         if (phoneNumberRef.current) {
           // Revalidate the last committed claim while keeping it visible through an outage.
           const identity = await withinAccountSessionValidationBudget(
-            AccountIdentityService.refreshCurrentUserIdentity(user, { force: true }),
+            refreshPhoneIdentity(user, ownerId),
             Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
           );
+          if (isCurrent() && !shouldSkipAmbientIdentityHydrationForAutomation() &&
+            (verifiedBackendPhoneNumber(identity, ownerId) || backendPhoneIsMissing(identity, ownerId))) {
+            checkedPhoneRecoveryRef.current = { firebaseUid: expectedUid, ownerId, generation };
+          }
           applyPhoneIdentity(freshIdentity() ?? identity);
         } else await resolveVerifiedPhoneNumber();
       } catch { /* Availability stays retryable. */ }

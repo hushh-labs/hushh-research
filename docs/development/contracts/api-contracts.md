@@ -745,6 +745,20 @@ remain available to the recovery and compatibility flows that use them. An
 expired challenge retires only its captured owner and attempt. Missing local
 state is `phone-verification-required`, distinct from provider `code-expired`.
 
+`GET /api/account/identity` reads only the authenticated application owner's saved
+identity through the read-only Firebase dependency. It returns
+`{success, user_id, identity}` with `Cache-Control: private, no-store`. An absent
+record stays `identity: null`. This request performs no Firebase synchronization
+or claim write. Reviewer phone hydration uses this read and retains the existing
+owner, generation and publication-order checks, plus the identity-cache subscription.
+Read-only reviewer activity collection is suppressed at scope capture and dispatch.
+
+Account and Personal World Model display the masked, committed application phone.
+Account separately reads the current same-UID Firebase phone to determine editor
+readiness and link versus replacement. A saved verified phone without that sign-in
+link offers Manage. Submitting the saved number requires fresh SMS verification,
+and the editor receives a current phone only when the provider and saved claim agree.
+
 When a legacy app claim belongs to a different active owner, the app write
 refuses the claim even if Firebase accepted the link. That result requires
 reconciliation of the two records before release to accounts with unresolved

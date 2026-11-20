@@ -794,6 +794,7 @@ describe("Personal World Model page", () => {
       emailVerified: true,
     };
     mock.auth.phoneNumber = "+14155550123";
+    mock.auth.phoneNumberStatus = "verified";
     research(pending);
     render(<PersonalWorldModelPage embedded />);
 
@@ -813,6 +814,30 @@ describe("Personal World Model page", () => {
     expect(phone).toHaveTextContent("0123");
     expect(phone).not.toHaveTextContent("5550123");
     expect(within(phone).getByText("Verified")).toBeInTheDocument();
+  });
+
+  it("keeps a Firebase-only phone out of the verified research identity", async () => {
+    mock.auth.user = { uid: "owner-a", displayName: "Alice", phoneNumber: "+14155550123" };
+    mock.auth.phoneNumberStatus = "missing";
+    research(pending);
+    render(<PersonalWorldModelPage embedded />);
+    const phone = await screen.findByTestId("pwm-identity-phone");
+    expect(phone).toHaveTextContent("Not added");
+    expect(within(phone).queryByText("Verified")).toBeNull();
+    expect(phone).not.toHaveTextContent("0123");
+  });
+
+  it.each([
+    ["loading", "Checking phone number…"],
+    ["unavailable", "Phone number temporarily unavailable"],
+  ] as const)("keeps %s identity unresolved", async (status, label) => {
+    mock.auth.phoneNumberStatus = status;
+    mock.auth.phoneNumber = "+14155550123";
+    research(pending);
+    render(<PersonalWorldModelPage embedded />);
+    const phone = await screen.findByTestId("pwm-identity-phone");
+    expect(phone).toHaveTextContent(label);
+    expect(within(phone).queryByText("Verified")).toBeNull();
   });
 
   it("tells the owner what to add when identity is insufficient, with a way there", async () => {
