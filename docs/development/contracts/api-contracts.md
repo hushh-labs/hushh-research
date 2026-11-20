@@ -88,7 +88,10 @@ database name and user. Each request constructs a bounded pool against the fixed
 UAT Cloud SQL socket, verifies each connection's database and user, and closes
 the pool. Firebase must be the UAT project; production identity, policy and key
 are never fallback sources. The managed socket mount must be checked against the
-UAT instance during release. These settings remain disabled until separately
+UAT instance during release. An explicit UAT policy with all three exclusion
+arrays empty includes every otherwise eligible registered UAT account. Missing
+or malformed policy is rejected. Disabled, deprovisioned and deleted accounts
+remain ineligible. These settings remain disabled until separately
 reconciled and accepted; UAT activity is test activity, not customer adoption.
 
 The request contains exactly `period: {startDate,endDate,timezone}`,
