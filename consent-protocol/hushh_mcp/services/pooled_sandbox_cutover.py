@@ -245,6 +245,7 @@ async def ensure_pooled_sandbox_placement(
     registry: Any = None,
     job_repo: Any = None,
     grant_service: Any = None,
+    cloud_marker_writer: Any = None,
     bypass_byoc_job_fence: bool = False,
     allow_non_ace_hosted_cutover: bool = False,
     extra_source_retirements: Mapping[str, Any] | None = None,
@@ -253,12 +254,21 @@ async def ensure_pooled_sandbox_placement(
     if not sandbox_pool_cutover_enabled():
         return existing_row
 
+    from hushh_mcp.services.owner_hosting_choice import (  # noqa: PLC0415
+        write_cloud_setup_marker,
+    )
     from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
         PersonalAgentGrantService,
     )
     from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
         PersonalAgentRegistryRepo,
     )
+
+    async def _ensure_cloud_marker() -> None:
+        if cloud_marker_writer is not None:
+            await cloud_marker_writer(user_id)
+        elif registry is None:
+            await write_cloud_setup_marker(user_id)
 
     repo = registry or PersonalAgentRegistryRepo()
     row = existing_row if existing_row is not None else await repo.get(user_id)
@@ -269,6 +279,8 @@ async def ensure_pooled_sandbox_placement(
     if _should_preserve_existing_row(
         row, allow_non_ace_hosted_cutover=allow_non_ace_hosted_cutover
     ):
+        if has_hosted_ace_evidence(row) and str((row or {}).get("status") or "") == "provisioned":
+            await _ensure_cloud_marker()
         return row
     if (
         not bypass_byoc_job_fence
@@ -294,6 +306,7 @@ async def ensure_pooled_sandbox_placement(
         and str(row.get("pod_signing_pubkey") or "") == keys["pod_signing_pubkey"]
         and (row.get("backend_metadata") or {}).get("ready") is True
     ):
+        await _ensure_cloud_marker()
         return dict(row)
 
     billing_space_id = str(
@@ -407,6 +420,7 @@ async def ensure_pooled_sandbox_placement(
         deployment_target="ace",
         model_credential_mode="byok_per_turn",
     )
+    await _ensure_cloud_marker()
     updated = await repo.get(user_id)
     return dict(updated) if isinstance(updated, Mapping) else row
 

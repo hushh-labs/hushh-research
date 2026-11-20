@@ -1117,3 +1117,59 @@ async def test_adopt_pooled_sandbox_dead_byoc_falls_back_to_3_day_grace_and_opt_
     assert del_rec["ownerConfirmed"] is True
     assert del_rec["removePriorCloudResources"] is True
     assert del_rec["status"] == "ready_for_retirement"
+
+
+async def test_ensure_pooled_sandbox_placement_writes_cloud_setup_marker_except_for_byoc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_cutover(monkeypatch)
+    reg = _FakeRegistry(
+        {
+            "uid-byoc-preserve": {
+                "user_id": "uid-byoc-preserve",
+                "hushh_id": "ha1_byocpreserve0000000000000000000",
+                "status": "provisioned",
+                "deployment_target": "user_azure",
+                "backend": "user_azure",
+                "external_agent_id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/containerApps/pod",
+                "user_cloud_subscription_id": "sub",
+                "backend_metadata": {"url": "https://byoc-az.example"},
+            }
+        }
+    )
+    marked: list[str] = []
+
+    async def _mark(uid: str) -> None:
+        marked.append(uid)
+
+    placed = await ensure_pooled_sandbox_placement(
+        user_id="uid-cold-signup",
+        registry=reg,
+        job_repo=_FakeJobs(),
+        grant_service=_FakeGrants(),
+        cloud_marker_writer=_mark,
+    )
+    assert placed is not None and placed["deployment_target"] == "ace"
+    assert marked == ["uid-cold-signup"]
+
+    # Idempotent repeat on already-placed ACE row also ensures marker is present.
+    repeated = await ensure_pooled_sandbox_placement(
+        user_id="uid-cold-signup",
+        registry=reg,
+        job_repo=_FakeJobs(),
+        grant_service=_FakeGrants(),
+        cloud_marker_writer=_mark,
+    )
+    assert repeated is not None and repeated["deployment_target"] == "ace"
+    assert marked == ["uid-cold-signup", "uid-cold-signup"]
+
+    # Negative control: preserved BYOC placement never receives an ACE cloud marker.
+    byoc = await ensure_pooled_sandbox_placement(
+        user_id="uid-byoc-preserve",
+        registry=reg,
+        job_repo=_FakeJobs(),
+        grant_service=_FakeGrants(),
+        cloud_marker_writer=_mark,
+    )
+    assert byoc is not None and byoc["deployment_target"] == "user_azure"
+    assert "uid-byoc-preserve" not in marked
