@@ -16,7 +16,7 @@ function browserPermission(): BrowserPermission {
 }
 
 /** Explicit permission action for browser and native notification registration. */
-export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat" | "location" } = {}) {
+export function FeedPushPrompt({ context = "settings" }: { context?: "settings" | "chat" | "location" } = {}) {
   const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
