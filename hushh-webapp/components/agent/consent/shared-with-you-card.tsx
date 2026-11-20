@@ -144,7 +144,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
   // same items keeps every open that is in flight.
   const itemsSignature = JSON.stringify(rawItems.map((item) => [item.key, item.bundleId, item.requestId,
     item.grantRef, item.label, item.status, item.sharedAt, item.accessEndsAt, item.decryptable,
-    item.sensitivity, item.domain, item.purpose, item.fieldOutline, item.fields]));
+    item.sensitivity, item.domain, item.purpose, item.fieldOutline, item.fields, item.exportRevision ?? null]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const items = useMemo(() => normalizeSharedItems(rawItems), [itemsSignature]);
 
@@ -159,7 +159,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
     ? `${viewerUid}|${vaultOwnerToken}|${person.personRef}|${epoch}|${privacy?.generation ?? 0}|${visibilityGeneration}` : null;
   /** What an opened value is bound to; a result for another identity is never shown. */
   const identityOf = useCallback((item: SharedWithMeCardItem) =>
-    `${session}|${item.key}|${item.bundleId ?? ""}|${item.requestId ?? ""}|${item.grantRef ?? ""}`, [session]);
+    `${session}|${item.key}|${item.bundleId ?? ""}|${item.requestId ?? ""}|${item.grantRef ?? ""}|${item.exportRevision ?? ""}`, [session]);
 
   // Live references for opens that outlast a render.
   const inFlight = useRef(new Map<string, Promise<unknown>>());

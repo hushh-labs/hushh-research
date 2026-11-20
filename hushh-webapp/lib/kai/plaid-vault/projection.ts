@@ -20,7 +20,7 @@ import type { Holding, PortfolioData } from "@/components/kai/types/portfolio";
 import { cleanText, round2, toAccountRecord, toHoldingRecord, toNumber, toSecurityRecord, toTransactionRecord } from "./snapshot-records";
 export { round2 } from "./snapshot-records";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
-import { buildLinkedAccountsView } from "@/lib/kai/plaid-vault/linked-accounts";
+import { accountTypeWords, buildLinkedAccountsView } from "@/lib/kai/plaid-vault/linked-accounts";
 
 import {
   isUnavailable,
@@ -38,6 +38,11 @@ import {
   type RecurringBill,
   type RecurringCadence,
   type SecurityRecord,
+  type ShareableBankAccountItem,
+  type ShareableBankAccountsV1,
+  type ShareableCashFlowV1,
+  type ShareableLiabilitiesV1,
+  type ShareableLiabilityItem,
   type ShareableSummaryV1,
   type TransactionRecord,
 } from "@/lib/kai/plaid-vault/types";
@@ -548,6 +553,173 @@ function computeSummary(
   };
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function computeBankAccounts(
+  accounts: Map<string, AccountRecord>,
+  connections: Map<string, ConnectionRecord>,
+  derived: DerivedFactsV1,
+  now: string,
+): ShareableBankAccountsV1 {
+  const institutions = new Set<string>();
+  const items: ShareableBankAccountItem[] = [];
+  let totalDepository = 0;
+
+  for (const account of accounts.values()) {
+    if (account.duplicate_of) continue;
+    if (String(account.type || "").toLowerCase() !== "depository") continue;
+    const connection = connections.get(account.item_id);
+    const institutionName =
+      cleanText(connection?.institution_name) ?? cleanText(account.institution_name) ?? "Linked institution";
+    const accountType = accountTypeWords(account.type, account.subtype);
+    const accountName = cleanText(account.name) ?? accountType;
+    const currentBalance = round2(accountBalanceValue(account));
+    const availableRaw = toNumber(account.balances?.available);
+    const availableBalance = availableRaw !== null ? round2(availableRaw) : null;
+    const currency = (cleanText(account.balances?.iso_currency_code) ?? "USD").toUpperCase();
+    totalDepository += currentBalance;
+    institutions.add(connection?.institution_id ?? account.institution_id ?? `name:${institutionName}`);
+    items.push({
+      institution_name: institutionName,
+      account_name: accountName,
+      account_type: accountType,
+      current_balance: currentBalance,
+      available_balance: availableBalance,
+      currency,
+    });
+  }
+
+  items.sort(
+    (left, right) =>
+      compareText(left.institution_name, right.institution_name) ||
+      compareText(left.account_name, right.account_name) ||
+      compareText(left.account_type, right.account_type),
+  );
+
+  return {
+    schema: "plaid-accounts-v1",
+    cash_in_bank: derived.liquid_cash.value,
+    total_depository_balance: round2(totalDepository),
+    account_count: items.length,
+    institution_count: institutions.size,
+    as_of: now.slice(0, 10),
+    items,
+  };
+}
+
+function computeLiabilities(
+  accounts: Map<string, AccountRecord>,
+  connections: Map<string, ConnectionRecord>,
+  derived: DerivedFactsV1,
+  now: string,
+): ShareableLiabilitiesV1 {
+  const institutions = new Set<string>();
+  const items: ShareableLiabilityItem[] = [];
+  let creditCardOwed = 0;
+  let creditLimitTotal = 0;
+  let loanOwed = 0;
+
+  for (const account of accounts.values()) {
+    if (account.duplicate_of) continue;
+    if (classifyAccountType(account.type) !== "liability") continue;
+    const connection = connections.get(account.item_id);
+    const institutionName =
+      cleanText(connection?.institution_name) ?? cleanText(account.institution_name) ?? "Linked institution";
+    const isCredit = String(account.type || "").toLowerCase() === "credit";
+    const category: "Credit card" | "Loan" = isCredit ? "Credit card" : "Loan";
+    const accountType = accountTypeWords(account.type, account.subtype);
+    const accountName = cleanText(account.name) ?? accountType;
+    const balanceOwed = round2(accountBalanceValue(account));
+    const limitRaw = toNumber(account.balances?.limit);
+    const creditLimit = isCredit && limitRaw !== null && limitRaw > 0 ? round2(limitRaw) : null;
+    const availableRaw = toNumber(account.balances?.available);
+    const availableCredit = isCredit
+      ? availableRaw !== null
+        ? round2(availableRaw)
+        : creditLimit !== null
+          ? round2(Math.max(creditLimit - balanceOwed, 0))
+          : null
+      : null;
+    const utilizationPct =
+      creditLimit !== null && creditLimit > 0 ? round2((balanceOwed / creditLimit) * 100) : null;
+    const currency = (cleanText(account.balances?.iso_currency_code) ?? "USD").toUpperCase();
+
+    if (isCredit) {
+      creditCardOwed += balanceOwed;
+      if (creditLimit !== null) creditLimitTotal += creditLimit;
+    } else {
+      loanOwed += balanceOwed;
+    }
+    institutions.add(connection?.institution_id ?? account.institution_id ?? `name:${institutionName}`);
+    items.push({
+      institution_name: institutionName,
+      account_name: accountName,
+      category,
+      account_type: accountType,
+      balance_owed: balanceOwed,
+      credit_limit: creditLimit,
+      available_credit: availableCredit,
+      utilization_pct: utilizationPct,
+      currency,
+    });
+  }
+
+  items.sort(
+    (left, right) =>
+      compareText(left.category, right.category) ||
+      compareText(left.institution_name, right.institution_name) ||
+      compareText(left.account_name, right.account_name),
+  );
+
+  const roundedCardOwed = round2(creditCardOwed);
+  const roundedLimitTotal = round2(creditLimitTotal);
+
+  return {
+    schema: "plaid-liabilities-v1",
+    total_owed: derived.total_liabilities.value,
+    credit_card_owed: roundedCardOwed,
+    credit_limit_total: roundedLimitTotal,
+    credit_utilization_pct:
+      roundedLimitTotal > 0 ? round2((roundedCardOwed / roundedLimitTotal) * 100) : null,
+    loan_owed: round2(loanOwed),
+    account_count: items.length,
+    institution_count: institutions.size,
+    as_of: now.slice(0, 10),
+    items,
+  };
+}
+
+function computeCashFlow(derived: DerivedFactsV1, now: string): ShareableCashFlowV1 {
+  const currentMonthRow = derived.monthly_cash_flow.value.at(-1) ?? null;
+  const debtRatio = derived.debt_to_asset_ratio.value;
+  return {
+    schema: "plaid-cashflow-v1",
+    net_worth: derived.net_worth.value,
+    total_assets: derived.total_assets.value,
+    total_liabilities: derived.total_liabilities.value,
+    liquid_cash: derived.liquid_cash.value,
+    investable_assets: derived.investable_assets.value,
+    debt_to_asset_pct: debtRatio === null ? null : round2(debtRatio * 100),
+    cash_flow_trend: derived.cash_flow_trend.value,
+    income_stability: derived.income_stability.value.label,
+    current_month: currentMonthRow?.month ?? null,
+    current_monthly_income: currentMonthRow?.income ?? 0,
+    current_monthly_spend: currentMonthRow?.spend ?? 0,
+    current_monthly_net: currentMonthRow?.net ?? 0,
+    recurring_bill_count: derived.recurring_bills.value.length,
+    as_of: now.slice(0, 10),
+    recurring_bills: derived.recurring_bills.value.map((bill) => ({
+      label: bill.label,
+      category: bill.category ? humanizeCategory(bill.category) : null,
+      cadence: bill.cadence,
+      typical_amount: bill.typical_amount,
+      last_date: bill.last_date,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Assembly
 // ---------------------------------------------------------------------------
@@ -594,6 +766,9 @@ function assemble(financial: FinancialInput, tierA: TierA, now: string): Financi
   if (tierA.connections.size === 0) {
     delete next.derived_v1;
     delete next.summary;
+    delete next.accounts;
+    delete next.liabilities;
+    delete next.cashflow;
     delete next.linked_accounts;
     return next;
   }
@@ -607,6 +782,9 @@ function assemble(financial: FinancialInput, tierA: TierA, now: string): Financi
   );
   next.derived_v1 = derived;
   next.summary = computeSummary(derived, tierA.connections, now);
+  next.accounts = computeBankAccounts(accounts, tierA.connections, derived, now);
+  next.liabilities = computeLiabilities(accounts, tierA.connections, derived, now);
+  next.cashflow = computeCashFlow(derived, now);
   next.linked_accounts = buildLinkedAccountsView(
     { connections: tierA.connections, accounts, holdings: tierA.holdings, securities, transactions },
     derived

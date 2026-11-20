@@ -119,4 +119,36 @@ describe("syncPlaidPostureToPersonalWiki", () => {
     );
     expect(mocks.refreshHotDigest).toHaveBeenCalledOnce();
   });
+
+  it("falls back to client-encrypted Shared Wiki and compiles 5 mirror pages when pod returns 503 FILES_NOT_ENABLED", async () => {
+    mocks.ownerContentIsPrivate.mockResolvedValueOnce(true);
+    mocks.ownerPodRequest.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: { error_code: "FILES_NOT_ENABLED" } }), { status: 503 }),
+    );
+    const enriched = {
+      ...SYNTHETIC_FINANCIAL,
+      summary: { schema: "plaid-summary-v1", net_worth_band: "$0-$10k", liquid_cash_band: "$0-$10k", investable_assets_band: "$0-$10k", cash_flow_trend: "flat", income_stability: "unknown", institution_count: 1, account_count: 2 },
+      accounts: { schema: "plaid-accounts-v1", cash_in_bank: 100, total_depository_balance: 110, account_count: 1, items: [{ institution_name: "First Platypus Bank", account_name: "Plaid Checking", account_type: "Checking", current_balance: 110, available_balance: 100 }] },
+      liabilities: { schema: "plaid-liabilities-v1", total_owed: 65262, credit_card_owed: 0, loan_owed: 65262, account_count: 1, items: [{ institution_name: "First Platypus Bank", account_name: "Plaid Student Loan", category: "Loan", account_type: "Student loan", balance_owed: 65262 }] },
+      cashflow: { schema: "plaid-cashflow-v1", current_month: "2026-11", current_monthly_income: 5000, current_monthly_spend: 1200, current_monthly_net: 3800, cash_flow_trend: "positive", recurring_bills: [{ label: "Streaming", cadence: "monthly", typical_amount: 15.49, last_date: "2026-11-01" }] },
+    };
+    const ok = await syncPlaidPostureToPersonalWiki({
+      userId: "owner_pod",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      financial: enriched,
+    });
+    expect(ok).toBe(true);
+    const titles = mocks.createPage.mock.calls.map((call) => call[0]?.title);
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Connected Financial Accounts",
+        "Financial Summary",
+        "Bank Accounts",
+        "Credit & Loans",
+        "Cash Flow & Recurring Bills",
+      ]),
+    );
+    expect(mocks.refreshHotDigest).toHaveBeenCalledOnce();
+  });
 });

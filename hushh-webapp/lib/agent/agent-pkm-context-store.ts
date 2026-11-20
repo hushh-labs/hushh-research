@@ -142,7 +142,21 @@ const MAX_INVENTORY_PATH_DEPTH = 16;
 // Measured 2026-09-27: round-robin reached only the first few shallow derived
 // facts, and no monthly_cash_flow row, once thousands of transactions competed.
 const DERIVED_SUMMARY_DOMAIN = "financial";
-const DERIVED_SUMMARY_BRANCH = "derived_v1";
+const FINANCIAL_PRIORITY_ORDER = [
+  "summary",
+  "accounts",
+  "liabilities",
+  "cashflow",
+  "derived_v1",
+] as const;
+const FINANCIAL_PRIORITY_BRANCHES = new Set<string>(FINANCIAL_PRIORITY_ORDER);
+
+function financialBranchRank(branch: string): number {
+  const index = FINANCIAL_PRIORITY_ORDER.indexOf(
+    branch as (typeof FINANCIAL_PRIORITY_ORDER)[number],
+  );
+  return index >= 0 ? index : 99;
+}
 // Summaries may take at most this share of the budget, so a large summary can
 // never crowd a small domain (an allergy, a budget) out of the owner's turn.
 const DERIVED_SUMMARY_BUDGET_SHARE = 0.5;
@@ -234,7 +248,7 @@ function isOwnerStylePath(domain: string, path: readonly string[]): boolean {
 }
 
 function isDerivedSummaryPath(domain: string, path: readonly string[]): boolean {
-  return domain === DERIVED_SUMMARY_DOMAIN && path[0] === DERIVED_SUMMARY_BRANCH;
+  return domain === DERIVED_SUMMARY_DOMAIN && FINANCIAL_PRIORITY_BRANCHES.has(path[0] ?? "");
 }
 
 /** One summary row (a month of cash flow, one recurring bill), as a single line. */
@@ -362,11 +376,11 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
       return;
     }
     const entries = Object.entries(value);
-    // Visit the summaries before the raw rows: Plaid's first assemble writes
-    // derived_v1 after transactions_v1, and a large import would otherwise use
-    // up MAX_INVENTORY_FACTS before the summaries were ever read.
+    // Visit the live financial mirrors & derived summaries before raw rows:
+    // Plaid's assemble writes transactions_v1 and accounts_v1, which would
+    // otherwise exhaust MAX_INVENTORY_FACTS before clean mirrors were read.
     if (domain === DERIVED_SUMMARY_DOMAIN && path.length === 0) {
-      entries.sort(([left], [right]) => Number(right === DERIVED_SUMMARY_BRANCH) - Number(left === DERIVED_SUMMARY_BRANCH));
+      entries.sort(([left], [right]) => financialBranchRank(left) - financialBranchRank(right));
     }
     for (const [key, child] of entries) {
       if (path.length === 0 && isLabelOnly(domain, key)) {

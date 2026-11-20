@@ -898,6 +898,55 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).toContain("Transactions V1");
   });
 
+  it("prioritizes live accounts, liabilities, and cashflow mirrors ahead of raw transactions", async () => {
+    pkmBlob = {
+      financial: {
+        transactions_v1: Object.fromEntries(
+          Array.from({ length: 3000 }, (_, index) => [
+            `txn${index}`,
+            { amount: 12.5 + index, date: "2026-09-01", merchant_name: `Merchant ${index}`, category_primary: "FOOD_AND_DRINK" },
+          ]),
+        ),
+        accounts: {
+          schema: "plaid-accounts-v1",
+          cash_in_bank: 12500,
+          items: [
+            { institution_name: "Tartan Bank", account_name: "Plaid Checking", account_type: "Checking", current_balance: 2500, currency: "USD" },
+          ],
+        },
+        liabilities: {
+          schema: "plaid-liabilities-v1",
+          total_owed: 4200,
+          items: [
+            { institution_name: "Houndstooth Bank", account_name: "Plaid Credit Card", category: "Credit card", balance_owed: 4200, credit_limit: 10000, currency: "USD" },
+          ],
+        },
+        cashflow: {
+          schema: "plaid-cashflow-v1",
+          current_month: "2026-11",
+          recurring_bills: [
+            { label: "Spotify", cadence: "monthly", typical_amount: 11.99, last_date: "2026-11-02" },
+          ],
+        },
+      },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [{ ...METADATA.domains[0], key: "financial", displayName: "Financial" }],
+    });
+
+    const context = await loadLegacyPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+    });
+
+    expect(context.text.length).toBeLessThanOrEqual(12_000);
+    expect(context.text).toContain("Financial > Accounts > Items: Institution Name: Tartan Bank; Account Name: Plaid Checking; Account Type: Checking; Current Balance: 2500; Currency: USD");
+    expect(context.text).toContain("Financial > Liabilities > Items: Institution Name: Houndstooth Bank; Account Name: Plaid Credit Card; Category: Credit card; Balance Owed: 4200; Credit Limit: 10000; Currency: USD");
+    expect(context.text).toContain("Financial > Cashflow > Recurring Bills: Label: Spotify; Cadence: monthly; Typical Amount: 11.99; Last Date: 2026-11-02");
+  });
+
   it("reads only closed communication settings beside Soul, excluding identity records from prompts", async () => {
     pkmGetStaleFirstMock.mockImplementation(async ({ domain }) => domain === "identity"
       ? { data: { communication_preferences: { tone: "direct", length: "short", unexpected: "discard" }, identity_profile: { legal_name: "private identity" } } }

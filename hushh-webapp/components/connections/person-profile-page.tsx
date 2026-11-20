@@ -803,6 +803,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       accessEndsAt: iso(grant.expiresAt),
       purpose: history?.purpose?.trim() || null,
       status: "granted",
+      ...(typeof grant.exportRevision === "number" ? { exportRevision: grant.exportRevision } : {}),
     };
   }), [allGrants, viewerProfile?.requestHistory]);
 

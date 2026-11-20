@@ -9,6 +9,9 @@ import type {
   AccountRecord,
   DerivedFactsV1,
   FinancialDomain,
+  ShareableBankAccountsV1,
+  ShareableCashFlowV1,
+  ShareableLiabilitiesV1,
   ShareableSummaryV1,
 } from "./types";
 
@@ -135,6 +138,26 @@ export function summarizePlaidVaultProjection(
     scopeLabels.push(`Financial Summary (${rawSummary.net_worth_band})`);
   }
 
+  const rawAccounts = isRecord(financialData.accounts)
+    ? (financialData.accounts as unknown as Partial<ShareableBankAccountsV1>)
+    : null;
+  if (rawAccounts?.schema === "plaid-accounts-v1") {
+    const bankBalance = finiteNumber(rawAccounts.total_depository_balance) ?? finiteNumber(rawAccounts.cash_in_bank);
+    scopeLabels.push(
+      bankBalance !== null ? `Bank Accounts (${formatPlaidUsd(bankBalance)})` : "Bank Accounts",
+    );
+  }
+
+  const rawLiabilities = isRecord(financialData.liabilities)
+    ? (financialData.liabilities as unknown as Partial<ShareableLiabilitiesV1>)
+    : null;
+  if (rawLiabilities?.schema === "plaid-liabilities-v1") {
+    const owed = finiteNumber(rawLiabilities.total_owed);
+    scopeLabels.push(
+      owed !== null ? `Credit & Loans (${formatPlaidUsd(owed)})` : "Credit & Loans",
+    );
+  }
+
   const computedPortfolio = toPortfolioData(financialData as FinancialDomain);
   const directPortfolio = isRecord(financialData.portfolio)
     ? (financialData.portfolio as {
@@ -156,6 +179,18 @@ export function summarizePlaidVaultProjection(
           : "Investment Portfolio",
       );
     }
+  }
+
+  const rawCashFlow = isRecord(financialData.cashflow)
+    ? (financialData.cashflow as unknown as Partial<ShareableCashFlowV1>)
+    : null;
+  if (rawCashFlow?.schema === "plaid-cashflow-v1") {
+    const billsCount = finiteNumber(rawCashFlow.recurring_bill_count);
+    scopeLabels.push(
+      billsCount !== null && billsCount > 0
+        ? `Cash Flow & Recurring (${billsCount} bills)`
+        : "Cash Flow & Recurring",
+    );
   }
 
   const projectedScopesLine =
