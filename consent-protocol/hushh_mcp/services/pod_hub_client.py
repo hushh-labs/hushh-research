@@ -117,20 +117,25 @@ def _resolve_request_signing_epoch(path: str) -> Optional[int]:
         signing_epoch,
     )
 
+    raw_env_epoch = (os.getenv("HUSSH_POD_PLACEMENT_EPOCH") or "").strip()
+    env_epoch = int(raw_env_epoch) if raw_env_epoch.isdigit() and int(raw_env_epoch) > 0 else None
+
     hit = cached_role()
     if hit is not None:
-        return None if hit is PRIMARY_AT_ZERO else hit.epoch
+        if hit is PRIMARY_AT_ZERO:
+            return env_epoch
+        hit_ep = int(hit.epoch)
+        return max(hit_ep, env_epoch) if env_epoch is not None else hit_ep
 
     if getattr(_SIGNING_IN_PROGRESS, "active", False) or path.startswith("/api/one/pod/custody/"):
-        raw_env_epoch = (os.getenv("HUSSH_POD_PLACEMENT_EPOCH") or "").strip()
-        if raw_env_epoch.isdigit() and int(raw_env_epoch) > 0:
-            return int(raw_env_epoch)
-        return None
+        return env_epoch
 
     _SIGNING_IN_PROGRESS.active = True
     try:
         ep = signing_epoch()
-        return int(ep) if isinstance(ep, int) else None
+        if isinstance(ep, int):
+            return max(ep, env_epoch) if env_epoch is not None else ep
+        return env_epoch
     finally:
         _SIGNING_IN_PROGRESS.active = False
 
