@@ -49,6 +49,7 @@ export function sharedWithMeCardItem(share: SharedWithMeEntry): SharedWithMeCard
       ? new Date(share.expiresAt).toISOString() : null,
     purpose: share.purpose?.trim() || null,
     status: "granted",
+    ...(typeof share.exportRevision === "number" ? { exportRevision: share.exportRevision } : {}),
   };
 }
 

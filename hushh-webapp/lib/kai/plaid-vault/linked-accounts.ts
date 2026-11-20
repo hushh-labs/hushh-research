@@ -361,12 +361,22 @@ export function buildLinkedAccountsView(
   };
 }
 
-/** True when a stored domain has linked banks but no current readable view. */
+/** True when a stored domain has linked banks without the current readable view or live financial mirrors. */
 export function linkedAccountsViewIsStale(financial: Record<string, unknown> | null | undefined): boolean {
   const connections = financial?.connections_v1;
   if (!connections || typeof connections !== "object" || Object.keys(connections).length === 0) {
     return false;
   }
   const view = financial?.linked_accounts as { schema_version?: unknown } | undefined;
-  return view?.schema_version !== LINKED_ACCOUNTS_SCHEMA_VERSION;
+  if (view?.schema_version !== LINKED_ACCOUNTS_SCHEMA_VERSION) {
+    return true;
+  }
+  const accounts = financial?.accounts as { schema?: unknown } | undefined;
+  const liabilities = financial?.liabilities as { schema?: unknown } | undefined;
+  const cashflow = financial?.cashflow as { schema?: unknown } | undefined;
+  return (
+    accounts?.schema !== "plaid-accounts-v1" ||
+    liabilities?.schema !== "plaid-liabilities-v1" ||
+    cashflow?.schema !== "plaid-cashflow-v1"
+  );
 }

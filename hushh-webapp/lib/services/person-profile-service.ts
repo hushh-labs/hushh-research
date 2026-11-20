@@ -167,6 +167,8 @@ export type SharedWithMeEntry = {
   sensitivity?: string | null;
   /** C7 per field, names only; untrusted until parsed by `parseSharedFieldSensitivities`. */
   fields?: unknown;
+  /** Current encrypted export revision for continuous shares; never contains export contents. */
+  exportRevision?: number | null;
 };
 
 export type PersonScopeCatalogPage = {

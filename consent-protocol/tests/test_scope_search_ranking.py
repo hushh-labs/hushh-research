@@ -210,6 +210,10 @@ def test_negative_control_without_synonyms_restaurant_finds_nothing():
         ("attr.legal_entity.entity.fein", "Fein", "Federal EIN"),
         ("attr.legal_entity.entity.naics_code", "Naics code", "Industry code (NAICS)"),
         ("attr.legal_entity.entity.trade_name_dba", None, "Trade name (DBA)"),
+        ("attr.financial.summary.*", "Summary", "Financial summary"),
+        ("attr.financial.accounts.*", "Accounts", "Bank accounts"),
+        ("attr.financial.liabilities.*", "Liabilities", "Credit & loans"),
+        ("attr.financial.cashflow.*", "Cashflow", "Cash flow & recurring bills"),
     ],
 )
 def test_human_scope_labels(scope, stored, expected):

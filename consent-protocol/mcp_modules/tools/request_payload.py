@@ -58,13 +58,23 @@ def consent_request_body(
     local_stdio: bool,
     keypair_factory: Callable[[], Any],
 ) -> dict[str, Any]:
+    recipient_bundle = recipient_key_bundle(
+        args, scope=scope, local_stdio=local_stdio, keypair_factory=keypair_factory
+    )
+    expiry_hours = int(args.get("expiry_hours") or 24)
+    explicit_policy = str(args.get("refresh_policy") or "").strip()
+    refresh_policy = explicit_policy or (
+        "continuous_until_expiry"
+        if (scope.startswith("attr.") and expiry_hours > 0)
+        else "snapshot"
+    )
     body = {
         "user_identifier": identifier,
         "scope": scope,
         "purpose": str(args.get("purpose") or "").strip(),
-        "expiry_hours": int(args.get("expiry_hours") or 24),
+        "expiry_hours": expiry_hours,
         "approval_timeout_minutes": int(args.get("approval_timeout_minutes") or 1440),
-        "refresh_policy": str(args.get("refresh_policy") or "snapshot"),
+        "refresh_policy": refresh_policy,
         **(
             {"country_iso2": str(args.get("country_iso2")).strip()}
             if args.get("country_iso2")
@@ -75,9 +85,5 @@ def consent_request_body(
     offer = negotiation_offer(args)
     if offer is not None:
         body["offer"] = offer
-    body.update(
-        recipient_key_bundle(
-            args, scope=scope, local_stdio=local_stdio, keypair_factory=keypair_factory
-        )
-    )
+    body.update(recipient_bundle)
     return body
