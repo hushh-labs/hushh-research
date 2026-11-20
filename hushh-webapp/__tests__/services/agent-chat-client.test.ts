@@ -2425,4 +2425,20 @@ describe("stream health for the slow-reply notice", () => {
     // Headers, then each chunk.
     expect(signals.filter((kind) => kind === "bytes")).toHaveLength(3);
   });
+
+  it("tags status 404 on stale pre-cutover conversation history fetches", async () => {
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      getAgentChatHistory({
+        vaultKey: TEST_VAULT_KEY,
+        conversationId: "stale-shared-thread",
+        vaultOwnerToken: "owner-token",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
 });

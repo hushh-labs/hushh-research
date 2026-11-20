@@ -292,6 +292,7 @@ GET /api/one/finance/advisor-reviews/{request_id}
 GET,POST /api/one/finance/shares
 DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export
+DELETE,GET,PUT /api/one/pod/storage-gateway/{object_path:path}
 GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}

@@ -71,6 +71,7 @@ export function podCloudProvider(target: unknown): OwnerCloudProvider | null {
 
 /** Display title identifying both Hussh Pods and its backing cloud provider when known. */
 export function hostedPodDisplayLabel(target: unknown): string {
+  if (target === "ace") return "Hussh Pods · Personal Sandbox";
   const provider = hostedPodProvider(target);
   return provider ? `Hussh Pods · ${HOSTED_POD_PROVIDER_LABELS[provider]}` : "Hussh Pods";
 }

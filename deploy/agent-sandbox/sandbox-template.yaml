@@ -61,9 +61,9 @@ spec:
             - name: https_proxy
               value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
             - name: NO_PROXY
-              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog
+              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog,.hussh-sandbox-system.svc.cluster.local,.hussh-sandbox-system.svc
             - name: no_proxy
-              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog
+              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog,.hussh-sandbox-system.svc.cluster.local,.hussh-sandbox-system.svc
           readinessProbe:
             httpGet:
               path: /healthz

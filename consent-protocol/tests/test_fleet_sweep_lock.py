@@ -487,3 +487,28 @@ async def test_a_disabled_reconcile_sweep_opens_no_connection(monkeypatch):
         )
 
     assert pg.events == [] and (spy.scans, spy.standby_sweeps) == (0, 0)
+
+
+async def test_default_sweep_locks_multiplex_onto_single_dedicated_connection(monkeypatch):
+    import db.connection as db_conn
+
+    pg = _Postgres()
+    open_calls = 0
+
+    @asynccontextmanager
+    async def fake_dedicated():
+        nonlocal open_calls
+        open_calls += 1
+        async with pg.connect() as conn:
+            yield conn
+
+    monkeypatch.setattr(db_conn, "dedicated_connection", fake_dedicated)
+    async with fleet_sweep_lock.POD_LIVENESS.turn() as h1:
+        async with fleet_sweep_lock.PERSONAL_AGENT_RECONCILE.turn() as h2:
+            async with fleet_sweep_lock.UMBRELLA_CELL_REPLENISH.turn() as h3:
+                async with fleet_sweep_lock.SOURCE_POD_RETIREMENT.turn() as h4:
+                    assert (h1, h2, h3, h4) == (True, True, True, True)
+                    assert open_calls == 1
+                    assert len(pg.holders) == 4
+    assert pg.holders == {}
+    assert pg.events.count("connect") == 1 and pg.events.count("close") == 1

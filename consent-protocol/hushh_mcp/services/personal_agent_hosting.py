@@ -12,7 +12,11 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import is_known_pod_target, is_owner_cloud_target
+from hushh_mcp.services.compute_backend import (
+    HOSTED_CLOUD_TARGETS,
+    is_known_pod_target,
+    is_owner_cloud_target,
+)
 from hushh_mcp.services.placement_observation import read_optional_placement
 
 logger = logging.getLogger(__name__)
@@ -55,7 +59,7 @@ def resolve_hosting_mode(
 
     if is_owner_cloud_target(deployment_target):
         return "byoc"
-    if deployment_target in {"gcp", "azure"}:
+    if deployment_target in HOSTED_CLOUD_TARGETS:
         return "hussh_pods"
     if status in {"provisioned", "needs_reinit", "suspended"}:
         return "unknown"

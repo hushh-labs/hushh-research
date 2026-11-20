@@ -24,8 +24,12 @@ DEFAULT_CPU_MILLIS = 2000
 DEFAULT_MEMORY_LIMIT = "4Gi"
 DEFAULT_SANDBOX_UID = 10001
 DEFAULT_EGRESS_PROXY_PORT = 3128
+DEFAULT_MODEL_GATEWAY_PORT = 8082
 DEFAULT_EGRESS_PROXY_URL = (
     "http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128"
+)
+SANDBOX_NO_PROXY = (
+    f"{METADATA_NO_PROXY},.hussh-sandbox-system.svc.cluster.local,.hussh-sandbox-system.svc"
 )
 DEFAULT_STANDBY_COMMAND = (
     "/opt/venv/bin/python",
@@ -115,8 +119,8 @@ def render_sandbox_template(
         {"name": "HTTPS_PROXY", "value": clean_proxy},
         {"name": "http_proxy", "value": clean_proxy},
         {"name": "https_proxy", "value": clean_proxy},
-        {"name": "NO_PROXY", "value": METADATA_NO_PROXY},
-        {"name": "no_proxy", "value": METADATA_NO_PROXY},
+        {"name": "NO_PROXY", "value": SANDBOX_NO_PROXY},
+        {"name": "no_proxy", "value": SANDBOX_NO_PROXY},
     ]
     if any(entry["name"] in _RESERVED_FORBIDDEN_ENV for entry in env_list):
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: virgin template cannot carry tenant env")
@@ -216,7 +220,7 @@ def render_sandbox_warm_pool(
     name: str = "hussh-one-warm-pool",
     namespace: str = "hussh-agents",
     template_name: str = "hussh-one-sandbox-v1",
-    replicas: int = 8,
+    replicas: int = 1,
 ) -> dict[str, Any]:
     """Render a virgin pre-warmed v1beta1 SandboxWarmPool sized for active demand."""
     pool_name = _require_dns_label(name, field_name="warm pool name")
@@ -296,6 +300,7 @@ def render_sandbox_network_policy(
     hub_namespace: str = "hussh-hub-router",
     proxy_namespace: str = "hussh-sandbox-system",
     proxy_port: int = DEFAULT_EGRESS_PROXY_PORT,
+    model_gateway_port: int = DEFAULT_MODEL_GATEWAY_PORT,
     edge_vpc_cidr: str | None = None,
 ) -> dict[str, Any]:
     """Render default-deny Ingress/Egress NetworkPolicy (NIST SC-7(5))."""
@@ -303,7 +308,7 @@ def render_sandbox_network_policy(
     ns = _require_dns_label(namespace, field_name="namespace")
     hub_ns = _require_dns_label(hub_namespace, field_name="hub namespace")
     proxy_ns = _require_dns_label(proxy_namespace, field_name="proxy namespace")
-    if not 1 <= proxy_port <= 65535:
+    if not 1 <= proxy_port <= 65535 or not 1 <= model_gateway_port <= 65535:
         raise ValueError(f"{K8S_MANIFEST_INVARIANT_ERROR}: proxy_port out of range")
     ingress_from: list[dict[str, Any]] = [
         {
@@ -342,8 +347,25 @@ def render_sandbox_network_policy(
                             "podSelector": {"matchLabels": {"app": "sentinel-egress-proxy"}},
                         }
                     ],
-                    "ports": [{"protocol": "TCP", "port": proxy_port}],
-                }
+                    "ports": [
+                        {"protocol": "TCP", "port": proxy_port},
+                        {"protocol": "TCP", "port": model_gateway_port},
+                    ],
+                },
+                {
+                    "to": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                            }
+                        },
+                        {"ipBlock": {"cidr": "169.254.20.10/32"}},
+                    ],
+                    "ports": [
+                        {"protocol": "UDP", "port": 53},
+                        {"protocol": "TCP", "port": 53},
+                    ],
+                },
             ],
         },
     }
@@ -356,7 +378,7 @@ def render_agent_sandbox_bundle(
     image_ref: str,
     namespace: str = "hussh-agents",
     runtime_class: SandboxRuntimeClass = "microvm",
-    warm_pool_replicas: int = 8,
+    warm_pool_replicas: int = 1,
     warm_pool_name: str = "hussh-one-warm-pool",
 ) -> dict[str, dict[str, Any]]:
     """Render complete portable Kubernetes AgentSandbox v1beta1 resources for one claim."""

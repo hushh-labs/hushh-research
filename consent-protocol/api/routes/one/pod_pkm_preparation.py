@@ -77,6 +77,7 @@ def _owner_model():
         ("gemini", "byok"),
         ("gemini", "user_adc"),
         ("gemini", "hosted_pod_adc"),
+        ("gemini", "sentinel_vertex"),
         ("gemini", "hushh_managed_vertex"),
         ("openai", "byok"),
         ("azure_openai", "user_azure_mi"),

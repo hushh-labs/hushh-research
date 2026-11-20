@@ -21,6 +21,7 @@ from hushh_mcp.operons.agent_sandbox.egress_policy import (
 from hushh_mcp.operons.agent_sandbox.k8s_manifests import (
     K8S_MANIFEST_INVARIANT_ERROR,
     render_agent_sandbox_bundle,
+    render_sandbox_network_policy,
     render_sandbox_template,
 )
 from hushh_mcp.operons.agent_sandbox.tamper_evident_audit import (
@@ -350,4 +351,20 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
     assert pool_yaml["spec"]["sandboxTemplateRef"]["name"] == tpl_yaml["metadata"]["name"]
     assert pool_yaml["spec"]["updateStrategy"] == {"type": "Recreate"}
     assert net_yaml["spec"]["policyTypes"] == ["Ingress", "Egress"]
-    assert net_yaml["spec"]["egress"][0]["ports"] == [{"protocol": "TCP", "port": 3128}]
+    assert net_yaml["spec"]["egress"][0]["ports"] == [
+        {"protocol": "TCP", "port": 3128},
+        {"protocol": "TCP", "port": 8082},
+    ]
+    assert net_yaml["spec"]["egress"][1]["ports"] == [
+        {"protocol": "UDP", "port": 53},
+        {"protocol": "TCP", "port": 53},
+    ]
+    rendered_policy = render_sandbox_network_policy()
+    assert rendered_policy["spec"]["egress"][0]["ports"] == net_yaml["spec"]["egress"][0]["ports"]
+    assert rendered_policy["spec"]["egress"][1]["ports"] == net_yaml["spec"]["egress"][1]["ports"]
+    assert pool_yaml["spec"]["replicas"] == 1
+    assert ".hussh-sandbox-system.svc.cluster.local" in next(
+        e["value"]
+        for e in tpl_yaml["spec"]["podTemplate"]["spec"]["containers"][0]["env"]
+        if e["name"] == "NO_PROXY"
+    )

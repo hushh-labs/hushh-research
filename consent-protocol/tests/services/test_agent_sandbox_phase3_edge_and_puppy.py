@@ -51,6 +51,7 @@ def _free_port() -> int:
 def _clean_pod_env() -> Generator[None, None, None]:
     tracked = (
         "HUSSH_POD_MODE",
+        "HUSSH_POD_ID",
         "HUSSH_POD_PRIVATE_KEY",
         "HUSSH_POD_PRIVATE_KEY_FILE",
         "HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD",
@@ -59,9 +60,29 @@ def _clean_pod_env() -> Generator[None, None, None]:
         "HUSSH_LEASE_ID",
         "POD_URL",
         "HUSSH_HUB_URL",
+        "HUSSH_HUB_BASE_URL",
         "HUSHH_SCHEDULER_CALLER_EMAILS",
+        "HUSSH_POD_HUB_CALLER_EMAILS",
         "APP_SIGNING_KEY",
         "POD_DURABLE_IDENTITY_ENABLED",
+        "POD_STORAGE_PREFIX_TOKEN_URL",
+        "POD_STORAGE_BACKEND",
+        "HUSSH_POD_CUSTODY_MODE",
+        "HUSSH_MODEL_GATEWAY_URL",
+        "HUSSH_MODEL_GATEWAY_TOKEN",
+        "HUSSH_SENTINEL_VERTEX_PROJECT",
+        "HUSSH_SENTINEL_VERTEX_LOCATION",
+        "CORS_ALLOWED_ORIGINS",
+        "CONSENT_ED25519_PUBLIC_KEYS",
+        "OWNER_FEED_ED25519_PUBLIC_KEYS",
+        "HUSSH_POD_TURN_ENABLED",
+        "POD_AGENT_MEMORY_ENABLED",
+        "POD_DIRECTIVE_TRANSPORT_ENABLED",
+        "HUSSH_POD_BROWSER_ENABLED",
+        "POD_DATA_DOOR_ENABLED",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "ACE_SANDBOX_ID",
+        "ENVIRONMENT",
     )
     saved = {k: os.environ.get(k) for k in tracked}
     reset_pod_keypair_cache_for_tests()
@@ -400,3 +421,202 @@ async def test_edge_gateway_propagates_deploy_env_to_virgin_standby(
         gw_thread.join(timeout=3.0)
         for cname in list(claim_client.runtimes):
             claim_client.delete_claim(cname)
+
+
+async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hushh_mcp.services.agent_sandbox import SentinelControlClient, SentinelProxyRuntime
+
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("POD_DURABLE_IDENTITY_ENABLED", raising=False)
+
+    ctrl_token = "edge-sentinel-ctrl-value-012345"
+    sentinel_runtime = SentinelProxyRuntime(
+        hmac_key=b"E" * 32,
+        control_token=ctrl_token,
+        proxy_port=0,
+        control_port=0,
+        model_gateway_port=0,
+    )
+    sentinel_runtime.start_background()
+    ctrl = SentinelControlClient(
+        base_url=f"http://127.0.0.1:{sentinel_runtime.control_port}",
+        control_token=ctrl_token,
+    )
+
+    class _StreamingClaimClient(_LocalStandbyClaimClient):
+        def create_and_wait_claim(
+            self,
+            *,
+            claim_name: str,
+            billing_space_id: str,
+            warm_pool_name: str = "hussh-one-warm-pool",
+            idle_shutdown_seconds: int = 600,
+            timeout_s: float = 30.0,
+        ) -> ClaimedSandboxEndpoint:
+            self.counter += 1
+            sandbox_name = f"sbx-stream-{self.counter}"
+            port = _free_port()
+            holder: dict[str, Any] = {}
+
+            def _launch_fake_pod(bind_host: str, target_port: int) -> None:
+                from starlette.responses import StreamingResponse
+
+                reset_pod_keypair_cache_for_tests()
+                pod_app = FastAPI()
+
+                @pod_app.get("/health")
+                def health() -> dict[str, Any]:
+                    return {
+                        "status": "ok",
+                        "sandbox": sandbox_name,
+                        "durable": os.environ.get("POD_DURABLE_IDENTITY_ENABLED"),
+                        "storage_backend": os.environ.get("POD_STORAGE_BACKEND"),
+                        "prefix_url": os.environ.get("POD_STORAGE_PREFIX_TOKEN_URL"),
+                        "gw_url": os.environ.get("HUSSH_MODEL_GATEWAY_URL"),
+                        "has_surrogate": bool(os.environ.get("HUSSH_MODEL_GATEWAY_TOKEN")),
+                        "turn_enabled": os.environ.get("HUSSH_POD_TURN_ENABLED"),
+                    }
+
+                @pod_app.post("/api/one/turn/stream")
+                async def stream_turn() -> StreamingResponse:
+                    async def _gen():
+                        yield b'event: token\ndata: {"t":"hi"}\n\n'
+                        yield b"event: done\ndata: {}\n\n"
+
+                    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+                cfg = uvicorn.Config(
+                    pod_app, host=bind_host or "127.0.0.1", port=target_port, log_level="error"
+                )
+                srv = uvicorn.Server(cfg)
+                holder["server"] = srv
+                srv.run()
+
+            runtime = VirginStandbyRuntime(
+                bind_host="127.0.0.1",
+                port=port,
+                activation_guard=self.activation_guard,
+                tmp_dir=self.tmp_dir,
+                asgi_launcher=_launch_fake_pod,
+                uid=10001,
+            )
+            runtime.start_background()
+            self.runtimes[claim_name] = (runtime, holder)
+            return ClaimedSandboxEndpoint(
+                claim_name=claim_name,
+                namespace="hussh-agents",
+                sandbox_name=sandbox_name,
+                pod_ip="127.0.0.1",
+                port=runtime.port,
+                ready=True,
+            )
+
+    claim_client = _StreamingClaimClient(tmp_path, activation_guard="edge-act-stream-01")
+    manager = SandboxEdgeGatewayManager(
+        claim_client=claim_client,
+        master_seed=b"E" * 32,
+        sentinel_control=ctrl,
+        activation_header_value="edge-act-stream-01",
+        admin_header_value="edge-admin-stream-01",
+        pod_url_base="https://edge.dev.example",
+        hub_url="https://dev.api.hussh.ai",
+        deploy_env="dev",
+        consent_ed25519_public_keys='{"kid1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
+        allowed_app_origins=["https://dev.one.hussh.ai"],
+        sentinel_model_gateway_url=f"http://127.0.0.1:{sentinel_runtime.model_gateway_port}",
+        sentinel_vertex_project="hushh-pda-dev",
+        sentinel_vertex_location="global",
+        enable_prefix_storage=True,
+        claim_timeout_s=15.0,
+        health_poll_timeout_s=10.0,
+    )
+    gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    gw_port = _free_port()
+    gw_server = uvicorn.Server(
+        uvicorn.Config(gw_app, host="127.0.0.1", port=gw_port, log_level="error")
+    )
+    gw_thread = threading.Thread(target=gw_server.run, daemon=True)
+    gw_thread.start()
+
+    try:
+        base_http = f"http://127.0.0.1:{gw_port}"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for _ in range(30):
+                try:
+                    if (await client.get(f"{base_http}/health")).status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    await asyncio.sleep(0.05)
+
+            # 1. Preflight OPTIONS succeeds 204 without claiming a sandbox
+            opt = await client.options(
+                f"{base_http}/u/owner_cors/api/one/turn/stream",
+                headers={
+                    "Origin": "https://dev.one.hussh.ai",
+                    "Access-Control-Request-Headers": "Authorization, Content-Type",
+                },
+            )
+            assert opt.status_code == 204
+            assert opt.headers["access-control-allow-origin"] == "https://dev.one.hussh.ai"
+            assert manager.active_count() == 0
+
+            # 2. First GET claims sandbox, pushes Sentinel policy+surrogate, and wires durable GCS gateway
+            h1 = await client.get(
+                f"{base_http}/u/owner_cors/health",
+                headers={"Origin": "https://dev.one.hussh.ai"},
+            )
+            assert h1.status_code == 200
+            assert h1.headers["access-control-allow-origin"] == "https://dev.one.hussh.ai"
+            body = h1.json()
+            assert body["durable"] == "1"
+            assert body["storage_backend"] == "commit_log"
+            assert (
+                body["prefix_url"]
+                == "https://dev.api.hussh.ai/api/one/pod/storage-gateway/pods/owner_cors"
+            )
+            assert body["has_surrogate"] is True
+            assert body["turn_enabled"] == "true"
+            assert sentinel_runtime.lease_for_ip("127.0.0.1")[1] == "owner_cors"
+
+            # 3. SSE streams cleanly
+            sse = await client.post(
+                f"{base_http}/u/owner_cors/api/one/turn/stream",
+                headers={"Origin": "https://dev.one.hussh.ai"},
+            )
+            assert sse.status_code == 200
+            assert "event: token" in sse.text and "event: done" in sse.text
+
+            # 4. Simulate sandbox pod crash -> Edge evicts stale lease and transparently re-wakes
+            lease = manager.get_lease("owner_cors")
+            assert lease is not None
+            claim_client.delete_claim(lease.claim_name)
+            h2 = await client.get(
+                f"{base_http}/u/owner_cors/health",
+                headers={"Origin": "https://dev.one.hussh.ai"},
+            )
+            assert h2.status_code == 200
+            assert h2.json()["sandbox"] == "sbx-stream-2"
+
+            # 5. Claim failure returns 503 SANDBOX_WAKING + X-Hussh-Pod-State: waking + CORS headers
+            await manager.release_owner_lease("owner_cors")
+
+            def _boom(**_kw):
+                raise TimeoutError("pool scaling")
+
+            monkeypatch.setattr(claim_client, "create_and_wait_claim", _boom)
+            waking = await client.get(
+                f"{base_http}/u/owner_cors/health",
+                headers={"Origin": "https://dev.one.hussh.ai"},
+            )
+            assert waking.status_code == 503
+            assert waking.headers["x-hussh-pod-state"] == "waking"
+            assert waking.headers["access-control-allow-origin"] == "https://dev.one.hussh.ai"
+            assert waking.json()["code"] == "SANDBOX_WAKING"
+    finally:
+        gw_server.should_exit = True
+        gw_thread.join(timeout=3.0)
+        for cname in list(claim_client.runtimes):
+            claim_client.delete_claim(cname)
+        sentinel_runtime.stop()

@@ -845,20 +845,23 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         pod_hosted_adc_enabled,
         pod_managed_model_enabled,
+        pod_sentinel_model_enabled,
         pod_user_adc_enabled,
     )
 
-    # ORDER IS LOAD-BEARING: sealed selection (before this) -> BYOK -> Azure -> ADC -> managed.
+    # ORDER IS LOAD-BEARING: sealed selection (before this) -> BYOK -> Azure -> Sentinel -> ADC -> managed.
     #
     # An owner who sends a key gets their key: that is checked above and nothing here
-    # can take it from them. Next comes the person's own project, which is the
-    # production answer once their cloud exists -- no credential travels, because the
-    # pod already runs as their service account in their project.
+    # can take it from them. Inside a zero-role Personal Sandbox, Sentinel (:8082) swaps a
+    # short-lived surrogate bearer for Vertex AI outside the sandbox boundary. Next comes
+    # the person's own project ADC.
     #
     # Managed stays last precisely because it is the only branch that spends hushh's
     # identity. Putting it earlier would let a mis-set FLEET flag capture a BYOC pod
     # and quietly bill a person's thinking to hushh while their own project sat idle,
     # and nothing in the answer would look wrong.
+    if pod_sentinel_model_enabled():
+        return "sentinel_vertex"
     if pod_hosted_adc_enabled():
         return "hosted_pod_adc"
     if pod_user_adc_enabled():

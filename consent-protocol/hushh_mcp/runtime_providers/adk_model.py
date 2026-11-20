@@ -118,6 +118,14 @@ class ProviderAdkModel(BaseLlm):
                 self.provider, self.runtime_mode or "", self.credential or None
             )
         if (
+            self.runtime_mode == "sentinel_vertex"
+            and self.provider == "gemini"
+            and not self.credential
+        ):
+            from .sentinel_gemini import build_sentinel_genai_client
+
+            return build_sentinel_genai_client()
+        if (
             self.runtime_mode in {"user_adc", "hosted_pod_adc"}
             and self.provider == "gemini"
             and not self.credential
@@ -162,7 +170,12 @@ class ProviderAdkModel(BaseLlm):
         managed Vertex and copy the config for the developer path so one provider
         cannot mutate another turn's request.
         """
-        if self.runtime_mode in {"user_adc", "hosted_pod_adc", "hushh_managed_vertex"}:
+        if self.runtime_mode in {
+            "user_adc",
+            "hosted_pod_adc",
+            "sentinel_vertex",
+            "hushh_managed_vertex",
+        }:
             return config
         copier = getattr(config, "model_copy", None)
         if callable(copier):

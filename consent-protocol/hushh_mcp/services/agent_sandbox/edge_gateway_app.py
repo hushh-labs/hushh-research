@@ -13,7 +13,7 @@ import os
 import re
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
@@ -35,6 +36,7 @@ from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
 
 SANDBOX_INTERNAL_PATH_FORBIDDEN = "SANDBOX_INTERNAL_PATH_FORBIDDEN"
 SANDBOX_OWNER_ID_INVALID = "SANDBOX_OWNER_ID_INVALID"
+SANDBOX_WAKING_CODE = "SANDBOX_WAKING"
 _OWNER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 _POD_IDENTITY_SALT = b"hussh-sandbox-pod-identity-v1"
 _HOP_BY_HOP_HEADERS = frozenset(
@@ -103,6 +105,18 @@ def _endpoint_scheme(endpoint: ClaimedSandboxEndpoint) -> str:
     return "http"
 
 
+def _parse_allowed_origins(raw: Sequence[str] | str | None) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    parts = raw.split(",") if isinstance(raw, str) else list(raw)
+    cleaned: list[str] = []
+    for item in parts:
+        origin = str(item or "").strip().rstrip("/")
+        if origin and origin != "*" and origin not in cleaned:
+            cleaned.append(origin)
+    return tuple(cleaned)
+
+
 class SandboxEdgeGatewayManager:
     """Coalesces concurrent owner requests onto 1 active sandbox and reaps idle leases."""
 
@@ -120,6 +134,13 @@ class SandboxEdgeGatewayManager:
         hub_url: str | None = None,
         scheduler_caller_emails: str | None = None,
         deploy_env: str | None = None,
+        consent_ed25519_public_keys: str | None = None,
+        owner_feed_ed25519_public_keys: str | None = None,
+        allowed_app_origins: Sequence[str] | str | None = None,
+        sentinel_model_gateway_url: str | None = None,
+        sentinel_vertex_project: str | None = None,
+        sentinel_vertex_location: str | None = None,
+        enable_prefix_storage: bool = False,
         claim_timeout_s: float = 180.0,
         health_poll_timeout_s: float = 90.0,
         clock_s: Callable[[], float] | None = None,
@@ -137,6 +158,13 @@ class SandboxEdgeGatewayManager:
         self.hub_url = (hub_url or "").strip().rstrip("/")
         self.scheduler_caller_emails = (scheduler_caller_emails or "").strip()
         self.deploy_env = (deploy_env or "").strip().lower()
+        self.consent_ed25519_public_keys = (consent_ed25519_public_keys or "").strip()
+        self.owner_feed_ed25519_public_keys = (owner_feed_ed25519_public_keys or "").strip()
+        self.allowed_app_origins = _parse_allowed_origins(allowed_app_origins)
+        self.sentinel_model_gateway_url = (sentinel_model_gateway_url or "").strip().rstrip("/")
+        self.sentinel_vertex_project = (sentinel_vertex_project or "").strip()
+        self.sentinel_vertex_location = (sentinel_vertex_location or "").strip()
+        self.enable_prefix_storage = bool(enable_prefix_storage)
         self.claim_timeout_s = float(claim_timeout_s)
         self.health_poll_timeout_s = float(health_poll_timeout_s)
         self._clock_s = clock_s or time.monotonic
@@ -172,6 +200,7 @@ class SandboxEdgeGatewayManager:
             "owner_id": hushh_id,
             "lease_id": lease_id,
             "pod_private_key_b64": priv_b64,
+            "sandbox_name": endpoint.sandbox_name,
         }
         if self.pod_url_base:
             payload["pod_url"] = f"{self.pod_url_base}/u/{hushh_id}"
@@ -181,6 +210,40 @@ class SandboxEdgeGatewayManager:
             payload["scheduler_caller_emails"] = self.scheduler_caller_emails
         if self.deploy_env in {"dev", "development", "uat"}:
             payload["deploy_env"] = self.deploy_env
+        if self.consent_ed25519_public_keys:
+            payload["consent_ed25519_public_keys"] = self.consent_ed25519_public_keys
+        if self.owner_feed_ed25519_public_keys:
+            payload["owner_feed_ed25519_public_keys"] = self.owner_feed_ed25519_public_keys
+        if self.allowed_app_origins:
+            payload["allowed_app_origins"] = ",".join(self.allowed_app_origins)
+        if self.enable_prefix_storage and self.hub_url:
+            payload["pod_storage_prefix_token_url"] = (
+                f"{self.hub_url}/api/one/pod/storage-gateway/pods/{hushh_id}"
+            )
+
+        if self.sentinel_control is not None:
+            if hasattr(self.sentinel_control, "set_lease_policy_with_ip"):
+                await asyncio.to_thread(
+                    self.sentinel_control.set_lease_policy_with_ip,
+                    lease_id=lease_id,
+                    owner_id=hushh_id,
+                    pod_ip=endpoint.pod_ip,
+                )
+            if hasattr(self.sentinel_control, "mint_model_surrogate"):
+                ttl = max(900, min(7200, int(self.idle_timeout_s * 2)))
+                surrogate = await asyncio.to_thread(
+                    self.sentinel_control.mint_model_surrogate,
+                    lease_id=lease_id,
+                    owner_id=hushh_id,
+                    ttl_seconds=ttl,
+                )
+                payload["model_gateway_token"] = surrogate
+                if self.sentinel_model_gateway_url:
+                    payload["model_gateway_url"] = self.sentinel_model_gateway_url
+                if self.sentinel_vertex_project:
+                    payload["sentinel_vertex_project"] = self.sentinel_vertex_project
+                if self.sentinel_vertex_location:
+                    payload["sentinel_vertex_location"] = self.sentinel_vertex_location
 
         headers: dict[str, str] = {}
         if self._activation_guard:
@@ -188,7 +251,7 @@ class SandboxEdgeGatewayManager:
 
         async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
             last_exc: Exception | None = None
-            for _ in range(20):
+            for _ in range(30):
                 try:
                     resp = await client.post(
                         f"{base_url}/internal/v1/activate-lease",
@@ -203,7 +266,7 @@ class SandboxEdgeGatewayManager:
                     )
                 except httpx.HTTPError as exc:
                     last_exc = exc
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.15)
             if last_exc is not None:
                 raise last_exc
 
@@ -215,8 +278,24 @@ class SandboxEdgeGatewayManager:
                         return pub_b64, pod_key_id
                 except httpx.HTTPError:
                     pass
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.08)
         raise TimeoutError(f"Sandbox {endpoint.sandbox_name} /health did not turn Ready after bind")
+
+    async def invalidate_lease(self, hushh_id: str, expected_lease_id: str | None = None) -> None:
+        clean_id = str(hushh_id or "").strip()
+        async with self._lock_for(clean_id):
+            current = self._leases.get(clean_id)
+            if current is None:
+                return
+            if expected_lease_id is not None and current.lease_id != expected_lease_id:
+                return
+            self._leases.pop(clean_id, None)
+            if self.sentinel_control is not None:
+                if hasattr(self.sentinel_control, "delete_lease"):
+                    await asyncio.to_thread(self.sentinel_control.delete_lease, current.lease_id)
+                else:
+                    await asyncio.to_thread(self.sentinel_control.revoke_lease, current.lease_id)
+            await asyncio.to_thread(self.claim_client.delete_claim, current.claim_name)
 
     async def ensure_owner_lease(self, hushh_id: str) -> ActiveOwnerLease:
         clean_id = str(hushh_id or "").strip()
@@ -248,6 +327,11 @@ class SandboxEdgeGatewayManager:
                     endpoint=endpoint,
                 )
             except Exception:
+                if self.sentinel_control is not None and hasattr(
+                    self.sentinel_control, "delete_lease"
+                ):
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(self.sentinel_control.delete_lease, lease_id)
                 await asyncio.to_thread(self.claim_client.delete_claim, claim_name)
                 raise
 
@@ -272,7 +356,10 @@ class SandboxEdgeGatewayManager:
             if lease is None:
                 return None
             if self.sentinel_control is not None:
-                await asyncio.to_thread(self.sentinel_control.revoke_lease, lease.lease_id)
+                if hasattr(self.sentinel_control, "delete_lease"):
+                    await asyncio.to_thread(self.sentinel_control.delete_lease, lease.lease_id)
+                else:
+                    await asyncio.to_thread(self.sentinel_control.revoke_lease, lease.lease_id)
             await asyncio.to_thread(self.claim_client.delete_claim, lease.claim_name)
             return {
                 "hushh_id": lease.hushh_id,
@@ -457,6 +544,41 @@ def create_sandbox_edge_gateway_app(
             lease.active_ws_count = max(0, lease.active_ws_count - 1)
             lease.last_activity_s = manager._clock_s()
 
+    def _cors_headers(request: Request) -> dict[str, str]:
+        origin = str(request.headers.get("origin") or "").strip().rstrip("/")
+        if not origin or origin not in manager.allowed_app_origins:
+            return {}
+        req_headers = str(request.headers.get("access-control-request-headers") or "").strip()
+        allow_headers = (
+            req_headers
+            or "Authorization, Content-Type, Accept, X-Hussh-Client-Version, X-Request-Id, X-Browser-Pod-Incarnation, X-Pod-Session, X-Consent-Token"
+        )
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Vary": "Origin",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
+            "Access-Control-Allow-Headers": allow_headers,
+            "Access-Control-Expose-Headers": (
+                "X-Hussh-Pod-Key-Id, X-Hussh-Pod-State, "
+                "X-Browser-Pod-Incarnation, X-Browser-Task-Id, X-Browser-Pod-Id, "
+                "X-Browser-Control-Epoch, X-Browser-Sequence, X-Browser-Next-Sequence, "
+                "X-Browser-Revision, X-Browser-Width, X-Browser-Height"
+            ),
+            "Access-Control-Max-Age": "600",
+        }
+
+    def _waking_response(request: Request) -> JSONResponse:
+        headers = {
+            "X-Hussh-Pod-State": "waking",
+            "Cache-Control": "no-store",
+            **_cors_headers(request),
+        }
+        return JSONResponse(
+            status_code=503,
+            content={"code": SANDBOX_WAKING_CODE, "message": "Personal sandbox is waking up"},
+            headers=headers,
+        )
+
     async def _proxy_owner_http(request: Request, hushh_id: str, subpath: str) -> Response:
         clean_sub = str(subpath or "").lstrip("/")
         if clean_sub == "internal" or clean_sub.startswith("internal/"):
@@ -467,30 +589,101 @@ def create_sandbox_edge_gateway_app(
                     "message": "Internal sandbox endpoints cannot be reached via public edge",
                 },
             )
-        lease = await manager.ensure_owner_lease(hushh_id)
-        lease.last_activity_s = manager._clock_s()
-        qs = request.url.query
-        target = f"http://{lease.pod_ip}:{lease.port}/{clean_sub}" + (f"?{qs}" if qs else "")
+        if request.method == "OPTIONS":
+            if not _OWNER_ID_RE.fullmatch(str(hushh_id or "").strip()):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": SANDBOX_OWNER_ID_INVALID,
+                        "message": "Invalid owner identifier",
+                    },
+                )
+            return Response(status_code=204, headers=_cors_headers(request))
+
         body = await request.body()
         req_headers = _filter_headers(request.headers)
         req_headers["X-Forwarded-Prefix"] = f"/u/{hushh_id}"
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=160.0, trust_env=False
-        ) as client:
-            upstream = await client.request(
-                method=request.method,
-                url=target,
-                content=body if body else None,
-                headers=req_headers,
+        qs = request.url.query
+        cors_hdrs = _cors_headers(request)
+
+        for attempt in range(2):
+            try:
+                lease = await manager.ensure_owner_lease(hushh_id)
+            except HTTPException:
+                raise
+            except (TimeoutError, httpx.HTTPError, RuntimeError):
+                return _waking_response(request)
+
+            lease.last_activity_s = manager._clock_s()
+            target = f"http://{lease.pod_ip}:{lease.port}/{clean_sub}" + (f"?{qs}" if qs else "")
+            client = httpx.AsyncClient(follow_redirects=False, timeout=160.0, trust_env=False)
+            try:
+                built = client.build_request(
+                    method=request.method,
+                    url=target,
+                    content=body if body else None,
+                    headers=req_headers,
+                )
+                upstream = await client.send(built, stream=True)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                await client.aclose()
+                await manager.invalidate_lease(hushh_id, expected_lease_id=lease.lease_id)
+                if attempt == 0:
+                    continue
+                return _waking_response(request)
+            except httpx.HTTPError:
+                await client.aclose()
+                return _waking_response(request)
+
+            lease.last_activity_s = manager._clock_s()
+            resp_headers = _filter_headers(upstream.headers)
+            resp_headers["X-Hussh-Pod-Key-Id"] = lease.pod_key_id
+            resp_headers.update(cors_hdrs)
+
+            content_type = str(upstream.headers.get("content-type") or "").lower()
+            if content_type.startswith("text/event-stream"):
+
+                async def _stream_sse(
+                    upstream_resp: httpx.Response = upstream,
+                    http_client: httpx.AsyncClient = client,
+                    active_lease: ActiveOwnerLease = lease,
+                ) -> AsyncIterator[bytes]:
+                    try:
+                        async for chunk in upstream_resp.aiter_raw():
+                            active_lease.last_activity_s = manager._clock_s()
+                            if chunk:
+                                yield chunk
+                    finally:
+                        with contextlib.suppress(Exception):
+                            await upstream_resp.aclose()
+                        with contextlib.suppress(Exception):
+                            await http_client.aclose()
+
+                return StreamingResponse(
+                    _stream_sse(),
+                    status_code=upstream.status_code,
+                    headers=resp_headers,
+                )
+
+            try:
+                raw_content = await upstream.aread()
+            finally:
+                with contextlib.suppress(Exception):
+                    await upstream.aclose()
+                with contextlib.suppress(Exception):
+                    await client.aclose()
+
+            if upstream.status_code in {502, 503, 504} and "x-hussh-pod-state" not in {
+                k.lower() for k in resp_headers
+            }:
+                resp_headers["X-Hussh-Pod-State"] = "waking"
+            return Response(
+                content=raw_content,
+                status_code=upstream.status_code,
+                headers=resp_headers,
             )
-        lease.last_activity_s = manager._clock_s()
-        resp_headers = _filter_headers(upstream.headers)
-        resp_headers["X-Hussh-Pod-Key-Id"] = lease.pod_key_id
-        return Response(
-            content=upstream.content,
-            status_code=upstream.status_code,
-            headers=resp_headers,
-        )
+
+        return _waking_response(request)
 
     @gateway.api_route(
         "/u/{hushh_id}",
@@ -542,6 +735,9 @@ def create_edge_gateway_from_env() -> FastAPI:
         if sentinel_url and sentinel_auth
         else None
     )
+    hub_url = (os.environ.get("HUSSH_HUB_URL") or "").strip()
+    prefix_flag = (os.environ.get("HUSSH_SANDBOX_PREFIX_STORAGE_ENABLED") or "").strip().lower()
+    enable_prefix_storage = prefix_flag in {"1", "true", "yes"} if prefix_flag else bool(hub_url)
     manager = SandboxEdgeGatewayManager(
         claim_client=claim_client,
         master_seed=seed_raw,
@@ -554,8 +750,21 @@ def create_edge_gateway_from_env() -> FastAPI:
         activation_header_value=os.environ.get("HUSSH_SANDBOX_ACTIVATION_TOKEN"),
         admin_header_value=os.environ.get("HUSSH_EDGE_ADMIN_TOKEN"),
         pod_url_base=os.environ.get("HUSSH_SANDBOX_EDGE_PUBLIC_URL"),
-        hub_url=os.environ.get("HUSSH_HUB_URL"),
+        hub_url=hub_url,
         scheduler_caller_emails=os.environ.get("HUSHH_SCHEDULER_CALLER_EMAILS"),
         deploy_env=os.environ.get("HUSHH_DEPLOY_ENV"),
+        consent_ed25519_public_keys=os.environ.get("CONSENT_ED25519_PUBLIC_KEYS"),
+        owner_feed_ed25519_public_keys=os.environ.get("OWNER_FEED_ED25519_PUBLIC_KEYS"),
+        allowed_app_origins=(
+            os.environ.get("CORS_ALLOWED_ORIGINS") or os.environ.get("POD_ALLOWED_APP_ORIGINS")
+        ),
+        sentinel_model_gateway_url=os.environ.get("SENTINEL_MODEL_GATEWAY_URL"),
+        sentinel_vertex_project=(
+            os.environ.get("HUSSH_SENTINEL_VERTEX_PROJECT")
+            or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        ),
+        sentinel_vertex_location=os.environ.get("HUSSH_SENTINEL_VERTEX_LOCATION"),
+        enable_prefix_storage=enable_prefix_storage,
+        claim_timeout_s=float(os.environ.get("HUSSH_SANDBOX_CLAIM_TIMEOUT_SECONDS") or "180"),
     )
     return create_sandbox_edge_gateway_app(manager)

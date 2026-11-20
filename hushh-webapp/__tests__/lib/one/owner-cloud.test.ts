@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   OWNER_CLOUD_TARGETS,
+  hostedPodDisplayLabel,
+  hostedPodProvider,
   isAzureHomeSelectable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
@@ -12,6 +14,11 @@ import {
 describe("the owner-cloud question", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("labels pooled ACE personal sandboxes cleanly without advertising legacy GCP->Azure migration", () => {
+    expect(hostedPodDisplayLabel("ace")).toBe("Hussh Pods · Personal Sandbox");
+    expect(hostedPodProvider("ace")).toBeNull();
   });
 
   it("separates managed direct bindings from owner-cloud classification", () => {

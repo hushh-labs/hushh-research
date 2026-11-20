@@ -179,6 +179,10 @@ def private_pod_row(row: Any) -> bool:
     """Known owner cloud or a verified per-owner managed placement; never a fleet flag."""
     from collections.abc import Mapping
 
+    from hushh_mcp.services.hosted_ace_placement import (
+        has_hosted_ace_evidence,
+        retained_hosted_ace_placement,
+    )
     from hushh_mcp.services.hosted_azure_placement import (
         has_hosted_azure_evidence,
         retained_hosted_azure_placement,
@@ -191,6 +195,8 @@ def private_pod_row(row: Any) -> bool:
     if not isinstance(row, Mapping):
         return False
     candidate = dict(row)
+    if has_hosted_ace_evidence(candidate):
+        return retained_hosted_ace_placement(candidate) is not None
     if has_hosted_azure_evidence(candidate):
         return retained_hosted_azure_placement(candidate) is not None
     if has_hosted_evidence(candidate):
