@@ -503,6 +503,25 @@ provider and deploy service account. Production WIF setup is owned by
 `deploy/iam/setup_production_github_wif.sh`; never provision a parallel provider
 or restore a JSON service-account key.
 
+### One adoption pilot source
+
+The normal `hushh-pda-uat` backend deployment keeps the adoption source off
+unless the reviewed UAT application revision contains
+`deploy/metrics-uat-secret-versions.txt`. After the source owner approves the
+pilot population, reconciliation, identity and capacity, commit one line of
+three space-separated positive Secret Manager version numbers, in this order:
+`ONE_METRICS_UAT_ADOPTION_SECRET`, `ONE_METRICS_UAT_ADOPTION_BINDING_JSON`, and
+`ONE_METRICS_UAT_REPORTING_POLICY_JSON`. Store the values in Secret Manager and
+grant the UAT backend identity access to those resources. Use the matching UAT
+signing key in the Metrics collector's separate Secret Manager binding.
+
+Land the backend deploy wiring on Main and sync the same tooling into UAT
+before exact-source qualification. Verify the selected revision's secret
+references, Firebase and Cloud SQL authorities, signed collector request,
+and rollback target before accepting the source. Roll back through the
+governed release path to the prior source-off revision, or remove the
+version file from the next qualified UAT deployment.
+
 ## Verification model
 
 Every hosted deployment must prove:

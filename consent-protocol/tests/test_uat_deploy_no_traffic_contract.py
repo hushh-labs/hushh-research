@@ -818,6 +818,79 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("lane", "project", "service", "prefix", "versions", "exit_code", "enabled"),
+    [
+        ("uat", "hushh-pda-uat", "consent-protocol", "", "1 23 4\n", 0, True),
+        ("uat", "hushh-pda-uat", "consent-protocol", "", None, 0, False),
+        ("uat", "hushh-pda-uat", "consent-protocol", "", "1 latest 4\n", 1, False),
+        ("uat", "hushh-pda-uat", "consent-protocol", "", "1 23 4\n5\n", 1, False),
+        ("uat", "hushh-pda-uat", "consent-protocol", "preview-", "1 23 4", 0, False),
+        ("uat", "hushh-pda-uat", "consent-protocol-plg-qual", "", "1 23 4", 0, False),
+        ("uat", "hushh-pda", "consent-protocol", "", "1 23 4", 0, False),
+        ("dev", "hushh-pda-dev", "consent-protocol", "", "1 23 4", 0, False),
+        ("production", "hushh-pda", "consent-protocol", "", "1 23 4", 0, False),
+    ],
+)
+def test_one_adoption_deploy_binds_only_pinned_versions_on_one_uat(
+    tmp_path, lane, project, service, prefix, versions, exit_code, enabled
+) -> None:
+    if versions is not None:
+        (tmp_path / "deploy").mkdir()
+        (tmp_path / "deploy/metrics-uat-secret-versions.txt").write_text(versions)
+    deploy = backend_deploy_script()
+    start = deploy.index('metrics_uat_adoption=""')
+    end = deploy.index("# Disabling new paid requests", start)
+    append_env_start = deploy.index("append_optional_env() {")
+    append_env_end = deploy.index("\n}\n", append_env_start) + len("\n}\n")
+    env_binding = next(
+        line
+        for line in deploy.splitlines()
+        if line.startswith('append_optional_env "ONE_METRICS_UAT_ADOPTION_ENABLED" ')
+    )
+    result = subprocess.run(  # noqa: S603 - Isolated bash with no network or secret values.
+        [
+            "bash",
+            "-eu",
+            "-c",
+            'secrets="BASE=BASE:latest"\nenv_vars=("BASE=baseline")\n'
+            + deploy[append_env_start:append_env_end]
+            + deploy[start:end]
+            + env_binding
+            + '\nprintf "%s\\n" "${env_vars[@]}" "$secrets"\n',
+        ],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "_DEPLOY_ENV": lane,
+            "PROJECT_ID": project,
+            "_BACKEND_SERVICE": service,
+            "_SECRET_PREFIX": prefix,
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == exit_code, result.stderr
+    if exit_code:
+        assert "requires three positive Secret Manager version numbers" in result.stderr
+        assert result.stdout == ""
+    elif enabled:
+        assert result.stdout.splitlines() == [
+            "BASE=baseline",
+            "ONE_METRICS_UAT_ADOPTION_ENABLED=true",
+            "BASE=BASE:latest,"
+            "ONE_METRICS_UAT_ADOPTION_SECRET=ONE_METRICS_UAT_ADOPTION_SECRET:1,"
+            "ONE_METRICS_UAT_ADOPTION_BINDING_JSON=ONE_METRICS_UAT_ADOPTION_BINDING_JSON:23,"
+            "ONE_METRICS_UAT_REPORTING_POLICY_JSON=ONE_METRICS_UAT_REPORTING_POLICY_JSON:4",
+        ]
+    else:
+        assert result.stdout.splitlines() == [
+            "BASE=baseline",
+            "BASE=BASE:latest",
+        ]
+
+
 def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     """Drive-only credentials are opt-in UAT bindings, never generic fallbacks."""
     workflow = _read(".github/workflows/deploy-uat-implementation.yml")
