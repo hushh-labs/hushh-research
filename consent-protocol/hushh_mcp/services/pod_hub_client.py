@@ -40,6 +40,10 @@ from urllib.parse import urlsplit
 
 import requests  # type: ignore[import-untyped]
 
+_DEFAULT_REQUESTS_MODULE = requests
+_DEFAULT_REQUESTS_GET = requests.get
+_DEFAULT_REQUESTS_POST = requests.post
+
 logger = logging.getLogger(__name__)
 
 _METADATA_IDENTITY_URL = (
@@ -182,8 +186,22 @@ class PodHubClient:
         # the signed audience, and a trailing slash would change both.
         self._base = ((base_url if base_url is not None else hub_base_url()) or "").rstrip("/")
         self._timeout = timeout_seconds
+        self._using_default_session = session is None
         # Injectable for hermetic tests; never reaches the metadata server in unit tests.
-        self._session = session if session is not None else requests
+        if session is not None:
+            self._session = session
+        elif (
+            requests is _DEFAULT_REQUESTS_MODULE
+            and requests.get is _DEFAULT_REQUESTS_GET
+            and requests.post is _DEFAULT_REQUESTS_POST
+        ):
+            from hushh_mcp.services.pod_storage_transport import (
+                shared_pod_storage_transport,
+            )
+
+            self._session = shared_pod_storage_transport()
+        else:
+            self._session = requests
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
         self._metadata_absent_until: float = 0.0
@@ -227,14 +245,14 @@ class PodHubClient:
         now = time.time()
         if now < self._metadata_absent_until:
             return None
-        if self._session is requests and _is_process_metadata_absent(now):
+        if self._using_default_session and _is_process_metadata_absent(now):
             return None
         try:
             return self._identity_token()
         except PodHubUnavailable as exc:
             absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
             self._metadata_absent_until = absent_until
-            if self._session is requests:
+            if self._using_default_session:
                 _mark_process_metadata_absent(absent_until)
             self._metadata_failure = str(exc)
             return None

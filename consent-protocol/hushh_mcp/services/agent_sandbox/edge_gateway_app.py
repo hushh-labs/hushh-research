@@ -223,6 +223,25 @@ class SandboxEdgeGatewayManager:
         self._clock_s = clock_s or time.monotonic
         self._leases: dict[str, ActiveOwnerLease] = {}
         self._owner_locks: dict[str, asyncio.Lock] = {}
+        self._hub_http_client: httpx.AsyncClient | None = None
+        self._hub_http_loop: asyncio.AbstractEventLoop | None = None
+
+    def _get_hub_http_client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        if (
+            self._hub_http_client is None
+            or self._hub_http_client.is_closed
+            or self._hub_http_loop is not loop
+        ):
+            self._hub_http_client = httpx.AsyncClient(timeout=5.0, trust_env=False)
+            self._hub_http_loop = loop
+        return self._hub_http_client
+
+    async def aclose(self) -> None:
+        if self._hub_http_client is not None and not self._hub_http_client.is_closed:
+            await self._hub_http_client.aclose()
+        self._hub_http_client = None
+        self._hub_http_loop = None
 
     def _lock_for(self, hushh_id: str) -> asyncio.Lock:
         lock = self._owner_locks.get(hushh_id)
@@ -243,8 +262,7 @@ class SandboxEdgeGatewayManager:
         url = f"{self.hub_url}/api/one/pod/custody/sandbox-placement/{hushh_id}"
         sig_headers = sign_sandbox_edge_placement_headers(bytes(self._master_seed), hushh_id)
         try:
-            async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
-                resp = await client.get(url, headers=sig_headers)
+            resp = await self._get_hub_http_client().get(url, headers=sig_headers)
             if resp.status_code == 200:
                 body = resp.json()
                 raw_ep = body.get("placementEpoch", 0) if isinstance(body, dict) else 0
@@ -358,10 +376,11 @@ class SandboxEdgeGatewayManager:
             if last_exc is not None:
                 raise last_exc
 
+            health_timeout = httpx.Timeout(2.5, connect=0.20)
             deadline = time.monotonic() + max(2.0, self.health_poll_timeout_s)
             while time.monotonic() < deadline:
                 try:
-                    h_resp = await client.get(f"{base_url}/health", timeout=6.0)
+                    h_resp = await client.get(f"{base_url}/health", timeout=health_timeout)
                     if h_resp.status_code == 200:
                         try:
                             health_body = h_resp.json()
@@ -374,7 +393,7 @@ class SandboxEdgeGatewayManager:
                             return pub_b64, pod_key_id
                 except httpx.HTTPError:
                     pass
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.03)
         raise TimeoutError(f"Sandbox {endpoint.sandbox_name} /health did not turn Ready after bind")
 
     async def invalidate_lease(self, hushh_id: str, expected_lease_id: str | None = None) -> None:
@@ -549,6 +568,7 @@ def create_sandbox_edge_gateway_app(
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+            await manager.aclose()
 
     gateway = FastAPI(title="Hussh Sandbox Edge Gateway", lifespan=_lifespan)
     gateway.state.manager = manager
