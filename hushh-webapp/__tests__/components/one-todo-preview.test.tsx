@@ -146,6 +146,21 @@ describe("One profile To-do live-source parity", () => {
     expect(screen.queryByText("Your saved tasks could not refresh.")).not.toBeInTheDocument();
   });
 
+  it("preserves a saved-read failure when a cached task mutation succeeds", async () => {
+    const task = buildTodo({ title: "Cached task", type: "manual" });
+    mocks.load.mockResolvedValue({ tasks: [task] });
+    mocks.calendarError = "Unavailable";
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByText(task.title);
+    mocks.load.mockRejectedValueOnce(new Error("Saved list unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "Try again", exact: true }));
+    expect(await screen.findByText("Your saved tasks could not refresh.")).toBeVisible();
+    fireEvent.click(select(task.title));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again", exact: true })).toBeEnabled());
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(screen.getByText("Your saved tasks could not refresh.")).toBeVisible();
+  });
+
   it("keeps a failed removal open for retry and closes it only after a successful save", async () => {
     mocks.events = [event];
     mocks.remove.mockResolvedValueOnce({ success: false });

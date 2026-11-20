@@ -133,7 +133,7 @@ export function OneTodoPreview({
         : await TodoListPkmService.setStatus({ ...params, status });
       if (!result.success) throw new Error("Task could not be saved");
       if (!isCurrent()) return false;
-      setSnapshot(previous => ({ ...previous, error: false, mutationError: false, savingTaskId: null, tasks: status === "deleted" ? [...previous.tasks.filter(item => item.id !== task.id), updated] : previous.tasks }));
+      setSnapshot(previous => ({ ...previous, mutationError: false, savingTaskId: null, tasks: status === "deleted" ? [...previous.tasks.filter(item => item.id !== task.id), updated] : previous.tasks }));
       return true;
     } catch {
       if (isCurrent()) {
