@@ -244,4 +244,25 @@ describe("FeedService", () => {
       }),
     ).rejects.toThrow("Feed is temporarily unavailable. Please try again.");
   });
+
+  it("coalesces concurrent forced unreadCount calls in the same epoch and refetches after invalidation", async () => {
+    let resolveCount: ((res: Response) => void) | undefined;
+    mockApiFetch.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => { resolveCount = resolve; }),
+    );
+    const a = FeedService.unreadCount({ idToken: "token", userId: "user-1", force: true });
+    const b = FeedService.unreadCount({ idToken: "token", userId: "user-1", force: true });
+    const c = FeedService.unreadCount({ idToken: "token", userId: "user-1" });
+    await vi.waitFor(() => expect(resolveCount).toBeTypeOf("function"));
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    resolveCount?.(jsonResponse({ unread_count: 4 }));
+    await expect(Promise.all([a, b, c])).resolves.toEqual([4, 4, 4]);
+
+    bumpFeedInvalidationEpoch("user-1");
+    mockApiFetch.mockResolvedValueOnce(jsonResponse({ unread_count: 2 }));
+    await expect(
+      FeedService.unreadCount({ idToken: "token", userId: "user-1", force: true }),
+    ).resolves.toBe(2);
+    expect(mockApiFetch).toHaveBeenCalledTimes(2);
+  });
 });

@@ -122,7 +122,7 @@ class PodAccessAuditService:
         self._registry = registry
         self._ledger = ledger
 
-    async def authorize_owner_read(
+    async def authorize_owner_read_with_row(
         self,
         *,
         user_id: str,
@@ -131,20 +131,8 @@ class PodAccessAuditService:
         hushh_id: Optional[str] = None,
         request_id: Optional[str] = None,
         ledger: Optional[_Ledger] = None,
-    ) -> dict[str, Any]:
-        """Verify the caller is THIS pod's owner, write a receipt, allow or deny.
-
-        ``user_id``/``agent_id``/``scope`` come from an already-validated HCT (the
-        caller validates the token's signature + revocation first; this guard adds
-        the *ownership* check on top). ``hushh_id``, when provided, is checked
-        against the registry row so a valid token for user A can never be used to
-        read pod B.
-
-        Returns ``{"authorized": True, "hushhId", "scope"}`` on success. Raises
-        ``PodAccessDenied`` (fail-closed) on any mismatch — after recording a
-        ``POD_ACCESS_DENIED`` receipt. Raises ``PersonalAgentDisabledError`` when
-        the feature is off, and ``ValueError`` on missing ``user_id``.
-        """
+    ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+        """Verify ownership, write one receipt, and return ``(decision, registry_row)``."""
         if not personal_agent_enabled():
             raise PersonalAgentDisabledError(
                 "pod access requested while PERSONAL_AGENT_ENABLED is off"
@@ -198,7 +186,43 @@ class PodAccessAuditService:
             logger.warning("pod_access.denied reasons=%s", ",".join(reasons))
             raise PodAccessDenied(",".join(reasons) or "denied")
         logger.info("pod_access.allowed agent_id=%s scope=%s", agent_id, scope)
-        return {"authorized": True, "hushhId": resolved_hushh, "scope": scope}
+        return (
+            {"authorized": True, "hushhId": resolved_hushh, "scope": scope},
+            dict(row) if isinstance(row, dict) else None,
+        )
+
+    async def authorize_owner_read(
+        self,
+        *,
+        user_id: str,
+        agent_id: str,
+        scope: str,
+        hushh_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        ledger: Optional[_Ledger] = None,
+    ) -> dict[str, Any]:
+        """Verify the caller is THIS pod's owner, write a receipt, allow or deny.
+
+        ``user_id``/``agent_id``/``scope`` come from an already-validated HCT (the
+        caller validates the token's signature + revocation first; this guard adds
+        the *ownership* check on top). ``hushh_id``, when provided, is checked
+        against the registry row so a valid token for user A can never be used to
+        read pod B.
+
+        Returns ``{"authorized": True, "hushhId", "scope"}`` on success. Raises
+        ``PodAccessDenied`` (fail-closed) on any mismatch — after recording a
+        ``POD_ACCESS_DENIED`` receipt. Raises ``PersonalAgentDisabledError`` when
+        the feature is off, and ``ValueError`` on missing ``user_id``.
+        """
+        decision, _ = await self.authorize_owner_read_with_row(
+            user_id=user_id,
+            agent_id=agent_id,
+            scope=scope,
+            hushh_id=hushh_id,
+            request_id=request_id,
+            ledger=ledger,
+        )
+        return decision
 
     async def _receipt(
         self,

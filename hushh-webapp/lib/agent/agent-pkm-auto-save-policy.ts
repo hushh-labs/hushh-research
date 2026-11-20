@@ -56,6 +56,9 @@ export async function loadAgentPkmAutoSavePolicy(params: {
   vaultKey: string;
   vaultOwnerToken: string;
 }): Promise<AgentPkmAutoSavePolicy> {
+  if (PersonalKnowledgeModelService.isDomainAbsentInCachedMetadata?.(params.userId, "runtime_secrets")) {
+    return DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY;
+  }
   const stored = await PersonalKnowledgeModelService.loadRuntimeSecret({
     ...params,
     credentialRef: AGENT_PKM_AUTO_SAVE_POLICY_REF,

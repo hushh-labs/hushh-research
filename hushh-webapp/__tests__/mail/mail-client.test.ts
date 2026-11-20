@@ -32,7 +32,7 @@ describe("hushh-mail-api client", () => {
 
     const { sendMail } = await import(MODULE_PATH);
     const result = await sendMail({
-      to: "ankit@hushh.ai",
+      to: "recipient@example.com",
       subject: "Welcome to One",
       html: "<p>hi</p>",
       text: "hi",
@@ -45,7 +45,8 @@ describe("hushh-mail-api client", () => {
     expect((init.headers as Record<string, string>)["x-api-key"]).toBe("test-key");
     expect(init.body).not.toContain("test-key");
     expect(JSON.parse(init.body as string)).toMatchObject({
-      to: "ankit@hushh.ai",
+      from: { name: "One", email: "one@hushh.ai" },
+      to: "recipient@example.com",
       subject: "Welcome to One",
       idempotencyKey: "one-welcome:uid-1",
     });
