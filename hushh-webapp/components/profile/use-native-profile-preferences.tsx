@@ -5,6 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStableThemeSelection } from "@/components/theme-toggle";
 import { readAccentPalette } from "@/components/app-ui/native-accent-choice";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
+import { useConsentNotificationState } from "@/components/consent/notification-provider";
+import { NotificationSettingsService } from "@/lib/services/notification-settings-service";
 import { useSettings } from "@/lib/services/settings-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { nativeDrawers, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
@@ -25,6 +27,10 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
   useLayoutEffect(() => { setPalette(current => current ?? readAccentPalette()); }, []);
   const [settings, updateSettings] = useSettings();
   const nativeInterface = useExperimentalNativeInterface();
+  const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
+    useConsentNotificationState();
+  const openDeviceSettings = deliveryMode === "push_active" || deliveryMode === "push_blocked" ||
+    ["native_alerts_disabled", "native_sound_disabled", "native_emergency_sound_disabled"].includes(deliveryDetail ?? "");
   const [savingHaptics, setSavingHaptics] = useState(false);
   const pendingHaptics = useRef(false);
   const mounted = useRef(true);
@@ -65,6 +71,11 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
           { id: "native-interface-off", label: "Off", selected: !nativeInterface.selected },
         ] }, ...(nativeInterface.pendingChange ? [{ id: "preferences-native-interface-undo", label: "Keep current interface", detail: "Cancel the pending change.", enabled: !nativeInterface.saving, artworkId: "appearance", chevron: true }] : [])] : []),
     ] },
+    { id: "preferences-notifications", title: "Notifications", rows: [
+      { id: "preferences-notifications", label: openDeviceSettings ? "Notification settings" : "Turn on notifications",
+        enabled: !isRetryingPushRegistration, pending: isRetryingPushRegistration, symbol: "bell",
+        chevron: openDeviceSettings },
+    ] },
     { id: "preferences-agent", rows: [
       { id: "preferences-gemini", label: "AI connection", detail: "Cloud connection or your own key.", enabled: true, artworkId: "ai-connection", chevron: true },
       { id: "preferences-voice", label: "Voice", detail: "Voice and safety controls.", enabled: true, artworkId: "voice", chevron: true },
@@ -81,6 +92,18 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
     ["haptics-on", () => changeHaptics(true)], ["haptics-off", () => changeHaptics(false)],
     ["native-interface-on", () => nativeInterface.change(true)], ["native-interface-off", () => nativeInterface.change(false)],
     ["preferences-native-interface-undo", () => nativeInterface.change(nativeInterface.active)],
+    ["preferences-notifications", async () => {
+      if (!enabled || isRetryingPushRegistration) return;
+      if (!openDeviceSettings) {
+        retryPushRegistration();
+        return;
+      }
+      try {
+        await NotificationSettingsService.open();
+      } catch {
+        morphyToast.error("Couldn’t open notification settings.");
+      }
+    }],
     ["preferences-gemini", onGemini], ["preferences-voice", onVoice], ["preferences-style", () => setStyleOpen(true)],
   ]);
   return { page, rows, formScene: enabled && styleOpen ? "writing-style" as const : null,

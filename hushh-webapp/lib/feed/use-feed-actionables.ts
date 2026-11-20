@@ -1603,13 +1603,13 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
     }
 
     for (const payment of sentPayments) {
-      const displayPayment = describeFeedDrivePayment(
-        payment,
-        paymentClockNow,
-        paymentContexts[payment.requestId],
-      );
+      const paymentContext = paymentContexts[payment.requestId];
+      const displayPayment = describeFeedDrivePayment(payment, paymentClockNow, paymentContext);
       const paymentIsNonActionable = displayPayment.status !== "ready";
-      const packetReviewRequired = payment.packageDisclosureRequired === true || !!paymentContexts[payment.requestId]?.packageDisclosure;
+      const packetReviewRequired = payment.packageDisclosureRequired === true || !!paymentContext?.packageDisclosure;
+      const feedPayment = paymentIsNonActionable || packetReviewRequired
+        ? displayPayment
+        : describeFeedDrivePayment(payment, paymentClockNow, paymentContext, { priceOnAction: true });
       const paymentAction = paymentIsNonActionable
         ? []
         : packetReviewRequired ? [{ key: "review-packet", label: "Review packet", tone: "primary" as const,
@@ -1657,8 +1657,8 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
-        title: displayPayment.title,
-        description: displayPayment.description,
+        title: feedPayment.title,
+        description: feedPayment.description,
         href: paymentIsNonActionable ? payment.href : undefined,
         onSelect: paymentIsNonActionable ? undefined : () => router.push(buildConsentCenterHref("pending", {
           requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
