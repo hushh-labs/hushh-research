@@ -493,6 +493,27 @@ def _filter_headers(headers: Any) -> dict[str, str]:
     return out
 
 
+def _overlay_response_headers(
+    resp_headers: dict[str, str],
+    *,
+    pod_key_id: str,
+    cors_hdrs: dict[str, str],
+) -> None:
+    """Replace upstream case-variant CORS and pod-key headers without duplicating ASGI headers."""
+    drop_lower = {"x-hussh-pod-key-id"}
+    if cors_hdrs:
+        drop_lower.add("vary")
+        drop_lower.update(k.lower() for k in cors_hdrs)
+    for existing in [
+        k
+        for k in list(resp_headers)
+        if k.lower() in drop_lower or (cors_hdrs and k.lower().startswith("access-control-"))
+    ]:
+        resp_headers.pop(existing, None)
+    resp_headers["X-Hussh-Pod-Key-Id"] = pod_key_id
+    resp_headers.update(cors_hdrs)
+
+
 def _authorize_admin(request: Request, manager: SandboxEdgeGatewayManager) -> None:
     expected = manager.admin_header_value
     if not expected:
@@ -737,8 +758,11 @@ def create_sandbox_edge_gateway_app(
 
             lease.last_activity_s = manager._clock_s()
             resp_headers = _filter_headers(upstream.headers)
-            resp_headers["X-Hussh-Pod-Key-Id"] = lease.pod_key_id
-            resp_headers.update(cors_hdrs)
+            _overlay_response_headers(
+                resp_headers,
+                pod_key_id=lease.pod_key_id,
+                cors_hdrs=cors_hdrs,
+            )
 
             content_type = str(upstream.headers.get("content-type") or "").lower()
             if content_type.startswith("text/event-stream"):
