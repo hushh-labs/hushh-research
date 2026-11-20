@@ -30,15 +30,18 @@
     "docs/development/quality/definition-of-done.md"
   ],
   "required_commands": [
+    "./bin/hushh protocol floci",
     "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh"
   ],
   "verification_bundles": [
     {
       "id": "quality-contracts",
       "commands": [
+        "./bin/hushh protocol floci",
         "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh"
       ],
       "tests": [
+        "./bin/hushh protocol floci",
         "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh"
       ]
     }
