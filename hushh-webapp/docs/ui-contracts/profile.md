@@ -408,6 +408,7 @@ using USD/viewer time for events and UTC calendar availability dates.
 | Control | Read/write and fields | Positive/negative/error outcome |
 | --- | --- | --- |
 | Light/Dark/System; Blue/Molten Gold | next-themes theme/local accent storage | Immediate owner-local preference, no profile API; menu open/Cancel no write. App haptics uses native Preferences/SettingsService, no network. |
+| Notifications | Device permission recovery through the existing notification provider; native can open system settings. | Profile → Appearance & preferences. This does not change notification delivery or add any Feed notices. |
 | Writing fields/Save | Encrypted identity PKM `communication_preferences` via saveOwnerStyleSettings/PkmWriteCoordinator | Fields local until Save; summary source `one_settings_communication_preferences`; no plaintext style API. Inline web has no separate Cancel; native close need not discard retained draft. |
 | Finance preferences Save | KaiProfileService coordinated encrypted `financial.profile` PKM write | No dedicated Finance-settings API. getProfile can catch read failure and return default profile; outer unavailable state not guaranteed. Native/web wizard Back differs. |
 | Gemini mode/fields | Encrypted runtime-secret refs; read current mode/key transport/project/location | Own-key selection only local branch. Save/remove are several coordinated refs then mode, not atomic multi-key operation. Partial failure may need refresh. |

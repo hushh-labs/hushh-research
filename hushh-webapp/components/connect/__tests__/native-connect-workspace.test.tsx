@@ -5,7 +5,9 @@ import { validNativeWorkspace, type NativeWorkspaceProjection } from "@/lib/capa
 
 const state = vi.hoisted(() => ({ enabled: true, path: "/one/connect", content: null as unknown, actions: new Map(), apply: vi.fn(), directory: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.path, useRouter: () => ({ push: state.push }), useSearchParams: () => new URLSearchParams() }));
-vi.mock("@/components/feed/feed-push-prompt", () => ({ useFeedPushPrompt: () => null }));
+vi.mock("@/components/feed/feed-push-prompt", () => ({ useFeedPushPrompt: () => ({
+  message: "Reconnect notifications", permission: "granted", enable: vi.fn(), isRetryingPushRegistration: false,
+}) }));
 vi.mock("@/components/consent/payouts/use-payout-snapshot", () => ({ usePayoutSnapshot: () => ({ token: null }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true }) }));
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => state.enabled }));
@@ -130,6 +132,7 @@ describe("Native Feed action parity", () => {
     render(<NativeFeedWorkspace model={feed([{ key: "action", lane: "Needs you", kind: "action", value: item }])} fallback={<p>React</p>} />);
     const row = projection().sections.flatMap(section => section.rows).find(row => row.label === item.title)!;
     expect(validNativeWorkspace(projection())).toBe(true);
+    expect(projection().sections.flatMap(section => section.rows).some(row => row.label === "Reconnect notifications")).toBe(false);
     expect(row.readOnly).toBe(true); expect(state.actions.has(row.id)).toBe(false);
     expect(row.inlineActions?.map(action => action.label)).toEqual(["Review"]);
     await act(async () => { await state.actions.get(row.inlineActions![0]!.id)!(); });
