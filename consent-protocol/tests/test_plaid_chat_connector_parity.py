@@ -301,3 +301,44 @@ def test_validate_plaid_result_enforces_size_budget():
     assert validated["truncated"] is True
     assert validated["untrusted_data"] is True
     assert len(json.dumps(validated)) <= 12_000
+
+
+@pytest.mark.asyncio
+async def test_request_state_session_service_preserves_temp_client_ready_across_turns():
+    from ag_ui_adk.request_state_service import RequestStateSessionService
+    from google.adk.sessions import InMemorySessionService
+
+    from hushh_mcp.one_adk.wiki_recall_tools import STATE_WIKI_CLIENT_READY
+
+    assert STATE_PLAID_CLIENT_READY.startswith("temp:")
+    assert STATE_WIKI_CLIENT_READY.startswith("temp:")
+
+    inner = InMemorySessionService()
+    wrapper = RequestStateSessionService(inner)
+    created = await wrapper.create_session(
+        app_name="one",
+        user_id="owner_multi_turn",
+        session_id="conv_multi_turn",
+        state={"hussh:user_id": "owner_multi_turn"},
+    )
+    projected = durable_external_read_projection(created)
+    assert STATE_PLAID_CLIENT_READY not in projected.state
+    assert STATE_WIKI_CLIENT_READY not in projected.state
+
+    wrapper.set_pending_temp_state(
+        app_name="one",
+        user_id="owner_multi_turn",
+        session_id="conv_multi_turn",
+        temp_state={
+            STATE_PLAID_CLIENT_READY: True,
+            STATE_WIKI_CLIENT_READY: True,
+        },
+    )
+    turn2_session = await wrapper.get_session(
+        app_name="one",
+        user_id="owner_multi_turn",
+        session_id="conv_multi_turn",
+    )
+    assert turn2_session is not None
+    assert turn2_session.state.get(STATE_PLAID_CLIENT_READY) is True
+    assert turn2_session.state.get(STATE_WIKI_CLIENT_READY) is True
