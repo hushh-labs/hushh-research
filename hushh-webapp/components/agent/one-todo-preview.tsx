@@ -99,6 +99,7 @@ export function OneTodoPreview({
 
   const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready && current && choicesOwner === identity, tasks, selectedCapabilities: selected });
   const openTasks = live.pending;
+  const completedTasks = tasks.filter(task => task.status === "done");
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
   const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.emailReadError);
   const retry = () => {
@@ -223,6 +224,10 @@ export function OneTodoPreview({
           {dueReceipts.length ? <section><h4 className={workspace.groupLabel}>Receipts & Due Payments</h4>{dueReceipts.map(receipt => <DueReceiptRow key={receipt.id} receipt={receipt} />)}</section> : null}
         </div>
       )}
+      {completedTasks.length ? <details className={workspace.completed}>
+        <summary>Completed ({completedTasks.length})</summary>
+        {completedTasks.map(task => <TodoCompactRow key={task.id} task={task} saving={loading || Boolean(savingTaskId)} onToggle={toggleTask} onOpen={task => setDetail({ identity, task })} />)}
+      </details> : null}
       </div>
       <TodoAddItemSheet
         open={editorOpen}

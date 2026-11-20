@@ -83,7 +83,7 @@ describe("One profile To-do live-source parity", () => {
     mocks.load.mockResolvedValue({ tasks: [{ ...calendar, status: "done" }, { ...agent, status: "deleted" }] });
     render(<OneTodoPreview {...props()} />);
     expect(await screen.findByText("All clear.")).toBeVisible();
-    expect(screen.queryByText(event.title)).not.toBeInTheDocument();
+    expect(screen.getByText(event.title)).not.toBeVisible();
     expect(screen.queryByText("Review files")).not.toBeInTheDocument();
   });
 
@@ -96,6 +96,27 @@ describe("One profile To-do live-source parity", () => {
     view.rerender(<OneTodoPreview {...props()} />);
     expect(await screen.findByText("All clear.")).toBeVisible();
     expect(mocks.sourceAction).not.toHaveBeenCalled();
+  });
+
+  it("rediscovers completed tasks after remount and restores them from the same profile pane", async () => {
+    const task = buildTodo({ id: "recover-completed", title: "Recover completed task", type: "manual" });
+    mocks.load.mockResolvedValue({ tasks: [task] });
+    const view = render(<OneTodoPreview {...props()} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: `Mark ${task.title} as completed` }));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ status: "done" })));
+    view.unmount();
+    mocks.load.mockResolvedValue({ tasks: [{ ...task, status: "done" }] });
+    render(<OneTodoPreview {...props()} />);
+    const summary = await screen.findByText("Completed (1)");
+    fireEvent.click(summary);
+    fireEvent.click(screen.getByRole("button", { name: task.title, exact: true }));
+    const detail = screen.getByRole("region", { name: "Task details" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Mark as not completed", exact: true }));
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "Back to tasks" })).toBeEnabled());
+    expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({ status: "pending", task: expect.objectContaining({ id: task.id }) }));
+    fireEvent.click(within(detail).getByRole("button", { name: "Back to tasks" }));
+    expect(await screen.findByRole("checkbox", { name: `Mark ${task.title} as completed` })).toBeEnabled();
+    expect(screen.queryByText("Completed (1)")).not.toBeInTheDocument();
   });
 
   it("rolls back a resolved unsuccessful write and offers retry", async () => {

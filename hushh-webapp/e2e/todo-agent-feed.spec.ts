@@ -443,6 +443,9 @@ for (const [width, height] of [[320, 568], [390, 844], [1440, 900]] as const) {
     await page.screenshot({ path: test.info().outputPath(`approved-detail-${width}.png`), animations: "disabled" });
     await complete.click();
     await expect(detail.getByRole("status")).toHaveText("Completed");
+    await detail.getByRole("button", { name: "Back to tasks", exact: true }).click();
+    await page.getByText("Completed (1)", { exact: true }).click();
+    await page.getByRole("button", { name: "Demo with Ankit", exact: true }).click();
     await detail.getByRole("button", { name: "Mark as not completed", exact: true }).click();
     await expect(detail.getByRole("status")).toHaveText("To do");
     await remove.click();
