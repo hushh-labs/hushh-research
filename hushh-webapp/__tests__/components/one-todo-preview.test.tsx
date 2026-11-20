@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
@@ -104,9 +104,41 @@ describe("One profile To-do live-source parity", () => {
     render(<OneTodoPreview {...props()} />);
     await screen.findByText(event.title);
     fireEvent.click(select(event.title));
-    expect(await screen.findByText("Your saved tasks could not refresh.")).toBeVisible();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
     expect(screen.getByText(event.title)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(select(event.title)).toBeEnabled();
+  });
+
+  it("reports failed completion in detail and clears the error after a successful retry", async () => {
+    mocks.events = [event];
+    mocks.save.mockResolvedValueOnce({ success: false });
+    render(<OneTodoPreview {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: event.title, exact: true }));
+    const detail = screen.getByRole("region", { name: "Task details" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
+    expect(await within(detail).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
+    fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "Mark as not completed", exact: true })).toBeEnabled());
+    expect(within(detail).queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "Back to tasks" }));
+    expect(await screen.findByRole("button", { name: "Task sources", exact: true })).toBeEnabled();
+    expect(screen.queryByText("Your saved tasks could not refresh.")).not.toBeInTheDocument();
+  });
+
+  it("keeps a failed removal open for retry and closes it only after a successful save", async () => {
+    mocks.events = [event];
+    mocks.remove.mockResolvedValueOnce({ success: false });
+    render(<OneTodoPreview {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: event.title, exact: true }));
+    const detail = screen.getByRole("region", { name: "Task details" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Remove task", exact: true }));
+    expect(await within(detail).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
+    expect(detail).toBeVisible();
+    fireEvent.click(within(detail).getByRole("button", { name: "Remove task", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument());
+    expect(await screen.findByText("All clear.")).toBeVisible();
+    expect(mocks.remove).toHaveBeenCalledTimes(2);
+    expect(mocks.sourceAction).not.toHaveBeenCalled();
   });
 
   it("retains saved rows on a source failure, retries sources, and avoids false empty success", async () => {
