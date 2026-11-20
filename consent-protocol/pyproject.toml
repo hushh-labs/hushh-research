@@ -241,6 +241,9 @@ module = [
     "hushh_mcp.services.one_location_public_invite_url",
     # Keep the shared manual/command public-link writer's return contract typed.
     "hushh_mcp.services.location_public_link_writer",
+    "hushh_mcp.services.location_retention",
+    "hushh_mcp.services.location_envelope_reader",
+    "hushh_mcp.services.location_review_binding",
     # Shared/private connector callbacks retain their typed URL contract.
     "hushh_mcp.services.oauth_redirect_policy",
     # Preserve immutable owner/generation types at the authentication boundary.

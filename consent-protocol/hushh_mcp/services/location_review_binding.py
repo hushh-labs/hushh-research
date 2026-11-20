@@ -1,6 +1,6 @@
 """Lock the exact live share shown during an explicit extension review."""
 
-from typing import Any
+from typing import Any, NoReturn
 
 from sqlalchemy import text
 
@@ -93,7 +93,7 @@ def reviewed_request_share(
 
 def reject_stale_denial(
     service: Any, *, owner_user_id: str, request_id: str, expected_request_revision: int | None
-) -> None:
+) -> NoReturn:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
 
     existing = service._execute_one(

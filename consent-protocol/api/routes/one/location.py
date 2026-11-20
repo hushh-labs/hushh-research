@@ -2469,16 +2469,12 @@ def approve_location_access_request(
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
             auto_approve_rule_version=payload.auto_approve_rule_version,
-            **(
-                {"reviewed_extension": payload.reviewed_extension.model_dump(mode="json")}
+            reviewed_extension=(
+                payload.reviewed_extension.model_dump(mode="json")
                 if payload.reviewed_extension is not None
-                else {}
+                else None
             ),
-            **(
-                {"expected_request_revision": payload.expected_request_revision}
-                if payload.expected_request_revision is not None
-                else {}
-            ),
+            expected_request_revision=payload.expected_request_revision,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

@@ -94,6 +94,7 @@ def _consent_projection(has: SchemaHas, columns: Mapping[str, Set[str]]) -> Proj
             if has("consent_audit")
             else "f.metadata->>'request_id'"
         )
+        # Closed source/schema fragments only; values remain in execute_raw parameters.
         joins.append(f"""LEFT JOIN LATERAL (
           SELECT b.bundle_id::text AS bundle_id, i.request_id
           FROM one_information_request_bundles b
@@ -103,7 +104,7 @@ def _consent_projection(has: SchemaHas, columns: Mapping[str, Set[str]]) -> Proj
               (f.event_type IN ('consent_denied','consent_cancelled') AND
                (i.request_id=f.source_row_id OR b.bundle_id={_uuid("f.source_row_id")})))
           ORDER BY b.bundle_id,i.request_id LIMIT 1
-        ) fb ON TRUE""")
+        ) fb ON TRUE""")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
         patches.append(
             "jsonb_strip_nulls(jsonb_build_object('bundle_id',fb.bundle_id,'request_id',fb.request_id))"
         )
@@ -165,11 +166,12 @@ def _mail_projection(has: SchemaHas, columns: Mapping[str, Set[str]]) -> Project
             if has("gmail_owner_send_actions")
             else " AND FALSE"
         )
+        # Closed source/schema fragments only; values remain in execute_raw parameters.
         joins.append(f"""LEFT JOIN LATERAL (SELECT
           CASE WHEN count(*)=1 THEN min(candidate.workflow_id::text)::uuid END AS workflow_id,
           CASE WHEN count(*)=1 THEN min(candidate.status) END AS status
           FROM gmail_personal_information_requests candidate WHERE candidate.user_id=f.user_id AND (( f.event_type='mail_information_request_detected' AND candidate.workflow_id={_uuid("f.source_row_id")})
-            OR (f.event_type='mail_message_sent' AND candidate.reply_send_action_id=f.source_row_id {confirmed_owner}))) fkw ON TRUE""")
+            OR (f.event_type='mail_message_sent' AND candidate.reply_send_action_id=f.source_row_id {confirmed_owner}))) fkw ON TRUE""")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
         patches.append("jsonb_strip_nulls(jsonb_build_object('workflow_id',fkw.workflow_id::text))")
         required["mail_information_request_detected"] = (
             "fkw.workflow_id IS NOT NULL AND fkw.status='detected'"
@@ -294,7 +296,8 @@ def source_events_sql(
             required[event] += " AND NULLIF(f.source_row_id,'') IS NOT NULL"
     if {"id", "owner_user_id"}.issubset(columns.get("one_location_circles", set())):
         required["circle_deleted"] = (
-            f"f.metadata->>'actor_is_self'='false' OR EXISTS(SELECT 1 FROM one_location_circles deleted_circle WHERE deleted_circle.id=COALESCE({_uuid("f.metadata->>'circle_id'")},{_uuid("split_part(f.source_row_id,':',1)")}) AND deleted_circle.owner_user_id<>f.user_id)"
+            # Closed source/schema fragments only; values remain in execute_raw parameters.
+            f"f.metadata->>'actor_is_self'='false' OR EXISTS(SELECT 1 FROM one_location_circles deleted_circle WHERE deleted_circle.id=COALESCE({_uuid("f.metadata->>'circle_id'")},{_uuid("split_part(f.source_row_id,':',1)")}) AND deleted_circle.owner_user_id<>f.user_id)"  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
         )
 
     action_required = (
@@ -311,6 +314,7 @@ def source_events_sql(
         if include_dismissed
         else "f.dismissed_at,f.dismissal_token"
     )
+    # Closed source/schema fragments only; values remain in execute_raw parameters.
     return f"""SELECT f.id,f.user_id,f.source_domain,f.event_type,f.actor_label,f.source_row_id,
       f.read_at,f.created_at,{dismissal},
       (CASE WHEN f.source_domain='location' AND f.event_type IN(
@@ -320,9 +324,10 @@ def source_events_sql(
         WHEN f.event_type IN('mail_information_request_detected','mail_message_sent','mail_message_failed','mail_delivery_unconfirmed')
         THEN f.metadata-'workflow_id'-'send_action_id'-'send_state' ELSE f.metadata END) || ({metadata}) AS metadata, {action_required} AS source_action_required
       FROM (SELECT id,user_id,source_domain,event_type,actor_label,source_row_id,
-        read_at,created_at,dismissed_at,dismissal_token,
+        read_at,created_at,dismissed_at,
+        (to_jsonb(feed_events)->>'dismissal_token')::uuid AS dismissal_token,
         CASE WHEN jsonb_typeof(metadata)='object' THEN metadata ELSE '{{}}'::jsonb END AS metadata
-        FROM feed_events WHERE user_id=:user_id) f {" ".join(joins)} WHERE f.user_id=:user_id"""
+        FROM feed_events WHERE user_id=:user_id) f {" ".join(joins)} WHERE f.user_id=:user_id"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
 
 
 def load_source_columns(execute_raw: Callable[[str, dict[str, Any]], Any]) -> dict[str, set[str]]:

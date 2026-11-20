@@ -19,6 +19,7 @@ def search_label_sql(alias: str, key: str) -> str:
     )
 
 
+# Closed source/schema fragments only; values remain in execute_raw parameters.
 LOCATION_SEARCH_CONTEXT_SQL = f"""(SELECT COALESCE(jsonb_agg(context.alias),'[]'::jsonb)
     FROM (SELECT DISTINCT jsonb_build_object(
       'person',concat_ws(' ',source.actor_label,{search_label_sql("source", "counterpart_label")},
@@ -31,7 +32,7 @@ LOCATION_SEARCH_CONTEXT_SQL = f"""(SELECT COALESCE(jsonb_agg(context.alias),'[]'
       AND (CAST(:from_at AS timestamptz) IS NULL OR source.created_at>=CAST(:from_at AS timestamptz))
       AND (CAST(:before_at AS timestamptz) IS NULL OR source.created_at<CAST(:before_at AS timestamptz))
       AND (CAST(:agent AS text) IS NULL OR source.subagent_id=:agent)) context)
-    AS location_search_context"""
+    AS location_search_context"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
 
 
 def location_search_fields(row: dict[str, Any]) -> dict[str, Any]:

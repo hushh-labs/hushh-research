@@ -130,6 +130,16 @@ describe("payout activity list", () => {
 describe("payout receipts", () => {
   beforeEach(() => apiJson.mockReset());
 
+  it("keeps an earning's authoritative mode and refuses invented money modes", async () => {
+    const receipt = { id: `earning:${requestId}`, kind: "earning", status: "credited", coins: 911, stages: [] };
+    for (const mode of ["test", "live", null] as const) {
+      apiJson.mockResolvedValueOnce({ ...receipt, mode });
+      expect(await PayoutActivityService.item("vault", receipt.id)).toMatchObject({ mode });
+    }
+    apiJson.mockResolvedValueOnce({ ...receipt, mode: "sandbox" });
+    await expect(PayoutActivityService.item("vault", receipt.id)).rejects.toMatchObject(contractFailure("mode"));
+  });
+
   it("reads a receipt by a validated id and never shows another item's receipt", async () => {
     await expect(PayoutActivityService.item("vault", "earning:../../debug/consent-listener")).rejects.toThrow("Invalid activity item");
     await expect(PayoutActivityService.item("vault", "deposit:tr_1Private")).rejects.toThrow("Invalid activity item");

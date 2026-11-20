@@ -34,6 +34,17 @@ from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnec
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 
+def current_paid_order(row: Mapping[str, Any] | None) -> bool:
+    """The same payment authority for grants and private filename reads."""
+    return bool(
+        row is not None
+        and row.get("stripe_mode") == configured_stripe_mode()
+        and row.get("status") == "paid"
+        and row.get("paid_at") is not None
+        and row.get("reconciliation_required") is False
+    )
+
+
 @dataclass(frozen=True)
 class RetiredCheckout:
     """Server-observed terminal unpaid session; never accepted from a client."""
@@ -464,13 +475,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             .mappings()
             .first()
         )
-        if (
-            row is None
-            or row.get("stripe_mode") != configured_stripe_mode()
-            or row["status"] != "paid"
-            or row["paid_at"] is None
-            or row["reconciliation_required"]
-        ):
+        if not current_paid_order(row):
             raise DriveSharingError("payment_required")
 
     @staticmethod

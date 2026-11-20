@@ -76,6 +76,12 @@ from hushh_mcp.services.feed_group_queries import (
     _SOURCE_EVENTS_SQL,
     protected_dismissal_sql,
 )
+from hushh_mcp.services.feed_group_queries import (
+    _GROUPED_FEED_COUNT_SQL as _GROUPED_FEED_COUNT_SQL,
+)
+from hushh_mcp.services.feed_group_queries import (
+    _GROUPED_FEED_PAGE_SQL as _GROUPED_FEED_PAGE_SQL,
+)
 from hushh_mcp.services.feed_location_state import active_incident_sql
 from hushh_mcp.services.feed_metadata_keys import FEED_METADATA_KEYS
 from hushh_mcp.services.feed_payment_projection import (
@@ -408,6 +414,7 @@ class FeedService:
         revision_rows = (
             db.execute_raw(
                 self._grouped_feed_sql(count=False).removesuffix(_GROUPED_FEED_PAGE_SELECT)
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 + f"""
             SELECT {SNAPSHOT_FINGERPRINT_SQL} AS snapshot_fingerprint, md5(concat_ws(':',:policy_revision,
               count(*) FILTER(WHERE f.dismissed_at IS NOT NULL),max(f.dismissed_at),
@@ -422,7 +429,7 @@ class FeedService:
               AND f.event_type='direct_message_received' AND m.id=CASE
                 WHEN f.source_row_id ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
                 THEN f.source_row_id::uuid END
-            """,
+            """,  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
                 {"user_id": user_id, "policy_revision": POLICY_REVISION},
             ).data
             or []
@@ -1136,6 +1143,7 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
             self._get_db()
             .execute_raw(
                 _GROUPED_FEED_CTE
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 + """
             , matching AS (
               SELECT g.id, g.thread_key, g.metadata, g.created_at
@@ -1163,7 +1171,7 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
             FROM matching g JOIN keyed k ON k.thread_key = g.thread_key
             GROUP BY g.id, g.metadata, g.created_at
             ORDER BY g.id DESC
-            """,
+            """,  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
                 {"user_id": user_id, "item_id": item_id, "terms": terms or []},
             )
             .data
@@ -1379,6 +1387,7 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
                 "snapshot_changed": not bool(rows),
             }
         result = self._get_db().execute_raw(
+            # Closed source/schema fragments only; values remain in execute_raw parameters.
             """
             UPDATE feed_events AS item
                SET dismissed_at = now(),
@@ -1387,7 +1396,7 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
              WHERE user_id = :user_id AND (id <= :up_to_id
                OR id = ANY(CAST(:surfacing_ids AS BIGINT[])))
             """
-            + " AND NOT ("
+            + " AND NOT ("  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
             + active_incident_sql("item", self._feed_source_columns(), feed_uuid_sql)
             + ")"
             + (

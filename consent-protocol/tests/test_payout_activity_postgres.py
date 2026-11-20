@@ -19,6 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import DBAPIError
 
 from api.middleware import require_vault_owner_token
 from api.routes.one import payout_activity as activity_routes
@@ -170,7 +171,15 @@ def world(connector_postgres_url, monkeypatch):
     admin.dispose()
 
 
-def _request(world, owner="owner", *, label="October statements", paid=True, retained=1000):
+def _request(
+    world,
+    owner="owner",
+    *,
+    label="October statements",
+    paid=True,
+    retained=1000,
+    method="hashcoins",
+):
     """A paid, delivered request whose fee is not resolved yet (pending earning)."""
     request = str(uuid4())
     envelope = DriveSharingCipher().seal(
@@ -180,14 +189,14 @@ def _request(world, owner="owner", *, label="October statements", paid=True, ret
         c.execute(
             text("""INSERT INTO drive_share_requests
               (request_id,user_id,recipient_user_id,status,request_envelope,settlement_method)
-              VALUES (:id,:owner,'requester','completed',CAST(:envelope AS jsonb),'hashcoins')"""),
-            {"id": request, "owner": owner, "envelope": json.dumps(envelope)},
+              VALUES (:id,:owner,'requester','completed',CAST(:envelope AS jsonb),:method)"""),
+            {"id": request, "owner": owner, "envelope": json.dumps(envelope), "method": method},
         )
         c.execute(
             text("""INSERT INTO drive_request_payment_orders
               (request_id,user_id,amount_cents,status,stripe_mode,settlement_method)
-              VALUES (:id,:owner,1000,'awaiting_payment','live','hashcoins')"""),
-            {"id": request, "owner": owner},
+              VALUES (:id,:owner,1000,'awaiting_payment','live',:method)"""),
+            {"id": request, "owner": owner, "method": method},
         )
         c.execute(
             text("""INSERT INTO drive_request_payment_obligations
@@ -200,7 +209,7 @@ def _request(world, owner="owner", *, label="October statements", paid=True, ret
             request_id=request,
             owner_user_id=owner,
             amount_cents=1000,
-            settlement_method="hashcoins",
+            settlement_method=method,
         )
         if paid:
             c.execute(
@@ -776,6 +785,49 @@ async def test_since_reads_what_changed_through_indexes_not_whole_tables(world):
 
 
 @pytest.mark.asyncio
+async def test_exact_stripe_earning_receipt_uses_order_owner_without_reading_a_foreign_wallet(
+    world,
+):
+    request = _request(world, method="stripe_transfer")
+    with world.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='transferred',stripe_transfer_id='tr_receipt_fixture',
+          transfer_attempt_id=:attempt,transferred_at=clock_timestamp() WHERE request_id=:request"""),
+            {"request": request, "attempt": str(uuid4())},
+        )
+    receipt = await world.activity.receipt(user_id="owner", item_id="earning:" + request)
+    assert receipt["mode"] == "live" and receipt["settlementMethod"] == "stripe_transfer"
+    assert receipt["stripeTransfer"]["state"] == "sent" and receipt["stripeTransfer"]["at"]
+    assert receipt["cashOut"] is None
+    assert not any(stage["stage"] == "credited" for stage in receipt["stages"])
+    assert await world.activity.receipt(user_id="other", item_id="earning:" + request) is None
+    with world.engine.begin() as connection:
+        foreign = HashcoinWalletService.ensure_wallet(
+            connection, user_id="other", stripe_mode="live"
+        )
+    # The persistence boundary also rejects attaching someone else's wallet.
+    with pytest.raises(DBAPIError, match="Earning wallet is immutable"):
+        with world.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_request_owner_payouts SET wallet_id=:wallet WHERE request_id=:request"
+                ),
+                {"wallet": foreign, "request": request},
+            )
+    assert (await world.activity.receipt(user_id="owner", item_id="earning:" + request))[
+        "cashOut"
+    ] is None
+    with world.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_request_owner_payouts SET erased_at=clock_timestamp() WHERE request_id=:request"
+            ),
+            {"request": request},
+        )
+    assert await world.activity.receipt(user_id="owner", item_id="earning:" + request) is None
+
+
+@pytest.mark.asyncio
 async def test_receipts_join_stripe_facts_without_provider_ids_and_stay_owner_scoped(
     world, monkeypatch
 ):
@@ -873,6 +925,7 @@ async def test_receipts_join_stripe_facts_without_provider_ids_and_stay_owner_sc
     assert cash_out["review"] is None
 
     earning = receipts["earning:" + first]
+    assert earning["mode"] == "live"
     assert earning["status"] == "reversed"
     assert [stage["stage"] for stage in earning["stages"]] == [
         "paid",

@@ -248,11 +248,42 @@ requires verified RIA status, canonical roster membership and current workspace
 consent. Scope is a view filter; it never grants client or source access.
 
 Bounded scalar labels exclude coordinates, private notes, document contents and
-protected financial values. Finance statement/report labels remain in existing
-vault-gated client memory. Ordinary Feed search does not index Drive filenames.
-Family relationships are not inferred: there is no durable owner-confirmed alias
-binding yet. Unique adjacent transpositions offer explicit typo suggestions;
-ambiguous names produce no fabricated identity hit.
+protected financial values. Finance statement/report labels are read within the
+current unlocked owner session. Reports use explicit Shared Files setup, encrypted
+save and availability acknowledgement; a completed analysis alone is not a saved
+report. Device-only legacy reports remain distinguishable from shared records.
+
+Confirmed contact aliases are authored by the owner in Connections and persisted
+in encrypted `identity.contact_aliases` version 1. Only current confirmed contact
+bindings participate. Model suggestions, public labels and unconfirmed family
+relationships do not create an identity match. Unique adjacent transpositions
+offer explicit typo suggestions; ambiguous names produce no fabricated identity.
+
+Private Drive filename lookup uses the existing connector proxy and four
+vault-authorized, no-store POST endpoints under
+`/api/connectors/google_drive/sharing`: `shared-files/search`,
+`received-files/search`, `shared-files/file` and `received-files/file`. Search
+criteria stay in request bodies. Each page scans at most 100 encrypted confirmed
+request-delivery candidates and returns at most 20 matches, with an authenticated
+owner/query/snapshot cursor even when an intermediate page has no matches. The
+UI offers continuation and does not claim complete no-results while a cursor or
+source failure remains. Provider names are matched in full; display labels use
+the existing bounded filename presentation. No filename index, document contents,
+URL query or persistent result cache is created.
+
+Owner history and recipient access are distinct: the owner retains authorized
+request-associated filename history after sharing ends; the recipient must still
+have a confirmed file grant, required payment and the same verified identity.
+The source is reread after identity verification and on every file tap. Standalone
+bulk shares without a request, filename typo suggestions and global filename
+ranking across unscanned candidate pages are not supported by this lookup.
+
+Receipt terms search confirmed document-payment milestones within their current
+group. A payment-only match opens the exact request's read-only receipt after a
+fresh participant lookup. Requester receipts come from the current owner payment
+source; owner earnings come from the exact payout receipt. Test/live/legacy mode,
+settlement method and recorded provider state remain explicit. A Feed event alone
+never establishes payment, delivery, saved status or a returned transfer.
 
 Query caches and result-return snapshots stay in the owner/auth/vault episode's
 memory, fenced by Feed invalidation. Return preserves query/scope and scroll;

@@ -54,10 +54,11 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
             "jsonb_strip_nulls(jsonb_build_object('membership_key',circle_invite.metadata->>'membership_key'))"
         )
     if has("one_location_circles") and has("one_location_circle_memberships"):
+        # Closed source/schema fragments only; values remain in execute_raw parameters.
         patches.append(f"""jsonb_build_object('current_circle_available', EXISTS(
           SELECT 1 FROM one_location_circles circle JOIN one_location_circle_memberships member
           ON member.circle_id=circle.id AND member.user_id=f.user_id AND member.status='active'
-          WHERE circle.id={uuid_sql("f.metadata->>'circle_id'")} AND circle.status='active'))""")
+          WHERE circle.id={uuid_sql("f.metadata->>'circle_id'")} AND circle.status='active'))""")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     if has("one_location_check_in_operations"):
         joins.append(f"""LEFT JOIN one_location_check_in_operations check_in
           ON check_in.id={uuid_sql("f.metadata->>'check_in_operation_id'")} AND check_in.owner_user_id=f.user_id""")
@@ -85,13 +86,14 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
           'added_duration_hours',CASE WHEN jsonb_typeof(recorded_location.metadata->'added_duration_hours') IN('number','string') THEN left(recorded_location.metadata->>'added_duration_hours',32) END))""")
     # Legacy duration receipts may omit share kind after the short-lived grant is purged.
     # Correlate only this viewer's exact recorded grant, never names or a time window.
+    # Closed source/schema fragments only; values remain in execute_raw parameters.
     joins.append(f"""LEFT JOIN LATERAL (
       SELECT origin.metadata FROM feed_events origin
       WHERE f.source_domain='location' AND origin.user_id=f.user_id
         AND origin.source_domain='location'
         AND origin.event_type IN('location_share_created','location_share_unconfirmed')
         AND {_history_grant_expr("origin", uuid_sql)}={_history_grant_expr("f", uuid_sql)}
-      ORDER BY origin.id DESC LIMIT 1) location_feed_origin ON TRUE""")
+      ORDER BY origin.id DESC LIMIT 1) location_feed_origin ON TRUE""")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     patches.append(
         "jsonb_strip_nulls(jsonb_build_object('share_kind',COALESCE(f.metadata->>'share_kind',location_feed_origin.metadata->>'share_kind')))"
     )
@@ -100,11 +102,12 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
       'location_share_created','location_share_revoked','location_share_expired','location_share_shortened','location_share_duration_changed')
       THEN jsonb_strip_nulls(jsonb_build_object('recorded_grant_id',COALESCE(
         {_history_grant_expr("f", uuid_sql)},NULLIF(f.metadata->>'recorded_grant_id','')))) ELSE '{{}}'::jsonb END""")
+    # Closed source/schema fragments only; values remain in execute_raw parameters.
     published_sos = f"""COALESCE(f.metadata->>'share_kind',location_feed_origin.metadata->>'share_kind','share')<>'sos' OR (
       f.metadata->>'feed_audience'='recipient' AND EXISTS(SELECT 1 FROM feed_events published
         WHERE published.user_id=f.user_id AND published.source_domain='location'
           AND published.event_type='location_share_created' AND published.metadata->'feed_sms_confirmed'='true'::jsonb
-          AND {_history_grant_expr("published", uuid_sql)}={_history_grant_expr("f", uuid_sql)}))"""
+          AND {_history_grant_expr("published", uuid_sql)}={_history_grant_expr("f", uuid_sql)}))"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     for event in (
         "location_share_created",
         "location_share_revoked",
@@ -143,7 +146,8 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
         required[event] = "(" + required.get(event, "TRUE") + ") AND " + identity
     circle_id = uuid_sql("f.metadata->>'circle_id'")
     required["circle_member_added"] = (
-        f"{circle_id} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM feed_events ended WHERE ended.user_id=f.user_id AND ended.source_domain='location' AND ended.event_type='circle_deleted' AND COALESCE({uuid_sql("ended.metadata->>'circle_id'")},{uuid_sql("split_part(ended.source_row_id,':',1)")})={circle_id} AND (ended.created_at,ended.id)>(f.created_at,f.id))"
+        # Closed source/schema fragments only; values remain in execute_raw parameters.
+        f"{circle_id} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM feed_events ended WHERE ended.user_id=f.user_id AND ended.source_domain='location' AND ended.event_type='circle_deleted' AND COALESCE({uuid_sql("ended.metadata->>'circle_id'")},{uuid_sql("split_part(ended.source_row_id,':',1)")})={circle_id} AND (ended.created_at,ended.id)>(f.created_at,f.id))"  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     )
     if has("feed_event_counterparts"):
         required["circle_member_added"] += (

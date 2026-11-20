@@ -22,6 +22,7 @@ export const useBackLayer=()=>{};
 export const unwindBackLayer=()=>false;
 export const useLocalOnboardingActionHandler=()=>{};
 export const FeedFinanceSearch=()=>null;
+export const FeedDriveSearch=()=>null;
 export const FeedService={async searchActivity({query}:{query:{scope?:string;query?:string}}){
   const term=(query.query||"").toLocaleLowerCase();
   const items=records.filter(item=>(!query.scope||feedItemScope(item)===query.scope)&&(!term||[item.actor_label,item.metadata.ticker,item.event_type].join(" ").toLowerCase().includes(term)));

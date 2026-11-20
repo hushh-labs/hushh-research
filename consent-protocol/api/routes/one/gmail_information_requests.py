@@ -371,7 +371,7 @@ async def get_information_request_activity(
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
-        workflow = await _service().get_terminal_workflow(
+        workflow: dict[str, Any] | None = await _service().get_terminal_workflow(
             user_id=user_id, workflow_id=str(workflow_id)
         )
     except Exception as exc:
@@ -391,7 +391,7 @@ async def get_active_information_request(
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
-        workflow = await _service().get_active_workflow(
+        workflow: dict[str, Any] | None = await _service().get_active_workflow(
             user_id=user_id, workflow_id=str(workflow_id)
         )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes storage errors

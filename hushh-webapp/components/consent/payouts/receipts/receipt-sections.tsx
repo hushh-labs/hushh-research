@@ -69,8 +69,9 @@ export function EarningReceiptSections({ receipt, openItem, onAction }: {
   receipt: EarningReceipt; openItem: OpenLinkedItem; onAction?: (action: PayoutReceiptAction) => void;
 }) {
   const breakdown = receipt.breakdown;
+  const stages = receipt.stages.filter(stage => receipt.settlementMethod !== "stripe_transfer" || ["paid", "delivered"].includes(stage.stage));
   // Before credit the server's figure is the expected earning, not coins yet.
-  const coins = ["credited", "held", "reversed"].includes(receipt.status) ? receipt.coins : null;
+  const coins = receipt.settlementMethod !== "stripe_transfer" && ["credited", "held", "reversed"].includes(receipt.status) ? receipt.coins : null;
   return (
     <>
       <RequestGroup request={receipt.request} />
@@ -88,14 +89,18 @@ export function EarningReceiptSections({ receipt, openItem, onAction }: {
           {coins !== null ? <ReceiptValueRow title="Hussh Coins" value={coins.toLocaleString()} /> : null}
         </SettingsGroup>
       ) : null}
-      {receipt.stages.length ? (
+      {stages.length ? (
         <SettingsGroup title="Status">
-          {receipt.stages.map((stage, index) => (
+          {stages.map((stage, index) => (
             <ReceiptStageRow key={`${stage.stage}:${index}`} title={EARNING_STAGES[stage.stage].title}
               tone={EARNING_STAGES[stage.stage].tone} value={receiptDateTime(stage.at)} />
           ))}
         </SettingsGroup>
       ) : null}
+      {receipt.settlementMethod === "stripe_transfer" && receipt.stripeTransfer ? <SettingsGroup title="Transfer">
+        <ReceiptValueRow title={{ sent: "Sent to Stripe", reversed: "Reversed", review: "Under review", none: "No earnings", waiting: "Transfer pending" }[receipt.stripeTransfer.state]}
+          value={receipt.stripeTransfer.at ? receiptDateTime(receipt.stripeTransfer.at) : undefined} />
+      </SettingsGroup> : null}
       {receipt.cashOut ? (
         <SettingsGroup title="Redemption">
           <ReceiptStageRow title={redemptionTitle(receipt.cashOut.status)} tone={receipt.cashOut.status === "succeeded" ? "done"

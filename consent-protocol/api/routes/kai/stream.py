@@ -17,6 +17,7 @@ from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token as require_vault_owner_token
@@ -32,7 +33,8 @@ from api.routes.kai.analysis_report_availability import (
     confirmed_report_object,
 )
 from api.routes.kai.run_manager import KaiAnalyzeRunManager
-from api.routes.kai.stream_transport import _create_sse_response, _parse_cursor
+from api.routes.kai.stream_transport import _create_sse_response as _transport_response
+from api.routes.kai.stream_transport import _parse_cursor as _parse_cursor
 from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
@@ -60,6 +62,12 @@ from ._analysis_presentation import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:
+    """Preserve the existing constructor port for route callers and rehearsals."""
+    return _transport_response(generator, response_factory=EventSourceResponse)
+
 
 router = APIRouter(tags=["Kai Streaming"])
 _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")

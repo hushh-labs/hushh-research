@@ -758,6 +758,14 @@ def test_document_activity_groups_before_pagination_and_ignores_late_payment(fee
     assert [entry["id"] for entry in third["items"]] == [str(rows["connection"])]
     assert third["next_cursor"] is None
 
+    # A receipt remains findable after delivery replaces the payment headline.
+    receipt = service.search_activity(OWNER, query="receipt", scope="drive")["items"]
+    assert len(receipt) == 1 and receipt[0]["id"] == str(rows["delivered"])
+    assert receipt[0]["search_events"] == ["document_share_payment_confirmed"]
+    current = service.search_activity(OWNER, scope="drive")["items"]
+    assert all(item["search_events"] == [] for item in current)
+    assert service.search_activity(OTHER, query="receipt", scope="drive")["items"] == []
+
     removal = service.dismiss(OWNER, item_id=int(item["activity_revision"]))
     assert removal["dismissed_ids"] == [
         str(rows[name]) for name in ("request", "partial", "delivered", "late_payment")

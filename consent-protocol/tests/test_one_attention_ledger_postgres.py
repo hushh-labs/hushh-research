@@ -110,6 +110,9 @@ def test_attention_ledger_on_postgres(monkeypatch) -> None:
 
         monkeypatch.setattr("db.connection.get_pool", _pool)
         created: list[str] = []
+        owned_counterparts = (
+            await pool.fetchval("SELECT to_regclass('public.feed_event_counterparts')") is None
+        )
         try:
             await pool.execute("DROP TABLE IF EXISTS one_attention_ledger")
             for table, ddl in _STAND_INS.items():
@@ -238,6 +241,8 @@ def test_attention_ledger_on_postgres(monkeypatch) -> None:
             assert await pool.fetchval("SELECT to_regclass('public.one_attention_ledger')") is None
         finally:
             await pool.execute("DROP TABLE IF EXISTS one_attention_ledger")
+            if owned_counterparts:
+                await pool.execute("DROP TABLE IF EXISTS feed_event_counterparts")
             for table in (
                 "feed_events",
                 "messages",

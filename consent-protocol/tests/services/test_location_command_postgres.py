@@ -1163,6 +1163,7 @@ def json_text(value):
 
 
 def audience_writer_schema(db, monkeypatch):
+    db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES('third') ON CONFLICT DO NOTHING")
     """Execute domain writers against real Location migrations and SQL tables."""
     from contextlib import contextmanager
 

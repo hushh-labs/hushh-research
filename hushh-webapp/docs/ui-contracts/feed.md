@@ -111,17 +111,18 @@ responses. Global unread remains owner-scoped and independent of search scope.
 
 | Source | Implemented boundary / remaining limitation |
 | --- | --- |
-| Drive/document requests | Exact participant request, guarded review, current payable quote and accessible-file flow. Confirm counts and settlement through source readback. Filename lookup and typed receipt search are not integrated into ordinary Feed search. |
-| KYC | Pending review selects the exact workflow. Confirmed terminal rows retain recorded detail; an exact sent-message destination still needs its source selector. |
-| Finance | Exact statement/run selection, draft correction, saved history and Item-specific reconnect. Report publication follows confirmed encrypted save, with current-session request fencing. |
+| Drive/document requests | Exact participant request, guarded review, current payable quote and accessible-file flow. Confirm counts and settlement through source readback. Private, vault-authorized filename continuation searches confirmed request deliveries; exact open rechecks access. Payment-only milestone matches open a fresh read-only participant receipt. Standalone bulk files and filename typo suggestions remain unsupported. |
+| KYC | Pending review selects the exact workflow. Confirmed replies select the source-owned read-only send result, fenced by the current owner and vault session. |
+| Finance | Exact statement/run selection, draft correction, saved history and Item-specific reconnect. Report publication follows explicit Shared Files setup, encrypted save/readback and current-source availability acknowledgement. Pending import drafts remain device-session only. |
 | Advisor | Pending participant review and actual acceptance/decline stay distinct. Current `ui=2` contract and source access checks remain authoritative. |
 | Transfers | Retained historical receipts only. The retired provider cannot supply fresh sandbox transfers. Unknown direction is a transfer, never an invented deposit. |
 | Location | Exact request/grant/Check-In/Circle selection and revision-bound approval. Ended incidents open history, never a stale map. Legacy receipts lacking current source facts do not grant a live destination. |
-| Other agents | The shared policy admits reviewed outcomes. Some Calendar, Email, Memory/profile and private-agent outcomes have recorded Feed detail but still lack exact owning-result selectors. |
+| Other agents | The shared policy admits reviewed outcomes. Some Calendar, legacy Consent, Memory/profile and private-agent outcomes have recorded Feed detail but still lack exact owning-result selectors. |
 
-Confirmed family aliases need a durable owner-confirmed identity binding; model
-or PKM retrieval hints are not that authority. An actual confirmed contact name
-can match. Raw coordinates, precise places, private Check-In notes, document
+Confirmed family aliases use the owner's encrypted `identity.contact_aliases`
+version 1 binding authored in Connections, with a current confirmed relationship.
+Model or retrieval hints cannot establish aliases or substitute another person.
+Raw coordinates, precise places, private Check-In notes, document
 contents, protected holdings and emergency location information are not indexed.
 Disconnected agents can retain authorized history; connector recovery requires
 confirmed current source state rather than an old warning event.

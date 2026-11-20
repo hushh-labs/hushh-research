@@ -47,6 +47,7 @@ class FeedActivityReader:
         rows = (
             self._db.execute_raw(
                 cte
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 + """
             SELECT milestone.* FROM keyed target
             JOIN grouped current ON current.thread_key = target.thread_key
@@ -59,7 +60,7 @@ class FeedActivityReader:
                 SELECT created_at,id FROM keyed anchor WHERE anchor.id=:before_id
                   AND anchor.thread_key=current.thread_key AND anchor.dismissed_at IS NULL))
             ORDER BY milestone.created_at DESC, milestone.id DESC LIMIT 101
-        """,
+        """,  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
                 {"user_id": user_id, "item_id": item_id, "before_id": before_id},
             ).data
             or []
@@ -70,11 +71,12 @@ class FeedActivityReader:
         current = (
             self._db.execute_raw(
                 cte
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 + """
             SELECT current.* FROM keyed target JOIN grouped current ON current.thread_key = target.thread_key
             WHERE target.id = :item_id AND target.dismissed_at IS NULL
               AND (current.last_dismissed_id IS NULL OR target.id > current.last_dismissed_id)
-        """,
+        """,  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
                 {"user_id": user_id, "item_id": item_id},
             ).data
             or []
@@ -103,10 +105,11 @@ class FeedActivityReader:
         rows = (
             self._db.execute_raw(
                 cte
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 + """
             SELECT * FROM grouped WHERE id=ANY(CAST(:item_ids AS bigint[]))
               AND displayed_unread_count>0
-        """,
+        """,  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
                 {"user_id": user_id, "item_ids": item_ids[:200]},
             ).data
             or []
@@ -119,13 +122,14 @@ class FeedActivityReader:
         rows = (
             self._db.execute_raw(
                 cte
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 + """
             SELECT member.id FROM keyed target
             JOIN grouped shown ON shown.thread_key=target.thread_key
             JOIN keyed member ON member.thread_key=target.thread_key
             WHERE target.id=:item_id AND target.dismissed_at IS NULL
               AND member.dismissed_at IS NULL AND member.id<=:item_id
-        """,
+        """,  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
                 {"user_id": user_id, "item_id": item_id},
             ).data
             or []

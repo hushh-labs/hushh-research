@@ -18,7 +18,8 @@ def active_incident_sql(alias, columns, uuid_sql):
     ):
         return "FALSE"
     grant_id = f"COALESCE({uuid_sql(f"{alias}.metadata->>'recorded_grant_id'")},{uuid_sql(f"{alias}.metadata->>'grant_id'")},{uuid_sql(f"split_part({alias}.source_row_id,':',1)")})"
+    # Closed source/schema fragments only; values remain in execute_raw parameters.
     return f"""({alias}.source_domain='location' AND EXISTS(
       SELECT 1 FROM one_location_share_grants live WHERE live.id={grant_id}
         AND live.recipient_user_id={alias}.user_id
-        AND live.metadata->>'share_kind'='sos' AND ({grant_status_sql("live")})='active'))"""
+        AND live.metadata->>'share_kind'='sos' AND ({grant_status_sql("live")})='active'))"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.

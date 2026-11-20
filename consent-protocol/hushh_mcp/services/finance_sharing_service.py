@@ -5,6 +5,7 @@ by the unlocked owner. A connection or ciphertext alone never authorizes a read.
 """
 
 import json
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 
@@ -35,6 +36,8 @@ def decoded(value):
 
 
 def iso(value):
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone(UTC).isoformat()
     return value.isoformat() if value is not None else None
 
 

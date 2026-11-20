@@ -39,6 +39,7 @@ def search_sql(cte: str, *, person_filtered: bool = False) -> str:
     ]
     return (
         cte
+        # Closed source/schema fragments only; values remain in execute_raw parameters.
         + f""", search_labels AS (
       SELECT m.*, {scope_sql("m")} AS scope_id,
         ARRAY(SELECT btrim(regexp_replace(lower(normalize(COALESCE(label,''),NFKC) COLLATE "pg_c_utf8"),'[^[:alnum:]]+',' ','g'))
@@ -56,7 +57,8 @@ def search_sql(cte: str, *, person_filtered: bool = False) -> str:
       SELECT *,array_to_string(labels,' ') AS words FROM search_labels
       WHERE (CAST(:scope AS text) IS NULL OR scope_id=:scope)
     ), matches AS MATERIALIZED (
-      SELECT thread_key,MAX(CASE WHEN :query='' THEN 0
+      SELECT thread_key,CASE WHEN :query<>'' THEN array_agg(DISTINCT event_type)
+        ELSE ARRAY[]::text[] END AS search_events,MAX(CASE WHEN :query='' THEN 0
         WHEN :query=ANY(labels) THEN 100
         WHEN NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(CAST(:terms AS jsonb)) term
           WHERE NOT EXISTS(SELECT 1 FROM unnest(string_to_array(words,' ')) word
@@ -66,7 +68,7 @@ def search_sql(cte: str, *, person_filtered: bool = False) -> str:
         WHERE strpos(words,term)=0)
       AND strpos(array_to_string(labels[1:4],' '),:person)>0 GROUP BY thread_key
     ), search_ranked AS (
-      SELECT g.*,matches.search_rank,{scope_sql("g")} AS scope_id
+      SELECT g.*,matches.search_rank,matches.search_events,{scope_sql("g")} AS scope_id
       FROM grouped g JOIN matches USING(thread_key)
     ), search_snapshot AS (
       SELECT md5(COALESCE(string_agg(md5(jsonb_build_array('{POLICY_REVISION}',id,source_domain,actor_label,event_type,created_at,
@@ -74,7 +76,7 @@ def search_sql(cte: str, *, person_filtered: bool = False) -> str:
     ) SELECT page.*,search_snapshot.search_revision FROM search_snapshot
     LEFT JOIN LATERAL (SELECT * FROM search_ranked WHERE CAST(:after_rank AS int) IS NULL
       OR (search_rank,created_at,id)<(:after_rank,CAST(:after_time AS timestamptz),CAST(:after_id AS bigint))
-      ORDER BY search_rank DESC,created_at DESC,id DESC LIMIT :page_size) page ON TRUE"""
+      ORDER BY search_rank DESC,created_at DESC,id DESC LIMIT :page_size) page ON TRUE"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     )
 
 
@@ -83,6 +85,7 @@ def suggestion_sql(cte: str, *, person_filtered: bool = False) -> str:
     # Suggestions come from admitted, owner-scoped labels, never a directory.
     return (
         cte
+        # Closed source/schema fragments only; values remain in execute_raw parameters.
         + f""" SELECT DISTINCT left(m.actor_label,160) AS label FROM classified m
       JOIN grouped g ON g.thread_key=m.thread_key
       WHERE m.dismissed_at IS NULL AND (g.last_dismissed_id IS NULL OR m.id>g.last_dismissed_id)
@@ -92,5 +95,5 @@ def suggestion_sql(cte: str, *, person_filtered: bool = False) -> str:
         AND (CAST(:agent AS text) IS NULL OR m.subagent_id=:agent)
         AND (CAST(:from_at AS timestamptz) IS NULL OR m.created_at>=CAST(:from_at AS timestamptz))
         AND (CAST(:before_at AS timestamptz) IS NULL OR m.created_at<CAST(:before_at AS timestamptz))
-      ORDER BY label LIMIT 1000"""
+      ORDER BY label LIMIT 1000"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     )

@@ -12,7 +12,9 @@ from api.middlewares.observability import get_request_id
 logger = logging.getLogger("api.routes.kai.stream")
 
 
-def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:
+def _create_sse_response(
+    generator: AsyncGenerator[dict, None], *, response_factory=EventSourceResponse
+) -> EventSourceResponse:
     async def _instrumented() -> AsyncGenerator[dict, None]:
         started = time.perf_counter()
         event_count = 0
@@ -39,7 +41,7 @@ def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceRe
                 saw_terminal,
             )
 
-    return EventSourceResponse(
+    return response_factory(
         _instrumented(),
         ping=15,
         headers={

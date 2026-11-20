@@ -44,6 +44,7 @@ import { feedScopeLabel } from "@/lib/feed/agent-scopes";
 import { FeedActivitySearch } from "@/components/feed/feed-activity-search";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { FeedActivityDetail } from "@/components/feed/feed-activity-detail";
+import { isFeedPaymentMatch } from "@/lib/feed/payment-result-selection";
 import { FeedRow } from "@/components/feed/feed-row";
 import {
   feedClearedThroughStorageKey,
@@ -794,6 +795,10 @@ function FeedPageSession({
 
   const openItem = useCallback(
     (item: FeedItem) => {
+      if (isFeedPaymentMatch(item) && userId) {
+        setActivityDetail({ owner: userId, generation: sessionGeneration, item });
+        return;
+      }
       const destination=presentFeedItem(item);
       if(destination.exactDestination && destination.href) {
         if(searchingActivityRef.current)armFeedSearchReturn(feedResultHref(destination.href));

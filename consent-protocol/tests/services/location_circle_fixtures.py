@@ -28,6 +28,8 @@ class _CapacityConnection:
 
     def execute(self, statement, params):
         sql = str(statement)
+        if "pg_advisory_xact_lock_shared" in sql:
+            return _Rows()
         self.sql.append(sql)
         self.params.append(dict(params))
         if "current_setting('hushh.circle_member_add_batch_id'" in sql:

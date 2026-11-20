@@ -22,8 +22,9 @@ def _plan(conn: Any, owner: str, operation: str, *, lock: bool = False) -> dict[
     row = (
         conn.execute(
             text(
+                # Closed source/schema fragments only; values remain in execute_raw parameters.
                 "SELECT * FROM one_location_check_in_operations WHERE id=CAST(:id AS UUID) AND owner_user_id=:owner"
-                + (" FOR UPDATE" if lock else "")
+                + (" FOR UPDATE" if lock else "")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
             ),
             {"id": operation, "owner": owner},
         )

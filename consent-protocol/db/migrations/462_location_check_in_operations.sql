@@ -104,4 +104,6 @@ FROM one_location_access_requests r WHERE r.approved_grant_id IS NOT NULL
  AND COALESCE(f.metadata->>'recorded_grant_id',f.source_row_id)=r.approved_grant_id::text
  AND NOT EXISTS(SELECT 1 FROM one_location_access_requests other WHERE other.id<>r.id
    AND other.approved_grant_id=r.approved_grant_id AND other.owner_user_id=r.owner_user_id AND other.requester_user_id=r.requester_user_id);
+-- New participant references inherit the existing deletion/tombstone fence.
+SELECT install_account_deletion_write_guards();
 COMMIT;

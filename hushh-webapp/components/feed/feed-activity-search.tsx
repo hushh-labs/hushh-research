@@ -24,6 +24,7 @@ import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { FeedRow } from "./feed-row";
 import { FeedActionableRow } from "./feed-actionable-row";
 import { FeedFinanceSearch } from "./feed-finance-search";
+import { FeedDriveSearch } from "./feed-drive-search";
 type SearchResult = Awaited<ReturnType<typeof FeedService.searchActivity>>;
 function dateBoundary(value: string, next = false): string | null {
     if (!value)
@@ -65,6 +66,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
     const [privateNamesUnavailable, setPrivateNamesUnavailable] = useState(false);
     const [financeCount, setFinanceCount] = useState<number | null>(initial?.financeItems?.length ?? 0);
     const [financeItems, setFinanceItems] = useState(initial?.financeItems);
+    const [driveCount, setDriveCount] = useState<number | null>(null);
     const scrollFrame = useRef<number | null>(null);
     const financeScrollRestored = useRef(false);
     const restoreScroll = useCallback(() => {
@@ -261,6 +263,7 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
         dated.set(label, [...(dated.get(label) || []), item]);
     }
     const showFinance = !named && (!scope || scope === "finance" || scope === "advisor");
+    const showFiles = Boolean(query.trim() && submitted?.query === query && (!scope || scope === "drive"));
     if (!open)
         return null;
     return <section aria-label="Search activity" className="space-y-3 pb-3">
@@ -288,9 +291,10 @@ export function FeedActivitySearch({ ownerId, getToken, isCurrent, onOpen, onMod
     <div aria-label="Activity results">
       {pending.map(item => <FeedActionableRow key={item.id} onNavigate={armFeedSearchReturn} item={{ ...item, href: item.href ? feedResultHref(item.href) : item.href, sourceLabel: feedScopeLabel(item.scopeId || "one") }}/>)}
       {[...dated].map(([date, rows]) => <SettingsGroup key={date} title={date} separatorInset>{rows.map(item => <FeedRow key={item.activity_group_id || item.id} item={item} unread={false} openable onOpen={openResult}/>)}</SettingsGroup>)}
-      {!busy && !failed && !cursor && !visibleHit && !visible.length && !pending.length && (!showFinance || financeCount === 0) ? <div role="status" className="py-5 text-center text-sm text-muted-foreground"><p>{query ? `No activity for “${query}”` : scope ? `No ${feedScopeLabel(scope)} activity` : "No activity yet"}</p>{scope ? <Button variant="ghost" onClick={() => selectScope("")}>Show all</Button> : query ? <Button variant="ghost" onClick={() => changeQuery("")}>Clear search</Button> : null}</div> : null}
+      {!busy && !failed && !cursor && !visibleHit && !visible.length && !pending.length && (!showFinance || financeCount === 0) && (!showFiles || driveCount === 0) ? <div role="status" className="py-5 text-center text-sm text-muted-foreground"><p>{query ? `No activity for “${query}”` : scope ? `No ${feedScopeLabel(scope)} activity` : "No activity yet"}</p>{scope ? <Button variant="ghost" onClick={() => selectScope("")}>Show all</Button> : query ? <Button variant="ghost" onClick={() => changeQuery("")}>Clear search</Button> : null}</div> : null}
       {!busy && cursor ? <Button variant="ghost" onClick={() => submitted && void run(submitted, true)}>Load more</Button> : null}
       {showFinance ? <FeedFinanceSearch key={JSON.stringify([vaultEpoch, submitted?.query, scope, submitted?.fromAt, submitted?.beforeAt])} initialRecords={initialVaultEpoch.current === vaultEpoch && initial?.query === query && initial?.agent === scope && initial?.from === from && initial?.through === through ? initial.financeItems : undefined} onRecords={onFinanceRecords} query={submitted?.query || ""} person="" fromAt={submitted?.fromAt} beforeAt={submitted?.beforeAt} requestRevision={submitted?.revision} excludedOperations={new Set(items.flatMap(item => item.activity_group_id ? [item.activity_group_id] : []))} onResultCount={setFinanceCount} scope={scope}/> : null}
+      {showFiles ? <FeedDriveSearch criteria={{ query: named?.effectiveQuery ?? submitted?.query ?? "", personRef: named?.personRef, fromAt: submitted?.fromAt, beforeAt: submitted?.beforeAt }} revision={submitted?.revision} onCount={setDriveCount} /> : null}
     </div>
   </section>;
 }

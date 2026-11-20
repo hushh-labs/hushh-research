@@ -17,8 +17,9 @@ def row_version_sql(alias: str) -> str:
       {alias}.metadata)::text)"""
 
 
+# Closed source/schema fragments only; values remain in execute_raw parameters.
 SNAPSHOT_FINGERPRINT_SQL = f"""(SELECT md5(COALESCE(string_agg({row_version_sql("f")},'' ORDER BY f.id),''))
-  FROM feed_events f WHERE f.user_id=:user_id)"""
+  FROM feed_events f WHERE f.user_id=:user_id)"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
 
 
 def guarded_acknowledgment_sql(*, clear: bool, protected_incident: str = "FALSE") -> str:
@@ -26,24 +27,27 @@ def guarded_acknowledgment_sql(*, clear: bool, protected_incident: str = "FALSE"
     assignment = "read_at=COALESCE(item.read_at,clock_timestamp())"
     if clear:
         assignment += ",dismissed_at=clock_timestamp(),dismissal_token=:dismissal_token"
+    # Closed source/schema fragments only; values remain in execute_raw parameters.
     prefix = f"""WITH observed AS MATERIALIZED (
       SELECT f.id,{row_version_sql("f")} AS version FROM feed_events f
       WHERE f.user_id=:user_id AND (f.id<=:up_to_id OR f.id=ANY(CAST(:surfacing_ids AS BIGINT[])))
     ), valid AS (
       SELECT md5(COALESCE(string_agg(version,'' ORDER BY id) FILTER(WHERE id<=:up_to_id),''))
         =:snapshot_fingerprint AS matches FROM observed
-    )"""
+    )"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
+    # Closed source/schema fragments only; values remain in execute_raw parameters.
     update = f"""UPDATE feed_events item SET {assignment} FROM observed,valid
       WHERE valid.matches AND item.user_id=:user_id AND item.id=observed.id
         AND {row_version_sql("item")}=observed.version
-        AND (CAST(:through_time AS timestamptz) IS NULL OR item.created_at<=:through_time)"""
+        AND (CAST(:through_time AS timestamptz) IS NULL OR item.created_at<=:through_time)"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
     if clear and protected_incident != "FALSE":
         return (
             prefix
+            # Closed source/schema fragments only; values remain in execute_raw parameters.
             + f""", changed AS ({update} AND NOT ({protected_incident})
           RETURNING CAST(EXTRACT(EPOCH FROM item.dismissed_at)*1000000 AS BIGINT)::text AS clear_version)
           SELECT clear_version FROM changed UNION ALL SELECT NULL::text FROM valid
-          WHERE valid.matches AND NOT EXISTS(SELECT 1 FROM changed)"""
+          WHERE valid.matches AND NOT EXISTS(SELECT 1 FROM changed)"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
         )
     return (
         prefix

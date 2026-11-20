@@ -327,7 +327,13 @@
       "agent": "agent_documents",
       "kind": "outcome",
       "operation": "document",
-      "scope": "drive"
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "payment",
+        "receipt",
+        "paid"
+      ]
     },
     "document_share_payment_ready": {
       "agent": "agent_documents",
@@ -339,7 +345,13 @@
       "agent": "agent_documents",
       "kind": "outcome",
       "operation": "document",
-      "scope": "drive"
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "payment",
+        "receipt",
+        "refund"
+      ]
     },
     "document_share_question": {
       "agent": "agent_documents",

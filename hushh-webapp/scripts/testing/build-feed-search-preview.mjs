@@ -13,6 +13,7 @@ export async function buildFeedSearchPreview(outDir, beforeSource) {
     "lib/connections/private-contact-names.ts":"PRIVATE_NAMES_CHANGED",
     "lib/services/auth-service.ts":"AuthService",
     "components/feed/feed-finance-search.tsx":"FeedFinanceSearch",
+    "components/feed/feed-drive-search.tsx":"FeedDriveSearch",
     "lib/navigation/back-layers.tsx":"useBackLayer,unwindBackLayer",
     "lib/navigation/back-layers.ts":"useBackLayer,unwindBackLayer",
     "lib/agent/local-onboarding-actions.ts":"useLocalOnboardingActionHandler",

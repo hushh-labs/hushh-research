@@ -4113,6 +4113,100 @@ def _settle(bulk, share, positions, *, state="succeeded"):
 
 
 @pytest.mark.asyncio
+async def test_private_filename_search_continues_past_nonmatches_and_rechecks_access(
+    request_bulk, sharing
+):
+    from hushh_mcp.services.drive_shared_file_search import DriveSharedFileSearch
+
+    _owner_feed_schema(sharing.db)
+    prior_request = (await _request(sharing, purpose_text="Prior QA request"))["requestId"]
+    prior_search = _search(request_bulk, request_id=prior_request, count=1)
+    prior_share = await _approved_batch(
+        request_bulk, search=prior_search, request_id=prior_request, positions=[1]
+    )
+    _settle(request_bulk, prior_share, [1])
+    request_id = (await _request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET status='paid',paid_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": prior_request},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+          (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+          VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
+            {"request": request_id},
+        )
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=101,
+        names={1: "x" * 400 + " archived title", 101: "Passport final.pdf"},
+    )
+    for start in range(1, 102, 25):
+        positions = list(range(start, min(start + 25, 102)))
+        share = await _approved_batch(
+            request_bulk, search=search, request_id=request_id, positions=positions
+        )
+        _settle(request_bulk, share, list(range(1, len(positions) + 1)))
+    verify = AsyncMock()
+    reader = DriveSharedFileSearch(
+        db=sharing.db, cipher=request_bulk.cipher, verify_recipient=verify
+    )
+    long_name = await reader.search(user_id="owner", audience="owner", query="archived title")
+    assert long_name["files"][0]["name"].endswith("…")
+    assert len(long_name["files"][0]["name"]) <= 255
+    first = await reader.search(user_id="recipient", audience="requester", query="passport")
+    assert first["files"] == [] and first["nextCursor"]
+    assert verify.await_count == 1
+    second = await reader.search(
+        user_id="recipient", audience="requester", query="passport", cursor=first["nextCursor"]
+    )
+    assert [file["name"] for file in second["files"]] == ["Passport final.pdf"]
+    assert second["nextCursor"] is None
+    file = second["files"][0]
+    assert file["requestId"] == request_id
+    assert file["openUrl"] == "https://drive.google.com/file/d/standup-file-101/view"
+    for user, query in [("stranger", "passport"), ("recipient", "notes")]:
+        with pytest.raises(DriveSharingError, match="invalid_argument"):
+            await reader.search(
+                user_id=user, audience="requester", query=query, cursor=first["nextCursor"]
+            )
+    assert (await reader.search(user_id="stranger", audience="requester", query="passport"))[
+        "files"
+    ] == []
+
+    async def revoke_during_verification(_recipient):
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_share_requests SET access_stop_requested_at=clock_timestamp() WHERE request_id=:request"
+                ),
+                {"request": request_id},
+            )
+
+    reader.verify_recipient = revoke_during_verification
+    assert (await reader.search(user_id="recipient", audience="requester", exact=file))[
+        "files"
+    ] == []
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_bulk_shares SET progressive_batch=FALSE WHERE origin_request_id=:request"
+            ),
+            {"request": request_id},
+        )
+    # The owner keeps their own authorized filename history after access ends.
+    owned = await reader.search(user_id="owner", audience="owner", query="passport")
+    while owned["nextCursor"] and not owned["files"]:
+        owned = await reader.search(
+            user_id="owner", audience="owner", query="passport", cursor=owned["nextCursor"]
+        )
+    assert owned["files"][0]["status"] == "access_changed"
+
+
+@pytest.mark.asyncio
 async def test_owner_gets_one_files_sent_card_per_request_updated_per_batch(request_bulk, sharing):
     _owner_feed_schema(sharing.db)
     request = await _request(sharing)

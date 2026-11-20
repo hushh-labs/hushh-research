@@ -20,6 +20,24 @@ import {
   validDriveQuery,
 } from "@/lib/services/drive-sharing-service";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { DriveSharedFileSearchService } from "@/lib/services/drive-shared-file-search-service";
+
+describe("private filename source", () => {
+  it("keeps private criteria in the body, preserves empty-page continuation, and refuses a substituted file", async () => {
+    fetcher.mockReset();
+    fetcher.mockResolvedValueOnce(Response.json({ files: [], nextCursor: "opaque-cursor" }));
+    expect(await DriveSharedFileSearchService.search("vault", "requester", { query: "Passport" }))
+      .toEqual({ files: [], nextCursor: "opaque-cursor" });
+    expect(fetcher.mock.calls[0][0]).toBe("/api/connectors/google_drive/sharing/received-files/search");
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ query: "Passport", cursor: null }), cache: "no-store" });
+    const selected = { requestId: "11111111-1111-4111-8111-111111111111", fileRef: "bulk:22222222-2222-4222-8222-222222222222:1", audience: "requester" as const };
+    const file = { ...selected, name: "Passport.pdf", status: "shared", recordedAt: "2026-11-20T07:00:00Z", openUrl: "https://drive.google.com/file/d/passport-file/view" };
+    for (const changed of [{ ...file, requestId: "33333333-3333-4333-8333-333333333333" }, { ...file, openUrl: "https://evil.example/file" }, { ...file, audience: "owner" }]) {
+      fetcher.mockResolvedValueOnce(Response.json(changed));
+      await expect(DriveSharedFileSearchService.open("vault", selected)).rejects.toThrow("File unavailable");
+    }
+  });
+});
 import {
   documentShareRequestId,
   documentShareSelectionId,

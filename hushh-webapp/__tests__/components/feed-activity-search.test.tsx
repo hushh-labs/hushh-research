@@ -16,6 +16,7 @@ vi.mock("@/lib/services/feed-service", () => ({ FeedService: { searchActivity: m
 vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: mocks.back }));
 vi.mock("@/components/feed/feed-row", () => ({ FeedRow: ({ item, onOpen }: any) => <button onClick={() => onOpen(item)}>{item.actor_label}</button> }));
 vi.mock("@/components/feed/feed-finance-search", () => ({ FeedFinanceSearch: mocks.finance }));
+vi.mock("@/components/feed/feed-drive-search", () => ({ FeedDriveSearch: () => null }));
 const privateNames = vi.hoisted(() => ({ load: vi.fn(async () => ({ version: 1, items: [] })), connections: vi.fn(async () => [] as any[]) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ getVaultKey: () => "private-key", getVaultOwnerToken: () => "private-token" }) }));
 vi.mock("@/lib/connections/private-contact-names", async original => ({ ...await original<typeof import("@/lib/connections/private-contact-names")>(), loadContactNames: privateNames.load }));

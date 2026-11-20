@@ -37,6 +37,7 @@ _FINANCE_THREAD_KEY_SQL = """CASE
   END"""
 
 _SOURCE_EVENTS_SQL = source_events_sql({})
+# Closed source/schema fragments only; values remain in execute_raw parameters.
 _GROUPED_FEED_CTE = f"""
 WITH source_events AS ({_SOURCE_EVENTS_SQL}), keyed AS (
   SELECT f.*, (f.source_domain='location' AND f.event_type IN ('location_share_expired','location_share_revoked')) AS feed_silent,
@@ -152,7 +153,7 @@ grouped AS (
   AND NOT (left(thread_key, 9) = 'document:' AND last_dismissed_id IS NOT NULL
     AND event_type = 'document_share_payment_confirmed')
 )
-"""
+"""  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
 # These query fragments are fixed module constants. Recipient, cursor and page
 # size are supplied exclusively through execute_raw's bind-parameter mapping.
 _GROUPED_FEED_PAGE_SELECT = """
@@ -170,6 +171,7 @@ _GROUPED_FEED_PAGE_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_PAGE_SELECT
 _GROUPED_FEED_COUNT_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_COUNT_SELECT
 
 
+# Closed source/schema fragments only; values remain in execute_raw parameters.
 _DISMISS_SQL = f"""
             WITH target AS (
               SELECT source_domain, event_type,
@@ -216,7 +218,7 @@ _DISMISS_SQL = f"""
                    AND item.id IN (SELECT f.id FROM feed_events f
                      WHERE f.user_id = :user_id AND ({GENERAL_OPERATION_KEY_SQL}) = target.operation_key)))
             RETURNING id, dismissal_token
-            """
+            """  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
 
 
 def protected_dismissal_sql(active_incident: str) -> str:
