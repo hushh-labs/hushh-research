@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -9,22 +9,22 @@ import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate } from "./todo-list-presentation";
 
 /** One detail view; mutations keep their existing encrypted persistence owner. */
-export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetailBackChange }: {
+export function TodoTaskDetail({ task, busy, error, onBack, onToggle, onRemove, onDetailBackChange }: {
   task: TodoItem; busy: boolean; onBack: () => void;
+  error?: string | null;
   onToggle: (task: TodoItem, complete: boolean) => void;
   onRemove: (task: TodoItem) => void;
   onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
-  const [confirm, setConfirm] = useState(false);
   const pathname = usePathname() ?? ROUTES.ONE_TASKS;
   const date = task.date ? groupByDate([task])[0]?.label : null;
   const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
   const back = useCallback(() => {
     if (busy) return true;
-    if (confirm) setConfirm(false); else onBack();
+    onBack();
     return true;
-  }, [busy, confirm, onBack]);
-  useBackLayer(pathname, confirm ? 3 : 2, back);
+  }, [busy, onBack]);
+  useBackLayer(pathname, 2, back);
   useLayoutEffect(() => {
     onDetailBackChange?.(back);
     return () => onDetailBackChange?.(null);
@@ -39,10 +39,9 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
       {task.notes ? <p data-profile-role="description" className="whitespace-pre-wrap break-words">{task.notes}</p> : null}
     </div>
     <div className="mt-auto flex flex-col gap-2 pt-5">
-      {confirm ? <><p>Remove this task?</p><Button disabled={busy} onClick={() => onRemove(task)}>Remove task</Button><Button variant="none" effect="fade" disabled={busy} onClick={() => setConfirm(false)}>Keep task</Button></> : <>
-        <Button disabled={busy} onClick={() => onToggle(task, task.status !== "done")}>{task.status === "done" ? "Mark as not completed" : "Mark as completed"}</Button>
-        <Button variant="none" effect="fade" className="min-h-11 w-full text-destructive" disabled={busy} onClick={() => setConfirm(true)}>Remove task</Button>
-      </>}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      <Button disabled={busy} onClick={() => onToggle(task, task.status !== "done")}>{task.status === "done" ? "Mark as not completed" : "Mark as completed"}</Button>
+      <Button variant="none" effect="fade" className="min-h-11 w-full text-destructive" disabled={busy} onClick={() => onRemove(task)}>Remove task</Button>
     </div>
   </section>;
 }

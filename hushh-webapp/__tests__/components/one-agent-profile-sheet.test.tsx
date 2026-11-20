@@ -489,7 +489,7 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).toHaveBeenCalledWith(false);
   });
 
-  it.each([false, true])("unwinds task confirmation and detail before closing the profile (native: %s)", async native => {
+  it.each([false, true])("unwinds task detail before closing the profile (native: %s)", async native => {
     mocks.native = native;
     mocks.loadTasks.mockResolvedValue({ tasks: [buildTodo({ title: "A private task" })] });
     render(<OneAgentProfileSheet open nativeReady onOpenChange={mocks.close} />);
@@ -498,9 +498,7 @@ describe("One agent profile feed preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove task", exact: true }));
     const back = () => native ? fireEvent.click(screen.getByRole("button", { name: "Back to Chat" })) : fireEvent.keyDown(document, { key: "Escape" });
     back();
-    expect(screen.queryByText("Remove this task?")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mark as completed", exact: true })).toBeVisible();
-    back();
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Tasks" })).toBeVisible();
     expect(mocks.close).not.toHaveBeenCalled();
     back();
