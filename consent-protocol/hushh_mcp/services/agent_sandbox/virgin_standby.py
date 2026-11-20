@@ -65,33 +65,61 @@ def _derive_public_descriptor(raw_priv: bytes) -> tuple[str, str]:
     return pub_b64, kid
 
 
-def prewarm_runtime_imports() -> None:
-    """Pre-import heavy SDK modules during warm-pool standby to cut activation latency."""
-    import anthropic  # noqa: F401,PLC0415
-    import cryptography.hazmat.primitives.asymmetric.ed25519  # noqa: F401,PLC0415
-    import fastapi  # noqa: F401,PLC0415
-    import google.adk  # noqa: F401,PLC0415
-    import google.adk.agents  # noqa: F401,PLC0415
-    import google.adk.apps  # noqa: F401,PLC0415
-    import google.adk.models  # noqa: F401,PLC0415
-    import google.adk.runners  # noqa: F401,PLC0415
-    import google.adk.sessions.in_memory_session_service  # noqa: F401,PLC0415
-    import google.genai  # noqa: F401,PLC0415
-    import httpx  # noqa: F401,PLC0415
-    import openai  # noqa: F401,PLC0415
-    import pydantic  # noqa: F401,PLC0415
-    import requests  # noqa: F401,PLC0415
-    import starlette  # noqa: F401,PLC0415
-    import uvicorn  # noqa: F401,PLC0415
-    import websockets  # noqa: F401,PLC0415
+_PREWARM_LOCK = threading.Lock()
 
-    import api.middlewares.observability  # noqa: F401,PLC0415
-    import api.middlewares.pod_ingress  # noqa: F401,PLC0415
-    import api.routes.health  # noqa: F401,PLC0415
+
+def prewarm_runtime_imports() -> None:
+    """Pre-import pod_server and provider-free ADK turn path during idle warm-pool standby."""
+    with _PREWARM_LOCK:
+        os.environ.setdefault("HUSSH_POD_MODE", "1")
+        from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+            clear_runtime_settings_caches,
+            ensure_pod_sandbox_signing_key,
+        )
+
+        ensure_pod_sandbox_signing_key()
+        clear_runtime_settings_caches()
+
+        import anthropic  # noqa: F401,PLC0415
+        import cryptography.hazmat.primitives.asymmetric.ed25519  # noqa: F401,PLC0415
+        import fastapi  # noqa: F401,PLC0415
+        import google.adk  # noqa: F401,PLC0415
+        import google.adk.agents  # noqa: F401,PLC0415
+        import google.adk.apps  # noqa: F401,PLC0415
+        import google.adk.models  # noqa: F401,PLC0415
+        import google.adk.runners  # noqa: F401,PLC0415
+        import google.adk.sessions.in_memory_session_service  # noqa: F401,PLC0415
+        import google.genai  # noqa: F401,PLC0415
+        import httpx  # noqa: F401,PLC0415
+        import openai  # noqa: F401,PLC0415
+        import pydantic  # noqa: F401,PLC0415
+        import requests  # noqa: F401,PLC0415
+        import starlette  # noqa: F401,PLC0415
+        import uvicorn  # noqa: F401,PLC0415
+        import websockets  # noqa: F401,PLC0415
+
+        import pod_server  # noqa: F401,PLC0415
+        from hushh_mcp.one_adk.turn_warmup import prewarm_standby_turn_path  # noqa: PLC0415
+
+        prewarm_standby_turn_path()
+
+
+def _refresh_pod_server_cors(pod_server_mod: Any) -> None:
+    """Rebuild CORSMiddleware allow_origins after activation sets CORS_ALLOWED_ORIGINS."""
+    origins = pod_server_mod._pod_cors_origins()
+    updated = False
+    for mw in getattr(pod_server_mod.app, "user_middleware", ()):
+        if getattr(mw.cls, "__name__", "") == "CORSMiddleware":
+            mw.kwargs["allow_origins"] = origins
+            updated = True
+    if updated:
+        pod_server_mod.app.middleware_stack = None
 
 
 def _default_asgi_launcher(bind_host: str, port: int) -> None:
     """Load owner durable identity into RAM, unlink key file, and launch pod_server."""
+    with _PREWARM_LOCK:
+        pass
     import uvicorn  # noqa: PLC0415
 
     from hushh_mcp.consent.token_signing import reset_caches as reset_token_caches  # noqa: PLC0415
@@ -102,13 +130,13 @@ def _default_asgi_launcher(bind_host: str, port: int) -> None:
     reset_token_caches()
     clear_runtime_settings_caches()
 
-    # Import pod_server AFTER activation env vars are written so middleware (CORS) sees them.
     import pod_server  # noqa: PLC0415
     from hushh_mcp.services.pod_self_registration import (  # noqa: PLC0415
         pod_public_key_payload,
         reset_pod_keypair_cache_for_tests,
     )
 
+    _refresh_pod_server_cors(pod_server)
     reset_pod_keypair_cache_for_tests()
     pod_public_key_payload()
 

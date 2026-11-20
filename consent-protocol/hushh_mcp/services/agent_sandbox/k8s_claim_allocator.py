@@ -100,7 +100,7 @@ class LiveK8sSandboxClaimClient:
         ca_cert_path: Path | None = None,
         ca_cert_pem: str | None = None,
         namespace: str = "hussh-agents",
-        poll_interval_s: float = 0.5,
+        poll_interval_s: float = 0.15,
         on_demand_scale_pool: bool = True,
     ) -> None:
         self.api_server = api_server.rstrip("/")
