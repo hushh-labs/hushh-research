@@ -138,6 +138,37 @@ describe("unified single-click paid owner approval", () => {
     }));
     expect(onActionComplete).toHaveBeenCalledWith({ action: "approve", requestId: "paid-funded", source: "consent_actions" });
   });
+  it("refreshes pre-existing awaiting_owner purchases on approved_funded before staging", async () => {
+    mocks.commerceAccount.mockResolvedValue({ enabled: true });
+    mocks.scopeRequest
+      .mockResolvedValueOnce({
+        role: "owner",
+        tariff: { price_cents: 100 },
+        duration_seconds: 86400,
+        purchase: { id: "purchase-prefunded", request_id: "paid-prefunded", status: "awaiting_owner", amount_cents: 100 },
+      })
+      .mockResolvedValueOnce({
+        role: "owner",
+        tariff: { price_cents: 100 },
+        duration_seconds: 86400,
+        purchase: { id: "purchase-prefunded", request_id: "paid-prefunded", status: "reserved", amount_cents: 100, net_earnings_micro_usd: 900000 },
+      });
+    mocks.approveInactive.mockResolvedValue({ status: "approved_funded" });
+    const onActionComplete = vi.fn();
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1", onActionComplete }));
+    await act(async () => result.current.handleApprove({
+      ...consent("paid-prefunded"),
+      scope: "attr.financial.accounts.*",
+      durationHours: 24,
+      metadata: { scope_handle: "s_f10fe8b2b63a", commercial_required: true, upfront_price_reviewed: true },
+    }, { quiet: true, modelProcessingAllowed: false }));
+    expect(mocks.scopeRequest).toHaveBeenCalledTimes(2);
+    expect(mocks.prepareAndStagePaidScopeExport).toHaveBeenCalledWith(expect.objectContaining({
+      purchaseId: "purchase-prefunded",
+      activateOnStage: true,
+    }));
+    expect(onActionComplete).toHaveBeenCalledWith({ action: "approve", requestId: "paid-prefunded", source: "consent_actions" });
+  });
   it("does not require account or provider readiness for an authoritative free request", async () => {
     mocks.commerceAccount.mockRejectedValue(new Error("no provider"));
     mocks.readiness.mockRejectedValue(new Error("no provider"));
