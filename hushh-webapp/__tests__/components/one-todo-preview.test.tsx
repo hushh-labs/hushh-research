@@ -304,6 +304,31 @@ describe("One profile To-do live-source parity", () => {
     expect(screen.getByText("Unlock your vault to view your to-do list.")).toBeVisible();
   });
 
+  it("keeps Add item inside One and consumes Back until a pending save settles", async () => {
+    let settle!: (value: { task: TodoItem; result: { success: boolean } }) => void;
+    mocks.create.mockReturnValueOnce(new Promise(resolve => { settle = resolve; }));
+    const onDetailBackChange = vi.fn();
+    const onDetailModeChange = vi.fn();
+    render(<OneTodoPreview {...props()} onDetailBackChange={onDetailBackChange} onDetailModeChange={onDetailModeChange} />);
+    const add = await screen.findByRole("button", { name: "Add item" });
+    fireEvent.click(add);
+    const editor = screen.getByRole("dialog", { name: "Add item" });
+    expect(editor.closest('[data-profile-type-scale="todo"]')).not.toBeNull();
+    expect(onDetailModeChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(within(editor).getByLabelText("Title"), { target: { value: "Keep my draft" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    const back = onDetailBackChange.mock.calls.at(-1)?.[0];
+    act(() => expect(back()).toBe(true));
+    expect(editor).toBeVisible();
+    await act(async () => settle({ task: buildTodo({ title: "Keep my draft" }), result: { success: false } }));
+    expect(await within(editor).findByRole("alert")).toBeVisible();
+    fireEvent.keyDown(within(editor).getByLabelText("Title"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add item" })).not.toBeInTheDocument());
+    expect(onDetailModeChange).toHaveBeenLastCalledWith(false);
+    expect(onDetailBackChange).toHaveBeenLastCalledWith(null);
+    await waitFor(() => expect(add).toHaveFocus());
+  });
+
   it.each(["lock", "owner", "epoch"])("drops late saved reads after a %s change", async change => {
     let resolve!: (value: { tasks: TodoItem[] }) => void;
     mocks.load.mockReturnValueOnce(new Promise(r => { resolve = r; }));

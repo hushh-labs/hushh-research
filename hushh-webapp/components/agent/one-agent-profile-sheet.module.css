@@ -182,5 +182,13 @@
   .content[data-todo-detail="true"] .tabs { margin: 0; border-radius: 0; }
 }
 @media (max-height: 650px) { .content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 128px; margin-bottom: -12px; } }
+@media (max-height: 650px) {
+  .content:has([data-todo-editor-pane]) .hero,
+  .content:has([data-todo-editor-pane]) .modelControl,
+  .content:has([data-todo-editor-pane]) .tabRail { display: none; }
+}
+:global(html.kb-open) .content:has([data-todo-editor-pane]) .hero,
+:global(html.kb-open) .content:has([data-todo-editor-pane]) .modelControl,
+:global(html.kb-open) .content:has([data-todo-editor-pane]) .tabRail { display: none; }
 
 .todoTab[data-state="inactive"] { display: none; }
