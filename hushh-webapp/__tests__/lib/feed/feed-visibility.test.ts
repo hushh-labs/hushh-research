@@ -31,6 +31,13 @@ describe("Feed admission", () => {
     expect(isFeedItemHidden({ ...row("pwm_research", "pwm"), metadata: { pwm_outcome: "attention" } }, true)).toBe(true);
     expect(isFeedItemHidden({ ...row("location_sms_contact_added", "location"), metadata: { feed_audience: "owner" } }, true)).toBe(false);
   });
+  it("keeps ordinary Chat quiet while preserving source-backed Card decisions and outcomes", () => {
+    const message = row("direct_message_received", "connections");
+    expect(isFeedItemHidden(message, true)).toBe(true);
+    expect(isFeedItemHidden({ ...message, metadata:{wallet_card_request_id:"unverified-marker"} }, true)).toBe(true);
+    for (const activity_group_id of ["wallet-request:verified", "wallet-access:verified"])
+      expect(isFeedItemHidden({ ...message, activity_group_id }, true)).toBe(false);
+  });
   it("does not turn unknown events into visible noise", () => {
     expect(isFeedItemHidden(row("future_unreviewed_event", "kai"), true)).toBe(true);
     for (const event of ["location_nearby_checked_in", "location_nearby_checked_out", "location_gps_updated", "location_public_link_opened"]) {

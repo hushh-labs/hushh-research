@@ -683,12 +683,12 @@ class FeedService:
     def _grouped_feed_sql(
         self, *, count, historical: bool = False, include_dismissed: bool = False
     ):
-        cte = (
-            _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
-        )
+        wallet_access = self._wallet_card_access_installed()
+        wallet_requests = self._wallet_card_requests_installed()
+        cte = _WALLET_GROUPED_FEED_CTE if wallet_access else _GROUPED_FEED_CTE
         if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
             cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
-        if self._wallet_card_requests_installed():
+        if wallet_requests:
             cte = cte.replace(
                 "    WHEN f.source_domain = 'connections'",
                 "    WHEN wr.id IS NOT NULL THEN 'wallet-request:' || wr.id::text\n    WHEN f.source_domain = 'connections'",

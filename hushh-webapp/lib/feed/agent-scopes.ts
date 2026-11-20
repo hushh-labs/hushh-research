@@ -10,7 +10,11 @@ export const feedScopes: Record<string, {
     label: string;
     workspace?: string;
 }> = policy.scopes;
-export const availableFeedScopes = Object.entries(feedScopes).filter(([scope]) => Object.values(events).some(rule => rule.kind !== "routine" && rule.scope === scope));
+const classifiedScopes: readonly string[] = Object.values(policy.classified_scopes);
+const connectorScopes: readonly string[] = Object.values(policy.connector_scopes);
+export const availableFeedScopes = Object.entries(feedScopes).filter(([scope]) =>
+    Object.values(events).some(rule => rule.kind !== "routine" && rule.scope === scope)
+    || classifiedScopes.includes(scope) || connectorScopes.includes(scope));
 export function feedItemScope(item: Pick<FeedItem, "event_type" | "metadata"> & Partial<FeedItem>): string {
     if (item.scope_id && feedScopes[item.scope_id])
         return item.scope_id;

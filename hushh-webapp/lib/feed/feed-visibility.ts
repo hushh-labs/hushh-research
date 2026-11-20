@@ -2,7 +2,7 @@ import type { FeedItem } from "@/lib/services/feed-service";
 
 import policy from "./activity-policy.generated.json";
 
-type EventPolicy = { agent: string; kind: string; operation: string; metadata?: Readonly<Record<string, readonly string[]>> };
+type EventPolicy = { agent: string; kind: string; operation: string; metadata?: Readonly<Record<string, readonly string[]>>; operation_prefixes?: readonly string[] };
 const EVENTS: Readonly<Record<string, EventPolicy>> = policy.events;
 
 export function feedEventPolicy(eventType: string): EventPolicy | undefined {
@@ -17,7 +17,7 @@ export function feedEventPolicy(eventType: string): EventPolicy | undefined {
  * are not CRM; their eligible activity remains available without CRM.
  */
 export function isFeedItemHidden(
-  item: Pick<FeedItem, "source_domain" | "event_type"> & Partial<Pick<FeedItem, "metadata">>,
+  item: Pick<FeedItem, "source_domain" | "event_type"> & Partial<Pick<FeedItem, "metadata" | "activity_group_id">>,
   crmEnabled: boolean,
 ): boolean {
   const eventType = String(item.event_type);
@@ -25,6 +25,7 @@ export function isFeedItemHidden(
   // Mirrors the canonical backend admission policy for older cached pages.
   const rule = feedEventPolicy(eventType);
   if (!rule || rule.kind === "routine") return true;
+  if (rule.operation_prefixes?.length && !rule.operation_prefixes.some(prefix => item.activity_group_id?.startsWith(prefix))) return true;
   for (const [field, values] of Object.entries(rule.metadata || {})) {
     const value = item.metadata?.[field];
     if (typeof value !== "string" || !values.includes(value)) return true;

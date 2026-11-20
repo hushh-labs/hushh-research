@@ -27,6 +27,9 @@ describe("Server-backed Feed search", () => {
         render(<FeedActivitySearch {...props}/>);
         expect(screen.queryByRole("search")).toBeNull();
         open();
+        expect(screen.getByRole("option", {name:"Cards"})).toBeInTheDocument();
+        fireEvent.change(screen.getByRole("combobox", { name: "Agent scope" }), { target: { value: "wallet" } });
+        await waitFor(() => expect(mocks.search.mock.calls.at(-1)[0].query.scope).toBe("wallet"));
         fireEvent.change(screen.getByRole("combobox", { name: "Agent scope" }), { target: { value: "location" } });
         await waitFor(() => expect(mocks.search).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ scope: "location", query: "", cursor: null }) })));
         expect(await screen.findByText("No Location activity")).toBeInTheDocument();

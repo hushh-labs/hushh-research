@@ -53,6 +53,17 @@ def browse_admission_sql(alias: str = "f") -> str:
             checks.append(
                 f"{alias}.metadata->>{_literal(field)} IN ({','.join(_literal(value) for value in values)})"
             )
+        prefixes = rule.get("operation_prefixes", [])
+        if prefixes:
+            if not all(re.fullmatch(r"[a-z][a-z-]*:", prefix) for prefix in prefixes):
+                raise ValueError("Authored operation prefixes required")
+            checks.append(
+                "("
+                + " OR ".join(
+                    f"left({alias}.thread_key,{len(prefix)})='{prefix}'" for prefix in prefixes
+                )
+                + ")"
+            )
         if len(checks) == 1:
             simple.append(_literal(event))
         else:

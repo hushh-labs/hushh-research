@@ -286,7 +286,11 @@
       "agent": "agent_connections",
       "kind": "outcome",
       "operation": "conversation",
-      "scope": "connections"
+      "scope": "connections",
+      "operation_prefixes": [
+        "wallet-access:",
+        "wallet-request:"
+      ]
     },
     "document_share_answered": {
       "agent": "agent_documents",

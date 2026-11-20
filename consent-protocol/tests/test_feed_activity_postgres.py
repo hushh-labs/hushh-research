@@ -308,7 +308,7 @@ def test_transfer_progress_stays_in_the_same_detail_without_extra_attention(feed
     }
 
 
-def test_dismissed_search_keeps_message_deletion_and_participant_fences(feed_db):
+def test_routine_and_foreign_chat_stay_hidden_including_historical_search(feed_db):
     conversation, message, foreign_conversation, foreign_message = [
         str(uuid.uuid4()) for _ in range(4)
     ]
@@ -341,8 +341,11 @@ def test_dismissed_search_keeps_message_deletion_and_participant_fences(feed_db)
                 {"source": source, "id": row_id},
             )
     reader = session(feed_db)
-    assert [row["id"] for row in reader.list_feed(OWNER)["items"]] == [str(rows[message])]
-    assert [row["id"] for row in reader.search_activity(OWNER)["items"]] == [str(rows[message])]
+    # Routine Chat is not a Feed outcome, including through historical search.
+    # Real card-backed messages remain covered by wallet_card_access_postgres.
+    assert reader.list_feed(OWNER)["items"] == []
+    assert reader.search_activity(OWNER)["items"] == []
+    assert reader.unread_count(OWNER) == 0
     reader.clear(OWNER, up_to_id=rows[foreign_message])
     assert reader.list_feed(OWNER)["items"] == []
     assert reader.search_activity(OWNER)["items"] == []
