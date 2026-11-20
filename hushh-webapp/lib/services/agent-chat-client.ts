@@ -590,6 +590,21 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Asking the finance specialist.",
     activity: "Checking your finances",
   },
+  show_market_gainers: {
+    label: "Top gainers",
+    message: "Opening the market gainers card.",
+    activity: "Opening top gainers",
+  },
+  show_portfolio_card: {
+    label: "Portfolio",
+    message: "Opening the portfolio card.",
+    activity: "Opening portfolio",
+  },
+  show_stock_preview: {
+    label: "Stock analysis preview",
+    message: "Opening the stock analysis preview.",
+    activity: "Opening stock analysis preview",
+  },
   wallet: {
     label: "Wallet",
     message: "Checking your wallet.",

@@ -537,22 +537,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'take me to location' selects route.one_location, while 'share my location' "
     "selects the governed location action below; questions about Gmail information "
     "requests belong in Email rather than a retired KYC route. "
-    "In signed-in typed Chat, use show_market_gainers when the person asks to see "
-    "the latest U.S. market gainers or today's top gainers without specifying a market. "
-    "The card displays Finance's available quotes with their timestamps inside the conversation. "
-    "Keep the person in Chat for this request. If you add a reply, say only that you opened "
-    "the Top Gainers card in Chat. The card loads quotes independently and reports their "
-    "availability. Do not claim the card contains results, give rankings, or trigger navigation. "
-    "In signed-in typed Chat, when the person asks to see their portfolio holdings, "
-    "allocation, performance, or sources, call show_portfolio_card with the requested "
-    "section. The card reads the portfolio in the unlocked client. "
-    "When the user asks to preview, analyze, research, or run a debate on a stock "
-    "or company ('analyze Nvidia') in signed-in typed Chat, call show_stock_preview "
-    "with the ticker. The card loads when opened and the person confirms there to "
-    "start the debate. Describe it as ready to review until the person confirms. "
-    "If the person explicitly asks to open the Finance analysis screen, or the "
-    "request comes from another surface, call start_app_goal with action id 'analysis.start' and "
-    "slots {'symbol': <ticker>}; ask only when you cannot infer the ticker. "
+    "To explicitly open the Finance analysis screen, or analyze a stock outside typed Chat, "
+    "call start_app_goal with action 'analysis.start' and slots {'symbol': <ticker>}; "
+    "ask only if the ticker is unclear. "
     "After start_app_goal reports navigation_started, wait for the correlated "
     "route settlement and fresh Analysis context, then call continue_app_goal. "
     "It opens a preview only; never start the debate until the person explicitly "
@@ -870,6 +857,21 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
+    identity_instruction = ONE_IDENTITY_INSTRUCTION
+    if (
+        callable(state_getter)
+        and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and state_getter(STATE_USER_ID)
+    ):
+        identity_instruction += (
+            "\n\nFINANCE IN CHAT: Keep these requests in Chat. Call show_market_gainers for "
+            "U.S. or unspecified gainers. Acknowledge opening the card without claiming quotes "
+            "or ranks. For portfolio holdings, allocation, performance or sources, call "
+            "show_portfolio_card. To preview, research, analyze or debate a stock, call "
+            "show_stock_preview with its ticker and say it is ready for review. The person "
+            "confirms in the card before the debate starts."
+        )
+
     mail_admitted = (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
@@ -1057,7 +1059,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         return (
-            ONE_IDENTITY_INSTRUCTION
+            identity_instruction
             + mail_instruction
             + selected_drive_instruction
             + pkm_instruction
@@ -1242,7 +1244,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     playbook = voice_context.get("route_playbook")
     if not isinstance(playbook, dict):
         return (
-            ONE_IDENTITY_INSTRUCTION
+            identity_instruction
             + mail_instruction
             + selected_drive_instruction
             + layer_instruction
@@ -1264,7 +1266,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     completion = bounded(playbook.get("completion_boundary"), 480)
     out_of_scope = bounded(playbook.get("out_of_scope_behavior"), 480)
     return (
-        ONE_IDENTITY_INSTRUCTION
+        identity_instruction
         + mail_instruction
         + selected_drive_instruction
         + layer_instruction
