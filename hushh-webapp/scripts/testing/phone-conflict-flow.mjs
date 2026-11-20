@@ -171,6 +171,10 @@ try {
     stage = scenario;
     await fixtureRequest("reset", scenario);
     context = await browser.newContext({ viewport: { width: 393, height: 852 }, locale: "en-US", timezoneId: "America/Los_Angeles" });
+    await context.route(url => url.hostname === "identitytoolkit.googleapis.com" && url.pathname === "/v1/accounts:signInWithPhoneNumber", async route => {
+      const response = await route.fetch({ url: `${origin}/__phone_fixture/sdk/link` });
+      await route.fulfill({ response, headers: { ...response.headers(), "access-control-allow-origin": "*" } });
+    });
     const page = await context.newPage(); page.setDefaultTimeout(15_000);
     let transferClick;
     let erasures = 0, transfers = 0, revocations = 0;
@@ -253,10 +257,16 @@ try {
         await page.getByRole("button", { name: "Delete and continue", exact: true }).click();
         const receipt = await confirmed;
         assert.equal(receipt.status, 200); assert.equal(receipt.body.state, "admitted");
-        await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
         assert.equal(linkedConfirms, 1); assert.equal(erasures, 0); assert.equal(transfers, 0);
+        await page.getByText("Deletion requested. Verify this number again to continue.", { exact: true }).waitFor();
         stage = "delete_linked_worker";
         await fixtureRequest("drain", scenario);
+        await page.getByRole("button", { name: "Verify this number again", exact: true }).click();
+        await page.getByRole("textbox", { name: "Phone number", exact: true }).fill("6505550101");
+        await page.getByRole("button", { name: "Continue", exact: true }).click();
+        await page.getByRole("textbox", { name: "One-time code", exact: true }).fill("123456");
+        await page.getByRole("button", { name: "Confirm", exact: true }).click();
+        await page.getByTestId("phone-fixture-destination").filter({ hasText: "/one/setup" }).waitFor();
         record("delete_linked_phone_proof_claim_and_worker_erasure");
       } else if (scenario === "transfer") {
         await page.getByRole("button", { name: "Use this number on this account", exact: true }).click();

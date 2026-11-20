@@ -28,87 +28,9 @@ const mockTransport = vi.hoisted(() => ({
 
 vi.mock("@ag-ui/client", async () => {
   const actual = await vi.importActual<typeof import("@ag-ui/client")>("@ag-ui/client");
-  return {
-  HttpAgent: class {
-    private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    private abortController = new AbortController();
-    private releaseAfterEof: (() => void) | null = null;
-    private realAgent: InstanceType<typeof actual.HttpAgent> | null;
-    constructor(public config: ConstructorParameters<typeof actual.HttpAgent>[0]) {
-      this.realAgent = mockTransport.nativeMode ? new actual.HttpAgent(config) : null;
-    }
-    addMessage(message: Parameters<typeof actual.HttpAgent.prototype.addMessage>[0]) { mockTransport.addMessage(message); this.realAgent?.addMessage(message); }
-    use(...middleware: Parameters<typeof actual.HttpAgent.prototype.use>) { this.realAgent?.use(...middleware); return this; }
-    setMessages(messages: Parameters<typeof actual.HttpAgent.prototype.setMessages>[0]) { mockTransport.setMessages(messages); this.realAgent?.setMessages(messages); }
-    abortRun() {
-      mockTransport.aborted = true;
-      this.realAgent?.abortRun();
-      this.abortController.abort();
-      void this.reader?.cancel().catch(() => undefined);
-      this.releaseAfterEof?.();
-    }
-    async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
-      this.abortController = new AbortController();
-      mockTransport.runAgent(parameters, this.config);
-      if (this.realAgent) return this.realAgent.runAgent(parameters as Parameters<typeof actual.HttpAgent.prototype.runAgent>[0], subscriber);
-      if (mockTransport.failWith) {
-        const error = mockTransport.failWith;
-        subscriber.onRunFailed?.({ error });
-        throw error;
-      }
-      if (mockTransport.readBody) {
-        const response = await this.config.fetch!("/api/one/agent-chat", { signal: this.abortController.signal });
-        this.reader = response.body!.getReader();
-        while (!(await this.reader.read()).done) { /* keep reading */ }
-        if (mockTransport.hangAfterBodyEof) {
-          await new Promise<void>((resolve) => { this.releaseAfterEof = resolve; });
-        }
-        // The real client reports its own abort to the subscriber, then swallows it.
-        if (mockTransport.aborted) {
-          subscriber.onRunFailed?.({ error: new DOMException("Aborted", "AbortError") });
-          return;
-        }
-      }
-      subscriber.onRunStartedEvent?.({ event: { type: "RUN_STARTED" } });
-      if (mockTransport.emitEvents) {
-        mockTransport.emitEvents(subscriber);
-      }
-      if (mockTransport.aborted) return;
-      subscriber.onTextMessageContentEvent?.({
-        event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Hello" },
-      });
-      subscriber.onActivitySnapshotEvent?.({
-        event: {
-          type: "ACTIVITY_SNAPSHOT",
-          messageId: "activity-1",
-          activityType: "one.scope_discovery.v1",
-          content: {
-            status: "ok",
-            person: {
-              displayName: "Alex Morgan",
-              profilePath: "/people/1234567890abcdef",
-              relationship: "connected",
-            },
-            requestableScopes: [],
-          },
-        },
-      });
-      if (mockTransport.endWithoutTerminal) return;
-      if (mockTransport.outcome === "interrupt") {
-        subscriber.onRunFinishedEvent?.({
-          event: { type: "RUN_FINISHED" },
-          outcome: "interrupt",
-          interrupts: [{ id: "interrupt-1", toolCallId: "tool-1" }],
-        });
-        return;
-      }
-      subscriber.onRunFinishedEvent?.({
-        event: { type: "RUN_FINISHED" },
-        outcome: mockTransport.outcome,
-      });
-    }
-  },
-}; });
+  const { mockAgentHttpTransport } = await import("../lib/chat/mock-agent-http-transport");
+  return { HttpAgent: mockAgentHttpTransport(actual, mockTransport) };
+});
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
@@ -856,6 +778,27 @@ describe("AG-UI Agent One client", () => {
       handlers: { onBrowserTaskCreated, onToolResult, onToolWaiting } });
     expect(onBrowserTaskCreated).toHaveBeenCalledTimes(owner === "user-1" ? 1 : 0);
     expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain("PRIVATE");
+  });
+
+  it("delivers a stock preview tool result to the card without staging an action", async () => {
+    const onStructuredExperience = vi.fn();
+    const onToolWaiting = vi.fn();
+    const structured = { type: "one.finance_stock_preview.v1", ticker: "NVDA" };
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: {
+        toolCallId: "preview-call", toolCallName: "show_stock_preview",
+      } });
+      subscriber.onToolCallResultEvent({ event: {
+        toolCallId: "preview-call",
+        content: JSON.stringify({ status: "preview_offered", structured }),
+      } });
+    };
+    await streamAgentChat({
+      vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Preview NVDA in this chat",
+      vaultOwnerToken: "fixture", handlers: { onStructuredExperience, onToolWaiting },
+    });
+    expect(onStructuredExperience).toHaveBeenCalledWith(structured, "preview-call");
+    expect(onToolWaiting).not.toHaveBeenCalled();
   });
 
   it("keeps private connector setup names out of transport diagnostics", async () => {

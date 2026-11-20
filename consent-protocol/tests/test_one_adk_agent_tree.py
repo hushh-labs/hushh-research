@@ -792,6 +792,26 @@ def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamesp
     return SimpleNamespace(state=state, session=session)
 
 
+def test_portfolio_card_offer_contains_only_valid_section():
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    assert _tree.show_portfolio_card("holdings", _tool_context(state)) == {
+        "status": "card_offered",
+        "structured": {"type": "one.finance_portfolio.v1", "section": "holdings"},
+    }
+    assert _tree.show_portfolio_card("trade", _tool_context(state))["status"] == "invalid_section"
+    assert _tree.show_portfolio_card("holdings", _tool_context({}))["status"] == "unavailable"
+
+
+def test_stock_preview_offer_is_only_available_to_signed_in_typed_chat():
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    assert _tree.show_stock_preview(" brk-b ", _tool_context(state)) == {
+        "status": "preview_offered",
+        "structured": {"type": "one.finance_stock_preview.v1", "ticker": "BRK-B"},
+    }
+    assert _tree.show_stock_preview("/one/kai", _tool_context(state))["status"] == "needs_ticker"
+    assert _tree.show_stock_preview("BRK-B", _tool_context({})) == {"status": "unavailable"}
+
+
 class TestSpecialistTurn:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("deploy_env", ["uat", "production"])
