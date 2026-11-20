@@ -39,6 +39,18 @@ HOSTED_AZURE_NO_OWNER_CLOUD_DEFINITION = (
     "AND user_cloud_authorized_at IS NULL AND user_cloud_tenant_id IS NULL "
     "AND user_cloud_subscription_id IS NULL AND user_cloud_resource_group IS NULL)"
 )
+HOSTED_ACE_TARGET_CHECK_SHA256 = "f8eb9186b187ea31fb49c71869940a1458b23e548d1d38cd81b74910ca51aaed"
+HOSTED_ACE_TARGET_CHECK_DEFINITION = (
+    "CHECK (deployment_target IS NULL OR (deployment_target = ANY "
+    "(ARRAY['gcp'::text, 'azure'::text, 'ace'::text, 'user_gcp'::text, 'user_azure'::text, 'null'::text])))"
+)
+HOSTED_ACE_NO_OWNER_CLOUD_CHECK = "personal_agent_registry_hosted_ace_no_owner_cloud_check"
+HOSTED_ACE_NO_OWNER_CLOUD_DEFINITION = (
+    "CHECK (deployment_target IS DISTINCT FROM 'ace'::text OR user_cloud_project IS NULL "
+    "AND user_cloud_region IS NULL AND user_cloud_bootstrap_sa IS NULL "
+    "AND user_cloud_authorized_at IS NULL AND user_cloud_tenant_id IS NULL "
+    "AND user_cloud_subscription_id IS NULL AND user_cloud_resource_group IS NULL)"
+)
 # Exact pg_get_triggerdef(oid,true) and pg_get_functiondef(oid) from the reviewed
 # legacy schema. No application rows, credentials or consent records are embedded.
 GUARDS = (
@@ -279,7 +291,9 @@ _PREDECESSORS = (
         "c",
         "CHECK (deployment_target IS NULL OR (deployment_target = ANY (ARRAY['gcp'::text, 'user_gcp'::text, 'anypoint'::text, 'null'::text])))",
         "15c9243d622f15d2ca2690cb232af88e3e51b5d586e72042b9000177cc4cc300,"
-        + HOSTED_AZURE_TARGET_CHECK_SHA256,
+        + HOSTED_AZURE_TARGET_CHECK_SHA256
+        + ","
+        + HOSTED_ACE_TARGET_CHECK_SHA256,
         "deployment_target",
     ),
     (
@@ -452,10 +466,14 @@ def _retention_inventory_sql(sql: str) -> str:
     definition = HISTORY_DEFINITION.replace("'", "''")
     target_def = HOSTED_AZURE_TARGET_CHECK_DEFINITION.replace("'", "''")
     no_owner_def = HOSTED_AZURE_NO_OWNER_CLOUD_DEFINITION.replace("'", "''")
+    ace_target_def = HOSTED_ACE_TARGET_CHECK_DEFINITION.replace("'", "''")
+    ace_no_owner_def = HOSTED_ACE_NO_OWNER_CLOUD_DEFINITION.replace("'", "''")
     extra = (
         f",('byoc_setup_jobs','{HISTORY_CHECK}','{definition}',false)"
         f",('personal_agent_registry','personal_agent_registry_deployment_target_check','{target_def}',true)"
         f",('personal_agent_registry','{HOSTED_AZURE_NO_OWNER_CLOUD_CHECK}','{no_owner_def}',true)"
+        f",('personal_agent_registry','personal_agent_registry_deployment_target_check','{ace_target_def}',true)"
+        f",('personal_agent_registry','{HOSTED_ACE_NO_OWNER_CLOUD_CHECK}','{ace_no_owner_def}',true)"
     )
     return sql.replace(lines[0], lines[0].replace(anchor, extra + anchor), 1)
 
