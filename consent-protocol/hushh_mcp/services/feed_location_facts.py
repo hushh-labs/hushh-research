@@ -108,6 +108,15 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
           'reason',CASE WHEN recorded_location.metadata->>'reason' IN('owner_revoke','recipient_revoke','owner_shorten','recipient_shorten','expired','circle_membership_ended','circle_deleted','connection_disconnected') THEN recorded_location.metadata->>'reason' END,
           'approval_mode',CASE WHEN recorded_location.metadata->>'approval_mode' IN('automatic','manual') THEN recorded_location.metadata->>'approval_mode' END,
           'added_duration_hours',CASE WHEN jsonb_typeof(recorded_location.metadata->'added_duration_hours') IN('number','string') THEN left(recorded_location.metadata->>'added_duration_hours',32) END))""")
+    source_kinds = ["to_jsonb(" + alias + ")->'metadata'->>'share_kind'" for alias in grants]
+    known_kind = (
+        "COALESCE("
+        + ",".join(
+            source_kinds
+            + ["location_feed_origin.metadata->>'share_kind'", "f.metadata->>'share_kind'"]
+        )
+        + ")"
+    )
     # Legacy duration receipts may omit share kind after the short-lived grant is purged.
     # Correlate only this viewer's exact recorded grant, never names or a time window.
     # Closed source/schema fragments only; values remain in execute_raw parameters.
@@ -118,16 +127,14 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
         AND origin.event_type IN('location_share_created','location_share_unconfirmed')
         AND {_history_grant_expr("origin", uuid_sql)}={_history_grant_expr("f", uuid_sql)}
       ORDER BY origin.id DESC LIMIT 1) location_feed_origin ON TRUE""")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
-    patches.append(
-        "jsonb_strip_nulls(jsonb_build_object('share_kind',COALESCE(f.metadata->>'share_kind',location_feed_origin.metadata->>'share_kind')))"
-    )
+    patches.append("jsonb_strip_nulls(jsonb_build_object('share_kind'," + known_kind + "))")
     # A durable receipt is history identity, never authority for a live action.
     patches.append(f"""CASE WHEN f.source_domain='location' AND f.event_type IN(
       'location_share_created','location_share_revoked','location_share_expired','location_share_shortened','location_share_duration_changed')
       THEN jsonb_strip_nulls(jsonb_build_object('recorded_grant_id',COALESCE(
         {_history_grant_expr("f", uuid_sql)},NULLIF(f.metadata->>'recorded_grant_id','')))) ELSE '{{}}'::jsonb END""")
     # Closed source/schema fragments only; values remain in execute_raw parameters.
-    published_sos = f"""COALESCE(f.metadata->>'share_kind',location_feed_origin.metadata->>'share_kind','share')<>'sos' OR (
+    published_sos = f"""COALESCE({known_kind},'share')<>'sos' OR (
       f.metadata->>'feed_audience'='recipient' AND EXISTS(SELECT 1 FROM feed_events published
         WHERE published.user_id=f.user_id AND published.source_domain='location'
           AND published.event_type='location_share_created' AND published.metadata->'feed_sms_confirmed'='true'::jsonb

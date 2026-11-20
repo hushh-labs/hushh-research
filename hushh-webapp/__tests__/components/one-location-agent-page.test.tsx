@@ -23,7 +23,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
-import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import * as locationNotifications from "@/lib/one-location/notifications";
 import * as liveMapModule from "@/components/one-location/live-map";

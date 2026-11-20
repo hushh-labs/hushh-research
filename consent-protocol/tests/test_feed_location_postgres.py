@@ -69,9 +69,23 @@ def test_emergencies_require_publication_and_clear_never_hides_two_live_incident
                 {"id": envelope, "grant": grant, "sender": sender, "owner": OWNER},
             )
             _audit_incident(conn, sender, grant, "location_envelope_updated", envelope)
+    # Stale projection hints are not operation authority. Circle metadata must
+    # never combine separate grants, and a stored kind cannot rename an SOS.
+    with feed_db.begin() as conn:
+        conn.execute(
+            text("""UPDATE feed_events SET metadata=metadata||
+          '{"membership_key":"same-circle","check_in_operation_id":"not-authority","share_kind":"check_in"}'::jsonb
+          WHERE user_id=:owner"""),
+            {"owner": OWNER},
+        )
     reader = session(feed_db)
     page = reader.list_feed(OWNER)
     assert len(page["items"]) == 2
+    assert all(
+        item["metadata"]["share_kind"] == "sos"
+        and item["activity_group_id"].startswith("location-grant:")
+        for item in page["items"]
+    )
     reader.clear(OWNER, up_to_id=int(page["read_snapshot"]["up_to_id"]))
     live = reader.live_incidents(OWNER)["items"]
     assert {row["metadata"]["grant_id"] for row in live} == set(grants)
@@ -249,3 +263,59 @@ def test_location_feed_uses_server_expiry_before_retention_settles_raw_status(fe
         )["metadata"]["current_location_status"]
         == "expired"
     )
+
+
+def test_check_in_grouping_uses_source_operations_only_for_the_owner(feed_db):
+    operation = str(uuid.uuid4())
+    grants = [str(uuid.uuid4()) for _ in range(3)]
+    with feed_db.begin() as conn:
+        for index, grant in enumerate(grants):
+            recipient = OTHER if index != 1 else "third-recipient"
+            facts = (
+                {
+                    "share_kind": "check_in",
+                    "client_operation_id": operation,
+                    "confirmed_at": "2026-11-20T00:00:00Z",
+                }
+                if index < 2
+                else {"share_kind": "share"}
+            )
+            conn.execute(
+                text("""INSERT INTO one_location_share_grants
+              (id,owner_user_id,recipient_user_id,recipient_key_id,status,duration_mode,metadata)
+              VALUES(:id,:owner,:recipient,'qa-key','active','until_stopped',CAST(:facts AS jsonb))"""),
+                {"id": grant, "owner": OWNER, "recipient": recipient, "facts": json.dumps(facts)},
+            )
+            for viewer in (OWNER, recipient):
+                conn.execute(
+                    text("""INSERT INTO feed_events(user_id,source_domain,event_type,source_row_id,metadata)
+                  VALUES(:viewer,'location','location_share_created',:id,CAST(:meta AS jsonb))"""),
+                    {
+                        "viewer": viewer,
+                        "id": grant,
+                        "meta": json.dumps(
+                            {
+                                "check_in_operation_id": "unverified-hint",
+                                "membership_key": "same-circle",
+                                "share_kind": "check_in",
+                            }
+                        ),
+                    },
+                )
+    reader = session(feed_db)
+    owner = reader.list_feed(OWNER)["items"]
+    assert len(owner) == 2
+    grouped = next(
+        item for item in owner if item["activity_group_id"] == f"check-in:{OWNER}:{operation}"
+    )
+    assert grouped["metadata"]["share_kind"] == "check_in"
+    ordinary = next(
+        item for item in owner if item["activity_group_id"] == f"location-grant:{grants[2]}"
+    )
+    assert ordinary["metadata"]["share_kind"] == "share"
+    assert "check_in_operation_id" not in ordinary["metadata"]
+    received = reader.list_feed(OTHER)["items"]
+    assert {item["activity_group_id"] for item in received} == {
+        f"location-grant:{grants[0]}",
+        f"location-grant:{grants[2]}",
+    }

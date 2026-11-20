@@ -424,11 +424,11 @@ class FeedService:
             self._get_db()
             .execute_raw(
                 cte
-                + "SELECT f.* FROM grouped f WHERE ("
+                + "SELECT f.* FROM grouped f WHERE ("  # nosec B608 -- closed authored projection/predicate; owner/cursor are bound.
                 + active
                 + """ )
               AND (CAST(:live_cursor AS bigint) IS NULL OR f.id<:live_cursor)
-              ORDER BY f.id DESC LIMIT 101""",  # nosec B608 -- authored projection/predicate, bound owner and cursor.
+              ORDER BY f.id DESC LIMIT 101""",
                 {"user_id": user_id, "live_cursor": cursor},
             )
             .data

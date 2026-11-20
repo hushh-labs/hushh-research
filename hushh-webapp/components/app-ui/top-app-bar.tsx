@@ -1247,7 +1247,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
-                        {pathname === "/one/feed" && !["funding_event", "statement_id", "institution_id"].some(key => searchParams?.has(key)) ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
+                        {pathname === "/one/feed" && !["funding_event", "statement_id", "institution_id", "analysis_id"].some(key => searchParams?.has(key)) ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"

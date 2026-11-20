@@ -8,7 +8,7 @@ const kycApi = "/api/one/email/information-requests?view=active";
 const advisorApi = "/api/one/finance/advisor-reviews/{id}";
 const importReview = "/one/kai/import?from=%2Fone%2Ffeed&stage=reviewing";
 const savedStatement = "/one/feed?statement_id={id}";
-const savedAnalysis = "/one/kai?tab=analysis&analysis_id=run%3A{id}&from=%2Fone%2Ffeed";
+const savedAnalysis = "/one/feed?analysis_id=run%3A{id}";
 const transfer = "/one/feed?funding_event={id}";
 const institution = "/one/feed?institution_id={id}";
 const advisor = "/ria/clients?advisorReview={id}";

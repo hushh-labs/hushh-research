@@ -63,10 +63,16 @@ def browse_admission_sql(alias: str = "f") -> str:
 # Only source-owned IDs form a key. Missing/legacy identities remain separate.
 # Never use a name, query text, date bucket, or provider status as identity.
 GENERAL_OPERATION_KEY_SQL = """CASE
-  WHEN f.source_domain='location' AND NULLIF(f.metadata->>'check_in_operation_id','') IS NOT NULL
-    AND COALESCE(f.metadata->>'feed_audience','owner')='owner'
+  WHEN f.source_domain='location' AND f.metadata->>'share_kind'='check_in'
+    AND f.event_type IN ('location_share_created','location_share_revoked','location_share_shortened',
+      'location_share_duration_changed','location_share_expired','location_access_approved')
+    AND NULLIF(f.metadata->>'check_in_operation_id','') IS NOT NULL
+    AND f.metadata->>'feed_audience'='owner'
     THEN 'check-in:' || f.user_id || ':' || (f.metadata->>'check_in_operation_id')
-  WHEN f.source_domain='location' AND NULLIF(f.metadata->>'membership_key','') IS NOT NULL
+  WHEN f.source_domain='location'
+    AND f.event_type IN ('circle_member_added','circle_member_left','circle_membership_ended',
+      'location_circle_code_joined','location_circle_member_invite_accepted')
+    AND NULLIF(f.metadata->>'membership_key','') IS NOT NULL
     THEN 'circle-membership:' || (f.metadata->>'membership_key')
   WHEN f.event_type='followup_reminder' AND NULLIF(f.metadata->>'request_id','') IS NOT NULL
     THEN 'calendar-followup:' || COALESCE(f.metadata->>'account_id','default') || ':' || (f.metadata->>'request_id')

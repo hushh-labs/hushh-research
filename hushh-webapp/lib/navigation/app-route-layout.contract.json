@@ -2834,6 +2834,14 @@
             "mode": "replace",
             "transitionMode": "contextual"
           }
+        },
+        {
+          "href": "/one/feed?analysis_id=run%3Aqa-report",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
         }
       ],
       "kind": "parent"

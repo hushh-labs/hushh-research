@@ -881,12 +881,12 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     id: "one-feed",
     resolve: (pathname, searchParams) => {
       if (pathname !== ROUTES.ONE_FEED) return undefined;
-      const selectedRecord = ["funding_event", "statement_id", "institution_id"].find(key => searchParams?.get(key) !== null && searchParams?.get(key) !== undefined);
+      const selectedRecord = ["funding_event", "statement_id", "institution_id", "analysis_id"].find(key => searchParams?.get(key) !== null && searchParams?.get(key) !== undefined);
       if (selectedRecord) return {
         backHref: ROUTES.ONE_FEED,
         width: "profile",
         align: "center",
-        items: [{ label: "Feed", href: ROUTES.ONE_FEED }, { label: selectedRecord === "statement_id" ? "Statement" : selectedRecord === "institution_id" ? "Institution" : "Transfer" }],
+        items: [{ label: "Feed", href: ROUTES.ONE_FEED }, { label: selectedRecord === "analysis_id" ? "Analysis" : selectedRecord === "statement_id" ? "Statement" : selectedRecord === "institution_id" ? "Institution" : "Transfer" }],
       };
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const fromProfile = originHref === ROUTES.PROFILE;

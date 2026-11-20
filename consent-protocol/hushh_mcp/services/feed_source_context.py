@@ -319,7 +319,8 @@ def source_events_sql(
       (CASE WHEN f.source_domain='location' AND f.event_type IN(
         'location_share_created','location_share_revoked','location_share_expired','location_share_shortened',
         'location_share_duration_changed','location_access_request','location_access_approved',
-        'location_access_denied','location_access_request_withdrawn') THEN f.metadata-'grant_id'-'request_id'
+        'location_access_denied','location_access_request_withdrawn') THEN f.metadata-'grant_id'-'request_id'-'check_in_operation_id'
+        WHEN f.source_domain='location' THEN f.metadata-'check_in_operation_id'
         WHEN f.event_type IN('mail_information_request_detected','mail_message_sent','mail_message_failed','mail_delivery_unconfirmed')
         THEN f.metadata-'workflow_id'-'send_action_id'-'send_state' ELSE f.metadata END) || ({metadata}) AS metadata, {action_required} AS source_action_required
       FROM (SELECT id,user_id,source_domain,event_type,actor_label,source_row_id,
