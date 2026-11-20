@@ -106,7 +106,7 @@ export function OneTodoPreview({
   const live = useTodoLiveTasks({ userId: ownerId, vaultOwnerToken, idTokenProvider, enabled: ready && current && choicesOwner === identity, tasks, selectedCapabilities: selected });
   const openTasks = live.pending;
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
-  const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.emailReadError);
+  const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.emailReadError || live.sourceError);
   const retry = () => {
     void loadTasks();
     live.calendar.refresh();
