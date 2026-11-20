@@ -399,6 +399,32 @@ test.describe("Calendar and email task list", () => {
 });
 
 
+for (const width of [320, 390]) {
+  test(`source save rollback explains the failure without scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.route("http://localhost/todo-fixture?profile=1&failSave=1", route => route.fulfill({
+      contentType: "text/html", body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/todo-fixture?profile=1&failSave=1");
+    await page.addScriptTag({ content: script });
+    await page.getByRole("button", { name: "Task sources", exact: true }).click();
+    const sources = page.getByRole("dialog", { name: "Task sources", exact: true });
+    const messages = sources.getByRole("switch", { name: "Messages", exact: true });
+    await messages.click();
+    const failure = sources.getByRole("alert");
+    await expect(failure).toHaveText("Could not save. Try again.");
+    await expect(messages).toBeChecked();
+    const errorBox = (await failure.boundingBox())!;
+    const footerBox = (await sources.locator("footer").boundingBox())!;
+    expect(errorBox.y).toBeGreaterThanOrEqual(footerBox.y);
+    expect(errorBox.y + errorBox.height).toBeLessThanOrEqual(footerBox.y + footerBox.height);
+    expect(errorBox.y + errorBox.height).toBeLessThanOrEqual(844);
+    expect(await sources.locator("footer").evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await sources.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(sources).toHaveCount(0);
+  });
+}
+
 for (const [width, height] of [[320, 568], [390, 844], [1440, 900]] as const) {
   test(`approved full profile task frame stays bounded at ${width}px`, async ({ page }) => {
     const errors: string[] = [];

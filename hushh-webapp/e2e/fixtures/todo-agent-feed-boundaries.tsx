@@ -13,7 +13,7 @@ export function getRecaptchaVerifier(): never {
 let state = {
   unlocked: true,
   error: false,
-  failSave: false,
+  failSave: typeof window !== "undefined" && new URLSearchParams(window.location.search).has("failSave"),
   hideAgent: false,
   preview: false,
   providerTasks: false,
