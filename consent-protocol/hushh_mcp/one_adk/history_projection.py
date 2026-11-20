@@ -258,6 +258,8 @@ _ACTIVITY_TOOLS = frozenset(
         "resolve_onboarding_goal",
         "get_current_time",
         "get_my_location",
+        "sync_plaid_connector",
+        "read_plaid_mirror",
     }
 )
 _MCP_ACTIVITY_TOOL = re.compile(r"^mcp_[0-9a-f]{40}$")
@@ -343,6 +345,8 @@ def _safe_turn_activity(events: list[Any]) -> dict[str, Any] | None:
                 step = {"id": call_id, "tool": name, "status": "interrupted"}
                 if call_id in providers:
                     step["provider"] = providers[call_id]
+                elif name in {"sync_plaid_connector", "read_plaid_mirror"}:
+                    step["provider"] = "plaid"
                 by_call[call_id] = step
                 steps.append(step)
             if response is not None:
