@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   OWNER_CLOUD_TARGETS,
+  hostedPodDisplayLabel,
+  hostedPodProvider,
   isAzureHomeSelectable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
   isPrivatePodBinding,
   ownerCloudProvider,
 } from "@/lib/one/owner-cloud";
@@ -12,6 +15,11 @@ import {
 describe("the owner-cloud question", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("labels pooled ACE personal sandboxes cleanly without advertising legacy GCP->Azure migration", () => {
+    expect(hostedPodDisplayLabel("ace")).toBe("Hussh Pods · Personal Sandbox");
+    expect(hostedPodProvider("ace")).toBeNull();
   });
 
   it("separates managed direct bindings from owner-cloud classification", () => {
@@ -85,5 +93,15 @@ describe("the owner-cloud question", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
     expect(isHostedPodTierUnderMaintenance()).toBe(false);
+  });
+
+  it("enables Personal Sandbox switching only on the hosted dev build", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    expect(isPooledSandboxSwitchAvailable()).toBe(true);
+
+    for (const env of ["uat", "production", "development", "staging", "", "dev-uat"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
+      expect(isPooledSandboxSwitchAvailable()).toBe(false);
+    }
   });
 });

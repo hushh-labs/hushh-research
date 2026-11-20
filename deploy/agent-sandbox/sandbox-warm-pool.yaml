@@ -7,7 +7,7 @@ metadata:
   name: hussh-one-warm-pool
   namespace: hussh-agents
 spec:
-  replicas: 8
+  replicas: 1
   sandboxTemplateRef:
     name: hussh-one-sandbox-v1
   updateStrategy:

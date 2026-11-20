@@ -198,11 +198,12 @@ async function refreshEndpointFromHubUnlocked(
   } catch {
     // The malformed-record branch below supplies the stable refusal code.
   }
+  const expectedSandboxPath = `/u/${encodeURIComponent(candidate.hushhId)}`;
   if (
     endpointUrl?.protocol !== "https:" ||
     endpointUrl.username ||
     endpointUrl.password ||
-    endpointUrl.pathname !== "/" ||
+    (endpointUrl.pathname !== "/" && endpointUrl.pathname !== expectedSandboxPath) ||
     endpointUrl.search ||
     endpointUrl.hash ||
     candidate.hushhId === "" ||

@@ -1514,3 +1514,59 @@ async def confirm_hosted_source_retirement_route(
             status_code=409,
             detail={"code": "SOURCE_RETIREMENT_PRECONDITION_FAILED", "message": str(exc)},
         ) from exc
+
+
+class PooledSandboxAdoptRequest(BaseModel):
+    allowCleanSlate: bool = Field(default=False)
+
+
+class PooledSandboxAdoptResponse(BaseModel):
+    status: str
+    hostingMode: str
+    deploymentTarget: str
+    hushhId: str
+    podUrl: str
+    detachedPriorHost: bool
+
+
+@router.post("/pooled-sandbox/adopt", response_model=PooledSandboxAdoptResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def adopt_pooled_sandbox_route(
+    request: Request,
+    body: PooledSandboxAdoptRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> PooledSandboxAdoptResponse:
+    """Switch an owner (including stalled/expired BYOC or fenced setup) onto Pooled Personal Sandbox."""
+    del request
+    from hushh_mcp.services.pooled_sandbox_cutover import adopt_pooled_sandbox_for_owner
+
+    try:
+        verdict = await adopt_pooled_sandbox_for_owner(
+            user_id=firebase_uid,
+            allow_clean_slate=bool(body.allowCleanSlate if body else False),
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "POOLED_SANDBOX_UNAVAILABLE",
+                "message": "Pooled Personal Sandboxes are not enabled in this environment.",
+            },
+        ) from exc
+    except ValueError as exc:
+        message = str(exc)
+        if message == "CLEAN_SLATE_CONFIRMATION_REQUIRED":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "CLEAN_SLATE_CONFIRMATION_REQUIRED",
+                    "message": "Confirm switching to a fresh Hussh Personal Sandbox.",
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "POOLED_SANDBOX_SWITCH_BLOCKED", "message": message},
+        ) from exc
+
+    await _write_cloud_setup_marker(firebase_uid)
+    return PooledSandboxAdoptResponse(**verdict)

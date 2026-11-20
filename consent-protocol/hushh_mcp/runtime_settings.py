@@ -744,6 +744,36 @@ def pod_hosted_adc_enabled() -> bool:
     return hosted_runtime_deployment() is not None
 
 
+def pod_storage_gateway_gcs_bucket() -> str:
+    """Hub-side GCS bucket backing zero-role ``PrefixTokenObjectStore`` pods."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET")
+
+
+def pod_storage_gateway_gcs_prefix() -> str:
+    """Optional prefix inside the Hub-side GCS storage gateway bucket."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_GCS_PREFIX").strip("/")
+
+
+def pod_storage_gateway_local_root() -> str:
+    """Optional local directory root backing the storage gateway in dev/tests."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_LOCAL_ROOT")
+
+
+def pod_model_gateway_url() -> str:
+    """Sentinel L7 Vertex Model Gateway base URL inside the sandbox cluster."""
+    return _clean_env("HUSSH_MODEL_GATEWAY_URL").rstrip("/")
+
+
+def pod_model_gateway_token() -> str:
+    """Per-lease Sentinel surrogate token swapped for Vertex AI OAuth outside the sandbox."""
+    return _clean_env("HUSSH_MODEL_GATEWAY_TOKEN")
+
+
+def pod_sentinel_model_enabled() -> bool:
+    """True when this pod should route managed Gemini calls through Sentinel's L7 gateway."""
+    return pod_mode() and bool(pod_model_gateway_url() and pod_model_gateway_token())
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 

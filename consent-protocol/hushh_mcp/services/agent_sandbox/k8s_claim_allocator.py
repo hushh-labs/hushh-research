@@ -386,6 +386,46 @@ class SentinelControlClient:
         )
         return bool(res.get("updated"))
 
+    def set_lease_policy_with_ip(
+        self,
+        *,
+        lease_id: str,
+        owner_id: str,
+        pod_ip: str,
+        domain_rules: dict[str, str] | None = None,
+    ) -> bool:
+        encoded_lease = urllib.parse.quote(str(lease_id).strip(), safe="")
+        res = self._call(
+            "PUT",
+            f"/v1/leases/{encoded_lease}/policy",
+            {
+                "owner_id": owner_id,
+                "pod_ip": pod_ip,
+                "domain_rules": dict(domain_rules or {}),
+            },
+        )
+        return bool(res.get("updated"))
+
+    def mint_model_surrogate(
+        self,
+        *,
+        lease_id: str,
+        owner_id: str,
+        ttl_seconds: int = 3600,
+    ) -> str:
+        encoded_lease = urllib.parse.quote(str(lease_id).strip(), safe="")
+        res = self._call(
+            "POST",
+            f"/v1/leases/{encoded_lease}/model-surrogate",
+            {"owner_id": owner_id, "ttl_seconds": int(ttl_seconds)},
+        )
+        return str(res["surrogate_token"])
+
+    def delete_lease(self, lease_id: str) -> bool:
+        encoded_lease = urllib.parse.quote(str(lease_id).strip(), safe="")
+        res = self._call("DELETE", f"/v1/leases/{encoded_lease}")
+        return bool(res.get("deleted"))
+
     def verify_audit(self, lease_id: str | None = None) -> dict[str, Any]:
         suffix = f"?lease_id={urllib.parse.quote(lease_id)}" if lease_id else ""
         return self._call("GET", f"/v1/audit/verify{suffix}")

@@ -25,6 +25,7 @@ import {
 import {
   HusshPodsActiveCard,
   HusshPodsMigrationCard,
+  PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
@@ -60,6 +61,7 @@ import {
   isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
   ownerCloudProvider,
   type OwnerCloudProvider,
 } from "@/lib/one/owner-cloud";
@@ -502,6 +504,42 @@ function OwnerCloudSetupPage({ user, owner }: {
   const hostingOptions = hostingOptionsFor({ azureSelectable, hostedUnderMaintenance, ownCloudAvailable });
   const consentIntent = consentPendingEntry(job);
   const attachBlocked = (job as { attachBlocked?: string | null } | null)?.attachBlocked ?? null;
+  const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+  const ownerCloudSourceLabel =
+    ownerProvider === "azure"
+      ? "Microsoft Azure"
+      : ownerProvider === "gcp"
+        ? "Google Cloud"
+        : null;
+  const hostedPodSourceLabel =
+    hostedPodProvider(agentTarget) === "azure"
+      ? "Microsoft Azure"
+      : hostedPodProvider(agentTarget) === "gcp"
+        ? "Google Cloud"
+        : null;
+  const openHomeFallback =
+    pooledSwitchAvailable && !aiReady ? (
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          data-testid="byoc-open-home-fallback"
+          onClick={() => {
+            const requested = requestInternalAppNavigation({
+              href: ROUTES.ONE_HOME,
+              replace: false,
+              scroll: false,
+              source: "programmatic",
+              transitionMode: "full",
+            });
+            if (!requested) router.push(ROUTES.ONE_HOME);
+          }}
+        >
+          Open Home
+        </Button>
+      </div>
+    ) : null;
   // The one commit under the cards. Shared keeps its two ids: the confirm on a
   // confirmed Shared state, and the plain pick where Shared is not yet the default.
   const hostingCommit =
@@ -605,16 +643,33 @@ function OwnerCloudSetupPage({ user, owner }: {
           // else competes with it: no form, no dead buttons, no guessing.
           <SetupStageChecklist {...setupChecklistFor(job, ownerProvider)} job={job} />
         ) : job && (job.status === "failed" || job.stale) && !authorized ? (
-          <ByocSetupFailedCard
-            job={job}
-            retry={setupRetryFor(job, ownerProvider)}
-            busy={!ownCloudAvailable || saving || azureSignIn.starting}
-            onRetry={(retry) =>
-              void (retry.provider === "azure"
-                ? startAzureSetup(azureSubscriptionFromRef(job.projectId))
-                : handleProjectNamed(retry.projectId))
-            }
-          />
+          <div className="space-y-4">
+            <ByocSetupFailedCard
+              job={job}
+              retry={setupRetryFor(job, ownerProvider)}
+              busy={!ownCloudAvailable || saving || azureSignIn.starting}
+              onRetry={(retry) =>
+                void (retry.provider === "azure"
+                  ? startAzureSetup(azureSubscriptionFromRef(job.projectId))
+                  : handleProjectNamed(retry.projectId))
+              }
+            />
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod={false}
+                sourceCloudLabel={
+                  setupJobProvider(job) === "azure"
+                    ? "Microsoft Azure"
+                    : setupJobProvider(job) === "gcp"
+                      ? "Google Cloud"
+                      : null
+                }
+                onSwitched={refreshAttach}
+                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+              />
+            ) : null}
+            {openHomeFallback}
+          </div>
         ) : consentIntent && !authorized ? (
           <ConsentPendingCard
             entry={consentIntent}
@@ -632,51 +687,84 @@ function OwnerCloudSetupPage({ user, owner }: {
             Checking your agent home…
           </p>
         ) : hostingMode === "byoc" && directBlocker ? (
-          <DirectIngressBlockedCard blocker={directBlocker}
-            onRetry={ownCloudAvailable ? () => {
-              if (ownerCurrent()) void retryDirectIngress().finally(refreshAgent);
-            } : null} />
+          <div className="space-y-4">
+            <DirectIngressBlockedCard
+              blocker={directBlocker}
+              onRetry={ownCloudAvailable ? () => {
+                if (ownerCurrent()) void retryDirectIngress().finally(refreshAgent);
+              } : null}
+            />
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                sourceCloudLabel={ownerCloudSourceLabel}
+                onSwitched={refreshAttach}
+                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+              />
+            ) : null}
+          </div>
         ) : byocAssignedConnecting ? (
-          <ConnectingToAgentCard onRefresh={refreshAttach} />
+          <div className="space-y-4">
+            <ConnectingToAgentCard onRefresh={refreshAttach} />
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                sourceCloudLabel={ownerCloudSourceLabel}
+                onSwitched={refreshAttach}
+                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+              />
+            ) : null}
+          </div>
         ) : byocAssignedFailed ? (
-          <div
-            className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
-            role="alert"
-            data-testid="byoc-agent-failed"
-          >
-            <p className="text-sm font-semibold">We couldn&rsquo;t reach your agent</p>
-            <p className="text-sm text-[var(--app-text-secondary)]">
-              {ownerProvider === "azure"
-                ? "Your agent in Microsoft Azure is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."
-                : "Your agent in Google Cloud is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."}
-            </p>
-            <div className="flex flex-wrap gap-4">
-              <button
-                type="button"
-                className="min-h-11 self-start text-sm underline underline-offset-4"
-                onClick={refreshAttach}
-                data-testid="byoc-agent-failed-refresh"
-              >
-                Check connection again
-              </button>
-              <button
-                type="button"
-                className="min-h-11 self-start text-sm underline underline-offset-4"
-                onClick={() => {
-                  const requested = requestInternalAppNavigation({
-                    href: ROUTES.PROFILE_HOSTING,
-                    replace: false,
-                    scroll: false,
-                    source: "programmatic",
-                    transitionMode: "full",
-                  });
-                  if (!requested) router.push(ROUTES.PROFILE_HOSTING);
-                }}
-                data-testid="byoc-agent-failed-hosting"
-              >
-                Open Hosting settings
-              </button>
+          <div className="space-y-4">
+            <div
+              className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
+              role="alert"
+              data-testid="byoc-agent-failed"
+            >
+              <p className="text-sm font-semibold">We couldn&rsquo;t reach your agent</p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                {ownerProvider === "azure"
+                  ? "Your agent in Microsoft Azure is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."
+                  : "Your agent in Google Cloud is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."}
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <button
+                  type="button"
+                  className="min-h-11 self-start text-sm underline underline-offset-4"
+                  onClick={refreshAttach}
+                  data-testid="byoc-agent-failed-refresh"
+                >
+                  Check connection again
+                </button>
+                <button
+                  type="button"
+                  className="min-h-11 self-start text-sm underline underline-offset-4"
+                  onClick={() => {
+                    const requested = requestInternalAppNavigation({
+                      href: ROUTES.PROFILE_HOSTING,
+                      replace: false,
+                      scroll: false,
+                      source: "programmatic",
+                      transitionMode: "full",
+                    });
+                    if (!requested) router.push(ROUTES.PROFILE_HOSTING);
+                  }}
+                  data-testid="byoc-agent-failed-hosting"
+                >
+                  Open Hosting settings
+                </button>
+              </div>
             </div>
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                sourceCloudLabel={ownerCloudSourceLabel}
+                onSwitched={refreshAttach}
+                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+              />
+            ) : null}
+            {openHomeFallback}
           </div>
         ) : connectedBefore ? (
           // Revisit: the cloud is recorded and proven; first-time setup cannot move an assigned pod.
@@ -693,7 +781,14 @@ function OwnerCloudSetupPage({ user, owner }: {
               </p>
               <AzureFreeTrialNote stages={job?.stages} />
             </div>
-            {isHostedAzureMigrationAvailable() && agentState === "active" ? (
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                sourceCloudLabel={existing.projectId}
+                onSwitched={refreshAgent}
+                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+              />
+            ) : isHostedAzureMigrationAvailable() && agentState === "active" ? (
               <HusshPodsMigrationCard
                 sourceMode="byoc"
                 sourceTarget={agentTarget}
@@ -703,14 +798,28 @@ function OwnerCloudSetupPage({ user, owner }: {
                 subtleAction
               />
             ) : null}
+            {openHomeFallback}
           </div>
         ) : recordedReservedProject ? (
           // The recorded home attaches by itself; a stop is shown with its typed reason.
-          attachBlocked ? <AttachBlockedCard code={attachBlocked}
-            onRetry={ownCloudAvailable ? () => {
-              if (ownerCurrent()) void retryOwnerCloudAttach().finally(refreshAttach);
-            } : null} />
-            : <ConnectingToAgentCard onRefresh={refreshAttach} />
+          attachBlocked ? (
+            <div className="space-y-4">
+              <AttachBlockedCard code={attachBlocked}
+                onRetry={ownCloudAvailable ? () => {
+                  if (ownerCurrent()) void retryOwnerCloudAttach().finally(refreshAttach);
+                } : null} />
+              {pooledSwitchAvailable ? (
+                <PooledSandboxSwitchCard
+                  hasAssignedCloudPod
+                  sourceCloudLabel={ownerCloudSourceLabel ?? reservedProjectId}
+                  onSwitched={refreshAttach}
+                  owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <ConnectingToAgentCard onRefresh={refreshAttach} />
+          )
         ) : reservedProjectId && setupStatusReadOk && job === null ? (
           <div
             className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
@@ -767,9 +876,17 @@ function OwnerCloudSetupPage({ user, owner }: {
           ) : (
             <div className="space-y-4">
               <HusshPodsActiveCard deploymentTarget={agentTarget} />
-              {isHostedAzureMigrationAvailable() &&
-              agentState === "active" &&
-              hostedPodProvider(agentTarget) === "gcp" ? (
+              {pooledSwitchAvailable && agentTarget !== "ace" ? (
+                <PooledSandboxSwitchCard
+                  hasAssignedCloudPod
+                  sourceCloudLabel={hostedPodSourceLabel}
+                  onSwitched={refreshAgent}
+                  owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                />
+              ) : !pooledSwitchAvailable &&
+                isHostedAzureMigrationAvailable() &&
+                agentState === "active" &&
+                hostedPodProvider(agentTarget) === "gcp" ? (
                 <HusshPodsMigrationCard
                   sourceMode="hussh_pods"
                   sourceTarget={agentTarget}

@@ -297,7 +297,7 @@ import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ChatFileScheduleCard } from "@/components/scheduled-tasks/chat-file-schedule-card";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
-import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
+import { clearInAppChatSelection, rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
 import {
   AGENT_TURN_DETACH_REASON,
   isAgentTurnWatched,
@@ -3284,12 +3284,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         userId: applicationOwnerId, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
         force: refresh,
       });
-      let stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
-        ? snapshot.latestMessages
-        : await loadSelected();
-      if (!current()) return;
-      // It may have settled while that read was in flight; read the answer.
-      if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
+      let stored: Awaited<ReturnType<typeof loadSelected>>;
+      try {
+        stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
+          ? snapshot.latestMessages
+          : await loadSelected();
+        if (!current()) return;
+        // It may have settled while that read was in flight; read the answer.
+        if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
+      } catch (error) {
+        if (error instanceof Error && (error as { status?: number }).status === 404) {
+          clearInAppChatSelection(applicationOwnerId);
+          clearAgentChatHistoryCache(applicationOwnerId);
+          updateConversationId(null, false);
+          setMessages((existing) =>
+            mergePendingConsentMessages([createGreetingMessage()], existing),
+          );
+          return;
+        }
+        throw error;
+      }
       if (!current()) return;
       const restored = storedMessagesToAgentMessages(stored).map((message) => ({
         ...message,
@@ -3426,12 +3440,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
       oneScrollTopRef.current = 0;
-      const history = await loadAgentChatConversationHistory({
-        userId: applicationOwnerId,
-        conversationId: nextConversationId,
-        vaultOwnerToken: token,
-        vaultKey: vaultKeyRef.current ?? "",
-      });
+      let history: Awaited<ReturnType<typeof loadAgentChatConversationHistory>>;
+      try {
+        history = await loadAgentChatConversationHistory({
+          userId: applicationOwnerId,
+          conversationId: nextConversationId,
+          vaultOwnerToken: token,
+          vaultKey: vaultKeyRef.current ?? "",
+        });
+      } catch (error) {
+        if (error instanceof Error && (error as { status?: number }).status === 404) {
+          if (!isCurrent() || !chatSessionRef.current.isCurrent(chatEpoch)) return;
+          clearInAppChatSelection(applicationOwnerId);
+          clearAgentChatHistoryCache(applicationOwnerId);
+          updateConversationId(null);
+          setMessages([createGreetingMessage()]);
+          return;
+        }
+        throw error;
+      }
       if (!isCurrent() || !chatSessionRef.current.isCurrent(chatEpoch)) return;
       const rawRestored = storedMessagesToAgentMessages(history);
       const restored = rawRestored.map((message, index) =>

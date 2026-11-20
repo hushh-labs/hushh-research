@@ -65,12 +65,33 @@ def _derive_public_descriptor(raw_priv: bytes) -> tuple[str, str]:
     return pub_b64, kid
 
 
+def prewarm_runtime_imports() -> None:
+    """Pre-import heavy SDK modules during warm-pool standby to cut activation latency."""
+    import cryptography.hazmat.primitives.asymmetric.ed25519  # noqa: F401,PLC0415
+    import fastapi  # noqa: F401,PLC0415
+    import google.adk.models  # noqa: F401,PLC0415
+    import google.genai  # noqa: F401,PLC0415
+    import httpx  # noqa: F401,PLC0415
+    import uvicorn  # noqa: F401,PLC0415
+    import websockets  # noqa: F401,PLC0415
+
+    # Warm one_adk/text runtime without importing pod_server before activation env vars arrive.
+    from hushh_mcp.one_adk import text_runtime  # noqa: F401,PLC0415
+
+
 def _default_asgi_launcher(bind_host: str, port: int) -> None:
     """Load owner durable identity into RAM, unlink key file, and launch pod_server."""
     import uvicorn  # noqa: PLC0415
 
-    # Import pod_server before loading the durable keypair so root INFO logging
-    # and redaction are configured when pod_key.loaded is emitted.
+    from hushh_mcp.consent.token_signing import reset_caches as reset_token_caches  # noqa: PLC0415
+    from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+        clear_runtime_settings_caches,
+    )
+
+    reset_token_caches()
+    clear_runtime_settings_caches()
+
+    # Import pod_server AFTER activation env vars are written so middleware (CORS) sees them.
     import pod_server  # noqa: PLC0415
     from hushh_mcp.services.pod_self_registration import (  # noqa: PLC0415
         pod_public_key_payload,
@@ -202,28 +223,75 @@ class VirginStandbyRuntime:
 
                     os.environ["HUSSH_POD_MODE"] = "1"
                     os.environ["HUSSH_ID"] = hushh_id
+                    os.environ["HUSSH_POD_ID"] = hushh_id
                     os.environ["HUSSH_OWNER_ID"] = owner_id
                     os.environ["HUSSH_LEASE_ID"] = lease_id
                     os.environ["HUSSH_POD_PRIVATE_KEY_FILE"] = str(key_file)
                     os.environ["HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD"] = "1"
+                    os.environ.setdefault("HUSSH_POD_TURN_ENABLED", "true")
+                    os.environ.setdefault("POD_AGENT_MEMORY_ENABLED", "true")
+                    os.environ.setdefault("POD_DIRECTIVE_TRANSPORT_ENABLED", "true")
+                    os.environ.setdefault("HUSSH_POD_BROWSER_ENABLED", "true")
+                    os.environ.setdefault("POD_DATA_DOOR_ENABLED", "true")
+                    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "false")
+                    from hushh_mcp.consent.token_signing import (  # noqa: PLC0415
+                        reset_caches as reset_token_caches,
+                    )
                     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+                        clear_runtime_settings_caches,
                         ensure_pod_sandbox_signing_key,
                     )
 
                     ensure_pod_sandbox_signing_key()
-                    if not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
-                        os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
-                    for opt_field, env_name in (
-                        ("pod_url", "POD_URL"),
-                        ("hub_url", "HUSSH_HUB_URL"),
-                        ("scheduler_caller_emails", "HUSHH_SCHEDULER_CALLER_EMAILS"),
+                    for opt_field, env_names in (
+                        ("pod_url", ("POD_URL",)),
+                        ("hub_url", ("HUSSH_HUB_URL", "HUSSH_HUB_BASE_URL")),
+                        (
+                            "scheduler_caller_emails",
+                            ("HUSHH_SCHEDULER_CALLER_EMAILS", "HUSSH_POD_HUB_CALLER_EMAILS"),
+                        ),
+                        ("consent_ed25519_public_keys", ("CONSENT_ED25519_PUBLIC_KEYS",)),
+                        ("hub_public_key", ("CONSENT_ED25519_PUBLIC_KEYS",)),
+                        (
+                            "owner_feed_ed25519_public_keys",
+                            ("OWNER_FEED_ED25519_PUBLIC_KEYS",),
+                        ),
+                        ("allowed_app_origins", ("CORS_ALLOWED_ORIGINS",)),
+                        ("model_gateway_url", ("HUSSH_MODEL_GATEWAY_URL",)),
+                        ("model_gateway_token", ("HUSSH_MODEL_GATEWAY_TOKEN",)),
+                        ("sentinel_vertex_project", ("HUSSH_SENTINEL_VERTEX_PROJECT",)),
+                        ("sentinel_vertex_location", ("HUSSH_SENTINEL_VERTEX_LOCATION",)),
+                        ("sandbox_name", ("ACE_SANDBOX_ID",)),
                     ):
-                        val = str(payload.get(opt_field) or "").strip()
+                        raw_val = payload.get(opt_field)
+                        val = (
+                            json.dumps(raw_val, separators=(",", ":"))
+                            if isinstance(raw_val, dict)
+                            else str(raw_val or "").strip()
+                        )
                         if val:
-                            os.environ[env_name] = val
+                            for env_name in env_names:
+                                os.environ[env_name] = val
+
+                    prefix_url = str(payload.get("pod_storage_prefix_token_url") or "").strip()
+                    if prefix_url:
+                        os.environ["POD_STORAGE_PREFIX_TOKEN_URL"] = prefix_url
+                        os.environ["POD_STORAGE_BACKEND"] = "commit_log"
+                        os.environ["HUSSH_POD_CUSTODY_MODE"] = "hub_broker"
+                        os.environ["POD_DURABLE_IDENTITY_ENABLED"] = "1"
+                    elif not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
+                        os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
+
                     deploy_env = str(payload.get("deploy_env") or "").strip().lower()
                     if deploy_env in {"dev", "development", "uat"}:
                         os.environ["HUSHH_DEPLOY_ENV"] = deploy_env
+                        if not (os.environ.get("ENVIRONMENT") or "").strip():
+                            os.environ["ENVIRONMENT"] = (
+                                "uat" if deploy_env == "uat" else "development"
+                            )
+
+                    reset_token_caches()
+                    clear_runtime_settings_caches()
 
                     runtime._activated = True
                     runtime.activation_info = {
@@ -257,7 +325,7 @@ class VirginStandbyRuntime:
         build_readiness_payload(uid=self._uid)
         target_port = self.port
         try:
-            self.server.serve_forever(poll_interval=0.2)
+            self.server.serve_forever(poll_interval=0.05)
         finally:
             self.server.server_close()
         if self.activated:
@@ -288,6 +356,11 @@ def main() -> int:
         raise ValueError("PORT must be between 1 and 65535")
     bind_host = str(os.environ.get("VIRGIN_STANDBY_BIND_HOST") or "")
     runtime = VirginStandbyRuntime(bind_host=bind_host, port=raw_port)
+    threading.Thread(
+        target=prewarm_runtime_imports,
+        name="standby-prewarm",
+        daemon=True,
+    ).start()
 
     def _handle_signal(_signum: int, _frame: Any) -> None:
         threading.Thread(target=runtime.server.shutdown, daemon=True).start()

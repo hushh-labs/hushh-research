@@ -2028,6 +2028,41 @@ export class ApiService {
     return response.json();
   }
 
+  static async adoptPooledSandbox(options?: {
+    allowCleanSlate?: boolean;
+    isEffectCurrent?: () => boolean;
+  }): Promise<{
+    status: string;
+    hostingMode: string;
+    deploymentTarget: string;
+    hushhId: string;
+    podUrl: string;
+    detachedPriorHost: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/pooled-sandbox/adopt", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        allowCleanSlate: options?.allowCleanSlate === true,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+        ),
+      );
+    }
+    return payload;
+  }
+
   static async selectManagedGeminiRuntime(isEffectCurrent?: () => boolean): Promise<{
     status: "ready";
     model: string;

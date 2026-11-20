@@ -36,20 +36,28 @@ export function useAiPlacement(
       .then((status) => {
         if (cancelled || !ownerIsCurrent()) return;
         const provider = podCloudProvider(status.deploymentTarget);
+        const isAceSandbox =
+          status.hostingMode === "hussh_pods" && status.deploymentTarget === "ace";
         const isPodMode =
           status.hostingMode === "byoc" || status.hostingMode === "hussh_pods";
         const nextPlacement: AiPlacement =
           status.hostingMode === "shared"
             ? "shared"
-            : isPodMode && provider
+            : isAceSandbox
               ? status.state === "active"
-                ? provider
+                ? "shared"
                 : status.state === "failed"
                   ? "unknown"
                   : "pending"
-              : status.hostingMode === "pending"
-                ? "pending"
-                : "unknown";
+              : isPodMode && provider
+                ? status.state === "active"
+                  ? provider
+                  : status.state === "failed"
+                    ? "unknown"
+                    : "pending"
+                : status.hostingMode === "pending"
+                  ? "pending"
+                  : "unknown";
         setObservation({
           visit: captureOwnerGuard,
           revision: refreshRevision,

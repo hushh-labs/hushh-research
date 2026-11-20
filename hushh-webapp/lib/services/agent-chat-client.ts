@@ -2755,7 +2755,9 @@ export async function getAgentChatHistory(input: {
 }): Promise<AgentChatMessage[]> {
   const response = await sendWithChatKey(() => ApiService.getAgentChatHistory(input));
   if (!response.ok) {
-    throw new Error(await readError(response));
+    const error = new Error(await readError(response)) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
   const payload = (await response.json()) as {
     messages?: Array<Omit<AgentChatMessage, "metadata"> & {

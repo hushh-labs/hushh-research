@@ -58,4 +58,25 @@ describe("useAiPlacement", () => {
     await waitFor(() => expect(failed.result.current.placement).toBe("unknown"));
     failed.unmount();
   });
+
+  it("maps Personal Sandbox (ace) states cleanly so active sandboxes enable Use Hussh AI", async () => {
+    for (const [state, expected] of [
+      ["active", "shared"],
+      ["failed", "unknown"],
+      ["connecting", "pending"],
+      ["reserved", "pending"],
+    ] as const) {
+      const guard = () => () => true;
+      const reset = vi.fn();
+      mocks.status.mockResolvedValueOnce({
+        hostingMode: "hussh_pods",
+        deploymentTarget: "ace",
+        state,
+      });
+      const hook = renderHook(() => useAiPlacement(guard, reset));
+      await waitFor(() => expect(hook.result.current.placement).toBe(expected));
+      expect(hook.result.current.ownCloudProject).toBeNull();
+      hook.unmount();
+    }
+  });
 });

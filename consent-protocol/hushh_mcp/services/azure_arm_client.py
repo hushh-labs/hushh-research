@@ -368,10 +368,9 @@ class ArmClient:
                     raise
             response = self._send_once(method, url, headers, body)
             if mutation_id:
-                async_op = response.headers.get("azure-asyncoperation")
-                location_op = (
-                    response.headers.get("location") if self.needs_poll(response) else None
-                )
+                polling = self.needs_poll(response)
+                async_op = response.headers.get("azure-asyncoperation") if polling else None
+                location_op = response.headers.get("location") if polling else None
                 self._mutations.acknowledge(
                     mutation_id,
                     response.status,
@@ -529,7 +528,7 @@ class ArmClient:
         state = _operation_state(response.body)
         return (
             response.status == 202
-            or bool(response.headers.get("azure-asyncoperation"))
+            or (bool(response.headers.get("azure-asyncoperation")) and state != "succeeded")
             or (bool(response.headers.get("location")) and state != "succeeded")
             or bool(state and state not in _TERMINAL_OK | _TERMINAL_BAD)
         )

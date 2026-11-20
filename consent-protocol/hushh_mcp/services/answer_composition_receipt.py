@@ -156,7 +156,13 @@ def verify_composition_receipt(
                     or type(claims["selection_revision"]) is not int
                     or claims["selection_revision"] < 0
                     or claims["runtime_mode"]
-                    not in {"byok", "user_adc", "hosted_pod_adc", "user_azure_mi"}
+                    not in {
+                        "byok",
+                        "user_adc",
+                        "hosted_pod_adc",
+                        "sentinel_vertex",
+                        "user_azure_mi",
+                    }
                     or (require_fresh and claims["runtime_binding"] != runtime_binding)
                 ):
                     raise ValueError
