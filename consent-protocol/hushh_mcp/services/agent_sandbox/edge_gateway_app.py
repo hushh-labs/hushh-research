@@ -299,28 +299,39 @@ class SandboxEdgeGatewayManager:
             )
 
         if self.sentinel_control is not None:
-            if hasattr(self.sentinel_control, "set_lease_policy_with_ip"):
-                await asyncio.to_thread(
-                    self.sentinel_control.set_lease_policy_with_ip,
-                    lease_id=lease_id,
-                    owner_id=hushh_id,
-                    pod_ip=endpoint.pod_ip,
+            sentinel_tasks: list[Any] = []
+            has_policy = hasattr(self.sentinel_control, "set_lease_policy_with_ip")
+            has_surrogate = hasattr(self.sentinel_control, "mint_model_surrogate")
+            if has_policy:
+                sentinel_tasks.append(
+                    asyncio.to_thread(
+                        self.sentinel_control.set_lease_policy_with_ip,
+                        lease_id=lease_id,
+                        owner_id=hushh_id,
+                        pod_ip=endpoint.pod_ip,
+                    )
                 )
-            if hasattr(self.sentinel_control, "mint_model_surrogate"):
+            if has_surrogate:
                 ttl = max(900, min(7200, int(self.idle_timeout_s * 2)))
-                surrogate = await asyncio.to_thread(
-                    self.sentinel_control.mint_model_surrogate,
-                    lease_id=lease_id,
-                    owner_id=hushh_id,
-                    ttl_seconds=ttl,
+                sentinel_tasks.append(
+                    asyncio.to_thread(
+                        self.sentinel_control.mint_model_surrogate,
+                        lease_id=lease_id,
+                        owner_id=hushh_id,
+                        ttl_seconds=ttl,
+                    )
                 )
-                payload["model_gateway_token"] = surrogate
-                if self.sentinel_model_gateway_url:
-                    payload["model_gateway_url"] = self.sentinel_model_gateway_url
-                if self.sentinel_vertex_project:
-                    payload["sentinel_vertex_project"] = self.sentinel_vertex_project
-                if self.sentinel_vertex_location:
-                    payload["sentinel_vertex_location"] = self.sentinel_vertex_location
+            if sentinel_tasks:
+                sentinel_results = await asyncio.gather(*sentinel_tasks)
+                if has_surrogate:
+                    surrogate = str(sentinel_results[-1])
+                    payload["model_gateway_token"] = surrogate
+                    if self.sentinel_model_gateway_url:
+                        payload["model_gateway_url"] = self.sentinel_model_gateway_url
+                    if self.sentinel_vertex_project:
+                        payload["sentinel_vertex_project"] = self.sentinel_vertex_project
+                    if self.sentinel_vertex_location:
+                        payload["sentinel_vertex_location"] = self.sentinel_vertex_location
 
         headers: dict[str, str] = {}
         if self._activation_guard:
@@ -350,7 +361,7 @@ class SandboxEdgeGatewayManager:
             deadline = time.monotonic() + max(2.0, self.health_poll_timeout_s)
             while time.monotonic() < deadline:
                 try:
-                    h_resp = await client.get(f"{base_url}/health", timeout=2.0)
+                    h_resp = await client.get(f"{base_url}/health", timeout=6.0)
                     if h_resp.status_code == 200:
                         try:
                             health_body = h_resp.json()
@@ -363,7 +374,7 @@ class SandboxEdgeGatewayManager:
                             return pub_b64, pod_key_id
                 except httpx.HTTPError:
                     pass
-                await asyncio.sleep(0.08)
+                await asyncio.sleep(0.05)
         raise TimeoutError(f"Sandbox {endpoint.sandbox_name} /health did not turn Ready after bind")
 
     async def invalidate_lease(self, hushh_id: str, expected_lease_id: str | None = None) -> None:

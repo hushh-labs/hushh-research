@@ -368,3 +368,32 @@ def test_k8s_manifests_ace_bundle_and_checked_in_yaml_invariants() -> None:
         for e in tpl_yaml["spec"]["podTemplate"]["spec"]["containers"][0]["env"]
         if e["name"] == "NO_PROXY"
     )
+
+
+def test_virgin_standby_prewarm_succeeds_without_preset_signing_key_and_refreshes_cors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.one_adk import turn_warmup
+    from hushh_mcp.services.agent_sandbox.virgin_standby import (
+        _refresh_pod_server_cors,
+        prewarm_runtime_imports,
+    )
+
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    turn_warmup._STANDBY_TURN_PREWARMED.clear()
+
+    prewarm_runtime_imports()
+    assert turn_warmup._STANDBY_TURN_PREWARMED.is_set() is True
+
+    import pod_server
+
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://dev.one.hussh.ai,http://localhost:3000")
+    _refresh_pod_server_cors(pod_server)
+    cors_mw = next(
+        mw
+        for mw in pod_server.app.user_middleware
+        if getattr(mw.cls, "__name__", "") == "CORSMiddleware"
+    )
+    assert cors_mw.kwargs["allow_origins"] == ["https://dev.one.hussh.ai", "http://localhost:3000"]
+    assert pod_server.app.middleware_stack is None
