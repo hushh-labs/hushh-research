@@ -205,7 +205,7 @@ describe("One agent profile feed preview", () => {
     mocks.list.mockResolvedValue({
       items: [
         item("1", "calendar_connected"),
-        item("2", "mail_connected"),
+        item("2", "mail_message_sent"),
         item("3", "connected_systems_connected"),
       ],
       next_cursor: null,
@@ -315,7 +315,7 @@ describe("One agent profile feed preview", () => {
     );
     expect(mocks.list).not.toHaveBeenCalled();
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    await screen.findByText("Mail connected");
+    await screen.findByText("Message sent");
     expect(mocks.list).toHaveBeenCalledWith(
       expect.objectContaining({
         idToken: "viewer-token",
@@ -374,7 +374,7 @@ describe("One agent profile feed preview", () => {
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
     expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
-    await screen.findByText("Mail connected");
+    await screen.findByText("Message sent");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByRole("heading", { name: "Live memory" })).toBeInTheDocument();

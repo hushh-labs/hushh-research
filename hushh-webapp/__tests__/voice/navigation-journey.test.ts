@@ -63,6 +63,9 @@ describe("navigation journeys", () => {
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
+      // Feed search is read-only, but its route-owned handler must still be
+      // reachable when the person asks to find activity from another screen.
+      "feed.search_activity",
       // Circle invitations resolve one exact pending invitation. Joining the
       // circle does not create a Location share.
       "location.accept_circle_invite",
