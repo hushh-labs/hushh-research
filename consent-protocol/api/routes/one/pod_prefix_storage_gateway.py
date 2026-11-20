@@ -131,7 +131,8 @@ async def _authorize_gateway_request(
     if not isinstance(row, dict) or str(row.get("user_id") or "") != owner_id:
         return Response(status_code=403, content=b"unknown pod")
 
-    meta = row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}
+    raw_meta = row.get("backend_metadata")
+    meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
     if "erasure" in meta:
         return Response(status_code=403, content=b"pod fenced for erasure")
 

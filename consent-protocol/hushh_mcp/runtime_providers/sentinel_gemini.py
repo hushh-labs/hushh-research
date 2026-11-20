@@ -8,7 +8,6 @@ import os
 from typing import Any
 
 import httpx
-from google import genai
 from google.adk.models import Gemini
 from google.genai.types import HttpOptions
 from google.oauth2.credentials import Credentials
@@ -19,6 +18,7 @@ from hushh_mcp.runtime_settings import (
     pod_sentinel_model_enabled,
 )
 
+from .factory import build_sentinel_direct_genai_client
 from .gemini_config import resolve_fleet_model_name
 
 
@@ -40,7 +40,7 @@ def sentinel_vertex_location(location: str | None = None) -> str:
     )
 
 
-def build_sentinel_genai_client(*, location: str | None = None) -> genai.Client:
+def build_sentinel_genai_client(*, location: str | None = None) -> Any:
     """Build a ``google.genai.Client`` bound directly to Sentinel :8082 with trust_env=False."""
     if not pod_sentinel_model_enabled():
         raise RuntimeError("Sentinel model authority is unavailable")
@@ -60,8 +60,7 @@ def build_sentinel_genai_client(*, location: str | None = None) -> genai.Client:
         httpx_client=sync_http,
         httpx_async_client=async_http,
     )
-    return genai.Client(
-        vertexai=True,
+    return build_sentinel_direct_genai_client(
         project=project,
         location=eff_location,
         credentials=creds,
