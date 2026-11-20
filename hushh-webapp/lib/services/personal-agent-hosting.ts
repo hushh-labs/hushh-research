@@ -2,6 +2,11 @@ import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 
 type OwnerFetch = (path: string, options: RequestInit) => Promise<Response>;
 
+const statusInFlightByFetch = new WeakMap<
+  OwnerFetch,
+  Map<string, Promise<PersonalAgentStatus>>
+>();
+
 async function readOwnerHosting(
   token: string | undefined,
   fetchOwner: OwnerFetch,
@@ -24,12 +29,37 @@ export async function readPersonalAgentStatus(
   fetchOwner: OwnerFetch,
   options?: { signal?: AbortSignal },
 ): Promise<PersonalAgentStatus> {
-  return (await readOwnerHosting(
-    token,
-    fetchOwner,
-    "/api/one/personal-agent/status",
-    options?.signal,
-  )) as PersonalAgentStatus;
+  if (options?.signal) {
+    return (await readOwnerHosting(
+      token,
+      fetchOwner,
+      "/api/one/personal-agent/status",
+      options.signal,
+    )) as PersonalAgentStatus;
+  }
+  let perToken = statusInFlightByFetch.get(fetchOwner);
+  if (!perToken) {
+    perToken = new Map<string, Promise<PersonalAgentStatus>>();
+    statusInFlightByFetch.set(fetchOwner, perToken);
+  }
+  const key = token ?? "__anonymous__";
+  const existing = perToken.get(key);
+  if (existing) {
+    return existing;
+  }
+  const pending = (
+    readOwnerHosting(
+      token,
+      fetchOwner,
+      "/api/one/personal-agent/status",
+    ) as Promise<PersonalAgentStatus>
+  ).finally(() => {
+    if (perToken?.get(key) === pending) {
+      perToken.delete(key);
+    }
+  });
+  perToken.set(key, pending);
+  return pending;
 }
 
 export async function readCloudRemovalAvailability(

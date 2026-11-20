@@ -1873,6 +1873,30 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Verify One mail sender configuration
+        if: steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM SUPPORT_EMAIL_TO; do
+            sender="$(gcloud secrets versions access latest \
+              --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}")"
+            if [ "${sender}" != "one@hushh.ai" ]; then
+              echo "${secret_name} must name the One mailbox before production backend deployment." >&2
+              exit 1
+            fi
+          done
+          mode="$(gcloud secrets versions access latest \
+            --secret=SUPPORT_EMAIL_MODE --project="${{ env.GCP_PROJECT_ID }}")"
+          if [ "${mode}" != "live" ]; then
+            echo "SUPPORT_EMAIL_MODE must equal live before production backend deployment." >&2
+            exit 1
+          fi
+          if [ -f scripts/ops/reconcile_oauth_and_mail_posture.py ]; then
+            python3 scripts/ops/reconcile_oauth_and_mail_posture.py \
+              --verify-deploy --project "${{ env.GCP_PROJECT_ID }}" --environment production
+          fi
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))
@@ -1910,6 +1934,7 @@ jobs:
           elif [ "${{ steps.prod-curated-secrets.outputs.enabled }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
           fi
+          DRIVE_SUBSTITUTIONS+=",_ONE_EMAIL_ADDRESS=one@hushh.ai,_ONE_EMAIL_DELEGATED_USER=one@hushh.ai,_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE,_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER,_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM"
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then
             DRIVE_SUBSTITUTIONS+=",_ACCOUNT_GENERATION_ADMISSION_ENABLED=false"
           fi

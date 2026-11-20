@@ -577,16 +577,17 @@ Sources: [answer/document action projection](../../lib/feed/use-feed-actionables
 | Requester answer | `Answer not found`; `Their answer is being prepared`; `Ask them to unlock memory and retry preparation`; `Pay {price} · {question}`; `Pay {price}`; `Review price and pay`; `Open the answer`; `Waiting for them to set a price` |
 | Answer controls/error | `Deny`; `Allow`; `Write answer`; `Review question`; `Review price and pay`; `Open`; `Pay {price}`; `Checkout couldn't open. You weren't charged.` |
 | Document payment row | `Pay {price} · {purpose}`; `Pay {price} for files from {owner}` / `Pay {price} for your document request`; `Waiting for owner setup`; `Payment link expired`; `Document request expired` |
+| Direct Pay action | `{purpose}` / `Document request from {owner}` / `Document request ready`. The button shows `Pay {price}`. |
 | Supporting fragments | `Quote {price}`; `From {owner}`; `Requested {month day}`; `{N}s left`; `{N}m left`; `{N}h left`; fragments join ` · `. Purpose whitespace-normalized/shortened72 Unicode characters here, full review retains it. |
 | Request expiry | `Your request for files from {owner} expired before payment.` / `This request expired before payment.` |
 | Checkout expiry | `The {price} link for files from {owner} expired.` / `The {price} link expired.` |
 | Setup/ready | `Quote {price} · {owner} is setting up payouts.` / `Quote {price} · Owner payout setup pending.`; `{deadline} to pay.` / `You requested files from {owner}. Pay to continue.`; packet `Review packet` |
 | Checkout failure | `You already have access. No payment was taken.`; `You already have access to part of this packet. Checkout is paused.`; `Checkout couldn't open. Try again.` |
-| Progress title | `Waiting to start`; `Taking longer than usual`; `One is finding documents`; `One is checking documents`; `One is sharing documents` |
+| Progress title | `Waiting to start`; `Taking longer than usual`; `Finding your documents` / `Finding documents`; `Checking documents`; `Sharing your documents` / `Sharing documents with you` |
 | Queued | `Request allowed. The Drive search starts soon.`; `Trusted Circle request. The Drive search starts soon.` |
 | Delayed/checking | `This request is saved and continues automatically.` / `Your request is saved and continues automatically.`; `One is checking the documents for this request.` |
-| Allowed incoming/outgoing | `Request allowed. One is handling it for you. Sharing is automatic.` / `Request allowed. One is handling it. Files appear after access is confirmed.` |
-| Trusted incoming/outgoing | `One is handling a Trusted Circle request for you. Sharing is automatic.` / `One is handling your Trusted Circle request. Files appear after access is confirmed.` |
+| Allowed incoming/outgoing | `Request allowed. Sharing is automatic.` / `Request allowed. Files appear once access is confirmed.` |
+| Trusted incoming/outgoing | `Trusted Circle request. Sharing is automatic.` / `Files appear once access is confirmed.` |
 | Pending/evaluation | `Document request sent`; `Waiting for the owner to review your request.`; `Documents unavailable`; `One couldn't verify the documents for this request.`; `Waiting for price`; `Waiting for owner setup`; `Documents from {owner}` / `Document request pending` |
 | Progress overflow | `View all received requests`; `View all sent requests`; `View all active requests` |
 | Common return | `Checking payment status…` |
