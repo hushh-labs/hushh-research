@@ -495,7 +495,6 @@ describe("One agent profile feed preview", () => {
     render(<OneAgentProfileSheet open nativeReady onOpenChange={mocks.close} />);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("button", { name: "A private task", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove task", exact: true }));
     const back = () => native ? fireEvent.click(screen.getByRole("button", { name: "Back to Chat" })) : fireEvent.keyDown(document, { key: "Escape" });
     back();
     expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
