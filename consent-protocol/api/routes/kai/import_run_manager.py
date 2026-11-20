@@ -17,7 +17,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Callable, Optional, cast
 
+from starlette.concurrency import run_in_threadpool
+
 import api.routes.kai.analyze_run_store as run_store
+from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,8 @@ class PortfolioImportRunRecord:
     # process, and whether an attached local stream already delivered it.
     terminal_frame: Optional[RunFrame] = None
     terminal_delivered: bool = False
+    completion_feed_recorded: bool = False
+    outcome_feed_recorded: bool = False
     heartbeat_task: Optional[asyncio.Task] = None
     relay_task: Optional[asyncio.Task] = None
 
@@ -343,6 +348,36 @@ class KaiPortfolioImportRunManager:
                     )
                 )
 
+            await self._record_feed(run, completed=False)
+
+    async def _record_feed(self, run: PortfolioImportRunRecord, *, completed: bool) -> None:
+        if run.is_durable_replay:
+            return
+        if completed:
+            if (
+                run.status != "completed"
+                or not run.terminal_delivered
+                or run.completion_feed_recorded
+            ):
+                return
+            run.completion_feed_recorded = True
+        else:
+            if run.status not in {"failed", "canceled"} or run.outcome_feed_recorded:
+                return
+            run.outcome_feed_recorded = True
+        try:
+            await run_in_threadpool(
+                FeedService().record_event,
+                user_id=run.user_id,
+                source_domain="kai",
+                event_type=f"kai_import_{run.status}",
+                actor_label="Finance",
+                metadata={},
+                source_row_id=run.run_id,
+            )
+        except Exception:
+            logger.warning("kai_outcome_feed_projection_failed")
+
     async def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
         stale_ids: list[str] = []
@@ -492,6 +527,7 @@ class KaiPortfolioImportRunManager:
                 yield frame
                 if frame is run.terminal_frame:
                     run.terminal_delivered = True
+                    await self._record_feed(run, completed=True)
 
             if terminal_reached:
                 return

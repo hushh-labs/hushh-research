@@ -2625,7 +2625,7 @@ def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
         out = svc.remove_connection("user-a", "conn-1")
 
     assert out == {"removed": 1}
-    assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b", "actor_user_id": "user-a"}]
+    assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
 
 
 def test_disconnecting_ends_the_pairs_document_request_allows():
@@ -2737,7 +2737,7 @@ def test_circle_cleanup_runs_after_the_connection_is_revoked():
 
     source = inspect.getsource(ConnectionsService.remove_connection)
     revoke_index = source.index("UPDATE connections")
-    cleanup_index = source.index("_close_disconnected_access")
+    cleanup_index = source.index("_end_one_location_circle_memberships")
     assert revoke_index < cleanup_index
 
 

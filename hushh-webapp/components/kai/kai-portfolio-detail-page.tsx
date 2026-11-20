@@ -1,7 +1,5 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { PlaidReconnectTask } from "@/components/kai/plaid-reconnect-task";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
@@ -17,7 +15,6 @@ export function KaiPortfolioDetailPage({
 }: {
   section: Exclude<PortfolioDashboardSection, "overview">;
 }) {
-  const reconnectItem = useSearchParams().get("reconnect");
   const { user, userId, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [flowState, setFlowState] = useState<FlowState>("checking");
@@ -36,13 +33,13 @@ export function KaiPortfolioDetailPage({
         dataState: flowState === "checking" ? "loading" : "loaded",
       }}
     >
-      {section === "sources" && reconnectItem ? <PlaidReconnectTask key={reconnectItem} itemId={reconnectItem} /> : <KaiFlow
+      <KaiFlow
         userId={userId}
         mode="dashboard"
         vaultOwnerToken={vaultOwnerToken ?? ""}
         dashboardSection={section}
         onStateChange={setFlowState}
-      />}
+      />
       {section === "analysis" && flowState === "import_required" ? <AdvisorReviewHub /> : null}
     </AppPageShell>
   );

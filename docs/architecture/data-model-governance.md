@@ -102,13 +102,8 @@ The reviewed identity `ON DELETE SET NULL` inventory is intentionally small:
 `one_referral_attributions.bound_user_id`. (`kai_funding_reconciliation_runs.user_id`
 from migration 038 was retired with its table by migration 239.) Full deletion
 removes these rows before either account root; the trigger's tombstone-visible
-`SET NULL` branch also preserves legacy/root-driven cascades.
-
-`one_location_check_in_targets.recipient_user_id` is also deletion-reviewed:
-account cleanup removes the recipient binding while preserving the operation's
-original intended count. A cleared target never grants access or permits retry
-under another identity; the immutable target token preserves the denominator.
-Reviewed runtime assignments bind previously-null referral/OAuth subjects. A new ownership-transfer or identity-detach workflow must
+`SET NULL` branch also preserves legacy/root-driven cascades. Reviewed runtime
+assignments bind previously-null referral/OAuth subjects. A new ownership-transfer or identity-detach workflow must
 not ship by relying on the generic trigger: update this inventory and design an
 explicit deletion-safe transfer protocol first.
 

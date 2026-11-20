@@ -4,13 +4,13 @@ export const previewTime = "2026-10-16T15:30:00Z";
 const driveApi = "/api/connectors/google_drive/sharing/requests/{id}";
 const driveOwner = "/one/consent?tab=pending&requestId=document_share_request%3A{id}&from=%2Fone%2Ffeed";
 const driveRequester = driveOwner + "&requestView=sent";
-const kycApi = "/api/one/email/information-requests/{id}";
+const kycApi = "/api/one/email/information-requests?view=active";
 const advisorApi = "/api/one/finance/advisor-reviews/{id}";
-const importReview = "/one/kai/import?from=%2Fone%2Ffeed&stage=reviewing&import_run_id={id}";
-const savedStatement = "/one/kai/import?from=%2Fone%2Ffeed&statement_id={id}";
+const importReview = "/one/kai/import?from=%2Fone%2Ffeed&stage=reviewing";
+const savedStatement = "/one/feed?statement_id={id}";
 const savedAnalysis = "/one/kai?tab=analysis&analysis_id=run%3A{id}&from=%2Fone%2Ffeed";
 const transfer = "/one/feed?funding_event={id}";
-const institution = "/one/kai/portfolio/sources?reconnect={id}&from=%2Fone%2Ffeed";
+const institution = "/one/feed?institution_id={id}";
 const advisor = "/ria/clients?advisorReview={id}";
 const investor = "/one/kai/portfolio/analysis?advisorReview={id}";
 
@@ -31,7 +31,7 @@ export const cases = [
   ["14-statement-review", "Finance", "import-run", "investor", "Parsing finished; draft unsaved", "Your October statement is ready to review", "Review", importReview, "Authenticated import run + same-device completed draft"],
   ["15-statement-correction", "Finance", "import-run", "investor", "Existing review validation requires a price", "Check the price for 1 holding", "Review", importReview + "&fix_field=price", "Same import run + current holding validator"],
   ["16-statement-saved", "Finance", "import-run", "investor", "Vault snapshot committed and readable", "October statement · Saved statement", "Open", savedStatement, "Owner vault financial statements + mutation receipt"],
-  ["17-analysis-saved", "Finance", "analysis", "investor", "Exact report saved outside Finance", "Your AAPL analysis is ready", null, savedAnalysis, "Encrypted analysis history + /api/kai/analyze/run/{id}/feed-result"],
+  ["17-analysis-saved", "Finance", "analysis", "investor", "Recorded analysis completion; exact local report when present", "AAPL analysis finished", null, savedAnalysis, "Existing encrypted device history + recorded Feed completion"],
   ["18-transfer-returned", "Finance", "transfer", "investor", "Returned after completion; provider proof required", "Your transfer was returned", null, transfer, "Retired provider; retained evidence via POST /api/one/feed/funding-history"],
   ["19-advisor-received", "Finance", "advisor", "advisor", "Current incoming pending request", "Maya asked you to review their portfolio", "Review", advisor, advisorApi],
   ["20-advisor-investor", "Finance", "advisor", "investor", "Advisor accepted the same request", "Your advisor accepted your review request", null, investor, advisorApi],

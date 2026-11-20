@@ -532,24 +532,22 @@
     },
     "kai_analysis_completed": {
       "agent": "agent_kai",
-      "kind": "routine",
-      "operation": "source",
-      "scope": "finance"
-    },
-    "kai_analysis_failed": {
-      "agent": "agent_kai",
-      "kind": "routine",
-      "operation": "source",
-      "scope": "finance"
-    },
-    "kai_analysis_saved": {
-      "agent": "agent_kai",
       "kind": "outcome",
       "operation": "analysis",
       "scope": "finance",
       "search_terms": [
         "analysis",
         "report"
+      ]
+    },
+    "kai_analysis_failed": {
+      "agent": "agent_kai",
+      "kind": "outcome",
+      "operation": "analysis",
+      "scope": "finance",
+      "search_terms": [
+        "analysis",
+        "failed"
       ]
     },
     "kai_import_canceled": {
@@ -917,26 +915,6 @@
         ]
       },
       "scope": "memory"
-    },
-    "location_check_in_result": {
-      "agent": "agent_location",
-      "kind": "outcome",
-      "operation": "check_in",
-      "scope": "location",
-      "search_terms": [
-        "check in",
-        "checkin"
-      ]
-    },
-    "location_check_in_attention": {
-      "agent": "agent_location",
-      "kind": "decision",
-      "operation": "check_in",
-      "scope": "location",
-      "search_terms": [
-        "check in",
-        "checkin"
-      ]
     }
   },
   "scopes": {

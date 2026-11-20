@@ -37,7 +37,6 @@ from typing import Any, Unpack
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from db.connection import get_pool
 from db.db_client import get_db
 from hushh_mcp.services import feed_calendar_context as calendar_context
 from hushh_mcp.services.direct_messages_service import (
@@ -63,12 +62,7 @@ from hushh_mcp.services.feed_drive_fold import (
     DRIVE_OUTCOME_EVENT,
     drive_rows_revealed_by_removal,
 )
-from hushh_mcp.services.feed_event_writer import (
-    completed_analysis_source,
-    mark_analysis_viewed,
-    record_saved_analysis,
-    write_feed_event,
-)
+from hushh_mcp.services.feed_event_writer import write_feed_event
 from hushh_mcp.services.feed_group_queries import (
     _GROUPED_FEED_COUNT_SELECT,
     _GROUPED_FEED_CTE,
@@ -361,40 +355,6 @@ class FeedService:
             require_confirmation=require_confirmation,
         )
 
-    def completed_analysis_source(self, user_id: str, run_id: str) -> str | None:
-        return completed_analysis_source(self._get_db, user_id, run_id)
-
-    async def mark_analysis_viewed(
-        self,
-        user_id: str,
-        run_id: str,
-        completed_ticker: str | None = None,
-        *,
-        connection: Any = None,
-    ) -> None:
-        await mark_analysis_viewed(
-            get_pool, user_id, run_id, completed_ticker, connection=connection
-        )
-
-    async def record_saved_analysis(
-        self, user_id: str, run_id: str, ticker: str, *, connection: Any = None
-    ) -> None:
-        await record_saved_analysis(get_pool, user_id, run_id, ticker, connection=connection)
-
-    def dismiss_analysis(self, user_id: str, run_id: str) -> None:
-        rows = (
-            self._get_db()
-            .execute_raw(
-                """SELECT id FROM feed_events WHERE user_id=:user_id AND source_domain='kai'
-               AND event_type='kai_analysis_saved' AND source_row_id=:run_id ORDER BY id DESC LIMIT 1""",
-                {"user_id": user_id, "run_id": run_id},
-            )
-            .data
-            or []
-        )
-        if rows:
-            self.dismiss(user_id, item_id=int(rows[0]["id"]))
-
     def list_feed(
         self,
         user_id: str,
@@ -448,8 +408,38 @@ class FeedService:
         return {
             "items": [self._to_item(row, user_id) for row in rows],
             "next_cursor": next_cursor,
+            "live_incidents": self.live_incidents(user_id),
             "unread_count": self.unread_count(user_id),
             **snapshot_fields(revision_rows),
+        }
+
+    def live_incidents(self, user_id: str, *, cursor: int | None = None) -> dict[str, Any]:
+        """Current confirmed incidents, independent of history pages or scope."""
+        active = active_incident_sql("f", self._feed_source_columns(), feed_uuid_sql)
+        if active == "FALSE":
+            return {"items": [], "next_cursor": None}
+        cte = self._grouped_feed_sql(count=False).removesuffix(_GROUPED_FEED_PAGE_SELECT)
+        # The canonical source projection already verifies the exact published receipt.
+        rows = (
+            self._get_db()
+            .execute_raw(
+                cte
+                + "SELECT f.* FROM grouped f WHERE ("
+                + active
+                + """ )
+              AND (CAST(:live_cursor AS bigint) IS NULL OR f.id<:live_cursor)
+              ORDER BY f.id DESC LIMIT 101""",  # nosec B608 -- authored projection/predicate, bound owner and cursor.
+                {"user_id": user_id, "live_cursor": cursor},
+            )
+            .data
+            or []
+        )
+        return {
+            "items": [
+                self._to_item(row, user_id)
+                for row in self._present_activity_rows(user_id, rows[:100])
+            ],
+            "next_cursor": str(rows[99]["id"]) if len(rows) > 100 else None,
         }
 
     def _present_activity_rows(

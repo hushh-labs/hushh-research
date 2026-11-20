@@ -18,7 +18,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ActivityCard, WorkflowQueueCard, fieldLabels, gmailThreadUrl } from "./gmail-request-cards";
 import mailStyles from "./mail-workspace.module.css";
 import { MailActionButton as Button } from "./mail-action-button";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -42,8 +41,9 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import { mailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useMailKycDisplay } from "@/lib/gmail/use-mail-kyc-display";
-import { takeFeedKycSelection } from "@/lib/gmail/kyc-feed-selection";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { takeFeedKycSelection } from "@/lib/feed/kyc-selection";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
 type Props = {
@@ -62,6 +62,29 @@ function needsGmailSendPermission(error: unknown): boolean {
   const code = apiErrorCode(error);
   return (
     code === "GMAIL_SEND_PERMISSION_REQUIRED" || code === "GMAIL_SEND_DISABLED"
+  );
+}
+
+function gmailThreadUrl(threadId: string): string {
+  return `https://mail.google.com/mail/#all/${encodeURIComponent(threadId)}`;
+}
+
+function fieldLabels(workflow: GmailInformationRequestWorkflow): string {
+  return (
+    workflow.requested_field_labels
+      .slice(0, 3)
+      .map((label) => {
+        const readable = label
+          .replace(/[_-]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return readable
+          ? `${readable.charAt(0).toUpperCase()}${readable.slice(1)}`
+          : "";
+      })
+      .filter(Boolean)
+      .join(", ") ||
+    "Personal information"
   );
 }
 
@@ -344,6 +367,114 @@ function WorkflowCard({
   );
 }
 
+function WorkflowQueueCard({
+  workflow,
+  onReview,
+  onDraftWithOne,
+}: {
+  workflow: GmailInformationRequestWorkflow;
+  onReview: () => void;
+  onDraftWithOne: () => void;
+}) {
+  return (
+    <div className="consent-presentation-surface rounded-[var(--app-card-radius-md)] border border-[color:var(--app-card-border-standard)] bg-background/60 px-4 py-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.025]">
+      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+            <MailCheck className="h-[18px] w-[18px]" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p data-consent-role="row-title" className={`${mailStyles.rowName} text-foreground`}>
+              Information requested
+            </p>
+            <p data-consent-role="helper" className="line-clamp-2 text-xs leading-5 text-muted-foreground sm:truncate sm:leading-normal">
+              {fieldLabels(workflow)}
+            </p>
+            <p data-consent-role="helper" className="text-xs text-muted-foreground">
+              {workflow.received_at
+                ? `Received ${new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                  }).format(new Date(workflow.received_at))}`
+                : "New request"}
+              {workflow.attachment_review_required
+                ? " · Attachment included"
+                : ""}
+            </p>
+          </div>
+        </div>
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-[19.5rem] sm:shrink-0 sm:grid-cols-[minmax(0,1fr)_8.25rem]">
+          <Button
+            type="button"
+            size="sm"
+            className="min-h-11 min-w-0 justify-center"
+            onClick={onDraftWithOne}
+          >
+            Draft with One
+          </Button>
+          <Button
+            type="button"
+            variant="muted"
+            size="sm"
+            className="min-h-11 min-w-0 justify-center"
+            data-consent-quiet-action="true"
+            onClick={onReview}
+          >
+            Review
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityCard({
+  workflow,
+}: {
+  workflow: GmailInformationRequestWorkflow;
+}) {
+  const label =
+    workflow.status === "sent"
+      ? "Reply sent"
+      : workflow.status === "ignored"
+        ? "Request ignored"
+        : workflow.status === "blocked"
+          ? "Request blocked"
+          : "Needs attention";
+  const timestamp =
+    workflow.updated_at || workflow.received_at || workflow.created_at;
+
+  return (
+    <div className="consent-presentation-surface flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
+      <div className="min-w-0 space-y-1">
+        <p data-consent-role="row-title" className={`${mailStyles.rowName} text-foreground`}>{label}</p>
+        <p data-consent-role="helper" className="truncate text-xs text-muted-foreground">
+          {fieldLabels(workflow)}
+        </p>
+        {timestamp ? (
+          <p data-consent-role="helper" className="text-xs text-muted-foreground">
+            {new Intl.DateTimeFormat(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(timestamp))}
+          </p>
+        ) : null}
+      </div>
+      {workflow.gmail_thread_id ? (
+        <MorphyButton
+          type="button"
+          variant="none"
+          effect="fade"
+          size="compact"
+          className={`${mailStyles.utilityAction} shrink-0`}
+          onClick={() => openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))}
+        >
+          Open Mail
+        </MorphyButton>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * The owner-facing personal-Gmail opt-in and metadata-only KYC request queue.
  * It stays inside the Gmail agent; the legacy platform-mailbox KYC surface is
@@ -427,7 +558,41 @@ function GmailInformationRequestsWorkspace({
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
-  const [feedWorkflow, setFeedWorkflow] = useState<GmailInformationRequestWorkflow | null>(null);
+  // Feed hands off an owner/session-bound ID; existing review/send behavior stays here.
+  const feedSelection = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active || !userId || !vaultOwnerToken || !idTokenProvider) return;
+    feedSelection.current ??= takeFeedKycSelection(userId);
+    const workflowId = feedSelection.current;
+    if (!workflowId) return;
+    const generation = getAuthSessionGeneration();
+    const epoch = snapshotVaultSessionEpoch();
+    let cancelled = false;
+    const current = () => !cancelled && generation === getAuthSessionGeneration() && isVaultSessionEpochCurrent(epoch);
+    void (async () => {
+      try {
+        const firebaseIdToken = await idTokenProvider();
+        let offset = 0;
+        while (current()) {
+          const page = await GmailInformationRequestsService.list({ firebaseIdToken, vaultOwnerToken, limit: 25, offset });
+          if (!current()) return;
+          const workflow = page.workflows.find(item => item.workflow_id === workflowId);
+          if (workflow) {
+            setWorkflows(items => [workflow, ...items.filter(item => item.workflow_id !== workflowId)]);
+            setListView("requests");
+            setSelectedWorkflowId(workflowId);
+            feedSelection.current = null;
+            return;
+          }
+          if (page.next_offset === null || page.next_offset <= offset) break;
+          offset = page.next_offset;
+        }
+        if (current()) { feedSelection.current = null; toast.message("Request no longer available"); }
+      } catch { if (current()) toast.error("Request couldn’t be loaded"); }
+    })();
+    return () => { cancelled = true; };
+  }, [active, userId, vaultOwnerToken, idTokenProvider]);
+
   const idTokenProviderRef = useRef(idTokenProvider);
   const activityLoadingRef = useRef(false);
   const scanInFlightRef = useRef(false);
@@ -447,33 +612,6 @@ function GmailInformationRequestsWorkspace({
   );
 
   const readEpoch = snapshotVaultSessionEpoch();
-  useEffect(() => {
-    if (!active || !userId || !vaultOwnerToken || !isConnected) {
-      setFeedWorkflow(null);
-      return;
-    }
-    const workflowId = takeFeedKycSelection(userId);
-    if (!workflowId) return;
-    let current = true;
-    void (async () => {
-      try {
-        const firebaseIdToken = await idTokenProviderRef.current?.();
-        if (!firebaseIdToken || !current || !isVaultSessionEpochCurrent(readEpoch)) return;
-        const exact = await GmailInformationRequestsService.getActive({
-          firebaseIdToken, vaultOwnerToken, workflowId,
-        });
-        if (!current || !isVaultSessionEpochCurrent(readEpoch)) return;
-        setFeedWorkflow(exact);
-        setListView("requests");
-        setSelectedWorkflowId(exact.workflow_id);
-      } catch {
-        if (current && isVaultSessionEpochCurrent(readEpoch)) {
-          toast.error("Couldn’t open this information request. Try again in Feed.");
-        }
-      }
-    })();
-    return () => { current = false; };
-  }, [active, isConnected, readEpoch, userId, vaultOwnerToken]);
   const displaySnapshotRef = useRef(display.snapshot);
   displaySnapshotRef.current = display.snapshot;
   const refreshDisplayRef = useRef(display.refresh);
@@ -1018,7 +1156,7 @@ function GmailInformationRequestsWorkspace({
   const visibleRequestCount = Math.max(totalCount, workflows.length);
   const selectedWorkflow = workflows.find(
     (workflow) => workflow.workflow_id === selectedWorkflowId,
-  ) ?? (vaultOwnerToken && feedWorkflow?.workflow_id === selectedWorkflowId ? feedWorkflow : null);
+  );
   const monitoringActions = enabled ? (
     <>
       <Button

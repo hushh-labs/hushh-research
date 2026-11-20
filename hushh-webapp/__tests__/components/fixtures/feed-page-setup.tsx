@@ -3,6 +3,8 @@ import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { vi } from "vitest";
 
+vi.mock("@/lib/persona/persona-context", () => ({ usePersonaState: () => ({ activePersona: "investor" }) }));
+
 const mocks = vi.hoisted(() => {
   const user = {
     uid: "feed-user",

@@ -6150,57 +6150,6 @@ export class ApiService {
     });
   }
 
-  static async verifyKaiReportStorage(data: { vaultOwnerToken: string; isEffectCurrent: () => boolean }): Promise<void> {
-    const response = await apiFetch("/api/kai/analysis/report-storage", { cache: "no-store", isEffectCurrent: data.isEffectCurrent, headers: { Authorization: `Bearer ${data.vaultOwnerToken}` } });
-    if (!response.ok) throw new Error("Report sync is unavailable.");
-  }
-
-  static async publishSavedKaiAnalysis(data: {
-    runId: string;
-    viewedInFinance?: boolean;
-    reportTicker: string;
-    completionProof?: unknown;
-    receipt: import("@/lib/files/shared/store").SharedObjectReceipt;
-    userId: string;
-    vaultOwnerToken: string;
-    isEffectCurrent?: () => boolean;
-  }): Promise<Response> {
-    const query = new URLSearchParams({ user_id: data.userId }).toString();
-    const response = await apiFetch(
-      `/api/kai/analyze/run/${encodeURIComponent(data.runId)}/feed-result?${query}`,
-      {
-        method: "POST",
-        body: JSON.stringify({ ...data.receipt, viewedInFinance: data.viewedInFinance === true, completionProof: data.completionProof ?? null, reportTicker: data.reportTicker }),
-        isEffectCurrent: data.isEffectCurrent,
-        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-      },
-    );
-    if (!response.ok) throw new Error("Analysis notification could not be saved.");
-    return response;
-  }
-
-  static async markSavedKaiAnalysisRead(data: { runId: string; completionProof?: unknown; userId: string; vaultOwnerToken: string; isEffectCurrent: () => boolean }): Promise<void> {
-    const query = new URLSearchParams({ user_id: data.userId });
-    const response = await apiFetch(`/api/kai/analyze/run/${encodeURIComponent(data.runId)}/feed-result/read?${query}`, {
-      method: "POST", body: JSON.stringify({ completionProof: data.completionProof ?? null }), isEffectCurrent: data.isEffectCurrent,
-      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-    });
-    if (!response.ok) throw new Error("Report read state could not be saved.");
-  }
-
-  static async removeSavedKaiAnalysis(data: {
-    runId: string; userId: string; vaultOwnerToken: string;
-    receipt: import("@/lib/files/shared/store").SharedObjectReceipt;
-    isEffectCurrent: () => boolean;
-  }): Promise<void> {
-    const query = new URLSearchParams({ user_id: data.userId });
-    const response = await apiFetch(`/api/kai/analyze/run/${encodeURIComponent(data.runId)}/feed-result/remove?${query}`, {
-      method: "POST", body: JSON.stringify(data.receipt), isEffectCurrent: data.isEffectCurrent,
-      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
-    });
-    if (!response.ok) throw new Error("Report removal could not be confirmed.");
-  }
-
   static async cancelKaiDebateRun(data: {
     runId: string;
     userId: string;

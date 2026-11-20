@@ -1273,7 +1273,6 @@ describe("agent PKM memory helpers", () => {
       secrets: { items: { sec_00000000000000a1: { label: "openai API key ending 9f2a", kind: "credential", value: FAKE_API_KEY } } },
       identity: {
         identity_profile: { city: "Synthetic City" },
-        contact_aliases: { version: 1, items: [{ personRef: "person-private-family", alias: "Mummy Work" }] },
         identity_documents: { doc_1: { document_type: "passport", label: "Passport ending 4567", number: FAKE_PASSPORT } },
         communication_preferences: {
           preferred_name: "Kay",
@@ -1295,7 +1294,6 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toMatch(/Communication Preferences|Kay|Sign off/i);
     expect(context.communicationPreferences).toEqual({ preferred_name: "Kay", tone: "executive" });
     const wire = JSON.stringify([context.text, context.communicationPreferences]);
-    expect(wire).not.toMatch(/Mummy Work|person-private-family|Contact Aliases/);
     for (const value of FAKE_VALUES) expect(wire).not.toContain(value);
   });
 

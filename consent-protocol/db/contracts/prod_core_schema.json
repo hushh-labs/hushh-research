@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 462,
+  "expected_migration_version": 458,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -3042,28 +3042,6 @@
       "updated_at",
       "user_id"
     ],
-    "one_location_check_in_operations": [
-      "id",
-      "owner_user_id",
-      "client_operation_id",
-      "duration_hours",
-      "source_circle_id",
-      "confirmed_at",
-      "state",
-      "confirmed_count",
-      "revision",
-      "created_at",
-      "settled_at"
-    ],
-    "one_location_check_in_targets": [
-      "operation_id",
-      "target_id",
-      "recipient_user_id",
-      "confirmed_grant_id",
-      "confirmed_envelope_id",
-      "confirmed_at",
-      "ended_at"
-    ],
     "one_location_circle_invite_codes": [
       "circle_id",
       "code_hash",
@@ -4944,5 +4922,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 462
+  "expected_schema_head": 458
 }

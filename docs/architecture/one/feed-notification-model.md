@@ -46,10 +46,14 @@ Current decisions and important outcomes share one mixed timeline. Location
 requests and resulting shares link only through verified source IDs. Every
 confirmed active emergency has its own Live row, even for the same sender.
 Quiet share expiry/revoke updates do not create unread attention. Ended grants
-open dated history rather than a map. Clear cannot hide active incidents.
+open dated history rather than a map. Clear cannot hide active incidents. A separate paginated `live_incidents`
+collection selects every confirmed current incident independently of history
+pages; it never selects only the newest incident from a sender.
 
-Private Check-In counts only committed recipient receipts and retries remaining
-intended recipients. Nearby Check-In stays solely on the map. Routine GPS,
+Private Check-In groups the owner's confirmed grants by the existing client
+operation ID. Recipient views remain per grant. Existing source records do not
+retain the full intended audience or failures, so Feed does not claim a complete
+or partial operation total or offer a retry action. Nearby Check-In stays solely on the map. Routine GPS,
 search, polling, views and ordinary status changes remain suppressed. Recorded
 Circle deletion cannot revive an older addition after source cleanup. Missing
 legacy source authority never becomes permission for an active destination.
@@ -249,20 +253,23 @@ consent. Scope is a view filter; it never grants client or source access.
 
 Bounded scalar labels exclude coordinates, private notes, document contents and
 protected financial values. Finance statement/report labels are read within the
-current unlocked owner session. Reports use explicit Shared Files setup, encrypted
-save and availability acknowledgement; a completed analysis alone is not a saved
-report. Device-only legacy reports remain distinguishable from shared records.
+current unlocked owner session. Feed reads the existing device report history;
+an analysis-completed receipt means the run finished, not that another device
+has the report. Missing local results use the existing unavailable state. Saved
+statements and institutions open exact read-only details inside Feed, without
+changing the active statement or initiating provider reconnect.
 
-Confirmed contact aliases are authored by the owner in Connections and persisted
-in encrypted `identity.contact_aliases` version 1. Only current confirmed contact
-bindings participate. Model suggestions, public labels and unconfirmed family
-relationships do not create an identity match. Unique adjacent transpositions
-offer explicit typo suggestions; ambiguous names produce no fabricated identity.
+Search uses existing confirmed contact and roster names. This release adds no
+relationship-alias editor or storage. A family alias is matchable only if it is
+already an authorized source label; Feed never invents a relationship. Unique
+adjacent transpositions offer explicit suggestions; ambiguous names produce no
+fabricated identity.
 
 Private Drive filename lookup uses the existing connector proxy and four
 vault-authorized, no-store POST endpoints under
-`/api/connectors/google_drive/sharing`: `shared-files/search`,
-`received-files/search`, `shared-files/file` and `received-files/file`. Search
+`/api/one/feed/files`: `owner/search`, `requester/search`, `owner/file`
+and `requester/file`. These Feed adapters reuse existing Drive owner, participant,
+identity and payment guards without changing Drive writes. Search
 criteria stay in request bodies. Each page scans at most 100 encrypted confirmed
 request-delivery candidates and returns at most 20 matches, with an authenticated
 owner/query/snapshot cursor even when an intermediate page has no matches. The
@@ -281,8 +288,9 @@ ranking across unscanned candidate pages are not supported by this lookup.
 Receipt terms search confirmed document-payment milestones within their current
 group. A payment-only match opens the exact request's read-only receipt after a
 fresh participant lookup. Requester receipts come from the current owner payment
-source; owner earnings come from the exact payout receipt. Test/live/legacy mode,
-settlement method and recorded provider state remain explicit. A Feed event alone
+source; owner earnings come from the exact payout receipt. Requester test/live/legacy mode remains source-backed. The existing owner
+receipt does not expose payment mode, so Feed calls it a recorded receipt and
+never infers a mode or settlement method. A Feed event alone
 never establishes payment, delivery, saved status or a returned transfer.
 
 Query caches and result-return snapshots stay in the owner/auth/vault episode's

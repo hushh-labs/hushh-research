@@ -34,7 +34,6 @@ from hushh_mcp.services.requester_identity import (
     UUID_LIKE_LABEL_PATTERN,
     label_from_identity_row,
 )
-from tests.services.location_source_fixtures import EnvelopeReadProbe, fixture_grants
 
 from .one_location_workflow_contract_cases import run_four_user_location_workflow_contract
 
@@ -1665,6 +1664,52 @@ def test_list_pending_owner_requests_is_scoped_to_this_owner_and_pending_status(
     assert out[0]["id"] == "request-1"
 
 
+class EnvelopeReadProbe(OneLocationAgentService):
+    #: When False the grant is live but no envelope row exists yet — the state a
+    #: recipient sits in between being granted access and the owner's first fix.
+    has_envelope = True
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+        self.calls.append(sql)
+        return []
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        self.calls.append(sql)
+        if "FROM one_location_envelopes" in sql and not self.has_envelope:
+            return None
+        if "FROM one_location_share_grants g" in sql:
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "owner_user_id": "user_a",
+                "recipient_user_id": "user_b",
+                "recipient_key_id": "key_b",
+                "status": "active",
+                "duration_hours": 1,
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+                "capability_scopes": json.dumps(["cap.location.live.view"]),
+                "recipient_key_active": True,
+            }
+        if "FROM one_location_envelopes" in sql:
+            return {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "grant_id": "00000000-0000-0000-0000-000000000001",
+                "owner_user_id": "user_a",
+                "recipient_user_id": "user_b",
+                "recipient_key_id": "key_b",
+                "algorithm": "ECDH-P256-AES256-GCM",
+                "ciphertext": "ciphertext-only",
+                "iv": "iv",
+                "sender_ephemeral_public_key_jwk": {"kty": "EC"},
+                "captured_at": datetime.now(timezone.utc),
+                "source_platform": "web",
+                "metadata": {"plaintext": False},
+            }
+        return None
+
+
 def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
     service = EnvelopeReadProbe()
     response = service.view_latest_envelope(
@@ -2270,8 +2315,6 @@ class FourUserMemoryService(OneLocationAgentService):
             return [
                 {"user_id": uid} for uid in params["account_user_ids"] if uid in self.identities
             ]
-        if "to_regclass('one_location_check_in_operations')" in sql:
-            return [{"available": None}]
         if "FROM one_location_sms_contacts sms" in sql:
             owner = params.get("owner_user_id") or params.get("user_id")
             active_connected_ids = {
@@ -2785,7 +2828,27 @@ class FourUserMemoryService(OneLocationAgentService):
             "WHERE g.owner_user_id = :user_id" in sql
             or "WHERE g.recipient_user_id = :user_id" in sql
         ):
-            return fixture_grants(self, sql, params)
+            as_owner = "WHERE g.owner_user_id = :user_id" in sql
+            column = "owner_user_id" if as_owner else "recipient_user_id"
+            counterpart_column = "recipient_user_id" if as_owner else "owner_user_id"
+            label = "recipient" if as_owner else "owner"
+            rows = []
+            for grant in sorted(
+                self.grants.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if grant[column] != params["user_id"]:
+                    continue
+                identity = self.identities.get(grant[counterpart_column] or "", {})
+                rows.append(
+                    {
+                        **grant,
+                        f"{label}_display_name": identity.get("display_name"),
+                        f"{label}_phone_number": identity.get("phone_number"),
+                    }
+                )
+            return rows[:50]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
             # Lane-scoped exactly when the SQL says so, reading the lane out of
             # the BOUND PARAMS rather than out of anything the test hands us.
@@ -3293,7 +3356,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 if envelope["grant_id"] == params["grant_id"]
                 and envelope["recipient_user_id"] == params["recipient_user_id"]
             ]
-            return matches[-1] if matches else {"id": None}
+            return matches[-1] if matches else None
         if "metadata->'command_operations'->>:operation AS command_fingerprint" in sql:
             for request in self.requests.values():
                 operations = (request.get("metadata") or {}).get("command_operations") or {}
@@ -5113,9 +5176,6 @@ def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None
 
 
 class _TerminalPurgeSqlProbe(OneLocationAgentService):
-    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
-        return []
-
     def __init__(self) -> None:
         self.sql = ""
 
@@ -9216,14 +9276,9 @@ def test_the_viewer_name_is_resolved_in_the_trigger_not_the_read_path() -> None:
     # The emitting path is a hot read a recipient hits on a timer; it must not
     # pay for an identity lookup it does not use.
     assert "FROM actor_identity_cache" in sql
-    read_source = (
-        Path(one_location_agent_module.__file__)
-        .with_name("location_envelope_reader.py")
-        .read_text()
-    )
-    viewed_block = read_source[read_source.index('event_type="location_share_viewed"') - 600 :][
-        :900
-    ]
+    viewed_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index('event_type="location_share_viewed"') - 600 :
+    ][:900]
     assert "counterpart_label" not in viewed_block
 
     # And the label is sanitised the same way every other projection does it:
@@ -9417,10 +9472,7 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     assert "recipientClearedAt" not in owned[sos["id"]]
     assert all("recipientClearedAt" not in grant for grant in owned.values())
     assert all(
-        not {"feedLatestSms", "feedSmsConfirmed", "feedItemId", "feedConfirmedAt"}.intersection(
-            grant
-        )
-        for grant in owned.values()
+        "feedLatestSms" not in grant and "feedSmsConfirmed" not in grant for grant in owned.values()
     )
 
 

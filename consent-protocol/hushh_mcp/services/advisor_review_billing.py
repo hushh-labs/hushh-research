@@ -30,7 +30,7 @@ from hushh_mcp.services.advisor_review_store import (
     require_accepted,
 )
 from hushh_mcp.services.advisor_stripe import provider as stripe_provider
-from hushh_mcp.services.finance_sharing_service import decoded, iso, one
+from hushh_mcp.services.finance_sharing_service import decoded, one
 from hushh_mcp.services.stripe_mode import stripe_environment
 
 _UAT_PROJECT = "hushh-pda-uat"
@@ -261,7 +261,7 @@ class AdvisorBillingService:
                 if previous:
                     result["lastPayment"] = {
                         "amountCents": previous["amount_cents"],
-                        "paidAt": iso(previous["paid_at"]),
+                        "paidAt": previous["paid_at"].isoformat(),
                         "status": previous["status"],
                     }
                 return result

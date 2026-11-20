@@ -1,24 +1,19 @@
 /**
  * Kai Analysis History Service
  *
- * Keeps exact saved analyses in encrypted device storage.
+ * Keeps the latest analysis per ticker in encrypted device storage.
  * Reads and supports explicit deletion of legacy PKM analyses.
  */
 
-import { SharedAnalysisReportStore, reportSyncNotConfigured } from "@/lib/kai/shared-report-store";
-import { sharedReportHistory, invalidateSharedReports } from "@/lib/kai/shared-report-history";
 import { PersonalKnowledgeModelService } from "./personal-knowledge-model-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
-import { compactAnalysisHistoryEntryForStorage, getAnalysisHistoryEntryRouteId, extractRunId, extractStreamId } from "@/lib/kai/analysis-history-record";
-export { compactAnalysisHistoryEntryForStorage, getAnalysisHistoryEntryRouteId, findAnalysisHistoryEntryByRouteId } from "@/lib/kai/analysis-history-record";
-import { publishPendingFeedResults, getAnalysisByRouteId } from "@/lib/kai/report-history-operations";
-import { updateDeviceHistory, DEVICE_HISTORY_KEY, type DeviceHistory, type HistoryOwner } from "@/lib/kai/device-report-history";
+import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { SecureDurableResourceService } from "./secure-durable-resource-service";
-import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 
+const DEVICE_HISTORY_KEY = "finance-analysis-history-v1";
 const FINANCIAL_DOMAIN = "financial";
 const FINANCIAL_SCHEMA_VERSION = 3;
 const FINANCIAL_CONTRACT_VERSION =
@@ -37,11 +32,6 @@ const FINANCIAL_INTENT_MAP = [
 // ============================================================================
 
 export interface AnalysisHistoryEntry {
-  /** Encrypted with the result; never contains an owner token or report contents. */
-  feed_publication_pending?: boolean;
-  feed_result_viewed?: boolean;
-  shared_report_managed?: boolean;
-  shared_report_ref?: { libraryId: string; namespace: string; objectId: string; generation: string };
   ticker: string;
   timestamp: string; // ISO date
   decision: "buy" | "hold" | "reduce" | string;
@@ -57,6 +47,96 @@ export interface AnalysisHistoryEntry {
 }
 
 export type AnalysisHistoryMap = Record<string, AnalysisHistoryEntry[]>;
+
+type HistoryOwner = { userId: string; vaultKey: string; vaultOwnerToken?: string };
+type DeviceHistory = Record<string, AnalysisHistoryEntry>;
+
+async function updateDeviceHistory(
+  { userId, vaultKey }: HistoryOwner,
+  isCurrent: () => boolean,
+  update: (history: DeviceHistory) => boolean,
+): Promise<boolean> {
+  const expected = await SecureDurableResourceService.version(userId, DEVICE_HISTORY_KEY);
+  const stored = await SecureDurableResourceService.read<DeviceHistory>(userId, DEVICE_HISTORY_KEY, vaultKey, isCurrent);
+  const history = stored?.value ?? {};
+  if (!isCurrent()) throw new Error("Analysis history access changed.");
+  if (!update(history)) return false;
+  await SecureDurableResourceService.write({
+    userId, vaultKey, resourceKey: DEVICE_HISTORY_KEY, expected, value: history, isCurrent,
+  });
+  return true;
+}
+
+function compactTranscriptRound(
+  round: Record<string, any>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(round || {}).map(([agent, rawState]) => {
+      const state =
+        rawState && typeof rawState === "object" && !Array.isArray(rawState)
+          ? (rawState as Record<string, unknown>)
+          : {};
+      return [
+        agent,
+        {
+          stage: typeof state.stage === "string" ? state.stage : "complete",
+          text: typeof state.text === "string" ? state.text : "",
+          thoughts: Array.isArray(state.thoughts)
+            ? state.thoughts.map((value) => String(value))
+            : [],
+          ...(typeof state.statusMessage === "string"
+            ? { statusMessage: state.statusMessage }
+            : {}),
+          ...(typeof state.error === "string" ? { error: state.error } : {}),
+        },
+      ];
+    }),
+  );
+}
+
+/**
+ * Persist the decision card once and keep only the text needed to replay each
+ * analyst turn. Rich metrics already live in `raw_card`; copying them into
+ * every transcript agent doubled the encrypted financial blob and made each
+ * later history append progressively slower.
+ */
+export function compactAnalysisHistoryEntryForStorage(
+  entry: AnalysisHistoryEntry,
+): AnalysisHistoryEntry {
+  if (!entry.debate_transcript) return entry;
+  return {
+    ...entry,
+    debate_transcript: {
+      round1: compactTranscriptRound(entry.debate_transcript.round1),
+      round2: compactTranscriptRound(entry.debate_transcript.round2),
+    },
+  };
+}
+
+/**
+ * Stable, URL-safe identity for a stored analysis. Runs use their persisted
+ * run id; older records retain a deterministic ticker-and-timestamp fallback.
+ */
+export function getAnalysisHistoryEntryRouteId(
+  entry: AnalysisHistoryEntry,
+): string {
+  const runId = extractRunId(entry);
+  if (runId) return getAnalysisHistoryRunRouteId(runId);
+  return `saved:${entry.ticker.toUpperCase()}:${entry.timestamp}`;
+}
+
+export function findAnalysisHistoryEntryByRouteId(
+  historyMap: AnalysisHistoryMap,
+  routeId: string,
+): AnalysisHistoryEntry | null {
+  const wanted = String(routeId || "").trim();
+  if (!wanted) return null;
+  return (
+    Object.values(historyMap)
+      .flat()
+      .find((entry) => getAnalysisHistoryEntryRouteId(entry) === wanted) ?? null
+  );
+}
 
 function sanitizeTicker(value: unknown): string {
   const ticker = String(value ?? "")
@@ -186,6 +266,27 @@ function timestampsMatch(
 
   // Keep a small tolerance for source formatting differences.
   return Math.abs(leftEpoch - rightEpoch) <= 1000;
+}
+
+function extractStreamId(entry: AnalysisHistoryEntry): string | null {
+  const rawCard = entry.raw_card;
+  if (!rawCard || typeof rawCard !== "object") return null;
+  const diagnostics = (rawCard as Record<string, unknown>).stream_diagnostics;
+  if (!diagnostics || typeof diagnostics !== "object") return null;
+  const streamId = (diagnostics as Record<string, unknown>).stream_id;
+  if (typeof streamId !== "string") return null;
+  const trimmed = streamId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractRunId(entry: AnalysisHistoryEntry): string | null {
+  const rawCard = entry.raw_card;
+  if (!rawCard || typeof rawCard !== "object") return null;
+  const direct = (rawCard as Record<string, unknown>).debate_run_id;
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+  return extractStreamId(entry);
 }
 
 function buildHistorySummary(historyMap: AnalysisHistoryMap): Record<string, unknown> {
@@ -363,12 +464,15 @@ export class KaiHistoryService {
 
     try {
       await updateDeviceHistory(params, params.isCurrent, (history) => {
-        const routeId = getAnalysisHistoryEntryRouteId(entry);
-        if (Object.values(history).some(current => getAnalysisHistoryEntryRouteId(current) === routeId)) return false;
-        history[routeId] = { ...entry, ticker };
+        const current = history[ticker];
+        if (current && (
+          getAnalysisHistoryEntryRouteId(current) === getAnalysisHistoryEntryRouteId(entry) ||
+          (toEpochMs(current.timestamp) ?? 0) > (toEpochMs(entry.timestamp) ?? 0)
+        )) return false;
+        history[ticker] = { ...entry, ticker };
         return true;
       });
-      return params.isCurrent();
+      return true;
     } catch {
       // The run manager owns retries and the user-facing recovery state.
       return false;
@@ -399,45 +503,24 @@ export class KaiHistoryService {
    */
   static async getAllHistory(params: HistoryOwner): Promise<AnalysisHistoryMap> {
     const epoch = snapshotVaultSessionEpoch();
-    const generation = getAuthSessionGeneration();
-    const isCurrent = () => isVaultSessionEpochCurrent(epoch) && getAuthSessionGeneration() === generation;
-    const [legacy, stored, shared] = await Promise.all([
+    const isCurrent = () => isVaultSessionEpochCurrent(epoch);
+    const [legacy, stored] = await Promise.all([
       this.getLegacyHistory(params).catch(() => ({} as AnalysisHistoryMap)),
       SecureDurableResourceService.read<DeviceHistory>(
         params.userId, DEVICE_HISTORY_KEY, params.vaultKey, isCurrent,
       ).catch(() => null),
-      params.vaultOwnerToken ? sharedReportHistory({ ...params, vaultOwnerToken: params.vaultOwnerToken, isCurrent })
-        .then(values => ({ status: "ready", values })).catch(error => ({ status: reportSyncNotConfigured(error) ? "not_enabled" : "unavailable", values: [] }))
-        : Promise.resolve({ status: "unavailable", values: [] }),
     ]);
-    if (stored && params.vaultOwnerToken && isCurrent()) {
-      void this.publishPendingFeedResults(params, isCurrent).catch(() => undefined);
-    }
     if (!isCurrent()) return {};
 
     const history = { ...legacy };
-    const deleted = new Set(shared.values.filter(value => value.state === "deleted").map(value => `run:${value.runId}`));
-    for (const entry of [...Object.values(stored?.value ?? {}).filter(entry => shared.status === "ready" || (shared.status === "not_enabled" && !entry.shared_report_ref && !entry.shared_report_managed)),
-      ...shared.values.flatMap(value => value.state === "available" ? [value.record] : [])]) {
-      const ticker = sanitizeTicker(entry.ticker);
-      if (!ticker) continue;
+    for (const [ticker, entry] of Object.entries(stored?.value ?? {})) {
       const routeId = getAnalysisHistoryEntryRouteId(entry);
       history[ticker] = [
         entry,
         ...(history[ticker] ?? []).filter(candidate => getAnalysisHistoryEntryRouteId(candidate) !== routeId),
       ];
     }
-    for (const [ticker, entries] of Object.entries(history)) history[ticker] = entries.filter(entry => !deleted.has(getAnalysisHistoryEntryRouteId(entry)) && (shared.status !== "unavailable" || !getAnalysisHistoryEntryRouteId(entry).startsWith("run:")));
-    for (const entries of Object.values(history)) entries.sort((a, b) => (toEpochMs(b.timestamp) ?? 0) - (toEpochMs(a.timestamp) ?? 0));
     return history;
-  }
-
-  static publishPendingFeedResults(params: HistoryOwner, isCurrent: () => boolean): Promise<void> {
-    return publishPendingFeedResults(params, isCurrent);
-  }
-
-  static getAnalysisByRouteId(params: HistoryOwner, routeId: string): Promise<AnalysisHistoryEntry | null> {
-    return getAnalysisByRouteId(params, routeId, owner => this.getLegacyHistory(owner));
   }
 
   private static async getLegacyHistory(params: HistoryOwner): Promise<AnalysisHistoryMap> {
@@ -475,39 +558,23 @@ export class KaiHistoryService {
       params;
 
     const epoch = snapshotVaultSessionEpoch();
-    const generation = getAuthSessionGeneration();
-    const isCurrent = () => isVaultSessionEpochCurrent(epoch) && getAuthSessionGeneration() === generation;
-    let removedShared = false;
-    if (streamId && vaultOwnerToken) {
-      try {
-        const shared = await SharedAnalysisReportStore.open({ userId, vaultKey, vaultOwnerToken, isCurrent });
-        const { ApiService } = await import("./api-service");
-        await shared.remove(streamId, receipt => ApiService.removeSavedKaiAnalysis({
-          runId: streamId, receipt, userId, vaultOwnerToken, isEffectCurrent: isCurrent,
-        }));
-        removedShared = true;
-        invalidateSharedReports();
-      } catch (error) {
-        if (!(error instanceof Error) || !["FILES_SETUP_REQUIRED", "REPORT_SYNC_SETUP_REQUIRED"].includes(error.message)) return false;
-      }
-    }
     try {
-      const removedFromDevice = await updateDeviceHistory(params, isCurrent, (history) => {
-        let removed = false;
-        for (const [key, entry] of Object.entries(history)) {
-          if (sanitizeTicker(entry.ticker) !== sanitizeTicker(ticker)) continue;
-          const matches = streamId
-            ? extractStreamId(entry) === streamId || extractRunId(entry) === streamId
-            : toEpochMs(entry.timestamp) === toEpochMs(timestamp) && toEpochMs(timestamp) !== null;
-          if (matches) { delete history[key]; removed = true; }
-        }
-        return removed;
+      const removedFromDevice = await updateDeviceHistory(params, () => isVaultSessionEpochCurrent(epoch), (history) => {
+        const key = sanitizeTicker(ticker);
+        const entry = history[key];
+        if (!entry) return false;
+        const matches = streamId
+          ? extractStreamId(entry) === streamId || extractRunId(entry) === streamId
+          : toEpochMs(entry.timestamp) === toEpochMs(timestamp) && toEpochMs(timestamp) !== null;
+        if (!matches) return false;
+        delete history[key];
+        return true;
       });
-      if (removedFromDevice || removedShared) return true;
+      if (removedFromDevice) return true;
     } catch {
       return false;
     }
-    if (!isCurrent()) return false;
+    if (!isVaultSessionEpochCurrent(epoch)) return false;
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -598,7 +665,6 @@ export class KaiHistoryService {
       return false;
     }
   }
-
 }
 
 export default KaiHistoryService;

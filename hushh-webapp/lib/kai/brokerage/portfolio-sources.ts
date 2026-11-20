@@ -38,8 +38,6 @@ export interface StatementSnapshotOption {
   brokerage?: string | null;
   statementPeriodEnd?: string | null;
   importedAt?: string | null;
-  filename?: string | null;
-  importResult?: Record<string, unknown> | null;
 }
 
 export interface PlaidRefreshRun {

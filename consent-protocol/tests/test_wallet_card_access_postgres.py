@@ -162,10 +162,9 @@ def test_card_request_is_metadata_only_targeted_and_not_folded_into_later_messag
         feed._grouped_feed_sql(count=False), {"user_id": "alice", "page_size": 20, "cursor": None}
     ).data
     items = [feed._to_item(row) for row in feed._with_wallet_card_requests("alice", rows)]
-    # The independently unread conversation must not displace or duplicate the
-    # card decision. They have different source-owned workflow identities.
-    assert len(items) == 2
-    assert len({item["activity_group_id"] for item in items}) == 2
+    # The ordinary message remains in Chat; it must not displace or duplicate
+    # the wallet decision in Feed under the incoming-only presentation policy.
+    assert len(items) == 1
     assert DirectMessagesService(db=db).list_conversations("alice")["unreadCount"] == 2
     assert (
         sum(item["metadata"].get("wallet_card_request_id") == result["id"] for item in items) == 1

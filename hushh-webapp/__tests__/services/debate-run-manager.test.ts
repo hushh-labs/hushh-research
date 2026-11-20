@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { waitFor } from "@testing-library/react";
 
 const apiMocks = vi.hoisted(() => ({
   getActiveKaiDebateRun: vi.fn(),
   startKaiDebateRunStream: vi.fn(),
   streamKaiDebateRun: vi.fn(),
   cancelKaiDebateRun: vi.fn(),
-  publishSavedKaiAnalysis: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   consumeCanonicalKaiStream: vi.fn(),
 }));
 
@@ -18,7 +16,6 @@ vi.mock("@/lib/services/api-service", () => ({
       apiMocks.startKaiDebateRunStream(...args),
     streamKaiDebateRun: (...args: unknown[]) => apiMocks.streamKaiDebateRun(...args),
     cancelKaiDebateRun: (...args: unknown[]) => apiMocks.cancelKaiDebateRun(...args),
-    publishSavedKaiAnalysis: (...args: unknown[]) => apiMocks.publishSavedKaiAnalysis(...args),
   },
 }));
 
@@ -36,7 +33,6 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 vi.mock("@/lib/services/kai-history-service", () => ({
   KaiHistoryService: {
     saveAnalysis: vi.fn(async () => true),
-    publishPendingFeedResults: vi.fn(async (..._args: unknown[]) => undefined),
   },
 }));
 
@@ -136,39 +132,6 @@ describe("DebateRunManagerService start gate", () => {
     apiMocks.streamKaiDebateRun.mockResolvedValue(response(200));
     apiMocks.consumeCanonicalKaiStream.mockResolvedValue(undefined);
     window.localStorage.clear();
-  });
-
-  it("announces only a saved report and fences publication after a vault change", async () => {
-    const originalPath = window.location.pathname;
-    window.history.replaceState({}, "", "/one/feed");
-    try {
-      const manager = await loadManager([]);
-      const { KaiHistoryService } = await import("@/lib/services/kai-history-service");
-      const { advanceVaultSessionEpoch } = await import("@/lib/vault/session-epoch");
-      let saved!: (value: boolean) => void;
-      vi.mocked(KaiHistoryService.saveAnalysis).mockReturnValueOnce(new Promise(resolve => { saved = resolve; }));
-      let emit!: (envelope: Record<string, unknown>) => void;
-      apiMocks.startKaiDebateRunStream.mockResolvedValueOnce(response(200));
-      apiMocks.consumeCanonicalKaiStream.mockImplementationOnce(async (...args: unknown[]) => {
-        emit = args[1] as typeof emit;
-        await announceRun("saved-run")(...args);
-      });
-      await manager.ensureRun(ensureParams);
-      emit({ schema_version: "1.0", stream_id: "run_saved-run", stream_kind: "stock_analyze",
-        seq: 2, event: "decision", terminal: true, payload: { run_id: "saved-run", ticker: "AAPL", decision: "hold" } });
-      await waitFor(() => expect(saved).toBeDefined());
-      expect(KaiHistoryService.publishPendingFeedResults).not.toHaveBeenCalled();
-      saved(true);
-      await waitFor(() => expect(KaiHistoryService.publishPendingFeedResults).toHaveBeenCalledTimes(1));
-      const [request, isCurrent] = vi.mocked(KaiHistoryService.publishPendingFeedResults).mock.calls[0]!;
-      expect(request).toMatchObject({ userId: "user-1", vaultOwnerToken: "vault-token" });
-      expect((isCurrent as () => boolean)()).toBe(true);
-      advanceVaultSessionEpoch();
-      expect((isCurrent as () => boolean)()).toBe(false);
-      expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toContain("vault-token");
-    } finally {
-      window.history.replaceState({}, "", originalPath);
-    }
   });
 
   it("recovers stale local running locks when backend has no active debate", async () => {

@@ -1,7 +1,21 @@
 "use client";
 
-/** Owns safe-area inset, header actions and optional route tabs on one solid
- * surface. Shared CSS sizing and env(safe-area-inset-top) cover web and native.
+/**
+ * Unified Top Shell
+ *
+ * Single fixed component that owns the entire top chrome:
+ *   1. Capacitor safe-area inset (notch / Dynamic Island)
+ *   2. Header row  –  actor title · actions
+ *   3. Optional route-owned contextual tab row
+ *
+ * One continuous solid top surface (no fade band) covers the signed-in
+ * shell so page content scrolls cleanly underneath.
+ *
+ * All sizing uses CSS custom properties from globals.css
+ * (--top-inset, --top-bar-h, --top-tabs-total, --top-glass-h, etc.)
+ * so the layout works identically on web and native with zero
+ * Capacitor.isNativePlatform() checks — env(safe-area-inset-top)
+ * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TopBarRouteAccessoryHost } from "./top-bar-route-accessory";
@@ -1233,7 +1247,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
-                        {pathname === "/one/feed" ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
+                        {pathname === "/one/feed" && !["funding_event", "statement_id", "institution_id"].some(key => searchParams?.has(key)) ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"

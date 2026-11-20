@@ -182,10 +182,6 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/analyze/run/{run_id}/stream",
   },
   {
-    regex: /^\/api\/kai\/analyze\/run\/[^/?]+\/feed-result(?:\?.*)?$/i,
-    template: "/api/kai/analyze/run/{run_id}/feed-result",
-  },
-  {
     regex: /^\/api\/kai\/analyze\/run\/[^/?]+\/cancel(?:\?.*)?$/i,
     template: "/api/kai/analyze/run/{run_id}/cancel",
   },

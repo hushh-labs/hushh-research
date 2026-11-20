@@ -15,7 +15,7 @@ import {
 } from "@/lib/feed/finance-records";
 import { historicalFundingTerms, loadHistoricalFunding } from "@/lib/feed/historical-funding";
 import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
-import { buildKaiReconnectRoute, historicalFundingFeedHref } from "@/lib/navigation/routes";
+import { feedInstitutionHref, historicalFundingFeedHref } from "@/lib/feed/source-routes";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { KaiHistoryService } from "@/lib/services/kai-history-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -84,12 +84,12 @@ function UnlockedFinanceSearch({ capture, initialRecords, onRecords, scope, quer
         .map(([id, item]) => {
           const connectionName = item.institution_name || "Linked institution";
           const status = item.status === "active" ? "Active" :
-            item.reconnect_required_at ? "Sign-in needed" : "Check connection";
+            item.status === "needs_relink" ? "Sign-in needed" : "Check connection";
           return {
             kind: "institution" as const,
-            href: buildKaiReconnectRoute(id),
+            href: feedInstitutionHref(id),
             title: `${connectionName} · ${status}`,
-            timestamp: item.reconnect_required_at || item.last_refreshed_at || item.linked_at || null,
+            timestamp: item.last_refreshed_at || item.linked_at || null,
             searchable: [connectionName, status, "institution connection"],
           };
         }),

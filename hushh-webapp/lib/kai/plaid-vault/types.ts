@@ -46,7 +46,6 @@ export interface ConnectionRecord {
   nws_consent?: string[];
   nws_debt_details_available?: boolean;
   nws_investments_available?: boolean;
-  reconnect_required_at?: string;
 }
 
 export interface AccountBalancesRecord {

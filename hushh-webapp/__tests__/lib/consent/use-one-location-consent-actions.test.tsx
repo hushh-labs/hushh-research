@@ -47,7 +47,7 @@ import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-con
 const entry = {
   id: "one_location_request:request-1",
   request_id: "request-1",
-  metadata: { request_source: "one_location_access_request", request_revision:1 },
+  metadata: { request_source: "one_location_access_request" },
 };
 
 describe("useOneLocationConsentActions fulfilment telemetry", () => {

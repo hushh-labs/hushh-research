@@ -684,19 +684,12 @@ export function applySnapshot(
   }
 
   if (snapshot.item?.error) {
-    const { reconnect_required_at: previousPrompt, ...rest } = connection;
-    const needsLogin = snapshot.item.error.code === "ITEM_LOGIN_REQUIRED";
-    tierA.connections.set(itemId, {
-      ...rest,
-      status: "needs_relink",
-      ...(needsLogin ? { reconnect_required_at: previousPrompt || now } : {}),
-    });
+    tierA.connections.set(itemId, { ...connection, status: "needs_relink" });
     return assemble(financial, tierA, now);
   }
 
-  const { reconnect_required_at: _settled, ...activeConnection } = connection;
   const nextConnection: ConnectionRecord = {
-    ...activeConnection,
+    ...connection,
     ...(snapshot.country_on_file !== undefined ? { country_on_file: snapshot.country_on_file } : {}),
     institution_id: connection.institution_id ?? cleanText(snapshot.item?.institution_id),
     products:

@@ -11,7 +11,7 @@ import hmac
 import logging
 import os
 from datetime import datetime
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -24,12 +24,11 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
-from api.routes.one.location_request_models import DeclineAccessRequest, ResolveAccessRequest
 from hushh_mcp.operons.location.policy import (
     LOCATION_PEER_UNAVAILABLE,
     LOCATION_PEER_UNAVAILABLE_MESSAGE,
@@ -239,6 +238,46 @@ class CreateAccessRequest(_CamelModel):
     # The live share this ask wants lengthened. A hint the service verifies
     # against the real grant between these two people before honouring it.
     extends_grant_id: str | None = Field(default=None, alias="extendsGrantId", max_length=128)
+
+
+class ResolveAccessRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    # Required so a cached pre-standing-rule browser cannot make an automatic
+    # call look like an explicit manual tap merely by omitting the new context.
+    approval_mode: Literal["manual", "automatic"] = Field(alias="approvalMode")
+
+    # Both default to None so an approval with no duration means "grant what
+    # they asked for". Sending one still wins -- the owner can always give less
+    # (or more) than was asked.
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str | None = Field(
+        default=None,
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+    # Present only when the first-party client is applying the current
+    # server-owned standing rule. The service locks and revalidates this exact
+    # version before it writes a grant.
+    auto_approve_rule_version: int | None = Field(
+        default=None,
+        alias="autoApproveRuleVersion",
+        ge=1,
+    )
+    expected_request_revision: int | None = Field(
+        default=None, alias="expectedRequestRevision", ge=1
+    )
+
+    @model_validator(mode="after")
+    def validate_approval_intent(self) -> "ResolveAccessRequest":
+        automatic = self.approval_mode == "automatic"
+        if automatic and self.auto_approve_rule_version is None:
+            raise ValueError("automatic approval requires a current rule version")
+        if automatic and (self.duration_hours is not None or self.duration_mode is not None):
+            raise ValueError("automatic approval must use the requested duration")
+        if not automatic and self.auto_approve_rule_version is not None:
+            raise ValueError("manual approval cannot cite an automatic rule")
+        return self
 
 
 class ShortenGrantRequest(_CamelModel):
@@ -2455,11 +2494,6 @@ def request_location_access(
         raise _handle_error(exc) from exc
 
 
-class _LocationApprovalReview(TypedDict, total=False):
-    reviewed_extension: dict[str, Any]
-    expected_request_revision: int
-
-
 @router.post("/location/requests/{request_id}/approve")
 def approve_location_access_request(
     request_id: str,
@@ -2467,11 +2501,6 @@ def approve_location_access_request(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        review: _LocationApprovalReview = {}
-        if payload.reviewed_extension is not None:
-            review["reviewed_extension"] = payload.reviewed_extension.model_dump(mode="json")
-        if payload.expected_request_revision is not None:
-            review["expected_request_revision"] = payload.expected_request_revision
         return _service().approve_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
@@ -2479,7 +2508,11 @@ def approve_location_access_request(
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
             auto_approve_rule_version=payload.auto_approve_rule_version,
-            **review,
+            **(
+                {"expected_request_revision": payload.expected_request_revision}
+                if payload.expected_request_revision is not None
+                else {}
+            ),
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -2488,27 +2521,13 @@ def approve_location_access_request(
 @router.post("/location/requests/{request_id}/deny")
 def deny_location_access_request(
     request_id: str,
-    payload: DeclineAccessRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    if payload is None or payload.expected_request_revision is None:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "LOCATION_REQUEST_CHANGED",
-                "message": "Review the current request before declining.",
-            },
-        )
     try:
         return {
             "request": _service().deny_request(
                 owner_user_id=_user_id(token_data),
                 request_id=request_id,
-                **(
-                    {"expected_request_revision": payload.expected_request_revision}
-                    if payload and payload.expected_request_revision is not None
-                    else {}
-                ),
             )
         }
     except Exception as exc:

@@ -323,37 +323,7 @@ def _record_circle_event(
     metadata: dict[str, Any],
 ) -> None:
     """Write a Circle transition to the One Location audit ledger atomically."""
-    if event_type in {
-        "circle_member_added",
-        "circle_member_left",
-        "circle_membership_ended",
-        "location_circle_member_invite_accepted",
-        "location_circle_code_joined",
-    }:
-        from hushh_mcp.services.location_circle_feed_facts import membership_facts
 
-        member = str(
-            metadata.get("member_user_id")
-            or (
-                actor_user_id
-                if event_type
-                in {"location_circle_member_invite_accepted", "location_circle_code_joined"}
-                else owner_user_id
-            )
-        )
-        facts = membership_facts(conn, circle=str(metadata.get("circle_id") or ""), member=member)
-        metadata = {**metadata, **facts}
-        if facts and metadata.get("invite_id"):
-            conn.execute(
-                text("""UPDATE one_location_circle_member_invites SET metadata=metadata||jsonb_build_object('membership_key',:key)
-              WHERE id=CAST(:invite AS UUID) AND circle_id=CAST(:circle AS UUID) AND invitee_user_id=:member AND status='accepted'"""),
-                {
-                    "key": facts["membership_key"],
-                    "invite": metadata["invite_id"],
-                    "circle": facts["circle_id"],
-                    "member": member,
-                },
-            )
     conn.execute(
         text(
             """
@@ -376,17 +346,9 @@ def _record_circle_event(
 
 
 def _record_sms_membership_event(
-    conn: Any,
-    *,
-    owner_user_id: str,
-    contact_user_id: str,
-    added: bool,
-    actor_user_id: str | None = None,
+    conn: Any, *, owner_user_id: str, contact_user_id: str, added: bool
 ) -> None:
     """Preserve migration 187's two-audience Feed contract in the membership transaction."""
-    from hushh_mcp.services.location_circle_feed_facts import sms_membership_facts
-
-    facts = sms_membership_facts(conn, owner=owner_user_id, member=contact_user_id)
     rows = _all(
         conn.execute(
             text("""SELECT user_id, display_name, email
@@ -406,15 +368,13 @@ def _record_sms_membership_event(
     conn.execute(
         text("""INSERT INTO one_location_events
         (owner_user_id, actor_user_id, recipient_user_id, event_type, metadata)
-        VALUES (:owner, :actor, :contact, :event, CAST(:metadata AS JSONB))"""),
+        VALUES (:owner, :owner, :contact, :event, CAST(:metadata AS JSONB))"""),
         {
             "owner": owner_user_id,
-            "actor": actor_user_id or owner_user_id,
             "contact": contact_user_id,
             "event": "location_sms_contact_added" if added else "location_sms_contact_removed",
             "metadata": json.dumps(
                 {
-                    **facts,
                     "owner_label": labels.get(owner_user_id, "A trusted person"),
                     "counterpart_label": labels.get(contact_user_id, "A trusted person"),
                 }
@@ -5703,17 +5663,121 @@ class OneLocationCircleService:
         *,
         circle_id: str,
         member_user_id: str | None = None,
-        actor_user_id: str | None = None,
-        cause: str = "circle_membership_ended",
     ) -> None:
-        from hushh_mcp.services.location_circle_grant_reconciliation import reconcile_circle_grants
+        """Preserve grants when an independent relationship still supports them.
 
-        reconcile_circle_grants(
-            conn,
-            circle_id=circle_id,
-            member_user_id=member_user_id,
-            actor_user_id=actor_user_id,
-            cause=cause,
+        "Independent" excludes `circle_member`. That origin exists *because of*
+        a Circle invitation, so it cannot be the reason a Circle-authorized
+        grant outlives the Circle — if it were, removing someone from your
+        Circle would silently keep their live location running, reattached as a
+        connection-scoped share. Removal has one obvious meaning and this keeps
+        it: the pair stays connected, the share the Circle authorized ends.
+
+        A `direct_request` (or import/legacy invite) is independent: those two
+        people connected on their own terms, so their share survives losing a
+        Circle they happened to share.
+        """
+
+        params = {
+            "circle_id": circle_id,
+            "member_user_id": str(member_user_id or "").strip() or None,
+        }
+        conn.execute(
+            text(
+                """
+                UPDATE one_location_share_grants share_grant
+                SET source_circle_id = NULL, updated_at = NOW()
+                WHERE share_grant.source_circle_id = CAST(:circle_id AS UUID)
+                  AND share_grant.status = 'active'
+                  AND (
+                    CAST(:member_user_id AS TEXT) IS NULL
+                    OR share_grant.owner_user_id = :member_user_id
+                    OR share_grant.recipient_user_id = :member_user_id
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM connections connection
+                    JOIN connection_origins origin
+                      ON origin.connection_id = connection.id
+                     AND origin.status = 'active'
+                     AND origin.origin_kind NOT IN (
+                       'named_circle', 'circle_member'
+                     )
+                    WHERE connection.status = 'active'
+                      AND (
+                        (
+                          connection.user_a_id = share_grant.owner_user_id
+                          AND connection.user_b_id = share_grant.recipient_user_id
+                        )
+                        OR (
+                          connection.user_b_id = share_grant.owner_user_id
+                          AND connection.user_a_id = share_grant.recipient_user_id
+                        )
+                      )
+                  )
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                WITH replacements AS (
+                  SELECT
+                    share_grant.id AS grant_id,
+                    MIN(origin.source_circle_id::text)::uuid AS replacement_circle_id
+                  FROM one_location_share_grants share_grant
+                  JOIN connections connection
+                    ON connection.status = 'active'
+                   AND (
+                     (
+                       connection.user_a_id = share_grant.owner_user_id
+                       AND connection.user_b_id = share_grant.recipient_user_id
+                     )
+                     OR (
+                       connection.user_b_id = share_grant.owner_user_id
+                       AND connection.user_a_id = share_grant.recipient_user_id
+                     )
+                   )
+                  JOIN connection_origins origin
+                    ON origin.connection_id = connection.id
+                   AND origin.status = 'active'
+                   AND origin.origin_kind = 'named_circle'
+                   AND origin.source_circle_id IS NOT NULL
+                   AND origin.source_circle_id <> CAST(:circle_id AS UUID)
+                  WHERE share_grant.source_circle_id = CAST(:circle_id AS UUID)
+                    AND share_grant.status = 'active'
+                    AND (
+                      CAST(:member_user_id AS TEXT) IS NULL
+                      OR share_grant.owner_user_id = :member_user_id
+                      OR share_grant.recipient_user_id = :member_user_id
+                    )
+                  GROUP BY share_grant.id
+                )
+                UPDATE one_location_share_grants share_grant
+                SET source_circle_id = replacements.replacement_circle_id,
+                    updated_at = NOW()
+                FROM replacements
+                WHERE share_grant.id = replacements.grant_id
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE one_location_share_grants share_grant
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE share_grant.source_circle_id = CAST(:circle_id AS UUID)
+                  AND share_grant.status = 'active'
+                  AND (
+                    CAST(:member_user_id AS TEXT) IS NULL
+                    OR share_grant.owner_user_id = :member_user_id
+                    OR share_grant.recipient_user_id = :member_user_id
+                  )
+                """
+            ),
+            params,
         )
 
     @staticmethod
@@ -5722,7 +5786,6 @@ class OneLocationCircleService:
         *,
         user_a_id: str,
         user_b_id: str,
-        actor_user_id: str | None = None,
     ) -> list[dict[str, str]]:
         """Take two people out of each other's Circles when they disconnect.
 
@@ -5821,17 +5884,19 @@ class OneLocationCircleService:
                 ),
                 {"circle_id": circle_id, "member_user_id": member_user_id},
             )
-            from hushh_mcp.services.location_circle_grant_reconciliation import end_circle_access
-
-            end_circle_access(
+            revoke_circle_origins(
                 conn,
                 circle_id=circle_id,
                 member_user_id=member_user_id,
-                actor_user_id=actor_user_id,
-                cause="connection_disconnected",
-                origin_revoke=revoke_circle_origins,
-                grant_reconcile=OneLocationCircleService._reconcile_circle_sourced_grants,
-                sms_cleanup=OneLocationCircleService._cleanup_ineligible_sms_contacts,
+            )
+            OneLocationCircleService._reconcile_circle_sourced_grants(
+                conn,
+                circle_id=circle_id,
+                member_user_id=member_user_id,
+            )
+            OneLocationCircleService._cleanup_ineligible_sms_contacts(
+                conn,
+                user_id=member_user_id,
             )
         logger.info(
             "one_location.circle_memberships_ended_on_disconnect count=%d",
@@ -5977,22 +6042,62 @@ class OneLocationCircleService:
                             _emit_notifications=_emit_notifications,
                             _reciprocal_trusted=True,
                         )
-                from hushh_mcp.services.location_circle_grant_reconciliation import (
-                    end_circle_access,
+                if circle_row.get("system_kind") == "sms":
+                    _record_sms_membership_event(
+                        conn,
+                        owner_user_id=owner_user_id,
+                        contact_user_id=target_user_id,
+                        added=False,
+                    )
+                    conn.execute(
+                        text("""DELETE FROM one_location_sms_contacts
+                        WHERE owner_user_id=:owner AND contact_user_id=:contact"""),
+                        {"owner": owner_user_id, "contact": target_user_id},
+                    )
+                # A shared bearer code may already be known by the departing
+                # member, so revoke it atomically with the membership change.
+                # Remaining members can ensure a fresh code on their next view.
+                conn.execute(
+                    text(
+                        """
+                        UPDATE one_location_circle_invite_codes
+                        SET status = 'revoked', revoked_at = NOW(),
+                            updated_at = NOW()
+                        WHERE circle_id = CAST(:circle_id AS UUID)
+                          AND status = 'active'
+                        """
+                    ),
+                    {"circle_id": cleaned_circle_id},
                 )
-
-                end_circle_access(
+                conn.execute(
+                    text(
+                        """
+                        UPDATE one_location_circle_member_invites
+                        SET status = 'cancelled', cancelled_at = NOW(),
+                            updated_at = NOW()
+                        WHERE circle_id = CAST(:circle_id AS UUID)
+                          AND inviter_user_id = :target_user_id
+                          AND status = 'pending'
+                        """
+                    ),
+                    {
+                        "circle_id": cleaned_circle_id,
+                        "target_user_id": target_user_id,
+                    },
+                )
+                revoke_circle_origins(
                     conn,
                     circle_id=cleaned_circle_id,
                     member_user_id=target_user_id,
-                    actor_user_id=actor_user_id,
-                    cause="circle_membership_ended",
-                    origin_revoke=revoke_circle_origins,
-                    grant_reconcile=self._reconcile_circle_sourced_grants,
-                    sms_cleanup=self._cleanup_ineligible_sms_contacts,
-                    owner_user_id=owner_user_id,
-                    system_kind=circle_row.get("system_kind"),
-                    sms_record=_record_sms_membership_event,
+                )
+                self._reconcile_circle_sourced_grants(
+                    conn,
+                    circle_id=cleaned_circle_id,
+                    member_user_id=target_user_id,
+                )
+                self._cleanup_ineligible_sms_contacts(
+                    conn,
+                    user_id=target_user_id,
                 )
             if not _emit_notifications:
                 return
@@ -6291,20 +6396,21 @@ class OneLocationCircleService:
                         {"circle_id": cleaned_circle_id},
                     )
                 )
-                from hushh_mcp.services.location_circle_grant_reconciliation import (
-                    end_circle_access,
-                )
-
-                end_circle_access(
+                revoke_circle_origins(
                     conn,
                     circle_id=cleaned_circle_id,
-                    actor_user_id=owner_user_id,
-                    cause="circle_deleted",
-                    origin_revoke=revoke_circle_origins,
-                    grant_reconcile=self._reconcile_circle_sourced_grants,
-                    sms_cleanup=self._cleanup_ineligible_sms_contacts,
-                    affected_members=member_rows,
                 )
+                self._reconcile_circle_sourced_grants(
+                    conn,
+                    circle_id=cleaned_circle_id,
+                )
+                for member in member_rows:
+                    member_user_id = str(member.get("user_id") or "")
+                    if member_user_id:
+                        self._cleanup_ineligible_sms_contacts(
+                            conn,
+                            user_id=member_user_id,
+                        )
                 if receipt is not None and command_operation_id is not None:
                     command_result = save_circle_command(
                         receipt,

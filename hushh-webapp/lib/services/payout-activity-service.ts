@@ -100,10 +100,6 @@ export type ReceiptStage = { stage: (typeof STAGES)[number]; at: string };
 
 export type EarningReceipt = {
   id: string; kind: "earning"; status: EarningActivityStatus; coins: number | null; reference: string | null;
-  /** Missing on older servers; never infer live mode from the environment. */
-  mode?: PayoutActivityMode | "legacy" | null;
-  settlementMethod?: "hashcoins" | "stripe_transfer" | null;
-  stripeTransfer?: { state: "sent" | "reversed" | "review" | "none" | "waiting"; at: string | null } | null;
   request: ReceiptRequest | null; breakdown: FeeBreakdown | null; stages: ReceiptStage[];
   cashOut: { itemId: string; status: RedemptionActivityStatus } | null; review: PayoutReview | null;
 };
@@ -334,13 +330,6 @@ function linkedId(value: unknown, kind?: PayoutActivityKind): string | null {
 }
 
 function earningReceipt(body: Record<string, unknown>, id: string): EarningReceipt {
-  if (body.mode != null && body.mode !== "live" && body.mode !== "test" && body.mode !== "legacy") throw invalidReceipt("mode");
-  const settlementMethod = body.settlementMethod === "hashcoins" || body.settlementMethod === "stripe_transfer" ? body.settlementMethod : null;
-  let stripeTransfer: EarningReceipt["stripeTransfer"] = null;
-  if (settlementMethod === "stripe_transfer") {
-    if (!isRecord(body.stripeTransfer) || !["sent", "reversed", "review", "none", "waiting"].includes(body.stripeTransfer.state as string)) throw invalidReceipt("stripeTransfer");
-    stripeTransfer = { state: body.stripeTransfer.state as NonNullable<EarningReceipt["stripeTransfer"]>["state"], at: optionalDate(body.stripeTransfer.at) };
-  }
   const coins = nullableCents(body.coins);
   if (coins === undefined) throw invalidReceipt("coins");
   const stages = Array.isArray(body.stages) ? body.stages.flatMap((value): ReceiptStage[] => {
@@ -350,8 +339,6 @@ function earningReceipt(body: Record<string, unknown>, id: string): EarningRecei
   const cashOutId = isRecord(body.cashOut) ? linkedId(body.cashOut.itemId, "redemption") : null;
   return {
     id, kind: "earning", status: closed(EARNING_STATUSES, body.status), coins, reference: reference(body.reference),
-    mode: body.mode === "live" || body.mode === "test" || body.mode === "legacy" ? body.mode : null,
-    settlementMethod, stripeTransfer,
     request: receiptRequest(body.request), breakdown: breakdown(body.breakdown, "breakdown"), stages,
     cashOut: cashOutId && isRecord(body.cashOut)
       ? { itemId: cashOutId, status: closed(REDEMPTION_STATUSES, body.cashOut.status) } : null,

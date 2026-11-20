@@ -41,6 +41,34 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
                 + ",".join("to_jsonb(" + alias + ")->'metadata'->>'share_kind'" for alias in grants)
                 + ")",
             ]
+        if grants:
+            # Existing atomic Check-In grants already bind owner, recipient and
+            # client operation. No new plan, intended audience or failure state.
+            owner = "COALESCE(" + ",".join(alias + ".owner_user_id" for alias in grants) + ")"
+            operation = (
+                "COALESCE("
+                + ",".join(
+                    "to_jsonb(" + alias + ")->'metadata'->>'client_operation_id'"
+                    for alias in grants
+                )
+                + ")"
+            )
+            kind = (
+                "COALESCE("
+                + ",".join("to_jsonb(" + alias + ")->'metadata'->>'share_kind'" for alias in grants)
+                + ")"
+            )
+            fields.append(
+                "'check_in_operation_id',CASE WHEN "
+                + owner
+                + "=f.user_id AND "
+                + kind
+                + "='check_in' AND length("
+                + operation
+                + ") BETWEEN 1 AND 160 THEN "
+                + operation
+                + " END"
+            )
         patches.append("jsonb_strip_nulls(jsonb_build_object(" + ",".join(fields) + "))")
     if has_requests and not historical:
         required["location_access_request"] = (
@@ -59,10 +87,6 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
           SELECT 1 FROM one_location_circles circle JOIN one_location_circle_memberships member
           ON member.circle_id=circle.id AND member.user_id=f.user_id AND member.status='active'
           WHERE circle.id={uuid_sql("f.metadata->>'circle_id'")} AND circle.status='active'))""")  # nosec B608 -- authored SQL fragments; all request values use bind parameters.
-    if has("one_location_check_in_operations"):
-        joins.append(f"""LEFT JOIN one_location_check_in_operations check_in
-          ON check_in.id={uuid_sql("f.metadata->>'check_in_operation_id'")} AND check_in.owner_user_id=f.user_id""")
-        patches.append("jsonb_build_object('current_check_in_available',check_in.id IS NOT NULL)")
     if has("one_location_events") and {"metadata", "actor_user_id"}.issubset(
         columns["one_location_events"]
     ):
@@ -116,12 +140,6 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
         "location_share_duration_changed",
     ):
         required[event] = published_sos
-    if has("one_location_check_in_operations") and not historical:
-        required["location_share_created"] = (
-            "("
-            + published_sos
-            + ") AND (check_in.id IS NULL OR COALESCE(to_jsonb(check_in)->>'state','pending')<>'pending')"
-        )
     # A lifecycle label without an exact recorded operation is not reviewable.
     for event in (
         "location_share_created",
@@ -131,7 +149,15 @@ def location_facts(has: Any, columns: Any, uuid_sql: Any, *, historical: bool):
         "location_share_duration_changed",
     ):
         required[event] = (
-            "(" + required[event] + ") AND " + _history_grant_expr("f", uuid_sql) + " IS NOT NULL"
+            "("
+            + required[event]
+            + ") AND "
+            + (
+                "COALESCE(flg.id::text," + _history_grant_expr("f", uuid_sql) + ")"
+                if grants
+                else _history_grant_expr("f", uuid_sql)
+            )
+            + " IS NOT NULL"
         )
     for event in (
         "location_access_request",

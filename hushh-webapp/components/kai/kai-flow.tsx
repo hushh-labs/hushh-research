@@ -84,15 +84,10 @@ import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
-  clearImportBackgroundSnapshot,
-  createInitialStreamingState,
-  loadImportBackgroundSnapshot,
-  saveImportBackgroundSnapshot,
-  type ImportBackgroundStatus,
-  type PersistedImportBackgroundSnapshot,
-  type QualityReport,
-  type StreamingState,
-} from "@/lib/kai/import/import-background-snapshot";
+  getSessionItem,
+  removeSessionItem,
+  setSessionItem,
+} from "@/lib/utils/session-storage";
 import {
   toInvestorLoading,
   toInvestorStreamText,
@@ -181,6 +176,22 @@ interface FlowData {
   parsedPortfolio?: ReviewPortfolioData; // Parsed but not yet saved
 }
 
+interface QualityReport {
+  schema_version?: number;
+  raw_count?: number;
+  validated_count?: number;
+  aggregated_count?: number;
+  holdings_count?: number;
+  investable_positions_count?: number;
+  cash_positions_count?: number;
+  allocation_coverage_pct?: number;
+  symbol_trust_coverage_pct?: number;
+  parser_quality_score?: number;
+  diagnostics?: Record<string, unknown>;
+  dropped_reasons?: Record<string, number>;
+  quality_gate?: Record<string, unknown>;
+}
+
 function isActiveFinanceSetupJourney(
   journey: PreVaultUserState | null | undefined,
 ): journey is PreVaultUserState {
@@ -191,8 +202,145 @@ function isActiveFinanceSetupJourney(
   );
 }
 
+// Streaming state
+interface StreamingState {
+  stage: ImportStage;
+  stageTrail: string[];
+  rawStreamLines: string[];
+  streamedText: string;
+  totalChars: number;
+  chunkCount: number;
+  progressPct?: number;
+  statusMessage?: string;
+  thoughts: string[]; // Array of thought summaries from Gemini thinking mode
+  thoughtCount: number;
+  qualityReport?: QualityReport;
+  liveHoldings: LiveHoldingPreview[];
+  holdingsExtracted: number;
+  holdingsTotal?: number;
+  errorMessage?: string;
+}
+
+type ImportBackgroundStatus = "running" | "completed" | "failed" | "canceled";
+
+interface PersistedImportBackgroundSnapshot {
+  version: 1;
+  userId: string;
+  taskId: string | null;
+  runId: string | null;
+  latestCursor: number;
+  status: ImportBackgroundStatus;
+  startedAt: string;
+  updatedAt: string;
+  errorMessage: string | null;
+  streaming: StreamingState;
+  parsedPortfolio?: ReviewPortfolioData;
+}
+
+const KAI_IMPORT_BACKGROUND_KEY = "kai_portfolio_import_background_v1";
 const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_IMPORT_FILE_SIZE_MESSAGE = "File too large. Maximum size is 25MB.";
+
+function createInitialStreamingState(): StreamingState {
+  return {
+    stage: "idle",
+    stageTrail: [],
+    rawStreamLines: [],
+    streamedText: "",
+    totalChars: 0,
+    chunkCount: 0,
+    progressPct: undefined,
+    statusMessage: "Ready to import",
+    thoughts: [],
+    thoughtCount: 0,
+    qualityReport: undefined,
+    liveHoldings: [],
+    holdingsExtracted: 0,
+    holdingsTotal: undefined,
+    errorMessage: undefined,
+  };
+}
+
+function loadImportBackgroundSnapshot(
+  userId: string,
+): PersistedImportBackgroundSnapshot | null {
+  const raw = getSessionItem(KAI_IMPORT_BACKGROUND_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(
+      raw,
+    ) as Partial<PersistedImportBackgroundSnapshot>;
+    if (parsed.version !== 1) return null;
+    if (!parsed.userId || parsed.userId !== userId) return null;
+    if (!parsed.streaming || typeof parsed.streaming !== "object") return null;
+    return {
+      version: 1,
+      userId,
+      taskId:
+        typeof parsed.taskId === "string" && parsed.taskId.trim().length > 0
+          ? parsed.taskId.trim()
+          : null,
+      runId:
+        typeof parsed.runId === "string" && parsed.runId.trim().length > 0
+          ? parsed.runId.trim()
+          : null,
+      latestCursor:
+        typeof parsed.latestCursor === "number" &&
+        Number.isFinite(parsed.latestCursor)
+          ? Math.max(0, Math.floor(parsed.latestCursor))
+          : 0,
+      status:
+        parsed.status === "completed" ||
+        parsed.status === "failed" ||
+        parsed.status === "canceled"
+          ? parsed.status
+          : "running",
+      startedAt:
+        typeof parsed.startedAt === "string" &&
+        parsed.startedAt.trim().length > 0
+          ? parsed.startedAt
+          : new Date().toISOString(),
+      updatedAt:
+        typeof parsed.updatedAt === "string" &&
+        parsed.updatedAt.trim().length > 0
+          ? parsed.updatedAt
+          : new Date().toISOString(),
+      errorMessage:
+        typeof parsed.errorMessage === "string" &&
+        parsed.errorMessage.trim().length > 0
+          ? parsed.errorMessage
+          : null,
+      streaming: {
+        ...createInitialStreamingState(),
+        ...(parsed.streaming as StreamingState),
+      },
+      parsedPortfolio:
+        parsed.parsedPortfolio && typeof parsed.parsedPortfolio === "object"
+          ? (parsed.parsedPortfolio as ReviewPortfolioData)
+          : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveImportBackgroundSnapshot(
+  snapshot: PersistedImportBackgroundSnapshot,
+): void {
+  // Recovery needs the run/cursor and status, never provisional source facts.
+  const persisted = snapshot.status === "completed" ? snapshot : {
+    ...snapshot,
+    streaming: { ...snapshot.streaming, liveHoldings: [], rawStreamLines: [],
+      streamedText: "", thoughts: [], qualityReport: undefined },
+    parsedPortfolio: undefined,
+  };
+  setSessionItem(KAI_IMPORT_BACKGROUND_KEY, JSON.stringify(persisted));
+}
+
+function clearImportBackgroundSnapshot(userId: string): void {
+  void userId;
+  removeSessionItem(KAI_IMPORT_BACKGROUND_KEY);
+}
 
 // =============================================================================
 // NORMALIZATION HELPERS
@@ -613,10 +761,6 @@ export function KaiFlow({
     (newState: FlowState) => {
       setInternalState(newState);
       const params = new URLSearchParams(searchParams?.toString());
-      if (newState === "import_required") {
-        params.delete("import_run_id");
-        params.delete("fix_field");
-      }
       if (
         newState === "import_required" ||
         newState === "reviewing" ||
@@ -3308,7 +3452,7 @@ export function KaiFlow({
           return;
         }
         setOnboardingFlowActiveCookie(false);
-        router.push(searchParams?.get("from") === ROUTES.ONE_FEED ? ROUTES.ONE_FEED : ROUTES.KAI_DASHBOARD);
+        router.push(ROUTES.KAI_DASHBOARD);
         return;
       }
 
@@ -3318,7 +3462,6 @@ export function KaiFlow({
       finishFinanceSetupIfActive,
       mode,
       router,
-      searchParams,
       setPortfolioData,
       setState,
       userId,
@@ -3847,7 +3990,6 @@ export function KaiFlow({
           portfolioData={flowData.parsedPortfolio}
           importFileName={lastImportFileRef.current?.name}
           preserveScroll={streaming.stage === "complete"}
-          focusValidationField={searchParams?.has("import_run_id") ? searchParams.get("fix_field") : null}
           userId={userId}
           vaultKey={vaultKey ?? undefined}
           vaultOwnerToken={effectiveVaultOwnerToken}

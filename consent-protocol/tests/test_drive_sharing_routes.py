@@ -168,31 +168,6 @@ def unlock(app, uid="recipient"):
 
 
 @pytest.mark.parametrize(
-    ("path", "audience"), [("shared-files", "owner"), ("received-files", "requester")]
-)
-def test_private_filename_search_uses_token_owner_and_rechecks_before_release(
-    setup, monkeypatch, path, audience
-):
-    client, app, _, current = setup
-    service = SimpleNamespace(search=AsyncMock(return_value={"files": [], "nextCursor": "opaque"}))
-    monkeypatch.setattr(routes, "_file_history_service", lambda: service)
-    endpoint = f"/api/connectors/google_drive/sharing/{path}/search"
-    assert client.post(endpoint, json={"query": "Passport"}).status_code == 401
-    service.search.assert_not_awaited()
-    unlock(app)
-    response = client.post(endpoint, json={"query": "Passport"})
-    assert response.status_code == 200 and response.json()["nextCursor"] == "opaque"
-    assert response.headers["Cache-Control"] == "private, no-store"
-    assert service.search.await_args.kwargs["user_id"] == "recipient"
-    assert service.search.await_args.kwargs["audience"] == audience
-    assert client.post(endpoint, json={"query": "Passport", "userId": "other"}).status_code == 422
-    current.side_effect = [{"user_id": "recipient"}, HTTPException(403, "Owner changed")]
-    service.search.return_value = {"files": [{"name": "Private.pdf"}], "nextCursor": None}
-    denied = client.post(endpoint, json={"query": "Passport"})
-    assert denied.status_code == 403 and "Private.pdf" not in denied.text
-
-
-@pytest.mark.parametrize(
     "method,path,body",
     [
         ("get", "/pricing", None),

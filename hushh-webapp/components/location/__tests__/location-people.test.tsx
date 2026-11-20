@@ -214,7 +214,6 @@ describe("LocationPeople", () => {
       requests: [
         {
           id: "r-in",
-          requestRevision: 7,
           ownerUserId: "me",
           requesterUserId: "u3",
           requesterDisplayName: "Arjun Mehta",
@@ -249,8 +248,6 @@ describe("LocationPeople", () => {
         vaultOwnerToken: "vault-token",
         requestId: "r-in",
         approvalMode: "manual",
-        expectedRequestRevision: 7,
-        reviewedExtension: undefined,
       }),
     );
 

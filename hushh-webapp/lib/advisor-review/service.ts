@@ -197,13 +197,8 @@ async function prepare(
 
 export const AdvisorReviewService = {
   prepare,
-  history: async (c: FinanceShareContext, { pendingReceived = false, signal }: {
-    pendingReceived?: boolean;
-    signal?: AbortSignal;
-  } = {}) => {
-    const result = await advisorRequest<{ items: unknown[] }>(
-      c, pendingReceived ? "?ui=2&pending_received=true" : "?ui=2", "GET", undefined, signal,
-    );
+  history: async (c: FinanceShareContext) => {
+    const result = await advisorRequest<{ items: unknown[] }>(c, "?ui=2");
     if (!Array.isArray(result.items) || result.items.length > 50)
       throw new Error("Advisor requests could not be verified.");
     return {

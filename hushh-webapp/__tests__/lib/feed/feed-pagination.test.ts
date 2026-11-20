@@ -123,7 +123,7 @@ describe("Feed history reading continuity", () => {
     const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });
     act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
     const next = page([5, 4, 2], "next");
-    next.items[0] = { ...next.items[0]!, source_domain: "kai", event_type: "kai_analysis_saved" };
+    next.items[0] = { ...next.items[0]!, source_domain: "kai", event_type: "kai_analysis_completed" };
     next.items[1]!.metadata = { feed_group_key: "share-a", feed_silent: true };
     next.items[1]!.event_type = "location_share_expired";
     rerender({ data: next });
@@ -138,7 +138,7 @@ describe("Feed history reading continuity", () => {
     const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });
     act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
     const updated = page([4, 3, 2], "new-older");
-    updated.items[0] = { ...updated.items[0]!, source_domain: "kai", event_type: "kai_analysis_saved" };
+    updated.items[0] = { ...updated.items[0]!, source_domain: "kai", event_type: "kai_analysis_completed" };
     updated.items[1]!.actor_label = "Updated label";
     rerender({ data: updated });
     expect(result.current.page!.items.map((row) => row.id)).toEqual(["3", "2", "1"]);

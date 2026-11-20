@@ -93,6 +93,19 @@ def list_feed(
         raise _handle_feed_error(exc) from exc
 
 
+@router.get("/feed/live")
+def live_incidents(
+    response: Response,
+    cursor: int | None = Query(default=None, ge=1, le=POSTGRES_BIGINT_MAX),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return _service().live_incidents(firebase_uid, cursor=cursor)
+    except Exception as exc:
+        raise _handle_feed_error(exc) from exc
+
+
 @router.get("/feed/unread-count")
 def feed_unread_count(firebase_uid: str = Depends(require_firebase_auth)):
     try:

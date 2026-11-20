@@ -153,30 +153,7 @@ def verify_retained_release_records(conn, cp):
         (owners[2],),
     )
     seed_current_cleanup_receipt(execute, owners[2])
-    # Replaying candidate Check-In schema preserves the operation and its exact
-    # intended audience, including a retained target whose account was removed.
-    check_in = str(uuid4())
-    execute(
-        """INSERT INTO one_location_check_in_operations
-          (id,owner_user_id,client_operation_id,duration_hours,confirmed_at,state,confirmed_count,revision)
-          VALUES(%s,%s,'synthetic-retained-check-in',1,clock_timestamp(),'partial',1,2)""",
-        (check_in, owners[0]),
-    )
-    execute(
-        """INSERT INTO one_location_check_in_targets
-          (operation_id,target_id,recipient_user_id,confirmed_grant_id,confirmed_envelope_id,confirmed_at)
-          VALUES(%s,%s,%s,%s,%s,clock_timestamp()),(%s,%s,NULL,NULL,NULL,NULL)""",
-        (check_in, str(uuid4()), owners[1], str(uuid4()), str(uuid4()), check_in, str(uuid4())),
-    )
     queries = {
-        "private_check_in": (
-            """SELECT jsonb_build_object('operation',to_jsonb(o),
-              'targets',jsonb_agg(to_jsonb(t) ORDER BY t.target_id))
-              FROM one_location_check_in_operations o
-              JOIN one_location_check_in_targets t ON t.operation_id=o.id
-              WHERE o.id=%s GROUP BY o.id""",
-            (check_in,),
-        ),
         "shared_choice": ("SELECT to_jsonb(v) FROM vault_keys v WHERE user_id=%s", (owners[0],)),
         "pod_registry": (
             "SELECT to_jsonb(v) FROM personal_agent_registry v WHERE user_id=%s",

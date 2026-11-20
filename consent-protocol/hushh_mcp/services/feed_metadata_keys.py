@@ -79,11 +79,8 @@ FEED_METADATA_KEYS = frozenset(
         # written by our own service, carrying nothing about the person.
         "share_kind",
         "check_in_operation_id",
-        "confirmed_count",
-        "intended_count",
         "pending_count",
         "current_location_status",
-        "current_check_in_available",
         "current_circle_available",
         "action_actor_label",
         "membership_key",

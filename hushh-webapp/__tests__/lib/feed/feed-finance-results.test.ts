@@ -34,7 +34,7 @@ describe("Kai analysis ready Feed item", () => {
   };
 
   function openedAnalysisId(metadata: Record<string, unknown>): string | null {
-    const href = presentFeedItem(feedItem("kai_analysis_saved", metadata, "kai")).href;
+    const href = presentFeedItem(feedItem("kai_analysis_completed", metadata, "kai")).href;
     const query = new URLSearchParams(href?.split("?")[1] ?? "");
     // The stock preview (and its start sheet) opens only from `ticker`.
     expect(query.has("ticker")).toBe(false);
@@ -42,7 +42,7 @@ describe("Kai analysis ready Feed item", () => {
   }
 
   it("opens the run's own saved result", () => {
-    expect(presentFeedItem(feedItem("kai_analysis_saved", { ticker: "NVDA", run_id: "run_abc" }, "kai")).symbol).toBe("NVDA");
+    expect(presentFeedItem(feedItem("kai_analysis_completed", { ticker: "NVDA", run_id: "run_abc" }, "kai")).symbol).toBe("NVDA");
     const analysisId = openedAnalysisId({ ticker: "NVDA", run_id: "run_abc" });
     expect(analysisId).not.toBeNull();
     expect(
@@ -71,9 +71,8 @@ it("finds an older statement without substituting the active statement", () => {
   const results = searchFinanceFeedRecords(records, "October 2025");
   expect(results).toHaveLength(1);
   const target = new URL(results[0]!.href, "https://test.invalid");
-  expect(target.pathname).toBe("/one/kai/import");
+  expect(target.pathname).toBe("/one/feed");
   expect(target.searchParams.get("statement_id")).toBe("stmt_oct");
-  expect(target.searchParams.get("from")).toBe("/one/feed");
 });
 
 it("keeps names and ticker terms out of the historical transfer request", () => {

@@ -125,10 +125,8 @@ export function receiptHeader(receipt: PayoutReceipt, test: boolean): { title: s
   switch (receipt.kind) {
     case "earning": {
       const cents = receipt.coins ?? receipt.breakdown?.netCents ?? null;
-      const status = receipt.settlementMethod === "stripe_transfer" && receipt.stripeTransfer
-        ? { sent: "Sent to Stripe", reversed: "Reversed", review: "Under review", none: "No earnings", waiting: "Payment received" }[receipt.stripeTransfer.state]
-        : receipt.review && receipt.status !== "reversed" ? "Under review" : earningTitle(receipt.status);
-      return { title: cents === null ? kindLabel("earning") : dollars(cents), description: receipt.mode === "legacy" ? `Legacy payment · ${status}` : receipt.mode === "test" || (receipt.mode == null && test) ? `Test payment · ${status}` : status };
+      const status = receipt.review && receipt.status !== "reversed" ? "Under review" : earningTitle(receipt.status);
+      return { title: cents === null ? kindLabel("earning") : dollars(cents), description: test ? `Test payment · ${status}` : status };
     }
     case "redemption": {
       const status = redemptionTitle(receipt.status, receipt.reversal?.status ?? null);

@@ -45,13 +45,6 @@ export function locationFeedPresentation(item: FeedItem, context: Context): Feed
   if (item.event_type === "circle_member_added") return circleResult(`${who} added you to ${circleName}`);
   if (item.event_type === "circle_invite_declined") return {...base,label:`${who} declined your invitation to ${circleName}`};
   if (item.event_type === "circle_invite_cancelled") return {...base,label:`Invitation to ${circleName} withdrawn`};
-  if (["location_check_in_result","location_check_in_attention"].includes(item.event_type)) {
-    const saved = Number(item.metadata.confirmed_count), total = Number(item.metadata.intended_count);
-    const state = text(item,"user_facing_status");
-    if (!Number.isSafeInteger(saved) || !Number.isSafeInteger(total) || saved < 0 || total < saved || total < 1) return { ...base,label:"Check-In needs review" };
-    return { ...base, label:state === "ended" ? "Check-In ended" : saved === total ? `You sent a Check-In to ${total} ${total === 1 ? "person" : "people"}` : `You sent a Check-In to ${saved} of ${total} people`,
-      ...(text(item,"check_in_operation_id") && item.metadata.current_check_in_available === true ? {href:`/one/location?action=private-check-in&checkInId=${encodeURIComponent(text(item,"check_in_operation_id"))}`,exactDestination:"check-in" as const}: {}) };
-  }
   if (["location_share_created", "location_access_approved"].includes(item.event_type)) {
     if (status === "expired") return { ...base, label: `${checkIn ? "Check-In" : "Location sharing"} with ${who} expired` };
     if (status === "revoked") return { ...base, label: `${checkIn ? "Check-In" : "Location sharing"} with ${who} ended` };
@@ -60,6 +53,7 @@ export function locationFeedPresentation(item: FeedItem, context: Context): Feed
       if (item.metadata.duration_mode === "until_stopped") return share(recipient ? `${who} is sharing until they stop` : `You’re sharing with ${who} until you stop`);
       return share(`${recipient ? who : "You"} extended location sharing${added ? ` by ${added}` : ""}`);
     }
+    if (checkIn && !recipient && text(item, "check_in_operation_id")) return { ...base, label: "Check-In shared" };
     if (checkIn) return share(recipient ? `${who} sent you a Check-In` : `You sent a Check-In to ${who}`);
     return share(status === "active" ? recipient ? `${who} is sharing their location with you` : `You’re sharing your location with ${who}`
       : recipient ? `${who} shared their location with you` : `You shared your location with ${who}`);

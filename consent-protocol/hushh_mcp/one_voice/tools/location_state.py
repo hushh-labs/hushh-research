@@ -1085,9 +1085,11 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=GetLocationStatusInput,
         output_model=LocationStatusResult,
         description=(
-            "Read the person's Location sharing/setup, device permission (separate from app "
-            "sharing), active and incoming share counts, pending requests, active links, "
-            "Save My Soul, and map visibility. Read only. This does not read or change this "
+            "Read the person's own Location status: whether sharing with people is on, off, or "
+            "not set up; the device location permission (a separate thing from app sharing); "
+            "how many active shares, people sharing with them, requests waiting, and active "
+            "links there are; whether Save My Soul is active; and map visibility. Reads only. "
+            "It answers questions about sharing with people; it does not read or change this "
             "device's Location updates switch."
         ),
         handler=get_location_status,

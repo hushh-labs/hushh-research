@@ -233,8 +233,6 @@ export function LocationPeople({
             vaultOwnerToken: workspace.vaultOwnerToken,
             requestId: request.id,
             approvalMode: "manual",
-            expectedRequestRevision: request.requestRevision ?? 1,
-            reviewedExtension: request.extendsGrantId ? { grantId: request.extendsGrantId, expiresAt: request.extendsGrantExpiresAt ?? null } : undefined,
           });
           OneLocationStateResource.mergeRequestStatus(
             workspace.userId,
@@ -247,7 +245,6 @@ export function LocationPeople({
           const denied = await OneLocationService.denyRequest({
             vaultOwnerToken: workspace.vaultOwnerToken,
             requestId: request.id,
-              expectedRequestRevision: request.requestRevision ?? 1,
           });
           OneLocationStateResource.mergeRequestStatus(workspace.userId, denied);
           morphyToast.success("Request declined.");

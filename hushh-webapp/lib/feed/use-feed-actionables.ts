@@ -5,9 +5,9 @@ import { ownerConsentRequestActionable } from "./feed-owner-consent-actionable";
 export { ownerConsentRequestActionable } from "./feed-owner-consent-actionable";
 
 import { advisorWorkspaceHref, type AdvisorReview } from "@/lib/advisor-review/contract";
-import { getPendingImportReview, IMPORT_REVIEW_CHANGED } from "@/lib/kai/import/import-background-snapshot";
-import { confirmedVaultReconnects, loadFinancialForVault } from "@/lib/kai/plaid-vault/vault-sync";
-import { buildKaiImportReviewRoute, buildKaiReconnectRoute } from "@/lib/navigation/routes";
+import { getPendingImportReview, confirmedVaultReconnects, existingImportReviewHref } from "@/lib/feed/finance-source-state";
+import { loadFinancialForVault } from "@/lib/kai/plaid-vault/vault-sync";
+import { feedInstitutionHref } from "@/lib/feed/source-routes";
 import { AdvisorReviewService } from "@/lib/advisor-review/service";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { consentSummary } from "@/lib/feed/feed-consent-summary";
@@ -621,16 +621,10 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
     session: string;
     review: ReturnType<typeof getPendingImportReview>;
   } | null>(null);
-  useEffect(() => {
-    if (!userId || !financeReady) {
-      setPendingImport(null);
-      return;
-    }
-    const read = () => setPendingImport({ session: financeSession, review: getPendingImportReview(userId) });
-    read();
-    window.addEventListener(IMPORT_REVIEW_CHANGED, read);
-    return () => window.removeEventListener(IMPORT_REVIEW_CHANGED, read);
+  const refreshPendingImport = useCallback(() => {
+    setPendingImport(userId && financeReady ? {session:financeSession, review:getPendingImportReview(userId)} : null);
   }, [financeReady, financeSession, userId]);
+  useEffect(refreshPendingImport, [refreshPendingImport]);
   const [bankReconnects, setBankReconnects] = useState<{
     session: string;
     items: ReturnType<typeof confirmedVaultReconnects>;
@@ -679,10 +673,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       const context = captureFinance();
       if (!context?.isCurrent() || context.userId !== userId) return;
       const request = ++generation;
-      void AdvisorReviewService.history(context, {
-        pendingReceived: true,
-        signal: controller.signal,
-      }).then(({ items }) => {
+      void AdvisorReviewService.history(context).then(({ items }) => {
         if (controller.signal.aborted || request !== generation || !context.isCurrent()) return;
         const pending = items.filter(item => item.advisorUserId === userId &&
           item.direction === "received" && item.status === "pending" &&
@@ -958,7 +949,6 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
   // returns fresh every render) so the memo below depends on the actual data
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationEnabled ? locationResource.data?.requests : undefined;
-  const checkInOperations = locationEnabled ? locationResource.data?.checkInOperations : undefined;
   const receivedGrants = locationEnabled ? locationResource.data?.receivedGrants : undefined;
   const circleMemberInvites = locationEnabled ? locationResource.data?.circleMemberInvites : undefined;
   const locationRefresh = locationResource.refresh;
@@ -1427,9 +1417,10 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
 
   useFeedLiveRefresh(
     useCallback((scope?: FeedRefreshScope) => {
+      refreshPendingImport();
       void refreshActionables(scope);
-    }, [refreshActionables]),
-    consentEnabled || locationEnabled,
+    }, [refreshActionables, refreshPendingImport]),
+    consentEnabled || locationEnabled || financeReady,
   );
 
   // Requests waiting on this person reach "Needs you" within about 10s while
@@ -2034,20 +2025,12 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         // SMS is the product's Save My Soul lane.
         title: `Emergency alert from ${label}`,
         description: isLive ? "" : "Ended",
-        href: isLive ? buildOneLocationNotificationHref(grant.id) + (grant.feedItemId ? `&feedItemId=${encodeURIComponent(grant.feedItemId)}` : "") : null,
+        href: isLive ? buildOneLocationNotificationHref(grant.id) : null,
         chevron: isLive,
         actions: [],
         sortAt: sentAt ?? firstSeenAt(`sms-emergency:${grant.id}`),
         displayTimestamp: sentAt,
       });
-    }
-
-    for (const operation of checkInOperations ?? []) {
-      const href = `/one/location?action=private-check-in&checkInId=${encodeURIComponent(operation.id)}`;
-      items.push({ id:`check-in:${operation.id}`,operationKey:`check-in:${operation.id}`,sourceLabel:"Location",
-        scopeId:"location",icon:LocationAgentIcon,iconTone:"capability",title:`You sent a Check-In to ${operation.confirmedCount} of ${operation.intendedCount} people`,description:"",
-        href,actions:[{key:"review",label:"Review remaining",tone:"primary",run:()=>navigate(href)}],
-        sortAt:toTimestamp(operation.updatedAt),displayTimestamp:toDisplayTimestamp(operation.updatedAt) });
     }
 
     // Location access requests — inline Approve / Deny. Only requests the
@@ -2273,7 +2256,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
 
     if (financeReady && bankReconnects?.session === financeSession) {
       for (const item of bankReconnects.items) {
-        const href = buildKaiReconnectRoute(item.itemId);
+        const href = feedInstitutionHref(item.itemId);
         items.push({
           id: `reconnect:${item.itemId}`,
           scopeId: "finance", icon: FinanceAgentIcon,
@@ -2281,7 +2264,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
           title: item.institute || "Linked institution",
           description: "Sign-in needed",
           href,
-          actions: [{ key: "reconnect", label: "Reconnect", tone: "primary", run: () => navigate(href) }],
+          actions: [{ key: "reconnect", label: "Review", tone: "primary", run: () => navigate(href) }],
           sortAt: toTimestamp(item.timestamp),
           displayTimestamp: toDisplayTimestamp(item.timestamp),
         });
@@ -2290,12 +2273,8 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
 
     const importReview = financeReady && pendingImport?.session === financeSession ? pendingImport.review : null;
     if (importReview) {
-      const correction = importReview.correction;
-      const href = buildKaiImportReviewRoute(importReview.runId, correction?.field);
-      const field = correction?.field === "market_value" ? "cash balance" : correction?.field;
-      const title = correction
-        ? `Check ${field} for ${correction.count} ${correction.count === 1 ? "holding" : "holdings"}`
-        : `${importReview.month ? `${importReview.month} statement` : "Statement"} ready`;
+      const href = existingImportReviewHref();
+      const title = "Statement ready";
       items.push({
         id: `statement-review:${importReview.runId}`,
         scopeId: "finance", icon: FileChartColumn,
@@ -2441,7 +2420,6 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
     bankReconnects,
     firstSeenAt,
     locationRequests,
-    checkInOperations,
     receivedGrants,
     receivedOverflowItems,
     sentPayments,

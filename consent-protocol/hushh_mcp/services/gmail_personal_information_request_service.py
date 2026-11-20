@@ -40,10 +40,6 @@ from hushh_mcp.services.gmail_delivery_service import (
     get_gmail_delivery_service,
     normalize_draft,
 )
-from hushh_mcp.services.gmail_information_request_reader import (
-    public_active_workflow,
-    public_terminal_workflow,
-)
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
@@ -1231,12 +1227,22 @@ class PersonalGmailInformationRequestService:
     async def _public_workflow_by_id(
         self, *, user_id: str, workflow_id: str
     ) -> dict[str, Any] | None:
-        return await public_active_workflow(
-            user_id=user_id,
-            workflow_id=workflow_id,
-            load_pool=get_pool,
-            project=self._public_workflow,
-        )
+        """Return the same metadata-only request shape used by the queue."""
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT workflow_id, status, gmail_thread_id, received_at,
+                       classification_confidence, requested_field_labels,
+                       candidate_scopes, attachment_review_required, created_at, updated_at
+                FROM gmail_personal_information_requests
+                WHERE user_id = $1 AND workflow_id = $2 AND status = 'detected'
+                """,
+                user_id,
+                workflow_id,
+            )
+        return self._public_workflow(dict(row)) if row else None
 
     async def is_open_workflow(self, *, user_id: str, workflow_id: str) -> bool:
         """True while this owner's information request still awaits a reply.
@@ -1252,20 +1258,6 @@ class PersonalGmailInformationRequestService:
             await self._public_workflow_by_id(user_id=user_id, workflow_id=str(workflow_id))
             is not None
         )
-
-    async def get_terminal_workflow(
-        self, *, user_id: str, workflow_id: str
-    ) -> dict[str, Any] | None:
-        return await public_terminal_workflow(
-            user_id=user_id,
-            workflow_id=workflow_id,
-            load_pool=get_pool,
-            project=self._public_workflow,
-        )
-
-    async def get_active_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any] | None:
-        """Resolve an exact still-active request independently of the queue page."""
-        return await self._public_workflow_by_id(user_id=user_id, workflow_id=workflow_id)
 
     async def scan_enabled_users(self, *, max_users: int = 20) -> dict[str, int]:
         """Maintenance entrypoint for the scheduled personal-Gmail monitor.

@@ -152,7 +152,10 @@ def test_saved_result_ack_requires_persistence_but_other_projections_remain_best
     service._db = Mock()
     service._db.execute_raw.side_effect = RuntimeError("database unavailable")
     event = dict(
-        user_id="owner", source_domain="kai", event_type="kai_analysis_saved", source_row_id="run"
+        user_id="owner",
+        source_domain="kai",
+        event_type="kai_analysis_completed",
+        source_row_id="run",
     )
     service.record_event(**event)
     with pytest.raises(RuntimeError, match="database unavailable"):
@@ -167,7 +170,7 @@ def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
     service.record_event(
         user_id="user-1",
         source_domain="kai",
-        event_type="kai_analysis_saved",
+        event_type="kai_analysis_completed",
     )
 
     assert db.raw_calls == []
@@ -175,7 +178,7 @@ def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
         {
             "user_id": "user-1",
             "source_domain": "kai",
-            "event_type": "kai_analysis_saved",
+            "event_type": "kai_analysis_completed",
             "actor_label": None,
             "metadata": {},
         }
@@ -339,7 +342,7 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
                 doc,
             ),
             (8, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-b"}),
-            (9, "owner", "kai", "kai_analysis_saved", {}),
+            (9, "owner", "kai", "kai_analysis_completed", {}),
             (10, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
             (
                 11,
@@ -529,7 +532,7 @@ def test_removing_no_files_outcome_also_removes_the_rows_it_was_hiding() -> None
             (11, "other", "connected_systems", "document_share_decided", available),
             (12, "other", "connected_systems", "document_share_outcome", no_files),
             (13, "owner", "connected_systems", "document_share_decided", {"request_id": "req-b"}),
-            (14, "owner", "kai", "kai_analysis_saved", {}),
+            (14, "owner", "kai", "kai_analysis_completed", {}),
         ],
         stamp=stamp,
     )

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import Field
@@ -34,7 +35,6 @@ from hushh_mcp.one_voice.tools.base import (
     ToolResult,
     ToolSpec,
 )
-from hushh_mcp.one_voice.tools.location_values import _duration_phrase, _remaining_label
 from hushh_mcp.operons.location.policy import (
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
@@ -90,6 +90,39 @@ def _is_uuid(value: str) -> bool:
     except (ValueError, TypeError, AttributeError):
         return False
     return True
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _remaining_label(expires_at: Any, *, now: datetime | None = None) -> str:
+    """``"45 minutes"`` / ``"2 hours"`` still to run, or ``""`` when unknown or past."""
+    parsed = _parse_iso(expires_at)
+    if parsed is None:
+        return ""
+    remaining_hours = (parsed - (now or datetime.now(timezone.utc))).total_seconds() / 3600
+    if remaining_hours <= 0:
+        return ""
+    # ``format_duration_label`` lives in the un-followed operons package; pin its str contract.
+    label: str = format_duration_label(remaining_hours)
+    return label
+
+
+def _duration_phrase(duration_hours: float | None, duration_mode: str | None) -> str:
+    """How long a share runs, the way a person says it."""
+    if duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE:
+        return "until you stop it"
+    label = format_duration_label(duration_hours)
+    return f"for {label}" if label else ""
 
 
 def _name_for(ctx: ToolContext, user_id: Any, *, service_name: Any = None) -> str | None:
@@ -310,7 +343,6 @@ def _request_item(ctx: ToolContext, row: dict[str, Any], *, direction: str) -> d
         counterpart_name = _name_for(ctx, counterpart_id, service_name=row.get("ownerDisplayName"))
     return {
         "request_id": str(row.get("id") or ""),
-        "request_revision": int(row.get("requestRevision") or 1),
         "direction": direction,
         "status": str(row.get("status") or "pending"),
         "counterpart_user_id": counterpart_id,
@@ -403,9 +435,6 @@ class RespondRequestInput(ToolInput):
     request_id: str = Field(
         min_length=1, max_length=64, description="Request id from list_requests (incoming)."
     )
-    request_revision: int = Field(
-        ge=1, description="Exact revision returned with this request by list_requests."
-    )
     approve: bool = Field(description="true to approve and start sharing, false to decline.")
     duration_hours: float | None = Field(
         default=None,
@@ -457,7 +486,6 @@ async def respond_request(ctx: ToolContext, args: RespondRequestInput) -> ToolRe
                 service.approve_request,
                 owner_user_id=ctx.user_id,
                 request_id=args.request_id,
-                expected_request_revision=args.request_revision,
                 approval_mode="manual",
                 duration_hours=args.duration_hours,
                 duration_mode=TIMED_LOCATION_SHARE_DURATION_MODE
@@ -501,10 +529,7 @@ async def respond_request(ctx: ToolContext, args: RespondRequestInput) -> ToolRe
         )
     try:
         request = await _run(
-            service.deny_request,
-            owner_user_id=ctx.user_id,
-            request_id=args.request_id,
-            expected_request_revision=args.request_revision,
+            service.deny_request, owner_user_id=ctx.user_id, request_id=args.request_id
         )
     except OneLocationAgentError as exc:
         gone = _request_gone(RespondRequestResult, exc, request_id=args.request_id)

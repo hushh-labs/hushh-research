@@ -154,28 +154,6 @@ function isWorkflow(value: unknown): value is GmailInformationRequestWorkflow {
 }
 
 export class GmailInformationRequestsService {
-  static async getActivity(input: { firebaseIdToken: string; vaultOwnerToken: string; workflowId: string }): Promise<GmailInformationRequestWorkflow> {
-    const value = await apiJson<GmailInformationRequestWorkflow>(
-      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/activity`,
-      { headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken) },
-    );
-    if (value?.workflow_id !== input.workflowId || !["sent", "ignored", "blocked"].includes(value.status) ||
-      !Array.isArray(value.requested_field_labels) || value.requested_field_labels.some(label => typeof label !== "string") ||
-      !Array.isArray(value.candidate_scopes) || typeof value.attachment_review_required !== "boolean") throw new Error("Request history unavailable");
-    return value;
-  }
-
-  static getActive(input: {
-    firebaseIdToken: string;
-    vaultOwnerToken: string;
-    workflowId: string;
-  }): Promise<GmailInformationRequestWorkflow> {
-    return apiJson<GmailInformationRequestWorkflow>(
-      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}`,
-      { headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken) },
-    );
-  }
-
   static getPreference(input: {
     userId: string;
     firebaseIdToken: string;

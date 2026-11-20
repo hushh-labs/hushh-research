@@ -21,12 +21,6 @@ from hushh_mcp.services.push_notifications import (
     send_circle_member_added_push,
     send_circle_member_invite_push,
 )
-from tests.services.location_circle_fixtures import (
-    _CapacityConnection,
-    _Rows,
-    _Transaction,
-    _TransactionDb,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -419,6 +413,59 @@ def test_circle_summary_uses_canonical_owner_instead_of_membership_role() -> Non
     assert drifted_member_summary["viewerCapabilities"]["canViewInviteCode"] is False
     assert drifted_member_summary["viewerCapabilities"]["canRotateInviteCode"] is False
     assert drifted_member_summary["viewerCapabilities"]["canManageCircle"] is False
+
+
+class _Rows:
+    def __init__(self, *rows: dict | None) -> None:
+        self._rows = list(rows)
+
+    def fetchone(self):
+        return self._rows.pop(0) if self._rows else None
+
+    def fetchall(self):
+        rows = list(self._rows)
+        self._rows.clear()
+        return rows
+
+    def scalar(self):
+        row = self.fetchone()
+        return next(iter(row.values())) if isinstance(row, dict) else row
+
+
+class _CapacityConnection:
+    def __init__(self, *rows: dict | None) -> None:
+        self.rows = list(rows)
+        self.sql: list[str] = []
+        self.params: list[dict] = []
+
+    def execute(self, statement, params):
+        sql = str(statement)
+        if "pg_advisory_xact_lock_shared" in sql:
+            return _Rows()
+        self.sql.append(sql)
+        self.params.append(dict(params))
+        if "current_setting('hushh.circle_member_add_batch_id'" in sql:
+            return _Rows({"setting": ""})
+        if "set_config('hushh.circle_member_add_batch_id'" in sql:
+            return _Rows({"setting": params["batch_id"]})
+        row = self.rows.pop(0) if self.rows else None
+        return _Rows(*row) if isinstance(row, list) else _Rows(row)
+
+
+class _Transaction:
+    def __init__(self, conn: _CapacityConnection) -> None:
+        self.conn = conn
+
+    def __enter__(self):
+        return self.conn
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _TransactionDb:
+    def __init__(self, conn: _CapacityConnection) -> None:
+        self.engine = SimpleNamespace(begin=lambda: _Transaction(conn))
 
 
 def test_circle_code_normalization_is_human_friendly_and_bounded() -> None:

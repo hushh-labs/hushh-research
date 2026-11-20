@@ -65,7 +65,7 @@ def browse_admission_sql(alias: str = "f") -> str:
 GENERAL_OPERATION_KEY_SQL = """CASE
   WHEN f.source_domain='location' AND NULLIF(f.metadata->>'check_in_operation_id','') IS NOT NULL
     AND COALESCE(f.metadata->>'feed_audience','owner')='owner'
-    THEN 'check-in:' || (f.metadata->>'check_in_operation_id')
+    THEN 'check-in:' || f.user_id || ':' || (f.metadata->>'check_in_operation_id')
   WHEN f.source_domain='location' AND NULLIF(f.metadata->>'membership_key','') IS NOT NULL
     THEN 'circle-membership:' || (f.metadata->>'membership_key')
   WHEN f.event_type='followup_reminder' AND NULLIF(f.metadata->>'request_id','') IS NOT NULL

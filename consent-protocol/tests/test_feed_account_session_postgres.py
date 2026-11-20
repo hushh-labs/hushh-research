@@ -214,7 +214,7 @@ def test_important_feed_is_incoming_and_preserves_other_dri_rows(feed_db):
         domain="connections",
         peer=OTHER,
     )
-    other_dri = policy_event(feed_db, OWNER, "kai_analysis_saved", {}, domain="kai")
+    other_dri = policy_event(feed_db, OWNER, "kai_analysis_completed", {}, domain="kai")
     # A self-initiated Circle join is not an incoming addition from someone else.
     policy_event(
         feed_db, OWNER, "circle_member_added", {"circle_id": str(uuid.uuid4())}, peer=OWNER
@@ -561,7 +561,7 @@ DRIVE_AND_HISTORY = [
     ),
     ("consent_first", "consent", "consent_granted", {"bundle_id": "bundle-1"}),
     ("consent_latest", "consent", "consent_granted", {"bundle_id": "bundle-1"}),
-    ("analysis", "kai", "kai_analysis_saved", {}),
+    ("analysis", "kai", "kai_analysis_completed", {}),
 ]
 
 
@@ -588,7 +588,7 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
     removal = phone.dismiss(OWNER, item_id=owner["no_files"])
     phone.clear(OWNER, up_to_id=owner["consent_latest"])
     # Activity after the Clear stays visible.
-    later = seed(feed_db, OWNER, [("later", "kai", "kai_analysis_saved", {})])["later"]
+    later = seed(feed_db, OWNER, [("later", "kai", "kai_analysis_completed", {})])["later"]
 
     # Sign out and back in: a new session reads only what the server kept.
     signed_in_again = session(feed_db)
@@ -623,6 +623,7 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
     assert fresh_page.pop("clear_version") is None
     assert fresh_page.pop("read_snapshot")["up_to_id"] is None
     assert fresh_page == {
+        "live_incidents": {"items": [], "next_cursor": None},
         "items": [],
         "next_cursor": None,
         "unread_count": 0,
@@ -639,7 +640,7 @@ def test_historical_pwm_attention_is_hidden_without_hiding_reviewable_drafts(fee
         [
             ("failed", "pwm", "pwm_research", {"draft_id": draft, "pwm_outcome": "attention"}),
             ("missing", "pwm", "pwm_research", {"draft_id": str(uuid.uuid4())}),
-            ("other", "kai", "kai_analysis_saved", {}),
+            ("other", "kai", "kai_analysis_completed", {}),
             (
                 "ready",
                 "pwm",
@@ -959,14 +960,14 @@ def test_finance_projection_precedes_pagination_and_keeps_operations_distinct(fe
     old_parser = event(OWNER, "kai_import_completed", "parser", {}, "2025-10-04T13:00:00Z")
     first_run = event(
         OWNER,
-        "kai_analysis_saved",
+        "kai_analysis_completed",
         "run-1",
         {"ticker": "AAPL", "run_id": "run-1"},
         "2025-10-05T12:00:00Z",
     )
     last_run = event(
         OWNER,
-        "kai_analysis_saved",
+        "kai_analysis_completed",
         "run-2",
         {"ticker": "AAPL", "run_id": "run-2"},
         "2025-10-05T13:00:00Z",

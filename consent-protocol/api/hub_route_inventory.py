@@ -241,13 +241,11 @@ DELETE /api/one/connections/{connection_id}
 GET /api/one/connections/{counterpart_user_id}/context
 GET /api/one/connections/{counterpart_user_id}/information-scopes
 GET /api/one/connections/{counterpart_user_id}/scope-catalog
-GET /api/one/feed/{item_id}/activity
-POST /api/one/feed/funding-history
-POST /api/one/feed/search
-POST /api/one/location/check-ins
-GET /api/one/location/check-ins/{operation_id}
-POST /api/one/location/check-ins/{operation_id}/settle
 GET /api/one/feed
+GET /api/one/feed/live
+POST /api/one/feed/search
+POST /api/one/feed/funding-history
+GET /api/one/feed/{item_id}/activity
 GET /api/one/feed/events
 POST /api/one/feed/read
 POST /api/one/feed/sos-cards/clear

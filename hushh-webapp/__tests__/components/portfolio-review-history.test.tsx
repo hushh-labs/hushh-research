@@ -1,12 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { buildStatementImportWrite } from "@/lib/kai/brokerage/statement-import-write";
 import { PortfolioReviewView } from "@/components/kai/views/portfolio-review-view";
 import { DashboardMasterView } from "@/components/kai/views/dashboard-master-view";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { ApiService } from "@/lib/services/api-service";
 
-const saved = vi.hoisted(() => ({ domain: null as Record<string, unknown> | null, current: {} as Record<string, unknown>, retryCurrent: null as Record<string, unknown> | null, cache: vi.fn(), reload: vi.fn() }));
+const saved = vi.hoisted(() => ({ domain: null as Record<string, unknown> | null, current: {} as Record<string, unknown>, cache: vi.fn(), reload: vi.fn() }));
 vi.mock("@/lib/kai/brokerage/use-portfolio-sources", () => ({ usePortfolioSources: ({ initialStatementPortfolio }: { initialStatementPortfolio: PortfolioData }) => ({
   isLoading: false, statementPortfolio: initialStatementPortfolio, activePortfolio: initialStatementPortfolio,
   activeSource: "statement", availableSources: ["statement"], statementSnapshots: [], activeStatementSnapshotId: null,
@@ -22,8 +21,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: { pr
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: {
   saveMergedDomain: async ({ build }: { build: (context: { currentDomainData: Record<string, unknown> }) => { domainData: Record<string, unknown> } }) => {
     saved.domain = build({ currentDomainData: saved.current }).domainData;
-    if (saved.retryCurrent) saved.domain = build({ currentDomainData: saved.retryCurrent }).domainData;
-    return { success: true, fullBlob: { financial: saved.domain } };
+    return { success: true };
   },
 } }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onPortfolioUpserted: vi.fn() } }));
@@ -46,55 +44,9 @@ it("retains supplied balance observations in the confirmed stored portfolio and 
   await waitFor(() => expect(saved.cache.mock.calls.at(-1)?.[1]).toMatchObject({ historical_values: history }));
 });
 
-it("rebases a confirmed import on the winning financial revision and retains its encrypted result", async () => {
-  saved.domain = null;
-  saved.current = { profile: { goal: "old" } };
-  saved.retryCurrent = { profile: { goal: "current" }, analysis: { decisions: ["keep"] },
-    documents: { preserved: "private" }, sources: { statement: { snapshots: [{ id: "other", imported_at: "2026-06-01" }] } } };
-  try {
-    const complete = vi.fn();
-    render(<PortfolioReviewView userId="synthetic-owner" importFileName="October statement.pdf" onSaveComplete={complete} onReimport={vi.fn()}
-      portfolioData={{ account_info: { brokerage: "Example", account_number: "test-account", statement_period_end: "2026-10-31" },
-        holdings: [{ symbol: "TEST", name: "Example holding", quantity: 1, price: 120, market_value: 120 }] }} />);
-    fireEvent.click(screen.getByRole("button", { name: /Save.*Vault/i }));
-    await waitFor(() => expect(complete).toHaveBeenCalled());
-    expect(saved.domain).toMatchObject({ profile: { goal: "current" }, analysis: { decisions: ["keep"] },
-      documents: { preserved: "private", statements: expect.arrayContaining([expect.objectContaining({ id: "other" }),
-        expect.objectContaining({ source: expect.objectContaining({ filename: "October statement.pdf" }),
-          import_result: expect.objectContaining({ state: "saved", holdings_saved: 1, added: null, updated: null, unchanged: null, failed: 0 }) })]) } });
-    expect(complete.mock.calls[0]?.[0]).toMatchObject({ source_metadata: { active_snapshot_id: expect.stringMatching(/^stmt_/) } });
-  } finally { saved.retryCurrent = null; saved.current = {}; }
-});
-
-it("retains an unchanged import receipt and refuses ambiguous baselines or newer storage", () => {
-  const portfolio = { holdings: [{ symbol: "TEST", name: "Example", quantity: 1, price: 120, market_value: 120, identifier_type: "ticker" as const }],
-    source_metadata: { source_type: "statement", source_id: "statement-one", active_snapshot_id: "statement-one" } };
-  const canonical = { ...portfolio, domain_intent: { source: "kai_import_llm", updated_at: "2026-10-01" } };
-  const snapshot = { id: "statement-one", imported_at: "2026-10-01", canonical_v2: canonical };
-  const input = { snapshot, portfolio, analytics: null, summary: {}, now: "2026-10-01", skipped: 0 };
-  const first = buildStatementImportWrite({ ...input, current: {} });
-  expect(first.domainData.documents.statements[0]?.import_result).toMatchObject({ added: 1, failed: 0, holdings_saved: 1 });
-  const replay = buildStatementImportWrite({ ...input, current: first.domainData,
-    now: "2026-10-02", snapshot: { ...snapshot, imported_at: "2026-10-02", canonical_v2: { ...canonical,
-      domain_intent: { source: "kai_import_llm", updated_at: "2026-10-02" } } } });
-  expect(replay.domainData.documents.statements[0]?.import_result).toEqual(first.domainData.documents.statements[0]?.import_result);
-  expect(replay.domainData.documents.statements[0]?.imported_at).toBe("2026-10-01");
-  for (const current of [
-    { portfolio: { holdings: [{ name: "Unknown security", quantity: 1 }], source_metadata: portfolio.source_metadata } },
-    { portfolio, sources: { active_source: "plaid" } },
-    { portfolio: { ...portfolio, source_metadata: { source_id: "different-source" } } },
-  ]) {
-    expect(buildStatementImportWrite({ ...input, current }).domainData.documents.statements[0]?.import_result)
-      .toMatchObject({ counts_available: false, added: null, updated: null });
-  }
-  expect(() => buildStatementImportWrite({ ...input, current: { pkm_contract_version: "7.0.0", financial_core_v7: {} } }))
-    .toThrow("Update One");
-});
-
 it("opens the actual invalid entry on portfolio confirmation instead of a generic save error", async () => {
   saved.domain = null;
-  const complete = vi.fn();
-  render(<PortfolioReviewView userId="synthetic-owner" onSaveComplete={complete} onReimport={vi.fn()}
+  render(<PortfolioReviewView userId="synthetic-owner" onSaveComplete={vi.fn()} onReimport={vi.fn()}
     portfolioData={{ total_value: 8245, account_summary: { ending_value: 8245 }, holdings: [
       { symbol: "CASH", name: "Sweep", quantity: 0, price: 0, market_value: 8245, is_cash_equivalent: true },
       { symbol: "GOOG", name: "Alphabet", quantity: 10, price: 0, market_value: 0 },
@@ -110,9 +62,6 @@ it("opens the actual invalid entry on portfolio confirmation instead of a generi
   fireEvent.click(screen.getByRole("button", { name: /Save.*Vault/i, hidden: true }));
   await waitFor(() => expect(saved.domain?.portfolio).toMatchObject({ total_value: 9245, cash_balance: 8245,
     account_summary: { ending_value: 9245, cash_balance: 8245 } }));
-  await waitFor(() => expect(complete).toHaveBeenCalledWith(expect.objectContaining({ total_value: 9245,
-    cash_balance: 8245, source_metadata: expect.objectContaining({ active_snapshot_id: expect.stringMatching(/^stmt_/) }) })));
-  expect(saved.cache.mock.calls.at(-1)?.[1]).toMatchObject({ total_value: 9245, cash_balance: 8245 });
 });
 
 it.each([8245, 0])("targets filtered invalid entries and keeps the new stock draft with a %s cash balance", async (initialCash) => {

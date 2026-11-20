@@ -1,6 +1,6 @@
 import { advisorWorkspaceHref, type AdvisorReview } from "@/lib/advisor-review/contract";
 import { getStatementSnapshotOptions } from "@/lib/kai/brokerage/financial-sources";
-import { buildKaiImportRoute, savedAnalysisFeedHref, ROUTES } from "@/lib/navigation/routes";
+import { savedAnalysisFeedHref, feedStatementHref } from "@/lib/feed/source-routes";
 import {
   getAnalysisHistoryEntryRouteId,
   type AnalysisHistoryMap,
@@ -27,10 +27,10 @@ export function financeFeedRecords(
     ...institutions,
     ...getStatementSnapshotOptions(financial).map(statement => ({
       kind: "statement" as const,
-      href: buildKaiImportRoute(ROUTES.ONE_FEED, statement.id),
+      href: feedStatementHref(statement.id),
       title: `${statement.label} · Saved statement`,
       timestamp: statement.importedAt || statement.statementPeriodEnd || null,
-      searchable: [statement.label, statement.id, statement.filename, statement.brokerage, statement.statementPeriodEnd, "saved statement"],
+      searchable: [statement.label, statement.id, statement.brokerage, statement.statementPeriodEnd, "saved statement"],
     })),
     ...Object.values(history).flat().map(entry => {
       const id = getAnalysisHistoryEntryRouteId(entry);

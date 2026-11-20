@@ -1,8 +1,6 @@
 "use client";
 
-import { FeedMailResult } from "./feed-mail-result";
 import { FeedPaymentResult } from "./feed-payment-result";
-import { feedMailSelection } from "@/lib/feed/mail-result-selection";
 import { feedPaymentSelection, isFeedPaymentMatch } from "@/lib/feed/payment-result-selection";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -72,17 +70,15 @@ export function FeedActivityDetail({ item, getToken, isCurrent, onClose, routePa
   const selected = state.value?.item ?? item;
   const view = state.value ? presentFeedItem(selected) : null;
   const target = state.value ? resultDestination(selected) : null;
-  const mailSelection = state.value ? feedMailSelection(selected) : null;
   const paymentMatch = isFeedPaymentMatch(item);
   const paymentSelection = state.value ? feedPaymentSelection(item, selected) : null;
   const earlier = state.value?.milestones.filter(step => step.id !== selected.id) || [];
   return <SettingsDetailPanel open onOpenChange={open => { if (!open) onClose(); }}
-    mobilePresentation="sheet" title={paymentMatch ? "Receipt" : mailSelection ? mailSelection.kind === "request" ? "Request" : "Message" : view?.label || "Activity"} description={mailSelection || paymentMatch ? undefined : view?.description || undefined} headerTextOverflow="wrap">
+    mobilePresentation="sheet" title={paymentMatch ? "Receipt" : view?.label || "Activity"} description={paymentMatch ? undefined : view?.description || undefined} headerTextOverflow="wrap">
     <div className="space-y-4 px-4 pb-5" data-testid="feed-activity-detail">
       {!state.value && !state.failed ? <p role="status" className="text-sm text-muted-foreground">Loading…</p> : null}
       {state.failed ? <div className="flex items-center justify-between gap-3"><p role="status" className="text-sm text-muted-foreground">Activity unavailable</p><Button variant="ghost" onClick={() => setRetry(value => value + 1)}>Try again</Button></div> : null}
       {state.value ? <>
-        {mailSelection ? <FeedMailResult selection={mailSelection} getToken={getToken} isCurrent={isCurrent} /> : null}
         {paymentSelection ? <FeedPaymentResult selection={paymentSelection} isCurrent={isCurrent} /> : paymentMatch ? <p role="status" className="text-sm text-muted-foreground">Receipt unavailable</p> : null}
         {!paymentMatch ? <time className="block text-xs text-muted-foreground" dateTime={selected.created_at}>{new Date(selected.created_at).toLocaleString()}</time> : null}
         {target && !paymentMatch ? <Button asChild><Link onClick={()=>armFeedSearchReturn(feedResultHref(target.href))} href={feedResultHref(target.href)} prefetch={false}>{target.label}</Link></Button> : null}

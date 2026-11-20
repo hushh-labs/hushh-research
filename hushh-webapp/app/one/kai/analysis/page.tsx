@@ -32,6 +32,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ChevronDown } from "@/components/icons";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
+  findAnalysisHistoryEntryByRouteId,
   getAnalysisHistoryEntryRouteId,
   KaiHistoryService,
   type AnalysisHistoryEntry,
@@ -179,8 +180,6 @@ export function KaiAnalysisPageContent() {
 
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
-  const [entryLookupVersion, setEntryLookupVersion] = useState(0);
-  const [entryLoadFailed, setEntryLoadFailed] = useState(false);
   // The `analysis_id`/`debate_id` a lookup finished without finding, e.g. a
   // Feed link to a result that expired, was deleted or never finished saving.
   const [missingEntryRouteId, setMissingEntryRouteId] = useState<string | null>(null);
@@ -386,16 +385,20 @@ export function KaiAnalysisPageContent() {
 
     async function resolveEntry() {
       try {
-        setEntryLoadFailed(false);
-        const exactId = analysisEntryId || (debateId ? `run:${debateId}` : "");
-        const match = await KaiHistoryService.getAnalysisByRouteId({
-          userId: resolvedUserId, vaultKey: resolvedVaultKey, vaultOwnerToken: vaultOwnerToken || "",
-        }, exactId);
+        const allHistory = await KaiHistoryService.getAllHistory({
+          userId: resolvedUserId,
+          vaultKey: resolvedVaultKey,
+          vaultOwnerToken: vaultOwnerToken || "",
+        });
         if (cancelled) return;
+
+        const match = analysisEntryId
+          ? findAnalysisHistoryEntryByRouteId(allHistory, analysisEntryId)
+          : Object.values(allHistory)
+              .flat()
+              .find((entry) => extractDebateId(entry) === debateId) ?? null;
         setResolvedEntry(match || null);
         setMissingEntryRouteId(match ? null : analysisEntryId || debateId);
-      } catch {
-        if (!cancelled) { setEntryLoadFailed(true); setResolvedEntry(null); setMissingEntryRouteId(analysisEntryId || debateId); }
       } finally {
         if (!cancelled) {
           setResolvingEntry(false);
@@ -408,7 +411,7 @@ export function KaiAnalysisPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken, entryLookupVersion]);
+  }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken]);
 
   const searchParamsRef = useRef(new URLSearchParams(searchParams.toString()));
   useEffect(() => {
@@ -629,12 +632,7 @@ export function KaiAnalysisPageContent() {
   }, [router]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
-  const selectedSavedEntry = analysisEntryId
-    && resolvedEntry
-    && getAnalysisHistoryEntryRouteId(resolvedEntry) === analysisEntryId
-      ? resolvedEntry
-      : null;
-  const activeEntry = analysisEntryId ? selectedSavedEntry : liveEntry || resolvedEntry;
+  const activeEntry = liveEntry || resolvedEntry;
   const previewTickerRaw = useMemo(
     () => String(searchParams.get("ticker") || "").trim().toUpperCase(),
     [searchParams]
@@ -663,9 +661,8 @@ export function KaiAnalysisPageContent() {
     stocksActive && workspaceSelected &&
     !showHistoryWhileActive &&
     !shouldShowPreview &&
-    Boolean(analysisEntryId ? selectedSavedEntry : liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
+    Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
   const activeTicker = useMemo(() => {
-    if (analysisEntryId) return activeEntry?.ticker || "";
     if (focusedRunTask?.ticker) {
       return String(focusedRunTask.ticker).trim().toUpperCase();
     }
@@ -676,7 +673,7 @@ export function KaiAnalysisPageContent() {
       return String(analysisParams.ticker).trim().toUpperCase();
     }
     return activeEntry?.ticker ? String(activeEntry.ticker).trim().toUpperCase() : "";
-  }, [activeEntry?.ticker, activeRunTask?.ticker, analysisEntryId, analysisParams?.ticker, focusedRunTask?.ticker, liveIntentReady]);
+  }, [activeEntry?.ticker, activeRunTask?.ticker, analysisParams?.ticker, focusedRunTask?.ticker, liveIntentReady]);
   const previewTickerFromQuery = useMemo(() => {
     const rawTicker = String(searchParams.get("ticker") || "").trim().toUpperCase();
     if (!rawTicker) return "";
@@ -1283,12 +1280,12 @@ export function KaiAnalysisPageContent() {
               <div className="min-w-0 max-w-full">
                 {activeEntry ? (
                   <div className="space-y-3">
-                    {!analysisEntryId && focusedRunTask?.persistenceState === "pending" ? (
+                    {focusedRunTask?.persistenceState === "pending" ? (
                       <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
                         One is saving this debate to your PKM history.
                       </div>
                     ) : null}
-                    {!analysisEntryId && focusedRunTask?.persistenceState === "failed" ? (
+                    {focusedRunTask?.persistenceState === "failed" ? (
                       <div className="rounded-2xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <span>{focusedRunTask.persistenceError || "History save failed for this debate."}</span>
@@ -1318,7 +1315,7 @@ export function KaiAnalysisPageContent() {
                 )}
               </div>
               <div className="min-w-0 max-w-full">
-                {!analysisEntryId && activeRunTask ? (
+                {activeRunTask ? (
                   <DebateStreamView
                     runId={activeRunTask.runId}
                     ticker={activeRunTask.ticker}
@@ -1336,7 +1333,7 @@ export function KaiAnalysisPageContent() {
                     detailsExpanded={workspaceTab === "debate"}
                     onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
                   />
-                ) : !analysisEntryId && focusedRunTask ? (
+                ) : focusedRunTask ? (
                   <DebateStreamView
                     runId={focusedRunTask.runId}
                     ticker={focusedRunTask.ticker}
@@ -1354,7 +1351,7 @@ export function KaiAnalysisPageContent() {
                     detailsExpanded={workspaceTab === "debate"}
                     onDetailsExpandedChange={open => setWorkspaceView(open ? "debate" : "summary")}
                   />
-                ) : !analysisEntryId && canStartNewRun && analysisParams ? (
+                ) : canStartNewRun && analysisParams ? (
                   <DebateStreamView
                     ticker={analysisParams.ticker}
                     userId={analysisParams.userId}
@@ -1444,12 +1441,11 @@ export function KaiAnalysisPageContent() {
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
               <SurfaceCardContent className="p-4 text-center">
-                <h2 className="ui-text-section-label">{entryLoadFailed ? "Report unavailable" : "Report removed"}</h2>
+                <h2 className="ui-text-section-label">This analysis is no longer available</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {entryLoadFailed ? "Your saved report couldn’t be checked." : "This report is no longer in your history."}
+                  It may have expired, been deleted, or never finished saving to your history.
                 </p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  {entryLoadFailed ? <MorphyButton variant="none" effect="fade" onClick={() => setEntryLookupVersion(value => value + 1)}>Try again</MorphyButton> : null}
                   <MorphyButton variant="none" effect="fade" onClick={handleBrowseRecommendations}>
                     Back to history
                   </MorphyButton>
@@ -1505,7 +1501,7 @@ export function KaiAnalysisPageContent() {
               showStartAction={false}
             />
           </KaiControlSurface>
-          {!analysisEntryId && activeRunTask ? (
+          {activeRunTask ? (
             <SurfaceCard accent="sky" className="w-full">
               <SurfaceCardContent className="px-3 py-2 text-xs text-accent-strong">
               Analysis for <span className="font-semibold">{activeRunTask.ticker}</span> is still

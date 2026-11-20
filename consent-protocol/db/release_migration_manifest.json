@@ -389,8 +389,7 @@
     "454_calendar_email_followup_temporal.sql",
     "456_finance_advisor_one_time_payment.sql",
     "457_advisor_payment_minimum_50c.sql",
-    "458_location_feed_confirmed_incidents.sql",
-    "462_location_check_in_operations.sql"
+    "458_location_feed_confirmed_incidents.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -830,7 +829,6 @@
     "456_finance_advisor_one_time_payment.sql": "rollback/456_finance_advisor_one_time_payment.rollback.sql",
     "457_advisor_payment_minimum_50c.sql": "rollback/457_advisor_payment_minimum_50c.rollback.sql",
     "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql",
-    "459_feed_request_realtime.sql": "rollback/459_feed_request_realtime.rollback.sql",
-    "462_location_check_in_operations.sql": "rollback/462_location_check_in_operations.rollback.sql"
+    "459_feed_request_realtime.sql": "rollback/459_feed_request_realtime.rollback.sql"
   }
 }

@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: null }) }));
 const capture = () => ({ vaultOwnerToken: "owner-token", isCurrent: () => m.valid && !document.hidden });
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({ useFinanceShareContext: () => ({ ready: m.ready, session: m.session, capture }) }));
-vi.mock("@/lib/services/drive-shared-file-search-service", () => ({ DriveSharedFileSearchService: { search: m.search, open: m.open } }));
+vi.mock("@/lib/services/feed-file-search-service", () => ({ FeedFileSearchService: { search: m.search, open: m.open } }));
 const match = { requestId: "11111111-1111-4111-8111-111111111111", fileRef: "bulk:22222222-2222-4222-8222-222222222222:1", audience: "requester", name: "Passport.pdf", status: "shared", openUrl: "https://drive.google.com/file/d/passport-file/view", recordedAt: "2026-11-20T07:00:00Z" };
 const criteria = { query: "passport" }, count = vi.fn();
 

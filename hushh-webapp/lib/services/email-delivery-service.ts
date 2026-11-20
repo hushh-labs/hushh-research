@@ -375,16 +375,7 @@ function draftFromPayload(payload: unknown): EmailDraftResult {
 
 export class EmailDeliveryService {
   /** Reconcile the same reviewed attempt after a lost response; this never sends. */
-  static sendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
-    return this.readStatus(input, true);
-  }
-
-  /** A history tap reads the recorded outcome without triggering provider reconciliation. */
-  static readSendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
-    return this.readStatus(input, false);
-  }
-
-  private static async readStatus(input: EmailDeliveryAuth & { actionId: string }, reconcile: boolean): Promise<EmailSendStatus> {
+  static async sendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
     if (await ownerContentIsPrivate()) {
       if (!/^gmod_[A-Za-z0-9_-]{16,64}$/.test(input.actionId)) {
         throw new EmailDeliveryError("That mail review is unavailable.", 404, "ACTION_NOT_FOUND");
@@ -404,7 +395,7 @@ export class EmailDeliveryService {
     }
     const response = await ApiService.apiFetch(
       `/api/one/email/send/status/${encodeURIComponent(input.actionId)}`,
-      { method: reconcile ? "POST" : "GET", headers: emailHeaders(input) },
+      { method: "POST", headers: emailHeaders(input) },
     );
     if (!response.ok) throw await readFailure(response);
     const record = asRecord(await response.json().catch(() => null));

@@ -6,10 +6,17 @@ import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page
 import { FeedPage } from "@/components/feed/feed-page";
 import { fundingStatusCopy, loadHistoricalFunding, type HistoricalFunding } from "@/lib/feed/historical-funding";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
+import { FeedFinanceRecordDetail } from "./feed-finance-record-detail";
 
 export function FeedWithRecordDetail() {
-  const id = useSearchParams().get("funding_event");
-  return id !== null ? <FundingDetail key={id} id={id} /> : <FeedPage />;
+  const params = useSearchParams();
+  const id = params.get("funding_event");
+  const statement = params.get("statement_id");
+  const institution = params.get("institution_id");
+  if (id !== null) return <FundingDetail key={id} id={id} />;
+  if (statement !== null) return <FeedFinanceRecordDetail key={`statement:${statement}`} kind="statement" id={statement} />;
+  if (institution !== null) return <FeedFinanceRecordDetail key={`institution:${institution}`} kind="institution" id={institution} />;
+  return <FeedPage />;
 }
 
 function FundingDetail({ id }: { id: string }) {

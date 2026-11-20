@@ -313,14 +313,9 @@ _PAGE_DEPOSITS_SQL = """SELECT b.* FROM stripe_connect_bank_payouts b
 _RECEIPT_REDEMPTION_SQL = """SELECT r.* FROM hashcoin_redemptions r
   JOIN hashcoin_wallets w ON w.wallet_id=r.wallet_id
   WHERE r.redemption_id=:id AND w.user_id=:owner AND w.stripe_mode=r.stripe_mode"""
-_RECEIPT_EARNING_SQL = """SELECT p.*,w.wallet_id AS receipt_wallet_id
-  FROM drive_request_owner_payouts p LEFT JOIN hashcoin_wallets w
-    ON w.wallet_id=p.wallet_id AND w.user_id=:owner AND w.stripe_mode=p.stripe_mode
-  WHERE p.request_id=:id AND (w.wallet_id IS NOT NULL OR (
-    p.settlement_method='stripe_transfer' AND p.erased_at IS NULL AND EXISTS(
-      SELECT 1 FROM drive_request_payment_orders o WHERE o.request_id=p.request_id
-        AND o.user_id=:owner AND o.stripe_mode=p.stripe_mode
-        AND o.settlement_method='stripe_transfer')))"""
+_RECEIPT_EARNING_SQL = """SELECT p.* FROM drive_request_owner_payouts p
+  JOIN hashcoin_wallets w ON w.wallet_id=p.wallet_id
+  WHERE p.request_id=:id AND w.user_id=:owner"""
 _RECEIPT_ORDER_SQL = """SELECT paid_at,stripe_payment_intent_id IS NOT NULL AS has_intent
   FROM drive_request_payment_orders WHERE request_id=:id AND user_id=:owner"""
 _RECEIPT_LEDGER_SQL = """SELECT entry_kind,amount_coins,created_at FROM hashcoin_ledger_entries
@@ -1008,22 +1003,18 @@ class PayoutActivityService(ExternalConnectorLifecycleStore):
         payout = _row(connection, _RECEIPT_EARNING_SQL, {"id": request_id, "owner": user_id})
         if payout is None:
             return None
-        wallet = str(payout["receipt_wallet_id"]) if payout["receipt_wallet_id"] else None
-        ledger = (
-            {
-                row["entry_kind"]: row
-                for row in _rows(
-                    connection,
-                    _RECEIPT_LEDGER_SQL,
-                    {"wallet": wallet, "ref": request_id, "kinds": ["earning", "reversal"]},
-                )
-            }
-            if wallet
-            else {}
-        )
+        wallet = str(payout["wallet_id"])
+        ledger = {
+            row["entry_kind"]: row
+            for row in _rows(
+                connection,
+                _RECEIPT_LEDGER_SQL,
+                {"wallet": wallet, "ref": request_id, "kinds": ["earning", "reversal"]},
+            )
+        }
         order = _row(connection, _RECEIPT_ORDER_SQL, {"id": request_id, "owner": user_id})
         credit = ledger.get("earning")
-        paid = bool(order and order.get("has_intent") and order.get("paid_at")) or bool(
+        paid = bool(order and order.get("has_intent")) or bool(
             payout.get("stripe_payment_intent_id")
         )
         if credit is None and not paid:
@@ -1041,33 +1032,11 @@ class PayoutActivityService(ExternalConnectorLifecycleStore):
             ("held", payout.get("held_at") if status == "held" else None),
             ("reversed", (ledger.get("reversal") or {}).get("created_at")),
         ]
-        cash_out = (
-            _row(connection, _RECEIPT_CASH_OUT_SQL, {"id": request_id, "wallet": wallet})
-            if wallet
-            else None
-        )
+        cash_out = _row(connection, _RECEIPT_CASH_OUT_SQL, {"id": request_id, "wallet": wallet})
         coins = credit["amount_coins"] if credit is not None else payout.get("owner_earning_cents")
         return {
             "id": "earning:" + request_id,
             "kind": "earning",
-            "mode": payout.get("stripe_mode")
-            if payout.get("stripe_mode") in {"live", "test", "legacy"}
-            else None,
-            "settlementMethod": payout["settlement_method"],
-            "stripeTransfer": {
-                "state": "sent"
-                if payout["status"] == "transferred"
-                else "reversed"
-                if payout["status"] == "reversed"
-                else "review"
-                if payout["status"] in {"manual_review", "reversal_due", "reversal_unknown"}
-                else "none"
-                if payout["status"] == "void"
-                else "waiting",
-                "at": _iso(payout.get("transferred_at")),
-            }
-            if payout["settlement_method"] == "stripe_transfer"
-            else None,
             "status": status,
             "coins": int(coins) if coins is not None else None,
             "reference": hussh_reference(request_id),

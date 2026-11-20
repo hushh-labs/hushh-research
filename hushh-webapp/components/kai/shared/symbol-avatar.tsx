@@ -4,12 +4,6 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 import { cn } from "@/lib/utils";
 
-const LOCAL_COMPANY_LOGOS: Readonly<Record<string, string>> = {
-  AAPL: "/logos/apple.svg",
-  NVDA: "/logos/nvidia.svg",
-  TSLA: "/logos/tesla.svg",
-};
-
 function hashText(value: string): number {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -22,15 +16,13 @@ export function getCompanyLogoUrl({
   symbol,
   name,
   isCash = false,
-  localOnly = false,
 }: {
   symbol: string;
   name?: string | null;
   isCash?: boolean;
-  localOnly?: boolean;
 }): string | null {
   if (isCash) {
-    if (!localOnly && /chase/i.test(String(name || ""))) {
+    if (/chase/i.test(String(name || ""))) {
       return "https://financialmodelingprep.com/image-stock/JPM.png";
     }
     return null;
@@ -40,8 +32,6 @@ export function getCompanyLogoUrl({
     .trim()
     .toUpperCase();
   if (!normalized) return null;
-  if (Object.hasOwn(LOCAL_COMPANY_LOGOS, normalized)) return LOCAL_COMPANY_LOGOS[normalized] ?? null;
-  if (localOnly) return null;
   return `https://financialmodelingprep.com/image-stock/${encodeURIComponent(normalized)}.png`;
 }
 
@@ -84,7 +74,6 @@ export function SymbolAvatar({
   symbol,
   name,
   isCash = false,
-  localOnly = false,
   size = "md",
   className,
   logo = true,
@@ -92,14 +81,13 @@ export function SymbolAvatar({
   symbol: string;
   name?: string | null;
   isCash?: boolean;
-  localOnly?: boolean;
   size?: keyof typeof SIZE_CLASSES;
   className?: string;
   /** False for symbols the US logo lookup does not cover, so a bare NSE ticker can never
    * pick up a different US company's logo. */
   logo?: boolean;
 }) {
-  const logoUrl = logo ? getCompanyLogoUrl({ symbol, name, isCash, localOnly }) : null;
+  const logoUrl = logo ? getCompanyLogoUrl({ symbol, name, isCash }) : null;
   const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {

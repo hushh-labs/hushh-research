@@ -81,14 +81,6 @@ export function vaultConnections(financial: AnyRecord | null | undefined): Recor
   return raw && typeof raw === "object" ? raw : {};
 }
 
-export function confirmedVaultReconnects(financial: AnyRecord | null | undefined) {
-  return Object.entries(vaultConnections(financial)).flatMap(([itemId, connection]) => (
-    connection.status === "needs_relink" && connection.reconnect_required_at
-      ? [{ itemId, institute: connection.institution_name, timestamp: connection.reconnect_required_at }]
-      : []
-  ));
-}
-
 export function hasVaultConnections(financial: AnyRecord | null | undefined): boolean {
   return Object.keys(vaultConnections(financial)).length > 0;
 }
@@ -351,15 +343,18 @@ export async function relinkVaultPlaid(params: {
   rememberVaultOAuthReturn({ userId, link, relinkItemId: itemId, originSurface: params.originSurface });
   const publicToken = await openVaultPlaidLink(link.linkToken).finally(clearPlaidOAuthResumeSession);
   if (!publicToken || !isVaultSessionEpochCurrent(epoch)) return { status: "exited" };
-  return confirmVaultRelink({ userId, vaultKey, vaultOwnerToken, financial, itemId, surface: link.platform });
-}
-
-async function confirmVaultRelink(params: VaultRefreshParams & { itemId: string }): Promise<VaultRelinkResult> {
-  const outcome = await refreshVaultConnections({ ...params, force: true });
-  if (!outcome.targetConfirmed) {
-    return { status: "blocked", reason: "This connection could not be confirmed. Review it and try again." };
+  const outcome = await refreshVaultConnections({
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+    financial,
+    itemId,
+    force: true,
+  });
+  if (!outcome.saved || outcome.refreshed === 0 || outcome.needsRelink.includes(itemId)) {
+    return { status: "blocked", reason: "Could not refresh this connection. Try again." };
   }
-  return { status: "repaired", refreshed: 1 };
+  return { status: "repaired", refreshed: outcome.refreshed };
 }
 
 export type VaultOAuthReturnResult =
@@ -400,9 +395,14 @@ export async function completeVaultOAuthReturn(params: {
     if (!authorized) return { kind: "relink", result: { status: "exited" } };
     const financial = await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken });
     if (!isVaultSessionEpochCurrent(epoch)) return { kind: "relink", result: { status: "exited" } };
-    const result = await confirmVaultRelink({ userId, vaultKey, vaultOwnerToken, financial, itemId: session.relinkItemId, surface: "web" });
-    if (result.status === "repaired") trace?.("vault_commit", { outcome: "repaired" });
-    return { kind: "relink", result };
+    const outcome = await refreshVaultConnections({
+      userId, vaultKey, vaultOwnerToken, financial, itemId: session.relinkItemId, force: true,
+    });
+    if (!outcome.saved || outcome.refreshed === 0 || outcome.needsRelink.includes(session.relinkItemId)) {
+      return blocked("Could not refresh this connection. Try again.");
+    }
+    trace?.("vault_commit", { outcome: "repaired" });
+    return { kind: "relink", result: { status: "repaired", refreshed: outcome.refreshed } };
   }
   if (!authorized) return { kind: "connect", result: { status: "exited" } };
   const sealed = await sealVaultPlaidConnection({
@@ -424,7 +424,6 @@ export type VaultRefreshOutcome = {
   needsRelink: string[];
   failed: number;
   saved: boolean;
-  targetConfirmed?: boolean;
 };
 
 /**
@@ -562,15 +561,6 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   });
   outcome.refreshed = result.success ? applied : 0;
   outcome.saved = result.success && !result.idempotentReplay;
-  if (params.itemId) {
-    const committed = (result.fullBlob?.financial || null) as FinancialDomain | null;
-    const connection = vaultConnections(committed)[params.itemId];
-    const expectedAccounts = read.find(entry => entry.itemId === params.itemId)?.pages.at(-1)?.accounts ?? [];
-    outcome.targetConfirmed = outcome.saved && applied === 1 &&
-      isVaultSessionEpochCurrent(vaultEpoch) && connection?.status === "active" &&
-      connection.last_refreshed_at === now && !outcome.needsRelink.includes(params.itemId) &&
-      expectedAccounts.every(account => committed?.accounts_v1?.[`${params.itemId}:${account.account_id}`]?.item_id === params.itemId);
-  }
   return outcome;
 }
 

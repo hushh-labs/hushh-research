@@ -24,7 +24,7 @@ _FINANCE_THREAD_KEY_SQL = """CASE
       AND (f.metadata->>'advisorReviewId') ~*
         '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
       THEN 'advisor-review:' || lower(f.metadata->>'advisorReviewId')
-    WHEN f.source_domain = 'kai' AND f.event_type IN ('kai_analysis_completed','kai_analysis_saved')
+    WHEN f.source_domain = 'kai' AND f.event_type IN ('kai_analysis_completed','kai_analysis_failed')
       AND COALESCE(NULLIF(f.metadata->>'run_id',''),NULLIF(f.source_row_id,'')) IS NOT NULL
       THEN 'finance-analysis:' || COALESCE(NULLIF(f.metadata->>'run_id',''),f.source_row_id)
     WHEN f.source_domain = 'kai' AND f.event_type = 'funding_transfer_status'
@@ -118,7 +118,6 @@ WITH source_events AS ({_SOURCE_EVENTS_SQL}), keyed AS (
       CASE metadata->>'user_facing_status'
         WHEN 'returned' THEN 3 WHEN 'failed' THEN 2 WHEN 'completed' THEN 1 ELSE 0 END
       ELSE 0 END DESC,
-    CASE WHEN left(thread_key,9)='check-in:' THEN CASE WHEN event_type IN('location_check_in_result','location_check_in_attention') THEN 2 ELSE 0 END ELSE 0 END DESC,
     created_at DESC, id DESC) AS thread_rank,
     max(id) OVER (PARTITION BY thread_key) AS thread_revision,
     count(*) FILTER (WHERE dismissed_at IS NULL AND
@@ -126,7 +125,7 @@ WITH source_events AS ({_SOURCE_EVENTS_SQL}), keyed AS (
       OVER (PARTITION BY thread_key) AS thread_message_count,
     count(*) FILTER (WHERE read_at IS NULL AND dismissed_at IS NULL AND NOT feed_silent
       AND (last_dismissed_id IS NULL OR id > last_dismissed_id)
-      AND (COALESCE(metadata->>'actor_is_self', 'false') <> 'true' OR event_type='location_check_in_attention')
+      AND (COALESCE(metadata->>'actor_is_self', 'false') <> 'true')
       AND NOT (source_domain = 'connected_systems' AND event_type = 'connector_connected'
         AND split_part(source_row_id, ':', 1) IS NOT DISTINCT FROM 'google_drive')
       AND (left(thread_key, 9) <> 'document:' OR

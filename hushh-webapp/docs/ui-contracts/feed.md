@@ -112,12 +112,11 @@ responses. Global unread remains owner-scoped and independent of search scope.
 | Source | Implemented boundary / remaining limitation |
 | --- | --- |
 | Drive/document requests | Exact participant request, guarded review, current payable quote and accessible-file flow. Confirm counts and settlement through source readback. Private, vault-authorized filename continuation searches confirmed request deliveries; exact open rechecks access. Payment-only milestone matches open a fresh read-only participant receipt. Standalone bulk files and filename typo suggestions remain unsupported. |
-| KYC | Pending review selects the exact workflow. Confirmed replies select the source-owned read-only send result, fenced by the current owner and vault session. |
-| Finance | Exact statement/run selection, draft correction, saved history and Item-specific reconnect. Report publication follows explicit Shared Files setup, encrypted save/readback and current-source availability acknowledgement. Pending import drafts remain device-session only. |
-| Advisor | Pending participant review and actual acceptance/decline stay distinct. Current `ui=2` contract and source access checks remain authoritative. |
-| Transfers | Retained historical receipts only. The retired provider cannot supply fresh sandbox transfers. Unknown direction is a transfer, never an invented deposit. |
-| Location | Exact request/grant/Check-In/Circle selection and revision-bound approval. Ended incidents open history, never a stale map. Legacy receipts lacking current source facts do not grant a live destination. |
-| Other agents | The shared policy admits reviewed outcomes. Some Calendar, legacy Consent, Memory/profile and private-agent outcomes have recorded Feed detail but still lack exact owning-result selectors. |
+| KYC | Pending review hands an owner/session-bound workflow ID to the existing review. A confirmed reply opens its dated Feed receipt and recorded steps. No new send/reconciliation API is introduced. |
+| Finance | Reads existing device analysis history and decrypted statement/connection records. Statements and institutions open exact read-only Feed detail. Current completed import drafts use the existing review entry. No new report storage, save acknowledgement, correction workflow or provider reconnect behavior. A completed run is described as finished, not saved. |
+| Location | Verified request/grant and existing Check-In operation grouping. Every confirmed active SOS is separately pinned using a Feed-owned read-only paginated projection. No new Check-In plan, intended audience, retry or retention writes; complete/partial totals cannot be reconstructed from current baseline records. |
+| People / Advisor | Existing confirmed contacts and authorized clients only. No new nickname editor or relationship-alias storage. |
+
 
 Confirmed family aliases use the owner's encrypted `identity.contact_aliases`
 version 1 binding authored in Connections, with a current confirmed relationship.
@@ -139,3 +138,16 @@ Deterministic production-component fixtures are design previews. They do not
 prove provider settlement, fresh UAT workflows, vault continuity or native
 acceptance. Keep live end-to-end evidence separately labeled with exact deployed
 SHA, viewer role, stable operation ID, confirmed state, time and tap destination.
+
+## Design previews
+
+These are synthetic production-component previews, not authenticated UAT evidence.
+The iPhone viewport is 393 × 852 CSS pixels; desktop is 1440 pixels wide.
+
+| iPhone | Desktop |
+| --- | --- |
+| ![iPhone Feed design preview](assets/feed-20261120-iphone-design-preview.png) | ![Desktop Feed design preview](assets/feed-20261120-desktop-design-preview.png) |
+
+Real provider operations, dedicated account readbacks and native screenshots
+remain a separate release acceptance gate. Preview controls and synthetic
+workflow records are isolated from the application build.

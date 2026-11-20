@@ -39,7 +39,6 @@ RELATIONS: dict[str, frozenset[str]] = {
     "one_location_circle_member_invites": frozenset(
         {"id", "inviter_user_id", "invitee_user_id", "metadata"}
     ),
-    "one_location_check_in_operations": frozenset({"id", "owner_user_id", "client_operation_id"}),
     "one_location_share_grants": frozenset({"id", "owner_user_id", "recipient_user_id"}),
     "one_location_access_requests": frozenset({"id", "owner_user_id", "requester_user_id"}),
     "one_location_events": frozenset(

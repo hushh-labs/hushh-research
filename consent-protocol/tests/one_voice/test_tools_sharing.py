@@ -27,7 +27,6 @@ from hushh_mcp.one_voice.tools.base import (
     now_iso,
 )
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
-from tests.one_voice.location_service_fixture import FakeLocationService
 
 ME = "user-me"
 AYESHA_ID = "user-ayesha"
@@ -57,6 +56,63 @@ def _person(
         has_location_key=key,
         confirmed_at=now_iso(),
     )
+
+
+class FakeLocationService:
+    """Records every call; returns canned payloads shaped like the real service."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.errors: dict[str, Exception] = {}
+        self.results: dict[str, Any] = {}
+
+    def _call(self, name: str, **kwargs: Any) -> Any:
+        self.calls.append((name, kwargs))
+        if name in self.errors:
+            raise self.errors[name]
+        return self.results.get(name)
+
+    def called(self, name: str) -> dict[str, Any] | None:
+        for called, kwargs in self.calls:
+            if called == name:
+                return kwargs
+        return None
+
+    def list_pending_requester_requests(self, **kwargs: Any) -> Any:
+        return self._call("list_pending_requester_requests", **kwargs) or []
+
+    def request_access(self, **kwargs: Any) -> Any:
+        return self._call("request_access", **kwargs)
+
+    def list_state(self, **kwargs: Any) -> Any:
+        return self._call("list_state", **kwargs) or {}
+
+    def approve_request(self, **kwargs: Any) -> Any:
+        return self._call("approve_request", **kwargs)
+
+    def deny_request(self, **kwargs: Any) -> Any:
+        return self._call("deny_request", **kwargs)
+
+    def withdraw_request(self, **kwargs: Any) -> Any:
+        return self._call("withdraw_request", **kwargs)
+
+    def list_verified_recipients(self, **kwargs: Any) -> Any:
+        return self._call("list_verified_recipients", **kwargs) or []
+
+    def create_grant(self, **kwargs: Any) -> Any:
+        return self._call("create_grant", **kwargs)
+
+    def revoke_grant(self, **kwargs: Any) -> Any:
+        return self._call("revoke_grant", **kwargs)
+
+    def set_grant_duration(self, **kwargs: Any) -> Any:
+        return self._call("set_grant_duration", **kwargs)
+
+    def create_public_invite(self, **kwargs: Any) -> Any:
+        return self._call("create_public_invite", **kwargs)
+
+    def revoke_public_invite(self, **kwargs: Any) -> Any:
+        return self._call("revoke_public_invite", **kwargs)
 
 
 def _ctx(service: FakeLocationService | None = None) -> tuple[ToolContext, FakeLocationService]:
@@ -392,7 +448,7 @@ async def test_respond_request_approve_creates_grant_and_needs_publish():
     }
     spec = _tool("respond_request")
     args = spec.input_model.model_validate(
-        {"request_id": REQUEST_ID, "request_revision": 1, "approve": True, "duration_hours": 2}
+        {"request_id": REQUEST_ID, "approve": True, "duration_hours": 2}
     )
     result = await spec.handler(ctx, args)
     assert result.status == "approved"
@@ -410,7 +466,6 @@ async def test_respond_request_approve_creates_grant_and_needs_publish():
     assert fake.called("approve_request") == {
         "owner_user_id": ME,
         "request_id": REQUEST_ID,
-        "expected_request_revision": 1,
         "approval_mode": "manual",
         "duration_hours": 2.0,
         "duration_mode": "timed",
@@ -424,17 +479,11 @@ async def test_respond_request_deny_and_summary():
         ownerUserId=ME, requesterUserId=AYESHA_ID, status="denied"
     )
     spec = _tool("respond_request")
-    args = spec.input_model.model_validate(
-        {"request_id": REQUEST_ID, "request_revision": 1, "approve": False}
-    )
+    args = spec.input_model.model_validate({"request_id": REQUEST_ID, "approve": False})
     result = await spec.handler(ctx, args)
     assert result.status == "denied"
     assert result.spoken_facts == ["Declined Ayesha Sharma's location request. Nothing was shared."]
-    assert fake.called("deny_request") == {
-        "owner_user_id": ME,
-        "request_id": REQUEST_ID,
-        "expected_request_revision": 1,
-    }
+    assert fake.called("deny_request") == {"owner_user_id": ME, "request_id": REQUEST_ID}
     assert spec.summarize(ctx, args) == "decline that location request"
 
 
@@ -447,10 +496,7 @@ async def test_respond_request_missing_or_expired(code: str, status: str):
     fake.errors["approve_request"] = OneLocationAgentError(code, "gone", status_code=404)
     spec = _tool("respond_request")
     result = await spec.handler(
-        ctx,
-        spec.input_model.model_validate(
-            {"request_id": REQUEST_ID, "request_revision": 1, "approve": True}
-        ),
+        ctx, spec.input_model.model_validate({"request_id": REQUEST_ID, "approve": True})
     )
     assert result.status == status
     assert result.reason_code == code
@@ -465,10 +511,7 @@ async def test_respond_request_sharing_off_needs_setup():
     )
     spec = _tool("respond_request")
     result = await spec.handler(
-        ctx,
-        spec.input_model.model_validate(
-            {"request_id": REQUEST_ID, "request_revision": 1, "approve": True}
-        ),
+        ctx, spec.input_model.model_validate({"request_id": REQUEST_ID, "approve": True})
     )
     assert result.status == "rejected"
     assert result.reason_code == "LOCATION_SHARING_OFF"
@@ -480,10 +523,7 @@ async def test_respond_request_rejects_a_non_uuid_id():
     ctx, fake = _ctx()
     spec = _tool("respond_request")
     result = await spec.handler(
-        ctx,
-        spec.input_model.model_validate(
-            {"request_id": "Ayesha", "request_revision": 1, "approve": True}
-        ),
+        ctx, spec.input_model.model_validate({"request_id": "Ayesha", "approve": True})
     )
     assert result.status == "rejected"
     assert result.reason_code == "invalid_id"

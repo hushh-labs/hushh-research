@@ -6,9 +6,6 @@ const sharedRequest = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { ownerPodRequest: request, apiFetch: sharedRequest },
 }));
-import { SharedFilesStore } from "@/lib/files/shared/store";
-import { SharedAnalysisReportStore } from "@/lib/kai/shared-report-store";
-import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { bindFilesConnection } from "@/lib/files/connection";
 import {
   DownloadPaused,
@@ -206,7 +203,6 @@ describe("Shared Files ciphertext boundary", () => {
         if (key.endsWith("/storage"))
           return Response.json({
             libraryId: "00000000-0000-4000-8000-000000000001",
-            keyBootstrapAllowed: true,
             retention: {
               retentionLocked: false,
               softDeleteSeconds: 0,
@@ -372,71 +368,4 @@ describe("Shared Files ciphertext boundary", () => {
     await expect(FilesService.entry(uploaded.id)).rejects.toThrow("locked");
     expect(request).not.toHaveBeenCalled();
   });
-});
-
-
-function reportStorageFixture() {
-  const objects = new Map<string, { ciphertext: string; generation: string }>();
-  const libraryId = "00000000-0000-4000-8000-000000000001";
-  let enrolled = false, generation = 0, enrollments = 0, puts = 0;
-  sharedRequest.mockImplementation(async (path: string, init: RequestInit) => {
-    const url = new URL(path, "https://fixture.invalid");
-    const key = url.pathname;
-    if (key.endsWith("/storage")) {
-      if (init.method === "POST") return Response.json({ status: "accepted" });
-      if (!enrolled && url.searchParams.get("existing") === "true") return Response.json({ detail: { code: "FILES_SETUP_REQUIRED" } }, { status: 409 });
-      const newlyEnrolled = !enrolled;
-      if (!enrolled) { enrolled = true; enrollments++; }
-      return Response.json({ libraryId, keyBootstrapAllowed: newlyEnrolled });
-    }
-    if (init.method === "PUT") {
-      const body = JSON.parse(String(init.body));
-      if ((objects.get(key)?.generation ?? "") !== body.expectedGeneration) return Response.json({ detail: { code: "FILES_REVISION_CONFLICT" } }, { status: 409 });
-      puts++;
-      const value = { ciphertext: body.ciphertext, generation: String(++generation) };
-      objects.set(key, value);
-      return Response.json({ generation: value.generation });
-    }
-    if (key.split("/").length === 6) return Response.json({ keys: [...objects.keys()].filter(name => name.startsWith(key + "/")).map(name => name.split("/").at(-1)), cursor: "" });
-    return Response.json(objects.get(key) ?? { ciphertext: null, generation: "" });
-  });
-  const access = { owner: "report-owner", vaultKey: "1".repeat(64), ownerToken: "memory-only-fixture-token", check: () => undefined };
-  return { objects, access, counts: () => ({ enrollments, puts }), admit: () => { enrolled = true; } };
-}
-
-it("requires explicit storage setup and preserves exact encrypted reports across independent devices and deletion", async () => {
-  const fixture = reportStorageFixture();
-  const existing = () => new SharedFilesStore(fixture.access, { bootstrap: "existing" });
-  await expect(existing().read("reports", "run-a")).rejects.toThrow("FILES_SETUP_REQUIRED");
-  expect(fixture.counts()).toEqual({ enrollments: 0, puts: 0 });
-  fixture.admit();
-  await expect(existing().read("reports", "run-a")).rejects.toThrow("FILES_SETUP_REQUIRED");
-  expect(fixture.counts().puts).toBe(0);
-  await expect(new SharedFilesStore(fixture.access).activate()).rejects.toThrow("FILES_KEY_RECOVERY_REQUIRED");
-  const fresh = reportStorageFixture();
-  const connected = () => new SharedFilesStore(fresh.access, { bootstrap: "existing" });
-  await new SharedFilesStore(fresh.access).activate();
-  const first = new SharedAnalysisReportStore(connected());
-  const second = new SharedAnalysisReportStore(connected());
-  const entry = (runId: string): AnalysisHistoryEntry => ({ ticker: "AAPL", timestamp: "2026-11-20T00:00:00Z", decision: "hold", confidence: 0.6,
-    consensus_reached: true, agent_votes: { finance: "hold" }, final_statement: "Synthetic report", raw_card: { debate_run_id: runId } });
-  const announce = vi.fn(async () => undefined);
-  await first.save("run-a", entry("run-a"), announce);
-  expect(announce).toHaveBeenCalledWith(expect.objectContaining({ generation: expect.any(String), namespace: expect.stringMatching(/^[a-f0-9]{64}$/) }));
-  await first.save("run-a", entry("run-a"));
-  await first.save("run-b", entry("run-b"));
-  expect(await second.get("run-a")).toMatchObject({ state: "available", record: entry("run-a") });
-  expect(await second.get("run-b")).toMatchObject({ state: "available", record: entry("run-b") });
-  await expect(first.save("run-a", { ...entry("run-a"), confidence: 0.9 })).rejects.toThrow("differs");
-  expect([...fresh.objects.values()].every(value => !value.ciphertext.includes("Synthetic report") && !value.ciphertext.includes("AAPL"))).toBe(true);
-  await second.remove("run-a");
-  expect(await first.get("run-a")).toMatchObject({ state: "deleted" });
-  await expect(first.save("run-a", entry("run-a"))).rejects.toThrow("REPORT_REMOVED");
-  expect(await first.get("run-b")).toMatchObject({ state: "available" });
-  const wrongKey = new SharedAnalysisReportStore(new SharedFilesStore({ ...fresh.access, vaultKey: "2".repeat(64) }, { bootstrap: "existing" }));
-  await expect(wrongKey.get("run-b")).rejects.toThrow();
-  const sentBeforeInvalid = sharedRequest.mock.calls.length;
-  await expect(first.save("wrong-run", entry("run-b"))).rejects.toThrow("could not be verified");
-  await expect(first.save("run-c", { ...entry("run-c"), confidence: Number.NaN })).rejects.toThrow("could not be verified");
-  expect(sharedRequest).toHaveBeenCalledTimes(sentBeforeInvalid);
 });

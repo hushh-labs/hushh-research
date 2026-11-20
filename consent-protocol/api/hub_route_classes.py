@@ -61,14 +61,8 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
-POST /api/connectors/google_drive/sharing/shared-files/search
-POST /api/connectors/google_drive/sharing/shared-files/file
-GET /api/kai/analysis/report-storage
-POST /api/kai/analyze/run/{run_id}/feed-result
-POST /api/kai/analyze/run/{run_id}/feed-result/read
-POST /api/kai/analyze/run/{run_id}/feed-result/remove
-GET /api/one/email/information-requests/{workflow_id}
-GET /api/one/email/information-requests/{workflow_id}/activity
+POST /api/one/feed/files/owner/search
+POST /api/one/feed/files/owner/file
 POST /api/one/finance/advisor-reviews/portfolio-analysis
 POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
@@ -281,8 +275,8 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
-POST /api/connectors/google_drive/sharing/received-files/search
-POST /api/connectors/google_drive/sharing/received-files/file
+POST /api/one/feed/files/requester/search
+POST /api/one/feed/files/requester/file
 POST /api/one/finance/advisor-reviews/candidates
 POST /api/one/finance/advisor-reviews/{request_id}/decision
 POST /api/one/finance/advisor-reviews/{request_id}/meeting

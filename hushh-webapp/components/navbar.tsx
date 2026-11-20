@@ -1,3 +1,4 @@
+// components/navbar.tsx
 // Bottom pill navigation + onboarding theme control.
 
 "use client";
@@ -181,7 +182,10 @@ function navOptionForKey(
   feedUnreadCount: number | null,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
-  // Pending decisions and history overlap; a dot avoids double-counting them.
+  // Feed is the single notification home in the persistent navigation. Its
+  // "Needs you" requests and unread feed_events overlap for several domains
+  // but not all of them. Counts alone cannot calculate that union exactly, so
+  // use an honest attention dot instead of double-counting or hiding activity.
   let badge: "dot" | undefined;
   if (key === "feed") {
     if ((pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0) {

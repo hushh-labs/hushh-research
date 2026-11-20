@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from firebase_admin import auth as firebase_auth
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from api.middleware import require_firebase_auth_read_only
 from api.routes.drive_sharing_owner import ContentOwner as ContentOwner
@@ -138,19 +138,6 @@ async def _recipient(
 
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class SharedFileSearch(StrictRequest):
-    query: str = Field(default="", max_length=120)
-    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
-    personRef: UUID | None = None
-    fromAt: AwareDatetime | None = None
-    beforeAt: AwareDatetime | None = None
-
-
-class SharedFileOpen(StrictRequest):
-    requestId: UUID
-    fileRef: str = Field(pattern=r"^(bulk|legacy):[0-9a-f-]{36}:[0-9]{1,5}$")
 
 
 class CreateRequest(StrictRequest):
@@ -415,66 +402,6 @@ async def _person_target(owner: Owner, person_ref: UUID) -> str:
     except Exception:
         raise _error(DriveSharingError("identity_verification_unavailable")) from None
     return str(target_user_id)
-
-
-def _file_history_service():
-    from hushh_mcp.services.drive_shared_file_search import DriveSharedFileSearch
-
-    return DriveSharedFileSearch()
-
-
-async def _search_shared_files(body: SharedFileSearch, *, owner: Owner, audience: str):
-    if body.fromAt and body.beforeAt and body.fromAt >= body.beforeAt:
-        raise _error(DriveSharingError("invalid_argument"))
-    person = await _person_target(owner, body.personRef) if body.personRef else None
-    return await _call(
-        "search",
-        owner=owner,
-        factory=_file_history_service,
-        audience=audience,
-        query=body.query,
-        cursor=body.cursor,
-        person=person,
-        from_at=body.fromAt,
-        before_at=body.beforeAt,
-    )
-
-
-async def _open_shared_file(body: SharedFileOpen, *, owner: Owner, audience: str):
-    result = await _call(
-        "search",
-        owner=owner,
-        factory=_file_history_service,
-        audience=audience,
-        exact={"fileRef": body.fileRef, "requestId": str(body.requestId)},
-    )
-    if len(result["files"]) != 1:
-        raise _error(DriveSharingError("request_unavailable"))
-    return result["files"][0]
-
-
-@router.post("/shared-files/search")
-async def search_owned_shared_files(
-    body: SharedFileSearch, owner: ContentOwner = Depends(_content_owner)
-):
-    return await _search_shared_files(body, owner=owner, audience="owner")
-
-
-@router.post("/received-files/search")
-async def search_received_shared_files(body: SharedFileSearch, owner: Owner = Depends(_owner)):
-    return await _search_shared_files(body, owner=owner, audience="requester")
-
-
-@router.post("/shared-files/file")
-async def open_owned_shared_file(
-    body: SharedFileOpen, owner: ContentOwner = Depends(_content_owner)
-):
-    return await _open_shared_file(body, owner=owner, audience="owner")
-
-
-@router.post("/received-files/file")
-async def open_received_shared_file(body: SharedFileOpen, owner: Owner = Depends(_owner)):
-    return await _open_shared_file(body, owner=owner, audience="requester")
 
 
 def _packet_service():

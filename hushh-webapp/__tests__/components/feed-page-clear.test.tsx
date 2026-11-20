@@ -43,7 +43,7 @@ it("publishes a received request outcome while reading older Feed history", asyn
     mocks.data = {
       ...original,
       items: [
-        { ...original.items[0], id: "7", source_domain: "kai", event_type: "kai_analysis_saved" },
+        { ...original.items[0], id: "7", source_domain: "kai", event_type: "kai_analysis_completed" },
         { ...original.items[0], id: "6", source_domain: "connected_systems", event_type: "document_share_payment_confirmed" },
         ...original.items,
       ],
@@ -401,6 +401,26 @@ describe("Feed history interactions", () => {
     expect(screen.getByText("row-5")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
     expect(screen.getByTestId("feed-actionable-request")).toBeInTheDocument();
+  });
+
+  it("pins server-confirmed incidents outside loaded history across agent scopes", async () => {
+    const original = mocks.data;
+    const incidents = ["old-live-one", "old-live-two"].map(id => ({ ...original.items[0], id,
+      source_domain:"location", event_type:"location_share_created", activity_group_id:`location-grant:${id}`,
+      metadata:{grant_id:id,share_kind:"sos",feed_audience:"recipient",current_location_status:"active"},
+      created_at:"2025-01-01T00:00:00Z" }));
+    mocks.data = { ...original, live_incidents:{items:incidents,next_cursor:null} } as typeof mocks.data;
+    mocks.actionables = [];
+    try {
+      render(<FeedPage />);
+      const live = within(await screen.findByRole("region", { name:"Live" }));
+      expect(live.getByText("row-old-live-one")).toBeVisible();
+      expect(live.getByText("row-old-live-two")).toBeVisible();
+      act(() => window.dispatchEvent(new Event(FEED_SEARCH_OPEN_EVENT)));
+      fireEvent.change(screen.getByRole("combobox", { name:"Agent scope" }), {target:{value:"finance"}});
+      expect(live.getByText("row-old-live-one")).toBeVisible();
+      expect(screen.getAllByText("row-old-live-one")).toHaveLength(1);
+    } finally { mocks.data = original; }
   });
 
   it("acknowledges a newly observed receipt after a same-ID update between fetch queries", async () => {

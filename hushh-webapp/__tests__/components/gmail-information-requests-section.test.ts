@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CacheService } from "@/lib/services/cache-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { FeedMailResult } from "@/components/feed/feed-mail-result";
 import GmailInformationRequestsSection, {
   isExactDraftCandidate,
 } from "@/components/gmail/gmail-information-requests-section";
@@ -12,16 +11,11 @@ import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manife
 import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
 
 const gmailServiceMocks = vi.hoisted(() => ({
-  getActivity: vi.fn(),
   getPreference: vi.fn(),
   setPreference: vi.fn(),
   list: vi.fn(),
   scanStream: vi.fn(),
 }));
-const sourceRead = vi.hoisted(() => ({ token: "vault-token" as string | null, read: vi.fn() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: sourceRead.token, getVaultOwnerToken: () => sourceRead.token }) }));
-vi.mock("@/lib/services/email-delivery-service", () => ({ EmailDeliveryService: { readSendStatus: sourceRead.read } }));
 const handoffMocks = vi.hoisted(() => ({
   createHandoff: vi.fn(),
   navigateToAgentChat: vi.fn(),
@@ -804,28 +798,4 @@ describe("personal Gmail information-request scope boundary", () => {
     expect(JSON.stringify(handoff)).not.toContain("private-value");
     expect(handoffMocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
-});
-
-
-it("opens exact closed KYC and mail results without decision controls and fences a late source read on lock", async () => {
-  const getToken = async () => "firebase";
-  const isCurrent = () => true;
-  sourceRead.token = "vault-token";
-  gmailServiceMocks.getActivity.mockResolvedValueOnce({ workflow_id: "closed", status: "sent", requested_field_labels: ["Passport"], candidate_scopes: [], attachment_review_required: false });
-  const view = render(createElement(FeedMailResult, { selection: { kind: "request", id: "closed" }, getToken, isCurrent }));
-  await screen.findByText("Reply sent");
-  expect(gmailServiceMocks.getActivity).toHaveBeenCalledWith({ firebaseIdToken: "firebase", vaultOwnerToken: "vault-token", workflowId: "closed" });
-  expect(screen.queryByRole("button", { name: /Review send|Ignore|Send reply|Draft with One/ })).toBeNull();
-  sourceRead.read.mockResolvedValueOnce({ actionId: "send", state: "failed" });
-  view.rerender(createElement(FeedMailResult, { selection: { kind: "message", id: "send" }, getToken, isCurrent }));
-  await screen.findByText("Message wasn't sent");
-  expect(sourceRead.read).toHaveBeenCalledWith({ firebaseIdToken: "firebase", vaultOwnerToken: "vault-token", actionId: "send" });
-  let finish!: (value: unknown) => void;
-  gmailServiceMocks.getActivity.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
-  view.rerender(createElement(FeedMailResult, { selection: { kind: "request", id: "late" }, getToken, isCurrent }));
-  await waitFor(() => expect(gmailServiceMocks.getActivity).toHaveBeenLastCalledWith(expect.objectContaining({ workflowId: "late" })));
-  await act(async () => { sourceRead.token = null; advanceVaultSessionEpoch(); });
-  await act(async () => { finish({ workflow_id: "late", status: "sent", requested_field_labels: ["Never shown"], candidate_scopes: [], attachment_review_required: false }); });
-  expect(screen.queryByText("Never shown")).toBeNull();
-  expect(screen.getByRole("button", { name: "Unlock to view" })).toBeInTheDocument();
 });

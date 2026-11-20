@@ -62,12 +62,12 @@ DOCUMENT_SHARE_NOTIFICATION_COPY = {
 }
 DOCUMENT_SHARE_NOTIFICATION_TYPES = frozenset(DOCUMENT_SHARE_NOTIFICATION_COPY)
 # Notices that need no grant to be true, so they need not wait behind grants:
-# a new request for the owner and a payable request. A verified settlement
-# stays on the request and its receipt.
+# a new request for the owner, and the requester's own payment steps.
 PROMPT_NOTIFICATION_TYPES = frozenset(
     {
         "document_share_request",
         "document_share_payment_ready",
+        "document_share_payment_confirmed",
     }
 )
 # The one extra field a document_share_request push may carry: the owner's
@@ -97,9 +97,6 @@ def notification_payload(job: dict[str, Any]) -> dict[str, Any] | None:
     event_id = _opaque_id(job["event_id"])
     request_id = _opaque_id(job["request_id"])
     event_type = str(job["event_type"]).strip().lower()
-    # Clients can still open an older push. New settlements stay in the receipt.
-    if event_type == "document_share_payment_confirmed":
-        return None
     if event_type not in DOCUMENT_SHARE_NOTIFICATION_TYPES:
         return None
     tag = f"drive-share-event:{event_id}"

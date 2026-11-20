@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { armFeedSearchReturn } from "@/lib/feed/feed-search-memory";
 import { feedResultHref } from "@/lib/feed/result-navigation";
-import { DriveSharedFileSearchService, type SharedFileAudience, type SharedFileMatch, type SharedFileSearchCriteria } from "@/lib/services/drive-shared-file-search-service";
+import { FeedFileSearchService, type SharedFileAudience, type SharedFileMatch, type SharedFileSearchCriteria } from "@/lib/services/feed-file-search-service";
 
 type Page = { files: SharedFileMatch[]; cursor: string | null; failed?: boolean; checked?: boolean };
 type Selection = Pick<SharedFileMatch, "requestId" | "fileRef" | "audience">;
@@ -52,7 +52,7 @@ function UnlockedFileSearch({ criteria, revision, onCount, capture }: Options & 
     const old = pagesRef.current;
     const roles = AUDIENCES.filter(role => !append || old[role]?.cursor || old[role]?.failed);
     const result = await Promise.allSettled(roles.map(async audience => ({ audience,
-      page: await DriveSharedFileSearchService.search(context.vaultOwnerToken, audience, criteria, append ? old[audience]?.cursor ?? null : null),
+      page: await FeedFileSearchService.search(context.vaultOwnerToken, audience, criteria, append ? old[audience]?.cursor ?? null : null),
     })));
     if (!current()) return;
     const next = { ...(append ? old : {}) };
@@ -94,7 +94,7 @@ function UnlockedFileSearch({ criteria, revision, onCount, capture }: Options & 
     const key = JSON.stringify(selection);
     const current = () => detailGeneration.current === request && context.isCurrent();
     setDetail(null);
-    void DriveSharedFileSearchService.open(context.vaultOwnerToken, selection)
+    void FeedFileSearchService.open(context.vaultOwnerToken, selection)
       .then(file => { if (current()) setDetail({ key, file }); })
       .catch(() => { if (current()) setDetail({ key, failed: true }); });
     return invalidateDetail;

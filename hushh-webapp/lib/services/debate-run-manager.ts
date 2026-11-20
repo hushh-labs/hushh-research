@@ -108,7 +108,6 @@ function readReattachPointer(): RunReattachPointer | null {
 }
 
 interface RunSecrets {
-  vaultOwnerToken: string;
   vaultKey?: string;
   vaultEpoch: number;
 }
@@ -692,7 +691,7 @@ class DebateRunManager {
       return null;
     }
     if (isVaultSessionEpochCurrent(vaultEpoch)) {
-      this.runSecrets.set(task.runId, { vaultKey, vaultEpoch, vaultOwnerToken });
+      this.runSecrets.set(task.runId, { vaultKey, vaultEpoch });
     }
     await this.connectRunStream(task.runId, {
       userId,
@@ -885,7 +884,6 @@ class DebateRunManager {
           this.runSecrets.set(announced, {
             vaultKey: params.vaultKey,
             vaultEpoch: params.vaultEpoch,
-            vaultOwnerToken: params.vaultOwnerToken,
           });
           this.streamControllers.set(announced, controller);
           resolve({ kind: "started", task });
@@ -948,7 +946,6 @@ class DebateRunManager {
       this.resetRunBuffer(runId);
     }
     this.runSecrets.set(runId, {
-      vaultOwnerToken: params.vaultOwnerToken,
       vaultKey: params.vaultKey,
       vaultEpoch: params.vaultEpoch,
     });
@@ -1092,10 +1089,6 @@ class DebateRunManager {
       return;
     }
 
-    const finishedOutsideFinance =
-      typeof window !== "undefined" &&
-      (document.visibilityState === "hidden" ||
-        !/^\/one\/kai(?:\/|$)/.test(window.location.pathname));
     const buffer = this.runBuffers.get(runId) || [];
     const decisionEnvelope = [...buffer]
       .reverse()
@@ -1108,7 +1101,6 @@ class DebateRunManager {
     const rawCard = buildDecisionHistoryRawCard(payload, runId);
 
     const entry: AnalysisHistoryEntry = {
-      ...(finishedOutsideFinance ? { feed_publication_pending: true } : {}),
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),
       timestamp:
         typeof payload.analysis_updated_at === "string" &&
@@ -1185,12 +1177,6 @@ class DebateRunManager {
       });
       for (const listener of this.historyListeners) {
         listener(entry, savedTask);
-      }
-      {
-        void KaiHistoryService.publishPendingFeedResults({
-          userId: task.userId, vaultKey: secrets.vaultKey,
-          vaultOwnerToken: secrets.vaultOwnerToken,
-        }, () => isVaultSessionEpochCurrent(secrets.vaultEpoch)).catch(() => undefined);
       }
       return;
     }

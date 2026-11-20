@@ -1,3 +1,4 @@
+import { ROUTES } from "@/lib/navigation/routes";
 import { locationFeedPresentation } from "./location-feed-presentation";
 import { AGENT_OUTCOME_COPY } from "./feed-outcome-copy";
 import { directMessageFeedHref } from "./connection-feed-navigation";
@@ -44,7 +45,7 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
-import { historicalFundingFeedHref, savedAnalysisFeedHref, ROUTES } from "@/lib/navigation/routes";
+import { historicalFundingFeedHref, savedAnalysisFeedHref } from "@/lib/feed/source-routes";
 import {
   buildProfileConnectorsPaneHref,
   buildProfilePaneHref,
@@ -1086,13 +1087,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           : ROUTES.ONE_LOCATION,
       };
     }
-    case "kai_analysis_saved": {
+    case "kai_analysis_completed": {
       const ticker = metadataString(item.metadata, "ticker");
       const runId = metadataString(item.metadata, "run_id");
       return {
         icon,
         domainLabel,
-        label: ticker ? `${ticker} analysis ready` : "Analysis ready",
+        label: ticker ? `${ticker} analysis finished` : "Analysis finished",
         symbol: ticker || undefined,
         description: "",
         // Open this run's own saved result. `?ticker=` is the stock-preview

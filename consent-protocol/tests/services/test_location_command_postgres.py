@@ -16,7 +16,6 @@ from hushh_mcp.services.action_directive_ledger import (
 )
 from hushh_mcp.services.command_checkpoints import CommandCheckpointConflict, CommandCheckpointStore
 from tests.helpers.chat_keys import static_chat_cipher
-from tests.services.location_command_fixture_support import assert_sms_added_event, sms_schema
 
 
 @pytest.fixture(autouse=True)
@@ -895,6 +894,37 @@ async def test_membership_batches_are_atomic_owner_bound_and_recoverable(
         apply(batch=1, batch_count=2)
 
 
+def sms_schema(db):
+    """Real Circle migrations; adjacent tables expose their consumed columns."""
+    db.execute_raw("""
+        CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT,
+            custom_photo_url TEXT, photo_url TEXT);
+        INSERT INTO actor_identity_cache VALUES('owner','Owner',NULL,NULL,NULL),('other','Contact',NULL,NULL,NULL);
+        CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_a_id TEXT, user_b_id TEXT,
+            status TEXT, source TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(), revoked_at TIMESTAMPTZ, UNIQUE(user_a_id,user_b_id));
+        CREATE TABLE connection_requests(requester_user_id TEXT,addressee_user_id TEXT,status TEXT,responded_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,metadata JSONB);
+        INSERT INTO connections(user_a_id,user_b_id,status,source) VALUES('owner','other','active','request');
+        CREATE TABLE one_location_share_grants(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), owner_user_id TEXT,
+            recipient_user_id TEXT, status TEXT, updated_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ);
+        CREATE TABLE one_location_events(id UUID DEFAULT gen_random_uuid(),owner_user_id TEXT,actor_user_id TEXT,
+            recipient_user_id TEXT,event_type TEXT,metadata JSONB);
+    """)
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for name in (
+        "116_one_location_sms_contacts.sql",
+        "134_one_location_named_circles.sql",
+        "135_one_location_circle_connection_origins.sql",
+        "136_one_location_circle_member_invites.sql",
+        "138_circle_member_connection_origin.sql",
+        "160_one_location_system_circles.sql",
+        "163_one_location_system_circle_kinds.sql",
+    ):
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql(
+                (migrations / name).read_text(), execution_options={"no_parameters": True}
+            )
+
+
 def test_sms_circle_allows_ten_contacts_plus_owner_and_preserves_them_on_rollback(db):
     from hushh_mcp.services.one_location_circle_service import (
         OneLocationCircleError,
@@ -1045,7 +1075,15 @@ async def test_emergency_roster_receipt_and_feed_commit_once_and_removal_cannot_
     assert sum(result["changed"] for result in results) == 1
     roster = agents.OneLocationAgentService()
     assert roster.list_sms_contact_ids(owner_user_id="owner") == ["other"]
-    assert_sms_added_event(db)
+    assert db.execute_raw(
+        "SELECT recipient_user_id,event_type,metadata FROM one_location_events"
+    ).data == [
+        {
+            "recipient_user_id": "other",
+            "event_type": "location_sms_contact_added",
+            "metadata": {"owner_label": "Owner", "counterpart_label": "Contact"},
+        }
+    ]
     assert circles.set_sms_contact(owner_user_id="owner", contact_user_id="other", added=False)[
         "changed"
     ]
@@ -1163,7 +1201,6 @@ def json_text(value):
 
 
 def audience_writer_schema(db, monkeypatch):
-    db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES('third') ON CONFLICT DO NOTHING")
     """Execute domain writers against real Location migrations and SQL tables."""
     from contextlib import contextmanager
 
@@ -1196,19 +1233,6 @@ def audience_writer_schema(db, monkeypatch):
 
     monkeypatch.setattr(agents, "get_db", lambda: db)
     monkeypatch.setattr(agents, "get_db_connection", connection)
-    # The SQL fixture is its own synthetic account directory. Account tombstone
-    # and lifecycle admission still run through the production service.
-    monkeypatch.setattr(
-        agents.OneLocationAgentService,
-        "_active_directory_user_ids",
-        lambda self, ids: {
-            row["user_id"]
-            for row in db.execute_raw(
-                "SELECT user_id FROM actor_profiles WHERE user_id=ANY(CAST(:ids AS TEXT[]))",
-                {"ids": ids},
-            ).data
-        },
-    )
     # Cryptographic token issuance and push transport are outside the SQL writer.
     monkeypatch.setattr(
         agents.OneLocationAgentService,

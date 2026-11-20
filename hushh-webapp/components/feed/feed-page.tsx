@@ -38,7 +38,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { consumeFeedSearchReturn, armFeedSearchReturn } from "@/lib/feed/feed-search-memory";
-import { useOptionalPersonaState } from "@/lib/persona/persona-context";
+import { usePersonaState } from "@/lib/persona/persona-context";
 import { openFeedResult, feedResultHref } from "@/lib/feed/result-navigation";
 import { feedScopeLabel } from "@/lib/feed/agent-scopes";
 import { FeedActivitySearch } from "@/components/feed/feed-activity-search";
@@ -73,7 +73,7 @@ import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh, type FeedRefreshScope } from "@/lib/feed/use-feed-live-refresh";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
 import { feedItemPresentationTime } from "@/lib/feed/feed-pagination";
-import { selectKycRequestFromFeed } from "@/lib/gmail/kyc-feed-selection";
+import { selectKycRequestFromFeed } from "@/lib/feed/kyc-selection";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
@@ -277,7 +277,7 @@ function FeedPageSession({
     return token;
   }, [user, isSessionCurrent]);
   const router = useRouter();
-  const persona = useOptionalPersonaState()?.activePersona === "ria" ? "ria" : "investor";
+  const persona = usePersonaState().activePersona === "ria" ? "ria" : "investor";
   const [restoredSearch] = useState(() => userId ? consumeFeedSearchReturn(userId) : null);
   const [searchScope, setSearchScope] = useState<{ owner: string | null | undefined; generation: number | null; active: boolean } | null>(() => userId ? { owner: userId, generation: sessionGeneration, active: Boolean(restoredSearch?.open || restoredSearch?.submitted) } : null);
   const searchingActivity = Boolean(searchScope && searchScope.owner === userId && searchScope.generation === sessionGeneration && searchScope.active);
@@ -315,6 +315,22 @@ function FeedPageSession({
     },
   });
   const { page: visiblePage, pagination, setPagination, hasNew, showNew } = useFeedHistoryPresentation(userId ?? undefined, data);
+  const [liveContinuation, setLiveContinuation] = useState<{ source: FeedListResponse; items: FeedItem[]; cursor: string | null } | null>(null);
+  const [loadingLive, setLoadingLive] = useState(false);
+  const [liveError, setLiveError] = useState(false);
+  const livePage = liveContinuation?.source === data ? liveContinuation : null;
+  const serverLive = useMemo(() => [...(data?.live_incidents?.items || []), ...(livePage?.items || [])], [data?.live_incidents, livePage]);
+  const liveCursor = livePage ? livePage.cursor : data?.live_incidents?.next_cursor;
+  const loadLive = async () => {
+    if (!liveCursor || !data || loadingLive) return;
+    setLoadingLive(true); setLiveError(false);
+    try {
+      const result = await FeedService.liveIncidents({ idToken: await getSessionToken(), cursor: liveCursor, isEffectCurrent: isSessionCurrent });
+      if (isSessionCurrent()) setLiveContinuation(previous => ({ source: data,
+        items: [...(previous?.source === data ? previous.items : []), ...result.items], cursor: result.next_cursor }));
+    } catch { if (isSessionCurrent()) setLiveError(true); }
+    finally { if (isSessionCurrent()) setLoadingLive(false); }
+  };
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const loadMoreInFlightRef = useRef(false);
@@ -983,8 +999,8 @@ function FeedPageSession({
     currentActionables.flatMap(item => item.operationKey && (!item.smsEmergency || item.emphasis === "emergency") ? [item.operationKey, ...(item.operationKeys ?? [])] : []),
   ), [currentActionables]);
   const historyItems = useMemo(() => items.filter(item =>
-    !item.activity_group_id || !actionableOperations.has(item.activity_group_id)
-  ), [items, actionableOperations]);
+    !serverLive.some(live => (live.activity_group_id || live.id) === (item.activity_group_id || item.id)) && (!item.activity_group_id || !actionableOperations.has(item.activity_group_id))
+  ), [items, actionableOperations, serverLive]);
   const dayGroups = useMemo(() => {
     const timeline = [
       ...historyItems.map(item=>({kind:"history" as const,item,created_at:feedItemPresentationTime(item)})),
@@ -996,14 +1012,15 @@ function FeedPageSession({
   }, [historyItems,currentActionables]);
   // Each live incident remains separate; ended incidents use dated source receipts.
   const allActionables = currentActionables;
-  const liveActionables = allActionables.filter(item => item.emphasis === "emergency").filter(
+  const serverLiveKeys = new Set(serverLive.map(item => item.activity_group_id || item.id));
+  const liveActionables = allActionables.filter(item => item.emphasis === "emergency" && !serverLiveKeys.has(item.operationKey || item.id)).filter(
     (item, index, entries) => entries.findIndex(candidate => (candidate.operationKey || candidate.id) === (item.operationKey || item.id)) === index,
   );
-  const liveOperations = new Set(liveActionables.map(item => item.operationKey || item.id));
+  const liveOperations = new Set([...serverLiveKeys, ...liveActionables.map(item => item.operationKey || item.id)]);
   const regularActionables = allActionables.filter(
     (item) => item.emphasis !== "emergency" && !item.smsEmergency,
   ).filter((item, index, entries) => entries.findIndex(candidate => (candidate.operationKey || candidate.id) === (item.operationKey || item.id)) === index);
-  const hasLiveActionables = liveActionables.length > 0;
+  const hasLiveActionables = liveActionables.length > 0 || serverLive.length > 0;
   const hasRegularActionables = regularActionables.length > 0;
   const hasActionables = hasLiveActionables || hasRegularActionables;
   // Once cleared this session, the loaded history rows are hidden even though
@@ -1081,10 +1098,12 @@ function FeedPageSession({
                   testId="feed-live-group"
                   shellClassName="!bg-accent/[0.04] shadow-none ring-1 ring-inset ring-accent/10"
                 >
+                  {serverLive.map(item => <FeedRow key={`live:${item.id}`} item={item} openable onOpen={openItem} />)}
                   {liveActionables.map((item) => (
                     <FeedActionableRow key={item.id} item={item} />
                   ))}
                 </SettingsGroup>
+                {liveCursor ? <Button variant="none" disabled={loadingLive} onClick={() => void loadLive()}>{loadingLive ? "Loading…" : liveError ? "Retry live alerts" : "More live alerts"}</Button> : null}
               </section>
             ) : null}
 

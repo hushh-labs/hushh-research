@@ -6,7 +6,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
 import { EarningReceiptSections } from "@/components/consent/payouts/receipts/receipt-sections";
-import { receiptHeader } from "@/components/consent/payouts/receipts/payout-receipt-sheet";
 import { formatPaymentMoney } from "@/lib/consent/document-request-payment-view";
 import type { FeedPaymentSelection } from "@/lib/feed/payment-result-selection";
 import { DocumentRequestPaymentSourceService, type DocumentRequestPayment } from "@/lib/services/document-request-payment-source-service";
@@ -50,7 +49,7 @@ export function FeedPaymentResult({ selection, isCurrent }: { selection: FeedPay
         let receipt: Receipt;
         if (selection.audience === "owner") {
           const earning = await PayoutActivityService.item(token, `earning:${selection.requestId}`);
-          if (earning.kind !== "earning" || !earning.mode || earning.request && earning.request.id !== selection.requestId) throw new Error("Receipt unavailable");
+          if (earning.kind !== "earning" || earning.id !== `earning:${selection.requestId}` || earning.request && earning.request.id !== selection.requestId) throw new Error("Receipt unavailable");
           receipt = { earning };
         } else {
           const snapshot = await DocumentRequestPaymentSourceService.snapshot(token, owner);
@@ -69,7 +68,7 @@ export function FeedPaymentResult({ selection, isCurrent }: { selection: FeedPay
   if (!owner || visible?.failed) return <div className="space-y-2"><p role="status" className="text-sm text-muted-foreground">Receipt unavailable</p><Button variant="ghost" onClick={() => setRetry(value => value + 1)}>Try again</Button></div>;
   if (!visible?.receipt) return <p role="status" className="text-sm text-muted-foreground">Checking receipt…</p>;
   const { earning, payment } = visible.receipt;
-  if (earning) return <div className="space-y-3"><p className="text-sm">{receiptHeader(earning, false).description}</p><EarningReceiptSections receipt={earning} openItem={() => undefined} /></div>;
+  if (earning) return <div className="space-y-3"><p className="text-sm">Recorded receipt</p><EarningReceiptSections receipt={earning} openItem={() => undefined} /></div>;
   return <SettingsGroup>
     <SettingsRow title={paymentStatus(payment)} trailing={formatPaymentMoney(payment.amountCents)} />
     <SettingsRow title="Mode" trailing={payment.mode === "test" ? "Test payment" : payment.mode === "live" ? "Live payment" : "Legacy record"} />

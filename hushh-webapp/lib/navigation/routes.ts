@@ -1,5 +1,3 @@
-import { normalizeInternalRouteHref, normalizeStaticExportPathname } from "./route-normalization";
-export { normalizeInternalRouteHref, resolveInternalRouteHref, normalizeStaticExportPathname } from "./route-normalization";
 import { withQuery } from "./route-query";
 
 /**
@@ -33,32 +31,10 @@ export function buildKaiMarketRoute(
 }
 
 /** Retain the Finance screen that opened the statement import flow. */
-export function buildKaiImportRoute(from: string, statementId?: string) {
+export function buildKaiImportRoute(from: string) {
   return withQuery(ROUTES.KAI_IMPORT, {
     from: normalizeInternalRouteHref(from),
-    statement_id: statementId,
   });
-}
-
-export function buildKaiImportReviewRoute(runId: string, fixField?: string) {
-  return withQuery(ROUTES.KAI_IMPORT, {
-    from: ROUTES.ONE_FEED,
-    stage: "reviewing",
-    import_run_id: runId,
-    fix_field: fixField,
-  });
-}
-
-export function buildKaiReconnectRoute(itemId: string) {
-  return withQuery(ROUTES.KAI_PORTFOLIO_SOURCES, { reconnect: itemId, from: ROUTES.ONE_FEED });
-}
-
-export function historicalFundingFeedHref(id: string) {
-  return withQuery(ROUTES.ONE_FEED, { funding_event: id });
-}
-
-export function savedAnalysisFeedHref(id: string) {
-  return buildKaiMarketRoute("analysis", { analysis_id: id, from: ROUTES.ONE_FEED });
 }
 
 export function buildKaiPortfolioSectionRoute(
@@ -363,6 +339,30 @@ export function initialContactsWelcomeDestination(returnTo?: string | null): str
   const path = normalizeStaticExportPathname(safe?.split(/[?#]/, 1)[0] ?? "");
   const financeResume = path === ROUTES.ONE_SETUP_FINANCE_IMPORT || path === ROUTES.ONE_SETUP_FINANCE;
   return safe && path !== ROUTES.ONE_WELCOME && (financeResume || !isOneSetupSurfaceRoute(path ?? "")) ? safe : ROUTES.HOME;
+}
+
+export function normalizeInternalRouteHref(
+  value: string | null | undefined,
+): string | null {
+  const href = String(value ?? "").trim();
+  if (!href) return null;
+  if (!href.startsWith("/") || href.startsWith("//")) return null;
+  if (/[\\\u0000-\u001f\u007f]/.test(href) || /%5c/i.test(href)) return null;
+  try {
+    const parsed = new URL(href, "https://one.local");
+    if (parsed.origin !== "https://one.local") return null;
+    const canonical = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return canonical === href ? canonical : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveInternalRouteHref(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  return normalizeInternalRouteHref(value) ?? fallback;
 }
 
 export function buildOneSetupKaiRoute(entries?: {
@@ -803,6 +803,14 @@ export function isOneSetupRoute(pathname: string): boolean {
  * a WebView navigation). Route admission must compare the logical app route,
  * not that transport-specific pathname shape.
  */
+export function normalizeStaticExportPathname(pathname: string): string {
+  const withoutIndexDocument = String(pathname || "/").replace(
+    /\/index\.html$/i,
+    "",
+  );
+  const withoutTrailingSlash = withoutIndexDocument.replace(/\/+$/, "");
+  return withoutTrailingSlash || "/";
+}
 
 /**
  * The setup-scoped per-capability step route, e.g. `/one/setup/gmail`.

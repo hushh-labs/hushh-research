@@ -76,18 +76,18 @@ describe("FeedRow", () => {
       .toHaveClass("min-h-[64px]");
   });
 
-  it.each(["mail_message_sent", "kyc_status_changed", "kai_analysis_saved", "unknown_event"])("keeps the canonical icon when %s has no custom glyph", event_type => {
+  it.each(["mail_message_sent", "kyc_status_changed", "kai_analysis_completed", "unknown_event"])("keeps the canonical icon when %s has no custom glyph", event_type => {
     const { container } = render(<FeedRow item={feedItem({ event_type })} onOpen={() => {}} />);
     expect(container.querySelector('[data-slot="feed-domain-icon"] svg')).not.toBeNull();
   });
 
   it("uses bundled company art and falls back visibly if it cannot load", () => {
     const { container } = render(<FeedRow item={feedItem({ metadata: { ticker: "AAPL" } })} onOpen={() => {}} />);
-    const logo = container.querySelector('[data-symbol-avatar] img')!;
-    expect(logo).toHaveAttribute("src", "/logos/apple.svg");
+    const logo = container.querySelector('[data-slot="feed-domain-icon"] img')!;
+    expect(new URL(logo.getAttribute("src")!, "http://localhost").pathname).toBe("/feed/apple.svg");
     fireEvent.error(logo);
-    expect(container.querySelector('[data-symbol-avatar]')).toHaveTextContent("A");
-    expect(container.querySelector('[data-symbol-avatar] img')).toBeNull();
+    expect(container.querySelector('[data-slot="feed-domain-icon"] svg')).not.toBeNull();
+    expect(container.querySelector('[data-slot="feed-domain-icon"] img')).toBeNull();
   });
 
   it("keeps an activity icon for an unbundled ticker without a provider request", () => {

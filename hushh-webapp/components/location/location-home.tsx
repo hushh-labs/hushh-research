@@ -1,8 +1,5 @@
 "use client";
 
-import { selectActiveOwnerGrants, selectActiveReceivedGrants, selectPendingIncomingRequests } from "@/lib/one-location/workspace-selectors";
-export { selectActiveOwnerGrants, selectActiveReceivedGrants, selectPendingIncomingRequests, selectPendingOutgoingRequests } from "@/lib/one-location/workspace-selectors";
-
 import { connectionAvatarInitials as personInitials } from "@/components/connections/connection-person-avatar";
 export { personInitials };
 
@@ -373,6 +370,43 @@ export function useLocationWorkspaceState(): LocationWorkspace {
 /* ------------------------------------------------------------------ */
 /* Selectors                                                          */
 /* ------------------------------------------------------------------ */
+
+export function selectActiveOwnerGrants(
+  state: OneLocationState | null,
+): OneLocationGrant[] {
+  return (state?.ownerGrants ?? []).filter(
+    (grant) => grant.status === "active",
+  );
+}
+
+export function selectActiveReceivedGrants(
+  state: OneLocationState | null,
+): OneLocationGrant[] {
+  return (state?.receivedGrants ?? []).filter(
+    (grant) => grant.status === "active",
+  );
+}
+
+export function selectPendingIncomingRequests(
+  state: OneLocationState | null,
+  userId: string | null,
+): OneLocationAccessRequest[] {
+  if (!userId) return [];
+  return (state?.requests ?? []).filter(
+    (request) => request.status === "pending" && request.ownerUserId === userId,
+  );
+}
+
+export function selectPendingOutgoingRequests(
+  state: OneLocationState | null,
+  userId: string | null,
+): OneLocationAccessRequest[] {
+  if (!userId) return [];
+  return (state?.requests ?? []).filter(
+    (request) =>
+      request.status === "pending" && request.requesterUserId === userId,
+  );
+}
 
 function grantRemainingLabel(grant: OneLocationGrant, nowMs: number): string {
   if (grant.durationMode === "until_stopped" || !grant.expiresAt)
@@ -898,8 +932,6 @@ export function LocationNeedsReviewScreen() {
             vaultOwnerToken: workspace.vaultOwnerToken,
             requestId: request.id,
             approvalMode: "manual",
-            expectedRequestRevision: request.requestRevision ?? 1,
-            reviewedExtension: request.extendsGrantId ? { grantId: request.extendsGrantId, expiresAt: request.extendsGrantExpiresAt ?? null } : undefined,
           });
           OneLocationStateResource.mergeRequestStatus(
             workspace.userId,
@@ -912,7 +944,6 @@ export function LocationNeedsReviewScreen() {
           const denied = await OneLocationService.denyRequest({
             vaultOwnerToken: workspace.vaultOwnerToken,
             requestId: request.id,
-              expectedRequestRevision: request.requestRevision ?? 1,
           });
           OneLocationStateResource.mergeRequestStatus(workspace.userId, denied);
           morphyToast.success("Request declined.");

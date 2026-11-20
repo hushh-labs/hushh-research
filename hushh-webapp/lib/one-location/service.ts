@@ -1,4 +1,3 @@
-import { authHeaders, jsonAuthHeaders } from "./request-headers";
 import { Capacitor } from "@capacitor/core";
 
 import { HushhLocation } from "@/lib/capacitor";
@@ -157,6 +156,10 @@ function normalizeCircleMaybeDetail(
   return "members" in circle ? normalizeCircleDetail(circle) : circle;
 }
 
+function authHeaders(vaultOwnerToken: string): Record<string, string> {
+  return { Authorization: `Bearer ${vaultOwnerToken}` };
+}
+
 /**
  * Origin prefix for a route served by the Next.js app rather than the Python
  * backend. Empty on web (relative is correct); the web origin on native, where
@@ -164,6 +167,13 @@ function normalizeCircleMaybeDetail(
  */
 function nextRouteOrigin(): string {
   return Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
+}
+
+function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
+  return {
+    ...authHeaders(vaultOwnerToken),
+    "Content-Type": "application/json",
+  };
 }
 
 let locationMutationSequence = 0;
@@ -2302,7 +2312,6 @@ export class OneLocationService {
     autoApproveRuleVersion?: number | null;
     /** Exact request version reviewed by the command confirmation card. */
     expectedRequestRevision?: number;
-    reviewedExtension?: { grantId: string; expiresAt: string | null };
   }): Promise<{
     request: OneLocationAccessRequest;
     grant: OneLocationGrant;
@@ -2330,7 +2339,6 @@ export class OneLocationService {
           // manual approval and bypass standing-rule validation.
           autoApproveRuleVersion: params.autoApproveRuleVersion ?? undefined,
           expectedRequestRevision: params.expectedRequestRevision,
-          reviewedExtension: params.reviewedExtension,
         }),
       },
     );
@@ -2341,14 +2349,12 @@ export class OneLocationService {
   static async denyRequest(params: {
     vaultOwnerToken: string;
     requestId: string;
-    expectedRequestRevision?: number;
   }): Promise<OneLocationAccessRequest> {
     const response = await apiJson<{ request: OneLocationAccessRequest }>(
       `/api/one/location/requests/${encodeURIComponent(params.requestId)}/deny`,
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        ...(params.expectedRequestRevision != null ? { body: JSON.stringify({expectedRequestRevision:params.expectedRequestRevision}) } : {}),
       },
     );
     announceFeedActivity();

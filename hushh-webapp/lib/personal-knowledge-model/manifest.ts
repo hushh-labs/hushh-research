@@ -278,7 +278,6 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
 const VAULT_PRIVATE_BRANCHES: ReadonlySet<string> = new Set([
   ...PLAID_VAULT_RECORD_BRANCHES,
   LINKED_ACCOUNTS_BRANCH,
-  "contact_aliases", // Fixed private preference node; never publish person refs or alias paths.
   PKM_QUARANTINE_SEGMENT_ID,
 ]);
 

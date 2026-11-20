@@ -92,17 +92,3 @@ describe("GmailInformationRequestsService.scanStream", () => {
     );
   });
 });
-
-
-it("reads only the exact terminal request and refuses an active or substituted record", async () => {
-  apiMocks.apiJson.mockClear();
-  const input = { firebaseIdToken: "firebase", vaultOwnerToken: "owner", workflowId: "request-1" };
-  const value = { workflow_id: "request-1", status: "sent", requested_field_labels: ["Passport"], candidate_scopes: [], attachment_review_required: false };
-  apiMocks.apiJson.mockResolvedValueOnce(value);
-  await expect(GmailInformationRequestsService.getActivity(input)).resolves.toEqual(value);
-  expect(apiMocks.apiJson).toHaveBeenCalledWith("/api/one/email/information-requests/request-1/activity", { headers: expect.objectContaining({ Authorization: "Bearer firebase", "X-Hushh-Consent": "Bearer owner" }) });
-  for (const record of [{ ...value, status: "detected" }, { ...value, workflow_id: "other" }]) {
-    apiMocks.apiJson.mockResolvedValueOnce(record);
-    await expect(GmailInformationRequestsService.getActivity(input)).rejects.toThrow("unavailable");
-  }
-});

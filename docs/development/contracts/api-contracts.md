@@ -203,6 +203,27 @@ The existing owner-cloud hosting restriction remains; managed-hosting Google rea
 and private Calendar invitation actions are not enabled by these routes. Existing
 owner agents need the updated image before the new paths can serve their app.
 
+## Feed history and search
+
+Feed adds owner-scoped read adapters; source features retain their existing write
+contracts, persistence, consent and provider behavior.
+
+| Method | Path | Authority / result |
+| --- | --- | --- |
+| POST | `/api/one/feed/search` | Firebase owner; bounded labels and agent/person/date criteria before stable pagination. No read acknowledgement. |
+| GET | `/api/one/feed/{item_id}/activity` | Firebase owner; exact grouped current summary and immutable dated steps. |
+| GET | `/api/one/feed/live` | Firebase recipient; current confirmed SOS incidents, independent of normal history. At most 100 per page; explicit next cursor. |
+| POST | `/api/one/feed/funding-history` | Matching Firebase and vault owner; existing recorded transfer states only. |
+| POST | `/api/one/feed/files/{audience}/search` | `owner` requires existing content-owner admission; `requester` requires vault owner plus participant, current identity, payment and file access. |
+| POST | `/api/one/feed/files/{audience}/file` | Same authority, with exact request/file reference and fresh source reread. |
+
+Authenticated responses are private/no-store. Filename criteria stay in POST
+bodies; encrypted candidates are bounded to 100 per scan and 20 returned matches.
+A continuation can exist with no matching file on the current scan. These readers
+never pay, reconcile, share, import, save reports or alter notification settings.
+The first Feed page includes `live_incidents: {items, next_cursor}`; ordinary
+history cursors and read/clear snapshots do not hide active incidents.
+
 ## Feed counterpart profile presentation
 
 Feed metadata may include `counterpart_person_ref`, resolved at read time from
@@ -2276,7 +2297,6 @@ server-side, then bind both actions to that source.
 | GET | `/api/one/email/information-requests/preference?user_id={user_id}` | Firebase Bearer | Read the authenticated mailbox owner's monitoring preference. |
 | PATCH | `/api/one/email/information-requests/preference` | Firebase Bearer | Explicitly enable or disable transient server-side classification for that mailbox. Enabling captures a Gmail History baseline and makes one newest-first setup scan of up to 30 Inbox messages. |
 | GET | `/api/one/email/information-requests?limit={limit}&offset={offset}&view={active\|activity}` | Firebase + `VAULT_OWNER` | List the active detected queue (`active`, default) or terminal metadata-only activity (`activity`); no original email content is returned. |
-| GET | `/api/one/email/information-requests/{workflow_id}` | Firebase + `VAULT_OWNER` | Open the exact still-active request from Feed regardless of its position in the queue. Returns the existing metadata-only queue item, with private no-store caching. Closed and unavailable requests return 404. |
 | POST | `/api/one/email/information-requests/scan` | Firebase + `VAULT_OWNER` | Run a bounded owner-requested scan of Inbox messages added after the opt-in baseline. Already recorded, unchanged messages are not classified again. |
 | POST | `/api/one/email/information-requests/scan/stream` | Firebase + `VAULT_OWNER` | Run the same bounded new-mail scan as a named SSE stream. It sends the completed-email count and each newly persisted metadata-only request as it is found, then one final safe scan summary; it never sends source email content, addresses, or Gmail cursors. |
 | GET | `/api/one/email/information-requests/{workflow_id}/source-preview` | Firebase + `VAULT_OWNER` | Fetch the selected source email transiently for an owner-initiated chat or draft. The no-store response includes `from`, optional `reply_to`, subject, and readable body after current source-fingerprint validation. |
@@ -4058,14 +4078,6 @@ including invalidation of older generic Feed Undo tokens.
 | Method | Path | Feed history contract |
 | ------ | ---- | --------------------- |
 | GET | `/api/one/feed?cursor=&limit=` | Owner-scoped, grouped newest-first history with keyset pagination; returns `{items,next_cursor,unread_count}` and `Cache-Control: private, no-store`. Hidden rows do not appear. |
-| POST | `/api/one/feed/funding-history` | Firebase and matching VAULT_OWNER. Body selects an owner's retained transfer by exact `item_id` or a status/date query; returns grouped current status and recorded milestones. This is historical Feed evidence from the retired shared funding service, with no amount or provider account information. |
-| GET | `/api/kai/analysis/report-storage` | Current hub VAULT_OWNER and Shared placement; qualifies the existing completion-proof custody key before explicit report-sync setup. No secret or proof is returned. |
-| POST | `/api/kai/analyze/run/{run_id}/feed-result?user_id=…` | Current VAULT_OWNER/Shared placement, live completion or retained server proof, exact report ticker and active Shared library/object-generation lease. The browser acknowledges verified encrypted readback; the server checks ciphertext custody and derives the ticker. It cannot decrypt the report. Publication reuses the library transaction and per-run lock. |
-| POST | `/api/kai/analyze/run/{run_id}/feed-result/read?user_id=…` | Body contains the optional encrypted completion proof. Validates actual owner-bound completion and persists only this run's read intent, including before its first saved Feed row. It cannot mark another agent or run read. |
-| POST | `/api/kai/analyze/run/{run_id}/feed-result/remove?user_id=…` | Exact Shared object receipt without publication-only fields. Current owner, library, generation and active lease are rechecked before hiding this run. The browser has independently verified the encrypted tombstone. |
-| GET | `/api/one/email/information-requests/{workflow_id}/activity` | Firebase and matching hub VAULT_OWNER, exact owner and terminal `sent`, `ignored` or `blocked` metadata only; private/no-store. Does not reopen reply authority or require monitoring to be enabled. Missing/retention-expired sources return 404 while Feed retains its dated receipt. |
-| GET | `/api/one/email/send/status/{action_id}` | Existing owner-bound read-only recorded status. Feed history uses GET, never the POST reconciliation or send endpoint. |
-| GET | `/api/one/finance/advisor-reviews?pending_received=true` | Existing dual-auth history endpoint filtered before its result limit to pending, unexpired, unblocked incoming requests of the currently verified advisor. |
 | POST | `/api/one/feed/{item_id}/dismiss` | Marks this owner's presentation row hidden and read. Returns `{status:"ok",dismissal_token:"<UUID>"}` for a newly hidden row; missing, another owner's, or already hidden IDs return a null token. |
 | POST | `/api/one/feed/{item_id}/restore` | Body `{dismissal_token:"<UUID>"}`. Undoes only that exact dismissal, leaving the row read. Returns `{status:"ok",restored:boolean}`; missing, another owner's, or superseded tokens return false. |
 | POST | `/api/one/feed/clear` | Body `{up_to_id:"<positive Postgres bigint>"}`. Atomically marks this owner's existing rows through that ID hidden and read, and replaces their dismissal tokens so a stale Undo cannot revive them. Newer rows remain visible. Returns `{status:"ok"}`. |
@@ -4089,13 +4101,6 @@ so a successful latest batch cannot conceal an earlier failed batch. Confirmed
 delivery does not establish exhaustive search coverage or authorize unverified
 candidates. The proxy and native HTTP transport pass these additive fields;
 older servers safely omit them.
-
-Grouped document activity returns `activity_group_id` and
-`activity_revision` on request rows with a verified source identifier. The
-numeric row ID and timestamp identify the headline event. The separate numeric
-revision is used for Feed read, clear, and dismissal boundaries when an
-observed event arrives after the headline event. List and unread count group by
-the same request key before pagination.
 
 Current no-charge Drive completion adds the boolean
 `current_existing_access_nocharge` from participant-scoped live receipts. It is
@@ -4170,9 +4175,8 @@ data. Client behaviour is in the
 Notes:
 
 - First-party PKM writes are version-aware through the frontend `PkmWriteCoordinator`; stale domains may trigger resumable client-side PKM upgrade before save.
-- New analysis reports are encrypted in owner-scoped device storage, keyed by the exact run. Separate runs for one ticker remain separate. Legacy `financial.analysis_history` remains readable and supports explicit deletion. New results do not rewrite that PKM branch or publish report contents into backend projections.
-- Saved background results retain an encrypted pending-publication marker. Feed acknowledgement requires an actual idempotent Feed write; network/server failure stays pending. Publication currently requires the retained source run and cannot recover after its six-hour operational retention.
-- Statement imports rebuild from the coordinator’s latest financial revision and persist the confirmed result with the encrypted statement snapshot. Filename search uses only unlocked owner information. Delta counts remain unavailable when the source identity or prior baseline cannot be proved.
+- Debate/analysis history remains encrypted in `financial.analysis_history` and mirrors a privacy-safe `decision_history_v1` projection for backend/read-model consumers.
+- Current history retention is `3` saved versions per ticker, newest first.
 
 ---
 
@@ -6396,17 +6400,3 @@ Send remain necessary. Closing, vault retirement and owner changes retire
 pending recommendation results. No schema migration or advisor-flow change is
 required. Removing the launcher rolls back the feature; older profile editors
 preserve the optional preference.
-
-
-Feed search accepts optional `person_ref` alongside query, scope, persona and dates.
-A locally decrypted, explicitly saved Connections private name resolves only a
-unique confirmed person. The nickname is never placed in a readable PKM summary,
-manifest path, model context or backend search index. The server resolves the
-opaque reference and rechecks the active connection on every page; counterpart
-matching occurs before ranking/pagination while preserving the full workflow's
-current summary. Missing counterpart schema refuses the person filter instead
-of broadening it. Cursor and in-memory query cache identities include that
-reference. Optional private-name storage failures leave ordinary lexical search
-available with a quiet unavailable status. RIA client Top Hits independently
-require verified RIA and workspace authority. Agent scope never changes delivery,
-subscriptions or read state; active emergencies remain pinned across scopes.

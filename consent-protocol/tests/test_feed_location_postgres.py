@@ -2,9 +2,7 @@
 
 import json
 import uuid
-from pathlib import Path
 
-import pytest
 from sqlalchemy import text
 
 from tests import test_feed_account_session_postgres as support
@@ -56,7 +54,6 @@ def _unpublished_incidents(feed_db):
 
 
 def test_emergencies_require_publication_and_clear_never_hides_two_live_incidents(feed_db):
-    from hushh_mcp.services.location_feed_publication import RECEIVED_GRANTS_SQL
     from tests.feed_fixture_support import install_location_publication
 
     install_location_publication(feed_db)
@@ -76,16 +73,21 @@ def test_emergencies_require_publication_and_clear_never_hides_two_live_incident
     page = reader.list_feed(OWNER)
     assert len(page["items"]) == 2
     reader.clear(OWNER, up_to_id=int(page["read_snapshot"]["up_to_id"]))
+    live = reader.live_incidents(OWNER)["items"]
+    assert {row["metadata"]["grant_id"] for row in live} == set(grants)
+
+    # Two incidents remain visible even behind more than fifty newer outcomes.
     with feed_db.begin() as conn:
-        live = list(
-            conn.execute(
-                text(RECEIVED_GRANTS_SQL), {"user_id": OWNER, "source_limit": 50}
-            ).mappings()
+        conn.execute(
+            text("""INSERT INTO feed_events(user_id,source_domain,event_type,metadata,created_at)
+          SELECT :owner,'kai','kai_analysis_completed','{}',clock_timestamp()
+          FROM generate_series(1,60)"""),
+            {"owner": OWNER},
         )
+    assert len(reader.list_feed(OWNER, limit=20)["items"]) == 20
     assert {
-        str(row["id"]) for row in live if row["feed_sms_confirmed"] and row["status"] == "active"
+        row["metadata"]["grant_id"] for row in reader.list_feed(OWNER)["live_incidents"]["items"]
     } == set(grants)
-    assert all(row["feed_confirmed_at"] is not None for row in live)
 
     # Both legacy Clear and snapshot Clear preserve the incident's eventual history.
     current = reader.list_feed(OWNER)
@@ -101,7 +103,7 @@ def test_emergencies_require_publication_and_clear_never_hides_two_live_incident
         assert (
             conn.execute(
                 text(
-                    "SELECT count(*) FROM feed_events WHERE user_id=:owner AND dismissed_at IS NOT NULL"
+                    "SELECT count(*) FROM feed_events WHERE user_id=:owner AND source_domain='location' AND dismissed_at IS NOT NULL"
                 ),
                 {"owner": OWNER},
             ).scalar_one()
@@ -203,73 +205,6 @@ def test_circle_chat_uses_current_unread_membership_not_feed_acknowledgement(fee
             )
         )
     assert reader.list_feed(OWNER)["items"] == []
-
-
-def test_check_in_erasure_preserves_the_denominator_and_blocks_identity_resurrection(feed_db):
-    from tests.feed_fixture_support import install_location_publication
-
-    install_location_publication(feed_db)
-    migrations = Path(__file__).resolve().parents[1] / "db/migrations"
-    operation = str(uuid.uuid4())
-    with feed_db.begin() as conn:
-        conn.execute(
-            text("""DROP FUNCTION install_account_deletion_write_guards();
-          CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY);
-          CREATE TABLE one_location_circle_memberships(circle_id UUID,user_id TEXT,status TEXT,joined_at TIMESTAMPTZ);
-          CREATE TABLE one_location_access_requests(id UUID,owner_user_id TEXT,requester_user_id TEXT,approved_grant_id UUID);
-          INSERT INTO actor_profiles VALUES(:owner),(:other);"""),
-            {"owner": OWNER, "other": OTHER},
-        )
-        for name in ("201_account_deletion_tombstones.sql", "462_location_check_in_operations.sql"):
-            conn.exec_driver_sql(
-                (migrations / name).read_text(), execution_options={"no_parameters": True}
-            )
-        conn.execute(
-            text(
-                "INSERT INTO one_location_check_in_operations(id,owner_user_id,client_operation_id,duration_hours,confirmed_at) VALUES(:id,:owner,'erasure-qa',1,now())"
-            ),
-            {"id": operation, "owner": OWNER},
-        )
-        conn.execute(
-            text(
-                "INSERT INTO one_location_check_in_targets(operation_id,recipient_user_id) VALUES(:id,:other),(:id,NULL)"
-            ),
-            {"id": operation, "other": OTHER},
-        )
-    # Negative control: a normal writer cannot detach or reparent a participant.
-    with pytest.raises(Exception, match="account identity reference is immutable"):
-        with feed_db.begin() as conn:
-            conn.execute(
-                text(
-                    "UPDATE one_location_check_in_targets SET recipient_user_id=NULL WHERE recipient_user_id=:other"
-                ),
-                {"other": OTHER},
-            )
-    with feed_db.begin() as conn:
-        conn.execute(
-            text(
-                "INSERT INTO account_deletion_tombstones(user_id_hash) VALUES('sha256:'||encode(digest(CAST(:other AS TEXT),'sha256'),'hex'))"
-            ),
-            {"other": OTHER},
-        )
-        conn.execute(text("DELETE FROM actor_profiles WHERE user_id=:other"), {"other": OTHER})
-        assert (
-            conn.execute(
-                text(
-                    "SELECT count(*) FROM one_location_check_in_targets WHERE operation_id=:id AND recipient_user_id IS NULL"
-                ),
-                {"id": operation},
-            ).scalar_one()
-            == 2
-        )
-    with pytest.raises(Exception, match="account identity is deleted"):
-        with feed_db.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO one_location_check_in_targets(operation_id,recipient_user_id) VALUES(:id,:other)"
-                ),
-                {"id": operation, "other": OTHER},
-            )
 
 
 def test_location_feed_uses_server_expiry_before_retention_settles_raw_status(feed_db):

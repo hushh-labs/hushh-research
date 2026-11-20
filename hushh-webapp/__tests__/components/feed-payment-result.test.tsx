@@ -82,15 +82,15 @@ describe("Feed receipt source boundary", () => {
     expect(screen.queryByText("$10")).not.toBeInTheDocument();
   });
 
-  it("uses the exact owner's earning source and requires its money mode", async () => {
+  it("uses the exact owner's existing receipt without inventing its money mode", async () => {
     const earning = { id: `earning:${id}`, kind: "earning", status: "credited", mode: "test", coins: 911, request: null, breakdown: null, stages: [], cashOut: null, review: null, reference: null };
     source.item.mockResolvedValueOnce(earning);
     const view = render(<FeedPaymentResult selection={{ requestId: id, audience: "owner" }} isCurrent={current} />);
-    expect(await screen.findByText(/Test payment/)).toBeVisible();
+    expect(await screen.findByText("Recorded receipt")).toBeVisible();
     expect(source.item).toHaveBeenCalledWith("vault", `earning:${id}`);
     expect(source.snapshot).not.toHaveBeenCalled();
     view.unmount();
-    source.item.mockResolvedValueOnce({ ...earning, mode: null });
+    source.item.mockResolvedValueOnce({ ...earning, id: "earning:other-request" });
     render(<FeedPaymentResult selection={{ requestId: id, audience: "owner" }} isCurrent={current} />);
     expect(await screen.findByText("Receipt unavailable")).toBeVisible();
   });

@@ -468,5 +468,3 @@ export function usePersonaState() {
   }
   return context;
 }
-
-export function useOptionalPersonaState() { return useContext(PersonaContext); }

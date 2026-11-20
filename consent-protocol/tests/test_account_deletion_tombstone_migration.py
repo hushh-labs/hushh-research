@@ -282,7 +282,6 @@ def test_identity_set_null_fk_inventory_is_explicitly_reviewed():
         ("165_one_referral_program.sql", "bound_user_id"),
         ("296_circle_chat_reactions_events.sql", "subject_user_id"),
         ("296_circle_chat_reactions_events.sql", "actor_user_id"),
-        ("462_location_check_in_operations.sql", "recipient_user_id"),
     }
 
     account_service = (ROOT / "hushh_mcp/services/account_service.py").read_text(encoding="utf-8")

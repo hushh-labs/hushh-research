@@ -1,6 +1,5 @@
 "use client";
 
-import { ReportSyncSetup } from "./report-sync-setup";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
 
@@ -662,7 +661,6 @@ export function AnalysisHistoryDashboard({
     return (
       <div className="w-full space-y-3">
         <EmptyState />
-        <ReportSyncSetup onReady={() => void fetchHistory(false)} />
         {showDebateInputs ? (
           <DebateInputsCard
             loading={debateSnapshotLoading}
@@ -678,7 +676,6 @@ export function AnalysisHistoryDashboard({
   // ----- Populated state -----
   return (
     <div className="w-full space-y-3">
-      <ReportSyncSetup onReady={() => void fetchHistory(false)} />
       <AnalysisHistoryList entries={entries} onOpen={onViewHistory}
         onDelete={setPendingDelete} />
 

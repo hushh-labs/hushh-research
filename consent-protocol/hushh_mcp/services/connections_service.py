@@ -2289,21 +2289,46 @@ class ConnectionsService:
             )
 
     def _end_one_location_circle_memberships(
-        self, *, user_a_id: str, user_b_id: str, actor_user_id: str | None = None
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
     ) -> None:
-        from hushh_mcp.services.connections_location_cleanup import end_location_memberships
+        """Take a disconnected pair out of each other's Circles.
 
-        end_location_memberships(
-            self, user_a_id=user_a_id, user_b_id=user_b_id, actor_user_id=actor_user_id
+        Revoking the connection is not enough on its own. One Location decides
+        whether a location may be delivered by asking for an active non-Circle
+        connection origin OR a shared active Circle -- so a membership that
+        outlives the connection keeps the second arm of that OR true, and the
+        person who disconnected keeps receiving live location and, through the
+        system Circle's roster, an address in an emergency SMS.
+
+        Runs on this transaction's connection so it commits with the
+        disconnect, and AFTER the connection row is revoked: the grant
+        reconciliation inside asks whether an independent relationship still
+        supports each share, and would answer yes to a connection this
+        statement is in the middle of ending.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to; a real runtime database always exposes
+            # `engine.begin`. Loud, because silently skipping this leaves a
+            # live location path open.
+            logger.warning(
+                "connections.disconnect_circle_cleanup_skipped_no_transaction",
+            )
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
         )
 
-    def _close_disconnected_access(
-        self, user_a_id: str, user_b_id: str, actor_user_id: str
-    ) -> None:
-        self._end_one_location_circle_memberships(
-            user_a_id=user_a_id, user_b_id=user_b_id, actor_user_id=actor_user_id
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
         )
-        self._end_drive_owner_allows(user_a_id=user_a_id, user_b_id=user_b_id)
 
     def _end_drive_owner_allows(self, *, user_a_id: str, user_b_id: str) -> None:
         """End each owner Allow on a document request between the pair.
@@ -4339,7 +4364,14 @@ class ConnectionsService:
                 {"id": (connection_id or "").strip(), "actor_user_id": user_id},
             )
             if conn:
-                self._close_disconnected_access(str(user_a or ""), str(user_b or ""), user_id)
+                self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
+                self._end_drive_owner_allows(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
                 # Each named-Circle origin removal recomputes the aggregate.
                 # Multiple origins can temporarily reactivate it and replace
                 # revoked_at. The explicit disconnect owns the final state and

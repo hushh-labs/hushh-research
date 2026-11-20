@@ -12,29 +12,21 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token as require_vault_owner_token
+from api.middlewares.observability import get_request_id
 from api.routes.kai._streaming import (
     STOCK_ANALYZE_TIMEOUT_SECONDS,
     CanonicalSSEStream,
 )
-from api.routes.kai.analysis_report_availability import (
-    ReportReadReceipt,
-    SharedObjectReceipt,
-    SharedReportReceipt,
-    confirmed_completion_ticker,
-    confirmed_report_object,
-)
 from api.routes.kai.run_manager import KaiAnalyzeRunManager
-from api.routes.kai.stream_transport import _create_sse_response as _transport_response
-from api.routes.kai.stream_transport import _parse_cursor as _parse_cursor
 from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
@@ -46,8 +38,6 @@ from hushh_mcp.operons.kai.llm import (
     synthesize_debate_recommendation_card,
 )
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.feed_service import FeedService
-from hushh_mcp.services.kai_completion_proof import issue_completion_proof, verify_completion_proof
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
@@ -62,12 +52,6 @@ from ._analysis_presentation import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:
-    """Preserve the existing constructor port for route callers and rehearsals."""
-    return _transport_response(generator, response_factory=EventSourceResponse)
-
 
 router = APIRouter(tags=["Kai Streaming"])
 _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
@@ -2642,6 +2626,57 @@ async def analyze_stream_generator(
         finish_provider_call_counts(provider_calls_token)
 
 
+def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:
+    async def _instrumented() -> AsyncGenerator[dict, None]:
+        started = time.perf_counter()
+        event_count = 0
+        saw_terminal = False
+        request_id = get_request_id() or "unknown"
+        logger.info(
+            "stream.lifecycle_start stream=kai_analyze request_id=%s",
+            request_id,
+        )
+        try:
+            async for frame in generator:
+                event_count += 1
+                data = frame.get("data") if isinstance(frame, dict) else None
+                if isinstance(data, str) and '"terminal":true' in data.replace(" ", "").lower():
+                    saw_terminal = True
+                yield frame
+        finally:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.info(
+                "stream.lifecycle_end stream=kai_analyze request_id=%s duration_ms=%s event_count=%s terminal=%s",
+                request_id,
+                duration_ms,
+                event_count,
+                saw_terminal,
+            )
+
+    return EventSourceResponse(
+        _instrumented(),
+        ping=15,
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+def _parse_cursor(cursor: Optional[int]) -> int:
+    if cursor is None:
+        return 0
+    try:
+        parsed = int(cursor)
+    except Exception as exc:  # pragma: no cover - guard
+        raise HTTPException(status_code=422, detail="cursor must be an integer") from exc
+    if parsed < 0:
+        raise HTTPException(status_code=422, detail="cursor must be >= 0")
+    return parsed
+
+
 def _stream_factory(
     ticker: str,
     user_id: str,
@@ -2976,97 +3011,6 @@ async def analyze_run_stream(
             request=request,
         )
     )
-
-
-@router.get("/analysis/report-storage")
-async def report_storage_readiness(token_data: dict = Depends(hub_content_owner)):
-    owner = token_data["user_id"]
-    try:
-        proof = issue_completion_proof(owner, "readiness", "CHECK")
-        if verify_completion_proof(owner, "readiness", proof) != "CHECK":
-            raise ValueError
-    except Exception:
-        raise HTTPException(status_code=503, detail="Report sync is unavailable") from None
-    return {"available": True}
-
-
-@router.post("/analyze/run/{run_id}/feed-result")
-async def analyze_run_feed_result(
-    run_id: RunId,
-    request: Request,
-    receipt: SharedReportReceipt,
-    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
-    token_data: dict = Depends(hub_content_owner),
-):
-    """Publish only after owner-bound Shared ciphertext and client readback agree.
-
-    The server verifies ciphertext custody and source completion. It cannot
-    decrypt or independently attest the encrypted report's contents.
-    """
-    _require_stream_owner_token(user_id=user_id, token_data=token_data)
-    ticker = await confirmed_completion_ticker(
-        _RUN_MANAGER.get_run,
-        FeedService().completed_analysis_source,
-        user_id,
-        run_id,
-        receipt.completionProof,
-    )
-    if receipt.reportTicker != ticker:
-        raise HTTPException(
-            status_code=409, detail="Saved report identity differs from the requested analysis"
-        )
-    async with confirmed_report_object(request, user_id, receipt) as connection:
-        try:
-            if receipt.viewedInFinance:
-                await FeedService().mark_analysis_viewed(
-                    user_id, run_id, ticker, connection=connection
-                )
-            await FeedService().record_saved_analysis(
-                user_id, run_id, ticker, connection=connection
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=503, detail="Analysis notification could not be saved"
-            ) from exc
-    return {"status": "ok"}
-
-
-@router.post("/analyze/run/{run_id}/feed-result/read")
-async def read_analyze_feed_result(
-    run_id: RunId,
-    receipt: ReportReadReceipt,
-    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
-    token_data: dict = Depends(hub_content_owner),
-):
-    _require_stream_owner_token(user_id=user_id, token_data=token_data)
-    ticker = await confirmed_completion_ticker(
-        _RUN_MANAGER.get_run,
-        FeedService().completed_analysis_source,
-        user_id,
-        run_id,
-        receipt.completionProof,
-    )
-    try:
-        await FeedService().mark_analysis_viewed(user_id, run_id, ticker)
-    except Exception:
-        raise HTTPException(
-            status_code=503, detail="Report read state could not be saved"
-        ) from None
-    return {"status": "ok"}
-
-
-@router.post("/analyze/run/{run_id}/feed-result/remove")
-async def remove_analyze_feed_result(
-    run_id: RunId,
-    request: Request,
-    receipt: SharedObjectReceipt,
-    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
-    token_data: dict = Depends(hub_content_owner),
-):
-    _require_stream_owner_token(user_id=user_id, token_data=token_data)
-    async with confirmed_report_object(request, user_id, receipt):
-        await run_in_threadpool(FeedService().dismiss_analysis, user_id, run_id)
-    return {"status": "ok"}
 
 
 @router.post("/analyze/run/{run_id}/cancel")

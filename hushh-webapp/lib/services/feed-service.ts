@@ -174,6 +174,7 @@ export type FeedListResponse = {
   items: FeedItem[];
   next_cursor: string | null;
   unread_count: number;
+  live_incidents?: { items: FeedItem[]; next_cursor: string | null };
   /** Opaque revision of the owner's history presentation. */
   history_revision?: string | null;
   clear_version?: string | null;
@@ -442,6 +443,14 @@ export class FeedService {
       );
     }
     return payload;
+  }
+
+  static async liveIncidents(options: { idToken: string; cursor: string; isEffectCurrent: () => boolean }): Promise<{ items: FeedItem[]; next_cursor: string | null }> {
+    const response = await ApiService.apiFetch(`/api/one/feed/live?cursor=${encodeURIComponent(options.cursor)}`, {
+      method: "GET", headers: await authHeader(options.idToken), isEffectCurrent: options.isEffectCurrent,
+    });
+    if (!response.ok) throw new Error("Live alerts unavailable");
+    return response.json();
   }
 
   static async unreadCount(options: {

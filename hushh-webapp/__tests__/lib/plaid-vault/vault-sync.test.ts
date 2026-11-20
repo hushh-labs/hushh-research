@@ -405,27 +405,6 @@ describe("relinking a connection that needs a new login", () => {
     expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1);
   });
 
-  it("does not report repair if the selected sign-in still needs a login", async () => {
-    linkThatEnds("success");
-    const second = { ...sealed.connections_v1.item_1, access_token: "access-second-sign-in" };
-    const connections = { connections_v1: { ...sealed.connections_v1, item_2: second } };
-    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: connections });
-    saveRunsBuild(connections);
-    const source = snapshot();
-    client.fetchVaultSnapshot.mockResolvedValue({
-      ...source,
-      item: { ...source.item, error: { code: "ITEM_LOGIN_REQUIRED", message: "private" } },
-    });
-
-    const result = await relinkVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", itemId: "item_1" });
-    expect(result.status).toBe("blocked");
-    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1);
-    expect(plans.at(-1)?.domainData.connections_v1).toMatchObject({
-      item_1: { status: "needs_relink" },
-      item_2: { access_token: "access-second-sign-in" },
-    });
-  });
-
   it("changes nothing when the person closes Link", async () => {
     linkThatEnds("exit");
     const result = await relinkVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", itemId: "item_1" });
