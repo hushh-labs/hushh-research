@@ -29,11 +29,13 @@ export type EditableTodoFields = {
 export function TodoAddItemSheet({
   open,
   saving,
+  error,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
   saving: boolean;
+  error?: string | null;
   onOpenChange: (open: boolean) => void;
   onSave: (input: EditableTodoFields) => Promise<void>;
 }) {
@@ -150,6 +152,7 @@ export function TodoAddItemSheet({
               </Button>
             )}
           </div>
+          {error ? <p role="alert" className="px-5 pt-3 text-sm text-destructive">{error}</p> : null}
           <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
             <Button
               type="button"
