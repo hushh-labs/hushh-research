@@ -23,7 +23,7 @@ function keyFor(read: NetworkPageRead) {
 /** Memory owned by an authenticated discovery session or an open preview journey. */
 export class NetworkPageCache {
   private readonly generation = getAuthSessionGeneration();
-  private readonly pages = new Map<string, { data: NetworkPage; readAt: number }>();
+  private readonly pages = new Map<string, { data: NetworkPage; readAt: number; mode: NetworkListMode }>();
   private readonly pending = new Map<string, { promise: Promise<NetworkPage>; abort: AbortController }>();
 
   peek(read: NetworkPageRead): NetworkPage | undefined {
@@ -58,7 +58,7 @@ export class NetworkPageCache {
     }).then(data => {
       if (!isCurrent()) throw new DOMException("Network session changed", "AbortError");
       this.pages.delete(key);
-      this.pages.set(key, { data, readAt: Date.now() });
+      this.pages.set(key, { data, readAt: Date.now(), mode: read.mode });
       if (this.pages.size > MAX_PAGES) this.pages.delete(this.pages.keys().next().value!);
       return data;
     }).catch(failure => {
@@ -71,6 +71,16 @@ export class NetworkPageCache {
     });
     this.pending.set(key, { promise, abort });
     return promise;
+  }
+
+  /** A stream gap needs a fresh read without discarding public discovery display. */
+  reconcile() {
+    for (const { abort } of this.pending.values()) abort.abort();
+    this.pending.clear();
+    for (const [key, value] of this.pages) {
+      if (value.mode === "discovery") value.readAt = Number.NEGATIVE_INFINITY;
+      else this.pages.delete(key);
+    }
   }
 
   clear() {
@@ -96,7 +106,10 @@ export function discoveryNetworkPages(owner: string): NetworkPageCache {
       discovery = undefined;
     });
     subscribeToConnectionGraphChanges(event => {
-      if (discovery?.owner === event.userId) discovery.cache.clear();
+      if (discovery?.owner === event.userId) {
+        if (event.reason === "reconcile") discovery.cache.reconcile();
+        else discovery.cache.clear();
+      }
     });
   }
   return discovery.cache;

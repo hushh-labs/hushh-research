@@ -71,11 +71,17 @@ def firebase_record_matches_owner(owner_id: str, record: Any) -> bool:
     return getattr(record, "uid", None) == firebase_uid_for_owner_read(owner_id)
 
 
-def firebase_uids_for_owner_reads(owner_ids: list[str]) -> dict[str, str]:
+def firebase_uids_for_owner_reads(
+    owner_ids: list[str], *, connection: Any = None
+) -> dict[str, str]:
     if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true" or any(
         re.fullmatch(r"acct_[0-9a-f]{32}", owner) for owner in owner_ids
     ):
         from hushh_mcp.services.account_generation_service import AccountGenerationService
 
+        if connection is not None:
+            return AccountGenerationService.firebase_identities_for_owners(
+                owner_ids, connection=connection
+            )
         return AccountGenerationService.firebase_identities_for_owners(owner_ids)
     return {owner: owner for owner in owner_ids}
