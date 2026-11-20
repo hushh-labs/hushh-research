@@ -243,7 +243,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
       <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
         <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
         <div class="min-w-0">
-          <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
+          <div data-testid="agent-name" data-profile-role="${SRC.header.nameRole}" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
           ${subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}"><span class="block truncate">${escapeHtml(subtitle)}</span></p>` : ""}
         </div>
       </div>
@@ -392,6 +392,11 @@ async function buildFixture(variant: Variant, width: number): Promise<string> {
   }
   const css = await compileTailwind(used);
   const globals = fs.readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
+  const labelTypography = globals.match(
+    /\[data-agent-chat-workspace="page"\]\[data-profile-type-scale="chat"\]\s+\[data-profile-role="label"\]\s*\{[^}]+\}/,
+  )?.[0];
+  const labelTokens = globals.match(/--app-side-pane-row-title-(?:size|line|weight):[^;]+;/g);
+  if (!labelTypography || !labelTokens) throw new Error("Missing Chat label typography");
   const geometryStart = globals.indexOf("/* One shared header measure,");
   if (geometryStart < 0) throw new Error("Missing shared Chat header geometry");
   let geometry = globals.slice(geometryStart);
@@ -417,11 +422,13 @@ async function buildFixture(variant: Variant, width: number): Promise<string> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
+:root { ${labelTokens.join("\n")} }
+@layer base { ${labelTypography} }
 :root { --agent-chat-header-safe-top:${variant.safeTop ?? 0}px; --agent-chat-header-height:calc(60px + var(--agent-chat-header-safe-top)); }
 ${geometry}
 ${productFontStyle()}
 </style></head><body>
-<div id="screen"></div>
+<div id="screen" data-agent-chat-workspace="page" data-profile-type-scale="chat"></div>
 <script>
   const SCREENS = ${JSON.stringify(screens)};
   function render(mode) {
