@@ -3,6 +3,7 @@
  * replaced. Every account/phone operation goes through the real HTTP API.
  */
 import React, { useSyncExternalStore } from "react";
+export { PhoneAuthCredential } from "@firebase/auth";
 
 type FixtureUser = {
   uid: string; email: string; displayName: string; emailVerified: boolean;
