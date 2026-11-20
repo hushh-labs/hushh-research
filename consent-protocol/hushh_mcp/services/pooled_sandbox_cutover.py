@@ -310,14 +310,31 @@ async def ensure_pooled_sandbox_placement(
         else {}
     )
     # Strip stale legacy cloud keys when entering ACE while preserving
-    # detachedPlacements and puppy* keys byte-for-byte for PostgreSQL triggers.
+    # detachedPlacements, monotonic endpoint version floor, and puppy* keys.
+    prior_endpoint_record = raw_prev_meta.get("endpoint")
+    preserved_endpoint: dict[str, Any] | None = None
+    if (
+        not has_hosted_ace_evidence(row)
+        and isinstance(prior_endpoint_record, Mapping)
+        and type(prior_endpoint_record.get("version")) is int
+        and prior_endpoint_record["version"] >= 1
+    ):
+        preserved_endpoint = {
+            "version": prior_endpoint_record["version"],
+            "url": str(prior_endpoint_record.get("url") or ""),
+            "podKeyId": str(prior_endpoint_record.get("podKeyId") or ""),
+        }
     prev_meta = (
         raw_prev_meta
         if has_hosted_ace_evidence(row)
         else {k: v for k, v in raw_prev_meta.items() if k not in _STALE_NON_ACE_METADATA_KEYS}
     )
+    if preserved_endpoint is not None:
+        prev_meta["endpoint"] = preserved_endpoint
     raw_ver = prev_meta.get("endpointVersion")
-    endpoint_version = raw_ver if isinstance(raw_ver, int) and raw_ver >= 1 else 1
+    prev_ep_ver = preserved_endpoint["version"] if preserved_endpoint is not None else 0
+    base_ver = raw_ver if isinstance(raw_ver, int) and raw_ver >= 1 else 1
+    endpoint_version = max(base_ver, prev_ep_ver + 1 if prev_ep_ver >= 1 else 1)
     service_uid = f"ace-pool-{hushh_id}"
     lane = deploy_lane()
     owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
