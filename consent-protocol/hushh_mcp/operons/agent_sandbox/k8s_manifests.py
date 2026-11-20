@@ -144,7 +144,7 @@ def render_sandbox_template(
                 "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
                 "env": env_list,
                 "readinessProbe": {
-                    "httpGet": {"path": "/healthz", "port": 8080},
+                    "httpGet": {"path": "/health", "port": 8080},
                     "initialDelaySeconds": 1,
                     "periodSeconds": 5,
                 },

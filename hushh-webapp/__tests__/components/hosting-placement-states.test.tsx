@@ -58,6 +58,7 @@ vi.mock("@/lib/services/api-service", () => ({
     getHostedSourceRetirementStatus: vi.fn(),
     confirmHostedSourceRetirement: vi.fn(),
     adoptPooledSandbox: vi.fn(),
+    reconnectOwnerPod: vi.fn(),
   },
 }));
 vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
@@ -105,6 +106,7 @@ describe("cloud step placement states", () => {
       podUrl: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_sandbox",
       detachedPriorHost: true,
     });
+    vi.mocked(ApiService.reconnectOwnerPod).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -366,6 +368,7 @@ describe("cloud step placement states", () => {
           isEffectCurrent: expect.any(Function),
         }),
       );
+      await waitFor(() => expect(ApiService.reconnectOwnerPod).toHaveBeenCalledTimes(1));
     },
   );
 
@@ -427,6 +430,7 @@ describe("cloud step placement states", () => {
           isEffectCurrent: expect.any(Function),
         }),
       );
+      await waitFor(() => expect(ApiService.reconnectOwnerPod).toHaveBeenCalledTimes(1));
     },
   );
 
@@ -511,5 +515,76 @@ describe("cloud step placement states", () => {
     });
     expect(screen.queryByTestId("hussh-pods-source-retirement")).toBeNull();
     expect(ApiService.getHostedSourceRetirementStatus).not.toHaveBeenCalled();
+  });
+
+  it("renders prior-pod 14-day retirement confirmation on Dev Personal Sandbox (ace)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const futureIso = new Date(Date.now() + 14 * 86400 * 1000).toISOString();
+    vi.mocked(ApiService.getHostedSourceRetirementStatus).mockResolvedValue({
+      environment: "dev",
+      hasPendingConfirmation: true,
+      items: [
+        {
+          placementId: "ret_ace_prior_1",
+          sourceTarget: "azure",
+          sourceProvider: "azure",
+          sourceKind: "hussh_pods",
+          sourceLabel: "Hussh Pods · Microsoft Azure",
+          resourceHint: "cell-az-eastus2-dev-01",
+          detachedAt: new Date().toISOString(),
+          graceReapAfter: futureIso,
+          daysRemaining: 14,
+          graceExpired: false,
+          ownerConfirmed: false,
+          confirmedAt: null,
+          retiredAt: null,
+          status: "awaiting_owner_confirmation",
+          ownerCloudCleanupReady: false,
+          revokedRoleAssignmentCount: 0,
+        },
+      ],
+    });
+    vi.mocked(ApiService.confirmHostedSourceRetirement).mockResolvedValue({
+      environment: "dev",
+      hasPendingConfirmation: false,
+      confirmedPlacementId: "ret_ace_prior_1",
+      items: [
+        {
+          placementId: "ret_ace_prior_1",
+          sourceTarget: "azure",
+          sourceProvider: "azure",
+          sourceKind: "hussh_pods",
+          sourceLabel: "Hussh Pods · Microsoft Azure",
+          resourceHint: "cell-az-eastus2-dev-01",
+          detachedAt: new Date().toISOString(),
+          graceReapAfter: futureIso,
+          daysRemaining: 14,
+          graceExpired: false,
+          ownerConfirmed: true,
+          confirmedAt: new Date().toISOString(),
+          retiredAt: null,
+          status: "owner_confirmed",
+          ownerCloudCleanupReady: false,
+          revokedRoleAssignmentCount: 0,
+        },
+      ],
+    });
+
+    const { HusshPodsActiveCard } = await import("@/components/connections/hussh-pods-cloud-card");
+    render(<HusshPodsActiveCard deploymentTarget="ace" />);
+
+    expect(await screen.findByTestId("hussh-pods-source-retirement")).toHaveTextContent(
+      "Prior cloud · Hussh Pods · Microsoft Azure",
+    );
+    fireEvent.click(await screen.findByTestId("hussh-pods-confirm-retirement-trigger"));
+    expect(await screen.findByText("Confirm your Personal Sandbox?")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("hussh-pods-confirm-retirement-action"));
+
+    await waitFor(() => {
+      expect(ApiService.confirmHostedSourceRetirement).toHaveBeenCalledWith({
+        placementId: "ret_ace_prior_1",
+        isEffectCurrent: expect.any(Function),
+      });
+    });
   });
 });

@@ -746,4 +746,46 @@ def test_source_retirement_routes_and_startup_worker_fence(monkeypatch: pytest.M
         await server.startup_source_pod_retirement_worker()
         assert not listener_lifecycle._STARTUP_BACKGROUND_TASKS
 
+    # Verify ledger-backed graceReapAfter + hostedAzureAdmission cellId fallback.
+    ledger_pid = compute_placement_id(
+        {
+            "detachedAt": "2026-11-20T09:00:00Z",
+            "backend": "azure",
+            "deployment_target": "azure",
+            "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+        }
+    )
+    ledger_row = {
+        "backend_metadata": {
+            "detachedPlacements": [
+                {
+                    "detachedAt": "2026-11-20T09:00:00Z",
+                    "backend": "azure",
+                    "deployment_target": "azure",
+                    "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+                    "backend_metadata": {
+                        "hostedAzureAdmission": {"cellId": "cell-az-eastus2-dev-01"}
+                    },
+                }
+            ],
+            "sourcePodRetirements": {
+                ledger_pid: {
+                    "status": "awaiting_owner_confirmation",
+                    "ownerConfirmed": False,
+                    "graceDays": 14,
+                    "graceReapAfter": "2026-12-04T09:00:00Z",
+                }
+            },
+        }
+    }
+    ledger_items = iter_grace_governed_detached_placements(ledger_row)
+    assert len(ledger_items) == 1
+    assert ledger_items[0].placement_id == ledger_pid
+    assert ledger_items[0].resource_hint == "cell-az-eastus2-dev-01"
+    built = build_source_retirement_items(
+        ledger_row, now=datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)
+    )
+    assert built[0]["daysRemaining"] == 14
+    assert built[0]["resourceHint"] == "cell-az-eastus2-dev-01"
+
     asyncio.run(_exercise_startup())

@@ -145,14 +145,11 @@ def _source_descriptor(entry: Mapping[str, Any]) -> tuple[str, str, str, str, st
         project = str(entry.get("user_cloud_project") or "").strip()
         return ("gcp", "gcp", "hussh_pods", "Hussh Pods · Google Cloud", project)
     if target == "azure":
-        cell = str(
-            (
-                (entry.get("backend_metadata") or {})
-                if isinstance(entry.get("backend_metadata"), Mapping)
-                else {}
-            ).get("cellId")
-            or ""
-        ).strip()
+        raw_meta = entry.get("backend_metadata")
+        meta: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+        raw_admission = meta.get("hostedAzureAdmission")
+        admission: Mapping[str, Any] = raw_admission if isinstance(raw_admission, Mapping) else {}
+        cell = str(meta.get("cellId") or admission.get("cellId") or "").strip()
         return ("azure", "azure", "hussh_pods", "Hussh Pods · Microsoft Azure", cell)
     if target == "user_azure":
         rg = str(entry.get("user_cloud_resource_group") or "").strip()
@@ -189,11 +186,20 @@ def iter_grace_governed_detached_placements(
     detached = metadata.get("detachedPlacements")
     if not isinstance(detached, Sequence) or isinstance(detached, (str, bytes)):
         return []
+    raw_ledger = metadata.get("sourcePodRetirements")
+    ledger: Mapping[str, Any] = raw_ledger if isinstance(raw_ledger, Mapping) else {}
     items: list[GraceDetachedPlacement] = []
     for entry in detached:
         if not isinstance(entry, Mapping):
             continue
-        reap_raw = str(entry.get("graceReapAfter") or "").strip()
+        placement_id = compute_placement_id(entry)
+        ledger_rec = ledger.get(placement_id)
+        ledger_reap = (
+            str(ledger_rec.get("graceReapAfter") or "").strip()
+            if isinstance(ledger_rec, Mapping)
+            else ""
+        )
+        reap_raw = str(entry.get("graceReapAfter") or "").strip() or ledger_reap
         reap_dt = _parse_iso(reap_raw)
         if reap_dt is None:
             # Explicit hold entries (no graceReapAfter) stay preserved untouched.
@@ -201,7 +207,7 @@ def iter_grace_governed_detached_placements(
         target, provider, kind, label, hint = _source_descriptor(entry)
         items.append(
             GraceDetachedPlacement(
-                placement_id=compute_placement_id(entry),
+                placement_id=placement_id,
                 entry=entry,
                 detached_at=str(entry.get("detachedAt") or "").strip(),
                 grace_reap_after=reap_raw,
@@ -225,19 +231,14 @@ def build_source_retirement_items(
     if not isinstance(row, Mapping):
         return []
     current = now or _now_dt()
-    metadata = (
-        row.get("backend_metadata") if isinstance(row.get("backend_metadata"), Mapping) else {}
-    )
-    ledger = (
-        metadata.get("sourcePodRetirements")
-        if isinstance(metadata.get("sourcePodRetirements"), Mapping)
-        else {}
-    )
+    raw_meta = row.get("backend_metadata")
+    metadata: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+    raw_ledger = metadata.get("sourcePodRetirements")
+    ledger: Mapping[str, Any] = raw_ledger if isinstance(raw_ledger, Mapping) else {}
     items: list[dict[str, Any]] = []
     for gp in iter_grace_governed_detached_placements(row):
-        rec = (
-            ledger.get(gp.placement_id) if isinstance(ledger.get(gp.placement_id), Mapping) else {}
-        )
+        raw_rec = ledger.get(gp.placement_id)
+        rec: Mapping[str, Any] = raw_rec if isinstance(raw_rec, Mapping) else {}
         owner_confirmed = bool(rec.get("ownerConfirmed") is True)
         grace_expired = current >= gp.reap_at
         seconds_left = max(0.0, (gp.reap_at - current).total_seconds())
@@ -736,16 +737,10 @@ class SourcePodRetirementSweeper:
             user_id = str(row.get("user_id") or "").strip()
             if not user_id:
                 continue
-            metadata = (
-                row.get("backend_metadata")
-                if isinstance(row.get("backend_metadata"), Mapping)
-                else {}
-            )
-            ledger = (
-                metadata.get("sourcePodRetirements")
-                if isinstance(metadata.get("sourcePodRetirements"), Mapping)
-                else {}
-            )
+            raw_meta = row.get("backend_metadata")
+            metadata: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+            raw_ledger = metadata.get("sourcePodRetirements")
+            ledger: Mapping[str, Any] = raw_ledger if isinstance(raw_ledger, Mapping) else {}
             for gp in iter_grace_governed_detached_placements(row):
                 rec = ledger.get(gp.placement_id)
                 if not isinstance(rec, Mapping):

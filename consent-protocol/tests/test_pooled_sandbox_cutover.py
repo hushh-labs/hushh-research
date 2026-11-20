@@ -555,6 +555,66 @@ async def test_adopt_pooled_sandbox_switches_gcp_provisioned_needs_reinit_and_ho
         _assert_clean_ace_row(reg.rows[uid])
         if expect_detached:
             assert len(reg.rows[uid]["backend_metadata"]["detachedPlacements"]) == 1
+            from hushh_mcp.services.source_pod_retirement import (  # noqa: PLC0415
+                iter_grace_governed_detached_placements,
+            )
+
+            grace_items = iter_grace_governed_detached_placements(reg.rows[uid])
+            assert len(grace_items) == 1
+            assert grace_items[0].placement_id in reg.rows[uid]["backend_metadata"].get(
+                "sourcePodRetirements", {}
+            )
+
+
+async def test_adopt_pooled_sandbox_preserves_prior_source_pod_retirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_cutover(monkeypatch)
+    prior_rec = {
+        "status": "owner_confirmed",
+        "ownerConfirmed": True,
+        "graceReapAfter": "2026-12-01T00:00:00Z",
+    }
+    reg = _FakeRegistry(
+        {
+            "uid-az-hosted": {
+                "user_id": "uid-az-hosted",
+                "hushh_id": "ha1_az_hosted",
+                "status": "provisioned",
+                "deployment_target": "azure",
+                "backend": "azure",
+                "external_agent_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/ca-pod-slot01",
+                "updated_at": "2026-11-18T00:00:00Z",
+                "backend_metadata": {
+                    "tenancy": "hussh-hosted",
+                    "url": "https://ca-pod-slot01.example.azurecontainerapps.io",
+                    "hostedAzureAdmission": {"cellId": "cell-az-eastus2-dev-01"},
+                    "sourcePodRetirements": {"ret_existing_123": prior_rec},
+                    "detachedPlacements": [
+                        {
+                            "detachedAt": "2026-11-01T00:00:00Z",
+                            "backend": "user_azure",
+                            "deployment_target": "user_azure",
+                            "graceReapAfter": "2026-11-15T00:00:00Z",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+    verdict = await adopt_pooled_sandbox_for_owner(
+        user_id="uid-az-hosted",
+        allow_clean_slate=True,
+        registry=reg,
+        job_repo=_FakeJobs(),
+        migration_job_repo=_FakeMigrationJobs(),
+        grant_service=_FakeGrants(),
+        detach_fn=_make_fake_detach(reg),
+    )
+    assert verdict["detachedPriorHost"] is True
+    retirements = reg.rows["uid-az-hosted"]["backend_metadata"]["sourcePodRetirements"]
+    assert retirements["ret_existing_123"] == prior_rec
+    assert len(retirements) == 2
 
 
 @pytest.mark.parametrize(

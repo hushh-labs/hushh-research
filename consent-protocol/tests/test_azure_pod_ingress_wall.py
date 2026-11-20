@@ -84,4 +84,3 @@ async def test_the_hubs_token_for_this_address_passes(monkeypatch):
 
 async def test_health_stays_reachable_for_the_platform_probe():
     assert await _call(_scope("/health")) == (200, True)
-    assert await _call(_scope("/healthz")) == (200, True)

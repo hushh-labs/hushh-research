@@ -164,7 +164,7 @@ export function HusshPodsActiveCard({
   const confirmBusyRef = useRef(false);
 
   const canInspectSourceRetirement =
-    provider === "azure" &&
+    (provider === "azure" || isPersonalSandbox) &&
     isHostedAzureMigrationAvailable() &&
     typeof ApiService.getHostedSourceRetirementStatus === "function";
 
@@ -331,7 +331,9 @@ export function HusshPodsActiveCard({
               ) : (
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {activeGraceItem.graceExpired
-                    ? "14-day safety window complete · Confirm comfort on Azure to retire the prior pod."
+                    ? `14-day safety window complete · Confirm comfort on ${
+                        isPersonalSandbox ? "Personal Sandbox" : "Azure"
+                      } to retire the prior pod.`
                     : `${activeGraceItem.daysRemaining}d left in 14-day safety window`}
                 </p>
               )}
@@ -356,7 +358,9 @@ export function HusshPodsActiveCard({
         <AlertDialog open={confirmOpen} onOpenChange={(open) => !confirmBusy && setConfirmOpen(open)}>
           <AlertDialogContent size="default">
             <AlertDialogHeader>
-              <AlertDialogTitle>Confirm your new Azure pod?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {isPersonalSandbox ? "Confirm your Personal Sandbox?" : "Confirm your new Azure pod?"}
+              </AlertDialogTitle>
               <AlertDialogDescription>
                 Your prior setup ({activeGraceItem.sourceLabel}) stays untouched until its 14-day
                 safety window ends on {formatSafetyWindowDate(activeGraceItem.graceReapAfter)}. After
@@ -365,7 +369,7 @@ export function HusshPodsActiveCard({
             </AlertDialogHeader>
             <p className="text-sm text-[var(--app-text-secondary)]">
               {activeGraceItem.sourceKind === "byoc"
-                ? "For your own cloud, Hussh only revokes its own observer access — never deleting your resource group or vault."
+                ? "For your own cloud, Hussh only revokes its own observer access, never deleting your resource group or vault."
                 : "Your prior managed pod will be retired only after the 14-day window expires."}
             </p>
             <AlertDialogFooter>
@@ -470,6 +474,9 @@ export function HusshPodsMigrationCard({
       });
       await toastHandle.unwrap();
       if (isEffectCurrent()) {
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
         dispatchFeedStateChanged();
         onMigrated?.();
       }
@@ -740,6 +747,9 @@ export function PooledSandboxSwitchCard({
       });
       await toastHandle.unwrap();
       if (isEffectCurrent()) {
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
         if (ownerId) {
           await PreVaultUserStateService.bootstrapState(ownerId, {
             force: true,

@@ -581,6 +581,7 @@ export async function reconnectOwnerPod(
 ): Promise<void> {
   const admittedOwner = capturePodOwner();
   const uid = admittedOwner.ownerId;
+  prewarmedChatGrants = null;
   const status = await ports.hosting();
   if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   if (!isPrivateHostingMode(status.hostingMode) || status.state !== "active") {

@@ -666,6 +666,7 @@ def test_virgin_standby_prewarm_and_hub_broker_activation_envs(
     runtime.start_background()
     try:
         with httpx.Client(timeout=5.0) as client:
+            assert client.get(f"http://127.0.0.1:{runtime.port}/health").status_code == 200
             assert client.get(f"http://127.0.0.1:{runtime.port}/healthz").status_code == 200
             act = client.post(
                 f"http://127.0.0.1:{runtime.port}/internal/v1/activate-lease",

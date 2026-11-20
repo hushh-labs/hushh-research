@@ -52,7 +52,6 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # (gcp_backend.py:334), so these two cannot move behind the wall.
         # Neither body carries anything about the person.
         "/health",
-        "/healthz",
         "/health/ready",
         # `/health/capabilities` is DELIBERATELY NOT HERE.
         #

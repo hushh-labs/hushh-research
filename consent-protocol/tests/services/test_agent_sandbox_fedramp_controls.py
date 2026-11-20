@@ -279,7 +279,7 @@ def _assert_template_hardened(tpl: dict) -> None:
     assert pod_spec["automountServiceAccountToken"] is False
     assert pod_spec["restartPolicy"] == "Never"
     container = pod_spec["containers"][0]
-    assert container["readinessProbe"]["httpGet"] == {"path": "/healthz", "port": 8080}
+    assert container["readinessProbe"]["httpGet"] == {"path": "/health", "port": 8080}
     sec = container["securityContext"]
     assert sec["allowPrivilegeEscalation"] is False
     assert sec["readOnlyRootFilesystem"] is True

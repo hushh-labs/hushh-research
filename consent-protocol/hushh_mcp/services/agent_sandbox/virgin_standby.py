@@ -183,7 +183,7 @@ class VirginStandbyRuntime:
                 self.wfile.write(body)
 
             def do_GET(self) -> None:  # noqa: N802
-                if self.path not in {"/healthz", "/readyz", "/"}:
+                if self.path not in {"/health", "/healthz", "/readyz", "/"}:
                     self._send_json(404, {"code": "NOT_FOUND"})
                     return
                 self._send_json(200, build_readiness_payload(uid=runtime._uid))
