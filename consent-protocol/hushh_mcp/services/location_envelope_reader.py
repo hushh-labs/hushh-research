@@ -65,10 +65,10 @@ def read_latest_envelope(
     }
 
 
-def _authorized_grant(service: Any, recipient_user_id: str, grant_id: str) -> dict:
+def _authorized_grant(service: Any, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
 
-    grant_row = service._execute_one(
+    grant_row: dict[str, Any] | None = service._execute_one(
         """
         SELECT
           g.*,
