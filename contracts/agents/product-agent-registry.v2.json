@@ -5561,7 +5561,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "7d86860db9f412cffa24fe82a493c548c398fe91d84fe145fbbe960af7736b69",
+      "system_instruction_sha256": "760c7a9289e241fe533c12958bd0cec82314ea8c269ef436897da493573e252f",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

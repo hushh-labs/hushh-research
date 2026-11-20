@@ -165,9 +165,20 @@ async def test_hosted_transport_uses_registered_connector_key_without_sending_le
 
     assert result["request_ref"] == "req_" + "0" * 28
     body = calls[0]["json"]
+    assert body["refresh_policy"] == "continuous_until_expiry"
     assert "connector_public_key" not in body
     assert "connector_key_id" not in body
     assert "connector_wrapping_alg" not in body
+
+    await tools.handle_request_consent(
+        {
+            "user_identifier": "private@example.com",
+            "scope": "attr.financial.accounts.*",
+            "purpose": "Explicit one-time snapshot verification.",
+            "refresh_policy": "snapshot",
+        }
+    )
+    assert calls[1]["json"]["refresh_policy"] == "snapshot"
 
 
 @pytest.mark.asyncio

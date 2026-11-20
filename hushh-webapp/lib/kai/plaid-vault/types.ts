@@ -10,8 +10,9 @@
  *    - Tier A (private raw records): connections, accounts, holdings,
  *      securities, transactions.
  *    - Tier B (private derived facts): `derived_v1`, recomputed from Tier A.
- *    - Tier C (shareable summary): `summary`, bands, percentages and counts
- *      only.
+ *    - Tier C (shareable live mirrors): `summary` (bands, percentages, counts),
+ *      `accounts` (current depository balances), `liabilities` (credit & loans),
+ *      and `cashflow` (current cash flow & recurring bills — zero raw history).
  *    - Readable view (private): `linked_accounts`, the same records organised
  *      by kind of account, institution and account for a person to browse.
  */
@@ -207,6 +208,80 @@ export interface ShareableSummaryV1 {
   last_updated: string;
 }
 
+/** Tier C: `financial.accounts`. Shareable live depository accounts (no IDs or masks). */
+export interface ShareableBankAccountItem {
+  institution_name: string;
+  account_name: string;
+  account_type: string;
+  current_balance: number;
+  available_balance: number | null;
+  currency: string;
+}
+
+export interface ShareableBankAccountsV1 {
+  schema: "plaid-accounts-v1";
+  cash_in_bank: number;
+  total_depository_balance: number;
+  account_count: number;
+  institution_count: number;
+  as_of: string;
+  items: ShareableBankAccountItem[];
+}
+
+/** Tier C: `financial.liabilities`. Shareable live credit cards & loans (no IDs or masks). */
+export interface ShareableLiabilityItem {
+  institution_name: string;
+  account_name: string;
+  category: "Credit card" | "Loan";
+  account_type: string;
+  balance_owed: number;
+  credit_limit: number | null;
+  available_credit: number | null;
+  utilization_pct: number | null;
+  currency: string;
+}
+
+export interface ShareableLiabilitiesV1 {
+  schema: "plaid-liabilities-v1";
+  total_owed: number;
+  credit_card_owed: number;
+  credit_limit_total: number;
+  credit_utilization_pct: number | null;
+  loan_owed: number;
+  account_count: number;
+  institution_count: number;
+  as_of: string;
+  items: ShareableLiabilityItem[];
+}
+
+/** Tier C: `financial.cashflow`. Current cash flow & active recurring bills (zero history dump). */
+export interface ShareableRecurringBillItem {
+  label: string;
+  category: string | null;
+  cadence: RecurringCadence;
+  typical_amount: number;
+  last_date: string;
+}
+
+export interface ShareableCashFlowV1 {
+  schema: "plaid-cashflow-v1";
+  net_worth: number;
+  total_assets: number;
+  total_liabilities: number;
+  liquid_cash: number;
+  investable_assets: number;
+  debt_to_asset_pct: number | null;
+  cash_flow_trend: CashFlowTrend;
+  income_stability: IncomeStability["label"];
+  current_month: string | null;
+  current_monthly_income: number;
+  current_monthly_spend: number;
+  current_monthly_net: number;
+  recurring_bill_count: number;
+  as_of: string;
+  recurring_bills: ShareableRecurringBillItem[];
+}
+
 // ---------------------------------------------------------------------------
 // Readable view (financial.linked_accounts)
 // ---------------------------------------------------------------------------
@@ -236,6 +311,9 @@ export const LINKED_ACCOUNTS_BRANCH = "linked_accounts";
 export const PLAID_VAULT_SOURCE_MANAGED_BRANCHES = [
   ...PLAID_VAULT_RECORD_BRANCHES,
   "summary",
+  "accounts",
+  "liabilities",
+  "cashflow",
   LINKED_ACCOUNTS_BRANCH,
 ] as const;
 export const LINKED_ACCOUNTS_SCHEMA_VERSION = 1;
@@ -316,6 +394,9 @@ export interface PlaidVaultMemory {
   transactions_v1?: Record<string, TransactionRecord>;
   derived_v1?: DerivedFactsV1;
   summary?: ShareableSummaryV1;
+  accounts?: ShareableBankAccountsV1;
+  liabilities?: ShareableLiabilitiesV1;
+  cashflow?: ShareableCashFlowV1;
   linked_accounts?: LinkedAccountsViewV1;
 }
 

@@ -394,7 +394,7 @@ function PlaidConnectorChatCard({
       if (!mounted.current) return;
       if (result.status === "connected") {
         const refreshed = await financial.refresh?.({ force: true }).catch(() => undefined);
-        await syncPlaidPostureToPersonalWikiBestEffort({
+        void syncPlaidPostureToPersonalWikiBestEffort({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -405,6 +405,7 @@ function PlaidConnectorChatCard({
           ? `${result.institutionName} connected and synced to your financial scopes & Personal Wiki.`
           : "Bank connected and synced to your financial scopes & Personal Wiki.";
         setStatusMessage(label);
+        setBusyAction(null);
         continuation?.continueAfterConnectorSync(
           result.institutionName
             ? `I just connected ${result.institutionName} with Plaid. Summarize my connected accounts, balances, and updated financial scopes.`
@@ -436,7 +437,7 @@ function PlaidConnectorChatCard({
       });
       if (!mounted.current) return;
       const refreshed = await financial.refresh?.({ force: true }).catch(() => undefined);
-      await syncPlaidPostureToPersonalWikiBestEffort({
+      void syncPlaidPostureToPersonalWikiBestEffort({
         userId,
         vaultKey,
         vaultOwnerToken,
@@ -447,6 +448,7 @@ function PlaidConnectorChatCard({
         setStatusMessage("One or more institutions need re-authentication.");
       } else if (outcome.refreshed > 0) {
         setStatusMessage("Balances refreshed, financial scopes & Personal Wiki updated.");
+        setBusyAction(null);
         continuation?.continueAfterConnectorSync(
           "I just refreshed my Plaid bank accounts. Summarize my updated balances and confirm my shared scopes updated.",
         );

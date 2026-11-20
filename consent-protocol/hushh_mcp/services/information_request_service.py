@@ -344,6 +344,7 @@ def _share(
         "accessEndsAt": _iso_ms(expires_at),
         "_scope": scope,
         "_subject": subject_user_id,
+        "_token_id": str(status.get("token_id") or ""),
     }
 
 
@@ -697,6 +698,9 @@ class InformationRequestService:
                     or scope_handle_for_machine_scope(subject_user_id, str(scope["scope"])),
                     "scope_contract_version": 2,
                     "expiry_hours": expiry_hours,
+                    "refresh_policy": (
+                        "continuous_until_expiry" if duration_seconds > 0 else "snapshot"
+                    ),
                     "requester_actor_type": "person",
                     "requester_entity_id": str(viewer["public_person_ref"]),
                     "requester_label": str(viewer.get("display_name") or "A Hussh member"),
@@ -1156,7 +1160,17 @@ class InformationRequestService:
             )
         )
         await self._attach_field_outlines(requester_user_id, granted)
+        token_ids = [
+            str(share.get("_token_id") or "") for share in granted if share.get("_token_id")
+        ]
+        revisions_fn = getattr(self._consent, "get_active_token_export_revisions", None)
+        export_revisions = (
+            await revisions_fn(token_ids) if callable(revisions_fn) and token_ids else {}
+        )
         for share in granted:
+            token_id = str(share.pop("_token_id", "") or "")
+            if token_id and token_id in export_revisions:
+                share["exportRevision"] = export_revisions[token_id]
             share.pop("_scope", None)
             share.pop("_subject", None)
         return granted
