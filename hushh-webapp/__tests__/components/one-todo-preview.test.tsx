@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
 import { OneTodoPreview } from "@/components/agent/one-todo-preview";
 import { agentTodoInput, buildTodo, calendarTodoInput, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 
@@ -13,8 +14,9 @@ const mocks = vi.hoisted(() => ({
   calendarLoading: false, calendarError: null as string | null,
   retryCalendar: vi.fn(), retryEvents: vi.fn(), retryFeed: vi.fn(), retryKyc: vi.fn(),
   sourceAction: vi.fn(),
+  reads: [] as CapabilityRead[],
 }));
-vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/services/todo-list-pkm-service", async original => {
   const actual = await original<typeof import("@/lib/services/todo-list-pkm-service")>();
   return { ...actual, createTodo: mocks.create, TodoListPkmService: { load: mocks.load, setStatus: mocks.save, remove: mocks.remove } };
@@ -47,6 +49,7 @@ describe("One profile To-do live-source parity", () => {
     mocks.events = [];
     mocks.actionables = [];
     mocks.kyc = null;
+    mocks.reads = [];
     mocks.calendarLoading = false;
     mocks.calendarError = null;
     mocks.load.mockResolvedValue({ tasks: [] });
@@ -203,6 +206,19 @@ describe("One profile To-do live-source parity", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
   });
 
+  it.each(["wallet", "messages", "ria", "pkm"] as const)("does not turn an unavailable selected %s source into an empty success", async capability => {
+    mocks.load.mockResolvedValue({ tasks: [], selectedCapabilities: [capability] });
+    mocks.reads = [{ coverage: { capability, count: 0, status: "unavailable" }, evidence: [] }];
+    const view = render(<OneTodoPreview {...props()} />);
+    expect(await screen.findByText("Some tasks could not refresh.")).toBeVisible();
+    expect(screen.queryByText("All clear.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    mocks.reads = [{ coverage: { capability, count: 0, status: "ready" }, evidence: [] }];
+    view.rerender(<OneTodoPreview {...props()} />);
+    expect(await screen.findByText("All clear.")).toBeVisible();
+    expect(screen.queryByText("Some tasks could not refresh.")).not.toBeInTheDocument();
+  });
+
   it("shows saved items while Calendar is still loading", async () => {
     mocks.calendarLoading = true;
     mocks.load.mockResolvedValue({ tasks: [buildTodo({ title: "Saved task" })] });
@@ -271,9 +287,15 @@ describe("One profile To-do live-source parity", () => {
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lost task" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("Task could not be saved. Your list was not changed.")).toBeVisible();
-    expect(screen.getByRole("dialog")).toBeVisible();
+    const editor = screen.getByRole("dialog", { name: "Add item" });
+    expect(await within(editor).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
+    expect(editor).toBeVisible();
+    expect(within(editor).getByLabelText("Title")).toHaveValue("Lost task");
     expect(screen.queryByText("Lost task")).not.toBeInTheDocument();
+    mocks.create.mockResolvedValueOnce({ task: buildTodo({ title: "Lost task", type: "manual" }), result: { success: true } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Lost task")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Add item" })).not.toBeInTheDocument();
   });
 
   it("does not expose manual creation while the owner vault is locked", () => {
