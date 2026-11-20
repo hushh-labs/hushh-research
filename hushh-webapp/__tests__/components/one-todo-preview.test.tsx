@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
@@ -219,9 +219,15 @@ describe("One profile To-do live-source parity", () => {
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lost task" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("Task could not be saved. Your list was not changed.")).toBeVisible();
-    expect(screen.getByRole("dialog")).toBeVisible();
+    const editor = screen.getByRole("dialog", { name: "Add item" });
+    expect(await within(editor).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
+    expect(editor).toBeVisible();
+    expect(within(editor).getByLabelText("Title")).toHaveValue("Lost task");
     expect(screen.queryByText("Lost task")).not.toBeInTheDocument();
+    mocks.create.mockResolvedValueOnce({ task: buildTodo({ title: "Lost task", type: "manual" }), result: { success: true } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Lost task")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Add item" })).not.toBeInTheDocument();
   });
 
   it("does not expose manual creation while the owner vault is locked", () => {

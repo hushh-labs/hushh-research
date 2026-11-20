@@ -177,16 +177,10 @@ export function OneTodoPreview({
         <div className={workspace.tools}>
           {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources presentation="pane" onOpenChange={setSourcesOpen} onBackChange={onDetailBackChange} persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
             isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} /> : null}
-          <button type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => setEditorOpen(true)}><Plus aria-hidden /></button>
+          <button type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => { setSaveError(false); setEditorOpen(true); }}><Plus aria-hidden /></button>
         </div>
       </header>
       <div className={workspace.list} inert={sourcesOpen || undefined}>
-
-      {ready && saveError ? (
-        <div className={styles.notice} role="status">
-          <p>Task could not be saved. Your list was not changed.</p>
-        </div>
-      ) : null}
 
       {ready && (error || sourceError) ? (
         <div className={styles.notice} role="status">
@@ -221,6 +215,7 @@ export function OneTodoPreview({
       <TodoAddItemSheet
         open={editorOpen}
         saving={Boolean(savingTaskId)}
+        error={saveError ? "Couldn’t save. Try again." : null}
         onOpenChange={setEditorOpen}
         onSave={saveManualTask}
       />
