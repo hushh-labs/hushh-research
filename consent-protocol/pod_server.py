@@ -626,7 +626,6 @@ async def _stop_files_queue() -> None:
 
 async def _continue_gmail_notifications() -> None:
     """Keep notification restart work off admission startup and inside update drain."""
-    await asyncio.sleep(0.05)
     from api.routes.one.pod_maintenance import gmail_notification_job
     from hushh_mcp.services.pod_upgrade_admission import (
         ADMISSION,
@@ -657,7 +656,6 @@ async def _continue_gmail_notifications() -> None:
 
 async def _ensure_memory_bank_task() -> None:
     """Initialize memory or observe an acknowledged erasure after restart. Never raises."""
-    await asyncio.sleep(0.05)
     try:
         from hushh_mcp.services.pod_memory_bank import ensure_memory_bank  # noqa: PLC0415
         from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
@@ -767,7 +765,6 @@ async def _heartbeat_loop(interval_seconds: int) -> None:
     hub would judge it unreachable, and auto-heal would restart a pod that was
     working fine.
     """
-    await asyncio.sleep(0.05)
     client = PodHubClient()
     while True:
         await _heartbeat_once(client)
