@@ -289,6 +289,13 @@ class VirginStandbyRuntime:
                             for env_name in env_names:
                                 os.environ[env_name] = val
 
+                    raw_epoch = payload.get("placement_epoch")
+                    epoch_str = str(raw_epoch if raw_epoch is not None else "").strip()
+                    if epoch_str.isdigit() and int(epoch_str) > 0:
+                        os.environ["HUSSH_POD_PLACEMENT_EPOCH"] = str(int(epoch_str))
+                    else:
+                        os.environ.pop("HUSSH_POD_PLACEMENT_EPOCH", None)
+
                     prefix_url = str(payload.get("pod_storage_prefix_token_url") or "").strip()
                     if prefix_url:
                         os.environ["POD_STORAGE_PREFIX_TOKEN_URL"] = prefix_url

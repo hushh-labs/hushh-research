@@ -37,8 +37,61 @@ from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
 SANDBOX_INTERNAL_PATH_FORBIDDEN = "SANDBOX_INTERNAL_PATH_FORBIDDEN"
 SANDBOX_OWNER_ID_INVALID = "SANDBOX_OWNER_ID_INVALID"
 SANDBOX_WAKING_CODE = "SANDBOX_WAKING"
+SANDBOX_EDGE_PLACEMENT_TS_HEADER = "x-hussh-sandbox-edge-ts"
+SANDBOX_EDGE_PLACEMENT_SIG_HEADER = "x-hussh-sandbox-edge-sig"
 _OWNER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 _POD_IDENTITY_SALT = b"hussh-sandbox-pod-identity-v1"
+_EDGE_PLACEMENT_SIG_CONTEXT = b"hussh-sandbox-edge-placement-v1"
+_EDGE_PLACEMENT_WINDOW_SECONDS = 60
+
+
+def sign_sandbox_edge_placement_headers(
+    master_seed: bytes,
+    hushh_id: str,
+    *,
+    now_s: int | None = None,
+) -> dict[str, str]:
+    """Mint short-lived Edge-to-Hub HMAC headers to resolve an owner's placement_epoch."""
+    clean_id = str(hushh_id or "").strip()
+    if not _OWNER_ID_RE.fullmatch(clean_id):
+        raise ValueError(f"{SANDBOX_OWNER_ID_INVALID}: invalid owner identifier")
+    if len(master_seed) < 32:
+        raise ValueError("Edge gateway master seed must be at least 32 bytes")
+    ts_val = int(time.time()) if now_s is None else int(now_s)
+    msg = _EDGE_PLACEMENT_SIG_CONTEXT + f"|{clean_id}|{ts_val}".encode("utf-8")
+    sig = hmac.new(master_seed, msg, hashlib.sha256).hexdigest()
+    return {
+        SANDBOX_EDGE_PLACEMENT_TS_HEADER: str(ts_val),
+        SANDBOX_EDGE_PLACEMENT_SIG_HEADER: sig,
+    }
+
+
+def verify_sandbox_edge_placement_headers(
+    master_seed: bytes,
+    hushh_id: str,
+    headers: Any,
+    *,
+    now_s: int | None = None,
+    window_s: int = _EDGE_PLACEMENT_WINDOW_SECONDS,
+) -> bool:
+    """Verify Edge-to-Hub HMAC headers using constant-time comparison and replay window."""
+    clean_id = str(hushh_id or "").strip()
+    if not _OWNER_ID_RE.fullmatch(clean_id) or len(master_seed) < 32 or headers is None:
+        return False
+    lowered = {str(k).lower(): str(v).strip() for k, v in headers.items()}
+    raw_ts = lowered.get(SANDBOX_EDGE_PLACEMENT_TS_HEADER, "")
+    supplied_sig = lowered.get(SANDBOX_EDGE_PLACEMENT_SIG_HEADER, "")
+    if not raw_ts.isdigit() or len(supplied_sig) != 64:
+        return False
+    ts_val = int(raw_ts)
+    now_val = int(time.time()) if now_s is None else int(now_s)
+    if abs(now_val - ts_val) > max(1, int(window_s)):
+        return False
+    msg = _EDGE_PLACEMENT_SIG_CONTEXT + f"|{clean_id}|{ts_val}".encode("utf-8")
+    expected_sig = hmac.new(master_seed, msg, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(supplied_sig, expected_sig)
+
+
 _HOP_BY_HOP_HEADERS = frozenset(
     {
         "connection",
@@ -184,12 +237,30 @@ class SandboxEdgeGatewayManager:
     def get_lease(self, hushh_id: str) -> ActiveOwnerLease | None:
         return self._leases.get(hushh_id)
 
+    async def _resolve_owner_placement_epoch(self, hushh_id: str) -> int:
+        if not (self.enable_prefix_storage and self.hub_url):
+            return 0
+        url = f"{self.hub_url}/api/one/pod/custody/sandbox-placement/{hushh_id}"
+        sig_headers = sign_sandbox_edge_placement_headers(bytes(self._master_seed), hushh_id)
+        try:
+            async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+                resp = await client.get(url, headers=sig_headers)
+            if resp.status_code == 200:
+                body = resp.json()
+                raw_ep = body.get("placementEpoch", 0) if isinstance(body, dict) else 0
+                if isinstance(raw_ep, int) and not isinstance(raw_ep, bool) and raw_ep > 0:
+                    return raw_ep
+        except Exception:  # noqa: BLE001 - best-effort lookup; epoch-0 sandboxes still wake cleanly
+            pass
+        return 0
+
     async def _activate_claimed_sandbox(
         self,
         *,
         hushh_id: str,
         lease_id: str,
         endpoint: ClaimedSandboxEndpoint,
+        placement_epoch: int = 0,
     ) -> tuple[str, str]:
         priv_b64, pub_b64, pod_key_id = derive_owner_pod_identity(
             bytes(self._master_seed), hushh_id
@@ -202,6 +273,12 @@ class SandboxEdgeGatewayManager:
             "pod_private_key_b64": priv_b64,
             "sandbox_name": endpoint.sandbox_name,
         }
+        if (
+            isinstance(placement_epoch, int)
+            and not isinstance(placement_epoch, bool)
+            and placement_epoch > 0
+        ):
+            payload["placement_epoch"] = str(placement_epoch)
         if self.pod_url_base:
             payload["pod_url"] = f"{self.pod_url_base}/u/{hushh_id}"
         if self.hub_url:
@@ -320,19 +397,23 @@ class SandboxEdgeGatewayManager:
 
             claim_name = f"claim-{secrets.token_hex(6)}"
             lease_id = f"lease_{secrets.token_hex(12)}"
-            endpoint = await asyncio.to_thread(
-                self.claim_client.create_and_wait_claim,
-                claim_name=claim_name,
-                billing_space_id=clean_id,
-                warm_pool_name=self.warm_pool_name,
-                idle_shutdown_seconds=max(60, min(3600, int(self.idle_timeout_s))),
-                timeout_s=self.claim_timeout_s,
+            endpoint, placement_epoch = await asyncio.gather(
+                asyncio.to_thread(
+                    self.claim_client.create_and_wait_claim,
+                    claim_name=claim_name,
+                    billing_space_id=clean_id,
+                    warm_pool_name=self.warm_pool_name,
+                    idle_shutdown_seconds=max(60, min(3600, int(self.idle_timeout_s))),
+                    timeout_s=self.claim_timeout_s,
+                ),
+                self._resolve_owner_placement_epoch(clean_id),
             )
             try:
                 pub_b64, pod_key_id = await self._activate_claimed_sandbox(
                     hushh_id=clean_id,
                     lease_id=lease_id,
                     endpoint=endpoint,
+                    placement_epoch=placement_epoch,
                 )
             except Exception:
                 if self.sentinel_control is not None and hasattr(
