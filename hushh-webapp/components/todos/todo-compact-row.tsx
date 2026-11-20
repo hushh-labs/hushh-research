@@ -1,6 +1,7 @@
 "use client";
 
-import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import styles from "./todo-workspace.module.css";
 
 export function TodoCompactRow({ task, saving, onToggle, onOpen }: {
@@ -9,9 +10,10 @@ export function TodoCompactRow({ task, saving, onToggle, onOpen }: {
   onOpen: (task: TodoItem) => void;
 }) {
   const today = new Date();
-  const isToday = task.date === `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const date = task.date ? isToday ? "Today" : new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(new Date(`${task.date}T12:00:00`)) : null;
-  const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
+  const dateKey = normalizeTodoDate(task.date);
+  const isToday = dateKey === `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const date = dateKey ? isToday ? "Today" : formatLocalDateTime(`${dateKey}T12:00:00`, { weekday: "short" }) : null;
+  const time = task.time ? formatLocalDateTime(`1970-01-01T${task.time}:00`, { hour: "numeric", minute: "2-digit", hour12: true }) : null;
   const subtitle = date ? [date, time].filter(Boolean).join(", ") : task.type === "manual" ? "Added by you" : task.sourceAgent ? TODO_SOURCE_LABELS[task.sourceAgent] : "To do";
   return <div className={styles.row} data-todo-item={task.id}>
     <button type="button" className={styles.rowOpen} aria-label={task.title} disabled={saving} onClick={() => onOpen(task)}><span className={styles.rowTitle}>{task.title}</span><span className={styles.rowMeta}>{subtitle}</span></button>

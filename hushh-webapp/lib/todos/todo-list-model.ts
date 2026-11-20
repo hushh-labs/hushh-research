@@ -3,6 +3,15 @@
 
 export type TodoType = "automatic" | "manual";
 export type TodoStatus = "pending" | "done" | "deleted";
+
+/** Calendar dates retain their authored day; reject JavaScript date rollover. */
+export function normalizeTodoDate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const date = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.startsWith("0000-")) return null;
+  const parsed = new Date(`${date}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : null;
+}
 export const TODO_SOURCE_LABELS = {
   calendar: "Calendar",
   gmail: "Gmail",

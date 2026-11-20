@@ -4,7 +4,8 @@ import { useCallback, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
 import { CalendarDays, ChevronLeft, ClipboardList } from "@/components/icons";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { groupByDate } from "./todo-list-presentation";
 import styles from "./todo-workspace.module.css";
 
@@ -16,8 +17,8 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
   onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
   const pathname = usePathname() ?? "/one/todos";
-  const date = task.date ? groupByDate([task])[0]?.label : null;
-  const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
+  const date = normalizeTodoDate(task.date) ? groupByDate([task])[0]?.label : null;
+  const time = task.time ? formatLocalDateTime(`1970-01-01T${task.time}:00`, { hour: "numeric", minute: "2-digit", hour12: true }) : null;
   const back = useCallback(() => {
     if (busy) return true;
     onBack();
