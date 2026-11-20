@@ -409,7 +409,8 @@ class AccountGenerationService:
         if not owners:
             return {}
         with nullcontext(connection) if connection is not None else get_db_connection() as conn:
-            conn.execute(text("SET LOCAL statement_timeout='5000ms'"))
+            if connection is None:
+                conn.execute(text("SET LOCAL statement_timeout='5000ms'"))
             installed = conn.execute(
                 text("SELECT to_regclass('public.account_generations') IS NOT NULL")
             ).scalar_one()

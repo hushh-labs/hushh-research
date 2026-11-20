@@ -565,7 +565,7 @@ describe("leader and follower tabs", () => {
     await tick();
     for (const tab of [leader, follower]) {
       expect(tab.deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith({
-        general: true, consent: true, reconcileConnections: true,
+        general: true, consent: true, reconcileConnections: true, connectionGraphChanged: true,
       });
     }
 
@@ -577,6 +577,28 @@ describe("leader and follower tabs", () => {
     await tick();
     expect(lastState(follower.deps)).toBe("live");
     follower.manager.stop();
+  });
+
+  it("retains a confirmed graph mutation when recovery hints share its trailing burst", async () => {
+    const app = setup();
+    app.manager.start();
+    await tick();
+    try {
+      app.transport.last().push(HELLO);
+      await tick();
+      app.deps.dispatchFeed.mockClear();
+      app.transport.last().push(RESET);
+      await tick();
+      expect(app.deps.dispatchFeed.mock.calls).toEqual([[FULL]]);
+      app.transport.last().push('event: feed_changed\ndata: {"connection_graph":true}\n\n' + RESET);
+      await tick();
+      expect(app.deps.dispatchFeed.mock.calls).toEqual([[FULL], [{ ...FULL, connectionGraphChanged: true }]]);
+      await tick(10_000);
+      expect(app.deps.dispatchFeed.mock.calls[0][0]).toEqual(FULL);
+      expect(app.deps.dispatchFeed.mock.calls.at(-1)?.[0]).toEqual({ ...FULL, connectionGraphChanged: true });
+    } finally {
+      app.manager.stop();
+    }
   });
 
   it("a hidden leader frees its stream for a visible tab and repairs once on return", async () => {

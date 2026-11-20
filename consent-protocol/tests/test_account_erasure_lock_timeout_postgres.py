@@ -1661,16 +1661,32 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
         engine.dispose()
 
 
-async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown_generations():
+async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown_generations(
+    monkeypatch,
+):
     """Exercise the bounded SQL projection; lifecycle guard qualification is above."""
+    from collections import OrderedDict
+    from types import SimpleNamespace
+
+    from sqlalchemy.pool import QueuePool
+
     from hushh_mcp.services import account_generation_service as generations
+    from hushh_mcp.services import directory_identity_service as directory
+    from hushh_mcp.services.connection_network_service import ConnectionNetworkService
+    from hushh_mcp.services.connections_service import ConnectionsService
 
     server = postgres_harness.TempPostgres()
     engine = None
     try:
         with patch.object(postgres_harness, "MIGRATIONS", []):
             server.start()
-        engine = create_engine(f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}")
+        engine = create_engine(
+            f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}",
+            poolclass=QueuePool,
+            pool_size=1,
+            max_overflow=0,
+            pool_timeout=0.02,
+        )
         owner = "acct_" + "a" * 32
         with engine.begin() as conn:
             conn.execute(
@@ -1690,6 +1706,51 @@ async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown
             assert generations.AccountGenerationService.firebase_identities_for_owners(
                 ["external-uid", owner, "acct_" + "b" * 32, "legacy-active"]
             ) == {owner: "external-uid", "legacy-active": "legacy-active"}
+            # Exercise the real network→directory→generation chain while its
+            # transaction holds the only slot. No second checkout can succeed.
+            monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+            monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+            monkeypatch.setattr(
+                directory,
+                "get_firebase_auth_app",
+                lambda: SimpleNamespace(project_id="synthetic", name="single-slot-network"),
+            )
+            record = SimpleNamespace(
+                uid="external-uid",
+                disabled=False,
+                display_name="Current person",
+                photo_url=None,
+                provider_data=[],
+            )
+            provider_calls = []
+
+            def lookup(identifiers, **kwargs):
+                provider_calls.append([identifier.uid for identifier in identifiers])
+                return SimpleNamespace(users=[record], not_found=set())
+
+            monkeypatch.setattr(directory.auth, "get_users", lookup)
+            monkeypatch.setattr("db.db_client.get_db_connection", engine.begin)
+            with ConnectionNetworkService(
+                ConnectionsService.__new__(ConnectionsService)
+            ) as network:
+                conn = network.connections._transaction_connection
+                transaction = conn.get_transaction()
+                people = network.directory()
+                assert people._active_directory_user_ids([owner]) == {owner}
+                assert people._directory_auth_profiles([owner]) == {
+                    owner: {"display_name": "Current person", "photo_url": ""}
+                }
+                assert conn.execute(text("SHOW statement_timeout")).scalar_one() == "8s"
+                record.disabled = True
+                assert people._active_directory_user_ids([owner]) == set()
+                # This minimal schema deliberately lacks connections. The
+                # best-effort visibility notification fails inside a savepoint;
+                # the authoritative read and caller transaction must survive.
+                assert conn.execute(text("SELECT 1")).scalar_one() == 1
+                assert conn.get_transaction() is transaction
+                assert not conn.closed
+            assert provider_calls == [["external-uid"]] * 3
+            assert engine.pool.checkedout() == 0
             with engine.begin() as conn:
                 conn.execute(
                     text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),

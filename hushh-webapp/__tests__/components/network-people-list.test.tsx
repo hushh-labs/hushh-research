@@ -240,6 +240,81 @@ describe("network permission and journey return @feature_connected_profiles", ()
     await screen.findByText("No 3rd-degree connections to show yet. Connect with people you know to grow your network.");
   });
 
+  it("revalidates every discovery filter after a stream gap without blanking retained rows", async () => {
+    const owner = "acct_recreated_owner";
+    const allRead = { mode: "discovery" as const, query: "", page: 1 };
+    const thirdRead = { ...allRead, degree: 3 as const };
+    state.list.mockImplementation(async ({ degree }) => ({ ...page(), hasMore: false,
+      items: [{ ...row(degree === 3 ? "Third before" : "All before"), networkDegree: degree ?? 2 }],
+    }));
+    preloadNetworkDiscovery(owner, state.user.getIdToken);
+    const cache = discoveryNetworkPages(owner);
+    await waitFor(() => expect(cache.peek(thirdRead)).toBeDefined());
+    render(<NetworkPeopleList mode="discovery" visitKey="stream-gap" embedded retainedPages={cache} />);
+    fireEvent.click(screen.getByRole("button", { name: "Extended network" }));
+    expect(screen.getByText("Third before")).toBeVisible();
+    const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: unknown) => void }>();
+    state.list.mockImplementation(({ degree }) => new Promise((resolve, reject) => {
+      pending.set(String(degree), { resolve, reject });
+    }));
+    act(() => dispatchConnectionGraphChanged(owner, { reason: "reconcile", broadcast: false }));
+    expect(screen.getByText("Third before")).toBeVisible();
+    expect(screen.queryByText("Loading connections…")).toBeNull();
+    expect(cache.peek(allRead)).toBeUndefined();
+    expect(cache.peekDiscoverySnapshot(allRead)).toBeDefined();
+    await waitFor(() => expect(pending.has("3")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByText("All before")).toBeVisible();
+    expect(screen.queryByText("Loading connections…")).toBeNull();
+    await waitFor(() => expect(pending.has("undefined")).toBe(true));
+    await act(async () => pending.get("3")!.resolve({ ...page(), hasMore: false,
+      items: [{ ...row("Third after"), networkDegree: 3 }],
+    }));
+    expect(screen.getByText("All before")).toBeVisible();
+    await act(async () => pending.get("undefined")!.resolve({ ...page(), hasMore: false,
+      items: [row("All after")],
+    }));
+    expect(await screen.findByText("All after")).toBeVisible();
+    pending.clear();
+    act(() => dispatchConnectionGraphChanged(owner, { reason: "reconcile", broadcast: false }));
+    expect(screen.getByText("All after")).toBeVisible();
+    await waitFor(() => expect(pending.has("undefined")).toBe(true));
+    await act(async () => pending.get("undefined")!.reject(new state.Error(403)));
+    expect(await screen.findByText("This connection list is unavailable.")).toBeVisible();
+    expect(screen.queryByText("All after")).toBeNull();
+    expect(cache.peekDiscoverySnapshot(allRead)).toBeUndefined();
+  });
+
+  it.each([undefined, "mutation"] as const)("clears snapshots and fences late writers for a %s graph mutation", async reason => {
+    const owner = "acct_recreated_owner";
+    const read = { mode: "discovery" as const, query: "", page: 1 };
+    const cache = discoveryNetworkPages(owner);
+    await cache.load(read, state.user.getIdToken);
+    let finish!: (value: unknown) => void;
+    state.list.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = cache.load(read, state.user.getIdToken, true);
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await waitFor(() => expect(finish).toBeDefined());
+    act(() => dispatchConnectionGraphChanged(owner, { reason, broadcast: false }));
+    expect(cache.peekDiscoverySnapshot(read)).toBeUndefined();
+    finish({ ...page(), items: [row("Late person")] });
+    await rejected;
+    expect(cache.peekDiscoverySnapshot(read)).toBeUndefined();
+  });
+
+  it("keeps private list reconciliation strict", async () => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false });
+    render(<NetworkPeopleList mode="connections" personRef="target" visitKey="private-stream-gap" />);
+    await screen.findByText("Person 1");
+    let deny!: (error: unknown) => void;
+    state.list.mockImplementation(() => new Promise((_, reject) => { deny = reject; }));
+    act(() => dispatchConnectionGraphChanged("acct_recreated_owner", { reason: "reconcile", broadcast: false }));
+    expect(screen.queryByText("Person 1")).toBeNull();
+    expect(screen.getByText("Loading connections…")).toBeVisible();
+    await waitFor(() => expect(deny).toBeDefined());
+    await act(async () => deny(new state.Error(403)));
+  });
+
   it("keeps expired discovery rows on return and filter changes while revalidating, then clears denied rows", async () => {
     const now = Date.now();
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
@@ -338,6 +413,10 @@ describe("network permission and journey return @feature_connected_profiles", ()
     expect(retainedPages.peek(privateRead)).toBeDefined();
     expect(retainedPages.peekDiscoverySnapshot(privateRead)).toBeUndefined();
     await retainedPages.load(discoveryRead, state.user.getIdToken);
+    expect(retainedPages.peekDiscoverySnapshot(discoveryRead)).toBeDefined();
+    retainedPages.reconcile();
+    expect(retainedPages.peek(privateRead)).toBeUndefined();
+    expect(retainedPages.peek(discoveryRead)).toBeUndefined();
     expect(retainedPages.peekDiscoverySnapshot(discoveryRead)).toBeDefined();
     state.generation++;
     expect(retainedPages.peek(privateRead)).toBeUndefined();

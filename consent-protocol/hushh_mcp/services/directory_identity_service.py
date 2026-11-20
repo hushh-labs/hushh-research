@@ -63,7 +63,11 @@ def exclude_retired_account_ids(
 
 
 def active_directory_user_ids(
-    user_ids: Sequence[str], *, use_cache: bool = True, notify_connections: bool = True
+    user_ids: Sequence[str],
+    *,
+    use_cache: bool = True,
+    notify_connections: bool = True,
+    connection: Any = None,
 ) -> set[str]:
     """Return enabled Firebase accounts, without retaining their private records.
 
@@ -81,7 +85,11 @@ def active_directory_user_ids(
         app = get_firebase_auth_app()
         if app is None:
             raise DirectoryIdentityUnavailableError()
-        identities = firebase_uids_for_owner_reads(candidates)
+        identities = (
+            firebase_uids_for_owner_reads(candidates, connection=connection)
+            if connection is not None
+            else firebase_uids_for_owner_reads(candidates)
+        )
         candidates = [owner for owner in candidates if owner in identities]
         scope = (str(app.project_id or ""), str(app.name))
         now = time.monotonic()
@@ -131,7 +139,10 @@ def active_directory_user_ids(
                 _STATUS_CACHE.popitem(last=False)
         if changed and notify_connections:
             try:
-                publish_connection_account_visibility_changes(changed)
+                if connection is not None:
+                    publish_connection_account_visibility_changes(changed, connection=connection)
+                else:
+                    publish_connection_account_visibility_changes(changed)
             except Exception as exc:  # noqa: BLE001 - a lost hint cannot change provider authority
                 logger.warning(
                     "directory.connection_visibility_event_failed error=%s", type(exc).__name__
@@ -185,7 +196,9 @@ def verified_directory_emails(user_ids: Sequence[str]) -> dict[str, str]:
         raise DirectoryIdentityUnavailableError() from None
 
 
-def directory_auth_profiles(user_ids: Sequence[str]) -> dict[str, dict[str, str]]:
+def directory_auth_profiles(
+    user_ids: Sequence[str], *, connection: Any = None
+) -> dict[str, dict[str, str]]:
     """Read public names/photos missing from legacy cache rows, by their UID.
 
     No provider record, email or phone is cached or returned. The projection is
@@ -199,7 +212,11 @@ def directory_auth_profiles(user_ids: Sequence[str]) -> dict[str, dict[str, str]
         app = get_firebase_auth_app()
         if app is None:
             raise DirectoryIdentityUnavailableError()
-        identities = firebase_uids_for_owner_reads(candidates)
+        identities = (
+            firebase_uids_for_owner_reads(candidates, connection=connection)
+            if connection is not None
+            else firebase_uids_for_owner_reads(candidates)
+        )
         candidates = [owner for owner in candidates if owner in identities]
         profiles: dict[str, dict[str, str]] = {}
         for offset in range(0, len(candidates), 100):
