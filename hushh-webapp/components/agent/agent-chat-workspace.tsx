@@ -9595,7 +9595,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   which agent is answering, so it names the agent actually on
                   screen rather than the workspace. */}
               <div className="min-w-0">
-                <div data-profile-role={!isPuppySurface ? "label" : undefined} className="truncate text-base font-semibold leading-5 text-foreground">
+              <div data-profile-role="label" className="truncate text-base font-semibold leading-5 text-foreground">
                   {isPuppySurface ? "Puppy One" : oneDisplayName}
                 </div>
                 <ChatAgentSubtitle text={chatHeaderSubtitle({

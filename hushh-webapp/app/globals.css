@@ -10522,7 +10522,7 @@ html:has([data-profile-type-scale]),
   transform: translateX(-50%);
   width: min(256px, calc(100% - 32px));
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
   overflow: visible;
   text-align: center;
 }

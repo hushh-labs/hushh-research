@@ -10,6 +10,7 @@ import {
   type Ref,
 } from "react";
 import Link from "next/link";
+import editorStyles from "./todo-add-item-sheet.module.css";
 
 import {
   ChevronDown,
@@ -147,7 +148,7 @@ function TodoAddItemSheet({
         className="mx-auto max-w-xl gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
         showCloseButton={!saving}
       >
-        <form onSubmit={(event) => void submit(event)}>
+        <form className={editorStyles.scheduleForm} onSubmit={(event) => void submit(event)}>
           <SheetHeader className="px-5 pb-3 pt-2 text-left">
             <SheetTitle className="text-xl tracking-[-0.02em]">
               Add item
@@ -171,21 +172,23 @@ function TodoAddItemSheet({
                 maxLength={240}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+            <div className={editorStyles.schedule}>
+              <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="todo-date">Date</Label>
                 <Input
                   id="todo-date"
+                  className={editorStyles.scheduleInput}
                   type="date"
                   value={date}
                   onChange={(event) => setDate(event.target.value)}
                   disabled={saving}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="todo-time">Time</Label>
                 <Input
                   id="todo-time"
+                  className={editorStyles.scheduleInput}
                   type="time"
                   value={time}
                   onChange={(event) => setTime(event.target.value)}

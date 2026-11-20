@@ -4,20 +4,22 @@ import { useCallback, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
 import { CalendarDays, ChevronLeft, ClipboardList } from "@/components/icons";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { groupByDate } from "./todo-list-presentation";
 import styles from "./todo-workspace.module.css";
 
 /** One detail view; mutations keep their existing encrypted persistence owner. */
-export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetailBackChange }: {
+export function TodoTaskDetail({ task, busy, error, onBack, onToggle, onRemove, onDetailBackChange }: {
   task: TodoItem; busy: boolean; onBack: () => void;
+  error?: string | null;
   onToggle: (task: TodoItem, complete: boolean) => void;
   onRemove: (task: TodoItem) => void;
   onDetailBackChange?: (handler: (() => boolean) | null) => void;
 }) {
   const pathname = usePathname() ?? "/one/todos";
-  const date = task.date ? groupByDate([task])[0]?.label : null;
-  const time = task.time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(`1970-01-01T${task.time}:00`)) : null;
+  const date = normalizeTodoDate(task.date) ? groupByDate([task])[0]?.label : null;
+  const time = task.time ? formatLocalDateTime(`1970-01-01T${task.time}:00`, { hour: "numeric", minute: "2-digit", hour12: true }) : null;
   const back = useCallback(() => {
     if (busy) return true;
     onBack();
@@ -39,6 +41,7 @@ export function TodoTaskDetail({ task, busy, onBack, onToggle, onRemove, onDetai
       {task.notes ? <div className={styles.information}><h4>{task.sourceAgent === "calendar" ? "About the meeting" : "About this task"}</h4><p>{task.notes}</p></div> : null}
     </div>
     <footer className={styles.detailFooter}>
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       <button type="button" className={styles.primary} disabled={busy} onClick={() => onToggle(task, task.status !== "done")}>{task.status === "done" ? "Mark as not completed" : "Mark as completed"}</button>
       <button type="button" className={styles.remove} disabled={busy} onClick={() => onRemove(task)}>Remove task</button>
     </footer>
