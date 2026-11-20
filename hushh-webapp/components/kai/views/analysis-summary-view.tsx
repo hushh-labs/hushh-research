@@ -31,6 +31,7 @@ interface AnalysisSummaryViewProps {
   userId?: string;
   vaultOwnerToken?: string;
   showHeader?: boolean;
+  compact?: boolean;
 }
 
 function readNumber(value: unknown): number | null {
@@ -155,14 +156,14 @@ function ScoreBar({
   tone,
 }: {
   label: string;
-  description: string;
+  description?: string;
   value: number | null;
   valueLabel?: string;
   tone: "neutral" | "positive" | "warning";
 }) {
   const clamped = value === null ? null : Math.max(0, Math.min(10, value));
   return (
-    <div className="space-y-2 border-t border-border pt-4">
+    <div className={cn("space-y-2 border-t border-border", description ? "pt-4" : "pt-2.5")}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">{label}</p>
         <p className="text-sm font-medium tabular-nums">
@@ -180,7 +181,7 @@ function ScoreBar({
           style={{ transform: `translateX(-${100 - (clamped === null ? 0 : clamped * 10)}%)` }}
         />
       </div>
-      <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+      {description ? <p className="text-xs leading-relaxed text-muted-foreground">{description}</p> : null}
     </div>
   );
 }
@@ -194,6 +195,7 @@ export function AnalysisSummaryView({
   userId,
   vaultOwnerToken,
   showHeader = true,
+  compact = false,
 }: AnalysisSummaryViewProps) {
   useMarketCurrency();
   const rawCard = useMemo(
@@ -357,10 +359,10 @@ export function AnalysisSummaryView({
         </div>
       ) : null}
 
-      <SurfaceCard>
-        <SurfaceCardContent className="space-y-3 p-4">
+      <SurfaceCard className={compact ? "!bg-transparent shadow-none" : undefined}>
+        <SurfaceCardContent className={compact ? "space-y-2 p-0" : "space-y-3 p-4"}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-foreground">Analysis</span>
+            {compact ? null : <span className="text-sm font-semibold text-foreground">Analysis</span>}
             <span className="text-xs font-medium text-muted-foreground">At analysis · {updatedAt}</span>
           </div>
 
@@ -376,14 +378,14 @@ export function AnalysisSummaryView({
                 {decisionPresentation.label}
               </span>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">{decisionPresentation.guidance}</p>
+            {compact ? null : <p className="mt-2 text-sm text-muted-foreground">{decisionPresentation.guidance}</p>}
           </div>
 
           <ScoreBar
             label="Company Strength"
             value={companyStrength}
             tone="neutral"
-            description={companyStrengthDetail}
+            description={compact ? undefined : companyStrengthDetail}
           />
 
           <ScoreBar
@@ -391,7 +393,7 @@ export function AnalysisSummaryView({
             value={marketTrendScore}
             valueLabel={marketTrendLabel}
             tone="positive"
-            description={marketTrendDetail}
+            description={compact ? undefined : marketTrendDetail}
           />
 
           <ScoreBar
@@ -399,12 +401,12 @@ export function AnalysisSummaryView({
             value={fairValueScore}
             valueLabel={fairValueLabel}
             tone="warning"
-            description={fairValueDetail}
+            description={compact ? undefined : fairValueDetail}
           />
         </SurfaceCardContent>
       </SurfaceCard>
 
-      <SurfaceCard>
+      {compact ? null : <SurfaceCard>
         <SurfaceCardContent className="space-y-3 p-4">
           <div className="space-y-2">
             <p className="text-sm font-medium leading-relaxed">{shortRecommendation}</p>
@@ -419,7 +421,7 @@ export function AnalysisSummaryView({
             </Button>
           ) : null}
         </SurfaceCardContent>
-      </SurfaceCard>
+      </SurfaceCard>}
     </div>
   );
 }

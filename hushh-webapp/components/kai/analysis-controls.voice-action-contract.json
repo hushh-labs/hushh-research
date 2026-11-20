@@ -78,6 +78,13 @@
       "meaning": "Starts the debate after the user confirms the visible stock preview.",
       "aliases": ["start debate", "confirm analysis preview", "start analysis debate"],
       "search_keywords": ["analysis", "preview", "start debate", "confirm"],
+      "reachability": {
+        "active_personas": ["investor"],
+        "routes": ["/", "/one/kai?tab=analysis"],
+        "screens": ["chat", "kai_analysis"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
       "guard_ids": ["analysis_idle_required", "explicit_user_confirmation"],
       "risk_level": "medium",
       "execution_policy": "confirm_required",

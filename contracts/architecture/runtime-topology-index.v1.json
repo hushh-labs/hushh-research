@@ -2611,6 +2611,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "analysis.confirm_preview",
           "calendar.invitation.review",
           "onboarding.claim_one",
           "wallet.add",
@@ -7326,13 +7327,13 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "6540a738b5e4b669d7d756164c506b235f094a57bb773ba4bd6d197b998f4457",
+    "action_gateway": "0746e26d7ce234ca18918975be9b56e7359693e382d1fb5360bddbdd6d2c3e60",
     "agent_registry": "f19fcd58969287ee2df140d325906759d00d18069137026403ad7f0009d1e55f",
     "cache_manifest": "669b3627c54a7f298c9b011b5e7e54681c1d1747ef4ab70728aa5de077dccea6",
     "data_plane": "d469a73b8a7ba58d10ff2347b6d7f4cdaf191d460a0818c4d1706c8ab3e9b0cf",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
-    "route_index": "d3e01ddbc5590f9f9b3c7544b9ada66c846e9741c82be3ccdf7690efb604c3c8",
+    "route_index": "3ba0298f747cb4379e6b889ef5e95ef36c89ceb0455380f49c8e2c87633b3560",
     "route_layout": "fc0284da5b1bab9bbab7f7410939898dfbcb7362200249b36e32ab59f5888b95",
     "surface_map": "a8196b7910a468b0faaf295aff9fc44a4f13d1f71e8607d365556f9d74bae927",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",

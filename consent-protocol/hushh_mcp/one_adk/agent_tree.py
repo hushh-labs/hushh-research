@@ -141,6 +141,11 @@ from hushh_mcp.one_adk.feed_attention import (
     block_tools_during_feed_attention,
     feed_attention_instruction,
 )
+from hushh_mcp.one_adk.finance_chat_cards import (
+    show_market_gainers,
+    show_portfolio_card,
+    show_stock_preview,
+)
 from hushh_mcp.one_adk.finance_market_tools import (
     MARKET_QUOTES_TOOL_NAME,
     TICKER_NEWS_TOOL_NAME,
@@ -148,6 +153,9 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
+from hushh_mcp.one_adk.legacy_navigation import APP_ROUTES as APP_ROUTES
+from hushh_mcp.one_adk.legacy_navigation import CRM_PRODUCT_AVAILABLE as _CRM_PRODUCT_AVAILABLE
+from hushh_mcp.one_adk.legacy_navigation import open_screen
 from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
@@ -169,6 +177,9 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.one_adk.specialist_focus import specialist_focus_instruction as focus_instruction
+from hushh_mcp.one_adk.state_keys import STATE_PENDING_DIRECTIVE as STATE_PENDING_DIRECTIVE
+from hushh_mcp.one_adk.state_keys import STATE_USER_ID as STATE_USER_ID
+from hushh_mcp.one_adk.state_keys import STATE_VOICE_CONTEXT as STATE_VOICE_CONTEXT
 from hushh_mcp.one_adk.turn_location import get_my_location
 from hushh_mcp.one_adk.web_search import (
     instruction_for_head,
@@ -205,7 +216,6 @@ from hushh_mcp.services.agent_task_context import (
     record_pending_specialist_directive,
     specialist_directive_fingerprint,
 )
-from hushh_mcp.services.crm_product_availability import crm_product_available
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +252,6 @@ _WALLET_MANIFEST = _load_product_agent_manifest("agent_wallet")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.
-STATE_USER_ID = "hussh:user_id"
 # State KEY name, not a credential value (the token itself arrives at runtime).
 STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 STATE_CONVERSATION_ID = "hussh:conversation_id"
@@ -256,7 +265,6 @@ STATE_DATA_DOOR_GRANTS = "hussh:data_door_grants"
 # Redacted browser state used by action tools to avoid proposing controls the
 # current surface did not declare available. It never contains vault content,
 # credentials, or raw page text.
-STATE_VOICE_CONTEXT = "hussh:voice_context"
 # Optional, turn-bounded PKM projection supplied after vault unlock. The value
 # is seeded into an ephemeral text session and never logged or persisted by
 # the One runtime. Voice sessions do not set this key.
@@ -314,7 +322,6 @@ STATE_MEMORY_DIGEST = "hussh:memory_digest"
 STATE_MEMORY_AVAILABLE = "hussh:memory_available"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
-STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 # Where the last Email receipts list stopped, so "show more" continues it. It
 # holds the list's filters and offset only, never a receipt, and expires on its
 # own. Unlike the request secrets it must outlive one HTTP request, so it lives
@@ -325,25 +332,6 @@ STATE_RECEIPT_CURSOR = "hussh:receipt_cursor"
 # shape as STATE_PENDING_DIRECTIVE, kept as its own prefix since a trace is
 # never executed and never settles -- it is just forwarded and rendered.
 STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
-
-_CRM_PRODUCT_AVAILABLE = crm_product_available()
-
-# Governed navigation allowlist: screen id -> app route. Mirrors the /one
-# roster plus core account surfaces. One can ONLY navigate here; anything
-# else is refused by construction.
-APP_ROUTES: dict[str, str] = {
-    "home": "/one",
-    "setup": "/one/setup",
-    "finance": "/one/kai",
-    "ria": "/ria",
-    "email": "/one/email",
-    "location": "/one/location",
-    "personal_data": "/one/pkm",
-    "consent": "/one/consent",
-    "profile": "/profile",
-}
-if _CRM_PRODUCT_AVAILABLE:
-    APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
 # Keep the pod Live compatibility surface on the same manifest/env contract as
 # the existing infrastructure runtime.  The ordinary text head below uses the
@@ -549,11 +537,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'take me to location' selects route.one_location, while 'share my location' "
     "selects the governed location action below; questions about Gmail information "
     "requests belong in Email rather than a retired KYC route. "
-    "When the user "
-    "asks to analyze, "
-    "research, or run a debate on a stock or company ('analyze Nvidia'), act "
-    "immediately: call start_app_goal with action id 'analysis.start' and "
-    "slots {'symbol': <ticker>}; ask only when you cannot infer the ticker. "
+    "To explicitly open the Finance analysis screen, or analyze a stock outside typed Chat, "
+    "call start_app_goal with action 'analysis.start' and slots {'symbol': <ticker>}; "
+    "ask only if the ticker is unclear. "
     "After start_app_goal reports navigation_started, wait for the correlated "
     "route settlement and fresh Analysis context, then call continue_app_goal. "
     "It opens a preview only; never start the debate until the person explicitly "
@@ -871,6 +857,21 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
+    identity_instruction = ONE_IDENTITY_INSTRUCTION
+    if (
+        callable(state_getter)
+        and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and state_getter(STATE_USER_ID)
+    ):
+        identity_instruction += (
+            "\n\nFINANCE IN CHAT: Keep these requests in Chat. Call show_market_gainers for "
+            "U.S. or unspecified gainers. Acknowledge opening the card without claiming quotes "
+            "or ranks. For portfolio holdings, allocation, performance or sources, call "
+            "show_portfolio_card. To preview, research, analyze or debate a stock, call "
+            "show_stock_preview with its ticker and say it is ready for review. The person "
+            "confirms in the card before the debate starts."
+        )
+
     mail_admitted = (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
@@ -1058,7 +1059,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         return (
-            ONE_IDENTITY_INSTRUCTION
+            identity_instruction
             + mail_instruction
             + selected_drive_instruction
             + pkm_instruction
@@ -1243,7 +1244,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     playbook = voice_context.get("route_playbook")
     if not isinstance(playbook, dict):
         return (
-            ONE_IDENTITY_INSTRUCTION
+            identity_instruction
             + mail_instruction
             + selected_drive_instruction
             + layer_instruction
@@ -1265,7 +1266,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     completion = bounded(playbook.get("completion_boundary"), 480)
     out_of_scope = bounded(playbook.get("out_of_scope_behavior"), 480)
     return (
-        ONE_IDENTITY_INSTRUCTION
+        identity_instruction
         + mail_instruction
         + selected_drive_instruction
         + layer_instruction
@@ -1940,48 +1941,6 @@ async def _specialist_turn(
     return payload
 
 
-async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Legacy non-live navigation helper.
-
-    Live One sessions must use a generated action currently published by the
-    browser. Keeping this compatibility tool fail-closed in a live session
-    prevents it from bypassing route, setup, and visible-control authority.
-    """
-    voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
-    if isinstance(voice_context, dict) and voice_context.get("route_family"):
-        return {
-            "status": "action_required",
-            "message": (
-                "Use one of the generated actions available on the current screen; "
-                "I cannot navigate around its controls directly."
-            ),
-        }
-    key = str(screen or "").strip().lower().replace("-", "_").replace(" ", "_")
-    route = APP_ROUTES.get(key)
-    if not route:
-        return {
-            "status": "unknown_screen",
-            "message": f"'{screen}' is not a screen I can open.",
-            "valid_screens": sorted(APP_ROUTES),
-        }
-    tool_context.state[f"{STATE_PENDING_DIRECTIVE}:{key}"] = {
-        "kind": "navigate",
-        "payload": {"route": route, "screen": key},
-    }
-    return {
-        "status": "ok",
-        "message": f"Opening {key.replace('_', ' ')}.",
-        "route": route,
-        # Proactive-prompting: this text becomes the tool RESULT the model
-        # reads on its next turn (there is no separate server-injected
-        # system turn for tool results, unlike the greeting/screen-change
-        # notes in adk_live.py). Nudging here means One offers a next step
-        # after every screen it opens, not only after onboarding-tagged
-        # screen changes.
-        "next_step": "Wait for route settlement before describing the next step.",
-    }
-
-
 async def open_gmail_email_draft(
     request: str,
     tool_context: ToolContext,
@@ -2615,6 +2574,9 @@ def _one_roster_tools(
         start_app_goal,
         continue_app_goal,
         list_app_actions,
+        show_stock_preview,
+        show_portfolio_card,
+        show_market_gainers,
         open_gmail_email_draft,
         open_gmail_information_request_reply,
         AgentTool(agent=_build_finance_agent(model=specialist_model)),

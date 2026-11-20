@@ -2,7 +2,7 @@
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
@@ -33,6 +33,10 @@ import { PersonProfileService, mergePersonScopePage, type InformationRequestBund
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import { MailChatCard } from "@/components/agent/mail-chat-card";
+import { ExperienceShell } from "@/components/agent/agent-experience-shell";
+import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
+import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
+import { FinanceTopGainersCard } from "@/components/agent/finance-top-gainers-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
@@ -112,6 +116,8 @@ export { AgentTranscriptRevealContext };
 
 export function AgentStructuredExperienceView({
   experience,
+  allowFinancePreviewStart,
+  onConfirmFinanceAnalysis,
   onOpenConnections,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
@@ -119,6 +125,8 @@ export function AgentStructuredExperienceView({
   driveCompilation,
 }: {
   experience: AgentStructuredExperience;
+  allowFinancePreviewStart?: boolean;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -127,6 +135,12 @@ export function AgentStructuredExperienceView({
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.finance_top_gainers.v1":
+      return <FinanceTopGainersCard historical={experience.historical} />;
+    case "one.finance_portfolio.v1":
+      return <FinancePortfolioCard section={experience.section} />;
+    case "one.finance_stock_preview.v1":
+      return <FinanceStockPreviewCard ticker={experience.ticker} allowStart={allowFinancePreviewStart} onConfirm={onConfirmFinanceAnalysis} />;
     case "one.shared_with_me_card.v1":
       return <div className="space-y-3">
         {experience.cards.map((card) => (
@@ -236,42 +250,6 @@ function DocumentRequestReviewView({ experience }: { experience: DocumentRequest
       draft={{clientRequestId: experience.clientRequestId, purpose: experience.purpose,
         periodStart: experience.periodStart, periodEnd: experience.periodEnd}}
     /></ExperienceShell>;
-}
-
-function ExperienceShell({
-  experienceType,
-  label,
-  title,
-  summary,
-  icon,
-  children,
-}: {
-  experienceType: AgentStructuredExperience["type"];
-  label: string;
-  title: string;
-  summary: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  const isConsentReview = ["one.information_request_review.v1", "one.document_request_review.v1", "one.drive_share_review.v1", "one.drive_bulk_share_review.v1"].includes(experienceType);
-  return (
-    <section data-experience-type={experienceType} className={`${isConsentReview ? "consent-presentation-surface " : ""}overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]`}>
-      <header className="flex items-start gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
-        {/* /one iconography: a bare duotone glyph on a transparent well. A
-            registry capability glyph keeps its own colour; a utility glyph
-            takes the accent. Never a filled tile with a white glyph. */}
-        <span data-slot="card-header-icon" className="inline-flex h-10 w-10 shrink-0 items-center justify-center text-accent-strong">
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="ui-text-section-label text-accent-strong">{label}</p>
-          <h3 data-consent-role="row-title" className="mt-1 text-base font-semibold tracking-[-0.015em] text-foreground">{title}</h3>
-          {summary ? <p data-consent-role="body" className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p> : null}
-        </div>
-      </header>
-      <div className="bg-background/72 px-4 py-4 backdrop-blur-xl sm:px-5">{children}</div>
-    </section>
-  );
 }
 
 function sensitivityLabel(

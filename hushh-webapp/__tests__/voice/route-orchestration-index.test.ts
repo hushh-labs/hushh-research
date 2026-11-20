@@ -71,6 +71,7 @@ describe("One route orchestration index", () => {
       instruction_id: "route.chat.root",
       context_policy: "minimal",
       action_ids: [
+        "analysis.confirm_preview",
         "calendar.invitation.review",
         "onboarding.claim_one",
         "wallet.add",

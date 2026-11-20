@@ -41,6 +41,20 @@ describe("India movers", () => {
     expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(2);
   });
 
+  it("renders only real gainers in chat and delegates opening their details", () => {
+    const onSelect = vi.fn();
+    const props = { groups, gainersOnly: true, onSelect };
+    const { container } = render(createElement(OneMarketMovers, props));
+    const gainer = screen.getByRole("button", { name: /TATASTEEL/ });
+    const locationBefore = window.location.href;
+    expect(screen.queryByText("Losers")).toBeNull();
+    expect(container.querySelector("[data-market-mover-empty]")).toBeNull();
+    fireEvent.click(gainer);
+    expect(onSelect).toHaveBeenCalledWith(groups.gain[0]);
+    expect(window.location.href).toBe(locationBefore);
+    expect(gainer).toHaveAttribute("aria-haspopup", "dialog");
+  });
+
   it("keeps US movers as buttons that open analysis", () => {
     render(createElement(OneMarketMovers, { groups }));
     expect(document.querySelectorAll("button[data-market-mover-rank]").length).toBeGreaterThan(0);
