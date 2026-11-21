@@ -94,10 +94,15 @@ or malformed policy is rejected. Disabled, deprovisioned and deleted accounts
 remain ineligible. These settings remain disabled until separately
 reconciled and accepted; UAT activity is test activity, not customer adoption.
 
+An approved UAT binding can include `provisionalUtcDay` for one UTC date. On
+that date, a request whose start and end both match it uses the request time as
+the cutoff and returns `provisional` coverage. The response watermark is that
+cutoff. This option expires at UTC midnight and is unavailable in production.
+
 The request contains exactly `period: {startDate,endDate,timezone}`,
-`definitionVersion`, `sourceGeneration`, `scopeDigest`. Dates use complete source
-calendar days and a half-open timestamp interval, including DST days. Only recent
-windows within seven days and the explicitly reviewed coverage start are admitted.
+`definitionVersion`, `sourceGeneration`, `scopeDigest`. Closed dates use complete
+source calendar days and a half-open timestamp interval, including DST days.
+All requests must be within seven days and the explicitly reviewed coverage start.
 There is no owner/account override or source URL/query supplied by the caller.
 
 The proposed meaningful-activity definition is a persisted successful assistant
