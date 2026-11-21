@@ -153,6 +153,18 @@ describe("priced answer coverage", () => {
   });
 });
 
+describe("participant preparation readiness", () => {
+  const base = { role: "owner", requestStatus: "approved", question: "Fixture question" };
+  it.each([undefined, false, true])("accepts compatible readiness %s", async answerPrepared => {
+    apiFetch.mockReturnValue(json({ ...base, answerPrepared }));
+    expect((await AnswerRequestService.state("token", crypto.randomUUID())).answerPrepared).toBe(answerPrepared);
+  });
+  it.each([null, 1, "true", {}])("rejects malformed readiness %s", async answerPrepared => {
+    apiFetch.mockReturnValue(json({ ...base, answerPrepared }));
+    await expect(AnswerRequestService.state("token", crypto.randomUUID())).rejects.toThrow("Invalid secure receiving status");
+  });
+});
+
 describe("request terms", () => {
   it("treats an absent period as valid and a half-filled one as not", () => {
     expect(validAnswerPeriod()).toBe(true);

@@ -116,6 +116,8 @@ export interface AnswerRequestState {
   requesterKeyReady?: boolean;
   deliveryRecipientKeyId?: string | null;
   deliveryRecipientKeyActive?: boolean;
+  /** Server-verified staged content for the current approval and receiving key. */
+  answerPrepared?: boolean;
 }
 
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
@@ -281,6 +283,7 @@ export class AnswerRequestService {
     if (typeof value.role !== "string" || typeof value.requestStatus !== "string" || typeof value.question !== "string")
       throw new Error("Invalid request response");
     if ((value.requesterKeyReady !== undefined && typeof value.requesterKeyReady !== "boolean") ||
+        (value.answerPrepared !== undefined && typeof value.answerPrepared !== "boolean") ||
         (value.deliveryRecipientKeyActive !== undefined && typeof value.deliveryRecipientKeyActive !== "boolean") ||
         (value.deliveryRecipientKeyId !== undefined && value.deliveryRecipientKeyId !== null &&
           (typeof value.deliveryRecipientKeyId !== "string" || !value.deliveryRecipientKeyId || value.deliveryRecipientKeyId.length > 256)))

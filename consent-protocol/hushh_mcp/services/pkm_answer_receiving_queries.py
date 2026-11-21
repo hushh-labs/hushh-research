@@ -5,7 +5,9 @@ queries together makes the public-key ownership and revocation predicates
 reviewable across participant status, preparation, checkout and settlement.
 """
 
-PARTICIPANT_STATE = """SELECT r.owner_user_id, r.status, r.question,
+PARTICIPANT_STATE = """SELECT r.request_id, r.owner_user_id, r.status, r.question,
+                   r.terms_digest, r.composer_consent_digest,
+                   d.has_content AS staged_has_content, d.source_revisions AS staged_revisions,
                    EXISTS(SELECT 1 FROM marketplace_recipient_keys k
                      WHERE k.user_id=r.requester_user_id AND k.status='active'
                        AND k.key_id<>'' AND k.public_key_jwk IS NOT NULL
