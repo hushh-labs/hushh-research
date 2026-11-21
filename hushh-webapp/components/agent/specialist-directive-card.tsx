@@ -2,9 +2,10 @@
 
 import React from "react";
 import { useEffect, useState } from "react";
-import { ConsentAgentIcon, ExternalLink, ShieldCheck, ShieldOff } from "@/components/icons";
+import { ConsentAgentIcon, ExternalLink, ShieldCheck, ShieldOff, WalletAgentIcon } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
@@ -380,17 +381,18 @@ export function SpecialistConsentActionsCard({
                   Until {expiry}
                 </p>
               ) : null}
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3.5 flex min-h-11 flex-wrap items-center gap-2">
                 {actions.has("revoke") ? (
                   <Button
                     data-testid="specialist-consent-revoke"
                     size="sm"
                     variant="destructive"
+                    className="px-4"
                     disabled={busy}
                     isLoading={busy}
                     onClick={() => onRevoke(item)}
                   >
-                    <ShieldOff className="h-4 w-4" aria-hidden="true" />
+                    <ShieldOff className="h-3.5 w-3.5" aria-hidden="true" />
                     Stop sharing
                   </Button>
                 ) : null}
@@ -398,22 +400,24 @@ export function SpecialistConsentActionsCard({
                   <Button
                     data-testid="specialist-consent-revoked"
                     size="sm"
-                    variant="ghost"
+                    variant="subdued"
+                    className="px-4"
                     disabled
                   >
-                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                    <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                     Revoked
                   </Button>
                 ) : null}
                 {actions.has("details") ? (
                   <Button
-                    data-testid="specialist-consent-details" data-consent-quiet-action="true"
+                    data-testid="specialist-consent-details"
                     size="sm"
-                    variant="ghost"
+                    variant="outline"
+                    className="px-4 font-medium"
                     disabled={busy}
                     onClick={() => onDetails(item)}
                   >
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     Details
                   </Button>
                 ) : null}
@@ -541,10 +545,33 @@ export function SpecialistPendingConsentRequestCard({
   onDeny,
   onDetails,
 }: SpecialistPendingConsentRequestCardProps) {
-  const duration = pendingDurationLabel(item.expiryHours);
+  const [overrideHours, setOverrideHours] = useState<number | null>(null);
+  useEffect(() => {
+    setOverrideHours(null);
+  }, [item.expiryHours]);
+
+  const effectiveHours = overrideHours ?? item.expiryHours;
+  const duration = pendingDurationLabel(effectiveHours);
   const decideBy = formatDecideBy(item.approvalTimeoutAt);
   const status = normalizePendingConsentCardStatus(item.status);
   const resolved = status !== "pending";
+  const stagedByAgent = !resolved && item.metadata?.staged_by_agent === true;
+
+  const parsedEffectiveHours =
+    effectiveHours == null || effectiveHours === ""
+      ? null
+      : Number(effectiveHours);
+  const selectedOptionValue =
+    parsedEffectiveHours != null &&
+    Number.isFinite(parsedEffectiveHours) &&
+    parsedEffectiveHours > 0
+      ? String(Math.round(parsedEffectiveHours))
+      : "";
+  const hasCustomDurationOption =
+    Boolean(selectedOptionValue) &&
+    !REQUEST_DURATION_OPTIONS.some(
+      (option) => String(option.hours) === selectedOptionValue,
+    );
 
   // Don't allow is irreversible, so it takes a confirming second tap: the
   // first tap arms the button ("Sure?") and it disarms on its own a few
@@ -608,6 +635,15 @@ export function SpecialistPendingConsentRequestCard({
               {meta.join(" · ")}
             </p>
           ) : null}
+          {stagedByAgent && duration ? (
+            <p
+              className="text-[13px] font-medium leading-[18px] text-[color:var(--app-accent)]"
+              data-consent-role="status"
+              data-testid="specialist-pending-consent-staged"
+            >
+              Updated to {duration} · Tap Allow to share
+            </p>
+          ) : null}
           {resolved ? (
             <p
               className="text-[13px] font-semibold leading-[18px] text-muted-foreground" data-consent-role="status"
@@ -628,13 +664,60 @@ export function SpecialistPendingConsentRequestCard({
           ) : null}
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+      <div className="mt-3.5 flex min-h-11 flex-wrap items-center justify-end gap-2">
+        {!resolved ? (
+          <div className="relative mr-auto inline-flex items-center">
+            <select
+              aria-label="For how long"
+              data-testid="specialist-pending-consent-term-select"
+              disabled={busy}
+              value={selectedOptionValue}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (!raw) {
+                  setOverrideHours(null);
+                  return;
+                }
+                const parsed = Number(raw);
+                if (Number.isFinite(parsed) && parsed > 0) {
+                  setOverrideHours(Math.round(parsed));
+                }
+              }}
+              className="h-9 min-h-9 cursor-pointer appearance-none rounded-full border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] pl-3.5 pr-8 text-[16px] font-medium leading-[18px] tracking-[-0.008em] text-foreground transition-colors duration-[140ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none focus-visible:border-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-[13.5px] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]"
+            >
+              {!selectedOptionValue ? <option value="">Default term</option> : null}
+              {hasCustomDurationOption && duration ? (
+                <option value={selectedOptionValue}>{duration}</option>
+              ) : null}
+              {REQUEST_DURATION_OPTIONS.map((option) => (
+                <option key={option.hours} value={String(option.hours)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              fill="none"
+              className="pointer-events-none absolute right-3 size-3.5 text-[color:var(--app-secondary-label)]"
+            >
+              <path
+                d="M4.25 6.25L8 10L11.75 6.25"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        ) : null}
         <Button
           data-testid="specialist-pending-consent-details"
           size="sm"
-          variant="ghost" data-consent-quiet-action="true"
+          variant="outline"
+          className="px-4 font-medium"
           disabled={busy}
-          onClick={() => onDetails(item)}
+          onClick={() => onDetails(overrideHours !== null ? { ...item, expiryHours: overrideHours } : item)}
         >
           Details
         </Button>
@@ -643,7 +726,8 @@ export function SpecialistPendingConsentRequestCard({
             <Button
               data-testid="specialist-pending-consent-deny"
               size="sm"
-              variant={denyArmed ? "destructive" : "ghost"}
+              variant={denyArmed ? "destructive" : "subdued"}
+              className="px-4"
               disabled={busy}
               aria-label={denyTap.ariaLabel("Don't allow")}
               data-armed={denyArmed ? "true" : undefined}
@@ -657,14 +741,176 @@ export function SpecialistPendingConsentRequestCard({
             <Button
               data-testid="specialist-pending-consent-approve"
               size="sm"
+              className="px-4"
               disabled={busy}
               isLoading={busy}
-              onClick={() => onApprove(item)}
+              onClick={() =>
+                onApprove(
+                  overrideHours !== null
+                    ? { ...item, expiryHours: overrideHours }
+                    : item,
+                )
+              }
             >
               Allow
             </Button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+export type OneStreamEventKind =
+  | "incoming_connection"
+  | "shared_access_unlocked"
+  | "commerce_settlement";
+
+export type OneStreamEventStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "acknowledged";
+
+export type OneStreamEventItem = {
+  id: string;
+  eventKind: OneStreamEventKind;
+  actorLabel: string;
+  actorPhotoUrl?: string | null;
+  headline: string;
+  detail?: string | null;
+  href?: string | null;
+  requiresScopeReview?: boolean;
+  status: OneStreamEventStatus;
+};
+
+const resolvedOneStreamStatusLabels: Record<
+  Exclude<OneStreamEventStatus, "pending">,
+  string
+> = {
+  accepted: "Connected",
+  declined: "Declined",
+  acknowledged: "Reviewed",
+};
+
+export function OneStreamEventCard({
+  item,
+  busy = false,
+  onAccept,
+  onDecline,
+  onOpen,
+}: {
+  item: OneStreamEventItem;
+  busy?: boolean;
+  onAccept?: (item: OneStreamEventItem) => void;
+  onDecline?: (item: OneStreamEventItem) => void;
+  onOpen?: (item: OneStreamEventItem) => void;
+}) {
+  const resolved = item.status !== "pending";
+  const declineTap = useArmedAction();
+  const { armed: declineArmed, disarm: disarmDecline } = declineTap;
+
+  useEffect(() => {
+    if (busy || resolved) disarmDecline();
+  }, [busy, resolved, disarmDecline]);
+
+  const isConnection = item.eventKind === "incoming_connection";
+
+  return (
+    <div
+      data-testid="one-stream-event-card"
+      data-event-kind={item.eventKind}
+      className="consent-presentation-surface rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4"
+    >
+      <div className="flex items-start gap-3">
+        {isConnection || item.actorPhotoUrl ? (
+          <ConnectionPersonAvatar
+            label={item.actorLabel || "Someone"}
+            photoUrl={item.actorPhotoUrl ?? null}
+            size="list"
+            className="bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
+          />
+        ) : item.eventKind === "commerce_settlement" ? (
+          <span className="mt-0.5 grid size-8 shrink-0 place-items-center">
+            <WalletAgentIcon className="size-5" aria-hidden="true" />
+          </span>
+        ) : (
+          <span className="mt-0.5 grid size-8 shrink-0 place-items-center">
+            <ConsentAgentIcon className="size-5" aria-hidden="true" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <p
+            data-consent-role="row-title"
+            className="text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere]"
+          >
+            {item.headline}
+          </p>
+          {item.detail ? (
+            <p
+              data-consent-role="body"
+              className="text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]"
+            >
+              {item.detail}
+            </p>
+          ) : null}
+          {resolved ? (
+            <p
+              data-consent-role="status"
+              data-testid="one-stream-event-status"
+              className="text-[13px] font-semibold leading-[18px] text-muted-foreground"
+            >
+              {resolvedOneStreamStatusLabels[item.status as Exclude<OneStreamEventStatus, "pending">]}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-3.5 flex min-h-11 flex-wrap items-center justify-end gap-2">
+        {item.href && onOpen ? (
+          <Button
+            data-testid="one-stream-event-open"
+            size="sm"
+            variant="outline"
+            className="px-4 font-medium"
+            disabled={busy}
+            onClick={() => onOpen(item)}
+          >
+            {isConnection && item.requiresScopeReview ? "Review" : "Open"}
+          </Button>
+        ) : null}
+        {!resolved && isConnection ? (
+          <>
+            {onDecline ? (
+              <Button
+                data-testid="one-stream-event-decline"
+                size="sm"
+                variant={declineArmed ? "destructive" : "subdued"}
+                className="px-4"
+                disabled={busy}
+                aria-label={declineTap.ariaLabel("Decline")}
+                data-armed={declineArmed ? "true" : undefined}
+                onClick={() => {
+                  if (busy) return;
+                  declineTap.activate(() => onDecline(item));
+                }}
+              >
+                {declineTap.label("Decline")}
+              </Button>
+            ) : null}
+            {!item.requiresScopeReview && onAccept ? (
+              <Button
+                data-testid="one-stream-event-accept"
+                size="sm"
+                className="px-4"
+                disabled={busy}
+                isLoading={busy}
+                onClick={() => onAccept(item)}
+              >
+                Accept
+              </Button>
+            ) : null}
+          </>
+        ) : null}
       </div>
     </div>
   );

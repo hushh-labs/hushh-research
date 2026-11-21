@@ -887,6 +887,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             requestId: answerRequestId
               ? `answer_request:${answerRequestId}`
               : undefined,
+            requestView: item.event_type === "answer_request_received" ? "received" : "sent",
+            from: ROUTES.ONE_FEED,
           },
         ),
       };
@@ -909,12 +911,38 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // item. `requester_label`, `bundle_id`, `reason` and `scopes` are what the
     // per-request row carries (CONTRACT C5); a per-item row with none of them
     // still reads as a sentence.
+    case "consent_denied":
+    case "consent_cancelled":
+    case "consent_timed_out": {
+      const bundleId = metadataString(item.metadata, "bundle_id") || undefined;
+      const requestId = metadataString(item.metadata, "request_id") || undefined;
+      const [label, description] =
+        item.event_type === "consent_denied"
+          ? ["Requested information declined", iAskedForThis ? "They declined your request." : "You declined requested information."]
+          : item.event_type === "consent_cancelled"
+            ? ["Requested access withdrawn", "Requested access to information was withdrawn."]
+            : ["Requested access expired", "An unanswered part of this request expired."];
+      return {
+        icon,
+        domainLabel,
+        label,
+        description,
+        href: buildConsentCenterHref("previous", {
+          bundleId,
+          requestId,
+          requestView: iAskedForThis ? "sent" : undefined,
+          from: ROUTES.ONE_FEED,
+        }),
+      };
+    }
     case "consent_requested":
     case "consent_granted":
     case "consent_revoked": {
       const requester = consentRequesterName(item);
       const what = joinInformationLabels(consentRowLabels(item.metadata), 2);
       const reason = reasonMidSentence(metadataString(item.metadata, "reason"));
+      const bundleId = metadataString(item.metadata, "bundle_id") || undefined;
+      const requestId = metadataString(item.metadata, "request_id") || undefined;
       const person = requester
         ? counterpartPerson(item.metadata, requester)
         : null;
@@ -926,7 +954,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           person,
           description: `${requester ? "Asked" : "Someone asked"} for your ${what}${reason ? ` · ${reason}` : ""}`,
           href: buildConsentCenterHref("pending", {
-            bundleId: metadataString(item.metadata, "bundle_id") || undefined,
+            bundleId,
+            requestId,
+            requestView: iAskedForThis ? "sent" : "received",
+            from: ROUTES.ONE_FEED,
           }),
         };
       }
@@ -941,7 +972,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             description: `Granted access to ${what}. Tap to view.`,
             href: personRef
               ? `/people/${encodeURIComponent(personRef)}?section=shared`
-              : buildConsentCenterHref("active"),
+              : buildConsentCenterHref("active", {
+                  bundleId,
+                  requestId,
+                  requestView: "sent",
+                  from: ROUTES.ONE_FEED,
+                }),
           };
         }
         return {
@@ -950,7 +986,11 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           label: requester || "Sharing started",
           person,
           description: `You shared your ${what}`,
-          href: buildConsentCenterHref("active"),
+          href: buildConsentCenterHref("active", {
+            bundleId,
+            requestId,
+            from: ROUTES.ONE_FEED,
+          }),
         };
       }
       return {
@@ -959,7 +999,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: requester || "Sharing ended",
         person,
         description: `You stopped sharing your ${what}`,
-        href: buildConsentCenterHref("previous"),
+        href: buildConsentCenterHref("previous", {
+          bundleId,
+          requestId,
+          requestView: iAskedForThis ? "sent" : undefined,
+          from: ROUTES.ONE_FEED,
+        }),
       };
     }
     /**

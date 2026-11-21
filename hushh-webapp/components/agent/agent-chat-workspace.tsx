@@ -123,7 +123,10 @@ import {
   requestProfilePaneOpen,
 } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
-import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import {
+  AgentHistorySidebar,
+  isPinnedOneStreamConversation,
+} from "@/components/agent/agent-history-sidebar";
 import {
   McpCallReviewCard,
   type McpChatReview,
@@ -198,6 +201,7 @@ import {
   SpecialistDirectiveCard,
   SpecialistFreeTextPromptCard,
   SpecialistPromptCard,
+  type OneStreamEventItem,
   type PendingConsentCardStatus,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
@@ -210,6 +214,7 @@ import {
   agentActivityIconForTool,
   driveBatchProgressToVisibleStreamEvent,
   agentToolEventToVisibleStreamEvent,
+  isInformativeActivityEvent,
   type AgentVisibleStreamEvent,
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
@@ -273,6 +278,8 @@ import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
 import { recoverMcpReviews } from "@/lib/agent/mcp-review-recovery";
 import {
   loadAgentChatConversationHistory,
+  loadOlderAgentChatConversationHistory,
+  peekAgentChatConversationHasMore,
   peekAgentChatConversationMessages,
   peekAgentChatHistoryCache,
   upsertAgentChatHistoryConversation,
@@ -330,6 +337,7 @@ import {
   deleteAgentChatConversation,
   getAgentChatConsentOutcomes,
   renameAgentChatConversation,
+  updateAgentChatConversation,
   streamAgentChat,
   streamAgentIntro,
   type AgentChatConsentContinuation,
@@ -399,6 +407,9 @@ import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import {
   ConsentCenterService,
 } from "@/lib/services/consent-center-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
+import { FeedService } from "@/lib/services/feed-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ApiService } from "@/lib/services/api-service";
 import {
   DriveCompilationError,
@@ -513,6 +524,7 @@ import {
   buildPendingEmailDraftContext,
   getGmailInformationRequestReplyPayload,
   getCalendarDirectiveFromToolEvent,
+  getOneStreamEventPayload,
   getPendingConsentRequestPayload,
   pendingConsentLookupItemToCardItem,
   pendingConsentCardItemToPendingConsent,
@@ -521,7 +533,9 @@ import {
   agentMessagePendingConsentRequestId,
   mergePendingConsentMessages,
   declinedChatRequestMessage,
+  markOneStreamEventDirectiveStatus,
   markPendingConsentRequestDirectiveStatus,
+  stagePendingConsentRequestDirectiveDuration,
   markConsentDirectiveItemRevoked,
   stampNow,
   createGreetingMessage,
@@ -579,10 +593,32 @@ export {
   chatHeaderSubtitle,
 };
 
-function AgentChatSplitSection({ children }: { children: ReactNode }) {
+function syncHeaderScrollCompaction(scroller: HTMLElement | null) {
+  if (!scroller) return;
+  const splitSection = scroller.closest<HTMLElement>("[data-one-chat-split-section]");
+  if (!splitSection) return;
+  const scrollTop = Math.max(0, scroller.scrollTop);
+  const progress = Math.min(1, scrollTop / 96);
+  splitSection.style.setProperty("--one-header-compact", progress.toFixed(4));
+  if (scrollTop > 6) {
+    splitSection.setAttribute("data-one-scrolled", "true");
+  } else {
+    splitSection.removeAttribute("data-one-scrolled");
+  }
+}
+
+function AgentChatSplitSection({
+  children,
+  surface = "one",
+}: {
+  children: ReactNode;
+  surface?: "one" | "puppy";
+}) {
   const splitOpen = useWorkspaceSplitPaneOpen();
   return (
     <section
+      data-one-chat-split-section="true"
+      data-agent-surface-mode={surface}
       className={cn(
         "relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-[color:var(--one-chat-canvas)]",
         splitOpen ? "flex-1 md:w-[38%] md:min-w-[320px] md:max-w-[480px] md:flex-none" : "flex-1",
@@ -703,7 +739,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
-  useChatAgentWake(applicationOwnerId ?? null, isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired);
+  const chatWake = useChatAgentWake(
+    applicationOwnerId ?? null,
+    isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired,
+  );
+  const [isTurnWaking, setIsTurnWaking] = useState(false);
   // Puppy One is mounted on FIRST use and hidden thereafter, never unmounted.
   // Unmounting it destroyed the whole on-device conversation and its Hermes
   // session on every glance at One, which is exactly what the comment beside
@@ -879,6 +919,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     generatedDriveSearchDraftRef.current = false;
     if (generated) setInput(current => clearGeneratedDriveSearchDraft(current, generated));
   }, [conversationId, applicationOwnerId, isVaultUnlocked, vaultSessionEpoch, setInput]);
+
+  useLayoutEffect(() => {
+    syncHeaderScrollCompaction(transcriptRef.current);
+  }, [conversationId, isPuppySurface]);
   // Ratings for this conversation, keyed by message id. Durable, so a reload
   // and a conversation switch both keep what the person said about an answer.
   const [messageRatings, setMessageRatings] = useState<
@@ -892,6 +936,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     () => initialHistorySnapshot?.conversations ?? [],
   );
+  const [isOneStreamDraft, setIsOneStreamDraft] = useState<boolean>(
+    () => !initialSelectedConversationId,
+  );
+  const pinnedOneConversation = useMemo(
+    () => conversations.find(isPinnedOneStreamConversation) ?? null,
+    [conversations],
+  );
+  const pinnedOneConversationId = pinnedOneConversation?.id ?? null;
+  const isOneStreamDraftRef = useRef(isOneStreamDraft);
+  isOneStreamDraftRef.current = isOneStreamDraft;
+  const pinnedOneConversationIdRef = useRef(pinnedOneConversationId);
+  pinnedOneConversationIdRef.current = pinnedOneConversationId;
+  const inlineOneStreamEventIdsRef = useRef<Set<string>>(new Set());
+  const reconcileOneStreamRef = useRef<(() => void) | null>(null);
   const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
   const puppyHistory = usePuppyConversations(applicationOwnerId ?? null, isPuppySurface);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
@@ -1255,6 +1313,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const reattachRestoreRef = useRef<Promise<void> | null>(null);
   const conversationIdRef = useRef<string | null>(initialSelectedConversationId);
+  const [loadingOlderHistory, setLoadingOlderHistory] = useState(false);
+  const loadingOlderHistoryRef = useRef(false);
+  const olderHistoryScrollAnchorRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const anchor = olderHistoryScrollAnchorRef.current;
+    if (!anchor) return;
+    olderHistoryScrollAnchorRef.current = null;
+    const scroller = transcriptRef.current;
+    if (!scroller) return;
+    const delta = scroller.scrollHeight - anchor.scrollHeight;
+    if (delta > 0) {
+      scroller.scrollTop = anchor.scrollTop + delta;
+      oneScrollTopRef.current = scroller.scrollTop;
+    }
+  }, [messages]);
   const chatMemory = useChatMemory({
     userId: applicationOwnerId, vaultKey, vaultEpoch: vaultSessionEpoch,
     getToken: getVaultOwnerToken, vaultOwnerToken, conversationId, messages,
@@ -1320,7 +1396,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultSessionEpoch,
       );
       if (!active) return;
-      setMessages((current) => (current === active.messages ? current : active.messages));
+      setMessages((current) =>
+        current === active.messages
+          ? current
+          : mergePendingConsentMessages(active.messages, current),
+      );
       if (active.conversationId !== conversationIdRef.current) {
         updateConversationId(active.conversationId, false);
       }
@@ -1387,6 +1467,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     answering: voiceState === "speaking",
     thinking: isChatLoading || isStreaming || voiceState === "thinking",
   });
+  const oneSessionActions = useMemo<readonly AgentVisibleStreamEvent[]>(() => {
+    if (!isOneProfileOpen) return [];
+    const nowMs = Date.now();
+    const collected: AgentVisibleStreamEvent[] = [];
+    const seenIds = new Set<string>();
+    for (const activeCall of activeToolCalls) {
+      const id = `live-${activeCall.id}`;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      collected.push({
+        id,
+        label: activeCall.label,
+        message: activeCall.activity || activeCall.label,
+        status: "running",
+        brand: activeCall.brand ?? undefined,
+        icon: activeCall.icon,
+        createdAtMs: nowMs,
+      });
+    }
+    for (let idx = messages.length - 1; idx >= 0 && collected.length < 18; idx -= 1) {
+      const msg = messages[idx];
+      if (!msg?.streamEvents?.length) continue;
+      for (let sIdx = msg.streamEvents.length - 1; sIdx >= 0 && collected.length < 18; sIdx -= 1) {
+        const event = msg.streamEvents[sIdx];
+        if (!event || seenIds.has(event.id)) continue;
+        if (!isInformativeActivityEvent(event, nowMs)) continue;
+        seenIds.add(event.id);
+        collected.push(event);
+      }
+    }
+    return collected;
+  }, [activeToolCalls, isOneProfileOpen, messages]);
   const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
@@ -1711,14 +1823,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (isToolWorking) return "Working";
     if (isVisiblePkmMemoryWorking) return "Saving to Memory";
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
+    if (isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking")
+      return "Waking up…";
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
-    return null;
+    if (chatWake.livePresence === "gone") return "Not responding";
+    return "Idle";
   }, [
     authLoading,
     activeActionRun,
     agentVoiceEnabled,
+    chatWake.isWaking,
+    chatWake.livePresence,
     isChatLoading,
+    isTurnWaking,
     isVisiblePkmMemoryWorking,
     emailDraftOpen,
     isPuppySurface,
@@ -1732,6 +1850,40 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken,
     voiceState,
     voiceActive,
+  ]);
+
+  const headerPresenceDot = useMemo(() => {
+    if (isPuppySurface || authLoading || !applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) {
+      return null;
+    }
+    if (isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking") {
+      return "waking" as const;
+    }
+    if (chatWake.livePresence === "gone") {
+      return "warning" as const;
+    }
+    if (isStreaming) {
+      return "active" as const;
+    }
+    if (!isChatLoading && !isToolWorking && !isVisiblePkmMemoryWorking && activeToolCalls.length === 0) {
+      return "idle" as const;
+    }
+    return null;
+  }, [
+    activeToolCalls.length,
+    applicationOwnerId,
+    authLoading,
+    chatWake.isWaking,
+    chatWake.livePresence,
+    isChatLoading,
+    isPuppySurface,
+    isStreaming,
+    isToolWorking,
+    isTurnWaking,
+    isVaultUnlocked,
+    isVisiblePkmMemoryWorking,
+    tokenIsFresh,
+    vaultOwnerToken,
   ]);
 
   useEffect(() => {
@@ -1796,6 +1948,94 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     pendingSpecialistDirective,
     agentDockOccluder,
     isCanonicalChatRoute,
+  ]);
+
+  // Muse Track-A 1500ms bounded streaming anchor-hold loop:
+  // Compensates layout growth > 1px synchronously inside the display frame,
+  // auto-sleeps after 3 settled frames, and yields instantaneously on user input.
+  useEffect(() => {
+    if (!isChatLoading || isPuppySurface) return;
+    const transcript = transcriptRef.current;
+    const messagesEnd = messagesEndRef.current;
+    if (!transcript || !messagesEnd || typeof ResizeObserver === "undefined") return;
+
+    let holdUntil = performance.now() + 1500;
+    let quietFrames = 0;
+    let rafId = 0;
+    let userYielded = false;
+
+    const abortHold = () => {
+      userYielded = true;
+      transcriptUserScrollRef.current = true;
+      transcriptStuckToEndRef.current = false;
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+    };
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) abortHold();
+    };
+
+    const step = () => {
+      rafId = 0;
+      if (
+        userYielded ||
+        transcriptUserScrollRef.current ||
+        !transcriptStuckToEndRef.current ||
+        performance.now() > holdUntil
+      ) {
+        return;
+      }
+      const occluder = isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current;
+      const top = transcriptRevealScrollTop(
+        measureTranscriptReveal(transcript, messagesEnd, occluder),
+      );
+      const delta = top - transcript.scrollTop;
+      if (delta > 1) {
+        quietFrames = 0;
+        beginTranscriptProgrammaticScroll(top);
+        transcript.scrollTop = top;
+        oneScrollTopRef.current = transcript.scrollTop;
+      } else {
+        quietFrames += 1;
+      }
+      if (quietFrames < 3 && performance.now() <= holdUntil) {
+        rafId = window.requestAnimationFrame(step);
+      }
+    };
+
+    const armHold = () => {
+      if (userYielded || transcriptUserScrollRef.current || !transcriptStuckToEndRef.current) {
+        return;
+      }
+      holdUntil = performance.now() + 1500;
+      quietFrames = 0;
+      if (!rafId) rafId = window.requestAnimationFrame(step);
+    };
+
+    const contentRoot = messagesEnd.parentElement ?? transcript;
+    const observer = new ResizeObserver(armHold);
+    observer.observe(contentRoot);
+    transcript.addEventListener("wheel", abortHold, { passive: true });
+    transcript.addEventListener("touchstart", abortHold, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+    armHold();
+
+    return () => {
+      observer.disconnect();
+      if (rafId) window.cancelAnimationFrame(rafId);
+      transcript.removeEventListener("wheel", abortHold);
+      transcript.removeEventListener("touchstart", abortHold);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [
+    agentDockOccluder,
+    beginTranscriptProgrammaticScroll,
+    isCanonicalChatRoute,
+    isChatLoading,
+    isPuppySurface,
   ]);
 
   // Put One's transcript back where the reader left it after a look at Puppy.
@@ -2885,15 +3125,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
     const appendPendingConsentRequest = async (requestId: string) => {
       const normalizedRequestId = requestId.trim();
+      const alreadyRendered = messagesRef.current.some((msg) => {
+        const p = getPendingConsentRequestPayload(
+          msg.specialistDirective ?? null,
+        );
+        return p
+          ? pendingConsentCardRequestIds(p.item).includes(normalizedRequestId)
+          : false;
+      });
       if (
         !normalizedRequestId ||
+        alreadyRendered ||
         inlineConsentRequestIdsRef.current.has(normalizedRequestId)
       ) {
         return;
       }
       inlineConsentRequestIdsRef.current.add(normalizedRequestId);
 
-      const token = getVaultOwnerToken();
+      const token = getVaultOwnerToken() || vaultOwnerToken;
       if (!token) {
         inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
         return;
@@ -2912,7 +3161,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             Boolean(candidate),
           );
         if (!item) {
-          inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
           return;
         }
 
@@ -2925,7 +3173,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               item,
             },
           },
-          message: `${item.requesterLabel} is asking for access. Review the request here in Agent One.`,
+          message: "",
           stateChanged: true,
         };
 
@@ -2994,11 +3242,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           ];
         });
       } catch (error) {
-        inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
         console.warn(
           "[AgentChatWorkspace] Failed to hydrate pending consent request:",
           error,
         );
+      } finally {
+        inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
       }
     };
 
@@ -3040,17 +3289,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
 
     const reconcilePendingConsentRequests = async () => {
-      const token = getVaultOwnerToken();
+      const token = getVaultOwnerToken() || vaultOwnerToken;
       if (!token) return;
       try {
         const response = await ApiService.getPendingConsents(applicationOwnerId, token);
         const payload = (await response.json().catch(() => ({}))) as {
-          pending?: Array<{ id?: string; request_id?: string }>;
+          pending?: Array<{
+            id?: string;
+            request_id?: string;
+            bundle_items?: Array<{ request_id?: string; status?: string }>;
+          }>;
         };
         if (!response.ok || cancelled) return;
         for (const item of Array.isArray(payload.pending) ? payload.pending : []) {
-          const requestId = String(item.id || item.request_id || "").trim();
-          if (requestId) void appendPendingConsentRequest(requestId);
+          const bundleItems = Array.isArray(item.bundle_items) ? item.bundle_items : [];
+          if (bundleItems.length > 0) {
+            for (const sub of bundleItems) {
+              if (sub?.status && sub.status !== "pending") continue;
+              const subId = String(sub?.request_id || "").trim();
+              if (subId) void appendPendingConsentRequest(subId);
+            }
+            continue;
+          }
+          const requestId = String(item.request_id || item.id || "").trim();
+          if (requestId && !requestId.includes(":")) {
+            void appendPendingConsentRequest(requestId);
+          }
         }
       } catch {
         // FCM and the next explicit consent refresh remain authoritative. A
@@ -3075,17 +3339,172 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       );
     };
 
+    const reconcileOneStreamEvents = async () => {
+      if (
+        !isCanonicalChatRoute ||
+        isPuppySurface ||
+        (!isOneStreamDraftRef.current &&
+          conversationIdRef.current !== pinnedOneConversationIdRef.current)
+      ) {
+        return;
+      }
+      if (!user || typeof user.getIdToken !== "function") return;
+      try {
+        const idToken = await user.getIdToken();
+        if (!idToken || cancelled) return;
+        const appendStreamItem = (item: OneStreamEventItem, text: string) => {
+          if (inlineOneStreamEventIdsRef.current.has(item.id)) return;
+          inlineOneStreamEventIdsRef.current.add(item.id);
+          const event: SpecialistDirectiveEvent = {
+            delegateAgentId: "agent_nav",
+            directive: {
+              kind: "prompt",
+              payload: {
+                kind: "one_stream_event",
+                item,
+              },
+            },
+            message: text,
+            stateChanged: true,
+          };
+          setMessages((current) => {
+            if (
+              current.some(
+                (msg) =>
+                  getOneStreamEventPayload(msg.specialistDirective ?? null)
+                    ?.item.id === item.id,
+              )
+            ) {
+              return current;
+            }
+            return [
+              ...current,
+              {
+                id: `msg-${Date.now()}-one-stream-${item.id}`,
+                role: "assistant",
+                text: event.message,
+                ...stampNow(),
+                status: "done",
+                specialistDirective: event,
+              },
+            ];
+          });
+        };
+
+        const incoming = await ConnectionsService.listRequests({
+          idToken,
+          direction: "incoming",
+        }).catch(() => []);
+        if (cancelled) return;
+        for (const req of Array.isArray(incoming) ? incoming : []) {
+          if (!req?.id || req.status !== "pending") continue;
+          const actor = req.counterpartDisplayName?.trim() || "Someone";
+          const hasScopes = Array.isArray(req.scopes) && req.scopes.length > 0;
+          appendStreamItem(
+            {
+              id: `conn:${req.id}`,
+              eventKind: "incoming_connection",
+              actorLabel: actor,
+              actorPhotoUrl: req.counterpartPhotoUrl ?? null,
+              headline: `${actor} wants to connect`,
+              detail:
+                req.message?.trim() ||
+                (hasScopes
+                  ? "Includes an information request to review."
+                  : null),
+              href: `${ROUTES.ONE_FEED}`,
+              requiresScopeReview: hasScopes,
+              status: "pending",
+            },
+            `${actor} sent you a connection request.`,
+          );
+        }
+
+        const feed = await FeedService.list({
+          idToken,
+          userId: applicationOwnerId,
+          limit: 10,
+        }).catch(() => null);
+        if (cancelled || !feed || !Array.isArray(feed.items)) return;
+        for (const item of feed.items) {
+          if (!item?.id || item.read) continue;
+          if (item.event_type === "consent_granted") {
+            const actor = item.actor_label?.trim() || "A connection";
+            const scopeLabel =
+              typeof item.metadata?.scope_label === "string"
+                ? item.metadata.scope_label
+                : null;
+            appendStreamItem(
+              {
+                id: `feed:${item.id}`,
+                eventKind: "shared_access_unlocked",
+                actorLabel: actor,
+                headline: `${actor} shared access with you`,
+                detail: scopeLabel || "Ready to open from your connections.",
+                href: `${ROUTES.CONSENTS}?tab=active&from=${pathname || ROUTES.ONE_HOME}`,
+                status: "pending",
+              },
+              `${actor} shared access with you.`,
+            );
+          } else if (item.event_type === "funding_transfer_status") {
+            const summary =
+              typeof item.metadata?.summary === "string"
+                ? item.metadata.summary
+                : "Your balance and settlement status updated.";
+            appendStreamItem(
+              {
+                id: `feed:${item.id}`,
+                eventKind: "commerce_settlement",
+                actorLabel: "One",
+                headline: "Payment settlement update",
+                detail: summary,
+                href: ROUTES.ONE_FEED,
+                status: "pending",
+              },
+              "Payment settlement updated.",
+            );
+          }
+        }
+      } catch {
+        // Ambient One stream reconciliation is strictly non-blocking.
+      }
+    };
+
+    const reconcileAllOneStreamItems = () => {
+      void reconcilePendingConsentRequests();
+      void reconcileOneStreamEvents();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        reconcileAllOneStreamItems();
+      }
+    };
+
     appendPendingConsentRequestRef.current = appendPendingConsentRequest;
+    reconcileOneStreamRef.current = reconcileAllOneStreamItems;
     window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
-    void reconcilePendingConsentRequests();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    reconcileAllOneStreamItems();
     return () => {
       cancelled = true;
       appendPendingConsentRequestRef.current = null;
+      reconcileOneStreamRef.current = null;
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [getVaultOwnerToken, isVaultUnlocked, rootChatReady, applicationOwnerId]);
+  }, [
+    getVaultOwnerToken,
+    isCanonicalChatRoute,
+    isPuppySurface,
+    isVaultUnlocked,
+    pathname,
+    rootChatReady,
+    user,
+    vaultOwnerToken,
+    applicationOwnerId,
+  ]);
 
   const appendDebugEvent = useCallback(
     (
@@ -3469,9 +3888,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       const nextMessages = restored.length > 0 ? restored : [createGreetingMessage()];
-      setMessages(current => preservePresentations
-        ? mergePendingConsentMessages(nextMessages, current)
-        : nextMessages);
+      const keepOneStreamCards =
+        preservePresentations ||
+        (pinnedOneConversationIdRef.current !== null &&
+          nextConversationId === pinnedOneConversationIdRef.current);
+      setMessages((current) =>
+        keepOneStreamCards
+          ? mergePendingConsentMessages(nextMessages, current)
+          : nextMessages,
+      );
       void restorePendingMcpReviews(nextConversationId, token, isCurrent).catch(() => undefined);
       // Same-chat recovery must not erase local delivery receipts or proposals.
       if (preservePresentations) return;
@@ -3770,6 +4195,84 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     puppyHistory.remove(id);
   };
 
+  const isOneStreamActive =
+    !isPuppySurface &&
+    (conversationId !== null
+      ? conversationId === pinnedOneConversationId
+      : isOneStreamDraft);
+
+  const pendingOneActionCount = useMemo(() => {
+    let count = 0;
+    for (const msg of messages) {
+      const consent = getPendingConsentRequestPayload(
+        msg.specialistDirective ?? null,
+      );
+      if (consent && (!consent.item.status || consent.item.status === "pending")) {
+        count += 1;
+        continue;
+      }
+      const stream = getOneStreamEventPayload(msg.specialistDirective ?? null);
+      if (
+        stream &&
+        stream.item.eventKind === "incoming_connection" &&
+        stream.item.status === "pending"
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [messages]);
+
+  useEffect(() => {
+    if (
+      isPuppySurface ||
+      !isVaultUnlocked ||
+      !isOneStreamDraft ||
+      conversationId !== null ||
+      !pinnedOneConversationId ||
+      isChatLoading ||
+      isStreaming ||
+      historyInteractionDisabled
+    ) {
+      return;
+    }
+    void handleSelectConversation(pinnedOneConversationId);
+  }, [
+    conversationId,
+    handleSelectConversation,
+    historyInteractionDisabled,
+    isChatLoading,
+    isOneStreamDraft,
+    isPuppySurface,
+    isStreaming,
+    isVaultUnlocked,
+    pinnedOneConversationId,
+  ]);
+
+  const handleSidebarSelectOneStream = useCallback(() => {
+    handleHistoryDrawerOpenChange(false);
+    setAgentSurface("one");
+    setIsOneStreamDraft(true);
+    if (pinnedOneConversationId) {
+      if (conversationId !== pinnedOneConversationId) {
+        void handleSelectConversation(pinnedOneConversationId);
+      } else {
+        reconcileOneStreamRef.current?.();
+      }
+      return;
+    }
+    if (conversationId !== null) {
+      handleCreateNewChat();
+    }
+    reconcileOneStreamRef.current?.();
+  }, [
+    conversationId,
+    handleCreateNewChat,
+    handleHistoryDrawerOpenChange,
+    handleSelectConversation,
+    pinnedOneConversationId,
+  ]);
+
   const handleSidebarCreateNewChat = useCallback(() => {
     handleHistoryDrawerOpenChange(false);
     if (isPuppySurface) {
@@ -3777,6 +4280,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
     setAgentSurface("one");
+    setIsOneStreamDraft(false);
     handleCreateNewChat();
   }, [handleCreateNewChat, handleCreateNewPuppyChat, handleHistoryDrawerOpenChange, isPuppySurface]);
 
@@ -3788,9 +4292,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       setAgentSurface("one");
+      setIsOneStreamDraft(nextConversationId === pinnedOneConversationId);
       void handleSelectConversation(nextConversationId);
     },
-    [handleHistoryDrawerOpenChange, handleSelectConversation, handleSelectPuppyConversation, isPuppySurface],
+    [
+      handleHistoryDrawerOpenChange,
+      handleSelectConversation,
+      handleSelectPuppyConversation,
+      isPuppySurface,
+      pinnedOneConversationId,
+    ],
   );
 
   const handleRenameConversation = useCallback(
@@ -3831,6 +4342,64 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     },
     [getVaultOwnerToken, loadConversationList],
+  );
+
+  const handleCategorizeConversation = useCallback(
+    async (targetConversationId: string, category: string | null) => {
+      const owner = snapshotValidatedAuthSessionOwner();
+      const epoch = snapshotVaultSessionEpoch();
+      const token = getVaultOwnerToken();
+      if (!token || !owner || workspaceOwnerIdRef.current !== owner.userId) {
+        toast.error("Vault access expired. Unlock again to continue.");
+        throw new Error("VAULT_ACCESS_EXPIRED");
+      }
+      const normalized = category ? category.trim().slice(0, 32) || null : null;
+      let previousSnapshot: AgentChatConversation | undefined;
+      setConversations((current) =>
+        current.map((conversation) => {
+          if (conversation.id !== targetConversationId) return conversation;
+          previousSnapshot = conversation;
+          return {
+            ...conversation,
+            category: normalized ?? undefined,
+            category_source: normalized ? "custom" : "auto",
+          };
+        }),
+      );
+      const stillCurrent = () =>
+        workspaceOwnerIdRef.current === owner.userId &&
+        isValidatedAuthSessionOwnerCurrent(owner) &&
+        isVaultSessionEpochCurrent(epoch) &&
+        getVaultOwnerToken() === token;
+      try {
+        const updated = await updateAgentChatConversation({
+          conversationId: targetConversationId,
+          category: normalized,
+          vaultOwnerToken: token,
+          vaultKey: vaultKeyRef.current ?? "",
+        });
+        if (!stillCurrent()) return;
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === targetConversationId
+              ? { ...conversation, ...updated }
+              : conversation,
+          ),
+        );
+      } catch {
+        if (stillCurrent() && previousSnapshot) {
+          const rollback = previousSnapshot;
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === targetConversationId ? rollback : conversation,
+            ),
+          );
+          toast.error("Could not update chat category.");
+        }
+        throw new Error("CHAT_CATEGORY_FAILED");
+      }
+    },
+    [getVaultOwnerToken],
   );
 
   const handleDeleteConversation = useCallback(
@@ -4954,6 +5523,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     liveAssistantMessageIdRef.current = assistantMessageId;
     const releaseForegroundChatPriority = beginForegroundChatPriority();
 
+    const turnStartedInOneStreamDraft =
+      !turnConversationId &&
+      isOneStreamDraftRef.current &&
+      !pinnedOneConversationIdRef.current;
     let nameConversationId: string | null = turnConversationId;
     let nameTurnCompleted = false;
     let turnStopped = false;
@@ -4984,8 +5557,39 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             session.messages,
             finalConversationId,
           ),
-          title: userMessages[0]?.text?.trim().slice(0, 64) || undefined,
+          title: turnStartedInOneStreamDraft
+            ? "One"
+            : userMessages[0]?.text?.trim().slice(0, 64) || undefined,
         });
+      }
+      if (turnStartedInOneStreamDraft && finalConversationId && token) {
+        const nowIso = new Date().toISOString();
+        setConversations((current) => {
+          const exists = current.some((item) => item.id === finalConversationId);
+          if (exists) {
+            return current.map((item) =>
+              item.id === finalConversationId ? { ...item, title: "One" } : item,
+            );
+          }
+          return [
+            {
+              id: finalConversationId,
+              title: "One",
+              status: "active",
+              message_count: 2,
+              created_at: nowIso,
+              updated_at: nowIso,
+              last_message_at: nowIso,
+            },
+            ...current,
+          ];
+        });
+        void renameAgentChatConversation({
+          conversationId: finalConversationId,
+          title: "One",
+          vaultOwnerToken: token,
+          vaultKey: vaultKey ?? "",
+        }).catch(() => undefined);
       }
       if (
         notifyIfUnmounted &&
@@ -5295,6 +5899,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // chat, live or restored. Only the answer and Activity render.
           onStreamHealth: (signal) => {
             if (streamAbortController.signal.aborted || turnStopped) return;
+            if (signal.kind === "waking") {
+              setIsTurnWaking(true);
+              return;
+            }
+            if (signal.kind === "bytes" || signal.kind === "activity") {
+              setIsTurnWaking(false);
+            }
             slowNotice.signal(signal);
           },
           onMcpReview: (review) => {
@@ -5423,6 +6034,62 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+            if (toolEvent.raw?.toolName === "list_pending_information_requests") {
+              const parseJsonObj = (val: unknown): Record<string, unknown> | null => {
+                let cur: unknown = val;
+                if (typeof cur === "string") {
+                  try {
+                    cur = JSON.parse(cur);
+                  } catch {
+                    return null;
+                  }
+                }
+                return cur && typeof cur === "object"
+                  ? (cur as Record<string, unknown>)
+                  : null;
+              };
+              const rawObj = parseJsonObj(toolEvent.raw?.result);
+              const unwrapped =
+                (rawObj ? parseJsonObj(rawObj.result) || parseJsonObj(rawObj.content) : null) ??
+                rawObj;
+              const staged =
+                unwrapped?.stagedConsentDecision &&
+                typeof unwrapped.stagedConsentDecision === "object"
+                  ? (unwrapped.stagedConsentDecision as Record<string, unknown>)
+                  : null;
+              if (staged) {
+                const stagedIds = Array.isArray(staged.requestIds)
+                  ? staged.requestIds
+                      .map((entry) => String(entry || "").trim())
+                      .filter(Boolean)
+                  : [];
+                const stagedHours = Number(staged.expiryHours);
+                if (
+                  stagedIds.length > 0 &&
+                  Number.isFinite(stagedHours) &&
+                  stagedHours > 0
+                ) {
+                  const roundedHours = Math.round(stagedHours);
+                  void (async () => {
+                    for (const id of stagedIds) {
+                      await appendPendingConsentRequestRef.current?.(id);
+                    }
+                    const applyStage = (list: readonly AgentMessage[]): AgentMessage[] =>
+                      list.map((msg) => ({
+                        ...msg,
+                        specialistDirective:
+                          stagePendingConsentRequestDirectiveDuration(
+                            msg.specialistDirective,
+                            stagedIds,
+                            roundedHours,
+                          ),
+                      }));
+                    applyTurnMessages((current) => applyStage(current));
+                    setMessages((current) => applyStage(current));
+                  })();
+                }
+              }
+            }
             if (toolEvent.raw?.toolName === "propose_file_schedule") {
               const proposal = readFileScheduleProposal(toolEvent.raw.toolName, toolEvent.raw.result);
               if (proposal && applicationOwnerId && isCanonicalChatRoute && !isPuppySurface &&
@@ -5717,6 +6384,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       void preferredNameTurn?.finish(false);
       releaseForegroundChatPriority();
       // Detached, cancelled or settled above: never leave this turn timing.
+      setIsTurnWaking(false);
       if (isWorkspaceMountedRef.current) slowNotice.finish("stopped");
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
@@ -5936,6 +6604,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onStreamHealth: (signal) => {
             if (streamAbortController.signal.aborted) return;
+            if (signal.kind === "waking") {
+              setIsTurnWaking(true);
+              return;
+            }
+            if (signal.kind === "bytes" || signal.kind === "activity") {
+              setIsTurnWaking(false);
+            }
             slowNotice.signal(signal);
           },
           onStart: ({ conversationId: nextConversationId }) => {
@@ -6063,6 +6738,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsStreaming(false);
       return result;
     } finally {
+      setIsTurnWaking(false);
       releaseForegroundChatPriority();
       slowNotice.finish("stopped");
       cancelAssistantFlush();
@@ -8054,9 +8730,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       getAppOpen={getAppOpen}
       driveActivity={!isPuppySurface && !customNativePresentationEnabled()
         ? <DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} /> : null}
+      pinnedOneConversationId={!isPuppySurface ? pinnedOneConversationId : null}
+      oneStreamActive={!isPuppySurface && isOneStreamActive}
+      pendingOneActionCount={!isPuppySurface ? pendingOneActionCount : 0}
+      onSelectOneStream={!isPuppySurface ? handleSidebarSelectOneStream : undefined}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
+      onCategorizeConversation={!isPuppySurface ? handleCategorizeConversation : undefined}
       onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
@@ -8440,12 +9121,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               handleHistoryDrawerOpenChange(true);
             } }} /> : null}
 
-        <AgentChatSplitSection>
+        <AgentChatSplitSection surface={agentSurface}>
           <div
             data-one-centered-header={!customNativePresentationEnabled() ? "true" : undefined}
             data-agent-header-layout={customNativePresentationEnabled() ? "compact" : "portrait"}
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-transparent px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
               "h-[var(--agent-chat-header-height)]",
             )}
           >
@@ -8501,8 +9182,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   isPuppySurface,
                   activeToolCalls,
                   statusText,
-                })} working={activeToolCalls.length > 0 || isVisiblePkmMemoryWorking} brand={activeToolCalls.at(-1)?.brand}
-                  icon={activeToolCalls.at(-1)?.icon ?? (isVisiblePkmMemoryWorking ? "memory" : undefined)} />
+                })} working={activeToolCalls.length > 0 || isVisiblePkmMemoryWorking || (isChatLoading && !isTurnWaking && !chatWake.isWaking)} brand={activeToolCalls.at(-1)?.brand}
+                  icon={activeToolCalls.at(-1)?.icon ?? (isVisiblePkmMemoryWorking ? "memory" : undefined)}
+                  presenceDot={headerPresenceDot} />
               </div>
             </div>
 
@@ -8635,7 +9317,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
+          <OneAgentProfileSheet presenceState={onePresenceState} sessionActions={oneSessionActions} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={modelPreference?.source === "owner_pod" && !isPuppySurface && !hasInlineModelPicker
               ? <OneModelConnection connection={modelPreference} fullWidth />
@@ -8680,6 +9362,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               went display:none made the empty box take half the column and
               Puppy One rendered at half height with its composer mid-screen. */}
           <div
+            data-one-transcript-viewport="true"
             className={cn(
               "relative min-h-0 flex-1 overflow-hidden",
               isPuppySurface && "hidden",
@@ -8697,6 +9380,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   const scrollTop = transcript.scrollTop;
                   const previousScrollTop = oneScrollTopRef.current;
                   oneScrollTopRef.current = scrollTop;
+                  syncHeaderScrollCompaction(transcript);
 
                   const maxScrollTop = Math.max(
                     0,
@@ -8721,6 +9405,78 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   } else if (distanceFromBottom <= 16) {
                     // Re-enable following when the reader returns to the latest message
                     transcriptUserScrollRef.current = false;
+                  }
+
+                  // Lazy upward history pagination for persistent One & long threads:
+                  // fetch earlier encrypted pages seamlessly without scroll jumps.
+                  if (
+                    scrollTop <= 140 &&
+                    scrollTop < previousScrollTop &&
+                    !loadingOlderHistoryRef.current &&
+                    applicationOwnerId &&
+                    conversationIdRef.current &&
+                    peekAgentChatConversationHasMore(
+                      applicationOwnerId,
+                      conversationIdRef.current,
+                    )
+                  ) {
+                    const activeConvId = conversationIdRef.current;
+                    const ownerToken = getVaultOwnerToken() || vaultOwnerToken;
+                    const currentVaultKey = vaultKeyRef.current;
+                    if (ownerToken && currentVaultKey) {
+                      loadingOlderHistoryRef.current = true;
+                      setLoadingOlderHistory(true);
+                      void loadOlderAgentChatConversationHistory({
+                        userId: applicationOwnerId,
+                        conversationId: activeConvId,
+                        vaultOwnerToken: ownerToken,
+                        vaultKey: currentVaultKey,
+                      })
+                        .then((olderStored) => {
+                          if (
+                            !olderStored.length ||
+                            conversationIdRef.current !== activeConvId ||
+                            !isWorkspaceMountedRef.current
+                          ) {
+                            return;
+                          }
+                          const olderRestored = storedMessagesToAgentMessages(
+                            olderStored,
+                          ).map((msg) => ({
+                            ...msg,
+                            restoredFromHistory: true,
+                          }));
+                          if (!olderRestored.length) return;
+                          const scroller = transcriptRef.current;
+                          if (scroller) {
+                            olderHistoryScrollAnchorRef.current = {
+                              scrollHeight: scroller.scrollHeight,
+                              scrollTop: scroller.scrollTop,
+                            };
+                          }
+                          setMessages((current) => {
+                            const existingIds = new Set(current.map((m) => m.id));
+                            const uniqueOlder = olderRestored.filter(
+                              (m) => !existingIds.has(m.id),
+                            );
+                            if (!uniqueOlder.length) {
+                              olderHistoryScrollAnchorRef.current = null;
+                              return current;
+                            }
+                            const withoutGreeting = current.filter(
+                              (m) => m.id !== "agent-greeting",
+                            );
+                            return [...uniqueOlder, ...withoutGreeting];
+                          });
+                        })
+                        .catch(() => undefined)
+                        .finally(() => {
+                          loadingOlderHistoryRef.current = false;
+                          if (isWorkspaceMountedRef.current) {
+                            setLoadingOlderHistory(false);
+                          }
+                        });
+                    }
                   }
 
                   // Stay in follow mode when the reader returns to the end;
@@ -8804,6 +9560,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     />
                   ) : null}
                 </>
+              ) : null}
+
+              {loadingOlderHistory ? (
+                <div
+                  data-testid="agent-chat-older-history-loading"
+                  className="flex items-center justify-center py-1.5 text-xs text-muted-foreground/75"
+                >
+                  Loading earlier messages…
+                </div>
               ) : null}
 
               {visibleMessages.map((message) => (
@@ -8964,16 +9729,85 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                         );
                       }}
-                      onPendingConsentApprove={(item) => {
-                        // Review the complete live request before granting access.
-                        // Chat notifications may contain only part of a bundle.
-                        const query = new URLSearchParams({
-                          tab: "pending",
-                          requestId: item.id,
-                          from: pathname || ROUTES.ONE_HOME,
-                        });
-                        if (item.bundleId) query.set("bundleId", item.bundleId);
-                        router.push(`${ROUTES.CONSENTS}?${query.toString()}`);
+                      onPendingConsentApprove={async (item) => {
+                        // Partial notifications, oversized batches, or locked vaults
+                        // open the full Consent Center review without ever granting
+                        // partial access or injecting a chat error bubble.
+                        const chosenHoursRaw =
+                          item.expiryHours == null || item.expiryHours === ""
+                            ? null
+                            : Number(item.expiryHours);
+                        const chosenHours =
+                          chosenHoursRaw != null &&
+                          Number.isFinite(chosenHoursRaw) &&
+                          chosenHoursRaw > 0
+                            ? Math.round(chosenHoursRaw)
+                            : undefined;
+                        const openFullConsentReview = () => {
+                          const query = new URLSearchParams({
+                            tab: "pending",
+                            requestId: item.id,
+                            from: pathname || ROUTES.ONE_HOME,
+                          });
+                          if (item.bundleId) query.set("bundleId", item.bundleId);
+                          if (chosenHours !== undefined) {
+                            query.set("durationHours", String(chosenHours));
+                          }
+                          router.push(`${ROUTES.CONSENTS}?${query.toString()}`);
+                        };
+                        const hydratedCount = item.bundledRequestIds?.length || 1;
+                        const isPartialBundle =
+                          Boolean(item.bundleId) &&
+                          typeof item.bundleScopeCount === "number" &&
+                          item.bundleScopeCount > hydratedCount;
+                        if (
+                          !applicationOwnerId ||
+                          !isVaultUnlocked ||
+                          isPartialBundle ||
+                          hydratedCount > 25
+                        ) {
+                          openFullConsentReview();
+                          return;
+                        }
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          const targets = await resolvePendingConsentCardTargets({
+                            userId: applicationOwnerId,
+                            vaultOwnerToken: getVaultOwnerToken(),
+                            item,
+                          });
+                          if (!targets.length) {
+                            openFullConsentReview();
+                            return;
+                          }
+                          const preparedTargets =
+                            chosenHours !== undefined
+                              ? targets.map((target) => ({
+                                  ...target,
+                                  durationHours: chosenHours,
+                                  expiryHours: chosenHours,
+                                }))
+                              : targets;
+                          await consentActions.handleApproveBundle(preparedTargets, {
+                            bundleId: item.bundleId || item.id,
+                            bundleLabel: item.bundleLabel || undefined,
+                          });
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective:
+                              markPendingConsentRequestDirectiveStatus(
+                                current.specialistDirective,
+                                item.id,
+                                "approved",
+                                chosenHours,
+                              ),
+                          }));
+                        } catch {
+                          // handleApproveBundle already surfaces owner-facing toast feedback;
+                          // keep the owner in Chat rather than redirecting away on error.
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
                       }}
                       onPendingConsentDeny={async (item) => {
                         // The decision hook returns silently without a signed-in
@@ -9039,6 +9873,63 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         router.push(
                           `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                         );
+                      }}
+                      onOneStreamAccept={async (item) => {
+                        if (!user || !applicationOwnerId || !item.id.startsWith("conn:")) return;
+                        const requestId = item.id.slice("conn:".length);
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          const idToken = await user.getIdToken();
+                          await ConnectionsService.accept({ idToken, requestId });
+                          CacheSyncService.onConnectionGraphMutated(applicationOwnerId);
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective: markOneStreamEventDirectiveStatus(
+                              current.specialistDirective,
+                              item.id,
+                              "accepted",
+                            ),
+                          }));
+                        } catch {
+                          if (item.href) router.push(item.href);
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onOneStreamDecline={async (item) => {
+                        if (!user || !applicationOwnerId || !item.id.startsWith("conn:")) return;
+                        const requestId = item.id.slice("conn:".length);
+                        setSpecialistBusyItemId(item.id);
+                        try {
+                          const idToken = await user.getIdToken();
+                          await ConnectionsService.reject({ idToken, requestId });
+                          CacheSyncService.onConnectionCapabilityMutated(applicationOwnerId);
+                          updateMessage(message.id, (current) => ({
+                            ...current,
+                            specialistDirective: markOneStreamEventDirectiveStatus(
+                              current.specialistDirective,
+                              item.id,
+                              "declined",
+                            ),
+                          }));
+                        } catch {
+                          if (item.href) router.push(item.href);
+                        } finally {
+                          setSpecialistBusyItemId(null);
+                        }
+                      }}
+                      onOneStreamOpen={(item) => {
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markOneStreamEventDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "acknowledged",
+                          ),
+                        }));
+                        if (item.href) {
+                          router.push(item.href);
+                        }
                       }}
                     />
                   )}

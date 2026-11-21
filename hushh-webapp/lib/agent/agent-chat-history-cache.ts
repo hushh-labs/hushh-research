@@ -4,6 +4,7 @@ import {
   getAgentChatHistory,
   listAgentChatConversations,
   type AgentChatConversation,
+  type AgentChatHistoryList,
   type AgentChatMessage,
 } from "@/lib/services/agent-chat-client";
 import {
@@ -18,11 +19,17 @@ import {
 
 const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
 const CONVERSATION_LIMIT = 20;
-const MESSAGE_LIMIT = 50;
+const MESSAGE_LIMIT = 30;
+
+type ConversationPaginationState = {
+  hasMore: boolean;
+  oldestCursor: string | null;
+};
 
 type AgentChatHistoryCacheEntry = {
   conversations: AgentChatConversation[];
   messagesByConversation: Map<string, AgentChatMessage[]>;
+  paginationByConversation?: Map<string, ConversationPaginationState>;
   cachedAt: number;
 };
 
@@ -276,16 +283,94 @@ export async function loadAgentChatConversationHistory(input: {
     vaultKey: input.vaultKey,
     limit: MESSAGE_LIMIT,
   })
-    .then((messages) => {
+    .then((messages: AgentChatHistoryList) => {
       assertCurrentGeneration(input.userId, generation);
       const current = entriesByUser.get(input.userId) || {
         conversations: [],
         messagesByConversation: new Map<string, AgentChatMessage[]>(),
+        paginationByConversation: new Map<string, ConversationPaginationState>(),
         cachedAt: Date.now(),
       };
       current.messagesByConversation.set(input.conversationId, messages);
+      const pageMeta = messages._pageMeta ?? null;
+      const paginationMap =
+        current.paginationByConversation ?? new Map<string, ConversationPaginationState>();
+      paginationMap.set(
+        input.conversationId,
+        pageMeta ?? {
+          hasMore: messages.length >= MESSAGE_LIMIT,
+          oldestCursor: messages[0]?.id ?? null,
+        },
+      );
+      current.paginationByConversation = paginationMap;
       entriesByUser.set(input.userId, current);
       return [...messages];
+    })
+    .finally(() => {
+      if (historyLoadsByKey.get(loadKey) === request) historyLoadsByKey.delete(loadKey);
+    });
+  historyLoadsByKey.set(loadKey, request);
+  return request;
+}
+
+export function peekAgentChatConversationHasMore(
+  userId: string,
+  conversationId: string,
+): boolean {
+  const entry = entriesByUser.get(userId);
+  const state = entry?.paginationByConversation?.get(conversationId);
+  return Boolean(state?.hasMore && state?.oldestCursor);
+}
+
+export async function loadOlderAgentChatConversationHistory(input: {
+  userId: string;
+  conversationId: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<AgentChatMessage[]> {
+  const entry = entriesByUser.get(input.userId);
+  const pagination = entry?.paginationByConversation?.get(input.conversationId);
+  if (!pagination?.hasMore || !pagination.oldestCursor) {
+    return [];
+  }
+  const before = pagination.oldestCursor;
+  const loadKey = `${input.userId}:${input.conversationId}:before:${before}`;
+  const existing = historyLoadsByKey.get(loadKey);
+  if (existing) return existing;
+
+  const generation = generationFor(input.userId);
+  const request = getAgentChatHistory({
+    conversationId: input.conversationId,
+    vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
+    limit: MESSAGE_LIMIT,
+    before,
+  })
+    .then((older: AgentChatHistoryList) => {
+      assertCurrentGeneration(input.userId, generation);
+      const current = entriesByUser.get(input.userId);
+      if (!current) return [];
+      const existingMessages = current.messagesByConversation.get(input.conversationId) || [];
+      const seenIds = new Set(existingMessages.map((m) => m.id));
+      const uniqueOlder = older.filter((m) => !seenIds.has(m.id));
+      const combined = [...uniqueOlder, ...existingMessages];
+      current.messagesByConversation.set(input.conversationId, combined);
+
+      const pageMeta = older._pageMeta ?? null;
+      const paginationMap =
+        current.paginationByConversation ?? new Map<string, ConversationPaginationState>();
+      paginationMap.set(
+        input.conversationId,
+        uniqueOlder.length === 0
+          ? { hasMore: false, oldestCursor: null }
+          : (pageMeta ?? {
+              hasMore: older.length >= MESSAGE_LIMIT,
+              oldestCursor: uniqueOlder[0]?.id ?? null,
+            }),
+      );
+      current.paginationByConversation = paginationMap;
+      entriesByUser.set(input.userId, current);
+      return uniqueOlder;
     })
     .finally(() => {
       if (historyLoadsByKey.get(loadKey) === request) historyLoadsByKey.delete(loadKey);

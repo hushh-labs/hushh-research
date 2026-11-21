@@ -18,10 +18,18 @@ import {
 const agentAnswered = new Map<string, number>();
 const fencedProbeAttempts = new Map<string, number>();
 const AGENT_AWAKE_MS = 60_000;
+const RECENT_ANSWER_WINDOW_MS = 300_000;
 const MAX_FENCED_PROBE_RETRIES = 2;
 
 export function markAgentAnswered(url: string): void {
   agentAnswered.set(url, Date.now());
+}
+
+export function hasRecentAgentAnswer(now = Date.now()): boolean {
+  for (const answeredAt of agentAnswered.values()) {
+    if (now - answeredAt <= RECENT_ANSWER_WINDOW_MS) return true;
+  }
+  return false;
 }
 
 /** Forget which agents answered recently. Tests start from a cold agent. */
@@ -182,6 +190,9 @@ export async function sendChatTurn(
     if (isAgentStillWaking(response)) {
       void response.body?.cancel().catch(() => undefined);
       throw new PodSendUnconfirmedError();
+    }
+    if (response.ok) {
+      markAgentAnswered(url);
     }
     return response;
   } catch (error) {

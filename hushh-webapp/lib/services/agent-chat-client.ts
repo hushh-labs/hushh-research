@@ -211,6 +211,8 @@ export function buildAgentUserMessageContent(
 export type AgentChatConversation = {
   id: string;
   title: string;
+  category?: string | null;
+  category_source?: "auto" | "custom" | string | null;
   status: string;
   model?: string | null;
   message_count: number;
@@ -542,15 +544,7 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
  */
 export function parsePendingConsentRequestIds(toolName: string, content: unknown): string[] {
   if (toolName !== "list_pending_information_requests") return [];
-  let result: unknown = content;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      return [];
-    }
-  }
-  const record = asRecord(result);
+  const record = unwrapParkedActionResult(content);
   if (!record || record.status !== "ok") return [];
   const ids = Array.isArray(record.pendingRequestIds) ? record.pendingRequestIds : [];
   return ids
@@ -706,6 +700,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Personal wiki",
     message: "Checking note sources and updates.",
     activity: "Checking note sources",
+  },
+  optimize_personal_memory: {
+    label: "Memory optimization",
+    message: "Consolidating and optimizing your personal memory.",
+    activity: "Optimizing memory",
   },
   read_my_profile_status: {
     label: "Profile",
@@ -2904,12 +2903,22 @@ export async function listAgentChatConversations(input: {
   return Array.isArray(payload.conversations) ? payload.conversations : [];
 }
 
+export type AgentChatHistoryPageMeta = {
+  hasMore: boolean;
+  oldestCursor: string | null;
+};
+
+export type AgentChatHistoryList = AgentChatMessage[] & {
+  _pageMeta?: AgentChatHistoryPageMeta;
+};
+
 export async function getAgentChatHistory(input: {
   conversationId: string;
   vaultOwnerToken: string;
   vaultKey: string;
   limit?: number;
-}): Promise<AgentChatMessage[]> {
+  before?: string;
+}): Promise<AgentChatHistoryList> {
   const response = await sendWithChatKey(() => ApiService.getAgentChatHistory(input));
   if (!response.ok) {
     const error = new Error(await readError(response)) as Error & { status?: number };
@@ -2935,15 +2944,39 @@ export async function getAgentChatHistory(input: {
         consentAccess?: unknown;
       } | null;
     }>;
+    has_more?: boolean;
+    oldest_cursor?: string | null;
     /** Shared requests whose access has ended: {bundle_id: "revoked" | "expired"}. */
     consentAccessEnded?: unknown;
   };
-  if (!Array.isArray(payload.messages)) return [];
+  if (!Array.isArray(payload.messages)) {
+    const empty: AgentChatHistoryList = [];
+    Object.defineProperty(empty, "_pageMeta", {
+      value: { hasMore: false, oldestCursor: null },
+      enumerable: false,
+    });
+    return empty;
+  }
+  const limitUsed = input.limit ?? 50;
+  const inferredHasMore =
+    typeof payload.has_more === "boolean"
+      ? payload.has_more
+      : payload.messages.length >= limitUsed;
+  const inferredCursor =
+    typeof payload.oldest_cursor === "string" && payload.oldest_cursor.trim()
+      ? payload.oldest_cursor.trim()
+      : inferredHasMore && payload.messages[0]?.id
+        ? String(payload.messages[0].id)
+        : null;
+  const pageMeta: AgentChatHistoryPageMeta = {
+    hasMore: Boolean(inferredHasMore && inferredCursor),
+    oldestCursor: inferredCursor,
+  };
   const endedByBundle = payload.consentAccessEnded && typeof payload.consentAccessEnded === "object"
     && !Array.isArray(payload.consentAccessEnded)
     ? payload.consentAccessEnded as Record<string, unknown>
     : {};
-  return payload.messages
+  const mapped: AgentChatHistoryList = payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
     .map((message) => {
       const attachments = message.role === "user"
@@ -2983,6 +3016,11 @@ export async function getAgentChatHistory(input: {
           : message.metadata,
       };
     });
+  Object.defineProperty(mapped, "_pageMeta", {
+    value: pageMeta,
+    enumerable: false,
+  });
+  return mapped;
 }
 
 /**
@@ -3236,9 +3274,10 @@ export async function setAgentChatFeedback(input: {
   }
 }
 
-export async function renameAgentChatConversation(input: {
+export async function updateAgentChatConversation(input: {
   conversationId: string;
-  title: string;
+  title?: string;
+  category?: string | null;
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<AgentChatConversation> {
@@ -3247,6 +3286,15 @@ export async function renameAgentChatConversation(input: {
     throw new Error(await readError(response));
   }
   return (await response.json()) as AgentChatConversation;
+}
+
+export async function renameAgentChatConversation(input: {
+  conversationId: string;
+  title: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<AgentChatConversation> {
+  return updateAgentChatConversation(input);
 }
 
 export async function deleteAgentChatConversation(input: {

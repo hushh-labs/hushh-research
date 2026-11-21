@@ -22,6 +22,7 @@ export type RequestablePersonScope = {
   label: string | null;
   description: string | null;
   domain: string | null;
+  iconName?: string | null;
   sensitivity: string | null;
   wildcard: boolean;
   pathSegments?: string[];
@@ -32,6 +33,7 @@ export type PersonGrant = {
   scopeRef: string | null;
   label: string;
   domain: string | null;
+  iconName?: string | null;
   requestId: string | null;
   issuedAt: number | null;
   expiresAt: number | null;
@@ -201,10 +203,12 @@ export function parseScopeCatalogPage(payload: Record<string, unknown>, requeste
     if (!entry || !scopeRef || !label || seen.has(scopeRef)) return [];
     seen.add(scopeRef);
     const pathSegments = catalogPathSegments(entry.pathSegments ?? entry.path_segments);
+    const iconName = catalogText(entry.iconName ?? entry.icon_name, 64);
     return [{
       scopeRef, label,
       description: catalogText(entry.description, 280),
       domain: catalogText(entry.domain, 80),
+      ...(iconName ? { iconName } : {}),
       sensitivity: catalogText(entry.sensitivity, 32),
       wildcard: entry.wildcard === true,
       // Kept so a search hit can nest under the broad item that covers it.

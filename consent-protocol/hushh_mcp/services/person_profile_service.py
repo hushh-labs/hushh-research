@@ -457,16 +457,27 @@ class PersonProfileService:
     @staticmethod
     def _scope_projection(public_person_ref: str, item: dict[str, Any]) -> dict[str, Any] | None:
         """The only shape a viewer sees for one requestable row: no raw scope, no value."""
+        from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
+
         scope = str(item.get("scope") or "")
         if not scope:
             return None
         domain = str(item.get("domain") or "") or None
+        label = human_scope_label(scope, str(item.get("label") or ""))
+        description = item.get("description")
         return {
             "scopeRef": _scope_ref(public_person_ref, scope),
-            "label": human_scope_label(scope, str(item.get("label") or "")),
-            "description": item.get("description"),
+            "label": label,
+            "description": description,
             "domain": domain,
             "domainLabel": human_domain_label(domain),
+            "iconName": normalize_or_infer_scope_icon(
+                icon_name=str(item.get("icon_name") or item.get("iconName") or "") or None,
+                domain=domain,
+                scope=scope,
+                label=label,
+                description=str(description or "") or None,
+            ),
             # C7: the one server-side authority; a stored tag only escalates.
             "sensitivity": scope_sensitivity(scope, [item.get("sensitivity")]),
             "wildcard": bool(item.get("wildcard")),
@@ -671,16 +682,40 @@ class PersonProfileService:
                     and str(grant.get("request_id") or "") in bundle_by_request
                 ),
             )
+            from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
+
             for grant in active:
-                scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
+                raw_grant_scope = str(grant.get("scope") or "")
+                scope_projection = scope_by_name.get(raw_grant_scope)
                 token_id = str(grant.get("token_id") or "")
+                grant_label = (scope_projection or {}).get("label") or (
+                    human_scope_label(raw_grant_scope, None)
+                    if raw_grant_scope
+                    else "Shared information"
+                )
+                grant_domain = (scope_projection or {}).get("domain") or (
+                    raw_grant_scope.split(".")[1]
+                    if raw_grant_scope.startswith("attr.") and len(raw_grant_scope.split(".")) >= 2
+                    else None
+                )
                 grants.append(
                     {
-                        "scopeRef": (scope_projection or {}).get("scopeRef"),
-                        "label": (scope_projection or {}).get("label") or "Shared information",
-                        "domain": (scope_projection or {}).get("domain"),
+                        "scopeRef": (scope_projection or {}).get("scopeRef")
+                        or (
+                            _scope_ref(public_person_ref, raw_grant_scope)
+                            if raw_grant_scope
+                            else None
+                        ),
+                        "label": grant_label,
+                        "domain": grant_domain,
+                        "iconName": (scope_projection or {}).get("iconName")
+                        or normalize_or_infer_scope_icon(
+                            domain=grant_domain,
+                            scope=raw_grant_scope,
+                            label=grant_label,
+                        ),
                         "sensitivity": scope_sensitivity(
-                            str(grant.get("scope") or ""),
+                            raw_grant_scope,
                             [(scope_projection or {}).get("sensitivity")],
                         ),
                         "requestId": grant.get("request_id"),

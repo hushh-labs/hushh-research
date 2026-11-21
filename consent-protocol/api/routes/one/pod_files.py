@@ -380,10 +380,36 @@ async def read_wiki_overview(owner: Owner):
     try:
         async with wiki_operation() as wiki:
             migrator = WikiOwnerMigrator(wiki)
-            cp = await wiki.read_capture_checkpoint()
-            mig = await migrator.get_migration_status()
-            pages = await wiki.list_pages()
-            receipts = await wiki.list_projection_receipts()
+            cp, mig, pages, receipts = await asyncio.gather(
+                wiki.read_capture_checkpoint(),
+                migrator.get_migration_status(),
+                wiki.list_pages(),
+                wiki.list_projection_receipts(),
+            )
+            candidate_page_ids = sorted(
+                {
+                    str(rec["page_id"])
+                    for rec in receipts
+                    if rec["state"] in {"private_candidate", "conflicted"}
+                }
+            )
+            page_docs: dict[str, dict[str, object]] = {}
+            if candidate_page_ids:
+                sem = asyncio.Semaphore(8)
+
+                async def _read_candidate_page(pid: str) -> tuple[str, dict[str, object] | None]:
+                    async with sem:
+                        try:
+                            return pid, await wiki.read_page(pid)
+                        except WikiRefused:
+                            return pid, None
+
+                for pid, doc in await asyncio.gather(
+                    *(_read_candidate_page(pid) for pid in candidate_page_ids)
+                ):
+                    if doc is not None:
+                        page_docs[pid] = doc
+
             candidates: list[dict[str, object]] = []
             stale_receipts: list[dict[str, object]] = []
             projected_claim_keys: list[str] = []
@@ -407,14 +433,14 @@ async def read_wiki_overview(owner: Owner):
                 if rec["state"] not in {"private_candidate", "conflicted"}:
                     continue
                 stmt = ""
-                try:
-                    pdoc = await wiki.read_page(rec["page_id"])
-                    found = next(
-                        (c for c in pdoc["claims"] if c["claim_id"] == rec["claim_id"]), None
-                    )
-                    stmt = str(found["statement"]) if found else ""
-                except WikiRefused:
-                    stmt = ""
+                pdoc = page_docs.get(str(rec["page_id"]))
+                if pdoc is not None:
+                    claims_list = pdoc.get("claims")
+                    if isinstance(claims_list, list):
+                        found = next(
+                            (c for c in claims_list if c["claim_id"] == rec["claim_id"]), None
+                        )
+                        stmt = str(found["statement"]) if found else ""
                 candidates.append(
                     {
                         "receiptId": rec["receipt_id"],
@@ -442,6 +468,7 @@ async def read_wiki_overview(owner: Owner):
                         "title": p["title"],
                         "folder": p["folder"],
                         "tldr": str(p.get("tldr") or ""),
+                        "statusAsOf": str(p.get("status_as_of") or ""),
                         "revision": p["revision"],
                         "updatedAt": p["updated_at"],
                     }
@@ -460,15 +487,27 @@ async def read_wiki_page_detail(owner: Owner, page_id: str):
     try:
         async with wiki_operation() as wiki:
             page = await wiki.read_page(page_id)
+            unique_source_ids = list(dict.fromkeys(page["source_ids"]))
             source_labels: dict[str, str] = {}
-            for sid in page["source_ids"]:
-                try:
-                    src = await wiki.get_source(sid)
-                    label = _SOURCE_KIND_LABELS.get(str(src.get("kind") or ""), "Saved source")
-                    obs = str(src.get("observed_at") or "")[:10]
-                    source_labels[sid] = f"{label} · {obs}" if obs else label
-                except WikiRefused:
-                    source_labels[sid] = "Saved source"
+            if unique_source_ids:
+                sem = asyncio.Semaphore(8)
+
+                async def _read_src(sid: str) -> tuple[str, str]:
+                    async with sem:
+                        try:
+                            src = await wiki.get_source(sid)
+                            label = _SOURCE_KIND_LABELS.get(
+                                str(src.get("kind") or ""), "Saved source"
+                            )
+                            obs = str(src.get("observed_at") or "")[:10]
+                            return sid, (f"{label} · {obs}" if obs else label)
+                        except WikiRefused:
+                            return sid, "Saved source"
+
+                for sid, lbl in await asyncio.gather(
+                    *(_read_src(sid) for sid in unique_source_ids)
+                ):
+                    source_labels[sid] = lbl
             return {
                 "pageId": page["page_id"],
                 "title": page["title"],
@@ -801,6 +840,42 @@ async def rollback_wiki_to_classic(body: WikiRollbackBody, owner: Owner):
         raise wiki_refusal(exc) from exc
 
 
+class WikiOptimizeBody(BaseModel):
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/wiki/optimize")
+async def optimize_wiki_memory(body: WikiOptimizeBody, owner: Owner):
+    from hushh_mcp.services.wiki_memory import (
+        WikiMaintenanceRunner,
+        resolve_owner_protected_grant_scopes,
+    )
+
+    try:
+        owner_uid = str(owner.get("user_id") or "")
+        protected_scopes = await resolve_owner_protected_grant_scopes(owner_uid)
+        async with wiki_operation(mutation=True) as wiki:
+            res = await WikiMaintenanceRunner(wiki).optimize_knowledge_base(
+                idempotency_key=body.request_id,
+                protected_scopes=protected_scopes,
+            )
+            return {
+                "optimizationRunId": res["optimization_run_id"],
+                "inspectedPageCount": res["inspected_page_count"],
+                "deduplicatedClaimCount": res["deduplicated_claim_count"],
+                "staleRetiredCount": res["stale_retired_count"],
+                "structureRepairsCount": res["structure_repairs_count"],
+                "protectedGrantScopes": res["protected_grant_scopes"],
+                "protectedGrantPagesCount": res["protected_grant_pages_count"],
+                "protectedClaimsPreservedCount": res["protected_claims_preserved_count"],
+                "contradictions": res["contradictions"],
+                "hotDigestChars": res["hot_digest_chars"],
+                "hotDigestWithinBudget": res["hot_digest_within_budget"],
+            }
+    except (WikiRefused, FilesRefused) as exc:
+        raise wiki_refusal(exc) from exc
+
+
 @router.post("/wiki/import")
 async def import_wiki_archive(body: WikiImportArchiveBody, owner: Owner):
     from hushh_mcp.services.wiki_memory import (
@@ -839,6 +914,22 @@ async def import_wiki_archive(body: WikiImportArchiveBody, owner: Owner):
                 source_provider=body.source_provider,
                 explicit_candidate_mappings=body.explicit_candidate_mappings,
             )
+            try:
+                from hushh_mcp.services.wiki_memory import (
+                    WikiMaintenanceRunner,
+                    resolve_owner_protected_grant_scopes,
+                )
+
+                protected = await resolve_owner_protected_grant_scopes(
+                    str(owner.get("user_id") or "")
+                )
+                await WikiMaintenanceRunner(wiki).run_tick(
+                    idempotency_key=f"{body.request_id}:hygiene"[:120],
+                    max_pages_per_tick=8,
+                    protected_scopes=protected,
+                )
+            except Exception:  # noqa: BLE001 - background hygiene is additive
+                pass
             return {
                 "provider": res["provider"],
                 "fileId": res["file_id"],

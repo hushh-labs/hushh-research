@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 // renders. No press scale, spring, or bounce (guarded by
 // __tests__/components/press-ripple.contract.test.tsx).
 export const buttonVariants = cva(
-  "relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full transition-[opacity,color,background-color,border-color,box-shadow] motion-reduce:transition-none duration-100 ease-[var(--ease-out)] active:enabled:opacity-[0.84] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive touch-manipulation",
+  "relative isolate inline-flex items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-full transition-[opacity,color,background-color,border-color,box-shadow] motion-reduce:transition-none duration-[140ms] ease-[cubic-bezier(0.22,1,0.36,1)] active:enabled:opacity-[0.88] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive touch-manipulation",
   {
     variants: {
       variant: {
@@ -23,6 +23,8 @@ export const buttonVariants = cva(
           "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
           "bg-[color:var(--app-neutral-fill)] text-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]",
+        subdued:
+          "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         ghost:
           "text-[color:var(--app-accent)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-accent-tint)]",
         plain: "bg-transparent text-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-80",
@@ -46,8 +48,9 @@ export const buttonVariants = cva(
           "ui-text-button-label min-h-[50px] h-[50px] px-6 has-[>svg]:px-5",
         compact:
           "ui-text-compact-button-label min-h-11 h-11 gap-1.5 px-4 has-[>svg]:px-3",
-        xs: "min-h-7 h-7 gap-1 rounded-[var(--app-radius-sm)] px-2 text-[13px] font-semibold leading-[18px] has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "min-h-9 h-9 rounded-[var(--app-radius-md)] gap-1.5 px-3 text-[15px] font-semibold leading-[20px] has-[>svg]:px-2.5",
+        row: "min-h-8 h-8 rounded-full gap-1.5 px-3.5 py-1 text-[13px] font-semibold leading-[18px] has-[>svg]:px-3 [&_svg:not([class*='size-'])]:size-3.5",
+        xs: "min-h-7 h-7 gap-1 rounded-full px-2.5 text-[12.5px] font-semibold leading-[18px] has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3",
+        sm: "min-h-9 h-9 rounded-full gap-1.5 px-3 text-[13.5px] font-semibold leading-[18px] tracking-[-0.008em] has-[>svg]:px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "ui-text-button-label min-h-[50px] h-[50px] rounded-full px-6 has-[>svg]:px-4",
         icon: "size-9 rounded-full",
         "icon-touch": "size-11 rounded-full",

@@ -1,14 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { Button } from "@/components/ui/button";
 import { PersonProfileService, type InformationRequestPrice } from "@/lib/services/person-profile-service";
 import { COMMERCE_SANDBOX_COPY } from "@/lib/services/scope-commerce-sandbox";
 import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
 import { CommerceFundingControls } from "./scope-commerce-account-controls";
 import { useScopeCommerceAccount } from "./use-scope-commerce-account";
+
+const PRICE_PREVIEW_TTL_MS = 60_000;
+const pricePreviewCache = new Map<string, { price: InformationRequestPrice; cachedAt: number }>();
+
+function peekPricePreview(cacheKey: string): InformationRequestPrice | null {
+  const hit = pricePreviewCache.get(cacheKey);
+  if (!hit || Date.now() - hit.cachedAt > PRICE_PREVIEW_TTL_MS) {
+    if (hit) pricePreviewCache.delete(cacheKey);
+    return null;
+  }
+  return hit.price;
+}
 
 function AddRequestCoins({
   suggestedCents,
@@ -30,41 +43,76 @@ function AddRequestCoins({
   </div>;
 }
 
-/** The same server-priced selection in Profile and both Chat review paths. */
+/** The same server-priced selection in Profile and both Chat review paths, backed by L1 SWR cache. */
 export function InformationRequestPriceReview({ personRef, scopeRefs, durationHours, onChange }: {
   personRef: string; scopeRefs: string[]; durationHours: number;
   onChange: (price: InformationRequestPrice | null) => void;
 }) {
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
-  const [reading, setReading] = useState<{ key: string; price: InformationRequestPrice } | null>(null);
+  const selection = JSON.stringify([...new Set(scopeRefs)].sort());
+  const cacheKey = JSON.stringify([userId, personRef, selection, durationHours]);
+  const key = JSON.stringify([userId, personRef, selection, durationHours, vaultOwnerToken]);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const [reading, setReading] = useState<{ key: string; price: InformationRequestPrice } | null>(() => {
+    const warm = userId && isVaultUnlocked ? peekPricePreview(cacheKey) : null;
+    return warm ? { key, price: warm } : null;
+  });
   const [failed, setFailed] = useState(false);
   const [funding, setFunding] = useState(false);
   const [revision, setRevision] = useState(0);
-  const selection = JSON.stringify([...new Set(scopeRefs)].sort());
-  const key = JSON.stringify([userId, personRef, selection, durationHours, vaultOwnerToken]);
-  const price = isVaultUnlocked && reading?.key === key ? reading.price : null;
-  const refresh = useCallback(() => setRevision(value => value + 1), []);
+
+  const price = isVaultUnlocked && (reading?.key === key ? reading.price : peekPricePreview(cacheKey));
+  const refresh = useCallback(() => {
+    pricePreviewCache.delete(cacheKey);
+    setRevision(value => value + 1);
+  }, [cacheKey]);
+
   useEffect(() => {
-    onChange(null);
-    setReading(null);
+    const clearOnMutation = () => {
+      pricePreviewCache.clear();
+      setRevision(value => value + 1);
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, clearOnMutation);
+    return () => window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, clearOnMutation);
+  }, []);
+
+  useEffect(() => {
     setFailed(false);
-    if (!userId || !isVaultUnlocked || !vaultOwnerToken || !personRef || selection === "[]") return;
+    if (!userId || !isVaultUnlocked || !vaultOwnerToken || !personRef || selection === "[]") {
+      setReading(null);
+      onChangeRef.current(null);
+      return;
+    }
+    const warm = peekPricePreview(cacheKey);
+    if (warm) {
+      setReading({ key, price: warm });
+      onChangeRef.current(warm);
+    } else {
+      setReading(null);
+      onChangeRef.current(null);
+    }
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => { setFailed(true); controller.abort(); }, 15_000);
+    const timeout = window.setTimeout(() => { if (!warm) setFailed(true); controller.abort(); }, 15_000);
     void PersonProfileService.informationRequestPrice({
       personRef, scopeRefs: JSON.parse(selection), durationSeconds: durationHours * 3600,
       vaultOwnerToken, signal: controller.signal,
     }).then(value => {
       if (!controller.signal.aborted) {
+        pricePreviewCache.set(cacheKey, { price: value, cachedAt: Date.now() });
         setReading({ key, price: value });
-        onChange(value);
+        onChangeRef.current(value);
         setFunding(value.shortfallCoins > 0);
       }
-    }).catch(() => { if (!controller.signal.aborted) setFailed(true); })
+    }).catch(() => { if (!controller.signal.aborted && !warm) setFailed(true); })
       .finally(() => window.clearTimeout(timeout));
     return () => { window.clearTimeout(timeout); controller.abort(); };
-  }, [key, userId, personRef, selection, durationHours, isVaultUnlocked, vaultOwnerToken, revision, onChange]);
+  }, [key, cacheKey, userId, personRef, selection, durationHours, isVaultUnlocked, vaultOwnerToken, revision]);
+
   return <div className="space-y-3 rounded-[var(--app-card-radius-compact)] bg-muted/50 p-3" aria-live="polite" data-testid="information-request-price">
     {!price ? <>
       <p data-consent-role="status" className="text-sm">{failed ? "Couldn’t check the price." : "Checking price…"}</p>

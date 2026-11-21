@@ -15,6 +15,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { type ColorVariant, type ComponentEffect } from "./types";
 
 // ============================================================================
@@ -109,11 +110,12 @@ export const getMaterialRippleColors = (
   hoverOpacity: number;
   pressedOpacity: number;
 } => {
-  // Base opacity - glass/fade are more subtle; fill needs to be more visible on solid/gradient surfaces.
+  // Silk-calibrated press/hover opacities: tactile yet restrained so controls
+  // never paint muddy grey puddles over translucent or solid surfaces.
   const baseOpacity =
     effect === "glass" || effect === "fade"
-      ? { hover: 0.06, pressed: 0.1 }
-      : { hover: 0.1, pressed: 0.16 };
+      ? { hover: 0.04, pressed: 0.075 }
+      : { hover: 0.06, pressed: 0.11 };
 
   // For fill buttons, use currentColor so the ripple contrasts with the label color
   // (white in light mode for gradients, black in dark mode where Morphy flips text).
@@ -471,13 +473,13 @@ export const MaterialRipple = ({
     <div
       ref={containerRef}
       data-ripple-mode={reducedMotion ? "flat" : "material"}
-      className={`morphy-ripple-host pointer-events-none absolute inset-0 isolate overflow-hidden ${className}`}
+      className={cn(
+        "morphy-ripple-host pointer-events-none absolute inset-0 isolate overflow-hidden",
+        className,
+      )}
       // Let the ripple host own the clip boundary for rounded actionables.
-      // pointer-events:none is critical: the host overlays the actionable's
-      // content (absolute inset-0). On iOS WKWebView an overlay without it can
-      // swallow the first tap, which surfaced as "bottom nav needs a double tap
-      // / never switches". The ripple is purely visual; the parent button still
-      // receives the pointer events md-ripple observes.
+      // Using cn() allows Dual-Envelope controls (where 44pt hit > painted pill)
+      // to override `inset-0` with the exact painted inset so ripples never bleed.
       style={{
         borderRadius: "inherit",
         contain: "paint",

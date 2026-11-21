@@ -617,7 +617,17 @@ export default function ConnectPageClient() {
   const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
     .trim()
     .slice(0, 160);
-  const connectionEntryView = searchParams.get(CONNECT_CONNECTION_VIEW_PARAM) === "connections" ? "connections" : "discover";
+  const explicitViewParam = searchParams.get(CONNECT_CONNECTION_VIEW_PARAM);
+  const connectionEntryView =
+    explicitViewParam === "discover" ||
+    (explicitViewParam !== "connections" &&
+      Boolean(
+        searchParams.get(CONNECT_DIRECTORY_PARAM) ||
+          searchParams.get(CONNECT_MUTUALS_PARAM) ||
+          searchQueryParam,
+      ))
+      ? "discover"
+      : "connections";
   const [connectionView, setConnectionView] = useState(connectionEntryView);
   const [circleSearchActive, setCircleSearchActive] = useState(false);
   const circleFlowId = searchParams.get(CONNECT_CIRCLE_ID_PARAM) ?? "";
@@ -1434,7 +1444,11 @@ export default function ConnectPageClient() {
       // The saved list for the new audience, when there is one; otherwise
       // empty, so rows from the old audience never sit under the new heading.
       const saved = trimmedQuery ? null : readSavedDirectoryFirstPage(userId, directoryAudience);
-      setPeople(saved?.items ?? []);
+      setPeople(
+        (saved?.items ?? []).filter(
+          (person) => person.relationship !== "connected",
+        ),
+      );
       setDirectoryResolved(Boolean(saved));
       setHasMore(saved?.hasMore ?? false);
     }
@@ -1464,12 +1478,20 @@ export default function ConnectPageClient() {
         for (let index = firstPage; index <= currentPage; index++) {
           page = await ConnectionsService.searchDirectory({ idToken, query: trimmedQuery,
             page: index, limit: pageSize, audience: directoryAudience,
+            excludeConnected: true,
             ...(trimmedQuery ? { typedSearch: true } : {}),
           });
-          restoredPeople.push(...page.items);
+          restoredPeople.push(
+            ...page.items.filter(
+              (person) => person.relationship !== "connected",
+            ),
+          );
           if (!page.hasMore || !isCurrent()) break;
         }
         if (!page) return;
+        const pageUnconnectedItems = page.items.filter(
+          (person) => person.relationship !== "connected",
+        );
         if (isCurrent()) {
           restoreDirectoryReadRef.current = false;
           setDirectoryResolved(true);
@@ -1480,7 +1502,7 @@ export default function ConnectPageClient() {
               ? [...new Map(restoredPeople.map((person) => [person.userId, person])).values()]
               : [
                   ...new Map(
-                    [...previous, ...page.items].map((person) => [
+                    [...previous, ...pageUnconnectedItems].map((person) => [
                       person.userId,
                       person,
                     ]),

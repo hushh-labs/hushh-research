@@ -809,6 +809,28 @@ function linkageInvariants() {
     );
   }
 
+  // Invariant 4: Scope pricing badges and proposal price previews must use
+  // synchronous L1 peek + batched single-flight catalog SWR + write-through
+  // CacheSyncService invalidation instead of per-row N+1 fetches.
+  const commerceServiceSource = readSource("lib/services/scope-commerce-service.ts");
+  const tariffEditorSource = readSource("components/consent/scope-tariff-editor.tsx");
+  const requestPriceSource = readSource("components/consent/information-request-price.tsx");
+  if (
+    !commerceServiceSource.includes("peekOwnerTariff") ||
+    !commerceServiceSource.includes("tariffCatalog") ||
+    !commerceServiceSource.includes("writeThroughOwnerTariff") ||
+    !tariffEditorSource.includes("peekOwnerTariff") ||
+    !tariffEditorSource.includes("tariffCatalog") ||
+    !tariffEditorSource.includes("writeThroughOwnerTariff") ||
+    !tariffEditorSource.includes("CacheSyncService.onConsentMutated") ||
+    !requestPriceSource.includes("pricePreviewCache") ||
+    !requestPriceSource.includes("CONSENT_STATE_CHANGED_EVENT")
+  ) {
+    violations.push(
+      "Scope pricing and proposal price previews must preserve L1 peek + batched tariffCatalog SWR + writeThroughOwnerTariff + CacheSyncService invalidation",
+    );
+  }
+
   return violations;
 }
 

@@ -2187,17 +2187,29 @@ class ConsentDBService:
         )
         response = await asyncio.to_thread(query.execute)
 
-        latest: Dict[str, Dict[str, Any]] = {}
+        latest_raw: list[tuple[str, Dict[str, Any]]] = []
         seen_request_ids: set[str] = set()
         for row in response.data or []:
             request_id = str(row.get("request_id") or "").strip()
             if not request_id or request_id in seen_request_ids:
                 continue
             seen_request_ids.add(request_id)
-            formatted = await self._admitted_request_status(self._format_request_status_row(row))
-            if formatted is not None:
-                latest[request_id] = formatted
-        return latest
+            formatted_row = self._format_request_status_row(row)
+            if formatted_row is not None:
+                latest_raw.append((request_id, formatted_row))
+
+        sem = asyncio.Semaphore(6)
+
+        async def _resolve_one(
+            req_id: str, item: Dict[str, Any]
+        ) -> tuple[str, Optional[Dict[str, Any]]]:
+            async with sem:
+                return req_id, await self._admitted_request_status(item)
+
+        resolved_pairs = await asyncio.gather(
+            *(_resolve_one(rid, item) for rid, item in latest_raw)
+        )
+        return {rid: val for rid, val in resolved_pairs if val is not None}
 
     async def get_request_status_for_agent(
         self,

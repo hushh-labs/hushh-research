@@ -208,12 +208,15 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
   });
 
-  it("shows elapsed time only while the turn runs", () => {
+  it("shows elapsed time only while active work or tokens stream, never on initial wait or after completion", () => {
     let now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
-    expect(screen.getByText("Working for 0s")).toBeInTheDocument();
+    expect(screen.getByTestId("one-thinking-indicator")).toBeInTheDocument();
+    expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
     now = 3000;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private" isStreaming />);
+    expect(screen.getByText(/^Working for \d+s$/)).toBeInTheDocument();
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming={false} />);
     expect(screen.queryByText(/Working for|Response complete/)).not.toBeInTheDocument();
     clock.mockRestore();
@@ -253,7 +256,8 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.getByRole("status")).toHaveTextContent("Listening closely…");
+    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 
@@ -316,11 +320,11 @@ describe("AgentTurnStreamPanel", () => {
       };
       render(<AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />);
       expect(screen.queryByText("Preparing your private memory.")).not.toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+      expect(screen.getByRole("status")).toHaveTextContent("Listening closely…");
 
       act(() => { vi.advanceTimersByTime(ROUTINE_STEP_SLOW_MS); });
       expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
-      expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -336,7 +340,7 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.getByText("Checked 1 of 30 files.")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(100 / 30));
-    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
 
     const second = driveBatchProgressToVisibleStreamEvent(
       { phase: "fetching", completed: 2, total: 30, failed: 1 }, "activity-1", 1_700_002,
@@ -478,7 +482,8 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
     expect(screen.queryByRole("log", { name: "Thinking details" })).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.getByRole("status")).toHaveTextContent("Listening closely…");
+    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
 
     rerender(

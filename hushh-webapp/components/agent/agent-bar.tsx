@@ -1,7 +1,12 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { normalizeStaticExportPathname, resolvePersonRefFromProfilePathname, ROUTES } from "@/lib/navigation/routes";
+import {
+  isPublicEditorialOrLegalRoute,
+  normalizeStaticExportPathname,
+  resolvePersonRefFromProfilePathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { useOptionalLocationCommand } from "./location-command-provider";
 import { RetainedAgentBar } from "./agent-bar-surface";
 import { useAgentDockSurface } from "./agent-dock";
@@ -24,6 +29,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const dock = useAgentDockSurface();
   const command = useOptionalLocationCommand();
   const pathname = normalizeStaticExportPathname(usePathname());
+  if (
+    isPublicEditorialOrLegalRoute(pathname) ||
+    pathname === ROUTES.LOGIN ||
+    pathname === ROUTES.GETTING_STARTED ||
+    pathname === ROUTES.DELETE_ACCOUNT ||
+    pathname === ROUTES.PHONE_MANDATE ||
+    pathname === ROUTES.LOGOUT
+  ) {
+    return null;
+  }
   const sharing = pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS || Boolean(resolvePersonRefFromProfilePathname(pathname));
   if (sharing && !live && !commands && !dock?.composerVisible &&
       !command?.active && !command?.recording && (command?.view.phase ?? "idle") === "idle") return null;

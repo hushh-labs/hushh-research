@@ -54,7 +54,7 @@ Non-owned surfaces:
 ## Workflow
 
 1. Read the frontend architecture and design-system docs before narrowing ownership.
-2. Route shared UI to `frontend-design-system`, route/package conventions to `frontend-architecture`, cache coherence to `frontend-cache-coherence`, and placement/layer questions to `frontend-surface-placement`.
+2. Route shared UI to `frontend-design-system`, route/package conventions to `frontend-architecture`, cache coherence to `frontend-cache-coherence`, and placement/layer questions to `frontend-surface-placement`. Every new or modified data operation (read, list, badge, price preview, or mutation) MUST wire the `frontend-cache-coherence` pipeline as a mandatory requirement: synchronous warm L1 peek (`0ms` revisit paint), single-flight batched SWR (zero per-row `N+1` `useEffect` fetches), write-through + `CacheSyncService` mutation invalidation, and stable-geometry cold skeletons.
 3. Route native-only concerns to `mobile-native`.
 4. Keep route and verification changes aligned with existing package scripts and contracts.
 5. Choose the smallest authoritative proof; use browser proof only for browser-only behavior or explicit user request.
