@@ -9,10 +9,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from pathlib import Path
 from typing import Any
 
-_POLICY_PATH = Path(__file__).resolve().parents[2] / "contracts/feed/activity-policy.v1.json"
+from hushh_mcp.services.generated_contracts import generated_contract_path
+
+_POLICY_PATH = generated_contract_path("feed", "activity-policy.v1.json")
 POLICY: dict[str, Any] = json.loads(_POLICY_PATH.read_text())
 EVENTS: dict[str, dict[str, Any]] = POLICY["events"]
 AGENTS: dict[str, str] = POLICY["agents"]

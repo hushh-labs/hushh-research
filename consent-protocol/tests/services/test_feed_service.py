@@ -1546,3 +1546,18 @@ def test_terminal_drive_outcome_uses_live_counts_not_forged_snapshot(
     assert item["metadata"].get("current_outcome_reason") == reason
     assert "outcome_search_matched" not in str(item)
     assert "current_outcome_reason" not in service._to_item(row)["metadata"]
+
+
+def test_feed_activity_policy_ships_in_root_and_backend_build_context():
+    import hushh_mcp.services.feed_activity_policy as feed_policy
+    from hushh_mcp.services.generated_contracts import BACKEND_ROOT, REPO_ROOT
+
+    in_context = BACKEND_ROOT / "contracts" / "feed" / "activity-policy.v1.json"
+    canonical = REPO_ROOT / "contracts" / "feed" / "activity-policy.v1.json"
+
+    assert feed_policy._POLICY_PATH == in_context
+    assert in_context.is_file()
+    assert canonical.is_file()
+    assert in_context.read_text(encoding="utf-8").replace("\r\n", "\n") == canonical.read_text(
+        encoding="utf-8"
+    ).replace("\r\n", "\n")
