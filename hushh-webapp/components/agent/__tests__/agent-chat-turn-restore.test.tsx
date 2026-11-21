@@ -491,6 +491,15 @@ describe("a turn whose stream was lost", () => {
     reply({ detail: "Conversation not found." }, 404);
     expect(await planLostTurnRetry(input)).toBe("rerun");
 
+    // History that cannot be read proves nothing: the server may have finished the turn, so
+    // nothing is resent. A network failure, a server error and a refusal all stay "unknown".
+    history.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await planLostTurnRetry(input)).toBe("unknown");
+    reply({ detail: "Unavailable" }, 503);
+    expect(await planLostTurnRetry(input)).toBe("unknown");
+    reply({ detail: "Not allowed" }, 403);
+    expect(await planLostTurnRetry(input)).toBe("unknown");
+
     // A turn the server ended with its own error was not lost: resend without asking.
     history.mockClear();
     expect(await planLostTurnRetry({ ...input, lostTurn: undefined })).toBe("rerun");

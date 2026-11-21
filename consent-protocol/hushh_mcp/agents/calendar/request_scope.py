@@ -3,6 +3,11 @@
 Calendar's existing manifest assesses meaning without tools, history or provider
 content. The host enforces that ceiling; OAuth and exact confirmation still own
 information access and provider effects.
+
+A pure read needs no action authority, so it spends no model call. It only pins the
+authenticated input (``freeze_request_input``) before provider results arrive; every
+proposal and invitation response still runs the mandatory ``require_action``
+assessment, and input that changed after the pin gets no action authority.
 """
 
 from __future__ import annotations
@@ -20,6 +25,10 @@ from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 
 STATE_REQUEST_SCOPE = "temp:hussh:calendar_request_scope"
+# Digest of the authenticated input pinned by the first pure read. It is not an
+# assessment and grants nothing; it only lets a later action check refuse input
+# that arrived after provider data reached the turn.
+STATE_FROZEN_INPUT = "temp:hussh:calendar_frozen_input"
 Action = Literal["create", "reschedule", "cancel", "respond"]
 logger = logging.getLogger(__name__)
 
@@ -85,6 +94,38 @@ def current_user_messages(context: Any) -> tuple[str, ...]:
     return tuple(piece for piece in pieces if piece)
 
 
+def freeze_request_input(context: Any) -> None:
+    """Pin the authenticated current-turn input before provider results are read.
+
+    No model call and no authority: absent a later assessment the turn has none.
+    The earliest pin wins, and it never carries over to another invocation.
+    """
+    from hushh_mcp.agents.calendar.guest_clarification import messages_digest
+
+    invocation = getattr(context, "invocation_id", None)
+    messages = current_user_messages(context)
+    if not invocation or not messages:
+        return
+    pinned = context.state.get(STATE_FROZEN_INPUT)
+    if isinstance(pinned, dict) and pinned.get("invocation_id") == invocation:
+        return
+    context.state[STATE_FROZEN_INPUT] = {
+        "invocation_id": invocation,
+        "digest": messages_digest(messages),
+    }
+
+
+def _input_changed_after_pin(context: Any, invocation: Any, messages: tuple[str, ...]) -> bool:
+    from hushh_mcp.agents.calendar.guest_clarification import messages_digest
+
+    pinned = context.state.get(STATE_FROZEN_INPUT)
+    return (
+        isinstance(pinned, dict)
+        and pinned.get("invocation_id") == invocation
+        and pinned.get("digest") != messages_digest(messages)
+    )
+
+
 async def assess_scope(context: Any, messages: tuple[str, ...]) -> CalendarRequestScope:
     from hushh_mcp.agents.calendar.guest_clarification import admitted_pending
 
@@ -124,6 +165,10 @@ async def request_scope(context: Any) -> tuple[Action, ...]:
     if not invocation or not owner or not conversation or not messages:
         return ()
     if len(messages) > 17 or any(len(message) > 4096 for message in messages):
+        return ()
+    if _input_changed_after_pin(context, invocation, messages):
+        # Input that arrived after provider results cannot widen the review ceiling.
+        logger.info("calendar.request_scope outcome=input_changed")
         return ()
     key = _request_key(context, messages)
     pointer = context.state.get(STATE_REQUEST_SCOPE)

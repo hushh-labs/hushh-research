@@ -230,7 +230,8 @@ async def test_read_only_answer_is_useful_even_after_expired_booking(monkeypatch
     )
     result = await run_turn(store, agent(model), prompt)
     assert result[0]["events"][0]["local_start_at"] == "2030-11-06T23:00:00+05:30"
-    assert model._answers == [answer] and len(model._inputs) == 1
+    # A pure read needs no action assessment; the expired booking stays unstaged.
+    assert model._answers == [answer] and model._inputs == []
     assert not (
         await store.get_session(app_name="one", user_id="owner", session_id="guests")
     ).state.get("hussh:pending_directive:calendar")
