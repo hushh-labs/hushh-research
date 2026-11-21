@@ -53,19 +53,21 @@ def approved_binding(environment: str = "production") -> dict:
         if not raw or len(raw) > 4000:
             raise ValueError
         row = json.loads(raw)
+        required = {
+            "approved",
+            "definitionVersion",
+            "sourceGeneration",
+            "scopeDigest",
+            "populationPolicyRevision",
+            "reconciliationDigest",
+            "coverageFrom",
+        }
+        if environment == "uat":
+            required |= {"databaseName", "databaseUser"}
+        optional = {"provisionalUtcDay"} if environment == "uat" else set()
         if (
             not isinstance(row, dict)
-            or set(row)
-            != {
-                "approved",
-                "definitionVersion",
-                "sourceGeneration",
-                "scopeDigest",
-                "populationPolicyRevision",
-                "reconciliationDigest",
-                "coverageFrom",
-            }
-            | ({"databaseName", "databaseUser"} if environment == "uat" else set())
+            or not required <= row.keys() <= required | optional
             or row["approved"] is not True
             or row["definitionVersion"] != "1"
         ):
@@ -80,6 +82,10 @@ def approved_binding(environment: str = "production") -> dict:
                 raise ValueError
         if date.fromisoformat(row["coverageFrom"]).isoformat() != row["coverageFrom"]:
             raise ValueError
+        if "provisionalUtcDay" in row:
+            day = row["provisionalUtcDay"]
+            if date.fromisoformat(day).isoformat() != day or day < row["coverageFrom"]:
+                raise ValueError
         if environment == "uat" and (
             not isinstance(row["databaseName"], str)
             or not re.fullmatch(r"[A-Za-z0-9_]{1,63}", row["databaseName"])
@@ -95,7 +101,9 @@ def approved_binding(environment: str = "production") -> dict:
         raise AggregateUnavailable("Metrics aggregate unavailable") from None
 
 
-def period_bounds(request: AdoptionRequest, binding: dict, now: datetime):
+def period_bounds(
+    request: AdoptionRequest, binding: dict, now: datetime, *, environment="production"
+):
     start, end = (
         date.fromisoformat(request.period.startDate),
         date.fromisoformat(request.period.endDate),
@@ -108,11 +116,18 @@ def period_bounds(request: AdoptionRequest, binding: dict, now: datetime):
         )
     except (ZoneInfoNotFoundError, OverflowError):
         raise ValueError("Unsupported aggregate timezone or period") from None
+    local_day = now.astimezone(zone).date()
+    provisional = (
+        environment == "uat"
+        and request.period.timezone == "UTC"
+        and start == end == local_day
+        and binding.get("provisionalUtcDay") == end.isoformat()
+    )
     if (
         start > end
         or (end - start).days >= 7
         or start.isoformat() < binding["coverageFrom"]
-        or end >= now.astimezone(zone).date()
+        or (end >= local_day and not provisional)
         or first < now - timedelta(days=7)
         or any(
             getattr(request, key) != binding[key]
@@ -122,7 +137,7 @@ def period_bounds(request: AdoptionRequest, binding: dict, now: datetime):
         raise ValueError("Unsupported aggregate period or generation")
     # Existing effect adapters use inclusive bounds. Preserve the half-open day
     # contract at the boundary, including 23/25-hour source days.
-    return first, exclusive - timedelta(microseconds=1)
+    return first, now if provisional else exclusive - timedelta(microseconds=1)
 
 
 # Overinclusive candidates are safe: proof/eligibility is applied before counts.
@@ -240,7 +255,8 @@ async def adoption_aggregate(
     if environment == "uat":
         metrics_uat_authority.runtime_authority(binding)
     now = now or datetime.now(timezone.utc)
-    since, through = period_bounds(request, binding, now)
+    since, through = period_bounds(request, binding, now, environment=environment)
+    provisional = through == now
     auth_app = _identity_authority(environment) if environment == "uat" else _identity_authority()
     policy = (
         metrics_uat_authority.policy() if environment == "uat" else plg_reporting.reporting_policy()
@@ -284,6 +300,12 @@ async def adoption_aggregate(
             await data.execute("SET LOCAL statement_timeout='5s'")
             await _assert_global_read(data)
             watermark = await data.fetchval("SELECT transaction_timestamp()", timeout=5)
+            if provisional and (
+                not isinstance(watermark, datetime)
+                or watermark.tzinfo is None
+                or watermark < through
+            ):
+                raise AggregateUnavailable("Metrics snapshot precedes provisional cutoff")
             if await _candidates(data, since, through) != ids:
                 raise AggregateUnavailable("Metrics population changed")
             replies = (
@@ -342,25 +364,27 @@ async def adoption_aggregate(
         checked = datetime.now(timezone.utc)
         if not isinstance(watermark, datetime) or watermark.tzinfo is None or watermark > checked:
             raise AggregateUnavailable("Invalid source watermark")
-        # These are exact counts of retained positive records, not proof of full
-        # emitter/history coverage. Missing observations never establish inactivity.
+        # Same-day counts cover the admitted cutoff. Later writes belong to a
+        # subsequent publication, even if they were committed during the read.
+        coverage = "provisional" if provisional else "partial"
+        source_through = through if provisional else watermark
         return {
             "metrics": {
                 "activeAccounts": {
                     "value": len(users),
-                    "coverage": "partial",
+                    "coverage": coverage,
                     "unit": "account",
                     "basis": "exact",
                 },
                 "confirmedOutcomes": {
                     "value": outcomes,
-                    "coverage": "partial",
+                    "coverage": coverage,
                     "unit": "outcome",
                     "basis": "exact",
                 },
             },
             "sourceCheckedAt": int(checked.timestamp() * 1000),
-            "sourceWatermark": int(watermark.timestamp() * 1000),
+            "sourceWatermark": int(source_through.timestamp() * 1000),
             "sourceGeneration": request.sourceGeneration,
             "scopeDigest": request.scopeDigest,
             "definitionVersion": request.definitionVersion,
