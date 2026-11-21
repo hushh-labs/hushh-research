@@ -234,10 +234,10 @@ function AppShellFrame({ children }: ProvidersProps) {
   // top shell route context. Setup pages own their bottom completion actions.
   const bottomChromeHidden =
     hidesPersistentChrome ||
-    isPublicEditorialOrLegalRoute(pathname) ||
     routeLayout.route === ROUTES.ONE_SETUP ||
     routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||
     focusedLocationBottomTask ||
+    isPublicEditorialOrLegalRoute(pathname) ||
     focusedConnectCircleChromeFlow;
   const effectiveHideCommandBar =
     chromeState.hideCommandBar ||

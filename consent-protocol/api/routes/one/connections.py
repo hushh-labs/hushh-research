@@ -148,7 +148,7 @@ def connections_directory(
             audience=audience,
             name_only=name_only,
             typed_search=typed_search,
-            exclude_connected=exclude_connected,
+            **({"exclude_connected": True} if exclude_connected else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

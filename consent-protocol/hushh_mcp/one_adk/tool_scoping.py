@@ -465,7 +465,7 @@ def scope_leaf_tools_before_model(callback_context: Any, llm_request: Any) -> No
     state = getattr(callback_context, "state", None)
     screen_hint = ""
     state_packs: set[str] = set()
-    if hasattr(state, "get"):
+    if state is not None and hasattr(state, "get"):
         vc = state.get("hussh:voice_context")
         if isinstance(vc, dict):
             screen_hint = str(vc.get("screen") or "").lower()

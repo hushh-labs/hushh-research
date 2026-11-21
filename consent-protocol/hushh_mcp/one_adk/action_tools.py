@@ -3137,6 +3137,7 @@ async def list_my_outgoing_information_requests(tool_context: ToolContext) -> di
     information = await _list_outgoing_information_requests_only(tool_context, user_id=user_id)
     from hushh_mcp.runtime_settings import pod_mode
 
+    drive: dict[str, Any]
     if pod_mode():
         drive = {"items": [], "hasMore": False}
     else:
