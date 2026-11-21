@@ -410,7 +410,7 @@ export function PrivatePlaidConnectorGroup({
                 <Button
                   type="button"
                   variant="outline"
-                  size="compact"
+                  size="row"
                   disabled={!access || busy || loading}
                   onClick={() => void refreshLive()}
                 >
@@ -420,7 +420,7 @@ export function PrivatePlaidConnectorGroup({
               <Button
                 type="button"
                 variant="outline"
-                size="compact"
+                size="row"
                 disabled={!access || busy || loading || Boolean(error)}
                 onClick={() => void connect()}
               >

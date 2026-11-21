@@ -56,6 +56,7 @@ from .migration_and_maintenance import (
     WikiOwnerMigrator,
     normalize_statement_fingerprint,
     parse_v1_markdown_sections,
+    resolve_owner_protected_grant_scopes,
 )
 from .projections import (
     WIKI_CLAIM_PROJECTION_MAX_ITEM_CHARS,
@@ -123,6 +124,7 @@ __all__ = [
     "parse_v1_markdown_sections",
     "render_wiki_markdown",
     "replace_markdown_section",
+    "resolve_owner_protected_grant_scopes",
     "resolve_top_level_projection_state",
     "strip_secret_spans",
     "validate_batch_id",

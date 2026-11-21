@@ -148,6 +148,21 @@ function isOwnerPodRoute(route: string): boolean {
   return OWNER_POD_ROUTE_PATTERNS.some((pattern) => pattern.test(route));
 }
 
+function isStalePinnedEndpointAdmissionError(error: unknown): boolean {
+  const code =
+    typeof (error as { code?: unknown })?.code === "string"
+      ? String((error as { code: string }).code)
+      : error instanceof Error
+        ? error.message
+        : "";
+  return (
+    code === "BINDING_POD_KEY_MISMATCH" ||
+    code === "BINDING_OWNER_OR_ENDPOINT_MISMATCH" ||
+    code.startsWith("POD_CHALLENGE_REFUSED:") ||
+    code.startsWith("POD_ADMISSION_REFUSED:")
+  );
+}
+
 export async function ownerPodRequest(
   path: string,
   init: RequestInit,
@@ -181,15 +196,37 @@ export async function ownerPodRequest(
     route === "agent-chat" && init.method?.toUpperCase() === "POST";
   // Admission is shared, so a cancelled caller stops waiting without cancelling it.
   const connect = async () => {
-    if (!(await ownerPod.loadPinnedEndpoint(uid)))
+    const pinned = await ownerPod.loadPinnedEndpoint(uid);
+    if (!pinned) {
       await untilCancelled(
         ownerPod.refreshEndpointFromHub(uid, transport),
         init.signal,
       );
-    return untilCancelled(
-      ownerPod.currentPodConnection(uid, transport),
-      init.signal,
-    );
+      return untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    }
+    try {
+      return await untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    } catch (error) {
+      if (!isStalePinnedEndpointAdmissionError(error)) throw error;
+      prewarmedChatGrants = null;
+      const refreshed = await untilCancelled(
+        ownerPod.refreshEndpointFromHub(uid, transport),
+        init.signal,
+      );
+      if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+        throw error;
+      }
+      return untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    }
   };
   // A chat turn's admission happens before the turn is handed over: a network
   // failure there (an agent still waking) proves nothing was sent.
@@ -340,7 +377,7 @@ export async function ownerPodRequest(
   ) {
     throw new Error("POD_VAULT_SESSION_CHANGED");
   }
-  const response = chatTurn
+  let response = chatTurn
     ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt, session, () => {
         refuseCancelled();
         refuseRetiredOwner(ports.isCurrent);
@@ -348,6 +385,31 @@ export async function ownerPodRequest(
           throw new Error("POD_OWNER_CHANGED");
       })
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
+  if (!chatTurn && method === "GET" && (response.status === 404 || response.status === 401)) {
+    const refreshed = await untilCancelled(
+      ownerPod.refreshEndpointFromHub(uid, transport),
+      init.signal,
+    ).catch(() => null);
+    if (
+      refreshed &&
+      refreshed.hushhId === endpoint.hushhId &&
+      refreshed.endpointVersion > endpoint.endpointVersion &&
+      podOwnerIsCurrent(admittedOwner) &&
+      isVaultSessionEpochCurrent(vaultEpoch)
+    ) {
+      prewarmedChatGrants = null;
+      const next = await untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+      ({ endpoint, session, directVerifiedAt } = next);
+      headers.set("Authorization", `Bearer ${session.session}`);
+      response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
+        ...request,
+        headers,
+      });
+    }
+  }
   if (!isAgentStillWaking(response))
     markAgentAnswered(endpoint.url);
   if (!podOwnerIsCurrent(admittedOwner))
@@ -639,10 +701,21 @@ export async function prewarmOwnerPodChatAccess(ports: {
       }
       const ownerPod = await import("./owner-pod-endpoint");
       const transport = await ports.transport();
-      if (!(await ownerPod.loadPinnedEndpoint(uid))) {
+      const pinned = await ownerPod.loadPinnedEndpoint(uid);
+      if (!pinned) {
         await ownerPod.refreshEndpointFromHub(uid, transport);
       }
-      const connection = await ownerPod.currentPodConnection(uid, transport);
+      let connection: PodConnection;
+      try {
+        connection = await ownerPod.currentPodConnection(uid, transport);
+      } catch (error) {
+        if (!pinned || !isStalePinnedEndpointAdmissionError(error)) throw error;
+        const refreshed = await ownerPod.refreshEndpointFromHub(uid, transport);
+        if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+          throw error;
+        }
+        connection = await ownerPod.currentPodConnection(uid, transport);
+      }
       if (!podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
         return;
       }
@@ -669,7 +742,11 @@ export async function prewarmOwnerPodChatAccess(ports: {
                   };
                 }
               })
-              .catch(() => undefined),
+              .catch(async (error: unknown) => {
+                if (error instanceof EndpointAdvancedError && podOwnerIsCurrent(admittedOwner)) {
+                  await ownerPod.refreshEndpointFromHub(uid, transport).catch(() => undefined);
+                }
+              }),
         ports
           .fetch(`${connection.endpoint.url}/health`, {
             method: "GET",

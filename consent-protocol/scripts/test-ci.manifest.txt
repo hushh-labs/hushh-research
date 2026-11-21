@@ -1759,3 +1759,4 @@ tests/services/test_workspace_cas_sync_store.py
 tests/services/test_agent_sandbox_process_and_adk_terminal.py
 tests/services/test_agent_sandbox_phase2_routing_and_proxy.py
 tests/services/test_agent_sandbox_phase3_edge_and_puppy.py
+tests/test_personal_sandbox_harness_parity.py

@@ -871,7 +871,7 @@ function EmailDraftCardView({
       <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/[0.16] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <Button
           type="button"
-          variant="ghost"
+          variant="subdued"
           size="standard"
           className="justify-center sm:justify-start"
           onClick={onDismiss}

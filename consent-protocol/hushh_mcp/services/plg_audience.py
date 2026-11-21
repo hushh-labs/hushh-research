@@ -481,25 +481,15 @@ async def audience_page(
     if uat and (not uat_audience_secret() or secret != uat_audience_secret()):
         raise ValueError("UAT audience unavailable")
     policy = None if uat else reporting_policy()
-    firebase_project = "hushh-pda"
-    cursor_project = firebase_project
-    if uat:
-        app = await asyncio.wait_for(asyncio.to_thread(get_firebase_auth_app), timeout=6)
-        if app is None or app.project_id not in ("hushh-pda", "hushh-pda-uat"):
-            raise RuntimeError("audience identity source unavailable")
-        firebase_project = app.project_id
-        # Keep shared-registry cursors compatible, but bind isolated UAT cursors
-        # to their registry so neither lane can resume the other's traversal.
-        cursor_project = "hushh-pda-uat"
-        if firebase_project == "hushh-pda-uat":
-            cursor_project = "hushh-pda-uat:hushh-pda-uat"
-    page, at = _cursor(request, secret, now, cursor_project)
+    project = "hushh-pda-uat" if uat else "hushh-pda"
+    page, at = _cursor(request, secret, now, project)
+    # One shares the hushh-pda sign-in authority across environments. Only the
+    # identity lookup is shared; the runtime DB, signed cursor and catalog stay
+    # bound to the admitted application environment.
     source = (
-        await plg_audience_index.source_page(request, page, at, PAGE_SIZE, project=firebase_project)
+        await plg_audience_index.source_page(request, page, at, PAGE_SIZE)
         if request.segment in plg_audience_index.SEGMENTS
-        else await asyncio.wait_for(
-            asyncio.to_thread(_firebase_page, page, firebase_project), timeout=6
-        )
+        else await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
     )
     records = list(source.users)
     scanned = getattr(source, "scanned", len(records))
@@ -537,6 +527,6 @@ async def audience_page(
         "scanned": scanned,
         "excluded": excluded,
         "rows": result,
-        "nextCursor": _next_cursor(source.next_page_token, request, secret, at, cursor_project),
+        "nextCursor": _next_cursor(source.next_page_token, request, secret, at, project),
         "campaignEnrollmentChanged": False,
     }

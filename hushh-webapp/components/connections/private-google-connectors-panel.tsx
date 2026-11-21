@@ -116,9 +116,9 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
       {entries.map(({ connector, status, connected, allowChanges }) => {
         return <SettingsRow key={connector} leading={<ConnectorVectorGlyph id={connector} variant="profile" />} title={LABELS[connector]}
         description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
-        trailing={<div className="flex gap-2">
-          {allowChanges && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
-          <Button variant="outline" disabled={!enabled || busy !== null}
+        trailing={<div className="flex items-center gap-2">
+          {allowChanges && <Button variant="outline" size="row" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
+          <Button variant="outline" size="row" disabled={!enabled || busy !== null}
           onClick={() => void run(connector, connected)}>
           {busy === connector ? 'Working…' : connected ? 'Disconnect' : 'Connect'}
         </Button></div>} />; })}

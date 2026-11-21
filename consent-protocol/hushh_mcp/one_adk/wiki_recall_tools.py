@@ -24,6 +24,7 @@ import re
 import time
 from typing import Any
 
+from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from hushh_mcp.one_adk.request_secrets import (
@@ -419,7 +420,10 @@ def wiki_recall_instruction(
             "call `search_wiki`, then `read_wiki_page` for the settled page, and `trace_claim` when "
             'verifying provenance or contradictions; do not guess. Never treat `status="stale"` '
             '(retracted or forgotten) claims as current truth, and when `status="conflicted"` '
-            "surface the disagreement plainly without guessing."
+            "surface the disagreement plainly without guessing. "
+            "When the owner explicitly asks to save, remember, or add information to their "
+            "Personal Wiki or memory, call `add_to_pkm` once and never say you cannot update "
+            "their Personal Wiki."
         )
     else:
         parts.append(
@@ -815,6 +819,46 @@ async def trace_claim(
     return await _run_fenced_pod_wiki_recall("trace_claim", payload)
 
 
+async def optimize_personal_memory(tool_context: ToolContext) -> dict[str, Any]:
+    """Consolidate and optimize the owner's personal knowledge base and wiki.
+
+    Deduplicates redundant facts, retires expired noise, repairs broken links and missing
+    summaries, refreshes the hot digest, and strictly preserves every active or paid
+    shared scope without guessing on active contradictions.
+    """
+    from hushh_mcp.services.pod_files.library import FilesRefused
+    from hushh_mcp.services.pod_files.runtime import require_files_access, wiki_operation
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmissionRefused
+    from hushh_mcp.services.wiki_memory import (
+        WikiMaintenanceRunner,
+        resolve_owner_protected_grant_scopes,
+    )
+
+    state = getattr(tool_context, "state", None)
+    owner_uid = str(state.get("hussh:user_id") or "") if state is not None else ""
+    if not owner_uid:
+        return _envelope("unavailable", code="vault_required")
+
+    idem_seed = f"chat_opt:{owner_uid}:{int(time.time())}"
+    idem = f"opt_{hashlib.sha256(idem_seed.encode('utf-8')).hexdigest()[:24]}"
+    try:
+        protected_scopes = await resolve_owner_protected_grant_scopes(owner_uid)
+        await require_files_access(manage=True)
+        async with wiki_operation(mutation=True) as wiki:
+            summary = await WikiMaintenanceRunner(wiki).optimize_knowledge_base(
+                idempotency_key=idem,
+                protected_scopes=protected_scopes,
+            )
+            await require_files_access(manage=True)
+            return _envelope("ok", **summary)
+    except PodUpgradeAdmissionRefused:
+        return _envelope("unavailable", code="upgrade_in_progress")
+    except FilesRefused as exc:
+        return _envelope("unavailable", code=exc.code)
+    except WikiRefused as exc:
+        return _envelope("unavailable", code=exc.code)
+
+
 def pod_wiki_recall_tools() -> list[Any]:
-    """Return closed ADK Personal Wiki recall tools for One's Pod root agent."""
-    return [search_wiki, read_wiki_page, trace_claim]
+    """Return closed ADK Personal Wiki recall and optimization tools for One's Pod root agent."""
+    return [search_wiki, read_wiki_page, trace_claim, optimize_personal_memory]

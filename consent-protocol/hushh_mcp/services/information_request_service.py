@@ -1112,13 +1112,31 @@ class InformationRequestService:
         now_ms = int(time.time() * 1000)
         granted: list[dict[str, Any]] = []
         people: dict[str, tuple[str, str]] = {}
+        statuses_by_subject: dict[str, dict[str, dict[str, Any]]] = {}
+        batch_statuses_fn = (
+            getattr(self._consent, "get_request_statuses", None)
+            if self._connection is None
+            else None
+        )
+        if callable(batch_statuses_fn) and rows:
+            req_ids_by_subject: dict[str, list[str]] = {}
+            for row in rows:
+                subj = str(row["subject_user_id"])
+                req_ids_by_subject.setdefault(subj, []).append(str(row["request_id"]))
+            for subj, req_ids in req_ids_by_subject.items():
+                statuses_by_subject[subj] = await batch_statuses_fn(subj, req_ids)
         for row in rows:
             subject_user_id = str(row["subject_user_id"])
             people.setdefault(
                 subject_user_id,
                 (str(row.get("public_person_ref") or ""), str(row.get("display_name") or "")),
             )
-            status = await self._request_status(subject_user_id, str(row["request_id"]))
+            req_id = str(row["request_id"])
+            status = (
+                statuses_by_subject.get(subject_user_id, {}).get(req_id)
+                if subject_user_id in statuses_by_subject
+                else await self._request_status(subject_user_id, req_id)
+            )
             if not _active_grant(status, now_ms):
                 continue
             granted.append(

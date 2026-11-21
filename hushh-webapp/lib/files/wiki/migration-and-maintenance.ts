@@ -61,6 +61,54 @@ interface StoredTombstoneFingerprints extends Record<string, unknown> {
 
 const HEADING_LINE_RE = /^(#{1,6})\s+(.+?)\s*$/;
 const BULLET_LINE_RE = /^\s*[-*]\s+(.+?)\s*$/;
+
+const DOMAIN_FOLDER_KEYWORDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ["commerce", ["stripe", "commerce", "merchant", "mrr", "saas", "payout", "subscription", "billing"]],
+  ["financial", ["financ", "bank", "account", "treasury", "cashflow", "liabilit", "tax", "invest", "portfolio", "wealth", "budget", "brokerage", "schwab", "plaid", "credit"]],
+  ["professional", ["profession", "career", "work", "company", "role", "advis", "enterprise", "business", "entity", "org"]],
+  ["health", ["health", "medical", "fitness", "wellness", "dining", "diet", "food", "nutrition", "sleep"]],
+  ["travel", ["travel", "flight", "airline", "hotel", "mobility", "trip", "airport", "transit"]],
+  ["identity", ["identity", "profile", "contact", "family", "personal", "address", "preference"]],
+  ["projects", ["project", "goal", "roadmap", "task", "milestone", "initiative", "plan"]],
+  ["imports", ["import", "archive", "chatgpt", "claude"]],
+];
+
+export function inferWikiDomainFolder(title: string, tldr = ""): string {
+  const haystack = `${title} ${tldr}`.trim().toLowerCase();
+  for (const [folder, keywords] of DOMAIN_FOLDER_KEYWORDS) {
+    if (keywords.some((kw) => haystack.includes(kw))) {
+      return folder;
+    }
+  }
+  return "notes";
+}
+
+export function resolveWikiPageFolder(page: {
+  pageId?: string;
+  title: string;
+  folder?: string | null;
+  tldr?: string | null;
+}): string {
+  const raw = (page.folder ?? "").trim().replace(/^\/+|\/+$/g, "");
+  if (raw && raw !== "root" && raw !== "topics") {
+    return raw;
+  }
+  if (page.pageId === DEFAULT_WORKING_PAGE_ID) {
+    return "working";
+  }
+  return inferWikiDomainFolder(page.title, page.tldr ?? "");
+}
+
+export function wikiPageSlugFilename(title: string, fallbackId = "note"): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 56)
+    .replace(/-+$/g, "");
+  return `${slug || fallbackId.replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "note"}.md`;
+}
 const NEGATION_WORDS = new Set([
   "not",
   "never",
@@ -429,12 +477,17 @@ export class SharedWikiOwnerMigrator {
           ? existingPage.tldr
           : activeStmts[0]?.slice(0, 240) ?? "";
 
+      const inferredFolder =
+        pageId === DEFAULT_WORKING_PAGE_ID
+          ? "root"
+          : inferWikiDomainFolder(sec.title, tldr);
+
       if (!existingPage) {
         await this.library.createPage(
           {
             page_id: pageId,
             title: sec.title,
-            folder: pageId === DEFAULT_WORKING_PAGE_ID ? "root" : "topics",
+            folder: inferredFolder,
             tldr,
             status_as_of: today,
             body,
@@ -446,12 +499,19 @@ export class SharedWikiOwnerMigrator {
           signal,
         );
       } else {
+        const existingFolder = existingPage.folder || "root";
+        const upgradedFolder =
+          pageId !== DEFAULT_WORKING_PAGE_ID &&
+          (existingFolder === "topics" || existingFolder === "root")
+            ? inferredFolder
+            : existingFolder;
         await this.library.editPage(
           pageId,
           {
             expected_revision: existingPage.revision,
             idempotency_key:
               `${idem}:edit:${pageId}:${existingPage.revision}`.slice(0, 120),
+            folder: upgradedFolder,
             tldr,
             status_as_of: today,
             body,

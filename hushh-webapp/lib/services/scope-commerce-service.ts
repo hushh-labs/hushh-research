@@ -11,6 +11,24 @@ export type ScopeTariff = {
   scope_handle: string; machine_scope: string; price_cents: number;
   base_duration_seconds: number; tariff_revision: number;
 };
+export type OwnerTariffCatalogSnapshot = {
+  tariffsByKey: Record<string, ScopeTariff>;
+  readiness: CommerceReadiness;
+  fetchedAt: number;
+};
+
+const TARIFF_CATALOG_TTL_MS = 120_000;
+const ownerTariffCatalogCache = new Map<string, OwnerTariffCatalogSnapshot>();
+const ownerTariffCatalogInflight = new Map<string, Promise<OwnerTariffCatalogSnapshot>>();
+const ownerTariffCatalogListeners = new Set<() => void>();
+
+function tariffLookupKey(scopeHandle: string, machineScope: string): string {
+  return `${scopeHandle}::${machineScope}`;
+}
+
+function notifyOwnerTariffCatalog(): void {
+  for (const fn of ownerTariffCatalogListeners) fn();
+}
 export type ScopeQuote = {
   id: string; request_id: string; scope_handle: string; machine_scope: string;
   amount_cents: number; base_price_cents: number; base_duration_seconds: number;
@@ -202,11 +220,95 @@ export const ScopeCommerceService = {
     return status.verified;
   },
   async readiness(token: string) { return parseCommerceReadiness(await request(token, "readiness")); },
-  async account(token: string) { return parseCommerceAccount(await request(token, "account")); },
+  async account(token: string, options?: { reconcile?: boolean }) {
+    return parseCommerceAccount(await request(token, options?.reconcile ? "account?reconcile=true" : "account"));
+  },
   async managePayoutAccount(token: string): Promise<string> {
     const result = await request(token, "payouts/manage", {});
     if (typeof result.url !== "string") throw new Error("Payout settings could not be verified.");
     return validateCommerceHostedUrl(result.url, "management");
+  },
+  peekOwnerTariffCatalog(ownerId: string | undefined): OwnerTariffCatalogSnapshot | null {
+    if (!ownerId) return null;
+    return ownerTariffCatalogCache.get(ownerId) ?? null;
+  },
+  peekOwnerTariff(ownerId: string | undefined, handle: string, machineScope: string): { tariff: ScopeTariff | null; readiness: CommerceReadiness } | null {
+    const snap = this.peekOwnerTariffCatalog(ownerId);
+    if (!snap) return null;
+    return {
+      tariff: snap.tariffsByKey[tariffLookupKey(handle, machineScope)] ?? null,
+      readiness: snap.readiness,
+    };
+  },
+  subscribeOwnerTariffCatalog(listener: () => void): () => void {
+    ownerTariffCatalogListeners.add(listener);
+    return () => ownerTariffCatalogListeners.delete(listener);
+  },
+  invalidateOwnerTariffCatalog(ownerId?: string): void {
+    if (!ownerId) {
+      ownerTariffCatalogCache.clear();
+      ownerTariffCatalogInflight.clear();
+    } else {
+      ownerTariffCatalogCache.delete(ownerId);
+      ownerTariffCatalogInflight.delete(ownerId);
+    }
+    notifyOwnerTariffCatalog();
+  },
+  async tariffCatalog(token: string, ownerId: string, options?: { force?: boolean }): Promise<OwnerTariffCatalogSnapshot> {
+    const existing = ownerTariffCatalogCache.get(ownerId);
+    if (!options?.force && existing && Date.now() - existing.fetchedAt < TARIFF_CATALOG_TTL_MS) {
+      return existing;
+    }
+    const inflight = ownerTariffCatalogInflight.get(ownerId);
+    if (!options?.force && inflight) return inflight;
+    const job = (async () => {
+      const raw = await request(token, "tariffs");
+      const list = Array.isArray(raw.tariffs) ? raw.tariffs : [];
+      const tariffsByKey: Record<string, ScopeTariff> = {};
+      for (const entry of list) {
+        const item = record(entry);
+        if (typeof item.scope_handle === "string" && typeof item.machine_scope === "string" &&
+            Number.isSafeInteger(item.base_duration_seconds) && Number(item.base_duration_seconds) > 0) {
+          cents(item.price_cents, 100_000);
+          tariffsByKey[tariffLookupKey(item.scope_handle, item.machine_scope)] = item as unknown as ScopeTariff;
+        }
+      }
+      const readiness = raw.readiness !== undefined
+        ? parseCommerceReadiness(raw.readiness)
+        : await this.readiness(token);
+      const snapshot: OwnerTariffCatalogSnapshot = {
+        tariffsByKey,
+        readiness,
+        fetchedAt: Date.now(),
+      };
+      ownerTariffCatalogCache.set(ownerId, snapshot);
+      notifyOwnerTariffCatalog();
+      return snapshot;
+    })().finally(() => {
+      ownerTariffCatalogInflight.delete(ownerId);
+    });
+    ownerTariffCatalogInflight.set(ownerId, job);
+    return job;
+  },
+  writeThroughOwnerTariff(ownerId: string | undefined, tariff: Omit<ScopeTariff, "tariff_revision"> & { tariff_revision?: number }): void {
+    if (!ownerId) return;
+    const existing = ownerTariffCatalogCache.get(ownerId);
+    if (!existing) return;
+    const key = tariffLookupKey(tariff.scope_handle, tariff.machine_scope);
+    const prevRev = existing.tariffsByKey[key]?.tariff_revision ?? 0;
+    const nextSnapshot: OwnerTariffCatalogSnapshot = {
+      ...existing,
+      fetchedAt: Date.now(),
+      tariffsByKey: {
+        ...existing.tariffsByKey,
+        [key]: {
+          ...tariff,
+          tariff_revision: tariff.tariff_revision ?? prevRev + 1,
+        },
+      },
+    };
+    ownerTariffCatalogCache.set(ownerId, nextSnapshot);
+    notifyOwnerTariffCatalog();
   },
   async tariff(token: string, handle: string, machineScope: string): Promise<ScopeTariff | null> {
     const query = new URLSearchParams({ scope_handle: handle, machine_scope: machineScope });
@@ -218,8 +320,15 @@ export const ScopeCommerceService = {
     cents(tariff.price_cents, 100_000);
     return tariff as unknown as ScopeTariff;
   },
-  async saveTariff(token: string, tariff: Omit<ScopeTariff, "tariff_revision">, key: string) {
-    return request(token, "tariffs", { ...tariff, idempotency_key: key });
+  async saveTariff(token: string, tariff: Omit<ScopeTariff, "tariff_revision">, key: string, ownerId?: string) {
+    const saved = await request(token, "tariffs", { ...tariff, idempotency_key: key });
+    if (ownerId) {
+      this.writeThroughOwnerTariff(ownerId, {
+        ...tariff,
+        ...(typeof saved.tariff_revision === "number" ? { tariff_revision: saved.tariff_revision } : {}),
+      });
+    }
+    return saved;
   },
   async scopeRequest(token: string, id: string): Promise<ScopeCommerceRequest> {
     const result = await request(token, `requests/${identity(id)}`);

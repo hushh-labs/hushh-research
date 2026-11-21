@@ -50,8 +50,10 @@ export type ConsentScopeNestedListProps = {
   /** Selection is owned by the caller, so the request payload stays its business. */
   selection?: {
     selectedIds: ReadonlySet<string>;
-    /** Scopes that are already active/granted; rendered preselected, locked, and badged. */
+    /** Scopes that are already active/granted; rendered unchecked, locked, and badged. */
     grantedIds?: ReadonlySet<string>;
+    /** Scopes that already have an unanswered pending request; rendered unchecked, locked, and badged. */
+    pendingIds?: ReadonlySet<string>;
     /** Called with a whole branch at once, so a group row can be taken in one tap. */
     onToggleMany: (ids: readonly string[], select: boolean) => void;
   };
@@ -65,6 +67,8 @@ export type ConsentScopeNestedListProps = {
   className?: string;
   /** Optional domain decoration; selection and navigation remain owned here. */
   renderDomainLeading?: (domainKey: string) => React.ReactNode;
+  /** Optional leaf-item icon decoration overriding generic domain fallback. */
+  renderItemLeading?: (item: ConsentScopeItem) => React.ReactNode;
   searchPlaceholder?: string;
   showDomainFilter?: boolean;
   /** Keep overview rows quiet while retaining bulk selection inside the category. */
@@ -84,6 +88,7 @@ export function ConsentScopeNestedList({
   testIdPrefix = "consent-scope",
   className,
   renderDomainLeading,
+  renderItemLeading,
   searchPlaceholder = "Search",
   showDomainFilter = false,
   categorySelectionInDetail = false,
@@ -128,40 +133,52 @@ export function ConsentScopeNestedList({
   const branchIds = (segment: string) =>
     consentScopeItemsUnder(items, [...pathStack, segment]).map((item) => item.id);
 
-  const isSelected = (id: string) =>
-    Boolean(selection?.grantedIds?.has(id) || selection?.selectedIds.has(id));
+  const isIdLocked = (id: string) =>
+    Boolean(selection?.grantedIds?.has(id) || selection?.pendingIds?.has(id));
 
-  const allSelected = (ids: readonly string[]) =>
-    ids.length > 0 && ids.every((id) => isSelected(id));
+  const selectableIdsIn = (ids: readonly string[]) =>
+    ids.filter((id) => !isIdLocked(id));
+
+  const isSelected = (id: string) =>
+    !isIdLocked(id) && Boolean(selection?.selectedIds.has(id));
+
+  const allSelected = (ids: readonly string[]) => {
+    const selectable = selectableIdsIn(ids);
+    return selectable.length > 0 && selectable.every((id) => isSelected(id));
+  };
 
   const selectedCountIn = (ids: readonly string[]) =>
-    ids.filter((id) => isSelected(id)).length;
+    selectableIdsIn(ids).filter((id) => isSelected(id)).length;
   const currentBranchIds = consentScopeItemsUnder(items, pathStack).map((item) => item.id);
+  const currentBranchSelectableIds = selectableIdsIn(currentBranchIds);
 
   const renderLeafRow = (item: ConsentScopeItem, key: string, contextual = false) => {
     const isGranted = Boolean(selection?.grantedIds?.has(item.id));
-    const selected = isGranted || Boolean(selection?.selectedIds.has(item.id));
-    const disabled = item.disabled || isGranted;
+    const isPending = !isGranted && Boolean(selection?.pendingIds?.has(item.id));
+    const isLocked = isGranted || isPending;
+    const selected = !isLocked && Boolean(selection?.selectedIds.has(item.id));
+    const disabled = item.disabled || isLocked;
     const displayLabel = contextual
       ? formatContextualScopeLeafLabel(item, level.title, pathStack.length)
       : item.label;
-    // Selecting an authored wildcard marks its visible descendants. A later
-    // child removal can then retire the broad selection safely.
+    // Selecting an authored wildcard marks its visible unlocked descendants.
     const toggleIds = item.wildcard
-      ? consentScopeItemsUnder(items, [item.domainKey, ...item.pathSegments]).map((child) => child.id)
+      ? selectableIdsIn(
+          consentScopeItemsUnder(items, [item.domainKey, ...item.pathSegments]).map((child) => child.id),
+        )
       : [item.id];
     return (
       <SettingsRow
         key={key}
         title={displayLabel}
-        leading={renderDomainLeading?.(item.domainKey)}
+        leading={renderItemLeading ? renderItemLeading(item) : renderDomainLeading?.(item.domainKey)}
         density="compact"
         description={item.description || undefined}
         disabled={disabled}
         stackTrailingOnMobile={Boolean(renderTrailing)}
         chevron={Boolean(onOpenItem)}
         onClick={
-          isGranted
+          isLocked
             ? undefined
             : onOpenItem
               ? () => onOpenItem(item)
@@ -180,7 +197,14 @@ export function ConsentScopeNestedList({
                   className="rounded-full bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                   data-testid={`${testIdPrefix}-badge-granted-${item.id}`}
                 >
-                  Granted
+                  Shared
+                </span>
+              ) : isPending ? (
+                <span data-consent-role="row-title"
+                  className="rounded-full bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                  data-testid={`${testIdPrefix}-badge-pending-${item.id}`}
+                >
+                  Waiting
                 </span>
               ) : null}
               <input
@@ -191,7 +215,7 @@ export function ConsentScopeNestedList({
                 aria-label={item.label}
                 className={cn(
                   "h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]",
-                  isGranted && "cursor-not-allowed opacity-60",
+                  isLocked && "cursor-not-allowed opacity-50",
                 )}
                 data-testid={`${testIdPrefix}-toggle-${item.id}`}
               />
@@ -236,14 +260,14 @@ export function ConsentScopeNestedList({
           <h2 data-consent-role="task-title" className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
             {level.title}
           </h2>
-          {categorySelectionInDetail && pathStack.length === 1 && selection ? (
+          {categorySelectionInDetail && pathStack.length === 1 && selection && currentBranchSelectableIds.length > 0 ? (
             <label data-consent-role="form-label" className="inline-flex min-h-11 items-center gap-3 text-sm">
               <input type="checkbox" checked={allSelected(currentBranchIds)}
                 ref={(node) => { if (node) node.indeterminate = selectedCountIn(currentBranchIds) > 0 && !allSelected(currentBranchIds); }}
-                onChange={() => selection.onToggleMany(currentBranchIds, !allSelected(currentBranchIds))}
+                onChange={() => selection.onToggleMany(currentBranchSelectableIds, !allSelected(currentBranchIds))}
                 className="h-5 w-5 accent-[color:var(--app-accent)]"
                 data-testid={`${testIdPrefix}-group-toggle-${pathStack[0]}`} />
-              Select all in {level.title}
+              Select available in {level.title}
             </label>
           ) : null}
         </div>
@@ -305,9 +329,8 @@ export function ConsentScopeNestedList({
             const ids = branchIds(entry.segment);
             const everything = allSelected(ids);
             const chosen = selectedCountIn(ids);
-            const branchFullyGranted =
-              ids.length > 0 && ids.every((id) => selection?.grantedIds?.has(id));
-            const ungrantedIds = ids.filter((id) => !selection?.grantedIds?.has(id));
+            const ungrantedIds = selectableIdsIn(ids);
+            const branchFullyGranted = ids.length > 0 && ungrantedIds.length === 0;
 
             return (
               <SettingsRow

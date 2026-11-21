@@ -75,7 +75,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
+        "cache_sync": true,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": true,
@@ -7381,5 +7381,5 @@
       ]
     }
   ],
-  "content_sha256": "a53fd991f45b33feda0e3b5e389bbeaa801b2a94538ed367846e53f33ed209ef"
+  "content_sha256": "a59fb8190428494475622fde892d06b2ca6bb263457562a0164dd691826e755e"
 }

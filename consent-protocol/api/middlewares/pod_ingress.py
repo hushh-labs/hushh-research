@@ -96,6 +96,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/files/wiki/migrate",
         "/api/one/pod/files/wiki/rollback",
         "/api/one/pod/files/wiki/import",
+        "/api/one/pod/files/wiki/optimize",
         "/api/one/pod/files/workspaces/status",
         "/api/one/pod/files/workspaces/execute",
         "/api/one/pod/files/workspaces/control",

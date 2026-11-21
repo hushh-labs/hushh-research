@@ -44,7 +44,8 @@ function isTechnicalRequesterIdentity(value: string | null | undefined): boolean
   return false;
 }
 
-const STRUCTURAL_SCOPE_SEGMENT = /^_?(?:entities|items|\*)$/i;
+const STRUCTURAL_SCOPE_SEGMENT =
+  /^_?(?:entities|items|\*|as_of|updated_at|created_at|recorded_at|observed_at|captured_at|schema_version)$/i;
 
 export function humanizeConsentScope(scope: string | null | undefined): string {
   const normalized = String(scope || "").trim();

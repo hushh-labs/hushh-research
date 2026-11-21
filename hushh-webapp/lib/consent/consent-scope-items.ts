@@ -56,6 +56,7 @@ export type ConsentScopeItem = {
   wildcard?: boolean;
   /** The heading a person reads. Humanised once, here. */
   domainLabel: string;
+  iconName?: string | null;
   badge?: string | null;
   disabled?: boolean;
   /** Precomputed lowercase haystack, so filtering never rebuilds strings. */
@@ -156,6 +157,7 @@ export function scopeItemsFromRequestable(
       pathSegments: scope.pathSegments ?? (parsedScope.domain ? scopePathSegments(scope.scopeRef) : []),
       wildcard: scope.wildcard,
       domainLabel: domainLabelFor(domainKey),
+      iconName: scope.iconName ?? null,
       badge: sensitivityBadge(scope.sensitivity),
       searchText: haystack([scope.label, scope.description, domainKey]),
     };

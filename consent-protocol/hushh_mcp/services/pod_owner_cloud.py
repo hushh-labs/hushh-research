@@ -32,6 +32,22 @@ _AZURE_KEY_ENV = "HUSSH_POD_KEY_VAULT_KEY"
 _AWS_KEY_ENV = "HUSSH_POD_AWS_KMS_KEY_ARN"
 _HOSTED_AZURE_CELL_ENV = "HUSSH_POD_CELL_ID"
 _HOSTED_AZURE_SLOT_ENV = "HUSSH_POD_SLOT_ID"
+_POOLED_SANDBOX_PROFILE_ENV = "HUSSH_SANDBOX_PROFILE"
+_POOLED_SANDBOX_LEASE_ENV = "HUSSH_LEASE_ID"
+_POOLED_SANDBOX_PROFILE_V1 = "virgin_pool_v1"
+
+
+def hosted_ace_runtime() -> bool:
+    """True inside an activated Hussh Pooled Personal Sandbox (`virgin_pool_v1`)."""
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    if not pod_mode():
+        return False
+    return (
+        (os.environ.get(_POOLED_SANDBOX_PROFILE_ENV) or "").strip() == _POOLED_SANDBOX_PROFILE_V1
+        and bool((os.environ.get(_POOLED_SANDBOX_LEASE_ENV) or "").strip())
+        and bool((os.environ.get("HUSSH_ID") or "").strip())
+    )
 
 
 def hosted_azure_runtime() -> bool:
@@ -52,7 +68,7 @@ def owner_cloud_provider() -> Optional[str]:
 
     if not pod_mode():
         return None
-    if hosted_azure_runtime():
+    if hosted_azure_runtime() or hosted_ace_runtime():
         return None
     # Hosted private pods reuse KMS envelope custody. A key's presence describes
     # encryption, not who owns the cloud account. Explicit hosted or malformed
@@ -101,7 +117,12 @@ def private_pod_runtime() -> bool:
     """
     from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
 
-    return hosted_runtime_deployment() is not None or hosted_azure_runtime() or owner_cloud_agent()
+    return (
+        hosted_runtime_deployment() is not None
+        or hosted_azure_runtime()
+        or hosted_ace_runtime()
+        or owner_cloud_agent()
+    )
 
 
 def pod_owner_user_id() -> str:
@@ -127,6 +148,7 @@ def pod_owner_user_id() -> str:
 
 
 __all__ = [
+    "hosted_ace_runtime",
     "hosted_azure_runtime",
     "owner_cloud_agent",
     "owner_cloud_provider",

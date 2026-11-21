@@ -40,7 +40,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       asChild = false,
       isLoading = false,
       showRipple = true,
-      disableHoverRipple = false,
+      disableHoverRipple = true,
       children,
       disabled,
       ...props

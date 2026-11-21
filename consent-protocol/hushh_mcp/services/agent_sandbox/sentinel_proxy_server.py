@@ -390,21 +390,34 @@ class SentinelProxyRuntime:
     ) -> tuple[str, int]:
         ttl = max(60, min(7200, int(ttl_seconds)))
         expires_at_s = int(self._clock_s()) + ttl
-        token = f"hsur_{secrets.token_hex(24)}"
+        clean_lease = str(lease_id)
+        clean_owner = str(owner_id)
+        reused_token: str | None = None
         with self._lock:
-            self._model_surrogates[token] = ModelSurrogateGrant(
-                surrogate_token=token,
-                owner_id=str(owner_id),
-                lease_id=str(lease_id),
-                expires_at_s=expires_at_s,
-            )
+            for existing in self._model_surrogates.values():
+                if (
+                    not existing.revoked
+                    and existing.lease_id == clean_lease
+                    and existing.owner_id == clean_owner
+                ):
+                    existing.expires_at_s = max(existing.expires_at_s, expires_at_s)
+                    if reused_token is None:
+                        reused_token = existing.surrogate_token
+            if reused_token is None:
+                reused_token = f"hsur_{secrets.token_hex(24)}"
+                self._model_surrogates[reused_token] = ModelSurrogateGrant(
+                    surrogate_token=reused_token,
+                    owner_id=clean_owner,
+                    lease_id=clean_lease,
+                    expires_at_s=expires_at_s,
+                )
         self.audit_sink.append(
-            lease_id=str(lease_id),
-            owner_id=str(owner_id),
+            lease_id=clean_lease,
+            owner_id=clean_owner,
             event_type="MODEL_SURROGATE_ISSUED",
             payload={"ttl_seconds": ttl},
         )
-        return token, expires_at_s
+        return reused_token, expires_at_s
 
     def delete_lease(self, lease_id: str) -> None:
         clean_lease = str(lease_id).strip()

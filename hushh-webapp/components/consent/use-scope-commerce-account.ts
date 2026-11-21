@@ -64,8 +64,15 @@ export function useScopeCommerceAccount({
   active = true,
   suggestedCents,
 }: { active?: boolean; suggestedCents?: number | null } = {}) {
+  const reconcileNextRef = useRef(false);
+  const [postCheckoutPollUntil, setPostCheckoutPollUntil] = useState(0);
+  const preCheckoutBalanceRef = useRef<number | null>(null);
   const load = useCallback(async (token: string) => {
-    const account = await ScopeCommerceService.account(token);
+    const shouldReconcile = reconcileNextRef.current;
+    reconcileNextRef.current = false;
+    const account = shouldReconcile
+      ? await ScopeCommerceService.account(token, { reconcile: true })
+      : await ScopeCommerceService.account(token);
     const sandboxPromise = ScopeCommerceService.sandboxStatus
       ? ScopeCommerceService.sandboxStatus(token).catch(() => undefined)
       : ScopeCommerceService.sandboxVerified(token)
@@ -83,6 +90,7 @@ export function useScopeCommerceAccount({
     };
   }, []);
   const resource = useCommerceRead("account", load, (value: CommerceAccount) => Boolean(
+    postCheckoutPollUntil > Date.now() ||
     value.balance?.reserved_cents || value.balance?.frozen_cents || value.earnings?.pending_cents || value.earnings?.withdrawing_cents ||
     value.recent_withdrawals?.some(item => ["queued", "pending", "processing", "transferred", "unknown"].includes(item.status)),
   ), active);
@@ -121,15 +129,41 @@ export function useScopeCommerceAccount({
   };
   const hosted = useCommerceHostedFlow(resource, actions, async (token, purpose) => {
     if (purpose === "checkout") {
+      preCheckoutBalanceRef.current = account?.balance?.available_cents ?? 0;
       const cents = parseCommerceDollarInput(amount, 50);
       fundingKey.current ??= crypto.randomUUID();
       return ScopeCommerceService.checkout(token, cents, fundingKey.current);
     }
     return ScopeCommerceService.onboarding(token, account?.seller.country || country, crypto.randomUUID());
   }, async purpose => {
-    if (purpose === "checkout") fundingKey.current = null;
+    if (purpose === "checkout") {
+      fundingKey.current = null;
+      reconcileNextRef.current = true;
+      setPostCheckoutPollUntil(Date.now() + 25_000);
+    }
     await refresh();
   });
+  useEffect(() => {
+    if (postCheckoutPollUntil <= Date.now()) return;
+    if (
+      preCheckoutBalanceRef.current !== null &&
+      typeof account?.balance?.available_cents === "number" &&
+      account.balance.available_cents > preCheckoutBalanceRef.current
+    ) {
+      preCheckoutBalanceRef.current = null;
+      setPostCheckoutPollUntil(0);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (Date.now() >= postCheckoutPollUntil) {
+        setPostCheckoutPollUntil(0);
+        return;
+      }
+      reconcileNextRef.current = true;
+      void refresh();
+    }, 2_500);
+    return () => window.clearTimeout(timer);
+  }, [account?.balance?.available_cents, postCheckoutPollUntil, refresh]);
   const checkout = () => hosted.startHosted("checkout");
   const onboarding = () => hosted.startHosted("onboarding");
   const withdrawal = () => run(async (token, current) => {

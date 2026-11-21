@@ -187,6 +187,8 @@ def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
     if selected:
         runtime = get_app_runtime_settings()
         projects = {
+            "local": "hushh-pda-dev",
+            "development": "hushh-pda-dev",
             "dev": "hushh-pda-dev",
             "uat": "hushh-pda-uat",
             "production": "hushh-pda",

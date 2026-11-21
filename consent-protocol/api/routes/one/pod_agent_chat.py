@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from ag_ui.core import RunAgentInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from api.routes.external_connectors import (
@@ -24,6 +24,7 @@ from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text,
     _safe_agent_history_metadata,
+    _session_category_projection,
     _session_title,
     _submitted_source_id,
 )
@@ -309,6 +310,8 @@ async def conversations(
             {
                 "id": session.id,
                 "title": _session_title(session),
+                "category": category,
+                "category_source": category_source,
                 "status": "active",
                 "model": None,
                 "message_count": sum(1 for event in session.events if _event_text(event)),
@@ -317,6 +320,7 @@ async def conversations(
                 "last_message_at": session.last_update_time,
             }
             for session in sessions
+            for category, category_source in [_session_category_projection(session)]
         ],
     }
 
@@ -325,6 +329,7 @@ async def conversations(
 async def history(
     conversation_id: str,
     limit: int = Query(50, ge=1, le=100),
+    before: str | None = Query(default=None, max_length=160),
     owner: PodChatContext = Depends(context),
 ):
     pending_before_read = conversation_id in _ACTIVE_THREADS or turn_is_preparing(
@@ -356,6 +361,7 @@ async def history(
         session.events,
         conversation_id,
         limit,
+        before_id=before,
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
@@ -381,30 +387,53 @@ async def history(
 
 
 class Rename(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    category: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _require_mutation(self) -> Rename:
+        if self.title is None and "category" not in self.model_fields_set:
+            raise ValueError("Provide title or category.")
+        return self
 
 
 @router.patch("/conversations/{conversation_id}")
 async def rename(conversation_id: str, payload: Rename, owner: PodChatContext = Depends(context)):
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
+    update_category = "category" in payload.model_fields_set
     permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
     try:
-        session = await owner.sessions.set_title(
-            app_name=ONE_APP_NAME,
-            user_id=owner.owner,
-            session_id=conversation_id,
-            title=payload.title,
-        )
+        if update_category and hasattr(owner.sessions, "update_conversation_metadata"):
+            session = await owner.sessions.update_conversation_metadata(
+                app_name=ONE_APP_NAME,
+                user_id=owner.owner,
+                session_id=conversation_id,
+                title=payload.title,
+                category=payload.category,
+                update_category=True,
+            )
+        else:
+            session = await owner.sessions.set_title(
+                app_name=ONE_APP_NAME,
+                user_id=owner.owner,
+                session_id=conversation_id,
+                title=payload.title or "",
+            )
     finally:
         await permit.release()
     if session is None:
         raise HTTPException(404, detail="Conversation not found.")
+    category, category_source = _session_category_projection(session)
     return {
         "id": session.id,
         "title": _session_title(session),
+        "category": category,
+        "category_source": category_source,
         "status": "active",
         "message_count": len(session.events),
+        "updated_at": session.last_update_time,
+        "last_message_at": session.last_update_time,
     }
 
 

@@ -22,8 +22,10 @@ import type { InformationRequestSubmissionReceipt } from "@/components/agent/age
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import {
+  OneStreamEventCard,
   SpecialistConsentActionsCard,
   SpecialistPendingConsentRequestCard,
+  type OneStreamEventItem,
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
@@ -42,6 +44,7 @@ import {
   AgentActivityMark,
   type AgentActivityIcon,
 } from "@/components/agent/agent-turn-stream-panel";
+import { OneThinkingIndicator } from "@/components/agent/one-thinking-indicator";
 import type { ChatTimeSeparator } from "@/lib/agent/chat-time-separators";
 import { AgentMessageReactionBadge } from "../agent-message-reaction";
 import { QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
@@ -52,99 +55,157 @@ import type { GmailInformationRequestSourcePreview } from "@/lib/services/gmail-
 import {
   AGENT_STREAM_RENDER_FRAME_MS,
   getConsentActionsPayload,
+  getOneStreamEventPayload,
   getPendingConsentRequestPayload,
   type AgentMessage,
 } from "./agent-message-transforms";
 
+function advanceToNaturalWordBoundary(
+  target: string,
+  currentLen: number,
+  rawStep: number,
+): number {
+  const desiredEnd = Math.min(target.length, currentLen + rawStep);
+  if (desiredEnd >= target.length) return target.length;
+  // Prefer snapping forward up to 10 chars to include a trailing space/newline
+  // so whole words and markdown tokens appear coherently instead of mid-glyph jitter.
+  const lookaheadLimit = Math.min(target.length, desiredEnd + 10);
+  for (let i = desiredEnd; i < lookaheadLimit; i += 1) {
+    const ch = target.charCodeAt(i);
+    if (ch === 32 || ch === 10 || ch === 9) {
+      return i + 1;
+    }
+  }
+  return desiredEnd;
+}
+
 function useAnimatedAssistantText(targetText: string, active: boolean) {
   const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
+  const [tailSettling, setTailSettling] = useState(false);
   const displayedTextRef = useRef(displayedText);
   const targetTextRef = useRef(targetText);
+  const activeRef = useRef(active);
+  const frameRef = useRef(0);
+  const lastPaintAtRef = useRef(0);
 
   useEffect(() => {
+    const wasActive = activeRef.current;
+    activeRef.current = active;
     targetTextRef.current = targetText;
 
-    // Completed answers must remain readable when a background tab suspends frames.
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     if (!active) {
+      if (frameRef.current) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = 0;
+      }
+      lastPaintAtRef.current = 0;
+      const hadRemainingTail =
+        wasActive &&
+        !reducedMotion &&
+        displayedTextRef.current.length < targetText.length;
       displayedTextRef.current = targetText;
       setDisplayedText(targetText);
+      if (hadRemainingTail) {
+        setTailSettling(true);
+        const timer = window.setTimeout(() => setTailSettling(false), 160);
+        return () => window.clearTimeout(timer);
+      }
+      return undefined;
     }
+
+    if (reducedMotion || (typeof document !== "undefined" && document.visibilityState === "hidden")) {
+      displayedTextRef.current = targetText;
+      setDisplayedText(targetText);
+      return undefined;
+    }
+
+    // Start a single continuous rAF loop only if one is not already running;
+    // incoming SSE chunks update targetTextRef without cancelling active frames.
+    if (frameRef.current === 0 && displayedTextRef.current.length < targetText.length) {
+      const tick = (now: number) => {
+        if (!activeRef.current) {
+          frameRef.current = 0;
+          return;
+        }
+        const target = targetTextRef.current;
+        const current = displayedTextRef.current;
+
+        if (!target.startsWith(current)) {
+          displayedTextRef.current = target;
+          setDisplayedText(target);
+          frameRef.current = 0;
+          return;
+        }
+
+        if (current.length >= target.length) {
+          frameRef.current = 0;
+          lastPaintAtRef.current = 0;
+          return;
+        }
+
+        if (
+          lastPaintAtRef.current &&
+          now - lastPaintAtRef.current < AGENT_STREAM_RENDER_FRAME_MS
+        ) {
+          frameRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+
+        const elapsedMs = lastPaintAtRef.current
+          ? Math.min(48, Math.max(12, now - lastPaintAtRef.current))
+          : AGENT_STREAM_RENDER_FRAME_MS;
+        lastPaintAtRef.current = now;
+
+        const backlog = target.length - current.length;
+        // Continuous proportional velocity curve: smooth 60fps flow with zero cliff jumps.
+        const charsPerSecond = Math.min(3400, Math.max(460, 420 + backlog * 8.2));
+        const rawStep = Math.max(
+          1,
+          Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000)),
+        );
+        const nextEnd = advanceToNaturalWordBoundary(target, current.length, rawStep);
+        const nextText = target.slice(0, nextEnd);
+        displayedTextRef.current = nextText;
+        setDisplayedText(nextText);
+
+        if (nextText.length < targetTextRef.current.length) {
+          frameRef.current = window.requestAnimationFrame(tick);
+        } else {
+          frameRef.current = 0;
+        }
+      };
+
+      frameRef.current = window.requestAnimationFrame(tick);
+    }
+
+    return undefined;
   }, [active, targetText]);
 
   useEffect(() => {
-    if (!active) return;
-    let frame = 0;
-    let lastPaintAt = 0;
-
-    const tick = (now: number) => {
-      const target = targetTextRef.current;
-      const current = displayedTextRef.current;
-
-      if (!target.startsWith(current)) {
-        displayedTextRef.current = target;
-        setDisplayedText(target);
-        return;
-      }
-
-      if (current.length >= target.length) {
-        return;
-      }
-
-      if (lastPaintAt && now - lastPaintAt < AGENT_STREAM_RENDER_FRAME_MS) {
-        frame = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      const elapsedMs = lastPaintAt
-        ? Math.max(12, now - lastPaintAt)
-        : AGENT_STREAM_RENDER_FRAME_MS;
-      lastPaintAt = now;
-      const backlog = target.length - current.length;
-      const charsPerSecond = backlog > 900 ? 2600 : backlog > 260 ? 1500 : 620;
-      const step = Math.max(
-        1,
-        Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000)),
-      );
-      const nextText = target.slice(0, current.length + step);
-      displayedTextRef.current = nextText;
-      setDisplayedText(nextText);
-
-      if (nextText.length < target.length) {
-        frame = window.requestAnimationFrame(tick);
-      }
-    };
-
-    const target = targetTextRef.current;
-    const current = displayedTextRef.current;
-    if (
-      target &&
-      (!target.startsWith(current) || current.length < target.length)
-    ) {
-      frame = window.requestAnimationFrame(tick);
-    }
-
     return () => {
-      if (frame) {
-        window.cancelAnimationFrame(frame);
+      if (frameRef.current) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = 0;
       }
     };
-  }, [active, targetText]);
+  }, []);
 
   return {
     displayedText: active ? displayedText : targetText,
     isAnimating: active,
+    tailSettling,
   };
 }
 
 function AgentThinkingDots() {
   return (
-    <span
-      className="inline-flex items-center gap-1 py-1 text-muted-foreground"
-      aria-label="Agent is thinking"
-    >
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current motion-reduce:animate-none" />
+    <span role="status" aria-live="polite" aria-label="Agent is thinking">
+      <OneThinkingIndicator />
     </span>
   );
 }
@@ -287,6 +348,9 @@ export const AgentBubble = memo(function AgentBubble({
   onPendingConsentApprove,
   onPendingConsentDeny,
   onPendingConsentDetails,
+  onOneStreamAccept,
+  onOneStreamDecline,
+  onOneStreamOpen,
   rating = null,
   onRate,
   reported = false,
@@ -320,6 +384,9 @@ export const AgentBubble = memo(function AgentBubble({
     item: SpecialistPendingConsentRequestItem,
   ) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
+  onOneStreamAccept?: (item: OneStreamEventItem) => Promise<void> | void;
+  onOneStreamDecline?: (item: OneStreamEventItem) => Promise<void> | void;
+  onOneStreamOpen?: (item: OneStreamEventItem) => void;
   rating?: "up" | "down" | null;
   onRate?: (rating: "up" | "down" | null) => void;
   reported?: boolean;
@@ -394,11 +461,24 @@ export const AgentBubble = memo(function AgentBubble({
     onPendingConsentDeny &&
     onPendingConsentDetails,
   );
+  const oneStreamEventPayload = !isUser
+    ? getOneStreamEventPayload(message.specialistDirective ?? null)
+    : null;
+  const canRenderOneStreamEvent = Boolean(
+    oneStreamEventPayload &&
+    (onOneStreamAccept || onOneStreamDecline || onOneStreamOpen),
+  );
+  const isRedundantPendingConsentLead =
+    canRenderPendingConsentRequest &&
+    /is asking for access\.(?:\s*Review the request here in Agent One\.)?$/i.test(
+      assistantText.trim(),
+    );
+  const visibleAssistantText = isRedundantPendingConsentLead ? "" : assistantText;
   const showResponseActions =
     !isUser &&
     !message.ephemeral &&
     !isStreaming &&
-    assistantText.trim().length > 0;
+    visibleAssistantText.trim().length > 0;
   // Give the assistant turn the same rounded-card shape as the user bubble
   // (just in a neutral tone, not primary) so both sides of the conversation
   // read as one consistent rhythm. The stream panel and the consent-actions-
@@ -408,8 +488,12 @@ export const AgentBubble = memo(function AgentBubble({
     !isUser &&
     !shouldRenderStreamPanel &&
     !backgroundOnly &&
-    (assistantText.trim().length > 0 ||
-      !(canRenderConsentActions || canRenderPendingConsentRequest));
+    (visibleAssistantText.trim().length > 0 ||
+      !(
+        canRenderConsentActions ||
+        canRenderPendingConsentRequest ||
+        canRenderOneStreamEvent
+      ));
 
   const handleCopy = async () => {
     try {
@@ -519,6 +603,7 @@ export const AgentBubble = memo(function AgentBubble({
       data-message-role={message.role}
       data-message-id={message.id}
       data-message-status={message.status}
+      data-agent-settled-row={!isStreaming ? "true" : undefined}
       // The time is kept on the row for tooling; the transcript shows it in
       // the centered separator above each group instead of under every bubble.
       data-message-sent-at={message.sentAtMs ? new Date(message.sentAtMs).toISOString() : undefined}
@@ -582,6 +667,9 @@ export const AgentBubble = memo(function AgentBubble({
                 assistantText ? (
                   <div
                     data-agent-response-bubble
+                    data-agent-streaming-settle={
+                      isStreaming || animated.tailSettling ? "true" : undefined
+                    }
                     className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-full min-w-0 max-w-full break-words")}
                   >
                     <AgentMarkdown text={assistantText} />
@@ -592,11 +680,17 @@ export const AgentBubble = memo(function AgentBubble({
             />
           ) : assistantText ? (
             <>
-              <AgentMarkdown text={assistantText} />
+              <div
+                data-agent-streaming-settle={
+                  !isUser && (isStreaming || animated.tailSettling) ? "true" : undefined
+                }
+              >
+                <AgentMarkdown text={assistantText} />
+              </div>
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
           ) : backgroundOnly || canRenderConsentActions ||
-            canRenderPendingConsentRequest ? null : (
+            canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : (
             <AgentThinkingDots />
           )}
           {!isUser && isError && message.errorNotice ? (
@@ -650,7 +744,7 @@ export const AgentBubble = memo(function AgentBubble({
         </div>
         ) : null}
         {canRenderConsentActions && consentActionsPayload ? (
-          <div className="mt-4">
+          <div className={cn(showAssistantBubble && "mt-4")}>
             <SpecialistConsentActionsCard
               items={consentActionsPayload.items}
               busyItemId={busyConsentItemId}
@@ -664,7 +758,7 @@ export const AgentBubble = memo(function AgentBubble({
           </div>
         ) : null}
         {canRenderPendingConsentRequest && pendingConsentRequestPayload ? (
-          <div className="mt-4">
+          <div className={cn(showAssistantBubble && "mt-4")}>
             <SpecialistPendingConsentRequestCard
               item={pendingConsentRequestPayload.item}
               busy={busyConsentItemId === pendingConsentRequestPayload.item.id}
@@ -677,6 +771,29 @@ export const AgentBubble = memo(function AgentBubble({
               onDetails={(item) => {
                 onPendingConsentDetails?.(item);
               }}
+            />
+          </div>
+        ) : null}
+        {canRenderOneStreamEvent && oneStreamEventPayload ? (
+          <div className={cn(showAssistantBubble && "mt-4")}>
+            <OneStreamEventCard
+              item={oneStreamEventPayload.item}
+              busy={busyConsentItemId === oneStreamEventPayload.item.id}
+              onAccept={
+                onOneStreamAccept
+                  ? (item) => {
+                      void onOneStreamAccept(item);
+                    }
+                  : undefined
+              }
+              onDecline={
+                onOneStreamDecline
+                  ? (item) => {
+                      void onOneStreamDecline(item);
+                    }
+                  : undefined
+              }
+              onOpen={onOneStreamOpen}
             />
           </div>
         ) : null}
@@ -698,23 +815,32 @@ export function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparat
   );
 }
 
-export function ChatAgentSubtitle({ text, working, brand, icon }: { text: string; working: boolean; brand?: ConnectorBrand | null; icon?: AgentActivityIcon }) {
-  const [display, setDisplay] = useState({ text, working, brand, icon });
+export type ChatPresenceDotTone = "active" | "idle" | "waking" | "warning";
+
+const PRESENCE_DOT_CLASS: Record<ChatPresenceDotTone, string> = {
+  active: "bg-emerald-500",
+  idle: "bg-emerald-500/70",
+  waking: "bg-amber-400 motion-safe:animate-pulse",
+  warning: "bg-amber-500",
+};
+
+export function ChatAgentSubtitle({ text, working, brand, icon, presenceDot }: { text: string; working: boolean; brand?: ConnectorBrand | null; icon?: AgentActivityIcon; presenceDot?: ChatPresenceDotTone | null }) {
+  const [display, setDisplay] = useState({ text, working, brand, icon, presenceDot });
   const [visible, setVisible] = useState(true);
   useEffect(() => {
-    if (display.text === text && display.working === working && display.brand === brand && display.icon === icon) {
+    if (display.text === text && display.working === working && display.brand === brand && display.icon === icon && display.presenceDot === presenceDot) {
       setVisible(true);
       return;
     }
     setVisible(false);
     // The mark and label are one projection, including during the fade.
-    const timer = window.setTimeout(() => { setDisplay({ text, working, brand, icon }); setVisible(true); }, 90);
+    const timer = window.setTimeout(() => { setDisplay({ text, working, brand, icon, presenceDot }); setVisible(true); }, 90);
     return () => window.clearTimeout(timer);
-  }, [display, text, working, brand, icon]);
+  }, [display, text, working, brand, icon, presenceDot]);
   if (!display.text) return null;
-  return <p aria-live="polite" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
+  return <p aria-live="polite" data-testid="agent-chat-header-status" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
     <span className={`flex min-w-0 items-center gap-1.5 transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>
-      {display.brand || display.icon ? <AgentActivityMark brand={display.brand} icon={display.icon} /> : display.working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : null}
+      {display.brand || display.icon ? <AgentActivityMark brand={display.brand} icon={display.icon} /> : display.working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : display.presenceDot ? <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${PRESENCE_DOT_CLASS[display.presenceDot]}`} /> : null}
       <span className="truncate">{display.text}</span>
     </span>
   </p>;
