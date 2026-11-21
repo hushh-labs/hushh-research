@@ -38,24 +38,41 @@ def cloud_default_fingerprint(provider: str, model: str, *, include_revision: bo
             raise ValueError("AI_DEFAULT_CONFIGURATION_CHANGED")
         value["endpoint"] = topology.endpoint
     elif provider == "gemini":
-        binding = ManagedGeminiRuntimeBinding.from_environment()
-        bridge = owner_inference_bridge()
-        value["vertex"] = {
-            "project": bridge.project if bridge else binding.project,
-            "locations": binding.locations,
-            "auth": binding.auth_mode,
-            "bridgePrincipal": bridge.service_account if bridge else None,
-        }
-        from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+        from hushh_mcp.runtime_settings import (
+            pod_model_gateway_url,
+            pod_sentinel_model_enabled,
+        )
 
-        hosted = hosted_runtime_deployment()
-        if hosted is not None:
-            value["hostedAuthority"] = {
-                "project": hosted.project,
-                "principal": hosted.runtime_principal,
-                "inferenceProject": hosted.model_project,
-                "hostingMode": hosted.hosting_mode,
+        if pod_sentinel_model_enabled():
+            from hushh_mcp.runtime_providers.sentinel_gemini import (
+                sentinel_vertex_location,
+                sentinel_vertex_project,
+            )
+
+            value["sentinel"] = {
+                "gatewayUrl": pod_model_gateway_url(),
+                "project": sentinel_vertex_project(),
+                "location": sentinel_vertex_location(),
             }
+        else:
+            binding = ManagedGeminiRuntimeBinding.from_environment()
+            bridge = owner_inference_bridge()
+            value["vertex"] = {
+                "project": bridge.project if bridge else binding.project,
+                "locations": binding.locations,
+                "auth": binding.auth_mode,
+                "bridgePrincipal": bridge.service_account if bridge else None,
+            }
+            from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
+
+            hosted = hosted_runtime_deployment()
+            if hosted is not None:
+                value["hostedAuthority"] = {
+                    "project": hosted.project,
+                    "principal": hosted.runtime_principal,
+                    "inferenceProject": hosted.model_project,
+                    "hostingMode": hosted.hosting_mode,
+                }
     else:
         raise ValueError("AI_DEFAULT_UNAVAILABLE")
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
@@ -74,7 +91,7 @@ def effective_connection() -> dict:
         _, (provider, model, mode) = _resolve_owner_target(
             PodTurnRequest(message="Read AI connection configuration"), provider, model
         )
-        if mode not in {"byok", "user_adc", "hosted_pod_adc", "user_azure_mi"}:
+        if mode not in {"byok", "user_adc", "hosted_pod_adc", "sentinel_vertex", "user_azure_mi"}:
             return {"state": "unavailable", "code": "OWNER_AI_CONNECTION_REQUIRED"}
         receipt = store.default_verification()
         default_verified = bool(

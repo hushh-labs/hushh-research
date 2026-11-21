@@ -75,6 +75,6 @@ class PrivateCompositionAssertion(BaseModel):
     authorityToken: str = Field(min_length=1, max_length=4096)
     processingRuntime: ProcessingRuntime
     selectionRevision: int = Field(ge=0)
-    runtimeMode: Literal["byok", "user_adc", "hosted_pod_adc", "user_azure_mi"]
+    runtimeMode: Literal["byok", "user_adc", "hosted_pod_adc", "sentinel_vertex", "user_azure_mi"]
     answerDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     inputDigest: str = Field(pattern=r"^[0-9a-f]{64}$")

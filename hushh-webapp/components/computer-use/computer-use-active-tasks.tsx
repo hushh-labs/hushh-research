@@ -15,6 +15,8 @@ type ActiveTasksProps = {
   refreshKey: number;
   route: string;
   getVaultOwnerToken?: () => string | null;
+  openReviewSignal?: number;
+  onReviewCountChange?: (count: number) => void;
 };
 
 export function ComputerUseActiveTasks(props: ActiveTasksProps) {
@@ -27,6 +29,8 @@ function OwnerBrowserTasks({
   refreshKey,
   route,
   getVaultOwnerToken,
+  openReviewSignal = 0,
+  onReviewCountChange,
 }: ActiveTasksProps) {
   const client = useMemo(() => new ComputerUseClient(ownerId, getVaultOwnerToken), [ownerId, getVaultOwnerToken]);
   const transport = useMemo(() => client.transport(), [client]);
@@ -52,12 +56,24 @@ function OwnerBrowserTasks({
       });
     return () => request.abort();
   }, [client, ownerId, refreshKey, retry]);
-  if (tasks.owner !== ownerId) return null;
-  const active = tasks.rows.filter((task) =>
-    ["running", "needs_owner", "outcome_uncertain"].includes(task.phase),
-  );
-  const terminal = tasks.rows.findLast(task => task.current && ["completed", "unavailable"].includes(task.phase));
+  const ownerMatches = tasks.owner === ownerId;
+  const active = ownerMatches
+    ? tasks.rows.filter((task) => ["running", "needs_owner", "outcome_uncertain"].includes(task.phase))
+    : [];
+  const terminal = ownerMatches
+    ? tasks.rows.findLast(task => task.current && ["completed", "unavailable"].includes(task.phase))
+    : undefined;
   const visible = active.length ? active : terminal ? [terminal] : [];
+  const reviewCount = active.filter(
+    (task) => task.phase === "needs_owner" || task.phase === "outcome_uncertain" || !task.current,
+  ).length;
+  useEffect(() => {
+    onReviewCountChange?.(reviewCount);
+  }, [onReviewCountChange, reviewCount]);
+  useEffect(() => () => {
+    onReviewCountChange?.(0);
+  }, [onReviewCountChange]);
+  if (!ownerMatches) return null;
   // An unavailable pilot stays quiet on ordinary chat entry. Once a task was
   // requested or observed, failed discovery must be recoverable, not disappear.
   const showFailure = failed && (refreshKey > 0 || visible.length > 0);
@@ -68,13 +84,14 @@ function OwnerBrowserTasks({
         <p role="status">Couldn’t reconnect to Browser. Your task hasn’t been restarted.</p>
         <Button variant="ghost" onClick={() => setRetry(value => value + 1)}>Try again</Button>
       </div>}
-      {visible.map((task) =>
+      {visible.map((task, index) =>
         task.current ? (
           <ComputerUseTaskCard
             key={task.binding.taskId}
             binding={task.binding}
             transport={transport}
             route={route}
+            openReviewSignal={index === 0 ? openReviewSignal : 0}
           />
         ) : (
           <section

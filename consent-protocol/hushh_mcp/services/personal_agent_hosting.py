@@ -12,7 +12,11 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import is_known_pod_target, is_owner_cloud_target
+from hushh_mcp.services.compute_backend import (
+    HOSTED_CLOUD_TARGETS,
+    is_known_pod_target,
+    is_owner_cloud_target,
+)
 from hushh_mcp.services.placement_observation import read_optional_placement
 
 logger = logging.getLogger(__name__)
@@ -55,7 +59,7 @@ def resolve_hosting_mode(
 
     if is_owner_cloud_target(deployment_target):
         return "byoc"
-    if deployment_target in {"gcp", "azure"}:
+    if deployment_target in HOSTED_CLOUD_TARGETS:
         return "hussh_pods"
     if status in {"provisioned", "needs_reinit", "suspended"}:
         return "unknown"
@@ -204,14 +208,20 @@ def shared_choice_is_current(row: dict | None, choice: dict | None) -> bool:
 
 
 def setup_job_superseded_by_detach(row: dict | None, setup_job: dict) -> bool:
-    """A setup job for a placement the owner has since detached is history.
+    """A setup job for a placement the owner has since detached or left for ACE is history.
 
     Detaching (``personal_agent_placement_detach``) releases the slot and records the
     old placement under ``detachedPlacements``. A job created before that detach is
     not a current choice any more; reading it as one leaves the person with no home
-    and no way to pick a new one. A job without readable times falls back to the
-    project match for an attached job.
+    and no way to pick a new one. Similarly, when an owner explicitly adopts Pooled
+    Personal Sandbox (``ace``) over a historical non-running BYOC setup job, the old
+    setup job is superseded history without mutating the audit row. A job without
+    readable times falls back to the project match for an attached job.
     """
+    from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+
+    if has_hosted_ace_evidence(row) and str(setup_job.get("status") or "").strip() != "running":
+        return True
     detach = _last_detach(row)
     if detach is None:
         return False

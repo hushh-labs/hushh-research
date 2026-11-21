@@ -84,10 +84,11 @@ export class FakeWorld {
     }
     if (path === "/api/one/personal-agent/verification-keys") return json({ kind: "pod_verification_keys_v1", keys: { kid: publicRaw } });
     if (path === "/api/one/personal-agent/endpoint") return json(this.endpoint);
+    const activeUrl = String((this.endpoint as { url?: unknown }).url || POD_URL);
     const binding = {
       ...(this.hostingMode === undefined ? {} : { hosting_mode: this.hostingMode }),
       kind: "pod_binding_v1", hushh_id: "ha1_owner", user_id: USER,
-      environment: "dev", url: POD_URL, pod_key_id: "podk_1",
+      environment: "dev", url: activeUrl, pod_key_id: "podk_1",
       subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
       platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: this.deploymentTarget,
       version: this.bindingVersion || 1, issued_at_ms: this.now + this.bindingIssuedOffsetMs, expires_at_ms: this.now + this.bindingExpiresOffsetMs,
@@ -113,14 +114,15 @@ export class FakeWorld {
   async direct(url: string, init: RequestInit): Promise<Response> {
     this.calls.push({ target: "direct", url, init });
     if (!this.podReachable) throw new TypeError("Failed to fetch");
-    if (url === `${POD_URL}/api/one/pod/session/challenge`) {
+    const activeUrl = String((this.endpoint as { url?: unknown }).url || POD_URL);
+    if (url === `${activeUrl}/api/one/pod/session/challenge`) {
       return json({ challengeId: this.challengeId, nonce: this.nonce, epoch: this.epoch, podKeyId: "podk_1", expiresAt: this.now + 60_000, signingPayload: this.challengePayload });
     }
-    if (url === `${POD_URL}/api/one/pod/session/admit`) {
+    if (url === `${activeUrl}/api/one/pod/session/admit`) {
       this.admitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
       return json({ session: "pst1.eyJzaWQiOiJwc3NfMSJ9.bWFj", sid: "pss_1", role: "app", scopes: ["pkm.read"], epoch: this.epoch, expiresAt: this.now + 12 * 3600 * 1000, version: this.bindingVersion || 1 });
     }
-    if (url === `${POD_URL}/api/one/pod/session/revoke`) {
+    if (url === `${activeUrl}/api/one/pod/session/revoke`) {
       this.revokes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
       return json({ revoked: true, subjectId: "tdv_mac_1", atVersion: 1 });
     }

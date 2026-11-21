@@ -75,6 +75,7 @@ export function useChatMemory(input: {
     }
     const instance = runtimeRef.current;
     if (!instance || !messages.length) return;
+    let cancelled = false;
     // UI and restored ADK ids differ. Content + per-conversation occurrence
     // identity survives closing-snapshot id updates without collapsing repeated
     // short confirmations ("Yes", "Save it") in the same conversation.
@@ -85,11 +86,13 @@ export function useChatMemory(input: {
       );
       return { ...message, id: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("") };
     })).then(async stable => {
+      if (cancelled) return null;
       await instance.registerSnapshot({ conversationId, messages: stable });
-      return stable;
+      return cancelled ? null : stable;
     });
     registration.current = registered.then(() => undefined, () => undefined);
     void registered.then(stable => {
+      if (!stable || cancelled) return false;
       const lastUser = stable.findLast(message => message.role === "user");
       if (
         lastUser &&
@@ -102,6 +105,9 @@ export function useChatMemory(input: {
       }
       return false;
     }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [runtime, userId, vaultKey, vaultOwnerToken, conversationId, sourceMessages, getToken]);
   return runtime;
 }

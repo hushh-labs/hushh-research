@@ -61,6 +61,16 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
   requestInternalAppNavigation: vi.fn(),
 }));
 
+const ensureFreshPlaidMock = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/consent/financial-plaid-export-refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/consent/financial-plaid-export-refresh")>();
+  return {
+    ...actual,
+    ensureFreshPlaidProjectionForScope: ensureFreshPlaidMock,
+  };
+});
+
+import { PlaidExportRefreshError } from "@/lib/consent/financial-plaid-export-refresh";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import { BUNDLE_DECISION_CONCURRENCY } from "@/lib/consent/use-consent-actions";
 
@@ -711,5 +721,48 @@ describe("useConsentActions quiet rejections", () => {
     expect(error.message).not.toMatch(/[{}"]|detail|token/i);
     expect((error.cause as Error).message).toBe("Token validation failed.");
     expect(mocks.toastPromise).not.toHaveBeenCalled();
+  });
+
+  it("refreshes live Plaid projection before standard PKM financial approval and surfaces relink guidance", async () => {
+    const { buildConsentExportForScope } = await import("@/lib/consent/export-builder");
+    vi.mocked(buildConsentExportForScope).mockResolvedValueOnce({
+      payload: { portfolio: { total_value: 25000 } },
+      sourceContentRevision: 2,
+      sourceManifestRevision: 2,
+    });
+    ensureFreshPlaidMock.mockResolvedValueOnce(undefined);
+    mocks.approvePendingConsent.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
+
+    await act(async () => {
+      await result.current.handleApprove({
+        ...consent("req-fin-live"),
+        scope: "attr.financial.portfolio.*",
+      });
+    });
+
+    expect(ensureFreshPlaidMock).toHaveBeenCalledWith({
+      userId: "user-1",
+      scope: "attr.financial.portfolio.*",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner-token",
+    });
+    expect(buildConsentExportForScope).toHaveBeenCalled();
+    expect(mocks.approvePendingConsent).toHaveBeenCalledTimes(1);
+
+    ensureFreshPlaidMock.mockRejectedValueOnce(
+      new PlaidExportRefreshError(
+        "Reconnect or refresh your linked bank in Connectors before sharing real-time financial information.",
+      ),
+    );
+    const err = await rejection(() =>
+      result.current.handleApprove(
+        { ...consent("req-fin-relink"), scope: "attr.financial.summary.*" },
+        { quiet: true },
+      ),
+    );
+    expect(err.message).toContain("Reconnect or refresh your linked bank");
   });
 });

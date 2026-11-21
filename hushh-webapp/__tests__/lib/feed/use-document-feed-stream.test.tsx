@@ -132,7 +132,7 @@ describe("document Feed stream", () => {
     const view = renderHook(() => useDocumentFeedStream(user));
     await act(async () => { await vi.advanceTimersByTimeAsync(50); });
 
-    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledExactlyOnceWith("requester", { broadcast: false });
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledExactlyOnceWith("requester", { broadcast: false, reason: "mutation" });
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
     expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
       source: "sse_document_feed", requestId: undefined, reconcile: true,
@@ -389,7 +389,7 @@ describe("document Feed stream", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(mocks.open).toHaveBeenCalledTimes(2);
-    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledExactlyOnceWith("requester", { broadcast: false });
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledExactlyOnceWith("requester", { broadcast: false, reason: "reconcile" });
     view.unmount();
   });
 

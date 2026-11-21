@@ -38,6 +38,7 @@
   ],
   "required_commands": [
     "./bin/hushh protocol --help",
+    "./bin/hushh protocol floci",
     "cd consent-protocol && python3 -m pytest tests -q"
   ],
   "verification_bundles": [
@@ -45,9 +46,11 @@
       "id": "backend-core",
       "commands": [
         "./bin/hushh protocol --help",
+        "./bin/hushh protocol floci",
         "cd consent-protocol && python3 -m pytest tests -q"
       ],
       "tests": [
+        "./bin/hushh protocol floci",
         "cd consent-protocol && python3 -m pytest tests -q"
       ]
     }

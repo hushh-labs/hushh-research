@@ -38,6 +38,7 @@ Operational commands:
   docs verify
   env bootstrap
   env use --mode <local|uat|dev|prod> [--dry-run]
+  az <login|status|doctor> [--device-code] [--json]
   db init-iam
   db verify-iam-schema
   db verify-release-contract
@@ -82,6 +83,7 @@ Consent Protocol package commands:
   typecheck
   test
   test-ci
+  floci
   security
   accuracy
   ci
@@ -771,7 +773,7 @@ run_protocol() {
     sync|check-sync|push|push-force|verify-upstream-ci|verify-ci-parity|setup|verify-setup)
       exec bash "$REPO_ROOT/scripts/protocol/subtree.sh" "$subcommand" "$@"
       ;;
-    dev|lint|format|format-check|fix|typecheck|test|test-ci|security|accuracy|ci|clean)
+    dev|lint|format|format-check|fix|typecheck|test|test-ci|floci|security|accuracy|ci|clean)
       cd "$REPO_ROOT/consent-protocol"
       exec ./bin/consent-protocol "$subcommand" "$@"
       ;;
@@ -937,6 +939,9 @@ EOF
     [ "${1:-}" = "uat-vertex" ] || die "Expected: diagnose uat-vertex --build-id <Cloud-Build-UUID>"
     shift
     exec python3 "$REPO_ROOT/scripts/ci/summarize_uat_managed_vertex_logs.py" "$@"
+    ;;
+  az)
+    exec python3 "$REPO_ROOT/scripts/ops/hushh_az_cli.py" "$@"
     ;;
   rollback)
     run_rollback "$@"

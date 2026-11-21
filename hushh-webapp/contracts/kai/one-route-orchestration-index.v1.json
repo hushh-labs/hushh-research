@@ -6486,9 +6486,9 @@
         "allowed_families": []
       },
       "canonical_screen": "app",
-      "voice_contract_file": null,
+      "voice_contract_file": "app/one/tasks/page.voice-action-contract.json",
       "action_ids": [],
-      "action_coverage": "none",
+      "action_coverage": "local",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []

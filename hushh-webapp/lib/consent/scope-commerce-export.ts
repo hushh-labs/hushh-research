@@ -1,4 +1,5 @@
 import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import { ensureFreshPlaidProjectionForScope } from "@/lib/consent/financial-plaid-export-refresh";
 import {
   buildConsentExportAadV2,
   buildConsentExportEnvelopeSubmissionV2,
@@ -42,6 +43,13 @@ export async function prepareAndStagePaidScopeExport(params: {
   assertCurrent();
   const scope = directScope || String(context?.machineScope || context?.machine_scope || "");
   if (!scope.startsWith("attr.")) throw new Error("The approved scope is unavailable.");
+  await ensureFreshPlaidProjectionForScope({
+    userId: params.userId,
+    scope,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    assertCurrent,
+  });
   const built = await buildConsentExportForScope({
     userId: params.userId, scope, vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,

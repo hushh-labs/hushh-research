@@ -1699,7 +1699,7 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
     monkeypatch.setattr(
         audience,
         "_firebase_page",
-        lambda _: SimpleNamespace(users=records, **{"next_page_token": "next"}),
+        lambda _page, _project: SimpleNamespace(users=records, **{"next_page_token": "next"}),
     )
 
     class Context:
@@ -2463,6 +2463,38 @@ def test_metrics_uat_authority_requires_dedicated_policy_auth_and_physical_datab
     assert uat.auth_app().project_id == "hushh-pda-uat"
     monkeypatch.delenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", raising=False)
     monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", '{"version":1}')
+    with pytest.raises(RuntimeError):
+        uat.policy()
+    monkeypatch.setenv(
+        "ONE_METRICS_UAT_REPORTING_POLICY_JSON",
+        json.dumps(
+            {
+                "version": 1,
+                "excludedAccountIds": [],
+                "excludedEmails": [],
+                "excludedDomains": [],
+            }
+        ),
+    )
+    all_eligible = uat.policy()
+    assert all_eligible.account_ids == frozenset()
+    assert all_eligible.emails == frozenset()
+    assert all_eligible.domains == frozenset()
+    assert all_eligible.revision == uat.policy().revision
+    assert all_eligible.eligible("registered-uat", {"email": "owner@example.test"})
+    assert not all_eligible.eligible("missing-identity", None)
+    monkeypatch.setenv(
+        "ONE_PLG_REPORTING_POLICY_JSON",
+        json.dumps(
+            {"version": 1, "excludedAccountIds": [], "excludedEmails": [], "excludedDomains": []}
+        ),
+    )
+    monkeypatch.delenv("REVIEWER_UID", raising=False)
+    monkeypatch.delenv("REVIEWER_COUNTERPART_UID", raising=False)
+    monkeypatch.setattr(reporting, "one_magic_intelligence_cohorts", lambda: ())
+    with pytest.raises(reporting.ReportingPolicyUnavailable):
+        reporting.reporting_policy()
+    monkeypatch.setenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", '{"version":1}')
     with pytest.raises(RuntimeError):
         uat.policy()
     monkeypatch.setenv(

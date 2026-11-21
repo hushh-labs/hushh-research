@@ -126,4 +126,14 @@ describe("adding the readable linked-accounts view", () => {
     const declared = afterManifest.paths.map((path) => path.json_path).join(" ");
     expect(declared).not.toMatch(/tartan|platypus|checking|\u2022/i);
   });
+
+  it("exposes all live shareable mirrors as externalizable top-level scopes", () => {
+    const manifest = manifestFor(sixBanks());
+    expect(manifest.top_level_scope_paths).toEqual(
+      expect.arrayContaining(["summary", "accounts", "liabilities", "cashflow"]),
+    );
+    expect(isPrivatePkmExportScope("attr.financial.accounts.*")).toBe(false);
+    expect(isPrivatePkmExportScope("attr.financial.liabilities.*")).toBe(false);
+    expect(isPrivatePkmExportScope("attr.financial.cashflow.*")).toBe(false);
+  });
 });

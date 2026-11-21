@@ -250,6 +250,22 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" && -f deploy
   read -r calendar_followups_gate calendar_followup_drain_gate <<< "${gates}"
 fi
 [[ "${calendar_followups_gate}" != "true" ]] || secrets="${secrets},CALENDAR_EMAIL_FOLLOWUP_KEY=CALENDAR_EMAIL_FOLLOWUP_KEY:latest"
+# One adoption uses release-pinned UAT settings and stays off without the opt-in file.
+metrics_uat_adoption=""
+if [[ "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" &&
+      "${_BACKEND_SERVICE}" == "consent-protocol" && -z "${_SECRET_PREFIX}" &&
+      -f deploy/metrics-uat-secret-versions.txt ]]; then
+  metrics_versions="$(< deploy/metrics-uat-secret-versions.txt)"
+  metrics_versions_pattern='^([1-9][0-9]*) ([1-9][0-9]*) ([1-9][0-9]*)$'
+  if [[ ! "$metrics_versions" =~ $metrics_versions_pattern ]]; then
+    echo "One UAT adoption requires three positive Secret Manager version numbers." >&2
+    exit 1
+  fi
+  secrets="${secrets},ONE_METRICS_UAT_ADOPTION_SECRET=ONE_METRICS_UAT_ADOPTION_SECRET:${BASH_REMATCH[1]}"
+  secrets="${secrets},ONE_METRICS_UAT_ADOPTION_BINDING_JSON=ONE_METRICS_UAT_ADOPTION_BINDING_JSON:${BASH_REMATCH[2]}"
+  secrets="${secrets},ONE_METRICS_UAT_REPORTING_POLICY_JSON=ONE_METRICS_UAT_REPORTING_POLICY_JSON:${BASH_REMATCH[3]}"
+  metrics_uat_adoption="true"
+fi
 # Disabling new paid requests must not strand existing Checkout/refund work.
 # Bind configured secrets in either mode; enabled rollout requires both.
 if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
@@ -507,6 +523,7 @@ append_optional_env "ONE_VOICE_LIVE_ENABLED" "${_ONE_VOICE_LIVE_ENABLED:-}"
 append_optional_env "ONE_VOICE_CALENDAR_NARRATION_ENABLED" "${_ONE_VOICE_CALENDAR_NARRATION_ENABLED:-false}"
 append_optional_env "CALENDAR_EMAIL_FOLLOWUPS" "${calendar_followups_gate}"
 append_optional_env "CALENDAR_EMAIL_FOLLOWUP_DRAIN_ENABLED" "${calendar_followup_drain_gate}"
+append_optional_env "ONE_METRICS_UAT_ADOPTION_ENABLED" "${metrics_uat_adoption}"
 append_optional_env "VERTEX_LIVE_MODEL_ID" "${_VERTEX_LIVE_MODEL_ID:-}"
 append_optional_env "VERTEX_LIVE_LOCATION" "${_VERTEX_LIVE_LOCATION:-}"
 append_optional_env "PUPPY_INFERENCE_RELAY_URL" "${_PUPPY_INFERENCE_RELAY_URL}"

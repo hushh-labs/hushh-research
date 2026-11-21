@@ -11,6 +11,9 @@ _WORKER_EVENT_SUCCESSOR_SHA256 = "460ee7e26e2e65acd6937e29284f5d5f0c38013829337e
 _HOSTED_AZURE_TARGET_CHECK_SUCCESSOR_SHA256 = (
     "c5a37bdd87803d685ecc19cf34b586f763ab59ace212a775ce90c80d1aa63910"
 )
+_HOSTED_ACE_TARGET_CHECK_SUCCESSOR_SHA256 = (
+    "f8eb9186b187ea31fb49c71869940a1458b23e548d1d38cd81b74910ca51aaed"
+)
 
 
 def _qualify_vm_publication_successor(sql: str) -> str:
@@ -89,7 +92,8 @@ def _qualify_hosted_azure_target_check_successor(sql: str) -> str:
     replacement = (
         "ELSIF encode(sha256(convert_to(actual,'UTF8')),'hex') NOT IN "
         "('15c9243d622f15d2ca2690cb232af88e3e51b5d586e72042b9000177cc4cc300',"
-        f"'{_HOSTED_AZURE_TARGET_CHECK_SUCCESSOR_SHA256}') THEN\n"
+        f"'{_HOSTED_AZURE_TARGET_CHECK_SUCCESSOR_SHA256}',"
+        f"'{_HOSTED_ACE_TARGET_CHECK_SUCCESSOR_SHA256}') THEN\n"
         "  RAISE EXCEPTION 'Unqualified schema drift: personal_agent_registry_deployment_target_check';"
     )
     if sql.count(anchor) != 1:

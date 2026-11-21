@@ -125,6 +125,16 @@ from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
     admit_pending_email_draft,
 )
+from hushh_mcp.one_adk.plaid_connector_tools import (
+    STATE_PLAID_CLIENT_READY,
+    STATE_PLAID_POSTURE,
+    STATE_PLAID_RESULT,
+)
+from hushh_mcp.one_adk.plaid_turn_admission import (
+    admit_plaid_continuation,
+    admit_plaid_posture,
+    admit_plaid_tool,
+)
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY
@@ -207,6 +217,12 @@ def admit_client_tools(tools: list[Any]) -> list[Any]:
                 continue
         except ValueError:
             raise HTTPException(status_code=400, detail="Wiki tool contract is invalid.") from None
+        try:
+            if admit_plaid_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Plaid tool contract is invalid.") from None
         action_id = action_id_from_tool_name(tool.name)
         if action_id and get_action_gateway_action(action_id) is not None:
             admitted.append(tool)
@@ -539,6 +555,29 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         raise HTTPException(
             status_code=413, detail="Personal wiki hot digest exceeds the request budget."
         ) from None
+    try:
+        plaid_result = await admit_plaid_continuation(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            messages=input_data.messages,
+            execution_head=_one_head,
+            load_session=lambda: _shared_sessions().get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Plaid continuation is unavailable. Ask again."
+        ) from None
+    try:
+        plaid_posture, plaid_client_ready = admit_plaid_posture(
+            forwarded, owner_admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=413, detail="Plaid posture exceeds the request budget."
+        ) from None
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
@@ -574,6 +613,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         consume_request_secret(wiki_hot_digest)
         wiki_hot_digest = ""
         wiki_client_ready = False
+        consume_request_secret(plaid_posture)
+        plaid_posture = ""
+        plaid_client_ready = False
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
@@ -602,6 +644,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # as settling; that would suppress the consent confirmation card even
         # while the current browser frame is idle.
         "hussh:typed_chat_context": True,
+        "temp:hussh:split_dynamic_context": not bool(
+            consent_continuation.get("temp:hussh:consent_continuation")
+        ),
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
@@ -624,6 +669,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
         STATE_WIKI_CLIENT_READY: wiki_client_ready,
         STATE_WIKI_RESULT: wiki_result,
+        STATE_PLAID_POSTURE: plaid_posture,
+        STATE_PLAID_CLIENT_READY: plaid_client_ready,
+        STATE_PLAID_RESULT: plaid_result,
     }
 
 

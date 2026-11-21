@@ -744,6 +744,36 @@ def pod_hosted_adc_enabled() -> bool:
     return hosted_runtime_deployment() is not None
 
 
+def pod_storage_gateway_gcs_bucket() -> str:
+    """Hub-side GCS bucket backing zero-role ``PrefixTokenObjectStore`` pods."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET")
+
+
+def pod_storage_gateway_gcs_prefix() -> str:
+    """Optional prefix inside the Hub-side GCS storage gateway bucket."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_GCS_PREFIX").strip("/")
+
+
+def pod_storage_gateway_local_root() -> str:
+    """Optional local directory root backing the storage gateway in dev/tests."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_LOCAL_ROOT")
+
+
+def pod_model_gateway_url() -> str:
+    """Sentinel L7 Vertex Model Gateway base URL inside the sandbox cluster."""
+    return _clean_env("HUSSH_MODEL_GATEWAY_URL").rstrip("/")
+
+
+def pod_model_gateway_token() -> str:
+    """Per-lease Sentinel surrogate token swapped for Vertex AI OAuth outside the sandbox."""
+    return _clean_env("HUSSH_MODEL_GATEWAY_TOKEN")
+
+
+def pod_sentinel_model_enabled() -> bool:
+    """True when this pod should route managed Gemini calls through Sentinel's L7 gateway."""
+    return pod_mode() and bool(pod_model_gateway_url() and pod_model_gateway_token())
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 
@@ -804,7 +834,7 @@ def umbrella_cell_auto_scaleout_enabled() -> bool:
 
 
 def source_pod_retirement_sweep_enabled() -> bool:
-    """Enable the 14-day two-key source-pod retirement sweep in ``dev`` only."""
+    """Enable the 3-day two-key source-pod retirement sweep in ``dev`` only."""
     from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
 
     if deploy_lane() != "dev":
@@ -1301,6 +1331,19 @@ def clear_runtime_settings_caches() -> None:
     get_core_security_settings.cache_clear()
     get_firebase_credential_settings.cache_clear()
     get_app_runtime_settings.cache_clear()
+
+
+def ensure_pod_sandbox_signing_key() -> str:
+    """Provision an isolated per-sandbox signing key during virgin lease activation."""
+    import secrets  # noqa: PLC0415
+
+    existing = _clean_env(APP_SIGNING_KEY_ENV)
+    if len(existing) >= 32:
+        return existing
+    generated = secrets.token_hex(32)
+    os.environ[APP_SIGNING_KEY_ENV] = generated
+    clear_runtime_settings_caches()
+    return generated
 
 
 hydrate_runtime_environment()

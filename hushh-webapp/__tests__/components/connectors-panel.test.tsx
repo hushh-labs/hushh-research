@@ -138,6 +138,11 @@ describe("supported connector catalog", () => {
     state.privatePlacement.mockResolvedValue(true);
     const view = render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
+    expect(await screen.findByTestId('private-plaid-connectors')).toBeInTheDocument();
+    expect(screen.getByTestId('private-connector-row-plaid')).toBeInTheDocument();
+    expect(screen.getByTestId('private-stripe-settings-group')).toBeInTheDocument();
+    expect(document.querySelector('img[data-connector-brand="plaid"][src="/icons/connectors/plaid.svg"]')).not.toBeNull();
+    expect(document.querySelector('img[data-connector-brand="stripe"][src="/icons/connectors/stripe.svg"]')).not.toBeNull();
     expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
     expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
     expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
@@ -1859,6 +1864,91 @@ describe("supported connector catalog", () => {
       expect(await screen.findByRole("button", { name: "Enable full Drive access" })).toBeInTheDocument();
       expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
       expect(state.liveBackground).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Plaid live amounts and scope projection", () => {
+    it("displays live bank balances, projected Financial Summary and Investment Portfolio scopes, and Refresh live + Add bank controls", async () => {
+      state.overview.mockResolvedValue(overview([]));
+      state.financial = {
+        loading: false,
+        error: null,
+        data: {
+          data: {
+            connections_v1: {
+              item_1: {
+                item_id: "item_1",
+                institution_name: "First Platypus Bank",
+                status: "active",
+                last_refreshed_at: "2026-11-19T12:00:00Z",
+              },
+            },
+            accounts_v1: {
+              "item_1:chk": {
+                account_id: "chk",
+                item_id: "item_1",
+                type: "depository",
+                balances: { current: 50000, available: 50000, limit: null, iso_currency_code: "USD" },
+                duplicate_of: null,
+              },
+              "item_1:inv": {
+                account_id: "inv",
+                item_id: "item_1",
+                type: "investment",
+                balances: { current: 65000, available: null, limit: null, iso_currency_code: "USD" },
+                duplicate_of: null,
+              },
+            },
+            holdings_v1: {
+              "inv:sec_aapl": {
+                item_id: "item_1",
+                account_id: "inv",
+                security_id: "sec_aapl",
+                quantity: 100,
+                institution_price: 250,
+                institution_price_as_of: null,
+                institution_value: 25000,
+                cost_basis: 18000,
+                iso_currency_code: "USD",
+              },
+            },
+            securities_v1: {
+              sec_aapl: {
+                security_id: "sec_aapl",
+                ticker: "AAPL",
+                name: "Apple Inc.",
+                type: "equity",
+                subtype: "common stock",
+                cusip: "037833100",
+                is_cash_equivalent: false,
+                close_price: 250,
+                sector: "Technology",
+                industry: "Consumer Electronics",
+              },
+            },
+            derived_v1: {
+              schema: "plaid-derived-v1",
+              net_worth: { value: 115000 },
+              liquid_cash: { value: 50000 },
+              investable_assets: { value: 65000 },
+            },
+            summary: {
+              schema: "plaid-summary-v1",
+              net_worth_band: "$100k-$250k",
+            },
+          },
+        },
+      };
+
+      render(<ConnectorsPanel open initialConnector="plaid" {...callbacks} />);
+      const region = await screen.findByRole("region", { name: "Plaid connection details" });
+      expect(within(region).getByText("First Platypus Bank")).toBeInTheDocument();
+      expect(within(region).getByText("Connected · 2 accounts · $115,000")).toBeInTheDocument();
+      const summaryBox = within(region).getByTestId("plaid-live-projection-summary");
+      expect(summaryBox).toHaveTextContent("Net worth $115,000 · Liquid cash $50,000 · Investable $65,000");
+      expect(summaryBox).toHaveTextContent("Shareable scopes: Financial Summary ($100k-$250k) · Investment Portfolio ($25,000)");
+      expect(within(region).getByRole("button", { name: "Refresh live" })).toBeEnabled();
+      expect(within(region).getByRole("button", { name: "Add bank" })).toBeEnabled();
     });
   });
 });

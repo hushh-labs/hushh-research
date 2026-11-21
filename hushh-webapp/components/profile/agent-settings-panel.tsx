@@ -15,6 +15,7 @@ import {
   isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
   ownerCloudProvider,
   podCloudProvider,
 } from "@/lib/one/owner-cloud";
@@ -23,6 +24,7 @@ import {
   HusshPodsActiveCard,
   HusshPodsMigrationCard,
   PodCloudBadge,
+  PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
 import { ROUTES } from "@/lib/navigation/routes";
 import { HOST_LABELS, agentSettingsSummary, useAgentSettingsController, type AgentSettingsController } from "./use-agent-settings-controller";
@@ -60,7 +62,14 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
       : mode === "hussh_pods"
         ? hostedPodDisplayLabel(status.deploymentTarget)
         : HOST_LABELS[mode];
+    const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+    const showPooledSandboxSwitch =
+      pooledSwitchAvailable &&
+      (mode === "byoc" ||
+        mode === "pending" ||
+        (mode === "hussh_pods" && status?.deploymentTarget !== "ace"));
     const showHostedMigration =
+      !pooledSwitchAvailable &&
       isHostedAzureMigrationAvailable() &&
       status?.state === "active" &&
       (mode === "byoc" || (mode === "hussh_pods" && activeHostedProvider === "gcp"));
@@ -82,6 +91,8 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
                   }
                   testId="current-hosting-cloud-badge"
                 />
+              ) : mode === "hussh_pods" && status?.deploymentTarget === "ace" ? (
+                <HostedPodDualCloudMarks />
               ) : undefined
             }
           />
@@ -102,6 +113,29 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         ) : null}
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice model={azureHosting} />
+        ) : null}
+        {showPooledSandboxSwitch ? (
+          <SettingsGroup title="Personal Sandbox" density="compact" headingClassName="!mt-5">
+            <PooledSandboxSwitchCard
+              hasAssignedCloudPod={mode === "byoc" || mode === "hussh_pods"}
+              isOwnerCloud={mode === "byoc"}
+              sourceCloudLabel={
+                mode === "byoc"
+                  ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||
+                    (ownerCloudProvider(status?.deploymentTarget) === "azure"
+                      ? "Microsoft Azure"
+                      : ownerCloudProvider(status?.deploymentTarget) === "gcp"
+                        ? "Google Cloud"
+                        : null)
+                  : mode === "hussh_pods" && activeHostedProvider
+                    ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
+                    : null
+              }
+              owningRoute={ROUTES.PROFILE_HOSTING}
+              onSwitched={refresh}
+              embedded
+            />
+          </SettingsGroup>
         ) : null}
         {showHostedMigration ? (
           <SettingsGroup title="Move to Hussh Pods" density="compact" headingClassName="!mt-5">
@@ -159,9 +193,11 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
             title="Hussh Pods"
             description={
               mode === "hussh_pods"
-                ? activeHostedProvider
-                  ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.`
-                  : "Your dedicated Hussh-hosted pod. You approve updates."
+                ? status?.deploymentTarget === "ace"
+                  ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure."
+                  : activeHostedProvider
+                    ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.`
+                    : "Your dedicated Hussh-hosted pod. You approve updates."
                 : hostedUnderMaintenance
                   ? "Dedicated hosting is unavailable for new setups."
                   : "Dedicated pod on Google Cloud or Microsoft Azure."

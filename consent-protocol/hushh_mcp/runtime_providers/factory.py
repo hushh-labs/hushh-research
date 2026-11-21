@@ -661,3 +661,22 @@ def build_gemini_byok_adk_model(
         model=clean_model,
         client_kwargs={"vertexai": False, "api_key": clean_key},
     )
+
+
+def build_sentinel_direct_genai_client(
+    *,
+    project: str,
+    location: str,
+    credentials: Any,
+    http_options: Any,
+) -> Any:
+    """Build the Sentinel :8082 Vertex ``genai.Client`` through the centralized factory."""
+    from google import genai  # noqa: PLC0415
+
+    return genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+        credentials=credentials,
+        http_options=http_options,
+    )

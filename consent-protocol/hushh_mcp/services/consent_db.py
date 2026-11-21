@@ -2639,18 +2639,29 @@ class ConsentDBService:
         """Atomically lease continuous-refresh jobs across tabs and devices."""
 
         db = self._get_db()
-        # ``DatabaseClient.rpc`` executes immediately and returns a QueryResult.
-        # Chaining ``.execute()`` here turns a successful refresh claim into an
-        # AttributeError, which makes the Memory surface report a 503.
-        response = await asyncio.to_thread(
-            db.rpc,
-            "claim_consent_export_refresh_jobs_v2",
-            {
-                "p_user_id": user_id,
-                "p_limit": max(1, min(int(limit), 100)),
-                "p_lease_seconds": max(30, min(int(lease_seconds), 900)),
-            },
-        )
+        params = {
+            "p_user_id": user_id,
+            "p_limit": max(1, min(int(limit), 100)),
+            "p_lease_seconds": max(30, min(int(lease_seconds), 900)),
+        }
+        # ``claim_consent_export_refresh_jobs_v2`` returns ``SETOF consent_export_refresh_jobs``.
+        # Calling it via ``SELECT * FROM ...`` expands composite columns instead of returning
+        # a single opaque tuple column under ``SELECT func(...)``.
+        if callable(getattr(db, "execute_raw", None)):
+            response = await asyncio.to_thread(
+                db.execute_raw,
+                (
+                    "SELECT * FROM claim_consent_export_refresh_jobs_v2("
+                    ":p_user_id, :p_limit, :p_lease_seconds)"
+                ),
+                params,
+            )
+        else:
+            response = await asyncio.to_thread(
+                db.rpc,
+                "claim_consent_export_refresh_jobs_v2",
+                params,
+            )
         return [row for row in (response.data or []) if isinstance(row, dict)]
 
     async def get_claimed_consent_export_refresh_job(

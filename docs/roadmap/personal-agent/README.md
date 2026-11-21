@@ -10,6 +10,7 @@ retains unfinished implementation and future designs; it is not a live deploymen
 - [Normal release transition](normal-release-transition.md): remaining acceptance and controlled delivery.
 - [Direct-runtime handoff](owner-pod-direct-runtime-handoff-2026-09-10.md): retained workstream requirements and owner boundaries.
 - [Browser completion](browser-completion-plan.md): native models, owner control and installed acceptance.
+- [Agent Sandbox microVM pool and Terminal](agent-sandbox-microvm-plan.md): single-use Kubernetes sandboxes, incremental encrypted workspace sync, outside egress mediation and Shared Runtime retirement.
 - [Remaining roadmap](roadmap.md): deferred capabilities and their prerequisites.
 
 ## Design contracts

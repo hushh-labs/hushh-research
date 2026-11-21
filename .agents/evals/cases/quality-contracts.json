@@ -21,6 +21,10 @@
       {
         "prompt": "verify S3, GCS, and Azure Blob CAS preconditions with Floci wire verification",
         "top_k": 3
+      },
+      {
+        "prompt": "use floci to accelerate our multi-cloud development locally before deploying",
+        "top_k": 3
       }
     ],
     "negative": [

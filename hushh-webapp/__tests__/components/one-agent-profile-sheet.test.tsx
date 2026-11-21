@@ -489,6 +489,21 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).toHaveBeenCalledWith(false);
   });
 
+  it.each([false, true])("unwinds task detail before closing the profile (native: %s)", async native => {
+    mocks.native = native;
+    mocks.loadTasks.mockResolvedValue({ tasks: [buildTodo({ title: "A private task" })] });
+    render(<OneAgentProfileSheet open nativeReady onOpenChange={mocks.close} />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("button", { name: "A private task", exact: true }));
+    const back = () => native ? fireEvent.click(screen.getByRole("button", { name: "Back to Chat" })) : fireEvent.keyDown(document, { key: "Escape" });
+    back();
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tasks" })).toBeVisible();
+    expect(mocks.close).not.toHaveBeenCalled();
+    back();
+    expect(mocks.close).toHaveBeenCalledWith(false);
+  });
+
   it("shows the shared live memory preview instead of static file cards, and closes before navigating", async () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid));
     render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);

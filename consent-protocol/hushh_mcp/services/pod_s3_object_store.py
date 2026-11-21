@@ -291,6 +291,10 @@ class S3ObjectStore:
         return await asyncio.to_thread(self.list_page_blocking, prefix, cursor, limit)
 
 
+_PROCESS_PREFIX_TOKEN_LOCK = threading.Lock()
+_PROCESS_PREFIX_TOKEN_CACHE: dict[tuple[str, str, str, str], tuple[str, float]] = {}
+
+
 class PrefixTokenObjectStore:
     """Prefix-scoped HTTPS bearer ObjectStore for zero-per-user-IAM-SA hosted cells / ACE.
 
@@ -342,13 +346,16 @@ class PrefixTokenObjectStore:
         static_token = (
             bearer_token if bearer_token is not None else (os.getenv(PREFIX_BEARER_TOKEN_ENV) or "")
         ).strip()
+        default_hub_url = ""
         if token_provider is None and not static_token:
             from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
                 PodHubClient,
                 hub_base_url,
             )
 
-            if hub_base_url():
+            resolved_hub_url = hub_base_url()
+            if resolved_hub_url:
+                default_hub_url = resolved_hub_url
                 hub_client = PodHubClient()
                 token_provider = lambda: hub_client.mint_storage_prefix_bearer()  # noqa: E731
         if not static_token and token_provider is None:
@@ -360,6 +367,16 @@ class PrefixTokenObjectStore:
         self._base_prefix = base_path
         self._prefix_segments = tuple(base_path.split("/"))
         self._token_provider = token_provider
+        self._process_cache_key: Optional[tuple[str, str, str, str]] = (
+            (
+                default_hub_url,
+                self._origin,
+                self._base_prefix,
+                (os.getenv("HUSSH_ID") or "").strip(),
+            )
+            if default_hub_url
+            else None
+        )
         self._token_lock = threading.Lock()
         self._token: Optional[str] = static_token or None
         self._token_expires_at: float = (
@@ -368,19 +385,27 @@ class PrefixTokenObjectStore:
         if static_token and token_provider is not None:
             self._token_expires_at = time.monotonic() + 840.0
         if session is None:
-            from hushh_mcp.services.pod_storage_transport import PodStorageTransport
+            from hushh_mcp.services.pod_storage_transport import (
+                shared_pod_storage_transport,
+            )
 
-            session = PodStorageTransport()
+            session = shared_pod_storage_transport()
         self._session = session
 
     def _current_token(self) -> str:
+        now = time.monotonic()
         with self._token_lock:
-            if self._token is not None and time.monotonic() < self._token_expires_at:
+            if self._token is not None and now < self._token_expires_at:
                 return self._token
             if self._token_provider is None and self._token is not None:
                 return self._token
             self._token = None
             self._token_expires_at = 0.0
+        if self._process_cache_key is not None:
+            with _PROCESS_PREFIX_TOKEN_LOCK:
+                hit = _PROCESS_PREFIX_TOKEN_CACHE.get(self._process_cache_key)
+                if hit is not None and now < hit[1]:
+                    return hit[0]
         if self._token_provider is None:
             raise PodMultiCloudStorageForbidden("prefix object store bearer token unavailable")
         try:
@@ -391,9 +416,13 @@ class PrefixTokenObjectStore:
         if not cleaned or len(cleaned) > 16384:
             raise PodMultiCloudStorageError("hub storage token broker returned invalid token")
         usable = max(1, int(ttl_seconds) - self._TOKEN_REFRESH_MARGIN_SECONDS)
+        expires_at = time.monotonic() + usable
         with self._token_lock:
             self._token = cleaned
-            self._token_expires_at = time.monotonic() + usable
+            self._token_expires_at = expires_at
+        if self._process_cache_key is not None:
+            with _PROCESS_PREFIX_TOKEN_LOCK:
+                _PROCESS_PREFIX_TOKEN_CACHE[self._process_cache_key] = (cleaned, expires_at)
         return cleaned
 
     def _invalidate_token(self) -> None:
@@ -402,6 +431,9 @@ class PrefixTokenObjectStore:
         with self._token_lock:
             self._token = None
             self._token_expires_at = 0.0
+        if self._process_cache_key is not None:
+            with _PROCESS_PREFIX_TOKEN_LOCK:
+                _PROCESS_PREFIX_TOKEN_CACHE.pop(self._process_cache_key, None)
 
     def _url(self, key: str) -> str:
         composed = "/".join(self._prefix_segments + object_key_segments(key))

@@ -88,7 +88,10 @@ database name and user. Each request constructs a bounded pool against the fixed
 UAT Cloud SQL socket, verifies each connection's database and user, and closes
 the pool. Firebase must be the UAT project; production identity, policy and key
 are never fallback sources. The managed socket mount must be checked against the
-UAT instance during release. These settings remain disabled until separately
+UAT instance during release. An explicit UAT policy with all three exclusion
+arrays empty includes every otherwise eligible registered UAT account. Missing
+or malformed policy is rejected. Disabled, deprovisioned and deleted accounts
+remain ineligible. These settings remain disabled until separately
 reconciled and accepted; UAT activity is test activity, not customer adoption.
 
 The request contains exactly `period: {startDate,endDate,timezone}`,
@@ -1977,6 +1980,8 @@ See [UAT policy and recovery](../../architecture/identity/rollout-and-environmen
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
 | POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
 | POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+| POST | `/api/one/sandbox/claims` | Firebase Bearer | Hub-only single-use Agent Sandbox claim allocator coalescing 1 active lease per owner (`direct_endpoint_url` when `HUSSH_SANDBOX_EDGE_GATEWAY_URL` is configured; `404` when `HUSSH_AGENT_SANDBOX_POOL_ENABLED` is off). |
+| GET,DELETE | `/api/one/sandbox/claims/{lease_id}` | Firebase Bearer | Inspect or tear down a claimed single-use sandbox lease with RAM scratch key zeroization and Sentinel surrogate revocation. |
 
 Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
 registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when
@@ -2682,6 +2687,33 @@ same business UID. A different or unidentified origin fails closed rather than
 merging two businesses merely because their names or contact details overlap.
 
 ### One task inventory and reviewed suggestions
+
+Task Sources saves the owner's selected capability IDs inside the encrypted
+`one_todos._private.selectedCapabilities` branch using the existing PKM write
+coordinator. Missing preferences retain the legacy nine-source selection; an
+empty list means all sources are off. Choices must load successfully before
+source collection starts. Disabled sources are excluded from collection,
+automatic projections and model inputs; manual tasks and private completion or
+dismissal records are preserved. Public discovery summaries contain counters,
+never source preferences. Coverage remains bounded and reports unavailable or
+partial reads explicitly; Memory supplies refresh metadata, not its contents.
+
+Private owners use `GET /api/one/pod/todos/suggestions/status` and
+`POST /api/one/pod/todos/suggestions`, through the existing admitted owner-direct
+transport. The body and result match the Shared suggestion contract below.
+These doors require the current app-role `pkm.read` session, a held incarnation
+and the matching pod owner. Hub consent-token relays, foreign owners and fenced
+sessions are refused. Inference uses the owner's configured native runtime,
+never the Shared model credential or a Shared fallback. Existing drain admission,
+concurrency bounds, disconnect cancellation and final authority revalidation
+apply. Model failures and validation errors disclose no supplied content and
+responses are private/no-store. Explicit processing consent and a separate
+owner-confirmed Add remain required. No task action or background schedule is
+executed. The existing rollout flag is unchanged.
+
+Local service/HTTP and browser-fixture checks cover the integrated contracts.
+Live private-owner/model acceptance must be repeated after a separately
+authorized deployment; local fixture checks do not establish deployed behavior.
 
 The private agent's profile Tasks preview and `/one/tasks` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,

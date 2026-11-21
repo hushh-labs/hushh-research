@@ -18,6 +18,7 @@ export type TaskReadContext = {
   isCurrent: () => boolean; mailConnected: boolean; calendarConnected: boolean;
   mailStatusKnown: boolean; calendarStatusKnown: boolean;
   signal?: AbortSignal;
+  selectedCapabilities?: readonly TaskCapability[];
 };
 const hrefFor = (id: TaskCapability) => getOneCapability(id)?.href ?? "/one";
 const result = (capability: TaskCapability, count: number, evidence: TaskEvidence[] = [], status: TaskCoverage["status"] = "ready"): CapabilityRead => ({ coverage: { capability, count, status }, evidence });
@@ -96,6 +97,7 @@ function readMemory(context: TaskReadContext): CapabilityRead {
 }
 
 export async function readTodoCapabilities(context: TaskReadContext): Promise<CapabilityRead[]> {
+  if (context.selectedCapabilities?.length === 0) return [];
   const epoch = snapshotVaultSessionEpoch();
   const idToken = await context.getIdToken();
   const current = () => context.isCurrent() && isVaultSessionEpochCurrent(epoch);
@@ -106,9 +108,10 @@ export async function readTodoCapabilities(context: TaskReadContext): Promise<Ca
     ["gmail", () => readMail(context, idToken)], ["calendar", () => readInvitations(context, idToken)],
     ["pkm", async () => readMemory(context)],
   ];
-  const results = await Promise.allSettled(tasks.map(([, read]) => read()));
+  const selected = tasks.filter(([capability]) => !context.selectedCapabilities || context.selectedCapabilities.includes(capability));
+  const results = await Promise.allSettled(selected.map(([, read]) => read()));
   if (!current()) throw new DOMException("Session changed", "AbortError");
-  return tasks.map(([capability], index) => {
+  return selected.map(([capability], index) => {
     const value = results[index];
     return value?.status === "fulfilled" ? value.value : result(capability, 0, [], "unavailable");
   });

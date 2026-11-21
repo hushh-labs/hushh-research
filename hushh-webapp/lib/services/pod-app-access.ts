@@ -34,15 +34,18 @@ type PrewarmedGrantsEntry = {
 };
 let prewarmedChatGrants: PrewarmedGrantsEntry | null = null;
 const prewarmInFlight = new Map<string, Promise<void>>();
+const directGrantsInFlight = new Map<string, Promise<Record<string, string>>>();
 
 export function resetCachedChatGrantsForTests(): void {
   prewarmedChatGrants = null;
   prewarmInFlight.clear();
+  directGrantsInFlight.clear();
 }
 
 export function forgetAgentAnswers(): void {
   clearTransportAgentAnswers();
   prewarmedChatGrants = null;
+  directGrantsInFlight.clear();
 }
 
 function prewarmGrantsCacheKey(uid: string, endpoint: PinnedEndpoint): string {
@@ -105,6 +108,8 @@ const OWNER_POD_ROUTES = new Set([
   "tasks/control",
   "calendar/events",
   "gmail/todos",
+  "todos/suggestions",
+  "todos/suggestions/status",
 ]);
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -223,10 +228,10 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
-  if (route === "calendar/events" || route === "gmail/todos") {
+  if (["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
+    const post = route === "calendar/events" || route === "todos/suggestions";
     if (session.role !== "app" || !session.scopes.includes("pkm.read") ||
-      method !== (route === "calendar/events" ? "POST" : "GET") ||
-      (route === "gmail/todos" && body != null)) {
+      method !== (post ? "POST" : "GET") || (!post && body != null)) {
       throw new Error("POD_TASK_SOURCE_READ_REFUSED");
     }
   }
@@ -450,11 +455,13 @@ async function chatGrantsFollowingEndpoint(
         grants: cached.grants,
       };
     }
+    const grants = await directChatGrantsDeduped(cacheKey, connection.endpoint, transport, signal);
     return {
       ...connection,
-      grants: await directChatGrants(connection.endpoint, transport, signal),
+      grants,
     };
   } catch (error) {
+    prewarmedChatGrants = null;
     if (!(error instanceof EndpointAdvancedError)) throw error;
     const ownerPod = await import("./owner-pod-endpoint");
     const next = await beforeTurnIsSent(async () => {
@@ -477,6 +484,27 @@ async function chatGrantsFollowingEndpoint(
       ...next,
       grants: await directChatGrants(next.endpoint, transport, signal),
     };
+  }
+}
+
+async function directChatGrantsDeduped(
+  cacheKey: string,
+  endpoint: PinnedEndpoint,
+  transport: OwnerPodTransport,
+  signal?: AbortSignal | null,
+): Promise<Record<string, string>> {
+  const existing = directGrantsInFlight.get(cacheKey);
+  if (existing) {
+    return untilCancelled(existing, signal);
+  }
+  const work = directChatGrants(endpoint, transport, signal);
+  directGrantsInFlight.set(cacheKey, work);
+  try {
+    return await untilCancelled(work, signal);
+  } finally {
+    if (directGrantsInFlight.get(cacheKey) === work) {
+      directGrantsInFlight.delete(cacheKey);
+    }
   }
 }
 
@@ -553,6 +581,7 @@ export async function reconnectOwnerPod(
 ): Promise<void> {
   const admittedOwner = capturePodOwner();
   const uid = admittedOwner.ownerId;
+  prewarmedChatGrants = null;
   const status = await ports.hosting();
   if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   if (!isPrivateHostingMode(status.hostingMode) || status.state !== "active") {
@@ -626,7 +655,7 @@ export async function prewarmOwnerPodChatAccess(ports: {
       await Promise.allSettled([
         alreadyFresh
           ? Promise.resolve()
-          : directChatGrants(connection.endpoint, transport)
+          : directChatGrantsDeduped(cacheKey, connection.endpoint, transport)
               .then((grants) => {
                 if (
                   Object.keys(grants).length > 0 &&

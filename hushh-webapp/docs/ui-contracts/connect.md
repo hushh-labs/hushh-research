@@ -945,6 +945,14 @@ scroll restoration wait for that read. Foreground refreshes also preserve the
 current result while checking availability. This display-only snapshot is never
 used for private mutual or connection lists. Graph changes, authentication changes
 and denied reads clear affected rows immediately.
+
+Feed resume and stream-gap repair are reconciliation hints, not confirmed graph
+mutations. They abort older discovery reads, expire all filters and immediately
+revalidate while retaining their session display snapshots. Explicit graph changes
+win when coalesced with recovery hints; private lists remain strict on either signal.
+Network directory identity reads reuse the caller's transaction connection, including
+generation checks and isolated visibility notifications, without borrowing another
+pool slot or changing the caller's statement budget.
 Cold reload or evicted visit memory returns to the authored route without
 reconstructing private history.
 

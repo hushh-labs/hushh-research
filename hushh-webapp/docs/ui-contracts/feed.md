@@ -33,7 +33,7 @@ and retain their existing behavior.
 
 ```mermaid
 flowchart TD
-  feed["Feed"] --> prompts["Push, sound and payment return"]
+  feed["Feed"] --> prompts["Explicit payment return"]
   feed --> live["Live"]
   feed --> needs["Needs you"]
   feed --> recentSms["Recent SMS alerts"]
@@ -74,10 +74,10 @@ Sources: [route](../../app/one/feed/page.tsx),
 [page](../../components/feed/feed-page.tsx), and
 [shared detail surface](../../components/app-ui/settings-ui.tsx).
 
-Visible order is notification recovery, payment-return notice, compact bank
-payout status, browser sound control, **Live**, **Needs you**, **Coming up**,
-**In progress**, then history and its footer controls. Empty sections are
-omitted; section counts are current account state, not product limits.
+Visible order is an explicit payment-return notice, **Live**, **Needs you**,
+**Coming up**, **In progress**, history, the compact bank payout summary and
+footer controls. Notification recovery lives in Profile preferences. Empty
+sections are omitted; section counts are current account state, not product limits.
 
 | State / CTA | Current behavior |
 | --- | --- |
@@ -299,28 +299,22 @@ Owners: [private briefing](../../lib/feed/use-feed-briefing.ts),
 [progress projection](../../lib/feed/drive-request-progress.ts),
 [progress row](../../components/feed/feed-drive-progress-row.tsx).
 
-## Payment returns, bank status, push, and sound
+## Payment returns and bank status
 
 | Surface / CTA | Current behavior |
 | --- | --- |
 | Drive payment return | Valid UUID `paymentRequestId` plus checkout hint. Server decides paid/processing/reconciliation/refund/expired/closed/incomplete/unavailable state. Successful return polls at three seconds up to 40 checks; no manual Retry/dismiss. |
 | Answer payment return | `answerPaymentRequestId`, or compatible paid/cancelled answer return. Server decides status; **Refresh question** restarts checks, with the same bounded pending polling. |
 | Compact Bank payout | Only with owner token and latest deposit. Reports actual deposit state/error; test deposits explicitly say no real money moves. No action/Retry; absence does not mean no earnings. |
-| Push Turn on | Browser default permission: gesture requests permission and registers device. |
-| Push Retry | Permission granted but device registration incomplete. Busy disables CTA. |
-| Browser denied permission | Site-settings explanation; no dead request-permission CTA. |
-| Native Open settings | Denied/quiet OS notification state; default registration can instead offer retry. Hidden when working or unsupported. |
-| Feed sound off/on | Browser-only, account-local preference with pressed state; enabling previews cue. Saved enabled preference can need **Tap to activate**. |
 
-Feed sound occurs only for visible authenticated newer activity correlated
-with a nonsilent push within 15 seconds, with ten-second burst suppression.
-Hydration, baseline/polling and local mutations do not sound. Native does not
-duplicate this browser control. Owners:
+Feed opens on actionable work or recent activity. An explicit checkout
+return can show its receipt status. The compact bank payout summary follows
+activity. Notification recovery lives in Profile → Appearance & preferences →
+Notifications. The Feed-only chime and its device preference are retired.
+Payment owners:
 [Drive return](../../components/feed/feed-payment-return-notice.tsx),
 [answer return](../../components/feed/answer-payment-return-notice.tsx),
-[bank deposits](../../components/consent/payouts/bank-deposits.tsx),
-[push](../../components/feed/feed-push-prompt.tsx),
-[sound](../../components/feed/feed-sound-control.tsx).
+[bank deposits](../../components/consent/payouts/bank-deposits.tsx).
 
 ## Historical row destination catalog
 
@@ -595,16 +589,17 @@ Sources: [answer/document action projection](../../lib/feed/use-feed-actionables
 | Requester answer | `Answer not found`; `Their answer is being prepared`; `Ask them to unlock memory and retry preparation`; `Pay {price} · {question}`; `Pay {price}`; `Review price and pay`; `Open the answer`; `Waiting for them to set a price` |
 | Answer controls/error | `Deny`; `Allow`; `Write answer`; `Review question`; `Review price and pay`; `Open`; `Pay {price}`; `Checkout couldn't open. You weren't charged.` |
 | Document payment row | `Pay {price} · {purpose}`; `Pay {price} for files from {owner}` / `Pay {price} for your document request`; `Waiting for owner setup`; `Payment link expired`; `Document request expired` |
+| Direct Pay action | `{purpose}` / `Document request from {owner}` / `Document request ready`. The button shows `Pay {price}`. |
 | Supporting fragments | `Quote {price}`; `From {owner}`; `Requested {month day}`; `{N}s left`; `{N}m left`; `{N}h left`; fragments join ` · `. Purpose whitespace-normalized/shortened72 Unicode characters here, full review retains it. |
 | Request expiry | `Your request for files from {owner} expired before payment.` / `This request expired before payment.` |
 | Checkout expiry | `The {price} link for files from {owner} expired.` / `The {price} link expired.` |
 | Setup/ready | `Quote {price} · {owner} is setting up payouts.` / `Quote {price} · Owner payout setup pending.`; `{deadline} to pay.` / `You requested files from {owner}. Pay to continue.`; packet `Review packet` |
 | Checkout failure | `You already have access. No payment was taken.`; `You already have access to part of this packet. Checkout is paused.`; `Checkout couldn't open. Try again.` |
-| Progress title | `Waiting to start`; `Taking longer than usual`; `One is finding documents`; `One is checking documents`; `One is sharing documents` |
+| Progress title | `Waiting to start`; `Taking longer than usual`; `Finding your documents` / `Finding documents`; `Checking documents`; `Sharing your documents` / `Sharing documents with you` |
 | Queued | `Request allowed. The Drive search starts soon.`; `Trusted Circle request. The Drive search starts soon.` |
 | Delayed/checking | `This request is saved and continues automatically.` / `Your request is saved and continues automatically.`; `One is checking the documents for this request.` |
-| Allowed incoming/outgoing | `Request allowed. One is handling it for you. Sharing is automatic.` / `Request allowed. One is handling it. Files appear after access is confirmed.` |
-| Trusted incoming/outgoing | `One is handling a Trusted Circle request for you. Sharing is automatic.` / `One is handling your Trusted Circle request. Files appear after access is confirmed.` |
+| Allowed incoming/outgoing | `Request allowed. Sharing is automatic.` / `Request allowed. Files appear once access is confirmed.` |
+| Trusted incoming/outgoing | `Trusted Circle request. Sharing is automatic.` / `Files appear once access is confirmed.` |
 | Pending/evaluation | `Document request sent`; `Waiting for the owner to review your request.`; `Documents unavailable`; `One couldn't verify the documents for this request.`; `Waiting for price`; `Waiting for owner setup`; `Documents from {owner}` / `Document request pending` |
 | Progress overflow | `View all received requests`; `View all sent requests`; `View all active requests` |
 | Common return | `Checking payment status…` |
@@ -646,17 +641,12 @@ Back/Escape/dismissal cancel draft; busy refuses close. Shared-files has no
 filename preview/open/download/three-dot control. Opening its option actions
 is local; the exact remove/Undo requests are in the preceding mutation table.
 
-| Root device/bank control | Exact English |
+| Root bank control | Exact English |
 | --- | --- |
 | Deposits | `Bank payout`; `{price} bank payout pending.` / `on its way.` / `paid.` / `canceled.` / `failed. Check your linked bank details.`; optional `Test · `; `Couldn't check bank payouts right now.`; `Simulated deposits. No real money moves.`; `Bank payouts may combine earnings from multiple requests.` |
-| Push default/granted | `Get notifications for direct messages, Circle chats, and requests.` / `Turn on`; `Reconnect notifications to receive message alerts.` / `Retry` |
-| Push denied/quiet | Browser `Notifications are blocked for One in this browser. Allow them in site settings to get alerts.` no CTA; native `Allow notifications in device settings to get message alerts.` / `Open settings`; `Device alerts or sounds are off. Enable them in notification settings to hear alerts.` / `Open settings` |
-| Sound | `Feed sound off`; `Feed sound on`; `Tap to activate`; `Plays while Feed is open. Mac alerts may sound too.` |
 
 Sources: [deposits](../../components/consent/payouts/bank-deposits.tsx),
-[bank copy](../../components/consent/payouts/payout-copy.ts),
-[push](../../components/feed/feed-push-prompt.tsx),
-[sound](../../components/feed/feed-sound-control.tsx).
+[bank copy](../../components/consent/payouts/payout-copy.ts).
 
 ### Historical event → metadata → copy → destination
 

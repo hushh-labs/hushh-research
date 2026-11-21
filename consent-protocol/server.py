@@ -1582,7 +1582,7 @@ async def startup_umbrella_cell_replenisher_worker() -> None:
 
 @app.on_event("startup")
 async def startup_source_pod_retirement_worker() -> None:
-    """Enforce Dev 14-day two-key source-pod retirement (grace expiry + owner confirmation)."""
+    """Enforce Dev 3-day two-key source-pod retirement (grace expiry + owner confirmation)."""
     if pod_mode():
         logger.info("startup.source_pod_retirement_skipped reason=pod_mode")
         return

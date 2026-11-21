@@ -37,6 +37,10 @@ def _bounded_text(value: Any, limit: int) -> str | None:
 
 _WORKSPACE_SETUP_TOOLS = frozenset({"discover_workspace_tools", "read_workspace_tool"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
+_MANAGED_CONNECTOR_PROVIDERS = frozenset(
+    {"plaid", "stripe", "drive", "gmail", "calendar", "custom"}
+)
+_CONNECTOR_ACTIVITY_TOOLS = _WORKSPACE_SETUP_TOOLS | {"manage_connector"}
 _CUSTOM_CONNECTOR_ID = re.compile(r"^custom_[a-f0-9]{32}$")
 _CUSTOM_CONNECTOR_STATUSES = frozenset({"saved", "disabled", "reconnect_needed"})
 
@@ -63,11 +67,17 @@ def _call_providers(events: list[Any]) -> dict[str, str]:
     for event in events:
         for part in getattr(getattr(event, "content", None), "parts", None) or []:
             call = getattr(part, "function_call", None)
-            if call is None or getattr(call, "name", "") not in _WORKSPACE_SETUP_TOOLS:
+            call_name = getattr(call, "name", "") if call is not None else ""
+            if call is None or call_name not in _CONNECTOR_ACTIVITY_TOOLS:
                 continue
             call_id = _bounded_text(getattr(call, "id", None), 128)
             provider = (_record(getattr(call, "args", None)) or {}).get("provider")
-            if call_id and provider in _WORKSPACE_PROVIDERS:
+            allowed = (
+                _MANAGED_CONNECTOR_PROVIDERS
+                if call_name == "manage_connector"
+                else _WORKSPACE_PROVIDERS
+            )
+            if call_id and provider in allowed:
                 providers[call_id] = provider
     return providers
 
@@ -132,12 +142,15 @@ def _safe_workspace_connector_setup_descriptor(
                     **({"saved": saved} if saved else {}),
                 },
             }
-        if name not in _WORKSPACE_SETUP_TOOLS:
+        if name not in _CONNECTOR_ACTIVITY_TOOLS:
             continue
         status = result.get("status")
-        if status == "permission_required":
+        if status in {"permission_required", "connect_required"}:
             setup_status = "connect_required"
-        elif name == "discover_workspace_tools" and status in {"api_available", "ok"}:
+        elif (name == "discover_workspace_tools" and status in {"api_available", "ok"}) or (
+            name == "manage_connector"
+            and status in {"manage_available", "api_available", "ok", "setup_available"}
+        ):
             setup_status = "manage_available"
         else:
             continue
@@ -147,11 +160,19 @@ def _safe_workspace_connector_setup_descriptor(
         if result_provider and argument_provider and result_provider != argument_provider:
             continue
         provider = result_provider or argument_provider
-        if provider not in _WORKSPACE_PROVIDERS:
+        allowed_providers = (
+            _MANAGED_CONNECTOR_PROVIDERS if name == "manage_connector" else _WORKSPACE_PROVIDERS
+        )
+        if provider not in allowed_providers:
             continue
+        content: dict[str, Any] = {"provider": provider, "status": setup_status}
+        if provider == "custom":
+            saved = _saved_connectors(result)
+            if saved:
+                content["saved"] = saved
         return {
             "activityType": "one.workspace_connector_setup.v1",
-            "content": {"provider": provider, "status": setup_status},
+            "content": content,
         }
     return None
 
@@ -170,6 +191,7 @@ _ACTIVITY_TOOLS = frozenset(
         "inspect_selected_drive_files",
         "read_selected_drive_search_result",
         "inspect_private_connectors",
+        "manage_connector",
         "probe_private_connector",
         "discover_workspace_tools",
         "read_workspace_tool",
@@ -236,6 +258,8 @@ _ACTIVITY_TOOLS = frozenset(
         "resolve_onboarding_goal",
         "get_current_time",
         "get_my_location",
+        "sync_plaid_connector",
+        "read_plaid_mirror",
     }
 )
 _MCP_ACTIVITY_TOOL = re.compile(r"^mcp_[0-9a-f]{40}$")
@@ -321,12 +345,16 @@ def _safe_turn_activity(events: list[Any]) -> dict[str, Any] | None:
                 step = {"id": call_id, "tool": name, "status": "interrupted"}
                 if call_id in providers:
                     step["provider"] = providers[call_id]
+                elif name in {"sync_plaid_connector", "read_plaid_mirror"}:
+                    step["provider"] = "plaid"
                 by_call[call_id] = step
                 steps.append(step)
             if response is not None:
                 step.update(_activity_step_from_response(name, getattr(response, "response", None)))
                 provider = _status_result(getattr(response, "response", None)).get("provider")
-                if name in _WORKSPACE_SETUP_TOOLS and provider in _WORKSPACE_PROVIDERS:
+                if (name in _WORKSPACE_SETUP_TOOLS and provider in _WORKSPACE_PROVIDERS) or (
+                    name == "manage_connector" and provider in _MANAGED_CONNECTOR_PROVIDERS
+                ):
                     step["provider"] = provider
     if not steps:
         return None

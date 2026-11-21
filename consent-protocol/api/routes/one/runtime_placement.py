@@ -106,6 +106,13 @@ async def select_shared(user_id: str) -> None:
     if mode == "unknown":
         raise _hosting_unavailable()
     if mode not in {"shared", "unplaced"}:
+        from hushh_mcp.services.pooled_sandbox_cutover import (  # noqa: PLC0415
+            sandbox_pool_cutover_enabled,
+        )
+
+        if mode == "hussh_pods" and sandbox_pool_cutover_enabled():
+            await runtime._write_cloud_setup_marker(user_id)
+            return
         raise _refuse(
             409,
             "POD_ASSIGNMENT_PRESERVED",

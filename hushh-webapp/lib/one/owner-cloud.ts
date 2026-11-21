@@ -71,6 +71,7 @@ export function podCloudProvider(target: unknown): OwnerCloudProvider | null {
 
 /** Display title identifying both Hussh Pods and its backing cloud provider when known. */
 export function hostedPodDisplayLabel(target: unknown): string {
+  if (target === "ace") return "Hussh Pods · Personal Sandbox";
   const provider = hostedPodProvider(target);
   return provider ? `Hussh Pods · ${HOSTED_POD_PROVIDER_LABELS[provider]}` : "Hussh Pods";
 }
@@ -112,6 +113,11 @@ export function isHostedPodTierUnderMaintenance(): boolean {
 /** Whether migrating an active pod onto Dev Hussh Pods (Azure Umbrella Cell) is available. */
 export function isHostedAzureMigrationAvailable(): boolean {
   if (process.env.NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED === "1") return true;
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
+}
+
+/** Whether switching onto Pooled Personal Sandbox is available on this build. */
+export function isPooledSandboxSwitchAvailable(): boolean {
   return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }
 

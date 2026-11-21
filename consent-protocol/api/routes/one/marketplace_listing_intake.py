@@ -71,7 +71,9 @@ async def prepare_listing_intake(
                 str(key["connector_public_key"])
             ),
             "duration_seconds": body.duration_seconds,
-            "refresh_policy": "snapshot",
+            "refresh_policy": "continuous_until_expiry"
+            if body.duration_seconds > 0
+            else "snapshot",
             "purpose": body.purpose,
             "reason": body.purpose,
         }

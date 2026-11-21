@@ -1,0 +1,53 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_todos",
+  "surface_title": "To-do list",
+  "docs_references": ["docs/development/contracts/api-contracts.md"],
+  "defaults": {
+    "speaker_persona": "one",
+    "reachability": {
+      "active_personas": ["investor", "ria"],
+      "routes": ["/one/tasks", "/one"],
+      "screens": ["app", "one_agents"],
+      "hidden_navigable": false
+    }
+  },
+  "actions": [
+    {
+      "action_id": "todos.sources",
+      "label": "Task sources",
+      "meaning": "The person chooses which existing capabilities contribute to tasks. Choices stay in encrypted private memory and do not grant new connector access.",
+      "aliases": [], "search_keywords": ["task sources"],
+      "guard_ids": ["manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
+      "execution_target": {"status": "unwired", "reason": "The person chooses sources in the existing sheet.", "intended_handler": "TodoTaskSources.save"},
+      "control_ids": [], "state_exposure": [], "docs_references": ["components/todos/todo-task-sources.tsx"]
+    },
+    {
+      "action_id": "todos.detail",
+      "label": "View task details",
+      "meaning": "The person opens one task detail view and returns to the same list with Back. Opening details does not execute a source action.",
+      "aliases": [], "search_keywords": ["task details"],
+      "guard_ids": ["manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
+      "execution_target": {"status": "unwired", "reason": "The person selects a task in their list.", "intended_handler": "TodoTaskDetail"},
+      "control_ids": [], "state_exposure": [], "docs_references": ["components/todos/todo-task-detail.tsx"]
+    },
+    {
+      "action_id": "todos.complete",
+      "label": "Mark as completed",
+      "meaning": "The person marks a task complete or restores it through the existing encrypted task store. Source records stay unchanged.",
+      "aliases": [], "search_keywords": ["complete task"],
+      "guard_ids": ["manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
+      "execution_target": {"status": "unwired", "reason": "The person confirms task completion in the existing view.", "intended_handler": "TodoListPkmService.setStatus"},
+      "control_ids": [], "state_exposure": [], "docs_references": ["components/todos/todo-task-detail.tsx"]
+    },
+    {
+      "action_id": "todos.remove",
+      "label": "Remove task",
+      "meaning": "The person confirms removal of a task. A private dismissal prevents automatic reappearance without deleting the source meeting, email or request.",
+      "aliases": [], "search_keywords": ["remove task"],
+      "guard_ids": ["manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
+      "execution_target": {"status": "unwired", "reason": "Removal requires the person's explicit confirmation.", "intended_handler": "TodoListPkmService.remove"},
+      "control_ids": [], "state_exposure": [], "docs_references": ["components/todos/todo-task-detail.tsx"]
+    }
+  ]
+}

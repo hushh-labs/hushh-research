@@ -41,6 +41,21 @@ describe("owner pod endpoint", () => {
     }
   });
 
+  it("admits pooled ACE /u/{hushhId} edge URLs and refuses mismatched /u paths", async () => {
+    world.deploymentTarget = "ace";
+    world.hostingMode = undefined;
+    const pooledUrl = "https://sandbox-edge.dev.one.hussh.ai/u/ha1_owner";
+    world.endpoint = endpointBody({ url: pooledUrl });
+    const session = await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    expect(session.url).toBe(pooledUrl);
+
+    await ownerPod.forgetOwnerPodState(USER);
+    world.endpoint = endpointBody({ url: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_other" });
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow(
+      "ENDPOINT_MALFORMED",
+    );
+  });
+
   it("does not enroll a fresh browser during bounded reviewer reads, while normal enrollment remains available", async () => {
     const previous = window.__HUSHH_NATIVE_TEST__;
     try {

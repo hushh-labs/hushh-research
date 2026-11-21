@@ -100,6 +100,7 @@ import {
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
+import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
 import { ExperimentalNativeInterface } from "@/components/profile/experimental-native-interface";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -3797,6 +3798,12 @@ function ProfilePageContent({
       </>
       )}
       <ExperimentalNativeInterface />
+      <SettingsGroup title="Notifications">
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          Manage device alerts for messages, shares, and requests.
+        </p>
+        <FeedPushPrompt context="settings" />
+      </SettingsGroup>
       <CommunicationPreferencesSection
         nativeScene={presentation === "native-page"}
         userId={applicationOwnerId ?? null}

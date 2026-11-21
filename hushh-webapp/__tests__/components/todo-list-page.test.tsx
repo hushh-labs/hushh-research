@@ -279,6 +279,21 @@ describe("TodoListPage row actions", () => {
     expect(editor.changeDraft({ ...draft, title: "Late old editor" } as never)).toBe(false);
   });
 
+  it.each(["wallet", "messages", "ria", "pkm"] as const)("reports unavailable selected %s reads instead of claiming no pending work", async capability => {
+    mocks.events = [];
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [], selectedCapabilities: [capability] });
+    mocks.reads = [{ coverage: { capability, count: 0, status: "unavailable" }, evidence: [] }];
+    const view = render(<TodoListPage />);
+    expect(await screen.findByText("Some tasks couldn’t load.")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "No tasks yet" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    expect(mocks.retrySources).toHaveBeenCalledOnce();
+    mocks.reads = [{ coverage: { capability, count: 0, status: "ready" }, evidence: [] }];
+    view.rerender(<TodoListPage />);
+    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(screen.queryByText("Some tasks couldn’t load.")).not.toBeInTheDocument();
+  });
+
   it("shows a truthful empty collection and distinguishes completed-only state", async () => {
     mocks.events = [];
     const view = render(<TodoListPage />);
@@ -301,7 +316,7 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByText("Reply to Saru: Meeting details")).toBeVisible();
     expect(screen.getByText("Review the plan")).toBeVisible();
     expect(screen.getByRole("link", { name: "Open Reply to Saru: Meeting details" })).toHaveAttribute("href", "/one/gmail");
-    for (const text of ["Task sources", "Suggest tasks", "Refresh sources", "Email tasks couldn’t load."]) {
+    for (const text of ["Suggest tasks", "Refresh sources", "Email tasks couldn’t load."]) {
       expect(screen.queryByText(text)).not.toBeInTheDocument();
     }
   });
@@ -547,25 +562,19 @@ describe("TodoListPage row actions", () => {
     expect(screen.getByRole("button", { name: "Delete Parallel task" })).toBeEnabled();
   });
 
-  it.each(["completion", "deletion"] as const)("does not roll a failed %s over a newer loaded deletion", async mutation => {
+  it("does not collect live sources until saved source choices can be verified", async () => {
+    const save = vi.spyOn(TodoListPkmService, "setStatus");
     vi.mocked(TodoListPkmService.load).mockRejectedValueOnce(new Error("offline"));
-    const write = deferredWrite();
-    const save = vi.spyOn(TodoListPkmService, "setStatus").mockImplementation(() => write.promise);
-    const remove = vi.mocked(TodoListPkmService.remove).mockImplementation(() => write.promise);
     render(<TodoListPage />);
     await screen.findByText("Your saved items couldn’t load.");
-    if (mutation === "completion") {
-      fireEvent.click(screen.getByRole("checkbox", { name: "Mark Review the plan as completed" }));
-    } else {
-      fireEvent.click(screen.getByRole("button", { name: "Delete Review the plan" }));
-      fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
-    }
-    const task = (mutation === "completion" ? save : remove).mock.calls[0]![0].task;
-    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [{ ...task, status: "deleted", deletedAt: "2026-11-16T10:00:00Z" }] });
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true })); });
-    expect(screen.queryByText("Your saved items couldn’t load.")).not.toBeInTheDocument();
-    await act(async () => { write.resolve({ success: false, saveState: "failed", fullBlob: {} }); });
     expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+    const task = buildTodo(todoService.calendarTodoInput(mocks.events[0]!)!);
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [{ ...task, status: "deleted" }], selectedCapabilities: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    await waitFor(() => expect(screen.queryByText("Your saved items couldn’t load.")).not.toBeInTheDocument());
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+    expect(TodoListPkmService.remove).not.toHaveBeenCalled();
   });
 
   it("rejects duplicate native mutations and holds Back until every task write settles", async () => {

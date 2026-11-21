@@ -8,7 +8,7 @@ per-user GCP IAM Service Accounts (eliminating the 100-SA/project quota bottlene
 - Object storage uses prefix-scoped bearer capabilities (`POD_STORAGE_PREFIX_TOKEN_URL`);
 - Ingress is strictly internal (`ingress.internalOnly = True`);
 - `APP_SIGNING_KEY` and `POD_STORAGE_PREFIX_BEARER_TOKEN` are resolved via sandbox
-  secret references (`secretRef`) — never rendered inline.
+  secret references (`secretRef`): never rendered inline.
 """
 
 from __future__ import annotations
@@ -175,3 +175,84 @@ class AceComputeBackend:
                 },
             },
         }
+
+    def render_k8s_agent_sandbox_bundle(
+        self,
+        spec: PodSpec,
+        *,
+        namespace: str = "hussh-agents",
+        runtime_class: str = "microvm",
+        warm_pool_replicas: int = 8,
+    ) -> dict[str, dict[str, Any]]:
+        """Render portable GKE/EKS/AKS `extensions.agents.x-k8s.io/v1beta1` microVM manifests (#9744)."""
+        from hushh_mcp.operons.agent_sandbox.k8s_manifests import (
+            SUPPORTED_SANDBOX_RUNTIME_CLASSES,
+            render_agent_sandbox_bundle,
+        )
+
+        if runtime_class not in SUPPORTED_SANDBOX_RUNTIME_CLASSES:
+            raise ValueError(f"Unsupported sandbox runtimeClassName: {runtime_class!r}")
+        image = f"gcr.io/{self._cell_project}/consent-protocol-pod@{self._image_digest}"
+        return render_agent_sandbox_bundle(
+            claim_name=f"claim-{_slug(spec.hushh_id)}",
+            billing_space_id=str(spec.billing_space_id or spec.hushh_id),
+            image_ref=image,
+            namespace=namespace,
+            runtime_class=runtime_class,  # type: ignore[arg-type]
+            warm_pool_replicas=warm_pool_replicas,
+        )
+
+    def build_hub_sandbox_router(
+        self,
+        *,
+        audit_hmac_key: bytes,
+        namespace: str = "hussh-agents",
+        warm_pool_name: str = "hussh-one-warm-pool",
+        require_invite: bool = False,
+        weekly_limit_units: int | None = None,
+        sentinel_control_url: str | None = None,
+        sentinel_control_token: str | None = None,
+        edge_gateway_url: str | None = None,
+        use_in_cluster_k8s: bool = False,
+    ) -> Any:
+        """Assemble the Hub SandboxClaim allocator and single-use lease router (#9744)."""
+        from hushh_mcp.operons.agent_sandbox.tamper_evident_audit import TamperEvidentAuditLedger
+        from hushh_mcp.services.agent_sandbox.hub_sandbox_router import HubSandboxSessionRouter
+        from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
+            InMemorySandboxClaimClient,
+            LiveK8sSandboxClaimClient,
+            SandboxClaimPort,
+            SentinelControlClient,
+        )
+        from hushh_mcp.services.agent_sandbox.lease_manager import (
+            VirginSandboxLeaseManager,
+            WeeklySandboxQuotaLedger,
+        )
+
+        ledger = TamperEvidentAuditLedger(audit_hmac_key)
+        quota = WeeklySandboxQuotaLedger(
+            weekly_limit_units=weekly_limit_units,
+            require_invite=require_invite,
+        )
+        lease_mgr = VirginSandboxLeaseManager(quota_ledger=quota, audit_ledger=ledger)
+        claim_client: SandboxClaimPort = (
+            LiveK8sSandboxClaimClient.from_incluster(namespace=namespace)
+            if use_in_cluster_k8s
+            else InMemorySandboxClaimClient()
+        )
+        sentinel = (
+            SentinelControlClient(
+                base_url=sentinel_control_url,
+                control_token=sentinel_control_token,
+            )
+            if sentinel_control_url and sentinel_control_token
+            else None
+        )
+        return HubSandboxSessionRouter(
+            claim_client=claim_client,
+            lease_manager=lease_mgr,
+            audit_ledger=ledger,
+            sentinel_control=sentinel,
+            warm_pool_name=warm_pool_name,
+            edge_gateway_url=edge_gateway_url,
+        )

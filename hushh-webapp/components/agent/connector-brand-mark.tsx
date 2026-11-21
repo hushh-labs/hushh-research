@@ -10,13 +10,15 @@ import { cn } from "@/lib/utils";
  * Official product marks vendored under public/icons/connectors (see its
  * README for sources).
  */
-export type ConnectorBrand = "gmail" | "drive" | "calendar" | "contacts";
+export type ConnectorBrand = "gmail" | "drive" | "calendar" | "contacts" | "plaid" | "stripe";
 
 export function connectorBrandFor(value: unknown): ConnectorBrand | null {
   return value === "gmail" ||
     value === "drive" ||
     value === "calendar" ||
-    value === "contacts"
+    value === "contacts" ||
+    value === "plaid" ||
+    value === "stripe"
     ? value
     : null;
 }
@@ -31,13 +33,19 @@ export function ConnectorBrandMark({
   size?: "sm" | "md";
   className?: string;
 }) {
+  const artworkId = connectorArtworkId(brand);
+  const monochrome = artworkId ? CONNECTOR_ARTWORK[artworkId].monochrome : false;
   const image = (
     // eslint-disable-next-line @next/next/no-img-element -- local static SVG; next/image adds nothing here.
     <img
       src={`/icons/connectors/${brand}.svg`}
       alt=""
       data-connector-brand={brand}
-      className={size === "sm" ? cn("size-3.5 shrink-0 object-contain", className) : "size-5 object-contain"}
+      className={cn(
+        size === "sm" ? "size-3.5 shrink-0 object-contain" : "size-5 object-contain",
+        monochrome && "dark:invert",
+        size === "sm" ? className : undefined,
+      )}
     />
   );
   if (size === "sm") return image;

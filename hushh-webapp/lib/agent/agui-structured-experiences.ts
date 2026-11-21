@@ -222,6 +222,8 @@ export type SharedWithMeCardItem = {
   status: "granted" | "revoked" | "expired" | null;
   /** False when the server knows there is nothing to open (no bundle); rare. */
   decryptable?: boolean;
+  /** Increments automatically when a continuous subscription refreshes; never contains values. */
+  exportRevision?: number | null;
 };
 
 export type SharedWithMeCard = {
@@ -698,6 +700,11 @@ function parseSharedWithMeItems(value: unknown, fallbackPurpose: string | null):
       status: status === "granted" || status === "revoked" || status === "expired" ? status : null,
       ...(item.decryptable === false ? { decryptable: false } : {}),
       ...(fields.length ? { fields } : {}),
+      ...(typeof item.exportRevision === "number" && Number.isFinite(item.exportRevision)
+        ? { exportRevision: item.exportRevision }
+        : typeof item.export_revision === "number" && Number.isFinite(item.export_revision)
+          ? { exportRevision: item.export_revision }
+          : {}),
     }];
   });
 }

@@ -43,7 +43,16 @@ export function WalletProfileBootstrap() {
           avatarUrl,
         });
         if (!cancelled) completedOwner.current = userId;
-      } catch {
+      } catch (err: unknown) {
+        const status =
+          typeof err === "object" && err !== null && "status" in err
+            ? (err as { status?: unknown }).status
+            : undefined;
+        if (status === 404) {
+          // Stop retrying when wallet-card provisioning is disabled or absent on this deployment.
+          if (!cancelled) completedOwner.current = userId;
+          return;
+        }
         // A background failure must not block sign-in or expose account fields.
         // The owner screen also retries when opened; reconnect/focus can recover.
         const delay = RETRY_DELAYS[attempt++];

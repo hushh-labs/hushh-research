@@ -79,9 +79,12 @@ async function readPin(userId: string): Promise<PinRecord> {
     };
 }
 
+const bindingInFlight = new Map<string, Promise<{ binding: Record<string, unknown>; signature: string }>>();
+
 /** Test and sign-out hook: forget everything held for one account. */
 async function forgetOwnerPodStateUnlocked(userId: string): Promise<void> {
   forgetDirectAdmission(userId);
+  bindingInFlight.clear();
   await deleteOwnerPodRecords(userId);
 }
 
@@ -195,11 +198,12 @@ async function refreshEndpointFromHubUnlocked(
   } catch {
     // The malformed-record branch below supplies the stable refusal code.
   }
+  const expectedSandboxPath = `/u/${encodeURIComponent(candidate.hushhId)}`;
   if (
     endpointUrl?.protocol !== "https:" ||
     endpointUrl.username ||
     endpointUrl.password ||
-    endpointUrl.pathname !== "/" ||
+    (endpointUrl.pathname !== "/" && endpointUrl.pathname !== expectedSandboxPath) ||
     endpointUrl.search ||
     endpointUrl.hash ||
     candidate.hushhId === "" ||
@@ -242,6 +246,30 @@ export async function loadPinnedEndpoint(userId: string): Promise<PinnedEndpoint
 // -- sessions ---------------------------------------------------------------------------
 
 async function fetchBinding(
+  subjectId: string,
+  transport: OwnerPodTransport,
+  endpoint: PinnedEndpoint,
+  refreshGrant = false,
+): Promise<{ binding: Record<string, unknown>; signature: string }> {
+  if (refreshGrant) {
+    return fetchBindingUncached(subjectId, transport, endpoint, true);
+  }
+  const key = `${subjectId}:${endpoint.hushhId}:${endpoint.endpointVersion}:${endpoint.url}`;
+  const existingFlight = bindingInFlight.get(key);
+  if (existingFlight) return existingFlight;
+
+  const work = fetchBindingUncached(subjectId, transport, endpoint, false);
+  bindingInFlight.set(key, work);
+  try {
+    return await work;
+  } finally {
+    if (bindingInFlight.get(key) === work) {
+      bindingInFlight.delete(key);
+    }
+  }
+}
+
+async function fetchBindingUncached(
   subjectId: string,
   transport: OwnerPodTransport,
   endpoint: PinnedEndpoint,

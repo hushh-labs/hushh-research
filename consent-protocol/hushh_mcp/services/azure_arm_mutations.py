@@ -107,13 +107,14 @@ class ArmMutationRecorder:
             self._validate_url(operation_url)
             parsed = urllib.parse.urlsplit(operation_url)
             pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-            safe = all(
+            safe = parsed.hostname == "management.azure.com" and all(
                 (key == "api-version" and re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:-preview)?", value))
                 or (key == "monitor" and value == "true")
                 for key, value in pairs
             )
             if not safe or len({key for key, _ in pairs}) != len(pairs):
                 operation_url = None
+                operation_kind = None
         receipt = ArmMutationAcknowledgement(status, operation_url, digest, operation_kind)
         if self._journal is None or self._journal.acknowledge(request_id, receipt) is not True:
             self._refuse("MutationAcknowledgementUnconfirmed")

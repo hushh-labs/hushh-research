@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
+  type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
@@ -43,6 +44,11 @@ import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/o
 import { OneModelConnection } from "@/components/agent/one-model-connection";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import {
+  useWorkspaceSplitPaneOpen,
+  WorkspaceSplitPaneDock,
+  WorkspaceSplitPaneProvider,
+} from "@/components/computer-use/workspace-split-pane";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { beginChatPreferredNameTurn } from "@/lib/agent/chat-preferred-name-turn";
 import { saveChatPreferredName } from "@/lib/agent/owner-style-settings-writer";
@@ -55,7 +61,10 @@ import {
   AgentTranscriptRevealContext,
   type AgentConsentContinuationHandler,
 } from "@/components/agent/agent-structured-experience";
+import { AgentConnectorContinuationContext } from "@/components/agent/connector-read-receipt";
 import { CustomConnectorChatContext } from "@/components/agent/custom-connector-probe-card";
+import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import type { FinancialDomain } from "@/lib/kai/plaid-vault/types";
 import {
   claimConsentContinuation,
   collectOutgoingRequestCards,
@@ -288,7 +297,7 @@ import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ChatFileScheduleCard } from "@/components/scheduled-tasks/chat-file-schedule-card";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
-import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
+import { clearInAppChatSelection, rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
 import {
   AGENT_TURN_DETACH_REASON,
   isAgentTurnWatched,
@@ -569,6 +578,20 @@ export {
   IDLE_AGENT_SUBTITLE,
   chatHeaderSubtitle,
 };
+
+function AgentChatSplitSection({ children }: { children: ReactNode }) {
+  const splitOpen = useWorkspaceSplitPaneOpen();
+  return (
+    <section
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-[color:var(--one-chat-canvas)]",
+        splitOpen ? "flex-1 md:w-[38%] md:min-w-[320px] md:max-w-[480px] md:flex-none" : "flex-1",
+      )}
+    >
+      {children}
+    </section>
+  );
+}
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
@@ -1139,6 +1162,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
   const [browserTasksRefresh, setBrowserTasksRefresh] = useState(0);
+  const [browserReviewCount, setBrowserReviewCount] = useState(0);
+  const [browserOpenReviewSignal, setBrowserOpenReviewSignal] = useState(0);
   // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
   // view of the review card current.
   const pendingMcpReviewsRef = useRef(pendingMcpReviews);
@@ -3259,12 +3284,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         userId: applicationOwnerId, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
         force: refresh,
       });
-      let stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
-        ? snapshot.latestMessages
-        : await loadSelected();
-      if (!current()) return;
-      // It may have settled while that read was in flight; read the answer.
-      if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
+      let stored: Awaited<ReturnType<typeof loadSelected>>;
+      try {
+        stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
+          ? snapshot.latestMessages
+          : await loadSelected();
+        if (!current()) return;
+        // It may have settled while that read was in flight; read the answer.
+        if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
+      } catch (error) {
+        if (error instanceof Error && (error as { status?: number }).status === 404) {
+          clearInAppChatSelection(applicationOwnerId);
+          clearAgentChatHistoryCache(applicationOwnerId);
+          updateConversationId(null, false);
+          setMessages((existing) =>
+            mergePendingConsentMessages([createGreetingMessage()], existing),
+          );
+          return;
+        }
+        throw error;
+      }
       if (!current()) return;
       const restored = storedMessagesToAgentMessages(stored).map((message) => ({
         ...message,
@@ -3401,12 +3440,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
       oneScrollTopRef.current = 0;
-      const history = await loadAgentChatConversationHistory({
-        userId: applicationOwnerId,
-        conversationId: nextConversationId,
-        vaultOwnerToken: token,
-        vaultKey: vaultKeyRef.current ?? "",
-      });
+      let history: Awaited<ReturnType<typeof loadAgentChatConversationHistory>>;
+      try {
+        history = await loadAgentChatConversationHistory({
+          userId: applicationOwnerId,
+          conversationId: nextConversationId,
+          vaultOwnerToken: token,
+          vaultKey: vaultKeyRef.current ?? "",
+        });
+      } catch (error) {
+        if (error instanceof Error && (error as { status?: number }).status === 404) {
+          if (!isCurrent() || !chatSessionRef.current.isCurrent(chatEpoch)) return;
+          clearInAppChatSelection(applicationOwnerId);
+          clearAgentChatHistoryCache(applicationOwnerId);
+          updateConversationId(null);
+          setMessages([createGreetingMessage()]);
+          return;
+        }
+        throw error;
+      }
       if (!isCurrent() || !chatSessionRef.current.isCurrent(chatEpoch)) return;
       const rawRestored = storedMessagesToAgentMessages(history);
       const restored = rawRestored.map((message, index) =>
@@ -5196,11 +5248,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           : null,
         screenContext: (() => {
           const context = buildOneVoiceStructuredScreenContext({
-          appRuntimeState: appRuntimeStateRef.current,
-          state: useAgentVoiceState.getState().oneVoiceState,
-          lastTransition: useAgentVoiceState.getState().lastTransition,
+            appRuntimeState: appRuntimeStateRef.current,
+            state: useAgentVoiceState.getState().oneVoiceState,
+            lastTransition: useAgentVoiceState.getState().lastTransition,
           });
-          return { ...context, screen_state: { ...context.one_voice_context?.screen_state, ...nameTurn?.screenState } };
+          const cachedFinancial = applicationOwnerId && isVaultUnlocked
+            ? CacheService.getInstance().get<FinancialDomain>(
+                CACHE_KEYS.DOMAIN_DATA(applicationOwnerId, "financial"),
+              )
+            : null;
+          const plaidCount = cachedFinancial
+            ? Object.keys(vaultConnections(cachedFinancial)).length
+            : 0;
+          return {
+            ...context,
+            screen_state: {
+              ...context.one_voice_context?.screen_state,
+              ...(isVaultUnlocked && cachedFinancial
+                ? {
+                    plaid_connected: plaidCount > 0,
+                    plaid_institution_count: plaidCount,
+                  }
+                : {}),
+              ...nameTurn?.screenState,
+            },
+          };
         })() as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
@@ -8321,11 +8393,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
       <CustomConnectorChatContext.Provider value={customConnectorChat}>
+      <AgentConnectorContinuationContext.Provider
+        value={hasChatAccess && !isStreaming
+          ? {
+              continueAfterConnectorSync: (prompt) => {
+                enqueuePrompt(prompt);
+              },
+            }
+          : null}
+      >
       <AgentConsentContinuationContext.Provider value={hasChatAccess
         ? { conversationId, continueWithOutcome: continueWithConsentOutcome }
         : null}>
       <ConsentCardPhaseContext.Provider value={consentCardPhaseFor}>
       <AgentTranscriptRevealContext.Provider value={revealInTranscript}>
+      <WorkspaceSplitPaneProvider>
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -8366,11 +8448,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               handleHistoryDrawerOpenChange(true);
             } }} /> : null}
 
-        <section
-          className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color:var(--one-chat-canvas)]",
-          )}
-        >
+        <AgentChatSplitSection>
           <div
             data-one-centered-header={!customNativePresentationEnabled() ? "true" : undefined}
             data-agent-header-layout={customNativePresentationEnabled() ? "compact" : "portrait"}
@@ -9123,7 +9201,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               )}
 
               {hasChatAccess && !isPuppySurface && applicationOwnerId ? (
-                <ComputerUseActiveTasks key={applicationOwnerId} ownerId={applicationOwnerId} refreshKey={browserTasksRefresh} route={pathname || "/"} getVaultOwnerToken={getVaultOwnerToken} />
+                <ComputerUseActiveTasks
+                  key={applicationOwnerId}
+                  ownerId={applicationOwnerId}
+                  refreshKey={browserTasksRefresh}
+                  route={pathname || "/"}
+                  getVaultOwnerToken={getVaultOwnerToken}
+                  openReviewSignal={browserOpenReviewSignal}
+                  onReviewCountChange={setBrowserReviewCount}
+                />
               ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
@@ -10043,6 +10129,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {showVoiceBar && !isCanonicalChatRoute ? (
                 <AgentBar layout="slot" />
               ) : null}
+              {browserReviewCount > 0 && !isPuppySurface && !showVoiceBar ? (
+                <div
+                  data-testid="browser-composer-review-bar"
+                  className="mb-2 flex items-center justify-between gap-3 rounded-full border border-[color:var(--app-separator)] bg-foreground/[0.045] px-3.5 py-1.5 text-xs"
+                >
+                  <span className="truncate font-medium text-foreground">
+                    {browserReviewCount} {browserReviewCount === 1 ? "task needs" : "tasks need"} review
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 shrink-0 rounded-full px-2.5 text-xs font-semibold"
+                    onClick={() => {
+                      setBrowserOpenReviewSignal((value) => value + 1);
+                      const tasksEl = transcriptRef.current?.querySelector('[aria-label="Browser tasks"]');
+                      tasksEl?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+                    }}
+                  >
+                    Review
+                  </Button>
+                </div>
+              ) : null}
               <form onSubmit={handleSubmit} hidden={showVoiceBar} inert={showVoiceBar}>
                   {activeDriveSearchSelection && !nativeDockPorts?.owned ? (
                     <div className="mb-2 flex min-w-0 items-center gap-2 rounded-[18px] bg-foreground/[0.045] px-3 py-1.5 text-sm" aria-label="Selected Drive file">
@@ -10175,8 +10284,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           </div>
           </AgentDockPortal>
         </div>
-        </section>
+        </AgentChatSplitSection>
+        {!isPuppySurface ? <WorkspaceSplitPaneDock /> : null}
       </div>
+      </WorkspaceSplitPaneProvider>
       {offerGetApp ? (
         <AgentGetAppPrompt
           open={getAppOpen}
@@ -10198,6 +10309,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       </AgentTranscriptRevealContext.Provider>
       </ConsentCardPhaseContext.Provider>
       </AgentConsentContinuationContext.Provider>
+      </AgentConnectorContinuationContext.Provider>
       </CustomConnectorChatContext.Provider>
       </AgentPersonSelectionContext.Provider>
     </div>

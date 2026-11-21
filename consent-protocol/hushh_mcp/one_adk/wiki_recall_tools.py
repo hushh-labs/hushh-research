@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 WIKI_RECALL_SCHEMA = "hussh.wiki.recall.v1"
 WIKI_TOOL_NAMES: frozenset[str] = frozenset({"search_wiki", "read_wiki_page", "trace_claim"})
-STATE_WIKI_CLIENT_READY = "hussh:wiki_client_ready"
+STATE_WIKI_CLIENT_READY = "temp:hussh:wiki_client_ready"
 STATE_WIKI_PENDING = "hussh:wiki_pending_calls"
 STATE_WIKI_HOT_DIGEST = "temp:hussh:wiki_hot_digest"
 STATE_WIKI_RESULT = "temp:hussh:wiki_result"
@@ -443,11 +443,18 @@ async def build_wiki_hot_digest_context(
     return wrap_wiki_hot_digest_text(raw, max_chars=max_chars)
 
 
-def optional_pod_wiki_library() -> Any | None:
-    """Resolve the active Pod WikiLibrary when Pod Files is enabled, else None."""
+def pod_files_wiki_enabled() -> bool:
+    """Return True only when this process runs a Pod with server-side Pod Files enabled."""
     import os
 
-    if os.getenv("POD_FILES_ENABLED", "").lower() not in {"1", "true"}:
+    from hushh_mcp.runtime_settings import pod_mode
+
+    return bool(pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"})
+
+
+def optional_pod_wiki_library() -> Any | None:
+    """Resolve the active Pod WikiLibrary when Pod Files is enabled, else None."""
+    if not pod_files_wiki_enabled():
         return None
     try:
         from hushh_mcp.services.pod_files.runtime import active_wiki_library
@@ -716,12 +723,10 @@ def wiki_before_model(callback_context: Any, llm_request: Any) -> None:
 
 
 def wiki_after_model(callback_context: Any, llm_response: Any) -> None:
-    """Bind deferred Shared Personal Wiki recall calls before AG-UI proxy deferral."""
-    from hushh_mcp.runtime_settings import pod_mode
-
+    """Bind deferred client-executed Personal Wiki recall calls before AG-UI proxy deferral."""
     if getattr(llm_response, "partial", False):
         return
-    if not pod_mode():
+    if not pod_files_wiki_enabled():
         content = getattr(llm_response, "content", None)
         invalid = []
         for part in getattr(content, "parts", None) or []:

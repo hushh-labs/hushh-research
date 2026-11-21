@@ -1340,17 +1340,22 @@ class TestGmailEmailDraftDirective:
         with bound_request_chat_key("owner"):
             state = await agent_chat._extract_state(request, run)
 
+        from hushh_mcp.one_adk.agent_tree import _one_dynamic_turn_context
+
         # Popped before the bridge can copy it; state only ever holds a reference.
         assert "pendingEmailDraft" not in run.forwarded_props
         assert "12345678" not in str(state)
-        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        ctx = SimpleNamespace(state=state)
+        instruction = _one_runtime_instruction(ctx)
+        dynamic_context = _one_dynamic_turn_context(ctx)
+        assert "PENDING MAIL DRAFT" not in instruction
         if unlocked:
             assert state[STATE_PENDING_EMAIL_DRAFT].startswith("one_secret_ref:")
-            assert "PENDING MAIL DRAFT" in instruction
-            assert "Account 12345678 is attached." in instruction
+            assert "PENDING MAIL DRAFT" in dynamic_context
+            assert "Account 12345678 is attached." in dynamic_context
         else:
             assert state[STATE_PENDING_EMAIL_DRAFT] == ""
-            assert "PENDING MAIL DRAFT" not in instruction
+            assert "PENDING MAIL DRAFT" not in dynamic_context
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("unlocked", [True, False])
@@ -1399,13 +1404,18 @@ class TestGmailEmailDraftDirective:
         with bound_request_chat_key("owner"):
             state = await agent_chat._extract_state(request, run)
 
+        from hushh_mcp.one_adk.agent_tree import _one_dynamic_turn_context
+
         # Popped before the bridge can copy it; state only ever holds a reference.
         assert "pkmContext" not in run.forwarded_props
         assert "SYNTHETIC_SOUL_FACT" not in str(state)
-        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        ctx = SimpleNamespace(state=state)
+        instruction = _one_runtime_instruction(ctx)
+        dynamic_context = _one_dynamic_turn_context(ctx)
         assert state[STATE_PKM_CONTEXT].startswith("one_secret_ref:")
         assert resolve_request_secret(state[STATE_PKM_CONTEXT]) == packet
-        assert "END LIVE MIRROR FACTS" in instruction
+        assert "END LIVE MIRROR FACTS" not in instruction
+        assert "END LIVE MIRROR FACTS" in dynamic_context
         vault.assert_awaited_once()
 
     @pytest.mark.asyncio

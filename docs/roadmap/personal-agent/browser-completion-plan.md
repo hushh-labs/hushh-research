@@ -25,6 +25,8 @@ internal sandbox; Azure explicitly disables it. The whole pod is the compromise
 boundary. The canonical [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
 owns current source and exact image evidence; older receipts are historical.
 
+**Updated 2026-11-19:** Under [#9511](https://github.com/hushh-labs/hushh-research/issues/9511) / [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) planning alignment, `#9511` focuses strictly on standalone Browser completion and the reusable workspace split-pane UI (leaving the composable Terminal tab slot clean), while hosted pooled microVM sandboxes, incremental workspace sync, outside egress mediation, and standalone Terminal runtime execution live in [the Agent Sandbox microVM pool and Terminal plan](agent-sandbox-microvm-plan.md) (`#9744`, [Wave 1 PR #9755](https://github.com/hushh-labs/hushh-research/pull/9755)).
+
 ## Immediate MVP — critical path first
 
 This section narrows the immediate Browser milestone. The fuller design below

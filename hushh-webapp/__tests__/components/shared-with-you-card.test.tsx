@@ -483,4 +483,35 @@ describe("one row per item, in one order everywhere", () => {
     // The copy that can be opened wins over one that names no bundle.
     expect(profileOrder.find((item) => item.label === "Work preferences")?.bundleId).toBe(BUNDLE);
   });
+
+  it("re-opens automatically when a continuous subscription increments exportRevision", async () => {
+    mocks.getInformationRequestExports
+      .mockResolvedValueOnce([exportFor(TAX_REQUEST, "attr.identity.tax_record.*")])
+      .mockResolvedValueOnce([
+        {
+          ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*"),
+          encryptedExport: {
+            ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*").encryptedExport,
+            export_revision: 2,
+            export_envelope: {
+              ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*").encryptedExport.export_envelope,
+              aad: {
+                ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*").encryptedExport.export_envelope.aad,
+                revision: 2,
+              },
+            },
+          },
+        },
+      ]);
+    mocks.decryptScopedExport
+      .mockResolvedValueOnce({ filing_year: 2024, adjusted_gross_income: 85000 })
+      .mockResolvedValueOnce({ filing_year: 2024, adjusted_gross_income: 99000 });
+
+    const { rerender } = render(<SharedWithYouCard person={MANISH} items={[taxItem({ exportRevision: 1 })]} />);
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
+
+    rerender(<SharedWithYouCard person={MANISH} items={[taxItem({ exportRevision: 2 })]} />);
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("99000");
+    expect(mocks.getInformationRequestExports).toHaveBeenCalledTimes(2);
+  });
 });
