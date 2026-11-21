@@ -1,0 +1,1003 @@
+{
+  "schema_version": 1,
+  "agents": {
+    "agent_calendar": "Calendar",
+    "agent_career": "Career",
+    "agent_computer_use": "Computer Use",
+    "agent_connected_systems": "Connected apps",
+    "agent_connections": "Connect",
+    "agent_documents": "Documents",
+    "agent_email": "Email",
+    "agent_files": "Files",
+    "agent_kai": "Finance",
+    "agent_kyc": "KYC",
+    "agent_location": "Location",
+    "agent_memory_intent": "Memory Intent",
+    "agent_memory_merge": "Memory Merge",
+    "agent_memory_segmentation": "Memory Segmentation",
+    "agent_nav": "Consent",
+    "agent_onboarding": "Onboarding Specialist",
+    "agent_one": "One",
+    "agent_personal_information": "Memory",
+    "agent_pkm_structure": "PKM Structure",
+    "agent_portfolio_import": "Portfolio Import",
+    "agent_wallet": "Cards"
+  },
+  "events": {
+    "advisor_review_accepted": {
+      "agent": "agent_kai",
+      "kind": "outcome",
+      "operation": "advisor_review",
+      "scope": "advisor",
+      "search_terms": [
+        "advisor review"
+      ]
+    },
+    "advisor_review_declined": {
+      "agent": "agent_kai",
+      "kind": "outcome",
+      "operation": "advisor_review",
+      "scope": "advisor",
+      "search_terms": [
+        "advisor review"
+      ]
+    },
+    "advisor_review_requested": {
+      "agent": "agent_connections",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "advisor"
+    },
+    "advisor_review_updated": {
+      "agent": "agent_connections",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "advisor"
+    },
+    "answer_delivered": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "answer_request",
+      "scope": "consent"
+    },
+    "answer_request_declined": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "answer_request",
+      "scope": "consent"
+    },
+    "answer_request_payment_ready": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "answer_request",
+      "scope": "consent"
+    },
+    "answer_request_received": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "answer_request",
+      "scope": "consent"
+    },
+    "calendar_action_failed": {
+      "agent": "agent_calendar",
+      "kind": "outcome",
+      "operation": "calendar_event",
+      "scope": "calendar"
+    },
+    "calendar_connected": {
+      "agent": "agent_calendar",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "calendar"
+    },
+    "calendar_disconnected": {
+      "agent": "agent_calendar",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "calendar"
+    },
+    "calendar_event_canceled": {
+      "agent": "agent_calendar",
+      "kind": "outcome",
+      "operation": "calendar_event",
+      "scope": "calendar"
+    },
+    "calendar_event_created": {
+      "agent": "agent_calendar",
+      "kind": "outcome",
+      "operation": "calendar_event",
+      "scope": "calendar"
+    },
+    "calendar_event_rescheduled": {
+      "agent": "agent_calendar",
+      "kind": "outcome",
+      "operation": "calendar_event",
+      "scope": "calendar"
+    },
+    "calendar_reconnect_required": {
+      "agent": "agent_calendar",
+      "kind": "decision",
+      "operation": "connector",
+      "scope": "calendar"
+    },
+    "circle_deleted": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "circle_invite_cancelled": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "circle_invite_declined": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "circle_member_added": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "circle_member_invited": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "circle_member_left": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "circle_membership_ended": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "connected_systems_approved": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connected_systems_connected": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connected_systems_disconnected": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connected_systems_failed": {
+      "agent": "agent_connected_systems",
+      "kind": "outcome",
+      "operation": "connector",
+      "scope": "connected_systems"
+    },
+    "connected_systems_mutation_partial": {
+      "agent": "agent_connected_systems",
+      "kind": "outcome",
+      "operation": "connector",
+      "scope": "connected_systems"
+    },
+    "connected_systems_mutation_succeeded": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connected_systems_rejected": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connection_accepted": {
+      "agent": "agent_connections",
+      "kind": "outcome",
+      "operation": "connection",
+      "scope": "connections"
+    },
+    "connection_rejected": {
+      "agent": "agent_connections",
+      "kind": "outcome",
+      "operation": "connection",
+      "scope": "connections"
+    },
+    "connection_revoked": {
+      "agent": "agent_connections",
+      "kind": "outcome",
+      "operation": "connection",
+      "scope": "connections"
+    },
+    "connection_withdrawn": {
+      "agent": "agent_connections",
+      "kind": "outcome",
+      "operation": "connection",
+      "scope": "connections"
+    },
+    "connector_connected": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connector_disconnected": {
+      "agent": "agent_connected_systems",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "connected_systems"
+    },
+    "connector_reconnect_required": {
+      "agent": "agent_connected_systems",
+      "kind": "decision",
+      "operation": "connector",
+      "scope": "connected_systems"
+    },
+    "consent_cancelled": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "consent",
+      "scope": "consent"
+    },
+    "consent_denied": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "consent",
+      "scope": "consent"
+    },
+    "consent_granted": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "consent",
+      "scope": "consent"
+    },
+    "consent_requested": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "consent",
+      "scope": "consent"
+    },
+    "consent_revoked": {
+      "agent": "agent_nav",
+      "kind": "outcome",
+      "operation": "consent",
+      "scope": "consent"
+    },
+    "consent_timed_out": {
+      "agent": "agent_nav",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "consent"
+    },
+    "direct_message_received": {
+      "agent": "agent_connections",
+      "kind": "outcome",
+      "operation": "conversation",
+      "scope": "connections",
+      "operation_prefixes": [
+        "wallet-access:",
+        "wallet-request:"
+      ]
+    },
+    "document_share_answered": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document_question",
+      "scope": "drive"
+    },
+    "document_share_decided": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "document_share_declined": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document_question",
+      "scope": "drive"
+    },
+    "document_share_files_sent": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "document_share_outcome": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "file delivery",
+        "files shared"
+      ]
+    },
+    "document_share_payment_confirmed": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "payment",
+        "receipt",
+        "paid"
+      ]
+    },
+    "document_share_payment_ready": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "document_share_payment_refunded": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "payment",
+        "receipt",
+        "refund"
+      ]
+    },
+    "document_share_question": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document_question",
+      "scope": "drive"
+    },
+    "document_share_request": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "file request"
+      ]
+    },
+    "document_share_request_sent": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive",
+      "search_terms": [
+        "document request",
+        "file request"
+      ]
+    },
+    "document_share_review_ready": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "document_share_review_requested": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "document_share_revocation_outcome": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "document_share_revoked": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document",
+      "scope": "drive"
+    },
+    "drive_bulk_completed": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_bulk_failed": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_bulk_partial": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_bulk_received": {
+      "agent": "agent_documents",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "drive"
+    },
+    "drive_bulk_stopped": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_question_retry_required": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document_question",
+      "scope": "drive"
+    },
+    "drive_question_withdrawn": {
+      "agent": "agent_documents",
+      "kind": "outcome",
+      "operation": "document_question",
+      "scope": "drive"
+    },
+    "drive_search_completed": {
+      "agent": "agent_documents",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "drive"
+    },
+    "drive_search_failed": {
+      "agent": "agent_documents",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "drive"
+    },
+    "drive_search_limited": {
+      "agent": "agent_documents",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "drive"
+    },
+    "drive_search_stopped": {
+      "agent": "agent_documents",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "drive"
+    },
+    "drive_share_failed": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_share_succeeded": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_share_unconfirmed": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_trash_failed": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_trash_succeeded": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "drive_trash_unconfirmed": {
+      "agent": "agent_files",
+      "kind": "outcome",
+      "operation": "file_operation",
+      "scope": "drive"
+    },
+    "followup_reminder": {
+      "agent": "agent_calendar",
+      "kind": "decision",
+      "operation": "calendar_followup",
+      "scope": "calendar"
+    },
+    "funding_transfer_status": {
+      "agent": "agent_kai",
+      "kind": "outcome",
+      "operation": "transfer",
+      "metadata": {
+        "user_facing_status": [
+          "completed",
+          "failed",
+          "returned"
+        ]
+      },
+      "scope": "finance"
+    },
+    "kai_analysis_canceled": {
+      "agent": "agent_kai",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "finance"
+    },
+    "kai_analysis_completed": {
+      "agent": "agent_kai",
+      "kind": "outcome",
+      "operation": "analysis",
+      "scope": "finance",
+      "search_terms": [
+        "analysis",
+        "report"
+      ]
+    },
+    "kai_analysis_failed": {
+      "agent": "agent_kai",
+      "kind": "outcome",
+      "operation": "analysis",
+      "scope": "finance",
+      "search_terms": [
+        "analysis",
+        "failed"
+      ]
+    },
+    "kai_import_canceled": {
+      "agent": "agent_kai",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "finance"
+    },
+    "kai_import_completed": {
+      "agent": "agent_kai",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "finance"
+    },
+    "kai_import_failed": {
+      "agent": "agent_kai",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "finance"
+    },
+    "kyc_status_changed": {
+      "agent": "agent_kyc",
+      "kind": "outcome",
+      "operation": "kyc",
+      "scope": "kyc"
+    },
+    "location_access_approved": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_request",
+      "scope": "location",
+      "search_terms": [
+        "location shared",
+        "request approved"
+      ]
+    },
+    "location_access_denied": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_request",
+      "scope": "location"
+    },
+    "location_access_request": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_request",
+      "scope": "location",
+      "search_terms": [
+        "location request",
+        "asked location"
+      ]
+    },
+    "location_access_request_withdrawn": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_request",
+      "scope": "location"
+    },
+    "location_circle_code_joined": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "location_circle_member_invite_accepted": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "location_circle_message": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "location_one_network_joined": {
+      "agent": "agent_connections",
+      "kind": "outcome",
+      "operation": "circle",
+      "scope": "connections"
+    },
+    "location_public_invite_submitted": {
+      "agent": "agent_location",
+      "kind": "routine",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "location_referral_invite": {
+      "agent": "agent_location",
+      "kind": "routine",
+      "operation": "circle",
+      "scope": "location"
+    },
+    "location_share_created": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_grant",
+      "scope": "location",
+      "search_terms": [
+        "location shared",
+        "share location"
+      ]
+    },
+    "location_share_duration_changed": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_grant",
+      "scope": "location"
+    },
+    "location_share_expired": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_grant",
+      "scope": "location",
+      "search_terms": [
+        "location expired"
+      ]
+    },
+    "location_share_revoked": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_grant",
+      "scope": "location",
+      "search_terms": [
+        "location stopped",
+        "stopped sharing"
+      ]
+    },
+    "location_share_shortened": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "location_grant",
+      "scope": "location"
+    },
+    "location_share_viewed": {
+      "agent": "agent_location",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "location"
+    },
+    "location_sms_contact_added": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "emergency_contact",
+      "scope": "location",
+      "search_terms": [
+        "emergency contact"
+      ]
+    },
+    "location_sms_contact_removed": {
+      "agent": "agent_location",
+      "kind": "outcome",
+      "operation": "emergency_contact",
+      "scope": "location"
+    },
+    "mail_connected": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_delivery_unconfirmed": {
+      "agent": "agent_email",
+      "kind": "outcome",
+      "operation": "kyc",
+      "scope": "email"
+    },
+    "mail_disconnected": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_information_request_detected": {
+      "agent": "agent_kyc",
+      "kind": "decision",
+      "operation": "kyc",
+      "scope": "kyc",
+      "search_terms": [
+        "kyc request",
+        "information request"
+      ]
+    },
+    "mail_mailbox_add_label": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_mailbox_archive": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_mailbox_failed": {
+      "agent": "agent_email",
+      "kind": "outcome",
+      "operation": "mailbox_operation",
+      "scope": "email"
+    },
+    "mail_mailbox_mark_read": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_mailbox_mark_unread": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_mailbox_remove_label": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_mailbox_trash": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_message_failed": {
+      "agent": "agent_email",
+      "kind": "outcome",
+      "operation": "kyc",
+      "scope": "email"
+    },
+    "mail_message_sent": {
+      "agent": "agent_email",
+      "kind": "outcome",
+      "operation": "kyc",
+      "scope": "email",
+      "search_terms": [
+        "reply sent",
+        "replied"
+      ]
+    },
+    "mail_receipts_imported": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_reconnect_required": {
+      "agent": "agent_email",
+      "kind": "decision",
+      "operation": "connector",
+      "scope": "email"
+    },
+    "mail_sync_completed": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "mail_sync_failed": {
+      "agent": "agent_email",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "email"
+    },
+    "personal_agent_connecting": {
+      "agent": "agent_one",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "one"
+    },
+    "personal_agent_failed": {
+      "agent": "agent_one",
+      "kind": "outcome",
+      "operation": "private_agent",
+      "scope": "one"
+    },
+    "personal_agent_provisioning": {
+      "agent": "agent_one",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "one"
+    },
+    "personal_agent_provisioning_capped": {
+      "agent": "agent_one",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "one"
+    },
+    "personal_agent_ready": {
+      "agent": "agent_one",
+      "kind": "outcome",
+      "operation": "private_agent",
+      "scope": "one"
+    },
+    "personal_agent_reaped": {
+      "agent": "agent_one",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "one"
+    },
+    "personal_agent_reserved": {
+      "agent": "agent_one",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "one"
+    },
+    "personal_agent_updated": {
+      "agent": "agent_one",
+      "kind": "outcome",
+      "operation": "private_agent",
+      "scope": "one"
+    },
+    "profile_discovery_cancelled": {
+      "agent": "agent_personal_information",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "memory"
+    },
+    "profile_discovery_claimed": {
+      "agent": "agent_personal_information",
+      "kind": "outcome",
+      "operation": "profile_discovery",
+      "scope": "memory"
+    },
+    "profile_discovery_failed": {
+      "agent": "agent_personal_information",
+      "kind": "outcome",
+      "operation": "profile_discovery",
+      "scope": "memory"
+    },
+    "profile_discovery_needs_details": {
+      "agent": "agent_personal_information",
+      "kind": "outcome",
+      "operation": "profile_discovery",
+      "scope": "memory"
+    },
+    "profile_discovery_queued": {
+      "agent": "agent_personal_information",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "memory"
+    },
+    "profile_discovery_ready": {
+      "agent": "agent_personal_information",
+      "kind": "outcome",
+      "operation": "profile_discovery",
+      "scope": "memory"
+    },
+    "profile_discovery_scanning": {
+      "agent": "agent_personal_information",
+      "kind": "routine",
+      "operation": "source",
+      "scope": "memory"
+    },
+    "pwm_research": {
+      "agent": "agent_personal_information",
+      "kind": "outcome",
+      "operation": "memory_draft",
+      "metadata": {
+        "pwm_outcome": [
+          "ready",
+          "partial"
+        ]
+      },
+      "scope": "memory"
+    }
+  },
+  "scopes": {
+    "calendar": {
+      "label": "Calendar"
+    },
+    "career": {
+      "label": "Career"
+    },
+    "computer_use": {
+      "label": "Computer Use"
+    },
+    "connected_systems": {
+      "label": "Connected apps"
+    },
+    "connections": {
+      "label": "Connect"
+    },
+    "documents": {
+      "label": "Documents"
+    },
+    "email": {
+      "label": "Email"
+    },
+    "files": {
+      "label": "Files"
+    },
+    "kyc": {
+      "label": "KYC"
+    },
+    "location": {
+      "label": "Location"
+    },
+    "memory_intent": {
+      "label": "Memory Intent"
+    },
+    "memory_merge": {
+      "label": "Memory Merge"
+    },
+    "memory_segmentation": {
+      "label": "Memory Segmentation"
+    },
+    "onboarding": {
+      "label": "Onboarding Specialist"
+    },
+    "one": {
+      "label": "One"
+    },
+    "pkm_structure": {
+      "label": "PKM Structure"
+    },
+    "portfolio_import": {
+      "label": "Portfolio Import"
+    },
+    "wallet": {
+      "label": "Cards"
+    },
+    "finance": {
+      "label": "Finance"
+    },
+    "consent": {
+      "label": "Consent"
+    },
+    "memory": {
+      "label": "Memory"
+    },
+    "drive": {
+      "label": "Drive"
+    },
+    "advisor": {
+      "label": "Advisor",
+      "workspace": "/ria/clients"
+    }
+  },
+  "classified_scopes": {
+    "agent_kyc": "kyc",
+    "agent_wallet": "wallet"
+  },
+  "connector_scopes": {
+    "external:google_drive": "drive"
+  }
+}
