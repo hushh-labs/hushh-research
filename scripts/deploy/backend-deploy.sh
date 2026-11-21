@@ -701,7 +701,7 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # The CODE is deliberately NOT set here. Until an operator supplies
   # HUSHH_DEV_PHONE_TEST_CODE the lane is dark, because _phone_test_enabled()
   # needs both. Numbers without a code is the correct fail-closed default.
-  dev_phone_test_numbers="+15550100,+15550101,+15550102,+15550103,+15550104"
+  dev_phone_test_numbers="+12025550100,+12025550101,+12025550102,+12025550103,+12025550104,+12025550105,+12025550106,+12025550107,+12025550108,+12025550109"
   # Durable pod state. Both halves or neither: `gcp_backend._durable_state_env`
   # emits the storage block only when a bucket AND a key master are present,
   # because `resolve_pod_storage` fails LOUD on a partial config -- so half a

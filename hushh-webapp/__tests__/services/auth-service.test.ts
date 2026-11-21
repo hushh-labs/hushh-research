@@ -193,7 +193,7 @@ function enableLocalDevPhoneTest() {
   );
   vi.stubEnv(
     "NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE",
-    "+918080469407",
+    "+12025550100",
   );
   vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE", "000000");
   vi.stubGlobal("window", {
@@ -858,7 +858,7 @@ describe("AuthService.restoreNativeSession", () => {
     } as any;
 
     const result = await AuthService.startPhoneLinkVerification(
-      "+918080469407",
+      "+12025550100",
       {
         recaptchaVerifier: {} as any,
       },
@@ -867,7 +867,7 @@ describe("AuthService.restoreNativeSession", () => {
     expect(verifyPhoneNumber).not.toHaveBeenCalled();
     expect(result).toEqual({
       autoVerified: false,
-      verificationId: "local-dev-phone:%2B918080469407",
+      verificationId: "local-dev-phone:%2B12025550100",
     });
   });
 
@@ -881,7 +881,7 @@ describe("AuthService.restoreNativeSession", () => {
 
     const verifiedUser = await AuthService.confirmLocalDevPhoneVerification({
       verificationCode: "000000",
-      verificationId: "local-dev-phone:%2B918080469407",
+      verificationId: "local-dev-phone:%2B12025550100",
     });
 
     expect(verifiedUser).toBe(mockAuth.currentUser);

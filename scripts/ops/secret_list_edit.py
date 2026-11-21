@@ -87,6 +87,8 @@ def main() -> int:
     ap.add_argument("--add", nargs="*", default=[], metavar="ENTRY")
     ap.add_argument("--restore-from", metavar="VERSION",
                     help="union the current value with this older version")
+    ap.add_argument("--replace-synthetic-allowlist", nargs="*", default=None, metavar="ENTRY",
+                    help="replace entire list with verified 555-01xx synthetic numbers (requires --apply)")
     ap.add_argument("--show", action="store_true", help="read-only summary")
     ap.add_argument("--apply", action="store_true",
                     help="actually write a new version (default is a dry run)")
@@ -99,6 +101,42 @@ def main() -> int:
 
     if args.show:
         return 0
+
+    if args.replace_synthetic_allowlist is not None:
+        replacement_raw = args.replace_synthetic_allowlist or args.add
+        replacements = normalize(" ".join(replacement_raw))
+        if not replacements:
+            raise SystemExit("REFUSING: replacement synthetic allowlist cannot be empty.")
+        synthetic_pattern = re.compile(r"^\+1[2-9]\d{2}55501\d{2}$")
+        invalid = [e for e in replacements if not synthetic_pattern.match(e)]
+        if invalid:
+            raise SystemExit(
+                "REFUSING: replacement entries must match ^\\+1[2-9]\\d{2}55501\\d{2}; "
+                f"refused: {sorted(invalid)}"
+            )
+        if len(replacements) < 10:
+            raise SystemExit(
+                f"REFUSING: replacement synthetic allowlist must contain at least 10 entries (got {len(replacements)})."
+            )
+        merged = sorted(list(dict.fromkeys(replacements)))
+        merged_raw = "\n".join(merged) + "\n"
+        summarize("result (synthetic replacement)", merged)
+        if not args.apply:
+            print("\nDry run. Re-run with --apply to write a new version.")
+            return 0
+        out = run(
+            ["gcloud", "secrets", "versions", "add", args.secret,
+             f"--project={args.project}", "--data-file=-", "--format=value(name)"],
+            stdin=merged_raw,
+        )
+        print(f"\nwrote version: {out.strip().rsplit('/', 1)[-1]}")
+        verify = normalize(read_version(args.secret, args.project, "latest"))
+        summarize("verified latest", verify)
+        if len(verify) != len(merged):
+            raise SystemExit("VERIFY FAILED: the new latest does not match what was written.")
+        print("  verified: all synthetic replacement entries verified.")
+        return 0
+
     if not args.add and not args.restore_from:
         print("\nNothing to do. Pass --add and/or --restore-from, or use --show.")
         return 2
