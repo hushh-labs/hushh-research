@@ -12,6 +12,9 @@ from hushh_mcp.services.dev_reviewer_phone_transport import (
     configured_dev_reviewer_phone_transport,
 )
 
+SYNTHETIC_PHONE_PATTERN = re.compile(r"^\+1[2-9]\d{2}55501\d{2}$")
+_SIMULATION_PHONE_PREFIX = "+120255501"
+
 
 def _clean_env(name: str) -> str:
     return str(os.getenv(name) or "").strip()
@@ -29,6 +32,10 @@ def _is_uat_environment() -> bool:
     return _runtime_environment() == "uat"
 
 
+def _is_dev_environment() -> bool:
+    return _runtime_environment() == "dev" or _clean_env("HUSHH_DEPLOY_ENV").lower() == "dev"
+
+
 def _normalize_phone_number(raw_phone: str) -> str:
     cleaned = re.sub(r"[^\d+]", "", str(raw_phone or "").strip())
     if cleaned.startswith("00"):
@@ -41,6 +48,12 @@ def _normalize_phone_number(raw_phone: str) -> str:
 
 
 def _parse_phone_test_numbers(raw: str) -> set[str]:
+    """Parse a comma/semicolon/newline-separated list of phone numbers.
+
+    No synthetic-range check here — UAT and production allowlists may still
+    contain legacy routable numbers until Secret Manager rotation (Phases 2+3).
+    The reserved-range guard lives in _configured_dev_phone_test_numbers() only.
+    """
     if not raw:
         return set()
     return {
@@ -59,6 +72,64 @@ def _configured_prod_phone_test_numbers() -> set[str]:
     return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
 
 
+def _configured_dev_phone_test_numbers() -> set[str]:
+    """Return dev simulation numbers, enforcing the synthetic-range contract.
+
+    Only numbers matching +1[2-9]xx55501xx are accepted here — real routable
+    numbers in a dev simulation allowlist are an operator mistake that should
+    fail loud rather than be silently narrowed.
+    """
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    if not simulation_permitted():
+        return set()
+    raw = _clean_env("HUSHH_DEV_PHONE_TEST_NUMBERS")
+    numbers = _parse_phone_test_numbers(raw)
+    outside = {n for n in numbers if not SYNTHETIC_PHONE_PATTERN.match(n)}
+    if outside:
+        raise RuntimeError(
+            "HUSHH_DEV_PHONE_TEST_NUMBERS may only contain reserved fictitious "
+            f"numbers (+1[2-9]xx55501xx); refused {sorted(outside)}"
+        )
+    return numbers
+
+
+def _configured_dev_phone_test_code() -> str:
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    return _clean_env("HUSHH_DEV_PHONE_TEST_CODE") if simulation_permitted() else ""
+
+
+def _dev_phone_code_is_optional() -> bool:
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    if not simulation_permitted():
+        return False
+    return bool(
+        _configured_dev_phone_test_numbers() and not _clean_env("HUSHH_DEV_PHONE_TEST_CODE")
+    )
+
+
+def _phone_test_expected_code(phone: str) -> tuple[str, bool]:
+    """Return (expected_code, is_optional) for a phone number.
+
+    Dev synthetic numbers: optional when no HUSHH_DEV_PHONE_TEST_CODE is set,
+    otherwise use the dev code.
+    UAT numbers that appear in the dev merged set: always use the UAT code
+    (the reserved-range guard on the dev allowlist never applies to UAT numbers).
+    """
+    dev_numbers = _configured_dev_phone_test_numbers()
+    if dev_numbers and phone in dev_numbers:
+        if _dev_phone_code_is_optional():
+            return ("", True)
+        return (_configured_dev_phone_test_code(), False)
+    # Phone is from the UAT allowlist (merged into dev lane or on real UAT).
+    uat_code = _configured_uat_phone_test_code()
+    if uat_code:
+        return (uat_code, False)
+    return (_configured_phone_test_code(), False)
+
+
 def _isolated_phone_fixture_enabled() -> bool:
     """Local recorded SMS transport; ordinary auth/challenge/claim checks still run."""
     return (
@@ -72,6 +143,12 @@ def _isolated_phone_fixture_enabled() -> bool:
 
 def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
+    dev_numbers = _configured_dev_phone_test_numbers()
+    if dev_numbers:
+        # On the dev simulation lane, also include the operator-curated UAT
+        # allowlist so the founder's standing +1 989 898 9894 / 000000 pair
+        # remains reachable without touching the reserved-range guard.
+        return dev_numbers | _configured_uat_phone_test_numbers()
     if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
@@ -92,6 +169,9 @@ def _configured_prod_phone_test_challenge_secret() -> str:
 
 
 def _configured_phone_test_code() -> str:
+    dev_code = _configured_dev_phone_test_code()
+    if dev_code:
+        return dev_code
     environment = _runtime_environment()
     if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_code()
@@ -108,10 +188,18 @@ def _phone_test_enabled() -> bool:
             and _configured_prod_phone_test_code()
             and _configured_prod_phone_test_challenge_secret()
         )
+    if _configured_dev_phone_test_numbers():
+        return bool(_configured_dev_phone_test_code() or _dev_phone_code_is_optional())
     return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
 
 
 def _phone_test_challenge_key() -> str:
+    if _is_dev_environment():
+        return (
+            _clean_env("HUSHH_DEV_PHONE_TEST_CHALLENGE_SECRET")
+            or _clean_env("APP_SIGNING_KEY")
+            or _configured_dev_phone_test_code()
+        )
     environment = _runtime_environment()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_challenge_secret()
@@ -176,7 +264,8 @@ def validate_phone_test_confirmation(owner: str, phone: str, challenge: str, cod
                 "message": "The UAT phone verification challenge is invalid.",
             },
         )
-    if not secrets.compare_digest(code.strip(), _configured_phone_test_code()):
+    expected_code, optional_code = _phone_test_expected_code(phone)
+    if not optional_code and not secrets.compare_digest(code.strip(), expected_code):
         raise HTTPException(
             status_code=401,
             detail={

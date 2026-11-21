@@ -94,10 +94,22 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentitySyncUnavailableError,
 )
 from hushh_mcp.services.phone_test_transport import (
+    _SIMULATION_PHONE_PREFIX as _SIMULATION_PHONE_PREFIX,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _configured_dev_phone_test_code as _configured_dev_phone_test_code,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _configured_dev_phone_test_numbers as _configured_dev_phone_test_numbers,
+)
+from hushh_mcp.services.phone_test_transport import (
     _configured_phone_test_code as _configured_phone_test_code,
 )
 from hushh_mcp.services.phone_test_transport import (
     _configured_phone_test_numbers as _configured_phone_test_numbers,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _dev_phone_code_is_optional as _dev_phone_code_is_optional,
 )
 from hushh_mcp.services.phone_test_transport import (
     _normalize_phone_number,
@@ -107,6 +119,9 @@ from hushh_mcp.services.phone_test_transport import (
 )
 from hushh_mcp.services.phone_test_transport import (
     _phone_test_enabled as _phone_test_enabled,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _phone_test_expected_code as _phone_test_expected_code,
 )
 from hushh_mcp.services.support_email_service import (
     SupportEmailDeliveryUncertainError,

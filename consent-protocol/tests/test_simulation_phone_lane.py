@@ -44,7 +44,7 @@ def clean_env(monkeypatch):
     return monkeypatch
 
 
-def _configure_simulation(monkeypatch, *, numbers: str = "+15550100,+15550101") -> None:
+def _configure_simulation(monkeypatch, *, numbers: str = "+12025550100,+12025550101") -> None:
     monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", numbers)
@@ -58,13 +58,13 @@ def test_the_simulation_lane_enables_the_bypass_on_a_dev_deploy(clean_env):
     clean_env.setenv("ENVIRONMENT", "uat")
 
     assert account_routes._phone_test_enabled() is True
-    assert account_routes._configured_phone_test_numbers() == {"+15550100", "+15550101"}
+    assert account_routes._configured_phone_test_numbers() == {"+12025550100", "+12025550101"}
     assert account_routes._configured_phone_test_code() == "424242"
 
 
 def test_the_simulation_lane_is_dead_without_the_deploy_lane(clean_env):
     """Configuration alone must not enable it. Absence of a lane DENIES."""
-    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
     clean_env.setenv("HUSHH_DEV_PHONE_TEST_CODE", "424242")
     clean_env.setenv("ENVIRONMENT", "uat")
 
@@ -96,7 +96,7 @@ def test_a_simulation_allowlist_refuses_a_routable_number(clean_env):
     It fails loud rather than being silently dropped, because silently narrowing
     an allowlist looks identical to the allowlist having worked.
     """
-    _configure_simulation(clean_env, numbers="+15550100,+14255551234")
+    _configure_simulation(clean_env, numbers="+12025550100,+14255551234")
 
     with pytest.raises(RuntimeError) as excinfo:
         account_routes._configured_dev_phone_test_numbers()
@@ -107,11 +107,11 @@ def test_a_simulation_allowlist_refuses_a_routable_number(clean_env):
 def test_the_uat_lane_is_untouched(clean_env):
     """This change is additive. A configured UAT deployment behaves exactly as before."""
     clean_env.setenv("ENVIRONMENT", "uat")
-    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+12025550101")
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "121212")
 
     assert account_routes._phone_test_enabled() is True
-    assert account_routes._configured_phone_test_numbers() == {"+16505550101"}
+    assert account_routes._configured_phone_test_numbers() == {"+12025550101"}
     assert account_routes._configured_phone_test_code() == "121212"
 
 
@@ -254,7 +254,7 @@ def test_the_lane_is_enabled_with_no_code_at_all(clean_env):
     """The whole point: a dev deploy needs no operator secret to be usable."""
     clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
     clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
-    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
 
     assert account_routes._dev_phone_code_is_optional() is True
     assert account_routes._phone_test_enabled() is True
@@ -270,7 +270,7 @@ def test_configuring_a_code_turns_the_check_back_on(clean_env):
 
 def test_the_optional_path_is_unreachable_outside_a_simulation_lane(clean_env):
     """No lane, no relaxation — including with the numbers present."""
-    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
     clean_env.setenv("ENVIRONMENT", "uat")
 
     assert account_routes._dev_phone_code_is_optional() is False
@@ -282,7 +282,7 @@ def test_production_cannot_reach_the_optional_path(clean_env):
     clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
     clean_env.setenv("HUSHH_DEPLOY_ENV", "production")
     clean_env.setenv("ENVIRONMENT", "production")
-    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
 
     assert account_routes._dev_phone_code_is_optional() is False
     assert account_routes._phone_test_enabled() is False
@@ -313,11 +313,11 @@ def _resolve_runtime_environment(deploy_env: str, runtime_env: str = "uat") -> s
 
     script = backend_deploy_script()
     start = script.index('runtime_environment="${_RUNTIME_ENVIRONMENT}"')
-    end = script.index('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')
-    slice_ = script[
-        start : end
-        + len('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')
-    ]
+    dev_block = 'if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then\n  runtime_environment="dev"\nfi'
+    if dev_block not in script:
+        dev_block = 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi'
+    end = script.index(dev_block)
+    slice_ = script[start : end + len(dev_block)]
     slice_ = slice_.replace("${_RUNTIME_ENVIRONMENT}", runtime_env).replace(
         "${_DEPLOY_ENV}", deploy_env
     )
@@ -379,9 +379,9 @@ def test_dev_needs_its_own_lane_before_any_phone_allowlist_answers(clean_env):
     # ...and the dev lane the deploy script configures unlocks BOTH allowlists.
     clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
     clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
-    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
 
-    assert account_routes._configured_phone_test_numbers() == {"+15550100", "+16505550101"}
+    assert account_routes._configured_phone_test_numbers() == {"+12025550100", "+16505550101"}
     assert account_routes._phone_test_enabled() is True
 
 
@@ -399,8 +399,8 @@ def test_the_simulation_lane_also_honours_the_uat_allowlist(clean_env):
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
 
     assert account_routes._configured_phone_test_numbers() == {
-        "+15550100",
-        "+15550101",
+        "+12025550100",
+        "+12025550101",
         "+19898989894",
     }
 
@@ -415,7 +415,7 @@ def test_a_uat_number_keeps_its_fixed_code_inside_the_simulation_lane(clean_env)
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989894")
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
 
-    reserved_code, reserved_optional = account_routes._phone_test_expected_code("+15550100")
+    reserved_code, reserved_optional = account_routes._phone_test_expected_code("+12025550100")
     assert reserved_optional is True
 
     uat_code, uat_optional = account_routes._phone_test_expected_code("+19898989894")
@@ -430,7 +430,7 @@ def test_a_dev_code_never_replaces_the_uat_code_for_uat_numbers(clean_env):
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989894")
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
 
-    reserved_code, reserved_optional = account_routes._phone_test_expected_code("+15550100")
+    reserved_code, reserved_optional = account_routes._phone_test_expected_code("+12025550100")
     assert reserved_optional is False
     assert reserved_code == "424242"
 
