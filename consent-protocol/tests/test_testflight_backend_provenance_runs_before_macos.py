@@ -64,11 +64,25 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
         ("hushh-webapp/scripts/testing/phone-conflict-flow.mjs", True),
         ("hushh-webapp/scripts/testing/benchmark-advisor-matching.mjs", True),
         ("hushh-webapp/scripts/testing/build-advisor-preview.mjs", True),
+        ("hushh-webapp/scripts/architecture/cache-source-evidence.mjs", True),
+        ("hushh-webapp/scripts/testing/build-feed-search-preview.mjs", True),
+        ("hushh-webapp/scripts/testing/capture-feed-needs-you-fixture.mjs", True),
+        ("hushh-webapp/scripts/testing/capture-feed-visual-previews.mjs", True),
+        ("hushh-webapp/scripts/testing/feed-policy-preview-cases.mjs", True),
+        ("hushh-webapp/scripts/testing/feed-uat-evidence-contract.test.mjs", True),
+        ("hushh-webapp/scripts/testing/feed-visual-journey.mjs", True),
+        ("hushh-webapp/scripts/testing/generate-feed-activity-policy.mjs", True),
+        ("hushh-webapp/scripts/testing/location-feed-preview-cases.mjs", True),
+        ("hushh-webapp/scripts/testing/location-feed-uat-journey.mjs", True),
+        ("hushh-webapp/scripts/testing/verify-feed-uat-evidence.mjs", True),
+        ("hushh-webapp/scripts/testing/verify-finance-chat-uat.mjs", True),
+        ("hushh-webapp/scripts/testing/feed-visual-journey-helper.mjs", False),
+        ("hushh-webapp/scripts/testing/verify-finance-chat-uat-helper.mjs", False),
+        ("hushh-webapp/scripts/architecture/cache-source-evidence-helper.mjs", False),
         ("hushh-webapp/scripts/testing/phone-conflict-flow-helper.mjs", False),
         ("hushh-webapp/scripts/testing/benchmark-advisor-matching-helper.mjs", False),
         ("hushh-webapp/scripts/testing/build-advisor-preview-helper.mjs", False),
         ("hushh-webapp/scripts/native/ios-firebase-config.mjs", False),
-        ("hushh-webapp/package.json", False),
         ("hushh-webapp/package-lock.json", False),
         ("hushh-webapp/ios/App/App.xcodeproj/project.pbxproj", False),
     ],
@@ -102,6 +116,70 @@ def test_signing_parity_ignores_only_exact_uninvoked_diagnostics(tmp_path, path,
     command = command.replace("$GITHUB_SHA", authority).replace("$SHA", candidate)
     result = subprocess.run(  # noqa: S603 - actual authored parity command, synthetic Git inputs.
         shlex.split(command), cwd=tmp_path, capture_output=True, check=False
+    )
+    assert result.returncode == (0 if allowed else 1), result.stderr
+
+
+def _manifest_parity_code() -> str:
+    resolve = next(
+        step["run"]
+        for step in _jobs()["preflight"]["steps"]
+        if step.get("name") == "Resolve exact green release SHA"
+    )
+    start = resolve.index("python3 -c '", resolve.index("The package manifest stays"))
+    body = resolve[start + len("python3 -c '") :]
+    return body[: body.index("\n' ||")]
+
+
+@pytest.mark.parametrize(
+    "mutate,allowed",
+    [
+        (lambda m: m["scripts"].update({"verify:feed": "vitest run feed"}), True),
+        (lambda m: m["scripts"].update({"build:feed-policy": "node x.mjs"}), True),
+        (lambda m: m["scripts"].update({"verify:feed-policy": "node x.mjs --check"}), True),
+        (lambda m: m["scripts"].update({"verify:feed-other": "node x.mjs"}), False),
+        (lambda m: m["scripts"].update({"ios:prepare:uat": "node evil.mjs"}), False),
+        (lambda m: m["scripts"].update({"cap:build": "node evil.mjs"}), False),
+        (lambda m: m["dependencies"].update({"left-pad": "1.0.0"}), False),
+        (lambda m: m.update({"overrides": {"x": "1.0.0"}}), False),
+    ],
+)
+def test_package_manifest_parity_ignores_only_named_feed_verification_scripts(
+    tmp_path, mutate, allowed
+):
+    def git(*args):
+        return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
+            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+
+    manifest = {
+        "scripts": {
+            "ios:prepare:uat": "node ./scripts/native/prepare-ios-uat-archive.mjs",
+            "cap:build": "next build",
+            "verify:feed": "vitest run base",
+        },
+        "dependencies": {"next": "16.4.6"},
+    }
+    path = tmp_path / "hushh-webapp" / "package.json"
+    path.parent.mkdir()
+    git("init")
+    git("config", "user.name", "Synthetic release fixture")
+    git("config", "user.email", "synthetic@example.invalid")
+    path.write_text(json.dumps(manifest))
+    git("add", ".")
+    git("commit", "-m", "Main manifest")
+    authority = git("rev-parse", "HEAD")
+    mutate(manifest)
+    path.write_text(json.dumps(manifest))
+    git("add", ".")
+    git("commit", "-m", "UAT manifest")
+    candidate = git("rev-parse", "HEAD")
+    result = subprocess.run(  # noqa: S603 - actual authored parity code, synthetic Git inputs.
+        [sys.executable, "-c", _manifest_parity_code()],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_SHA": authority, "SHA": candidate},
+        capture_output=True,
+        check=False,
     )
     assert result.returncode == (0 if allowed else 1), result.stderr
 

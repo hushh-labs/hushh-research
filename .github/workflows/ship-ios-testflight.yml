@@ -181,7 +181,7 @@ jobs:
             # and browser diagnostics unused by the archive are not signing/build inputs.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
-              .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
+              .npmrc hushh-webapp/.npmrc hushh-webapp/package-lock.json \
               hushh-webapp/vitest.config.ts hushh-webapp/__tests__/setup.ts \
               hushh-webapp/scripts scripts/native \
               ':(glob)hushh-webapp/next.config.*' ':(glob)hushh-webapp/capacitor.config.*' \
@@ -196,10 +196,36 @@ jobs:
               ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/verify-signed-in-routes.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/benchmark-advisor-matching.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/build-advisor-preview.mjs' || {
+              ':(exclude)hushh-webapp/scripts/testing/build-advisor-preview.mjs' \
+              ':(exclude)hushh-webapp/scripts/architecture/cache-source-evidence.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/build-feed-search-preview.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/capture-feed-needs-you-fixture.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/capture-feed-visual-previews.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/feed-policy-preview-cases.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/feed-uat-evidence-contract.test.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/feed-visual-journey.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/generate-feed-activity-policy.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/location-feed-preview-cases.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/location-feed-uat-journey.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/verify-feed-uat-evidence.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/verify-finance-chat-uat.mjs' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }
+            # The package manifest stays a signing/build input. Only the named
+            # Feed verification script entries, which the archive never runs, may differ.
+            python3 -c '
+          import json, os, subprocess
+          UNINVOKED = {"verify:feed", "build:feed-policy", "verify:feed-policy"}
+          def manifest(rev):
+              data = json.loads(subprocess.check_output(["git", "show", rev + ":hushh-webapp/package.json"]))
+              data["scripts"] = {k: v for k, v in data.get("scripts", {}).items() if k not in UNINVOKED}
+              return data
+          raise SystemExit(0 if manifest(os.environ["GITHUB_SHA"]) == manifest(os.environ["SHA"]) else 1)
+          ' || {
+              echo "UAT package manifest differs from the Main dispatch revision." >&2
+              exit 1
+            }
           else
             test "$SOURCE_BRANCH" = main
             bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
