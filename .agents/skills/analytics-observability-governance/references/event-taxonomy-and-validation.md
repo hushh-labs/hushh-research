@@ -42,6 +42,7 @@ Supporting event families:
    - `ria_request_created`
    - `ria_workspace_opened`
 7. Gmail:
+   - `hushh_mail_signin_screen_view`
    - `gmail_*`
 8. operational:
    - `api_request_completed`

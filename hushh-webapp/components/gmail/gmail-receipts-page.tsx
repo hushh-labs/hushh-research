@@ -35,6 +35,7 @@ import {
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
 import { MailConnectionStatus } from "@/components/gmail/mail-kyc-connect-entry";
+import { useMailSignInMeasurement } from "@/components/gmail/use-mail-sign-in-measurement";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { NativeMailRoute, NativeMailReactOnly, type MailNativeSection } from "@/components/gmail/native-mail-workspace";
 import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
@@ -724,6 +725,17 @@ export default function GmailReceiptsPage({
     (loadingReceipts ||
       (!receiptListReady && journeyVariant === "onboarding"));
   const connectorState = gmail.presentation.state;
+  useMailSignInMeasurement(
+    userId,
+    gmail.status?.configured === true &&
+      connectorState === "disconnected" &&
+      !loadingStatus &&
+      !oauthCompletionPending &&
+      !gmail.statusError &&
+      !showVaultUnlock &&
+      !showDisconnectConfirm &&
+      gmailActionBusy === null,
+  );
   const latestSyncText = gmail.presentation.latestSyncText;
   const latestSyncBadge = gmail.presentation.latestSyncBadge;
   const isPassiveBackfillState =
