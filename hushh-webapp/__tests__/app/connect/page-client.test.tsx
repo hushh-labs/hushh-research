@@ -473,8 +473,9 @@ beforeEach(() => {
   CacheService.getInstance().invalidateUser("me");
   // A fresh URL per test: the outer tab is read from it, so a leaked
   // `?tab=circles` would silently render the wrong surface for everything
-  // that ran after it.
-  mocks.searchParams = new URLSearchParams();
+  // that ran after it. Directory-focused suites pass `view=discover`; bare
+  // `/connect` arrival tests clear searchParams explicitly.
+  mocks.searchParams = new URLSearchParams("view=discover");
   mocks.listConnections.mockResolvedValue([]);
   mocks.listConnectionsPage.mockImplementation(async (options) => {
     const allItems = await mocks.listConnections(options);
@@ -930,18 +931,18 @@ describe("Connect — directory under rate limits", () => {
 });
 
 describe("Connect — People", () => {
-  it("starts with discovery and keeps saved connections adjacent", async () => {
+  it("starts on My connections (first tab) by default and keeps Find people adjacent", async () => {
+    mocks.searchParams = new URLSearchParams();
     render(<ConnectPageClient />);
-    await screen.findByText("Person 0");
     const viewTabs = within(screen.getByRole("tablist", { name: "Connection views navigation" })).getAllByRole("tab");
     expect(viewTabs[0]).toHaveTextContent("My connections");
     expect(viewTabs[1]).toHaveTextContent("Find people");
-    expect(screen.getByRole("tab", { name: "Find people" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: /My connections/ })).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByLabelText("Search people")).toBeVisible();
-    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
-    expect(screen.getByLabelText("Search people")).not.toBeVisible();
+    expect(screen.getByRole("tab", { name: /My connections/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Find people" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByLabelText("Search my connections by name, email or phone")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Find people" }), { button: 0, ctrlKey: false });
+    await screen.findByText("Person 0");
+    expect(screen.getByLabelText("Search people")).toBeVisible();
   });
 
 
@@ -1759,7 +1760,7 @@ describe("Connect — People", () => {
   it("restores directory and mutual-list position while rechecking people after profile visits", async () => {
     mocks.searchParams = new URLSearchParams("tab=all&view=connections&q=Original");
     const target = { userId: "kushal", publicPersonRef: "person-kushal", displayName: "Kushal", photoUrl: null, email: null,
-      relationship: "connected", mutualConnectionCount: 3, mutualConnectionPreview: null };
+      relationship: "none" as const, mutualConnectionCount: 3, mutualConnectionPreview: null };
     mocks.searchDirectory.mockResolvedValue({ items: [target], page: 1, hasMore: false });
     mocks.listMutualConnections.mockImplementation(async ({ page }: { page: number }) => ({
       person: { publicPersonRef: "person-kushal", displayName: "Kushal" }, page, hasMore: page === 1, totalCount: 3,
@@ -1804,7 +1805,7 @@ describe("Connect — People", () => {
     await act(async () => dispatchConnectionGraphChanged("me"));
     await screen.findByRole("alert");
     expect(screen.queryByRole("button", { name: "Open Second mutual's profile" })).toBeNull();
-    mocks.searchParams = new URLSearchParams("tab=all");
+    mocks.searchParams = new URLSearchParams("tab=all&view=discover");
     returned.rerender(<ConnectPageClient />);
     expect((screen.getByLabelText("Search people") as HTMLInputElement).value).toBe("Kushal");
     expect(screen.getByRole("button", { name: /Current directory: RIAs/ })).toBeVisible();
@@ -3417,11 +3418,12 @@ describe("Connect — Circles", () => {
   });
 
   it("opens on People when the URL says nothing", async () => {
+    mocks.searchParams = new URLSearchParams();
     render(<ConnectPageClient />);
 
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
-    expect(screen.getByLabelText("Search people")).toBeVisible();
+    expect(screen.getByLabelText("Search my connections by name, email or phone")).toBeVisible();
     // Both surfaces live in one swipeable pager (as Finance and Consent do);
     // the one the URL did not ask for is present but inert and hidden.
     const circles = screen.getByTestId("connect-circles-tab");

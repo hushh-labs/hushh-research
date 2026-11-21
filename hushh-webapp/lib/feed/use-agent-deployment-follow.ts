@@ -16,6 +16,11 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiService } from "@/lib/services/api-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { publishPodUpdateObservation } from "@/lib/agent/pod-update-notice";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+  type AuthSessionOwnerSnapshot,
+} from "@/lib/auth/session-owner";
 
 import { NO_UPDATE, readUpdateStatus, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 export { NO_UPDATE, readUpdateStatus, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
@@ -176,6 +181,46 @@ function reportBackgroundTask(
   }
 }
 
+type PersonalAgentStatusResponse = Awaited<
+  ReturnType<typeof ApiService.getPersonalAgentStatus>
+>;
+
+type CachedDeploymentSnapshot = Readonly<{
+  owner: AuthSessionOwnerSnapshot;
+  state: AgentDeploymentState | null;
+  status: PersonalAgentStatusResponse | null;
+  hushhId: string | null;
+  health: string | null;
+  cloud: {
+    project: string;
+    region: string | null;
+    credentialMode: string | null;
+  } | null;
+  deploymentTarget: string | null;
+  update: AgentUpdateStatus;
+}>;
+
+let cachedDeploymentSnapshot: CachedDeploymentSnapshot | null = null;
+
+function readCachedDeploymentSnapshot(
+  userId: string | null,
+): CachedDeploymentSnapshot | null {
+  if (
+    !cachedDeploymentSnapshot ||
+    !isValidatedAuthSessionOwnerCurrent(cachedDeploymentSnapshot.owner)
+  ) {
+    return null;
+  }
+  if (userId && cachedDeploymentSnapshot.owner.userId !== userId) {
+    return null;
+  }
+  return cachedDeploymentSnapshot;
+}
+
+export function __resetAgentDeploymentCacheForTests(): void {
+  cachedDeploymentSnapshot = null;
+}
+
 export function useAgentDeploymentFollow(options?: {
   enabled?: boolean;
   userId?: string | null;
@@ -208,44 +253,62 @@ export function useAgentDeploymentFollow(options?: {
   status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>> | null;
   refresh: () => void;
 } {
+  const enabled = options?.enabled ?? true;
+  const userId = options?.userId ?? null;
+  const initialSnapshot = enabled ? readCachedDeploymentSnapshot(userId) : null;
   const [status, setStatus] = useState<Awaited<
     ReturnType<typeof ApiService.getPersonalAgentStatus>
-  > | null>(null);
+  > | null>(() => initialSnapshot?.status ?? null);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const refresh = useCallback(
     () => setRefreshRevision((value) => value + 1),
     [],
   );
-  const enabled = options?.enabled ?? true;
-  const userId = options?.userId ?? null;
-  const [state, setState] = useState<AgentDeploymentState | null>(null);
+  const [state, setState] = useState<AgentDeploymentState | null>(
+    () => initialSnapshot?.state ?? null,
+  );
   // Has the status endpoint answered even once? `state === null` cannot say: it is
   // both "we have not looked yet" and "this person has no agent", and the chat
   // router treated the first as the second and sent their turn to the shared hub.
-  const [resolved, setResolved] = useState(false);
+  const [resolved, setResolved] = useState(() => Boolean(initialSnapshot));
   const [following, setFollowing] = useState(false);
   // The pod's address. Every surface that talks to a pod -- the relay, the turn,
   // pod info -- is keyed on this, and it was being discarded by a client type that
   // declared only `state`, which is why nothing in the product could reach a pod.
-  const [hushhId, setHushhId] = useState<string | null>(null);
+  const [hushhId, setHushhId] = useState<string | null>(
+    () => initialSnapshot?.hushhId ?? null,
+  );
   // Present only when the liveness sweep reached a real verdict. Absent means
   // absent; the backend deliberately does not default it to "healthy".
-  const [health, setHealth] = useState<string | null>(null);
+  const [health, setHealth] = useState<string | null>(
+    () => initialSnapshot?.health ?? null,
+  );
   // WHERE the agent lives and AS WHOM it reaches its model. The pod had no
   // visible identity anywhere in the product (founder finding, 2026-08-21).
   const [cloud, setCloud] = useState<{
     project: string;
     region: string | null;
     credentialMode: string | null;
-  } | null>(null);
-  const [deploymentTarget, setDeploymentTarget] = useState<string | null>(null);
-  const [update, setUpdate] = useState<AgentUpdateStatus>(NO_UPDATE);
-  const updateInProgressRef = useRef(false);
+  } | null>(() => initialSnapshot?.cloud ?? null);
+  const [deploymentTarget, setDeploymentTarget] = useState<string | null>(
+    () => initialSnapshot?.deploymentTarget ?? null,
+  );
+  const [update, setUpdate] = useState<AgentUpdateStatus>(
+    () => initialSnapshot?.update ?? NO_UPDATE,
+  );
+  const updateInProgressRef = useRef(Boolean(initialSnapshot?.update.inProgress));
   // An update in flight keeps the poll alive past the terminal state, so the
   // chip can go available -> updating -> current without a reload.
-  const updateMovingRef = useRef(false);
+  const updateMovingRef = useRef(
+    Boolean(
+      initialSnapshot &&
+        (initialSnapshot.update.inProgress ||
+          (initialSnapshot.update.available === true &&
+            initialSnapshot.update.offerable)),
+    ),
+  );
   // Refs, not state: these drive the loop and must not themselves re-trigger it.
-  const previousRef = useRef<string | null>(null);
+  const previousRef = useRef<string | null>(initialSnapshot?.state ?? null);
   const startedAtRef = useRef<number>(Date.now());
   // A run of failures, not a total: one flaky poll in a long session is noise, a
   // sustained run is the signal.
@@ -253,7 +316,7 @@ export function useAgentDeploymentFollow(options?: {
   const identityRef = useRef<{
     enabled: boolean;
     userId: string | null;
-  } | null>(null);
+  } | null>({ enabled, userId });
 
   useEffect(() => {
     const ownerChanged =
@@ -261,18 +324,24 @@ export function useAgentDeploymentFollow(options?: {
       identityRef.current.userId !== userId;
     identityRef.current = { enabled, userId };
     if (ownerChanged) {
-      setStatus(null);
-      setState(null);
-      setResolved(false);
+      const nextSnapshot = enabled ? readCachedDeploymentSnapshot(userId) : null;
+      setStatus(nextSnapshot?.status ?? null);
+      setState(nextSnapshot?.state ?? null);
+      setResolved(Boolean(nextSnapshot));
       setFollowing(false);
-      setHushhId(null);
-      setHealth(null);
-      setCloud(null);
-      setDeploymentTarget(null);
-      setUpdate(NO_UPDATE);
-      previousRef.current = null;
-      updateInProgressRef.current = false;
-      updateMovingRef.current = false;
+      setHushhId(nextSnapshot?.hushhId ?? null);
+      setHealth(nextSnapshot?.health ?? null);
+      setCloud(nextSnapshot?.cloud ?? null);
+      setDeploymentTarget(nextSnapshot?.deploymentTarget ?? null);
+      setUpdate(nextSnapshot?.update ?? NO_UPDATE);
+      previousRef.current = nextSnapshot?.state ?? null;
+      updateInProgressRef.current = Boolean(nextSnapshot?.update.inProgress);
+      updateMovingRef.current = Boolean(
+        nextSnapshot &&
+          (nextSnapshot.update.inProgress ||
+            (nextSnapshot.update.available === true &&
+              nextSnapshot.update.offerable)),
+      );
       consecutiveFailuresRef.current = 0;
       startedAtRef.current = Date.now();
     }
@@ -302,24 +371,39 @@ export function useAgentDeploymentFollow(options?: {
           // agent, not of a state CHANGE. A pod that is already `active` when the
           // page loads never transitions, and keying its address off a transition
           // would leave it unaddressable for exactly the people who have one.
-          setHushhId(res?.hushhId ? String(res.hushhId) : null);
-          setHealth(res?.health ? String(res.health) : null);
-          setCloud(
-            res?.cloudProject
-              ? {
-                  project: String(res.cloudProject),
-                  region: res?.cloudRegion ? String(res.cloudRegion) : null,
-                  credentialMode: res?.credentialMode
-                    ? String(res.credentialMode)
-                    : null,
-                }
-              : null,
-          );
-          setDeploymentTarget(
-            res?.deploymentTarget ? String(res.deploymentTarget) : null,
-          );
+          const nextHushhId = res?.hushhId ? String(res.hushhId) : null;
+          const nextHealth = res?.health ? String(res.health) : null;
+          const nextCloud = res?.cloudProject
+            ? {
+                project: String(res.cloudProject),
+                region: res?.cloudRegion ? String(res.cloudRegion) : null,
+                credentialMode: res?.credentialMode
+                  ? String(res.credentialMode)
+                  : null,
+              }
+            : null;
+          const nextDeploymentTarget = res?.deploymentTarget
+            ? String(res.deploymentTarget)
+            : null;
+          setHushhId(nextHushhId);
+          setHealth(nextHealth);
+          setCloud(nextCloud);
+          setDeploymentTarget(nextDeploymentTarget);
           const nextUpdate = readUpdateStatus(res);
           setUpdate(nextUpdate);
+          const sessionOwner = snapshotValidatedAuthSessionOwner();
+          if (sessionOwner && (!userId || sessionOwner.userId === userId)) {
+            cachedDeploymentSnapshot = {
+              owner: sessionOwner,
+              state: (next as AgentDeploymentState | null) ?? null,
+              status: res,
+              hushhId: nextHushhId,
+              health: nextHealth,
+              cloud: nextCloud,
+              deploymentTarget: nextDeploymentTarget,
+              update: nextUpdate,
+            };
+          }
           reportUpdateTask(userId, nextUpdate, updateInProgressRef.current);
           updateInProgressRef.current = nextUpdate.inProgress;
           // A deferred offer remains in the status payload for quiet access but
@@ -341,6 +425,7 @@ export function useAgentDeploymentFollow(options?: {
         // rather than a phantom one.
         if (consecutiveFailuresRef.current >= FAILURES_BEFORE_WARNING) {
           next = null;
+          cachedDeploymentSnapshot = null;
           if (!cancelled) {
             setStatus(null);
             setState(null);

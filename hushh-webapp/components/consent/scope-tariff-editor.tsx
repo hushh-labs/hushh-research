@@ -7,6 +7,8 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { ProfilePaymentsLink } from "@/components/profile/profile-account-link";
 import { useCommerceSession } from "@/components/consent/use-commerce-session";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,19 +22,35 @@ export type SharingPriceReviewRequest = { id: string; proposedPriceCents?: numbe
 /** Tariffs belong to the exact authored scope handle, independently of its sharing switch. */
 export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedPrice = false, reviewRequest, onReviewClose, onPaymentsNavigate }: { scopeHandle: string; machineScope: string; label: string; showSavedPrice?: boolean; reviewRequest?: SharingPriceReviewRequest; onReviewClose?: () => void; onPaymentsNavigate?: () => boolean }) {
   const { user, capture } = useCommerceSession(`tariff:${scopeHandle}:${machineScope}`);
+  const ownerUid = user?.uid;
+  const warmEntry = typeof ScopeCommerceService.peekOwnerTariff === "function"
+    ? ScopeCommerceService.peekOwnerTariff(ownerUid, scopeHandle, machineScope)
+    : null;
   const pathname = usePathname();
   const memoryPresentation = pathname === "/one/pkm" || pathname?.startsWith("/one/pkm/") === true;
   const [open, setOpen] = useState(false);
-  const [price, setPrice] = useState("0.00");
-  const [hours, setHours] = useState("168");
+  const [price, setPrice] = useState(() => ((warmEntry?.tariff?.price_cents ?? 0) / 100).toFixed(2));
+  const [hours, setHours] = useState(() => String((warmEntry?.tariff?.base_duration_seconds ?? 604800) / 3600));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [readiness, setReadiness] = useState<CommerceReadiness | undefined>();
-  const [ready, setReady] = useState(false);
-  const [savedTariff, setSavedTariff] = useState<{ price: number; hours: number } | null>(null);
+  const [readiness, setReadiness] = useState<CommerceReadiness | undefined>(() => warmEntry?.readiness);
+  const [ready, setReady] = useState(() => Boolean(warmEntry?.readiness && (warmEntry.readiness.capabilities.set_free_tariff || warmEntry.readiness.capabilities.set_paid_tariff)));
+  const [savedTariff, setSavedTariff] = useState<{ price: number; hours: number } | null>(() =>
+    warmEntry ? { price: warmEntry.tariff?.price_cents ?? 0, hours: (warmEntry.tariff?.base_duration_seconds ?? 604800) / 3600 } : null,
+  );
   const [review, setReview] = useState<{ amount: number; hours: number; key: string } | null>(null);
   const appliedRequest = useRef<string | null>(null);
   useEffect(() => { if (reviewRequest) setOpen(true); }, [reviewRequest]);
+  useEffect(() => {
+    if (typeof ScopeCommerceService.subscribeOwnerTariffCatalog !== "function" || !ownerUid) return undefined;
+    return ScopeCommerceService.subscribeOwnerTariffCatalog(() => {
+      const next = ScopeCommerceService.peekOwnerTariff(ownerUid, scopeHandle, machineScope);
+      if (!next) return;
+      setSavedTariff({ price: next.tariff?.price_cents ?? 0, hours: (next.tariff?.base_duration_seconds ?? 604800) / 3600 });
+      setReadiness(next.readiness);
+      setReady(next.readiness.capabilities.set_free_tariff || next.readiness.capabilities.set_paid_tariff);
+    });
+  }, [ownerUid, scopeHandle, machineScope]);
   const closeEditor = () => { if (!busy && !review) { setOpen(false); onReviewClose?.(); } };
   const cancelReview = () => { if (!busy) setReview(null); };
   useBackLayer(pathname, open ? 20 : 0, () => { closeEditor(); return true; });
@@ -58,9 +76,36 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
     let active = true;
     const sessionCurrent = capture();
     const current = () => active && sessionCurrent();
-    setBusy(true); setMessage(null); setReadiness(undefined); setReady(false);
+    const hasWarm = typeof ScopeCommerceService.peekOwnerTariff === "function" &&
+      Boolean(ScopeCommerceService.peekOwnerTariff(user.uid, scopeHandle, machineScope));
+    if (!hasWarm) {
+      setBusy(true); setReadiness(undefined); setReady(false);
+    }
+    setMessage(null);
     void user.getIdToken().then(async token => {
       if (!current()) return;
+      // When the batched SWR catalog is available (live runtime) and the dialog is closed
+      // (`showSavedPrice` inline badge mode), hydrate all sibling scope rows in 1 single flight!
+      // When `open === true` (editing) or in unit tests mocking `tariff`/`readiness` directly,
+      // run the exact per-scope verification read.
+      if (!open && typeof ScopeCommerceService.tariffCatalog === "function") {
+        try {
+          const snap = await ScopeCommerceService.tariffCatalog(token, user.uid);
+          if (!current()) return;
+          const key = `${scopeHandle}::${machineScope}`;
+          if (Object.prototype.hasOwnProperty.call(snap.tariffsByKey, key)) {
+            const found = snap.tariffsByKey[key] ?? null;
+            setSavedTariff({ price: found?.price_cents ?? 0, hours: (found?.base_duration_seconds ?? 604800) / 3600 });
+            setPrice(((found?.price_cents ?? 0) / 100).toFixed(2));
+            setHours(String((found?.base_duration_seconds ?? 604800) / 3600));
+            setReadiness(snap.readiness);
+            setReady(snap.readiness.capabilities.set_free_tariff || snap.readiness.capabilities.set_paid_tariff);
+            return;
+          }
+        } catch {
+          // Fall back to direct per-scope tariff + readiness verification when catalog read is unavailable or mocked out.
+        }
+      }
       const [tariff, availability] = await Promise.allSettled([ScopeCommerceService.tariff(token, scopeHandle, machineScope), ScopeCommerceService.readiness(token)]);
       if (!current()) return;
       if (tariff.status !== "fulfilled") throw new Error("Sharing price could not be loaded. Refresh before saving.");
@@ -112,7 +157,23 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
       void user.getIdToken().then(token => {
         if (!current()) throw new Error("Your account changed. Review again.");
         return ScopeCommerceService.saveTariff(token, { scope_handle: scopeHandle, machine_scope: machineScope, price_cents: review.amount, base_duration_seconds: review.hours * 3600 }, review.key);
-      }).then(() => { if (current()) { setSavedTariff({ price: review.amount, hours: review.hours }); setReview(null); setMessage("Sharing terms saved."); } })
+      }).then(() => {
+        if (current()) {
+          if (typeof ScopeCommerceService.writeThroughOwnerTariff === "function") {
+            ScopeCommerceService.writeThroughOwnerTariff(user.uid, {
+              scope_handle: scopeHandle,
+              machine_scope: machineScope,
+              price_cents: review.amount,
+              base_duration_seconds: review.hours * 3600,
+            });
+          }
+          CacheSyncService.onConsentMutated(user.uid);
+          dispatchConsentStateChanged({ source: "scope_tariff_saved" });
+          setSavedTariff({ price: review.amount, hours: review.hours });
+          setReview(null);
+          setMessage("Sharing terms saved.");
+        }
+      })
         .catch(error => { if (current()) setMessage(error instanceof Error ? error.message : "Terms could not be saved."); })
         .finally(() => { if (currentView()) setBusy(false); });
     }}>{review?.amount === 0 ? "Confirm free" : "Save price"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Code2, Lock, RefreshCw } from "@/components/icons";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiService } from "@/lib/services/api-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -214,45 +214,50 @@ export function WorkspaceTerminalPanel({
 
   return (
     <div className="flex min-h-0 flex-col gap-3" data-testid="workspace-terminal-panel">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5">
+        <div className="flex min-w-0 items-center gap-2 text-[13px]">
           <Code2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="font-medium text-foreground">
             {status?.controlMode === "owner" ? "You are in control" : "Agent active"}
           </span>
           {status?.pressureLevel ? (
-            <span className="text-muted-foreground">({status.pressureLevel})</span>
+            <span className="text-xs text-muted-foreground">({status.pressureLevel})</span>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {status ? (
             status.controlMode === "owner" ? (
-              <ShellActionSurface
-                variant="pill"
-                className="min-h-9"
+              <Button
+                type="button"
+                size="sm"
+                className="px-3.5"
                 disabled={submitting}
                 onClick={() => {
                   void toggleControl("resume_agent");
                 }}
               >
                 Resume agent
-              </ShellActionSurface>
+              </Button>
             ) : (
-              <ShellActionSurface
-                variant="pill"
-                className="min-h-9"
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="px-3.5 font-medium"
                 disabled={submitting}
                 onClick={() => {
                   void toggleControl("take_control");
                 }}
               >
                 Take control
-              </ShellActionSurface>
+              </Button>
             )
           ) : null}
-          <ShellActionSurface
-            variant="pill"
-            className="min-h-9"
+          <Button
+            type="button"
+            size="sm"
+            variant="subdued"
+            className="px-3.5"
             disabled={loading}
             aria-label="Refresh terminal status"
             onClick={() => {
@@ -261,7 +266,7 @@ export function WorkspaceTerminalPanel({
           >
             <RefreshCw className="size-3.5" aria-hidden />
             Refresh
-          </ShellActionSurface>
+          </Button>
         </div>
       </div>
 
@@ -273,7 +278,7 @@ export function WorkspaceTerminalPanel({
 
       {status ? (
         <>
-          <div className="space-y-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-3">
+          <div className="space-y-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)]/55 p-3">
             {status.controlMode === "owner" ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Lock className="size-3.5 shrink-0" aria-hidden />
@@ -285,12 +290,12 @@ export function WorkspaceTerminalPanel({
                 {status.events.map((item) => (
                   <li
                     key={item.seq}
-                    className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--app-separator)] pb-1 last:border-b-0 last:pb-0"
+                    className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--app-separator)] pb-1.5 last:border-b-0 last:pb-0"
                   >
-                    <span className="font-mono text-foreground">
+                    <span className="font-mono text-[12px] text-foreground">
                       {item.command_summary || `step #${item.seq}`}
                     </span>
-                    <span className="text-muted-foreground">
+                    <span className="tabular-nums text-[11.5px] text-muted-foreground">
                       {item.actor ?? "agent"} · {item.status ?? "done"}
                       {typeof item.exit_code === "number" ? ` (exit ${item.exit_code})` : ""}
                     </span>
@@ -298,7 +303,7 @@ export function WorkspaceTerminalPanel({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[13px] text-muted-foreground">
                 No terminal commands run in this session yet.
               </p>
             )}
@@ -323,16 +328,16 @@ export function WorkspaceTerminalPanel({
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
-              className="min-w-0 flex-1 font-mono text-xs"
+              className="h-9 min-w-0 flex-1 rounded-full font-mono text-xs"
             />
-            <ShellActionSurface
+            <Button
               type="submit"
-              variant="pill"
-              className="min-h-10"
+              size="sm"
+              className="px-4"
               disabled={status.controlMode !== "owner" || submitting || !commandInput.trim()}
             >
               Run
-            </ShellActionSurface>
+            </Button>
           </form>
         </>
       ) : null}

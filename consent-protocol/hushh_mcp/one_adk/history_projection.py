@@ -209,6 +209,7 @@ _ACTIVITY_TOOLS = frozenset(
         "search_wiki",
         "read_wiki_page",
         "trace_claim",
+        "optimize_personal_memory",
         "read_my_profile_status",
         "ask_location_agent",
         "list_my_location_circles",
@@ -397,6 +398,7 @@ def project_conversation_history(
     session_state: dict | None = None,
     consent_by_invocation: dict[str, str] | None = None,
     consent_ended: dict[str, str] | None = None,
+    before_id: str | None = None,
 ) -> dict[str, Any]:
     messages: list[dict[str, object]] = []
     state = session_state or {}
@@ -495,4 +497,19 @@ def project_conversation_history(
                 "metadata": metadata,
             }
         )
-    return {"conversation_id": conversation_id, "messages": messages[-limit:]}
+    pool = messages
+    if isinstance(before_id, str) and before_id.strip():
+        normalized_before = before_id.strip()
+        for pos, entry in enumerate(messages):
+            if str(entry.get("id") or "") == normalized_before:
+                pool = messages[:pos]
+                break
+    sliced = pool[-limit:] if limit > 0 else []
+    has_more = len(pool) > len(sliced)
+    oldest_cursor = str(sliced[0]["id"]) if (has_more and sliced and sliced[0].get("id")) else None
+    return {
+        "conversation_id": conversation_id,
+        "messages": sliced,
+        "has_more": has_more,
+        "oldest_cursor": oldest_cursor,
+    }

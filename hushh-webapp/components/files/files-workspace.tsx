@@ -41,6 +41,7 @@ import {
   isPreviewableTextFilename,
   peekFilesListCache,
   peekFilesSettingsCache,
+  peekFilesTextCache,
 } from "@/lib/files/files-cache";
 
 const PERSONAL_WIKI_FOLDER_ID = "__personal_wiki__";
@@ -122,18 +123,21 @@ export function FilesWorkspace({
         return;
       }
       const signal = work.current.signal;
-      // Existing owner pods may admit one request at a time. Finish the
-      // library read before asking that same pod for settings.
+      // Existing owner pods may admit one request at a time. Render the
+      // library list immediately once it arrives, then hydrate settings softly.
       const page = await FilesService.list(parent, next, trash, signal);
-      signal.throwIfAborted();
-      const config = await FilesService.settings(signal);
       signal.throwIfAborted();
       setEntries((previous) =>
         next ? [...previous, ...page.entries] : page.entries,
       );
       setCursor(page.cursor);
-      setSettings(config);
       setMessage("");
+      setLoading(false);
+      void FilesService.settings(signal)
+        .then((config) => {
+          if (!signal.aborted) setSettings(config);
+        })
+        .catch(() => undefined);
     },
     [available, parent, trash],
   );
@@ -141,11 +145,12 @@ export function FilesWorkspace({
   useEffect(() => {
     work.current.abort();
     work.current = new AbortController();
+    const canPeekWarm = Boolean(vaultUnlocked && userId && !connectionError);
     const warmList =
-      available && userId && parent !== PERSONAL_WIKI_FOLDER_ID
-        ? peekFilesListCache(userId, parent, "", trash)
+      canPeekWarm && parent !== PERSONAL_WIKI_FOLDER_ID
+        ? peekFilesListCache(userId!, parent, "", trash)
         : null;
-    const warmSettings = available && userId ? peekFilesSettingsCache(userId) : null;
+    const warmSettings = canPeekWarm ? peekFilesSettingsCache(userId!) : null;
     setLoading(parent !== PERSONAL_WIKI_FOLDER_ID && !warmList);
     setMessage("");
     setEntries(warmList?.entries ?? []);
@@ -186,7 +191,7 @@ export function FilesWorkspace({
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, userId, load, hosting, parent, trash]);
+  }, [available, connectionError, userId, vaultUnlocked, load, hosting, parent, trash]);
 
   useEffect(() => {
     setFolders(routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS);
@@ -443,14 +448,32 @@ export function FilesWorkspace({
                   </p>
                 </div>
               ) : null}
-              {loading ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Opening Files…
-                </p>
+              {loading && entries.length === 0 && !inWikiFolder ? (
+                <div
+                  role="status"
+                  aria-label="Loading files"
+                  data-testid="files-cold-skeleton"
+                  className="overflow-hidden rounded-xl border border-border/60"
+                >
+                  <span className="sr-only">Opening Files…</span>
+                  <div className="divide-y divide-border/50">
+                    {[0, 1, 2].map((row) => (
+                      <div
+                        key={row}
+                        className="grid h-11 grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-3 px-3.5 sm:grid-cols-[minmax(0,1fr)_6.5rem_7.5rem_4.5rem]"
+                      >
+                        <div className="h-3.5 w-40 animate-pulse rounded bg-muted/70 motion-reduce:animate-none" />
+                        <div className="hidden h-3 w-14 animate-pulse rounded bg-muted/60 motion-reduce:animate-none sm:block" />
+                        <div className="hidden h-3 w-20 animate-pulse rounded bg-muted/60 motion-reduce:animate-none sm:block" />
+                        <div className="ml-auto h-3 w-10 animate-pulse rounded bg-muted/60 motion-reduce:animate-none" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ) : null}
               {inWikiFolder ? (
                 <div
-                  className="rounded-2xl border p-4 sm:p-5"
+                  className="min-w-0"
                   aria-label="Personal wiki folder"
                   data-testid="files-personal-wiki-view"
                 >
@@ -472,9 +495,17 @@ export function FilesWorkspace({
                 </div>
               ) : (
               <div
-                className="divide-y rounded-2xl border"
+                className="divide-y rounded-2xl border overflow-hidden"
                 aria-label={trash ? "Trash" : "Files and folders"}
               >
+                <div
+                  aria-hidden="true"
+                  className="hidden sm:flex items-center gap-3 bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground"
+                >
+                  <span className="min-w-0 flex-1">Name</span>
+                  <span className="w-24 shrink-0 text-right">Type / Size</span>
+                  <span className="w-20 shrink-0 text-right">Actions</span>
+                </div>
                 {edit?.operation === "create" ? (
                   <FilesFolderDraft
                     value={edit.value}
@@ -487,7 +518,7 @@ export function FilesWorkspace({
                 {showRootWikiFolder && !message && !loading ? (
                   <div
                     data-testid="files-personal-wiki-folder"
-                    className="flex min-w-0 items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4"
+                    className="flex min-w-0 items-center gap-2.5 px-3 py-2.5 hover:bg-muted/30 transition-colors sm:gap-3 sm:px-4"
                   >
                     <FolderLock
                       className="size-5 shrink-0 text-muted-foreground"
@@ -496,7 +527,7 @@ export function FilesWorkspace({
                     <div className="min-w-0 flex-[1_1_6rem]">
                       <button
                         type="button"
-                        className="block max-w-full truncate text-left font-medium"
+                        className="block max-w-full truncate text-left font-medium hover:underline"
                         disabled={busy || Boolean(edit)}
                         onClick={() => {
                           setTrash(false);
@@ -509,9 +540,13 @@ export function FilesWorkspace({
                         Personal wiki
                       </button>
                       <p className="truncate text-xs text-muted-foreground">
-                        Markdown memory pages, citations, and imports
+                        wiki/ · Nested domain folders and markdown files
                       </p>
                     </div>
+                    <span className="hidden sm:inline-block w-24 shrink-0 text-right text-xs text-muted-foreground">
+                      Folder
+                    </span>
+                    <span className="hidden sm:inline-block w-20 shrink-0" aria-hidden="true" />
                   </div>
                 ) : null}
                 {visibleEntries.map((entry) => (
@@ -566,6 +601,21 @@ export function FilesWorkspace({
                         isPreviewableTextFilename(entryItem.name) &&
                         FilesService.readText
                       ) {
+                        const warmText = userId
+                          ? peekFilesTextCache(
+                              userId,
+                              entryItem.id,
+                              entryItem.revision,
+                            )
+                          : null;
+                        if (warmText !== null) {
+                          setPreviewTarget({
+                            kind: "file",
+                            entry: entryItem,
+                            text: warmText,
+                          });
+                          return;
+                        }
                         const activeSignal = work.current.signal;
                         void act(
                           async () => {

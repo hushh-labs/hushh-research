@@ -3,6 +3,11 @@
 import * as React from "react";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import {
+  createPointerVelocityTracker,
+  runClosedFormSpring,
+  type SpringDriverHandle,
+} from "@/lib/motion/closed-form-spring";
 import { cn } from "@/lib/utils";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 
@@ -43,6 +48,8 @@ type SegmentedPillProps = {
    */
   ripple?: boolean;
   hapticFeedback?: boolean;
+  /** Enables iOS Liquid-Glass C1 spring glide and horizontal scrub across segments. */
+  liquidGlide?: boolean;
   className?: string;
   ariaLabel?: string;
 };
@@ -111,6 +118,7 @@ export const SegmentedPill = React.forwardRef<
       hitArea = "segment",
       ripple = true,
       hapticFeedback = true,
+      liquidGlide = false,
       className,
       ariaLabel = "Segmented selector",
     },
@@ -120,6 +128,31 @@ export const SegmentedPill = React.forwardRef<
     const isStacked = layout === "stacked";
     const [activePulseKey, setActivePulseKey] = React.useState(0);
     const previousValueRef = React.useRef(value);
+    const containerRef = React.useRef<HTMLDivElement | null>(null);
+    const indicatorRef = React.useRef<HTMLDivElement | null>(null);
+    const springRef = React.useRef<SpringDriverHandle | null>(null);
+    const slotPositionRef = React.useRef<number | null>(null);
+    const slotVelocityRef = React.useRef(0);
+    const suppressClickUntilRef = React.useRef(0);
+    const scrubStateRef = React.useRef<{
+      pointerId: number;
+      startX: number;
+      startY: number;
+      startSlot: number;
+      slotWidth: number;
+      scrubbing: boolean;
+      velocityTracker: ReturnType<typeof createPointerVelocityTracker>;
+    } | null>(null);
+
+    const setRefs = React.useCallback(
+      (node: HTMLDivElement | null) => {
+        containerRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref) ref.current = node;
+      },
+      [ref],
+    );
+
     const resolvedSlotCount = Math.max(
       slotCount ?? options.length,
       options.length,
@@ -129,6 +162,62 @@ export const SegmentedPill = React.forwardRef<
       0,
       options.findIndex((option) => option.value === value),
     );
+    if (slotPositionRef.current === null) {
+      slotPositionRef.current = activeIndex;
+    }
+
+    const writeIndicatorTransform = React.useCallback(
+      (slotPos: number, slotVel: number) => {
+        const indicator = indicatorRef.current;
+        if (!indicator) return;
+        const stretch = Math.min(0.11, Math.abs(slotVel) * 0.016);
+        const scaleX = 1 + stretch;
+        const scaleY = 1 - stretch * 0.42;
+        indicator.style.transform =
+          stretch > 0.002
+            ? `translate3d(calc(${slotPos * 100}% + var(--segment-drag-x, 0px)), 0, 0) scale3d(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)}, 1)`
+            : `translate3d(calc(${slotPos * 100}% + var(--segment-drag-x, 0px)), 0, 0)`;
+      },
+      [],
+    );
+
+    React.useLayoutEffect(() => {
+      if (!liquidGlide) return;
+      const currentPos = slotPositionRef.current ?? activeIndex;
+      if (
+        Math.abs(currentPos - activeIndex) < 0.001 &&
+        Math.abs(slotVelocityRef.current) < 0.01
+      ) {
+        slotPositionRef.current = activeIndex;
+        writeIndicatorTransform(activeIndex, 0);
+        return;
+      }
+      springRef.current?.cancel();
+      springRef.current = runClosedFormSpring({
+        from: currentPos,
+        to: activeIndex,
+        options: {
+          visualDuration: 0.28,
+          bounce: 0.08,
+          initialVelocity: slotVelocityRef.current,
+          restDelta: 0.002,
+          restSpeed: 0.04,
+        },
+        onUpdate: (pos, vel) => {
+          slotPositionRef.current = pos;
+          slotVelocityRef.current = vel;
+          writeIndicatorTransform(pos, vel);
+        },
+        onComplete: () => {
+          slotPositionRef.current = activeIndex;
+          slotVelocityRef.current = 0;
+          writeIndicatorTransform(activeIndex, 0);
+        },
+      });
+      return () => {
+        springRef.current?.cancel();
+      };
+    }, [activeIndex, liquidGlide, writeIndicatorTransform]);
 
     React.useEffect(() => {
       if (previousValueRef.current === value) {
@@ -138,14 +227,130 @@ export const SegmentedPill = React.forwardRef<
       setActivePulseKey((current) => current + 1);
     }, [value]);
 
+    const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!liquidGlide || options.length < 2) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const slotWidth = (rect.width - 8) / resolvedSlotCount;
+      if (slotWidth <= 8) return;
+      const velocityTracker = createPointerVelocityTracker();
+      velocityTracker.reset(event.clientX, event.timeStamp);
+      scrubStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startSlot: slotPositionRef.current ?? activeIndex,
+        slotWidth,
+        scrubbing: false,
+        velocityTracker,
+      };
+    };
+
+    const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+      const scrub = scrubStateRef.current;
+      if (!scrub || scrub.pointerId !== event.pointerId) return;
+      const dx = event.clientX - scrub.startX;
+      const dy = event.clientY - scrub.startY;
+      if (!scrub.scrubbing) {
+        if (Math.abs(dx) < 10) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          scrubStateRef.current = null;
+          return;
+        }
+        scrub.scrubbing = true;
+        springRef.current?.cancel();
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Ignore if pointer capture is unavailable on synthetic events.
+        }
+      }
+      scrub.velocityTracker.push(event.clientX, event.timeStamp);
+      const rawSlot = scrub.startSlot + dx / scrub.slotWidth;
+      const maxSlot = Math.max(0, options.length - 1);
+      const clampedSlot =
+        rawSlot < 0
+          ? rawSlot * 0.18
+          : rawSlot > maxSlot
+            ? maxSlot + (rawSlot - maxSlot) * 0.18
+            : rawSlot;
+      const slotVel = scrub.velocityTracker.velocityPxPerSec(event.timeStamp) / scrub.slotWidth;
+      slotPositionRef.current = clampedSlot;
+      slotVelocityRef.current = slotVel;
+      writeIndicatorTransform(clampedSlot, slotVel * 0.65);
+      suppressClickUntilRef.current = performance.now() + 360;
+    };
+
+    const finishScrub = (event: React.PointerEvent<HTMLDivElement>, cancelled: boolean) => {
+      const scrub = scrubStateRef.current;
+      if (!scrub || scrub.pointerId !== event.pointerId) return;
+      scrubStateRef.current = null;
+      if (!scrub.scrubbing) return;
+      const currentPos = slotPositionRef.current ?? activeIndex;
+      const slotVel = cancelled
+        ? 0
+        : scrub.velocityTracker.velocityPxPerSec(event.timeStamp) / scrub.slotWidth;
+      slotVelocityRef.current = slotVel;
+      const projected = currentPos + Math.max(-0.65, Math.min(0.65, slotVel * 0.08));
+      const nearestIndex = cancelled
+        ? activeIndex
+        : Math.max(0, Math.min(options.length - 1, Math.round(projected)));
+      const targetOption = options[nearestIndex];
+      if (!cancelled && targetOption && !targetOption.disabled && targetOption.value !== value) {
+        onValueChange(targetOption.value);
+        if (hapticFeedback) appHaptic("selection");
+        return;
+      }
+      springRef.current?.cancel();
+      springRef.current = runClosedFormSpring({
+        from: currentPos,
+        to: activeIndex,
+        options: {
+          visualDuration: 0.26,
+          bounce: 0.08,
+          initialVelocity: slotVel,
+          restDelta: 0.002,
+          restSpeed: 0.04,
+        },
+        onUpdate: (pos, vel) => {
+          slotPositionRef.current = pos;
+          slotVelocityRef.current = vel;
+          writeIndicatorTransform(pos, vel);
+        },
+        onComplete: () => {
+          slotPositionRef.current = activeIndex;
+          slotVelocityRef.current = 0;
+          writeIndicatorTransform(activeIndex, 0);
+        },
+      });
+    };
+
     return (
       <div
-        ref={ref}
+        ref={setRefs}
         data-theme-control
+        data-liquid-glide={liquidGlide ? "true" : undefined}
         role="radiogroup"
         aria-label={ariaLabel}
+        onPointerDown={liquidGlide ? handlePointerDown : undefined}
+        onPointerMove={liquidGlide ? handlePointerMove : undefined}
+        onPointerUp={liquidGlide ? (e) => finishScrub(e, false) : undefined}
+        onPointerCancel={liquidGlide ? (e) => finishScrub(e, true) : undefined}
+        onClickCapture={
+          liquidGlide
+            ? (e) => {
+                if (performance.now() < suppressClickUntilRef.current) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }
+            : undefined
+        }
         className={cn(
           "pointer-events-none relative grid items-center rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] backdrop-blur-[var(--blur-standard)]",
+          liquidGlide && "touch-pan-y select-none",
           isStacked ? styles.stackedContainer : styles.container,
           className,
         )}
@@ -154,9 +359,14 @@ export const SegmentedPill = React.forwardRef<
         }}
       >
         <div
+          ref={indicatorRef}
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-1 top-1 bottom-1 overflow-hidden rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-transform duration-[150ms] ease-[var(--ease-out)] motion-reduce:transition-none dark:bg-white/[0.14] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
+          className={cn(
+            "pointer-events-none absolute left-1 top-1 bottom-1 origin-center overflow-hidden rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] will-change-transform dark:bg-white/[0.14] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]",
+            !liquidGlide &&
+              "transition-transform duration-[150ms] ease-[var(--ease-out)] motion-reduce:transition-none",
+          )}
           style={{
             width: `calc((100% - 0.5rem) / ${resolvedSlotCount})`,
             transform: `translate3d(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)), 0, 0)`,
@@ -255,6 +465,7 @@ export const SegmentedPill = React.forwardRef<
                 <MaterialRipple
                   variant={isAccent ? "link" : "none"}
                   effect={isAccent ? "glass" : "fade"}
+                  disableHover
                   disabled={isDisabled}
                   className="z-0"
                 />

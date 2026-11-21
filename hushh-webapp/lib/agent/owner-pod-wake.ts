@@ -119,6 +119,8 @@ export type AgentWakePorts = {
   onWaking: () => void;
   /** Whether this turn goes to the owner's own agent; nothing else is woken. */
   isOwnerAgent: () => Promise<boolean>;
+  /** True when the pod already answered recently, suppressing speculative slow-byte wake hints. */
+  isAlreadyAwake?: () => boolean;
   signal?: AbortSignal | null;
   hintMs?: number;
   budgetMs?: number;
@@ -177,7 +179,10 @@ export async function sendWhileAgentWakes(
     woke = true;
     ports.onWaking();
   };
-  const hintIfOwnerAgent = () => void isOwnerAgent().then((owner) => owner && waking());
+  const hintIfOwnerAgent = () => {
+    if (ports.isAlreadyAwake?.()) return;
+    void isOwnerAgent().then((owner) => owner && waking());
+  };
   for (let attempt = 0; ; attempt += 1) {
     const outcome = await settleWithHint(send, ports.hintMs ?? WAKE_HINT_MS, hintIfOwnerAgent);
     const value = outcome.response ?? outcome.error;

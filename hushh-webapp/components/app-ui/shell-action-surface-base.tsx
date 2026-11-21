@@ -109,8 +109,13 @@ export const ShellActionSurfaceBase = React.forwardRef<
         {ripple ? <MaterialRipple
           variant="blue"
           effect={rippleEffect}
+          disableHover
           disabled={props.disabled}
-          className={cn("z-10", rippleClassName)}
+          className={cn(
+            "z-10",
+            variant === "avatar" && "inset-[6px] rounded-full",
+            rippleClassName,
+          )}
         /> : null}
       </button>
       {badge ? (

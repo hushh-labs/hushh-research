@@ -90,6 +90,27 @@ describe("a chat turn follows its agent's re-versioned endpoint", () => {
     await expect(ownerPodRequest("agent-chat", turnInit(), ports)).rejects.toThrow("POD_ASSIGNMENT_CHANGED");
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("re-admits when a migrated endpoint fails initial session admission with BINDING_POD_KEY_MISMATCH", async () => {
+    const sandboxV2 = {
+      ...V2,
+      url: "https://sandbox-edge-gateway.example.run.app/u/ha1_owner",
+      podKeyId: "podk_sandbox_2",
+    };
+    const { fetch, ports } = harness(sandboxV2);
+    pod.currentPodConnection.mockReset();
+    pod.currentPodConnection
+      .mockRejectedValueOnce(new Error("BINDING_POD_KEY_MISMATCH"))
+      .mockResolvedValueOnce({ endpoint: sandboxV2, session: { session: "pst1.sandbox" } });
+    pod.refreshEndpointFromHub.mockResolvedValueOnce(sandboxV2);
+
+    await ownerPodRequest("agent-chat", turnInit(), ports);
+
+    expect(pod.refreshEndpointFromHub).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toBe(`${sandboxV2.url}/api/one/pod/agent-chat`);
+    expect(new Headers(fetch.mock.calls[1][1].headers).get("Authorization")).toBe("Bearer pst1.sandbox");
+  });
 });
 
 describe("a waking agent during admission", () => {

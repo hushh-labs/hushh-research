@@ -257,4 +257,19 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
     expect(await screen.findByLabelText("memory.md content")).toBeInTheDocument();
     await waitFor(() => expect(onConsumed).toHaveBeenCalled());
   });
+
+  it("runs grant-safe Optimize memory from Personal wiki and renders the consolidation receipt", async () => {
+    render(<FilesWorkspace />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Personal wiki/i }));
+    const optimizeBtn = await screen.findByTestId("wiki-optimize-memory-button");
+    fireEvent.click(optimizeBtn);
+
+    await waitFor(() => expect(files.wikiOptimize).toHaveBeenCalledTimes(1));
+    const receipt = await screen.findByTestId("wiki-optimize-memory-receipt");
+    expect(receipt).toHaveTextContent("Optimized 8 pages");
+    expect(receipt).toHaveTextContent("2 duplicates merged");
+    expect(receipt).toHaveTextContent("1 stale retired");
+    expect(receipt).toHaveTextContent("1 shared/paid scope protected");
+  });
 });

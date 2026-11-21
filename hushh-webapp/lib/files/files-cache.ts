@@ -1,6 +1,11 @@
 "use client";
 
 import type { FileEntry, FilesPage, FilesSettings, WikiOverview, WikiPageDetail } from "@/lib/files/service";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+  type AuthSessionOwnerSnapshot,
+} from "@/lib/auth/session-owner";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type CachedSlot<T> = {
@@ -9,11 +14,20 @@ type CachedSlot<T> = {
   value: T;
 };
 
+type CachedHostingSlot = {
+  ownerKey: string;
+  vaultKey: string;
+  vaultEpoch: number;
+  identity: AuthSessionOwnerSnapshot;
+  hosting: "shared" | "pod";
+};
+
 const LIST_CACHE = new Map<string, CachedSlot<FilesPage>>();
 const SETTINGS_CACHE = new Map<string, CachedSlot<FilesSettings>>();
 const WIKI_OVERVIEW_CACHE = new Map<string, CachedSlot<WikiOverview>>();
 const WIKI_PAGE_CACHE = new Map<string, CachedSlot<WikiPageDetail>>();
 const FILE_TEXT_CACHE = new Map<string, CachedSlot<string>>();
+const HOSTING_CACHE = new Map<string, CachedHostingSlot>();
 
 function readSlot<T>(store: Map<string, CachedSlot<T>>, key: string): T | null {
   const entry = store.get(key);
@@ -73,6 +87,49 @@ export function setFilesTextCache(ownerKey: string, entry: FileEntry, text: stri
   writeSlot(FILE_TEXT_CACHE, `${ownerKey}:${entry.id}:${entry.revision}`, ownerKey, text);
 }
 
+export function peekFilesHostingCache(
+  ownerKey: string | undefined,
+  vaultKey: string | null,
+): "shared" | "pod" | null {
+  if (!ownerKey || !vaultKey) return null;
+  const entry = HOSTING_CACHE.get(ownerKey);
+  if (
+    !entry ||
+    entry.vaultKey !== vaultKey ||
+    !isVaultSessionEpochCurrent(entry.vaultEpoch) ||
+    entry.identity.userId !== ownerKey ||
+    !isValidatedAuthSessionOwnerCurrent(entry.identity)
+  ) {
+    HOSTING_CACHE.delete(ownerKey);
+    return null;
+  }
+  return entry.hosting;
+}
+
+export function setFilesHostingCache(
+  ownerKey: string,
+  vaultKey: string,
+  hosting: "shared" | "pod",
+): void {
+  const identity = snapshotValidatedAuthSessionOwner();
+  if (!identity || identity.userId !== ownerKey) return;
+  HOSTING_CACHE.set(ownerKey, {
+    ownerKey,
+    vaultKey,
+    vaultEpoch: snapshotVaultSessionEpoch(),
+    identity,
+    hosting,
+  });
+}
+
+export function clearFilesHostingCache(ownerKey?: string): void {
+  if (!ownerKey) {
+    HOSTING_CACHE.clear();
+    return;
+  }
+  HOSTING_CACHE.delete(ownerKey);
+}
+
 export function invalidateFilesMutationCache(ownerKey?: string): void {
   const dropByOwner = <T,>(store: Map<string, CachedSlot<T>>) => {
     if (!ownerKey) {
@@ -100,4 +157,5 @@ export function isPreviewableTextFilename(name: string): boolean {
 
 export function clearFilesCache(userId?: string): void {
   invalidateFilesMutationCache(userId);
+  clearFilesHostingCache(userId);
 }

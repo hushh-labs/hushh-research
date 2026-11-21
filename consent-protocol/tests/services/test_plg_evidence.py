@@ -1699,7 +1699,7 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
     monkeypatch.setattr(
         audience,
         "_firebase_page",
-        lambda _page, _project: SimpleNamespace(users=records, **{"next_page_token": "next"}),
+        lambda _: SimpleNamespace(users=records, **{"next_page_token": "next"}),
     )
 
     class Context:

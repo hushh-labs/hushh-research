@@ -890,10 +890,13 @@ def inject_dynamic_turn_context_before_model(callback_context: Any, llm_request:
         text=f"{_DYNAMIC_TURN_CONTEXT_MARKER}\n{dynamic_text}\n{_DYNAMIC_TURN_CONTEXT_END}"
     )
     for content in reversed(contents):
-        if getattr(content, "role", None) == "user" and isinstance(
-            getattr(content, "parts", None), list
+        parts = getattr(content, "parts", None)
+        if (
+            getattr(content, "role", None) == "user"
+            and isinstance(parts, list)
+            and not any(getattr(existing, "function_response", None) for existing in parts)
         ):
-            content.parts.append(part)
+            parts.append(part)
             return None
     contents.append(genai_types.Content(role="user", parts=[part]))
     return None
@@ -2939,6 +2942,7 @@ def build_one_text_agent(
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.plaid_connector_tools import plaid_after_model, plaid_before_model
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.rolling_horizon import compact_horizon_before_model
     from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
     from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
 
@@ -2987,6 +2991,7 @@ def build_one_text_agent(
             plaid_before_model,
             document_period_before_model,
             scope_leaf_tools_before_model,
+            compact_horizon_before_model,
             timed_one_before_model,
             inject_dynamic_turn_context_before_model,
             club_queued_input,

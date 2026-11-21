@@ -78,19 +78,19 @@ export type SlowTurnOutcome = "answered" | "failed" | "stopped";
 // signal names that condition.
 export const SLOW_NOTICE_COPY: Record<SlowNoticeState, Omit<SlowNoticeView, "state">> = {
   slow: {
-    title: "One is taking longer than usual. Your message is safe.",
+    title: "Taking a moment longer…",
   },
   waking: {
-    title: "Waking your agent… Your message will send shortly.",
+    title: "Starting One…",
   },
   connecting: {
-    title: "Still connecting to One. Your message is safe.",
+    title: "Reconnecting to One…",
   },
   busy: {
-    title: "One is very busy right now. Please try again in a moment.",
+    title: "One is busy right now. Try again shortly.",
   },
   unavailable: {
-    title: "One is briefly unavailable. Please try again shortly.",
+    title: "One is briefly unavailable. Try again shortly.",
   },
 };
 

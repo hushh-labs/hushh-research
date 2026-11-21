@@ -582,3 +582,94 @@ async def test_an_ended_share_restores_as_access_ended_and_never_ships_the_answe
     }
     # The person's own messages are theirs and stay.
     assert any(message["content"] == "Where is it?" for message in ended["messages"])
+
+
+def test_session_category_projection_auto_and_custom():
+    from types import SimpleNamespace
+
+    from hushh_mcp.one_adk.history_descriptors import (
+        STATE_THREAD_CATEGORY,
+        _session_category_projection,
+    )
+
+    finance_session = SimpleNamespace(
+        state={"hussh:thread_title": "Lets connect to Plaid bank accounts"},
+        events=[],
+    )
+    assert _session_category_projection(finance_session) == ("Finance", "auto")
+
+    connections_session = SimpleNamespace(
+        state={"hussh:thread_title": "What has my connection Kushal shared with me"},
+        events=[],
+    )
+    assert _session_category_projection(connections_session) == ("Connections", "auto")
+
+    custom_session = SimpleNamespace(
+        state={
+            "hussh:thread_title": "Trip planning",
+            STATE_THREAD_CATEGORY: "  Family   2026  ",
+        },
+        events=[],
+    )
+    assert _session_category_projection(custom_session) == ("Family 2026", "custom")
+
+    pinned_one = SimpleNamespace(
+        state={"hussh:thread_title": "One", STATE_THREAD_CATEGORY: "Finance"},
+        events=[],
+    )
+    assert _session_category_projection(pinned_one) == (None, "pinned")
+
+
+@pytest.mark.asyncio
+async def test_rename_conversation_supports_category_without_bumping_timestamp(monkeypatch):
+    from types import SimpleNamespace
+
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        agent_chat.RenameConversation.model_validate({})
+
+    stored = SimpleNamespace(
+        id="conv-cat-1",
+        state={"hussh:thread_title": "Q4 Liquidity Review"},
+        events=[],
+        last_update_time=1700000000.0,
+    )
+
+    class StubSessions:
+        async def update_conversation_metadata(
+            self, *, app_name, user_id, session_id, title=None, category=None, update_category=False
+        ):
+            assert (app_name, user_id, session_id) == (
+                agent_chat.ONE_APP_NAME,
+                "owner",
+                "conv-cat-1",
+            )
+            if title is not None:
+                stored.state["hussh:thread_title"] = title
+                stored.last_update_time = 1700009999.0
+            if update_category:
+                if category and category.strip():
+                    stored.state["hussh:thread_category"] = category.strip()
+                else:
+                    stored.state.pop("hussh:thread_category", None)
+            return stored
+
+    monkeypatch.setattr(agent_chat, "_shared_sessions", lambda: StubSessions())
+
+    assigned = await agent_chat.rename_conversation(
+        "conv-cat-1",
+        agent_chat.RenameConversation(category="Advisory"),
+        token={"user_id": "owner"},
+    )
+    assert assigned["category"] == "Advisory"
+    assert assigned["category_source"] == "custom"
+    assert assigned["updated_at"] == 1700000000.0
+
+    cleared = await agent_chat.rename_conversation(
+        "conv-cat-1",
+        agent_chat.RenameConversation(category=None),
+        token={"user_id": "owner"},
+    )
+    assert cleared["category_source"] == "auto"
+    assert cleared["updated_at"] == 1700000000.0

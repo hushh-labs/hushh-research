@@ -4394,12 +4394,22 @@ class PersonalKnowledgeModelService:
                     result["code"] = "PKM_ATOMIC_COMMIT_FAILED"
                     return result if return_result else False
                 if not is_allowed_top_level_domain(domain):
+                    proposed_icon = (
+                        (normalized_manifest.structure_decision or {}).get("domain_icon")
+                        if normalized_manifest
+                        else None
+                    )
                     await self.domain_registry.register_domain(
                         domain_key=domain,
                         display_name=(
                             normalized_mutation_plan.friendly_domain_name
                             if normalized_mutation_plan
                             else domain.replace("_", " ").title()
+                        ),
+                        icon_name=(
+                            str(proposed_icon).strip()
+                            if isinstance(proposed_icon, str) and proposed_icon.strip()
+                            else None
                         ),
                         description=(
                             normalized_mutation_plan.explanation
@@ -4633,12 +4643,22 @@ class PersonalKnowledgeModelService:
             )
 
             if not is_allowed_top_level_domain(domain):
+                proposed_icon = (
+                    (normalized_manifest.structure_decision or {}).get("domain_icon")
+                    if normalized_manifest
+                    else None
+                )
                 await self.domain_registry.register_domain(
                     domain_key=domain,
                     display_name=(
                         normalized_mutation_plan.friendly_domain_name
                         if normalized_mutation_plan
                         else domain.replace("_", " ").title()
+                    ),
+                    icon_name=(
+                        str(proposed_icon).strip()
+                        if isinstance(proposed_icon, str) and proposed_icon.strip()
+                        else None
                     ),
                     description=(
                         normalized_mutation_plan.explanation if normalized_mutation_plan else None

@@ -231,7 +231,14 @@ function OnePresencePlayback({ request, presentation, onReady }: {
         notifyReady();
       }, () => { decodingPoster = false; });
     };
-    const canPlay = () => visible && !document.hidden && !motion.matches && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
+    let scrollShedding = false;
+    let scrollResumeTimer: number | null = null;
+    const canPlay = () =>
+      visible &&
+      !scrollShedding &&
+      !document.hidden &&
+      !motion.matches &&
+      appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const resizePlayback = () => {
       if (!instance || !ready) return;
       const { width, height } = canvas.getBoundingClientRect();
@@ -259,12 +266,19 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       if (disposed) return;
       const play = canPlay();
       if (!play) {
-        canvas.dataset.onePresencePlayback = "paused";
+        canvas.dataset.onePresencePlayback = scrollShedding ? "scroll-shed" : "paused";
         if (firstFrame !== null) window.cancelAnimationFrame(firstFrame);
         firstFrame = null;
         instance?.pause(stateMachine);
         instance?.stopRendering();
-        showPoster();
+        // Keep the crisp last-painted canvas frame frozen during active scroll
+        // so 120Hz scrolling avoids both Rive rasterization and poster swap flicker.
+        if (scrollShedding && presented) {
+          canvas.style.visibility = "visible";
+          poster.style.visibility = "hidden";
+        } else {
+          showPoster();
+        }
         fallback = motion.matches || document.hidden || appInteractionCoordinator.getLifecycleSnapshot().state !== "active";
         if (fallback) notifyReady();
       } else if (instance && ready) {
@@ -370,6 +384,21 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       });
     });
     resize?.observe(canvas);
+    const onScrollActivity = () => {
+      if (disposed || !visible) return;
+      if (!scrollShedding && presented && instance && ready) {
+        scrollShedding = true;
+        sync();
+      }
+      if (scrollResumeTimer !== null) window.clearTimeout(scrollResumeTimer);
+      scrollResumeTimer = window.setTimeout(() => {
+        scrollResumeTimer = null;
+        if (disposed || !scrollShedding) return;
+        scrollShedding = false;
+        sync();
+      }, 150);
+    };
+    window.addEventListener("scroll", onScrollActivity, { capture: true, passive: true });
     document.addEventListener("visibilitychange", sync);
     poster.addEventListener("load", onPosterLoad);
     motion.addEventListener("change", sync);
@@ -382,6 +411,8 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       observer?.disconnect();
       resize?.disconnect();
       if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      if (scrollResumeTimer !== null) window.clearTimeout(scrollResumeTimer);
+      window.removeEventListener("scroll", onScrollActivity, true);
       document.removeEventListener("visibilitychange", sync);
       poster.removeEventListener("load", onPosterLoad);
       motion.removeEventListener("change", sync);

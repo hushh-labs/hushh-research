@@ -35,6 +35,10 @@ def _adk_context_cache_config(root_agent: Any) -> Any | None:
         return None
     if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("HUSHH_ADK_CONTEXT_CACHE_FORCE_TEST") != "1":
         return None
+    from hushh_mcp.runtime_settings import pod_sentinel_model_enabled
+
+    if pod_sentinel_model_enabled():
+        return None
     model = getattr(root_agent, "model", None)
     supports_gemini_cache = (isinstance(model, str) and model.startswith("gemini-")) or (
         type(model) is Gemini and not getattr(model, "use_interactions_api", False)

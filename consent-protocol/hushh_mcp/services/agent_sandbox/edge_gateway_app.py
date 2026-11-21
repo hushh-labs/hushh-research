@@ -9,10 +9,12 @@ import base64
 import contextlib
 import hashlib
 import hmac
+import inspect
 import os
 import re
 import secrets
 import time
+import urllib.parse
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -151,7 +153,9 @@ class ActiveOwnerLease:
     pod_key_id: str
     pod_public_key: str
     last_activity_s: float
+    surrogate_expires_at_s: float = 0.0
     active_ws_count: int = 0
+    active_http_count: int = 0
 
 
 def _endpoint_scheme(endpoint: ClaimedSandboxEndpoint) -> str:
@@ -321,16 +325,27 @@ class SandboxEdgeGatewayManager:
             has_policy = hasattr(self.sentinel_control, "set_lease_policy_with_ip")
             has_surrogate = hasattr(self.sentinel_control, "mint_model_surrogate")
             if has_policy:
+                policy_kwargs: dict[str, Any] = {
+                    "lease_id": lease_id,
+                    "owner_id": hushh_id,
+                    "pod_ip": endpoint.pod_ip,
+                }
+                if (
+                    self.hub_url
+                    and "domain_rules"
+                    in inspect.signature(self.sentinel_control.set_lease_policy_with_ip).parameters
+                ):
+                    hub_host = (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
+                    if hub_host:
+                        policy_kwargs["domain_rules"] = {hub_host: "allow"}
                 sentinel_tasks.append(
                     asyncio.to_thread(
                         self.sentinel_control.set_lease_policy_with_ip,
-                        lease_id=lease_id,
-                        owner_id=hushh_id,
-                        pod_ip=endpoint.pod_ip,
+                        **policy_kwargs,
                     )
                 )
             if has_surrogate:
-                ttl = max(900, min(7200, int(self.idle_timeout_s * 2)))
+                ttl = max(3600, min(7200, int(self.idle_timeout_s * 2)))
                 sentinel_tasks.append(
                     asyncio.to_thread(
                         self.sentinel_control.mint_model_surrogate,
@@ -420,13 +435,66 @@ class SandboxEdgeGatewayManager:
                 detail={"code": SANDBOX_OWNER_ID_INVALID, "message": "Invalid owner identifier"},
             )
         async with self._lock_for(clean_id):
+            now_s = self._clock_s()
             existing = self._leases.get(clean_id)
             if existing is not None:
-                existing.last_activity_s = self._clock_s()
-                return existing
+                expiring_soon = (
+                    existing.surrogate_expires_at_s > 0
+                    and (existing.surrogate_expires_at_s - now_s) <= 300.0
+                )
+                renewed_in_place = False
+                if (
+                    expiring_soon
+                    and self.sentinel_control is not None
+                    and hasattr(self.sentinel_control, "mint_model_surrogate")
+                ):
+                    renew_ttl = max(3600, min(7200, int(self.idle_timeout_s * 2)))
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(
+                            self.sentinel_control.mint_model_surrogate,
+                            lease_id=existing.lease_id,
+                            owner_id=clean_id,
+                            ttl_seconds=renew_ttl,
+                        )
+                        existing.surrogate_expires_at_s = self._clock_s() + float(renew_ttl)
+                        renewed_in_place = True
+                hard_expired = (
+                    existing.surrogate_expires_at_s > 0 and now_s >= existing.surrogate_expires_at_s
+                )
+                if not renewed_in_place and (
+                    hard_expired
+                    or (
+                        expiring_soon
+                        and existing.active_http_count <= 0
+                        and existing.active_ws_count <= 0
+                    )
+                ):
+                    self._leases.pop(clean_id, None)
+                    if self.sentinel_control is not None:
+                        if hasattr(self.sentinel_control, "delete_lease"):
+                            with contextlib.suppress(Exception):
+                                await asyncio.to_thread(
+                                    self.sentinel_control.delete_lease, existing.lease_id
+                                )
+                        else:
+                            with contextlib.suppress(Exception):
+                                await asyncio.to_thread(
+                                    self.sentinel_control.revoke_lease, existing.lease_id
+                                )
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(self.claim_client.delete_claim, existing.claim_name)
+                else:
+                    existing.last_activity_s = now_s
+                    return existing
 
             claim_name = f"claim-{secrets.token_hex(6)}"
             lease_id = f"lease_{secrets.token_hex(12)}"
+            surrogate_ttl = (
+                max(3600, min(7200, int(self.idle_timeout_s * 2)))
+                if self.sentinel_control is not None
+                and hasattr(self.sentinel_control, "mint_model_surrogate")
+                else 0
+            )
             endpoint, placement_epoch = await asyncio.gather(
                 asyncio.to_thread(
                     self.claim_client.create_and_wait_claim,
@@ -454,6 +522,7 @@ class SandboxEdgeGatewayManager:
                 await asyncio.to_thread(self.claim_client.delete_claim, claim_name)
                 raise
 
+            activated_at_s = self._clock_s()
             lease = ActiveOwnerLease(
                 hushh_id=clean_id,
                 lease_id=lease_id,
@@ -463,17 +532,27 @@ class SandboxEdgeGatewayManager:
                 port=endpoint.port,
                 pod_key_id=pod_key_id,
                 pod_public_key=pub_b64,
-                last_activity_s=self._clock_s(),
+                last_activity_s=activated_at_s,
+                surrogate_expires_at_s=(
+                    activated_at_s + float(surrogate_ttl) if surrogate_ttl > 0 else 0.0
+                ),
             )
             self._leases[clean_id] = lease
             return lease
 
-    async def release_owner_lease(self, hushh_id: str) -> dict[str, Any] | None:
+    async def release_owner_lease(
+        self, hushh_id: str, *, drain_timeout_s: float = 15.0
+    ) -> dict[str, Any] | None:
         clean_id = str(hushh_id or "").strip()
         async with self._lock_for(clean_id):
-            lease = self._leases.pop(clean_id, None)
+            lease = self._leases.get(clean_id)
             if lease is None:
                 return None
+            if drain_timeout_s > 0 and lease.active_http_count > 0:
+                deadline = time.monotonic() + float(drain_timeout_s)
+                while lease.active_http_count > 0 and time.monotonic() < deadline:
+                    await asyncio.sleep(0.05)
+            self._leases.pop(clean_id, None)
             if self.sentinel_control is not None:
                 if hasattr(self.sentinel_control, "delete_lease"):
                     await asyncio.to_thread(self.sentinel_control.delete_lease, lease.lease_id)
@@ -493,7 +572,9 @@ class SandboxEdgeGatewayManager:
         expired = [
             hid
             for hid, lease in list(self._leases.items())
-            if lease.active_ws_count <= 0 and (now - lease.last_activity_s) >= self.idle_timeout_s
+            if lease.active_ws_count <= 0
+            and lease.active_http_count <= 0
+            and (now - lease.last_activity_s) >= self.idle_timeout_s
         ]
         reaped: list[str] = []
         for hid in expired:
@@ -755,6 +836,7 @@ def create_sandbox_edge_gateway_app(
             except (TimeoutError, httpx.HTTPError, RuntimeError):
                 return _waking_response(request)
 
+            lease.active_http_count += 1
             lease.last_activity_s = manager._clock_s()
             target = f"http://{lease.pod_ip}:{lease.port}/{clean_sub}" + (f"?{qs}" if qs else "")
             client = httpx.AsyncClient(follow_redirects=False, timeout=160.0, trust_env=False)
@@ -767,14 +849,20 @@ def create_sandbox_edge_gateway_app(
                 )
                 upstream = await client.send(built, stream=True)
             except (httpx.ConnectError, httpx.ConnectTimeout):
+                lease.active_http_count = max(0, lease.active_http_count - 1)
                 await client.aclose()
                 await manager.invalidate_lease(hushh_id, expected_lease_id=lease.lease_id)
                 if attempt == 0:
                     continue
                 return _waking_response(request)
             except httpx.HTTPError:
+                lease.active_http_count = max(0, lease.active_http_count - 1)
                 await client.aclose()
                 return _waking_response(request)
+            except BaseException:
+                lease.active_http_count = max(0, lease.active_http_count - 1)
+                await client.aclose()
+                raise
 
             lease.last_activity_s = manager._clock_s()
             resp_headers = _filter_headers(upstream.headers)
@@ -798,6 +886,8 @@ def create_sandbox_edge_gateway_app(
                             if chunk:
                                 yield chunk
                     finally:
+                        active_lease.active_http_count = max(0, active_lease.active_http_count - 1)
+                        active_lease.last_activity_s = manager._clock_s()
                         with contextlib.suppress(Exception):
                             await upstream_resp.aclose()
                         with contextlib.suppress(Exception):
@@ -812,6 +902,8 @@ def create_sandbox_edge_gateway_app(
             try:
                 raw_content = await upstream.aread()
             finally:
+                lease.active_http_count = max(0, lease.active_http_count - 1)
+                lease.last_activity_s = manager._clock_s()
                 with contextlib.suppress(Exception):
                     await upstream.aclose()
                 with contextlib.suppress(Exception):

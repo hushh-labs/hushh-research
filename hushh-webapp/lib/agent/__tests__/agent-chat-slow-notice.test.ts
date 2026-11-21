@@ -205,7 +205,7 @@ describe("the slow-reply notice", () => {
     const h = harness();
     h.notice.begin();
     h.notice.signal({ kind: "waking" });
-    expect(h.visible?.title).toBe("Waking your agent… Your message will send shortly.");
+    expect(h.visible?.title).toBe("Starting One…");
     // A cold start is silent for 30 to 40 s: neither "slow" nor "still connecting" replaces it.
     vi.advanceTimersByTime(2 * CONNECTION_QUIET_MS);
     expect(h.shown.map((view) => view.state)).toEqual(["waking"]);

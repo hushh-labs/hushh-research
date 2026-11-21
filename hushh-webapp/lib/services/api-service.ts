@@ -4025,9 +4025,11 @@ export class ApiService {
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
     limit?: number;
+    before?: string;
   }): Promise<Response> {
     const query = new URLSearchParams();
     if (data.limit) query.set("limit", String(data.limit));
+    if (data.before) query.set("before", data.before);
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
@@ -4043,11 +4045,15 @@ export class ApiService {
 
   static async renameAgentChatConversation(data: {
     conversationId: string;
-    title: string;
+    title?: string;
+    category?: string | null;
     vaultOwnerToken: string;
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
   }): Promise<Response> {
+    const body: Record<string, unknown> = {};
+    if (data.title !== undefined) body.title = data.title;
+    if ("category" in data) body.category = data.category ?? null;
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
@@ -4056,7 +4062,7 @@ export class ApiService {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
           ...(await oneChatKeyHeaders(data.vaultKey)),
         },
-        body: JSON.stringify({ title: data.title }),
+        body: JSON.stringify(body),
       },
     );
   }
@@ -4475,6 +4481,26 @@ export class ApiService {
     return settleTrustedDeviceRevocation(hub, deviceId, uid, isCurrentOwner, () => ApiService.ownerPodTransport(), !!(options?.proof || options?.receipt));
   }
 
+  private static rewriteLocalDevSandboxUrl(url: string): string {
+    if (process.env.NODE_ENV !== "development") return url;
+    const rawOverride = (process.env.NEXT_PUBLIC_LOCAL_SANDBOX_EDGE_URL ?? "").trim();
+    if (!rawOverride) return url;
+    try {
+      const localBase = new URL(rawOverride);
+      if (
+        (localBase.protocol !== "http:" && localBase.protocol !== "https:") ||
+        (localBase.hostname !== "127.0.0.1" && localBase.hostname !== "localhost")
+      ) {
+        return url;
+      }
+      const parsed = new URL(url);
+      if (!parsed.pathname.startsWith("/u/")) return url;
+      return `${localBase.origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+
   private static async ownerPodTransport(): Promise<
     import("./owner-pod-endpoint").OwnerPodTransport
   > {
@@ -4495,7 +4521,12 @@ export class ApiService {
           },
         }),
       // Pods authenticate signed sessions, never hub/browser cookies.
-      direct: (url, init) => apiFetch(url, { ...init, credentials: "omit", isEffectCurrent: current }),
+      direct: (url, init) =>
+        apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), {
+          ...init,
+          credentials: "omit",
+          isEffectCurrent: current,
+        }),
     };
   }
 
@@ -4509,8 +4540,12 @@ export class ApiService {
     const vaultEpoch = snapshotVaultSessionEpoch();
     if (!uid || !current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const access = await import("./pod-app-access");
-    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
-      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, current));
+    const nativeStream = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : null;
+    const fetcher = nativeStream
+      ? (url: string, options?: RequestInit) =>
+          nativeStream(ApiService.rewriteLocalDevSandboxUrl(url), options)
+      : (url: string, options: ApiFetchOptions) =>
+          apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), withCurrentOwnerEffect(options, current));
     if (!current()) throw new Error("POD_OWNER_CHANGED");
     return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent: current }, expectedHushhId, uid, vaultEpoch);
   }
@@ -4528,7 +4563,7 @@ export class ApiService {
     await access.prewarmOwnerPodChatAccess({
       hosting: () => this.getPersonalAgentStatusForRouting(),
       transport: () => this.ownerPodTransport(),
-      fetch: (url, init) => apiFetch(url, init),
+      fetch: (url, init) => apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), init),
     });
   }
 

@@ -1569,6 +1569,7 @@ class TestPropose:
 @pytest.fixture
 def period_model(monkeypatch):
     """Fake only the tool-free model; keep production assessment/host validation."""
+    from hushh_mcp.one_adk import agent_tree  # noqa: F401
     from hushh_mcp.one_adk import document_period_assessment as periods
 
     gene = SimpleNamespace(

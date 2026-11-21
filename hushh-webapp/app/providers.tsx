@@ -103,6 +103,7 @@ import {
   ROUTES,
   isFoundationPublicRoute,
   isOneSetupSurfaceRoute,
+  isPublicEditorialOrLegalRoute,
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
@@ -233,6 +234,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   // top shell route context. Setup pages own their bottom completion actions.
   const bottomChromeHidden =
     hidesPersistentChrome ||
+    isPublicEditorialOrLegalRoute(pathname) ||
     routeLayout.route === ROUTES.ONE_SETUP ||
     routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||
     focusedLocationBottomTask ||
@@ -390,7 +392,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   // developers pages.
   const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;
   const hideBottomNavigation =
-    effectiveHideCommandBar || foundationVoiceOnlyChrome;
+    effectiveHideCommandBar ||
+    foundationVoiceOnlyChrome ||
+    isPublicEditorialOrLegalRoute(pathname);
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const nativeNavigationInstalled = useNativeNavigationInstalled();

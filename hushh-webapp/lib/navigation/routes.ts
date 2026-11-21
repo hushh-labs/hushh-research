@@ -964,6 +964,27 @@ export function isFoundationPublicRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * Legal documents and public editorial/knowledge destinations (`/privacy`,
+ * `/terms`, `/welcome`, `/research`, `/blog`, `/developers`) are reading
+ * surfaces and never mount floating voice or vault command chrome.
+ */
+export function isPublicEditorialOrLegalRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === ROUTES.PRIVACY ||
+    normalizedPathname === ROUTES.TERMS ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname.startsWith(`${ROUTES.DEVELOPERS}/`) ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
+  );
+}
+
 export function isRiaRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (

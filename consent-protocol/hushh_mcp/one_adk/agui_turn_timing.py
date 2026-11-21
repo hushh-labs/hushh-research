@@ -307,8 +307,14 @@ class TurnTiming:
             for tool in (getattr(config, "tools", None) or [])
         )
         self.tools_peak = max(self.tools_peak or 0, declared)
-        if os.getenv(_DETAILED_TIMING_ENV) != "1":
+        detail_flag = os.getenv(_DETAILED_TIMING_ENV, "").strip().lower()
+        if detail_flag in {"0", "false", "no"}:
             return
+        if detail_flag != "1":
+            from hushh_mcp.runtime_settings import pod_mode
+
+            if not pod_mode():
+                return
 
         contents = getattr(request, "contents", None) or []
         system_instruction = getattr(config, "system_instruction", None)

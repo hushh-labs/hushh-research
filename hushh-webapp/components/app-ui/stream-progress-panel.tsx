@@ -215,7 +215,7 @@ export type AppStreamPanelProps = {
   response?: ReactNode;
   responseText?: string;
   /** App-owned state shown while the model has not emitted response text yet. */
-  responsePendingLabel?: string;
+  responsePendingLabel?: ReactNode;
   isStreaming?: boolean;
   isError?: boolean;
   opportunities?: ReactNode;
@@ -343,14 +343,16 @@ export function AppStreamPanel({
           <div
             role="status"
             aria-live="polite"
-            // A plain line, not a pill: the panel is already the container, and
-            // a filled pill inside it read as a box in a box. Same padding and
-            // line height as the answer below, so the answer takes its place
-            // without the row jumping.
             className="flex items-center gap-2 px-1 text-sm leading-6 text-muted-foreground"
           >
-            <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
-            <span>{responsePendingLabel}</span>
+            {typeof responsePendingLabel === "string" ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
+                <span>{responsePendingLabel}</span>
+              </>
+            ) : (
+              responsePendingLabel
+            )}
           </div>
         ) : null}
 

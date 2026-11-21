@@ -6,6 +6,7 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { OneThinkingIndicator } from "@/components/agent/one-thinking-indicator";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -508,7 +509,7 @@ export function AgentTurnStreamPanel({
       // and a completed answer must look the same live and restored.
       statusMessage={checkingMail
         ? "Checking your email…"
-        : isStreaming && timingPhase === "running" && elapsedMs !== null
+        : isStreaming && timingPhase === "running" && elapsedMs !== null && (progressItems.length > 0 || specialistItems.length > 0 || responseText.trim().length > 0)
           ? `Working for ${Math.floor(elapsedMs / 1000)}s`
         : undefined}
       responseText={responseText}
@@ -539,7 +540,7 @@ export function AgentTurnStreamPanel({
       responsePendingLabel={
         checkingMail || preparingPrivateMemory || currentBatchProgress
           ? undefined
-          : "One is preparing your response."
+          : <OneThinkingIndicator />
       }
       isStreaming={isStreaming}
       isError={isError}
