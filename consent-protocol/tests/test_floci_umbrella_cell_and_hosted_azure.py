@@ -7,11 +7,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from requests.exceptions import ConnectTimeout
 
 from api.middleware import require_firebase_auth
 from hushh_mcp.services import pod_workload_identity
@@ -57,6 +59,10 @@ from hushh_mcp.services.pod_umbrella_cell_pool import (
     NoWarmSkeletonAvailableError,
     PodSkeletonPoolService,
     UmbrellaCellRegistry,
+)
+from hushh_mcp.services.pod_upgrade_handoff import (
+    PodUpgradeHandoffClient,
+    PodUpgradeHandoffUnavailable,
 )
 from tests.floci_wire_harness import floci_azure_wire_environment
 from tests.test_data_model_audit_postgres import isolated_postgres as isolated_postgres
@@ -1136,8 +1142,18 @@ async def test_hosted_azure_migration_fresh_pod_log_opt_in_and_fail_closed_guard
 
 
 @pytest.mark.asyncio
-async def test_cold_source_pod_never_falls_back_to_service_uid_and_fails_cleanly_before_job_start(
+@pytest.mark.parametrize(
+    ("connect_timeout", "expected_message", "health_attempts"),
+    [
+        (True, "Dev timed out connecting to the source pod", 2),
+        (False, "Could not verify the source pod incarnation", 1),
+    ],
+)
+async def test_unverified_source_pod_never_uses_service_uid_or_starts_a_job(
     monkeypatch: pytest.MonkeyPatch,
+    connect_timeout: bool,
+    expected_message: str,
+    health_attempts: int,
 ) -> None:
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     cold_row = {
@@ -1164,30 +1180,30 @@ async def test_cold_source_pod_never_falls_back_to_service_uid_and_fails_cleanly
     }
     reg = _InMemoryRegistryRepo(cold_row)
     jobs = _InMemoryMigrationJobRepo()
-    prewarm_calls: list[str] = []
-
-    class _ColdTimeoutHandoff:
-        def __init__(self) -> None:
-            self.attempts = 0
-
-        def _request(self, method: str, path: str) -> dict[str, Any]:
-            assert method == "GET" and path == "/api/one/pod/upgrade/status"
-            self.attempts += 1
-            raise RuntimeError("pod lifecycle request unavailable: ReadTimeout")
-
-    fake_handoff = _ColdTimeoutHandoff()
-    with pytest.raises(ValueError, match="incarnation"):
+    with (
+        patch(
+            "requests.get",
+            side_effect=ConnectTimeout() if connect_timeout else None,
+            return_value=SimpleNamespace(status_code=200),
+        ) as health,
+        patch.object(
+            PodUpgradeHandoffClient,
+            "_request",
+            side_effect=PodUpgradeHandoffUnavailable("status probe failed"),
+        ) as status,
+        pytest.raises(ValueError, match=expected_message),
+    ):
         await execute_owner_migration_to_hosted_azure(
             "uid-acc-cold",
             db=object(),
             registry_repo=reg,
             job_repo=jobs,  # type: ignore[arg-type]
-            handoff_factory=lambda _u, _h: fake_handoff,
-            prewarm_fn=prewarm_calls.append,
         )
 
-    assert prewarm_calls == ["https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io"]
-    assert fake_handoff.attempts == 2
+    assert health.call_count == health_attempts
+    assert health.call_args.args == (f"{cold_row['a2a_route']}/health",)
+    assert status.call_count == 2
+    status.assert_called_with("GET", "/api/one/pod/upgrade/status")
     assert reg.row["status"] == "provisioned"
     assert jobs.job is None
 

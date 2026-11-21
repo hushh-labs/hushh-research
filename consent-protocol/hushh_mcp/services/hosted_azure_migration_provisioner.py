@@ -412,26 +412,31 @@ class _BusyRetryRegistryAdapter:
         return getattr(self._inner, name)
 
 
-def _default_prewarm_source_health(source_url: str) -> None:
-    """Wake scale-to-zero source Container Apps / Cloud Run services before handoff."""
+def _default_prewarm_source_health(source_url: str) -> bool:
+    """Wake the source pod and report whether every health check timed out connecting."""
     import time
 
     import requests  # type: ignore[import-untyped]
 
     health_url = f"{source_url.rstrip('/')}/health"
-    for attempt in range(2):
+    attempts = 2
+    connect_timeouts = 0
+    for attempt in range(attempts):
         try:
             resp = requests.get(health_url, timeout=(10.0, 45.0), allow_redirects=False)
             if int(getattr(resp, "status_code", 0) or 0) == 200:
-                return
+                return False
         except Exception as exc:  # noqa: BLE001 - best-effort wakeup before auth probe
+            if isinstance(exc, requests.exceptions.ConnectTimeout):
+                connect_timeouts += 1
             logger.info(
                 "hosted_azure_migration.prewarm_attempt attempt=%d err=%s",
                 attempt + 1,
                 type(exc).__name__,
             )
-        if attempt == 0:
+        if attempt + 1 < attempts:
             time.sleep(2.0)
+    return connect_timeouts == attempts
 
 
 def _probe_source_upgrade_status(handoff: Any) -> dict[str, Any] | None:
@@ -560,16 +565,19 @@ async def execute_owner_migration_to_hosted_azure(
     )
 
     prewarmed = False
+    source_health_connect_timed_out = False
 
     async def _ensure_source_prewarmed() -> None:
-        nonlocal prewarmed
+        nonlocal prewarmed, source_health_connect_timed_out
         if prewarmed:
             return
         prewarmed = True
         if prewarm_fn is not None:
             await asyncio.to_thread(prewarm_fn, source_url)
         elif handoff_factory is None and source_url.startswith("https://"):
-            await asyncio.to_thread(_default_prewarm_source_health, source_url)
+            source_health_connect_timed_out = await asyncio.to_thread(
+                _default_prewarm_source_health, source_url
+            )
 
     if row.get("status") == "migrating":
         prior_job = await jobs.get(user_id)
@@ -651,9 +659,13 @@ async def execute_owner_migration_to_hosted_azure(
     await _ensure_source_prewarmed()
     source_incarnation = await asyncio.to_thread(_discover_source_incarnation, handoff, metadata)
     if not source_incarnation:
+        if source_health_connect_timed_out:
+            raise ValueError(
+                "Dev timed out connecting to the source pod. "
+                "Check that the source pod is running and reachable, then retry."
+            )
         raise ValueError(
-            "Could not determine live source pod incarnation "
-            "(pod may still be waking from scale-to-zero); please retry"
+            "Could not verify the source pod incarnation. Check the source pod's health and retry."
         )
 
     op_id = f"op_{secrets.token_hex(16)}"
