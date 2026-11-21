@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
 }));
 
+vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
+  useFinanceShareContext: () => ({ ready: false, session: "", capture: () => null }),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: () => undefined,
@@ -153,6 +157,8 @@ function revokedSos(overrides: Record<string, unknown> = {}) {
     ownerDisplayName: "Test contact",
     status: "revoked",
     shareKind: "sos",
+    feedSmsConfirmed: true,
+    feedConfirmedAt: "2026-08-10T00:00:00.000Z",
     shareMessage: null,
     createdAt: "2026-08-10T00:00:00.000Z",
     ...overrides,
@@ -186,6 +192,8 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
         ownerDisplayName: "Test contact",
         status: "active",
         shareKind: "sos",
+    feedSmsConfirmed: true,
+    feedConfirmedAt: "2026-08-10T00:00:00.000Z",
         shareMessage: null,
         createdAt: "2026-08-10T00:00:00.000Z",
       },
@@ -243,7 +251,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     mocks.locationRefresh.mockClear();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_050); });
     expect(mocks.locationRefresh).toHaveBeenCalledWith({ force: true });
-    expect(emergencyCard(result.current)?.description).toBe("Emergency SMS · Active");
+    expect(emergencyCard(result.current)?.description).toBe("");
     expect(emergencyCard(result.current)?.href).toBeTruthy();
     expect(result.current.hasClearableSmsEmergencies).toBe(false);
     await act(async () => { await result.current.clearSmsEmergencies(); });
@@ -254,9 +262,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       index === 0 ? { ...grant, status: "expired" } : grant,
     );
     rerender();
-    expect(result.current.actionables.find((item) => item.id === "sms-emergency:sos-grant-1")?.description).toBe("Emergency SMS · Expired");
-    expect(emergencyCard(result.current)?.href).toBeNull();
-    expect(emergencyCard(result.current)?.displayTimestamp).toBe(Date.parse("2026-08-10T00:00:00.000Z"));
+    expect(emergencyCard(result.current)).toBeUndefined();
     expect(result.current.actionables.find((item) => item.id === "sms-emergency:still-live")?.emphasis).toBe("emergency");
     await act(async () => { await result.current.clearSmsEmergencies(); });
     expect(mocks.clearSosCards).toHaveBeenCalledWith({ vaultOwnerToken: "test-vault-token", grantIds: ["sos-grant-1"] });
@@ -270,7 +276,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       const emergency = result.current.actionables.find(
         (item) => item.id === "sms-emergency:sos-grant-1",
       );
-      expect(emergency?.description).toBe("Emergency SMS · Active");
+      expect(emergency?.description).toBe("");
     });
 
     const emergency = result.current.actionables.find(
@@ -284,71 +290,20 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     );
   });
 
-  it("keeps a revoked SOS card visible as 'Emergency SMS · Revoked' instead of dropping it, and drops its emergency emphasis", async () => {
-    receivedGrantsFixture = [
-      {
-        id: "sos-grant-1",
-        ownerUserId: "sender-user",
-        recipientUserId: "receiver-user",
-        ownerDisplayName: "Test contact",
-        status: "revoked",
-        shareKind: "sos",
-        shareMessage: null,
-        createdAt: "2026-08-10T00:00:00.000Z",
-      },
-    ];
-
-    const { result } = renderHook(() => useFeedActionables());
-
-    await waitFor(() => {
-      const emergency = result.current.actionables.find(
-        (item) => item.id === "sms-emergency:sos-grant-1",
-      );
-      expect(emergency?.description).toBe("Emergency SMS · Revoked");
-    });
-
-    const emergency = result.current.actionables.find(
-      (item) => item.id === "sms-emergency:sos-grant-1",
-    );
-    // Ended SMS stays available in its own Feed section, with its sent time.
-    expect(emergency?.emphasis).toBeUndefined();
-    expect(emergency?.sortAt).toBe(new Date("2026-08-10T00:00:00.000Z").getTime());
-    expect(emergency?.displayTimestamp).toBe(
-      new Date("2026-08-10T00:00:00.000Z").getTime(),
-    );
+  it("removes an ended incident from Live and leaves its receipt to dated Feed history", async () => {
+    const {result,rerender}=renderHook(()=>useFeedActionables());
+    await waitFor(()=>expect(emergencyCard(result.current)?.displayTimestamp).toBe(Date.parse("2026-08-10T00:00:00.000Z")));
+    receivedGrantsFixture=[revokedSos({revokedAt:"2026-08-12T09:30:00Z"})];
+    rerender();
+    expect(emergencyCard(result.current)).toBeUndefined();
+    expect(result.current.hasClearableSmsEmergencies).toBe(true);
   });
 
-  it("keeps the original sent time when an SMS is revoked later", async () => {
-    receivedGrantsFixture = [
-      {
-        id: "sos-grant-1",
-        ownerUserId: "sender-user",
-        recipientUserId: "receiver-user",
-        ownerDisplayName: "Test contact",
-        status: "revoked",
-        shareKind: "sos",
-        shareMessage: null,
-        createdAt: "2026-08-10T00:00:00.000Z",
-        revokedAt: "2026-08-12T09:30:00.000Z",
-      },
-    ];
-
-    const { result } = renderHook(() => useFeedActionables());
-
-    await waitFor(() => {
-      const emergency = result.current.actionables.find(
-        (item) => item.id === "sms-emergency:sos-grant-1",
-      );
-      expect(emergency?.description).toBe("Emergency SMS · Revoked");
-    });
-
-    const emergency = result.current.actionables.find(
-      (item) => item.id === "sms-emergency:sos-grant-1",
-    );
-    const sentAtMs = Date.parse("2026-08-10T00:00:00.000Z");
-    expect(emergency?.sortAt).toBe(sentAtMs);
-    expect(emergency?.displayTimestamp).toBe(sentAtMs);
-    expect(emergency?.href).toBeNull();
+  it("does not publish an allocated emergency before its first confirmed envelope", async()=>{
+    receivedGrantsFixture=[{...receivedGrantsFixture[0],feedSmsConfirmed:false}];
+    const {result}=renderHook(()=>useFeedActionables());
+    await waitFor(()=>expect(result.current.loading).toBe(false));
+    expect(emergencyCard(result.current)).toBeUndefined();
   });
 
   it("does NOT put a Clear action on the card itself — the Feed page's existing Clear button owns it", async () => {
@@ -360,6 +315,8 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
         ownerDisplayName: "Test contact",
         status: "revoked",
         shareKind: "sos",
+    feedSmsConfirmed: true,
+    feedConfirmedAt: "2026-08-10T00:00:00.000Z",
         shareMessage: null,
         createdAt: "2026-08-10T00:00:00.000Z",
       },
@@ -374,7 +331,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     const emergency = result.current.actionables.find(
       (item) => item.id === "sms-emergency:sos-grant-1",
     );
-    expect(emergency?.actions).toEqual([]);
+    expect(emergency).toBeUndefined();
   });
 
   it("saves the clear on the server first and hides the card only after the server confirms", async () => {
@@ -397,7 +354,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       vaultOwnerToken: "test-vault-token",
       grantIds: ["sos-grant-1"],
     });
-    expect(emergencyCard(result.current)).toBeDefined();
+    expect(result.current.hasClearableSmsEmergencies).toBe(true);
 
     await act(async () => {
       confirm?.(["sos-grant-1"]);

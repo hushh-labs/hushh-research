@@ -155,6 +155,9 @@ export function useAgentUpdateFeedCard(input: {
       icon: Download,
       iconTone: "blue",
       ...body,
+      operationKey: update.operationId && (activity || followed) ? `private-agent:${update.operationId}` : undefined,
+      feedVisibility: ["signing_in", "updating"].includes(azure.progress.kind) || (body.updateProgress && !body.updateProgress.failed && body.updateProgress.presentationState !== "blocked") ? "routine" as const : azure.progress.kind === "updated" ? "outcome" as const : "decision" as const,
+      updateProgress: undefined,
       description,
       displayTimestamp: null,
     };

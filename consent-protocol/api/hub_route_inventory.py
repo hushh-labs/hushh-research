@@ -242,6 +242,10 @@ GET /api/one/connections/{counterpart_user_id}/context
 GET /api/one/connections/{counterpart_user_id}/information-scopes
 GET /api/one/connections/{counterpart_user_id}/scope-catalog
 GET /api/one/feed
+GET /api/one/feed/live
+POST /api/one/feed/search
+POST /api/one/feed/funding-history
+GET /api/one/feed/{item_id}/activity
 GET /api/one/feed/events
 POST /api/one/feed/read
 POST /api/one/feed/sos-cards/clear

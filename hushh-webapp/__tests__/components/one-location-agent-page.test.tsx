@@ -23,7 +23,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
-import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import * as locationNotifications from "@/lib/one-location/notifications";
 import * as liveMapModule from "@/components/one-location/live-map";
@@ -6254,7 +6253,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it.each(["active", "revoked", "expired"])(
-    "lands an incoming Feed share on Shared with me with current status=%s",
+    "lands the existing shared workspace on Shared with me with current status=%s",
     async (status) => {
       const active = status === "active";
       const grant = {
@@ -6292,15 +6291,9 @@ describe("OneLocationAgentPage", () => {
                 },
               ],
       });
-      const href = presentFeedItem({
-        id: "feed-1",
-        source_domain: "location",
-        event_type: "location_share_created",
-        actor_label: "Trusted B",
-        metadata: { feed_audience: "recipient", duration_hours: 1 },
-        read: true,
-        created_at: "2026-09-01T00:00:00.000Z",
-      }).href!;
+      // Exercise the existing shared workspace directly. A Feed receipt without
+      // a verified grant now opens its own history instead of this generic route.
+      const href = "/one/location?section=shared";
       mockUseSearchParams.mockReturnValue(
         new URL(href, "https://app.test").searchParams,
       );

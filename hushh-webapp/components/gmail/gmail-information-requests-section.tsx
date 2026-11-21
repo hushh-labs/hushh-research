@@ -42,6 +42,8 @@ import { mailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useMailKycDisplay } from "@/lib/gmail/use-mail-kyc-display";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { takeFeedKycSelection } from "@/lib/feed/kyc-selection";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
 type Props = {
@@ -556,6 +558,41 @@ function GmailInformationRequestsWorkspace({
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
+  // Feed hands off an owner/session-bound ID; existing review/send behavior stays here.
+  const feedSelection = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active || !userId || !vaultOwnerToken || !idTokenProvider) return;
+    feedSelection.current ??= takeFeedKycSelection(userId);
+    const workflowId = feedSelection.current;
+    if (!workflowId) return;
+    const generation = getAuthSessionGeneration();
+    const epoch = snapshotVaultSessionEpoch();
+    let cancelled = false;
+    const current = () => !cancelled && generation === getAuthSessionGeneration() && isVaultSessionEpochCurrent(epoch);
+    void (async () => {
+      try {
+        const firebaseIdToken = await idTokenProvider();
+        let offset = 0;
+        while (current()) {
+          const page = await GmailInformationRequestsService.list({ firebaseIdToken, vaultOwnerToken, limit: 25, offset });
+          if (!current()) return;
+          const workflow = page.workflows.find(item => item.workflow_id === workflowId);
+          if (workflow) {
+            setWorkflows(items => [workflow, ...items.filter(item => item.workflow_id !== workflowId)]);
+            setListView("requests");
+            setSelectedWorkflowId(workflowId);
+            feedSelection.current = null;
+            return;
+          }
+          if (page.next_offset === null || page.next_offset <= offset) break;
+          offset = page.next_offset;
+        }
+        if (current()) { feedSelection.current = null; toast.message("Request no longer available"); }
+      } catch { if (current()) toast.error("Request couldn’t be loaded"); }
+    })();
+    return () => { cancelled = true; };
+  }, [active, userId, vaultOwnerToken, idTokenProvider]);
+
   const idTokenProviderRef = useRef(idTokenProvider);
   const activityLoadingRef = useRef(false);
   const scanInFlightRef = useRef(false);

@@ -1,7 +1,16 @@
 "use client";
 
+import { locationRequestFeedLine } from "./location-feed-presentation";
+import { ownerConsentRequestActionable } from "./feed-owner-consent-actionable";
+export { ownerConsentRequestActionable } from "./feed-owner-consent-actionable";
+
+import { advisorWorkspaceHref, type AdvisorReview } from "@/lib/advisor-review/contract";
+import { getPendingImportReview, confirmedVaultReconnects, existingImportReviewHref } from "@/lib/feed/finance-source-state";
+import { loadFinancialForVault } from "@/lib/kai/plaid-vault/vault-sync";
+import { feedInstitutionHref } from "@/lib/feed/source-routes";
+import { AdvisorReviewService } from "@/lib/advisor-review/service";
+import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { consentSummary } from "@/lib/feed/feed-consent-summary";
-import { latestFeedSmsGrants } from "@/lib/feed/feed-sms-grants";
 import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
 import { AnswerRequestService } from "@/lib/services/answer-request-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -17,16 +26,16 @@ import {
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { openFeedResult } from "./result-navigation";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "@/components/icons";
-import { Info } from "@/components/icons";
+import { FileChartColumn, MessageSquareIcon } from "@/components/icons";
 import {
   ConsentAgentIcon,
-  EmergencyRowIcon,
   FinanceAgentIcon,
   JoinRowIcon,
   LocationAgentIcon,
-  PeopleRowIcon,
+  RiaAgentIcon,
 } from "@/components/icons/agents";
 
 import { listConsentTaskPages } from "@/lib/services/consent-task-pages";
@@ -49,10 +58,6 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
-import {
-  locationApproveActionLabel,
-  locationAskPromptLine,
-} from "@/lib/one-location/duration-copy";
 import {
   DebateRunManagerService,
   type DebateRunTask,
@@ -110,8 +115,10 @@ import {
 } from "@/lib/consent/document-request-price";
 import {
   driveSharingSelectionId,
+  driveQueryRequestId,
   isDriveSharingEntry,
 } from "@/lib/consent/drive-query-consent";
+import { documentShareRequestId } from "@/lib/consent/document-share-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
 import {
@@ -140,7 +147,6 @@ import {
   ConnectionsService,
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
-import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { useAgentUpdateFeedCard } from "@/lib/feed/agent-update-feed-card";
 import type { AgentUpdateStatus } from "@/lib/feed/agent-update-status";
@@ -191,6 +197,16 @@ export interface FeedActionButton {
  */
 export interface FeedActionable {
   id: string;
+  /** Same source-owned operation as the historical Feed projection. */
+  operationKey?: string;
+  operationKeys?: readonly string[];
+  connectorPrerequisite?: { connectorId: string; requestId: string; href: string };
+  affectedRequests?: readonly { requestId: string; label: string; href: string }[];
+  /** Visible owning subagent, independent of a person avatar. */
+  sourceLabel?: string;
+  scopeId?: string;
+  /** Explicit owning projection; routine work stays in its task detail. */
+  feedVisibility?: "decision" | "outcome" | "routine";
   /** Only explicit unresolved owner work participates in the private To-do list. */
   todo?: AgentTodo;
   icon: FeedIcon;
@@ -386,73 +402,6 @@ export function isConsentFeedActionable(entry: ConsentCenterEntry): boolean {
  * things a person can do about it. Exported so the row's wording and its
  * actions are testable without mounting the whole hook.
  */
-export function ownerConsentRequestActionable(
-  request: OwnerConsentRequest,
-  handlers: {
-    allow: (request: OwnerConsentRequest) => Promise<boolean>;
-    deny: (request: OwnerConsentRequest) => Promise<boolean>;
-    openDetails: () => void;
-    onDecided: (key: string) => void;
-    sortAt: number;
-  },
-): FeedActionable {
-  // Preserve the authored reason as supporting copy.
-  const reason = String(request.reason || "").trim();
-  const decisionActions: FeedActionButton[] = request.complete
-    ? [
-        {
-          // One tap: the decline waits behind a five-second Undo toast
-          // (lib/consent/deferred-consent-decline.ts), which replaces the old
-          // armed second tap, the same as the Consent Center's ✗.
-          key: "deny",
-          label: "Don't allow",
-          tone: "ghost",
-          run: async () => {
-            if (await handlers.deny(request)) handlers.onDecided(request.key);
-          },
-        },
-        {
-          key: "allow",
-          label: "Allow",
-          tone: "primary",
-          run: async () => {
-            if (await handlers.allow(request)) handlers.onDecided(request.key);
-          },
-        },
-      ]
-    : [];
-  return {
-    id: `consent:${request.key}`,
-    todo: { source: "consent", title: `Review ${request.headline}`, href: request.detailsHref },
-    icon: ConsentAgentIcon,
-    iconTone: "capability",
-    person: request.isPerson
-      ? {
-          displayName: request.requesterLabel,
-          userId: request.members[0]?.counterpart_id,
-          photoUrl: request.requesterPhotoUrl,
-        }
-      : null,
-    title: request.headline,
-    description: request.complete
-      ? reason || "Waiting for your answer"
-      : "Still arriving. Open Details to review it.",
-    onSelect: handlers.openDetails,
-    phoneActions: [{ key: "review", label: "Review", tone: "primary", run: handlers.openDetails }],
-    actions: [
-      {
-        key: "details",
-        label: "Details",
-        tone: "ghost",
-        phoneIcon: Info,
-        run: handlers.openDetails,
-      },
-      ...decisionActions,
-    ],
-    sortAt: handlers.sortAt,
-    displayTimestamp: request.requestedAt,
-  };
-}
 
 function toTimestamp(value?: string | number | null): number {
   if (value == null) return 0;
@@ -524,37 +473,25 @@ export function notifyFeedActionResolved(): void {
   dispatchFeedStateChanged();
 }
 
-export function classifyDebateFeedState(
-  task: DebateRunTask,
-): "running" | "ready" | "failed_save" | null {
-  if (task.dismissedAt) return null;
-  if (task.status === "running") return "running";
-  if (task.persistenceState === "failed") return "failed_save";
-  if (
+const FINANCE_INTERNAL_TASKS = new Set([
+  "portfolio_import_stream",
+  "portfolio_save",
+  "portfolio_postsave_sync",
+]);
+
+export function isDebateSaveActionable(task: DebateRunTask): boolean {
+  return !task.dismissedAt &&
     task.status === "completed" &&
-    (task.persistenceState === "pending" || task.persistenceState === "saved")
-  ) {
-    return "ready";
-  }
-  return null;
+    task.persistenceState === "failed";
 }
 
-/**
- * A completed run must open through its durable PKM history identity. A live
- * `run_id` route depends on the task still being undisposed in session state,
- * which is intentionally no longer true once the Feed item is settled.
- */
-export function buildDebateFeedAnalysisHref(
-  runId: string,
-  settled: boolean,
-): string {
-  return settled
-    ? buildKaiMarketRoute("analysis", { analysis_id: `run:${runId}` })
-    : buildKaiMarketRoute("analysis", { focus: "active", run_id: runId });
-}
-
-export function useFeedActionables({ enabled = true, allPending = false, taskSources }: { enabled?: boolean; allPending?: boolean; taskSources?: readonly string[] } = {}): UseFeedActionablesResult {
+export function useFeedActionables({ enabled = true, allPending = false, taskSources, navigationOrigin }: { enabled?: boolean; allPending?: boolean; taskSources?: readonly string[]; navigationOrigin?: "/one/feed" } = {}): UseFeedActionablesResult {
   const router = useRouter();
+  const navigate = useCallback((href: string) => {
+    if (navigationOrigin === "/one/feed") openFeedResult(router, href);
+    else router.push(href);
+  }, [navigationOrigin, router]);
+  const finance = useFinanceShareContext();
   const { user, userId: ownerId } = useAuth();
   const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
@@ -679,6 +616,91 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
 
   // ── Consent pending (canonical one:consents lane, refetch on mutation) ──
   const [consentTick, setConsentTick] = useState(0);
+  const { capture: captureFinance, ready: financeReady, session: financeSession } = finance;
+  const [pendingImport, setPendingImport] = useState<{
+    session: string;
+    review: ReturnType<typeof getPendingImportReview>;
+  } | null>(null);
+  const refreshPendingImport = useCallback(() => {
+    setPendingImport(userId && financeReady ? {session:financeSession, review:getPendingImportReview(userId)} : null);
+  }, [financeReady, financeSession, userId]);
+  useEffect(refreshPendingImport, [refreshPendingImport]);
+  const [bankReconnects, setBankReconnects] = useState<{
+    session: string;
+    items: ReturnType<typeof confirmedVaultReconnects>;
+  } | null>(null);
+  useEffect(() => {
+    if (!financeReady || !userId) {
+      setBankReconnects(null);
+      return;
+    }
+    let current = true;
+    let generation = 0;
+    const read = () => {
+      const context = captureFinance();
+      if (!current || !context?.isCurrent() || context.userId !== userId) return;
+      const request = ++generation;
+      void loadFinancialForVault(context).then(financial => {
+        if (current && request === generation && context.isCurrent()) {
+          setBankReconnects({ session: financeSession, items: confirmedVaultReconnects(financial) });
+        }
+      }).catch(() => {
+        if (current && request === generation) setBankReconnects(null);
+      });
+    };
+    read();
+    document.addEventListener("visibilitychange", read);
+    return () => {
+      current = false;
+      document.removeEventListener("visibilitychange", read);
+    };
+  }, [captureFinance, consentTick, financeReady, financeSession, userId]);
+  const [pendingAdvisorReviews, setPendingAdvisorReviews] = useState<{
+    session: string;
+    items: AdvisorReview[];
+  } | null>(null);
+  useEffect(() => {
+    if (!userId || !financeReady) {
+      setPendingAdvisorReviews(null);
+      return;
+    }
+    const controller = new AbortController();
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    let generation = 0;
+    const refresh = () => {
+      if (document.hidden || controller.signal.aborted) return;
+      if (expiry) clearTimeout(expiry);
+      const context = captureFinance();
+      if (!context?.isCurrent() || context.userId !== userId) return;
+      const request = ++generation;
+      void AdvisorReviewService.history(context).then(({ items }) => {
+        if (controller.signal.aborted || request !== generation || !context.isCurrent()) return;
+        const pending = items.filter(item => item.advisorUserId === userId &&
+          item.direction === "received" && item.status === "pending" &&
+          Date.parse(item.expiresAt) > Date.parse(item.serverNow));
+        setPendingAdvisorReviews({ session: financeSession, items: pending });
+        // Never offer an expired action while Feed remains open.
+        if (pending.length) {
+          const expiresIn = Math.min(...pending.map(item =>
+            Date.parse(item.expiresAt) - Date.parse(item.serverNow),
+          ));
+          expiry = setTimeout(() => {
+            setPendingAdvisorReviews(null);
+            refresh();
+          }, expiresIn + 1);
+        }
+      }).catch(() => {
+        if (!controller.signal.aborted && request === generation) setPendingAdvisorReviews(null);
+      });
+    };
+    refresh();
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      controller.abort();
+      if (expiry) clearTimeout(expiry);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [captureFinance, consentTick, financeReady, financeSession, userId]);
   useEffect(() => {
     const bump = (event: Event) => {
       // Ignore the same local re-announcements as Feed's live reconciler.
@@ -905,17 +927,6 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
     },
   });
 
-  const openAnalysis = useCallback(
-    (runId: string, settleReadyState = false) => {
-      const href = buildDebateFeedAnalysisHref(runId, settleReadyState);
-      if (settleReadyState) {
-        DebateRunManagerService.dismissTask(runId);
-      }
-      router.push(href);
-    },
-    [router],
-  );
-
   // Google Drive opens over this screen, as every Connectors entry does, so
   // closing it returns here. Payouts and price are Profile pages of their own.
   const openDocumentRequestSetup = useCallback(
@@ -929,9 +940,9 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         );
         return;
       }
-      router.push(documentRequestSetupHref(step));
+      navigate(documentRequestSetupHref(step));
     },
-    [router],
+    [navigate],
   );
 
   // Pull stable slices out of the resource wrappers (which useStaleResource
@@ -939,10 +950,6 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationEnabled ? locationResource.data?.requests : undefined;
   const receivedGrants = locationEnabled ? locationResource.data?.receivedGrants : undefined;
-  const latestSmsGrants = useMemo(
-    () => latestFeedSmsGrants(receivedGrants ?? [], userId ?? ""),
-    [receivedGrants, userId],
-  );
   const circleMemberInvites = locationEnabled ? locationResource.data?.circleMemberInvites : undefined;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
@@ -1090,7 +1097,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         setPriceOpen(false);
         setPriceTerms(null);
         setPriceError(null);
-        router.push(buildConsentCenterHref("pending", {
+        navigate(buildConsentCenterHref("pending", {
           requestId: target.entryId, from: "/one/feed",
         }));
         return;
@@ -1148,7 +1155,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       getVaultOwnerToken,
       refreshDocumentRequests,
       settleDocumentRequest,
-      router,
+      navigate,
     ],
   );
 
@@ -1410,9 +1417,10 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
 
   useFeedLiveRefresh(
     useCallback((scope?: FeedRefreshScope) => {
+      refreshPendingImport();
       void refreshActionables(scope);
-    }, [refreshActionables]),
-    consentEnabled || locationEnabled,
+    }, [refreshActionables, refreshPendingImport]),
+    consentEnabled || locationEnabled || financeReady,
   );
 
   // Requests waiting on this person reach "Needs you" within about 10s while
@@ -1469,7 +1477,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
 
   const clearableSmsEmergencyIds = useMemo(
     () =>
-      latestSmsGrants
+      (receivedGrants ?? [])
         .filter(
           (grant) =>
             isSmsEmergencyGrant(grant) &&
@@ -1477,7 +1485,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
             !isClearedSmsEmergency(grant),
         )
         .map((grant) => grant.id),
-    [latestSmsGrants, isClearedSmsEmergency],
+    [receivedGrants, isClearedSmsEmergency],
   );
 
   // Server first, so the clear holds on every device. If the server cannot
@@ -1544,7 +1552,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
     if (!userId) return [];
     const items: FeedActionable[] = [];
 
-    if (agentUpdateCard) items.push({ ...agentUpdateCard, sortAt: firstSeenAt(agentUpdateCard.id) });
+    if (agentUpdateCard) items.push({ ...agentUpdateCard, scopeId: "one", sortAt: firstSeenAt(agentUpdateCard.id) });
     // One current prerequisite per request, refreshed by SSE. Stable keys keep
     // completed or dismissed tasks settled when their presentation changes.
     const setupEntryIds = new Set<string>();
@@ -1561,12 +1569,17 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       setupEntryIds.add(entry.id);
       const row = {
         id: `consent:${entry.id}`,
+        ...(setup === "drive" ? { connectorPrerequisite: {
+          connectorId: GOOGLE_DRIVE_CONNECTOR_ID, requestId: entry.id,
+          href: buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" }),
+        } } : {}),
+        operationKey: documentShareRequestId(entry.id) ? `document:${documentShareRequestId(entry.id)}` : undefined,
         ...(isDocumentRequestSetupStep(setup) ? { todo: {
           key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,
           title: documentRequestTaskTitle(setup, entry.counterpart_label),
           href: documentRequestSetupHref(setup, "/one/todos"),
         } } : {}),
-        icon: ConsentAgentIcon,
+        scopeId: "consent", icon: ConsentAgentIcon,
         iconTone: "capability",
         title: resolveConsentRequesterLabel({
           counterpartLabel: entry.counterpart_label,
@@ -1579,6 +1592,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       if (!isDocumentRequestSetupStep(setup)) {
         items.push({
           ...row,
+          feedVisibility: "routine",
           description: documentRequestSetupLabel(setup, true),
           href: buildConsentCenterHref("pending", {
             requestId: entry.id,
@@ -1619,7 +1633,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       const paymentAction = paymentIsNonActionable
         ? []
         : packetReviewRequired ? [{ key: "review-packet", label: "Review packet", tone: "primary" as const,
-          run: () => router.push(buildConsentCenterHref("pending", {
+          run: () => navigate(buildConsentCenterHref("pending", {
             requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
           })),
         }] : [
@@ -1658,16 +1672,18 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
           ];
       items.push({
         id: `drive-payment:${payment.requestId}`,
+        operationKey: `document:${payment.requestId}`,
+        feedVisibility: paymentIsNonActionable ? "routine" : "decision",
         ...(!paymentIsNonActionable ? { todo: {
           source: "drive" as const, title: displayPayment.title,
           href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/todos" }),
         } } : {}),
-        icon: ConsentAgentIcon,
+        scopeId: "consent", icon: ConsentAgentIcon,
         iconTone: "capability",
         title: feedPayment.title,
         description: feedPayment.description,
         href: paymentIsNonActionable ? payment.href : undefined,
-        onSelect: paymentIsNonActionable ? undefined : () => router.push(buildConsentCenterHref("pending", {
+        onSelect: paymentIsNonActionable ? undefined : () => navigate(buildConsentCenterHref("pending", {
           requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
         })),
         chevron: paymentIsNonActionable,
@@ -1787,7 +1803,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                   key: "allow-answer",
                   label: "Allow",
                   tone: "success",
-                  run: () => router.push(href),
+                  run: () => navigate(href),
                 },
               ]
             : requesterPaying
@@ -1832,16 +1848,18 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                           ? "Review price and pay"
                           : "Open",
                       tone: "primary",
-                      run: () => router.push(href),
+                      run: () => navigate(href),
                     },
                   ];
           items.push({
             id: `consent:${entry.id}`,
+            operationKey: `answer-request:${entry.request_id}`,
+            feedVisibility: preparing || state === "pending_resolution" ? "routine" : "decision",
             ...((owner && !preparing && !stagedEmpty && !["pending_resolution", "answered"].includes(state)) || requesterPaying ? { todo: {
               key: `consent:${entry.id}:${state}`, source: "consent" as const,
               title: `Review request from ${requesterLabel}`, href,
             } } : {}),
-            icon: ConsentAgentIcon,
+            scopeId: "consent", icon: ConsentAgentIcon,
             iconTone: "capability",
             title:
               requesterPaying && question
@@ -1849,7 +1867,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                 : requesterLabel,
             description,
             href,
-            ...(actions.length ? { onSelect: () => router.push(href) } : {}),
+            ...(actions.length ? { onSelect: () => navigate(href) } : {}),
             chevron: actions.length === 0,
             actions,
             sortAt:
@@ -1868,13 +1886,15 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         const entryId = entry.id;
         items.push({
           id: `consent:${entry.id}`,
+          operationKey: documentShareRequestId(entry.id) ? `document:${documentShareRequestId(entry.id)}`
+            : driveQueryRequestId(entry.id) ? `document-question:${driveQueryRequestId(entry.id)}` : undefined,
           todo: {
             key: `consent:${entry.id}:review`,
             source: isDriveSharingEntry(entry) ? "drive" : "consent",
             title: `Review request from ${requesterLabel}`,
             href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/todos" }),
           },
-          icon: ConsentAgentIcon,
+          scopeId: "consent", icon: ConsentAgentIcon,
           iconTone: "capability",
           person:
             ["ria", "investor", "person"].includes(entry.counterpart_type) &&
@@ -1890,7 +1910,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
           href: reviewHref,
           // A row with inline actions is not a link; its tap opens the same review.
           ...(documentDecision
-            ? { onSelect: () => router.push(reviewHref) }
+            ? { onSelect: () => navigate(reviewHref) }
             : {}),
           chevron: !documentDecision,
           actions: documentDecision
@@ -1940,7 +1960,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
           ownerConsentRequestActionable(request, {
             allow: consentDecision.allow,
             deny: declineConsentRequest,
-            openDetails: () => router.push(request.detailsHref),
+            openDetails: () => navigate(request.detailsHref),
             onDecided: markConsentSettled,
             sortAt:
               request.requestedAt ?? firstSeenAt(`consent:${request.key}`),
@@ -1958,10 +1978,10 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       if (consentItems && remainingConsentCount > 0) {
         items.push({
           id: "consent:overflow",
-          icon: ConsentAgentIcon,
+          scopeId: "consent", icon: ConsentAgentIcon,
           iconTone: "capability",
           title: "View all pending requests",
-          description: `${remainingConsentCount} more pending ${remainingConsentCount === 1 ? "request is" : "requests are"} waiting in Consent Center.`,
+          description: `${remainingConsentCount} more`,
           href: buildConsentCenterHref("pending", { from: "/one/feed" }),
           chevron: true,
           actions: [],
@@ -1972,24 +1992,24 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       }
     }
 
-    // Select the latest confirmed incident before Clear, so a dismissed latest
-    // alert never reveals an earlier incident from the same sender.
-    const smsEmergencies = latestSmsGrants.filter(
+    // Only confirmed active incidents belong to Live. Ended incidents use
+    // durable per-grant history; a sender name never groups incidents.
+    const smsEmergencies = (receivedGrants ?? []).filter(
       (grant) =>
         isSmsEmergencyGrant(grant) &&
         grant.recipientUserId === userId && grant.ownerUserId !== userId &&
-        // A live SOS always shows; only an ended one can be cleared.
-        (isActiveSmsEmergencyGrant(grant) || !isClearedSmsEmergency(grant)),
+        isActiveSmsEmergencyGrant(grant),
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
       const isLive = isActiveSmsEmergencyGrant(grant);
-      const sentAt = toDisplayTimestamp(grant.feedConfirmedAt ?? grant.createdAt);
-      const status = isLive ? "Active" : grant.status === "revoked" ? "Revoked"
-        : grant.status === "expired" ? "Expired" : "Ended";
+      const sentAt = toDisplayTimestamp(grant.feedConfirmedAt);
+
       items.push({
         id: `sms-emergency:${grant.id}`,
-        icon: EmergencyRowIcon,
+        operationKey: `location-grant:${grant.id}`,
+        sourceLabel: "Location",
+        scopeId: "location", icon: LocationAgentIcon,
         iconTone: "capability",
         person:
           label !== "A contact"
@@ -1999,13 +2019,12 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                 photoUrl: grant.ownerPhotoUrl ?? null,
               }
             : null,
-        // Only a still-live alert gets the pinned Live treatment. Ended
-        // incidents remain in the sender's recent-alert disclosure.
+        // Every confirmed active incident is pinned independently.
         emphasis: isLive ? "emergency" : undefined,
         smsEmergency: { senderId: grant.ownerUserId },
         // SMS is the product's Save My Soul lane.
-        title: label,
-        description: `Emergency SMS · ${status}`,
+        title: `Emergency alert from ${label}`,
+        description: isLive ? "" : "Ended",
         href: isLive ? buildOneLocationNotificationHref(grant.id) : null,
         chevron: isLive,
         actions: [],
@@ -2030,11 +2049,13 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       const label = request.requesterDisplayName?.trim() || "Someone";
       items.push({
         id: `location:${request.id}`,
+        operationKey: `location-request:${request.id}`,
         todo: {
           source: "location", title: `Review ${label}'s location request`,
           href: buildOneLocationWorkflowHref({ requestId: request.id }),
         },
-        icon: LocationAgentIcon,
+        sourceLabel: "Location",
+        scopeId: "location", icon: LocationAgentIcon,
         iconTone: "capability",
         person:
           label !== "Someone"
@@ -2044,55 +2065,15 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                 photoUrl: request.requesterPhotoUrl ?? null,
               }
             : null,
-        title: label,
-        onSelect: () => router.push(buildOneLocationWorkflowHref({ requestId: request.id })),
+        title: locationRequestFeedLine(label, request.requestedDurationHours,request.requestedDurationMode,Boolean(request.extendsGrantId || request.isExtension)),
+        onSelect: () => navigate(buildOneLocationWorkflowHref({ requestId: request.id })),
         phoneActions: [{
           key: "review", label: "Review", tone: "primary",
-          run: () => router.push(buildOneLocationWorkflowHref({ requestId: request.id })),
+          run: () => navigate(buildOneLocationWorkflowHref({ requestId: request.id })),
         }],
         // Names the amount, and says when it is extra time on a live share.
-        description:
-          request.message?.trim() || locationAskPromptLine(request, Date.now()),
-        actions: [
-          {
-            key: "deny",
-            label: "Deny",
-            tone: "ghost",
-            disabled: !vaultOwnerToken,
-            confirm: true,
-            run: async () => {
-              if (!vaultOwnerToken) return;
-              await OneLocationService.denyRequest({
-                vaultOwnerToken,
-                requestId: request.id,
-              });
-              if (userId) OneLocationStateResource.invalidate(userId);
-              notifyFeedActionResolved();
-              await locationRefresh({ force: true });
-            },
-          },
-          {
-            key: "approve",
-            label: locationApproveActionLabel(request, Date.now()),
-            tone: "primary",
-            disabled: !vaultOwnerToken,
-            run: async () => {
-              if (!vaultOwnerToken) return;
-              // No durationHours: omitting it means the server grants the
-              // amount that was requested, falling back to an hour only when
-              // the ask named none. Naming a number here is what silently
-              // turned a four-hour ask into a one-hour grant.
-              await OneLocationService.approveRequest({
-                vaultOwnerToken,
-                requestId: request.id,
-                approvalMode: "manual",
-              });
-              if (userId) OneLocationStateResource.invalidate(userId);
-              notifyFeedActionResolved();
-              await locationRefresh({ force: true });
-            },
-          },
-        ],
+        description: "",
+        actions: [{ key: "review", label: "Review", tone: "primary", run: () => navigate(buildOneLocationWorkflowHref({ requestId: request.id })) }],
         sortAt:
           toTimestamp(request.requestedAt) ||
           firstSeenAt(`location:${request.id}`),
@@ -2100,7 +2081,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       });
     }
 
-    // Circle invitations — inline Accept / Decline. The state read already
+    // Circle invitations open their exact review; Feed never joins a Circle. The state read already
     // scopes these to incoming + pending, but re-filter so a widened server
     // response can never surface someone else's invite as actionable here.
     const pendingCircleInvites = (circleMemberInvites ?? []).filter(
@@ -2112,11 +2093,13 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       const circleName = invite.circleName?.trim() || "a Circle";
       items.push({
         id: `circle-invite:${invite.id}`,
+        operationKey: `circle-invite:${invite.id}`,
         todo: {
           source: "location", title: `Review invitation to ${circleName}`,
           href: buildOneLocationWorkflowHref({ circleInviteId: invite.id }),
         },
-        icon: PeopleRowIcon,
+        sourceLabel: "Location",
+        scopeId: "location", icon: LocationAgentIcon,
         iconTone: "capability",
         person:
           label !== "Someone"
@@ -2126,48 +2109,14 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                 photoUrl: invite.inviterPhotoUrl ?? null,
               }
             : null,
-        title: label,
-        description: `Invited you to join ${circleName}.`,
-        onSelect: () => router.push(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
+        title: `${label} invited you to ${circleName}`,
+        description: "",
+        onSelect: () => navigate(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
         phoneActions: [{
           key: "review", label: "Review", tone: "primary",
-          run: () => router.push(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
+          run: () => navigate(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
         }],
-        actions: [
-          {
-            key: "decline",
-            label: "Decline",
-            tone: "ghost",
-            disabled: !vaultOwnerToken,
-            confirm: true,
-            run: async () => {
-              if (!vaultOwnerToken) return;
-              await OneLocationService.declineNamedCircleMemberInvite({
-                vaultOwnerToken,
-                inviteId: invite.id,
-              });
-              if (userId) OneLocationStateResource.invalidate(userId);
-              notifyFeedActionResolved();
-              await locationRefresh({ force: true });
-            },
-          },
-          {
-            key: "accept",
-            label: "Accept",
-            tone: "primary",
-            disabled: !vaultOwnerToken,
-            run: async () => {
-              if (!vaultOwnerToken) return;
-              await OneLocationService.acceptNamedCircleMemberInvite({
-                vaultOwnerToken,
-                inviteId: invite.id,
-              });
-              if (userId) OneLocationStateResource.invalidate(userId);
-              notifyFeedActionResolved();
-              await locationRefresh({ force: true });
-            },
-          },
-        ],
+        actions: [{ key: "review", label: "Review", tone: "primary", run: () => navigate(buildOneLocationWorkflowHref({ circleInviteId: invite.id })) }],
         sortAt:
           toTimestamp(invite.createdAt) ||
           firstSeenAt(`circle-invite:${invite.id}`),
@@ -2189,8 +2138,9 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       });
       const connectionRow: FeedActionable = {
         id: `connection:${request.id}`,
+        operationKey: `connection-request:${request.id}`,
         todo: { source: "connections", title: `Review ${label}'s connection request`, href: reviewHref },
-        icon: JoinRowIcon,
+        scopeId: "connections", icon: JoinRowIcon,
         iconTone: "capability",
         person:
           label !== "Someone"
@@ -2211,7 +2161,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                 label: "Review",
                 tone: "primary",
                 disabled: !userId,
-                run: () => router.push(reviewHref),
+                run: () => navigate(reviewHref),
               },
             ]
           : [
@@ -2295,104 +2245,83 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       };
       const reportAction = connectionRow.actions.find(action => action.key === "report");
       if (reportAction) {
-        connectionRow.onSelect = () => router.push(reviewHref);
+        connectionRow.onSelect = () => navigate(reviewHref);
         connectionRow.phoneActions = [reportAction, {
           key: "review", label: "Review", tone: "primary",
-          run: () => router.push(reviewHref),
+          run: () => navigate(reviewHref),
         }];
       }
       items.push(connectionRow);
     }
 
-    // Kai debates remain visible while running and after completion until the
-    // person opens or dismisses the ready result. The debate manager remains
-    // the authority; Feed is only its consumer-safe projection.
-    const debateTasks = debateState.tasks.filter(
-      (task: DebateRunTask) => task.userId === userId && !task.dismissedAt,
-    );
-    for (const task of debateTasks) {
-      const feedState = classifyDebateFeedState(task);
-      if (!feedState) continue;
-      const running = feedState === "running";
-      const ready = feedState === "ready";
-      const failedSave = feedState === "failed_save";
-      const persisted = ready && task.persistenceState === "saved";
-      const statusText = running
-        ? task.streamState === "reconnecting"
-          ? "Reconnecting…"
-          : task.streamState === "paused"
-            ? "Updates paused"
-            : "Analyzing…"
-        : ready
-          ? task.persistenceState === "pending"
-            ? "Analysis ready. Saving to history…"
-            : "Analysis ready to review."
-          : "Analysis is ready, but could not be saved. Retry to keep it in history.";
-      const actions: FeedActionButton[] = [];
-      if (running) {
-        actions.push({
-          key: "cancel",
-          label: "Cancel",
-          tone: "danger",
-          disabled: !vaultOwnerToken,
-          confirm: true,
-          run: async () => {
-            if (!vaultOwnerToken) return;
-            await DebateRunManagerService.cancelRun({
-              runId: task.runId,
-              userId: task.userId,
-              vaultOwnerToken,
-            });
-          },
+    if (financeReady && bankReconnects?.session === financeSession) {
+      for (const item of bankReconnects.items) {
+        const href = feedInstitutionHref(item.itemId);
+        items.push({
+          id: `reconnect:${item.itemId}`,
+          scopeId: "finance", icon: FinanceAgentIcon,
+          iconTone: "capability",
+          title: item.institute || "Linked institution",
+          description: "Sign-in needed",
+          href,
+          actions: [{ key: "reconnect", label: "Review", tone: "primary", run: () => navigate(href) }],
+          sortAt: toTimestamp(item.timestamp),
+          displayTimestamp: toDisplayTimestamp(item.timestamp),
         });
-      } else if (failedSave) {
-        actions.push({
+      }
+    }
+
+    const importReview = financeReady && pendingImport?.session === financeSession ? pendingImport.review : null;
+    if (importReview) {
+      const href = existingImportReviewHref();
+      const title = "Statement ready";
+      items.push({
+        id: `statement-review:${importReview.runId}`,
+        scopeId: "finance", icon: FileChartColumn,
+        iconTone: "capability",
+        title,
+        description: "",
+        href,
+        actions: [{ key: "review", label: "Review", tone: "primary", run: () => navigate(href) }],
+        sortAt: toTimestamp(importReview.timestamp),
+        displayTimestamp: toDisplayTimestamp(importReview.timestamp),
+      });
+    }
+
+    if (financeReady && pendingAdvisorReviews?.session === financeSession) {
+      for (const review of pendingAdvisorReviews.items) {
+        const href = advisorWorkspaceHref(review.id, true);
+        items.push({
+          id: `advisor-review:${review.id}`,
+          operationKey: `advisor-review:${review.id.toLowerCase()}`,
+          scopeId: "advisor", icon: RiaAgentIcon,
+          iconTone: "capability",
+          title: review.ownerName || "Finance member",
+          description: "Requested portfolio review",
+          href,
+          actions: [{ key: "review", label: "Review", tone: "primary", run: () => navigate(href) }],
+          sortAt: toTimestamp(review.createdAt),
+          displayTimestamp: toDisplayTimestamp(review.createdAt),
+        });
+      }
+    }
+
+    for (const task of debateState.tasks) {
+      if (!vaultOwnerToken || task.userId !== userId || !isDebateSaveActionable(task)) continue;
+      items.push({
+        id: `debate:${task.runId}`,
+        operationKey: `finance-analysis:${task.runId}`,
+        scopeId: "finance", icon: FinanceAgentIcon,
+        iconTone: "capability",
+        title: `Retry saving your ${task.ticker || "stock"} analysis`,
+        description: "",
+        actions: [{
           key: "retry",
           label: "Retry",
           tone: "primary",
-          run: async () => {
-            await DebateRunManagerService.retryTaskPersistence(task.runId);
-          },
-        });
-        actions.push({
-          key: "dismiss",
-          label: "Dismiss",
-          tone: "ghost",
-          run: () => DebateRunManagerService.dismissTask(task.runId),
-        });
-      } else {
-        actions.push({
-          key: "open",
-          label: "Open",
-          tone: "primary",
-          run: () => openAnalysis(task.runId, persisted),
-        });
-        actions.push({
-          key: "dismiss",
-          label: "Dismiss",
-          tone: "ghost",
-          run: () => DebateRunManagerService.dismissTask(task.runId),
-        });
-      }
-      items.push({
-        id: `debate:${task.runId}`,
-        todo: !running && task.persistenceState !== "pending"
-          ? { key: `debate:${task.runId}:${failedSave ? "save" : "review"}`, source: "kai", title: failedSave ? `Save ${task.ticker || "analysis"}` : `Review ${task.ticker || "analysis"}`, href: failedSave ? "/one/feed" : buildDebateFeedAnalysisHref(task.runId, persisted) }
-          : undefined,
-        icon: FinanceAgentIcon,
-        iconTone: "capability",
-        spinning: running || task.persistenceState === "pending",
-        title: task.ticker || "Analysis",
-        description: statusText,
-        onSelect:
-          running || ready
-            ? () => openAnalysis(task.runId, persisted)
-            : undefined,
-        chevron: running || ready,
-        actions,
-        sortAt:
-          toTimestamp(task.updatedAt || task.startedAt) ||
-          firstSeenAt(`debate:${task.runId}`),
+          run: () => DebateRunManagerService.retryTaskPersistence(task.runId),
+        }],
+        sortAt: toTimestamp(task.updatedAt || task.startedAt),
         displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
@@ -2404,6 +2333,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       (task: AppBackgroundTask) =>
         task.userId === userId &&
         !task.dismissedAt &&
+        !FINANCE_INTERNAL_TASKS.has(task.kind) &&
         isAppBackgroundTaskVisible(task) &&
         (task.status === "running" || task.status === "failed"),
     );
@@ -2416,7 +2346,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
           key: "open",
           label: "Open",
           tone: "primary",
-          run: () => router.push(href),
+          run: () => navigate(href),
         });
       }
       if (!running) {
@@ -2432,10 +2362,11 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       }
       items.push({
         id: `task:${task.taskId}`,
+        feedVisibility: running ? "routine" : "decision",
         todo: !running && task.routeHref
           ? { key: `task:${task.taskId}:${task.startedAt}`, source: "agent", title: `Review ${task.title}`, href: task.routeHref }
           : undefined,
-        icon: FinanceAgentIcon,
+        scopeId: "one", icon: MessageSquareIcon,
         iconTone: "capability",
         spinning: running,
         title: task.title,
@@ -2452,7 +2383,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
       });
     }
 
-    return items.sort((a, b) => {
+    return items.map(item => ({ ...item, scopeId: item.todo?.source === "drive" ? "drive" : item.scopeId || "one" })).sort((a, b) => {
       // Emergency SMS alerts pin to the very top, then the rest stays in
       // descending recency order.
       const aEmergency = a.emphasis === "emergency" ? 1 : 0;
@@ -2482,20 +2413,22 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
     connectionsRefresh,
     consentItems,
     debateState.tasks,
-    isClearedSmsEmergency,
+    financeReady,
+    financeSession,
+    pendingAdvisorReviews,
+    pendingImport,
+    bankReconnects,
     firstSeenAt,
     locationRequests,
-    latestSmsGrants,
+    receivedGrants,
     receivedOverflowItems,
     sentPayments,
     circleMemberInvites,
-    locationRefresh,
-    openAnalysis,
     openDocumentRequestSetup,
     pendingConsentCount,
     paymentClockNow,
     paymentContexts,
-    router,
+    navigate,
     user,
     userId,
     vaultOwnerToken,

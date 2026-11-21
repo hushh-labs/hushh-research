@@ -1,5 +1,7 @@
 "use client";
 
+import { feedItemScope, feedScopeLabel } from "@/lib/feed/agent-scopes";
+
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import {
   memo,
@@ -10,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
-import { PeoplePairIcon } from "@/components/icons";
+import { FeedEntityIcon } from "./feed-entity-icon";
 
 import {
   AlertDialog,
@@ -45,72 +47,6 @@ type Gesture = {
   held: boolean;
 };
 
-function FeedGlyph({ eventType }: { eventType: string }) {
-  const icon = eventType.startsWith("calendar_")
-    ? "calendar"
-    : eventType.startsWith("drive_") || eventType.startsWith("connector_")
-      ? "drive"
-      : eventType.startsWith("document_share_")
-        ? "file"
-        : eventType.startsWith("circle_") ||
-            eventType.startsWith("location_circle_") ||
-            eventType.startsWith("connection_")
-          ? "people"
-          : eventType.startsWith("location_")
-            ? "pin"
-            : eventType.startsWith("funding_")
-              ? "card"
-              : null;
-  if (!icon) return null;
-  if (icon === "people") return <PeoplePairIcon size={22} />;
-
-  const accent = "var(--app-accent)";
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="22"
-      height="22"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {icon === "calendar" ? (
-        <>
-          <rect x="3.5" y="5" width="17" height="15.5" rx="3" />
-          <path stroke={accent} d="M3.5 9.8h17" />
-          <path d="M8 2.8v3.6M16 2.8v3.6" />
-          <circle cx="12" cy="14.9" r="1.7" fill={accent} stroke="none" />
-        </>
-      ) : icon === "drive" ? (
-        <>
-          <ellipse cx="12" cy="6" rx="7" ry="2.8" />
-          <path d="M5 6v12c0 1.6 3.1 2.9 7 2.9s7-1.3 7-2.9V6" />
-          <path stroke={accent} d="M5 12c0 1.6 3.1 2.9 7 2.9s7-1.3 7-2.9" />
-        </>
-      ) : icon === "file" ? (
-        <>
-          <path d="M7 3h7l5 5v12H7zM14 3v5h5" />
-          <path stroke={accent} d="M9.5 13h5M9.5 16.5h3.5" />
-        </>
-      ) : icon === "pin" ? (
-        <>
-          <path d="M12 21.2s-6.8-5.6-6.8-10.7a6.8 6.8 0 0 1 13.6 0c0 5.1-6.8 10.7-6.8 10.7Z" />
-          <circle cx="12" cy="10.3" r="2.4" stroke={accent} />
-        </>
-      ) : (
-        <>
-          <rect x="3" y="6" width="18" height="13" rx="3" />
-          <path stroke={accent} d="M3 10.3h18" />
-          <rect x="6.5" y="13.2" width="3.6" height="2.8" rx=".9" stroke={accent} />
-        </>
-      )}
-    </svg>
-  );
-}
-
 /** A live history row. Removal belongs to the server; this component never edits the list. */
 export const FeedRow = memo(function FeedRow({
   item,
@@ -120,6 +56,7 @@ export const FeedRow = memo(function FeedRow({
   removeDirection = "left",
   removing = false,
   unread,
+  openable = false,
 }: {
   item: FeedItem;
   onOpen: (item: FeedItem) => void;
@@ -129,10 +66,12 @@ export const FeedRow = memo(function FeedRow({
   removeDirection?: "left" | "right";
   removing?: boolean;
   unread?: boolean;
+  /** A retained operation receipt can open even without a surviving result route. */
+  openable?: boolean;
 }) {
   const presentation = presentFeedItem(item);
   const read = unread === undefined ? item.read : !unread;
-  const hasRoute = Boolean(presentation.href);
+  const hasRoute = openable || Boolean(presentation.href);
   const canRemove = Boolean(onRemove);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mutating, setMutating] = useState(false);
@@ -313,8 +252,6 @@ export const FeedRow = memo(function FeedRow({
     resetGesture();
   };
 
-  const icon = <FeedGlyph eventType={item.event_type} />;
-  const Icon = presentation.icon;
   const surfaceLabel = hasRoute
     ? `Open ${presentation.label}`
     : canRemove
@@ -386,10 +323,10 @@ export const FeedRow = memo(function FeedRow({
           setConfirmOpen(true);
         }}
         style={{ transform: "translate3d(0px,0,0)" }}
-        className={`relative z-[1] grid min-h-[52px] w-full grid-cols-[30px_minmax(0,1fr)_auto_14px] items-center gap-x-2 border-0 bg-[color:var(--app-card-surface-default-solid)] px-3 py-1.5 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] data-[disabled=false]:cursor-pointer [&:not([data-disabled])]:hover:bg-[color:var(--app-accent-tint)] data-[disabled=true]:cursor-default motion-reduce:transition-none max-[360px]:gap-x-[7px] max-[360px]:px-[9px] ${canRemove ? "touch-pan-y" : ""}`}
+        className={`relative z-[1] grid min-h-[64px] w-full grid-cols-[30px_minmax(0,1fr)_auto_14px] items-center gap-x-2 border-0 bg-[color:var(--app-card-surface-default-solid)] px-3 py-2.5 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] data-[disabled=false]:cursor-pointer [&:not([data-disabled])]:hover:bg-[color:var(--app-accent-tint)] data-[disabled=true]:cursor-default motion-reduce:transition-none max-[360px]:gap-x-[7px] max-[360px]:px-[9px] ${canRemove ? "touch-pan-y" : ""}`}
       >
         <span className="grid w-[30px] place-items-center">
-          {presentation.person ? (
+          {presentation.person && presentation.domainLabel !== "Location" ? (
             <ConnectionPersonAvatar personRef={presentation.person.personRef} minimumHitArea
               label={presentation.person.displayName}
               photoUrl={presentation.person.photoUrl}
@@ -397,12 +334,10 @@ export const FeedRow = memo(function FeedRow({
               className="size-[26px]"
             />
           ) : (
-            <span data-slot="feed-domain-icon" aria-hidden="true" className="grid size-[22px] place-items-center text-[color:var(--app-label)] [&_svg]:size-[22px]">
-              {icon ?? <Icon className="size-[22px]" color="currentColor" />}
-            </span>
+            <FeedEntityIcon icon={presentation.icon} symbol={presentation.symbol} />
           )}
         </span>
-        <FeedRowMetadata title={<span data-slot="settings-row-title" data-profile-role="name" data-feed-unread={!read ? "true" : undefined} className="block truncate">{!read ? <span className="sr-only">Unread: </span> : null}{presentation.label}</span>}
+        <FeedRowMetadata source={presentation.domainLabel === "Circle chat" ? "Circle chat" : feedScopeLabel(feedItemScope(item))} title={<span data-slot="settings-row-title" data-profile-role="name" data-feed-unread={!read ? "true" : undefined} className="inline break-words">{!read ? <span className="sr-only">Unread: </span> : null}{presentation.label}</span>}
           description={presentation.description} descriptionId={descriptionId} />
         <span className="flex shrink-0 items-center gap-1">
           {!read ? <span data-slot="feed-unread-marker" data-state="unread" aria-hidden="true" className="size-1.5 rounded-full bg-[color:var(--app-accent)]" /> : null}

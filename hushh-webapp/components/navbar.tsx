@@ -22,6 +22,8 @@ import {
   Wallet,
 } from "@/components/icons";
 
+import { clearFeedSearch } from "@/lib/feed/feed-search-memory";
+import { resetFeedSearchView } from "@/lib/feed/feed-search-events";
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
@@ -437,6 +439,7 @@ export const Navbar = ({
         : "one",
     );
     if (action.type === "route") {
+      if(action.href === "/one/feed"){clearFeedSearch();resetFeedSearchView();}
       const nextAgentContext = resolveAgentNavigationContextForPath(
         action.href,
       );

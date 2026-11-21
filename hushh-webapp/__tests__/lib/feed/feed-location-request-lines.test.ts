@@ -38,8 +38,8 @@ describe("the owner's side of the exchange", () => {
         },
       }),
     );
-    expect(presented.label).toBe("Ankit");
-    expect(presented.description).toBe("Asked for 3 hours more");
+    expect(presented.label).toBe("Ankit asked for 3 more hours");
+    expect(presented.description).toBe("");
   });
 
   it("names the duration on a fresh ask too", () => {
@@ -51,7 +51,7 @@ describe("the owner's side of the exchange", () => {
         },
       }),
     );
-    expect(presented.description).toBe("Requested your location for 30 min");
+    expect(presented.label).toBe("Ankit asked to see your location for 30 min");
   });
 
   it("says how much time it gave, not just that it approved", () => {
@@ -68,7 +68,8 @@ describe("the owner's side of the exchange", () => {
         },
       }),
     );
-    expect(presented.description).toBe("You gave them 4 hours more");
+    expect(presented.label).toBe("You extended location sharing");
+    expect(presented.description).toBe("4 hours");
   });
 
   it("reports the time an extension ADDED, not the share's new total", () => {
@@ -86,7 +87,8 @@ describe("the owner's side of the exchange", () => {
         },
       }),
     );
-    expect(presented.description).toBe("You gave them 30 min more");
+    expect(presented.label).toBe("You extended location sharing by 30 min");
+    expect(presented.description).toBe("2 hours 30 min");
   });
 
   it("does not offer 'more' of a share that never ends", () => {
@@ -104,8 +106,8 @@ describe("the owner's side of the exchange", () => {
         },
       }),
     );
-    expect(owner.description).toBe("You are still sharing until you stop");
-    expect(owner.description).not.toContain("more");
+    expect(owner.label).toBe("You’re sharing with Ankit until you stop");
+    expect(owner.label).not.toContain("more");
   });
 
   it("leaves a fresh approval reporting the total it granted", () => {
@@ -121,7 +123,8 @@ describe("the owner's side of the exchange", () => {
         },
       }),
     );
-    expect(presented.description).toBe("You approved sharing for 2 hours");
+    expect(presented.label).toBe("You shared your location with Ankit");
+    expect(presented.description).toBe("2 hours");
   });
 
   it("distinguishes declining extra time from declining access outright", () => {
@@ -131,16 +134,16 @@ describe("the owner's side of the exchange", () => {
           event_type: "location_access_denied",
           metadata: { counterpart_label: "Ankit", is_extension: true },
         }),
-      ).description,
-    ).toBe("You declined the extra time");
+      ).label,
+    ).toBe("You declined Ankit’s request for more time");
     expect(
       presentFeedItem(
         item({
           event_type: "location_access_denied",
           metadata: { counterpart_label: "Ankit" },
         }),
-      ).description,
-    ).toBe("You declined the location request");
+      ).label,
+    ).toBe("You declined Ankit’s location request");
   });
 });
 
@@ -159,9 +162,8 @@ describe("the requester's side of the same exchange", () => {
     // The fan-out swaps counterpart_label to the OTHER person, so neither side
     // reads its own name back as the actor. The marker is `feed_audience`,
     // shared with migration 152 rather than a second parallel convention.
-    expect(presented.label).toBe("Neelesh");
-    expect(presented.description).toBe("You asked for 3 hours more");
-    expect(presented.href).toContain("section=my_requests");
+    expect(presented.label).toBe("You asked Neelesh to share their location");
+    expect(presented.href).toBeNull();
   });
 
   it("tells them how much they were actually given, on the share row", () => {
@@ -178,9 +180,8 @@ describe("the requester's side of the same exchange", () => {
         },
       }),
     );
-    expect(presented.description).toBe(
-      "Shared location with you for 4 hours",
-    );
+    expect(presented.label).toBe("Neelesh shared their location with you");
+    expect(presented.description).toBe("4 hours");
   });
 
   it("makes owner-side share rows clear", () => {
@@ -192,8 +193,7 @@ describe("the requester's side of the same exchange", () => {
         },
       }),
     );
-    expect(presented.label).toBe("Abdul Rashid");
-    expect(presented.description).toBe("You started sharing location");
+    expect(presented.label).toBe("You shared your location with Abdul Rashid");
   });
 
   it("says a refused extension leaves current access alone", () => {
@@ -208,21 +208,21 @@ describe("the requester's side of the same exchange", () => {
       }),
     );
     // Read as a bare "declined", it looks like everything just stopped.
-    expect(presented.description).toBe("Extra time declined");
+    expect(presented.label).toBe("Neelesh declined your request for more time");
   });
 });
 
 describe("rows written before any of this existed", () => {
   it("keeps the owner wording they were written for", () => {
     // No feed_audience marker and no duration: the old copy is still the true copy.
-    expect(presentFeedItem(item()).description).toBe("Requested your location");
+    expect(presentFeedItem(item()).label).toBe("Ankit asked to see your location");
     // Migration 151 stopped forwarding the approval-born share row, so this
     // line is now the only report of that whole tap and has to say the share
     // started -- not merely that a request was answered.
     expect(
       presentFeedItem(item({ event_type: "location_access_approved" }))
-        .description,
-    ).toBe("You approved sharing");
+        .label,
+    ).toBe("You shared your location with Ankit");
   });
 });
 
@@ -238,15 +238,15 @@ describe("shortening", () => {
           event_type: "location_share_shortened",
           metadata: { counterpart_label: "Ankit", reason: "owner_shorten" },
         }),
-      ).description,
-    ).toBe("You shortened location access");
+      ).label,
+    ).toBe("You shortened location sharing");
     expect(
       presentFeedItem(
         item({
           event_type: "location_share_shortened",
           metadata: { counterpart_label: "Ankit", reason: "recipient_shorten" },
         }),
-      ).description,
-    ).toBe("Gave back remaining time early");
+      ).label,
+    ).toBe("Ankit shortened location sharing");
   });
 });

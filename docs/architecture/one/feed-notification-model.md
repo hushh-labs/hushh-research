@@ -9,7 +9,7 @@ flowchart TD
   consent["consent_audit<br/>INSERT trigger"]
   location["one_location_events<br/>INSERT trigger"]
   connected["connected_system_audit_events<br/>INSERT trigger"]
-  kai["Kai analyze/import managers<br/>canonical terminal + delivery guard"]
+  kai["Finance confirmed saved reports<br/>owner acknowledgement after encrypted save"]
   connections["connections_service.py<br/>accept / reject / revoke / withdraw"]
   outcomes["269 source-row triggers<br/>Calendar, Mail, Drive, connectors, Circle"]
   feed_events["feed_events table"]
@@ -36,26 +36,28 @@ activity) with a real bottom-nav tab and a dedicated route, `/one/feed`.
 
 ### Location and Connect selection
 
-The scoped presentation policy lives in `feed_location_policy.py` and is applied
-by the canonical list/count query before grouping and pagination. It excludes
-own action confirmations, owner share expiry, routine roster/view receipts and
-ordinary direct/Circle messages. Current incoming requests remain in the
-actionable owner; direct received sharing, relationship outcomes and being added
-to a Circle remain useful history. Current Circle additions are direct; old
-invitation handlers retain only their compatibility purpose. Other domain
-behavior, including wallet message cards, remains with its existing DRI.
+The canonical admission and operation rules live in
+`consent-protocol/contracts/feed/activity-policy.v1.json`; grouped SQL, current
+source facts and the generated browser policy apply them before pagination,
+search and unread counts. The event catalogs below describe recorded facts,
+not a promise that every publisher creates a visible notification.
 
-Latest SMS selection uses the committed creation receipt and durable server-only
-counterpart identity, before dismissal and short-lived grant cleanup. Only the
-latest confirmed incident per sender/recipient is presented. The existing
-Location state carries recipient-only selection/confirmation flags; it does not
-remove grants from other Location consumers. Clear never reveals a superseded
-incident. No Feed rows or coordinates are copied to device storage.
+Current decisions and important outcomes share one mixed timeline. Location
+requests and resulting shares link only through verified source IDs. Every
+confirmed active emergency has its own Live row, even for the same sender.
+Quiet share expiry/revoke updates do not create unread attention. Ended grants
+open dated history rather than a map. Clear cannot hide active incidents. A separate paginated `live_incidents`
+collection selects every confirmed current incident independently of history
+pages; it never selects only the newest incident from a sender.
 
-Opaque read-time group keys reconcile share/membership outcomes in place across
-pages and while scrolling. Quiet share termination updates status without a new
-unread notification or Feed chime. Existing audit records and action authority
-are unchanged; presentation suppression is not domain deletion or revocation.
+Private Check-In groups the owner's confirmed grants by the existing client
+operation ID. Recipient views remain per grant. Existing source records do not
+retain the full intended audience or failures, so Feed does not claim a complete
+or partial operation total or offer a retry action. Nearby Check-In stays solely on the map. Routine GPS,
+search, polling, views and ordinary status changes remain suppressed. Recorded
+Circle deletion cannot revive an older addition after source cleanup. Missing
+legacy source authority never becomes permission for an active destination.
+
 
 ## Chat conversation presentation
 
@@ -83,7 +85,7 @@ current person and in-memory unlock identity.
 Circle messages share one Feed entry per Circle; received Direct Messages share
 one entry per authenticated conversation. The API groups before applying the
 cursor and page limit, using the newest immutable source event as the entry id.
-Other event types remain independent. `chat_thread_key`, `chat_message_count`
+Other admitted workflows group by verified source IDs under the shared Feed policy. `chat_thread_key`, `chat_message_count`
 and `chat_unread_count` are computed response metadata, never trusted from
 stored payloads. Feed unread counts count visible groups; the new-message count
 means unseen Feed events. Opening Feed marks that presentation seen without
@@ -161,10 +163,11 @@ code — mirrors the established `consent_audit` NOTIFY-trigger pattern from
 **App-level writes** (no existing durable event table to hook — this is new
 tracking, added alongside each domain's existing mutation):
 
-- **Kai** — analysis and import managers, after canonical terminal selection;
-  success also requires actual local terminal delivery. Analysis history is
-  saved by the client, not inferred from the server status. The completion row
-  carries only ticker and opaque run ID.
+- **Finance** — after a requested analysis is saved to encrypted owner history
+  outside Finance, the owner client acknowledges the exact completed run through
+  `/api/kai/analyze/run/{run_id}/feed-result`. The server checks owner and terminal
+  state and derives ticker/run ID itself. Parsing and terminal delivery alone do
+  not establish a saved report or statement. Draft review stays in its source.
 - **Connections** — `consent-protocol/hushh_mcp/services/connections_service.py`,
   at `accept_request` / `reject_request` / `remove_connection`.
 
@@ -220,62 +223,104 @@ The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
 static navigational affordance, and unread state surfaces only through its
 badge count, not an icon swap.
 
-## Live cards and chronological history
+## Mixed timeline and search
 
-The Feed route renders under one fixed (sticky) header where only the list
-scrolls. Current cards come from authorized domain services, followed by the
-chronological Feed projection. Empty sections disappear:
+Feed opens with its title and one search icon in the existing shell. Each active
+emergency stays separately visible in Live. Current decisions and important
+outcomes form one mixed dated timeline across agents. Routine search, sync and
+progress do not appear. Empty sections disappear; there are no agent sections.
+Ended emergencies become incident history, never a collapsed active-alert group.
 
-- **Live:** active location/emergency sharing.
-- **Needs you:** pending information, location, connection and Circle requests,
-  Mail/KYC review and active Kai tasks, with existing vault/consent guards.
-- **Recent SMS alerts:** each sender's latest confirmed incident when ended.
-  Its prior incidents stay out, including after Clear. Different senders remain separate.
-- **Coming up:** up to three upcoming Calendar events.
-- **In progress:** Drive request search/sharing progress, grouped by request.
-- **History:** durable events grouped by Today, Yesterday and date.
+Search opens one field and an All agents selector. Scope changes work without a
+query and combine with text/date filters. Emergencies stay pinned across scopes.
+The authored Feed policy owns public scope names, classified-agent exceptions and
+bounded action aliases; the generated browser copy must match it. Finance,
+Advisor, Drive, KYC, Cards, Location, Consent and Connect stay distinguishable even
+when source events share a backend domain.
+
+`POST /api/one/feed/search` derives owner identity from Firebase auth and matches
+admitted workflow labels before pagination. Exact matches rank before word
+prefixes and substrings; ties use source time and ID. The match CTE is materialized
+once to avoid per-row rank rescans. HMAC cursors bind owner, criteria, source
+revision and a captured ID boundary. New arrivals wait for refresh; material
+changes invalidate the cursor. Search never marks events read or changes push,
+subscriptions or preferences. The normal browse read path pauses during search.
+
+One confident contact/client or exact authorized record can be Top Hit. Contact
+name reads require an active owner relationship. Advisor client discovery also
+requires verified RIA status, canonical roster membership and current workspace
+consent. Scope is a view filter; it never grants client or source access.
+
+Bounded scalar labels exclude coordinates, private notes, document contents and
+protected financial values. Finance statement/report labels are read within the
+current unlocked owner session. Feed reads the existing device report history;
+an analysis-completed receipt means the run finished, not that another device
+has the report. Missing local results use the existing unavailable state. Saved
+statements and institutions open exact read-only details inside Feed, without
+changing the active statement or initiating provider reconnect.
+
+Search uses existing confirmed contact and roster names. This release adds no
+relationship-alias editor or storage. A family alias is matchable only if it is
+already an authorized source label; Feed never invents a relationship. Unique
+adjacent transpositions offer explicit suggestions; ambiguous names produce no
+fabricated identity.
+
+Private Drive filename lookup uses the existing connector proxy and four
+vault-authorized, no-store POST endpoints under
+`/api/one/feed/files`: `owner/search`, `requester/search`, `owner/file`
+and `requester/file`. These Feed adapters reuse existing Drive owner, participant,
+identity and payment guards without changing Drive writes. Search
+criteria stay in request bodies. Each page scans at most 100 encrypted confirmed
+request-delivery candidates and returns at most 20 matches, with an authenticated
+owner/query/snapshot cursor even when an intermediate page has no matches. The
+UI offers continuation and does not claim complete no-results while a cursor or
+source failure remains. Provider names are matched in full; display labels use
+the existing bounded filename presentation. No filename index, document contents,
+URL query or persistent result cache is created.
+
+Owner history and recipient access are distinct: the owner retains authorized
+request-associated filename history after sharing ends; the recipient must still
+have a confirmed file grant, required payment and the same verified identity.
+The source is reread after identity verification and on every file tap. Standalone
+bulk shares without a request, filename typo suggestions and global filename
+ranking across unscanned candidate pages are not supported by this lookup.
+
+Receipt terms search confirmed document-payment milestones within their current
+group. A payment-only match opens the exact request's read-only receipt after a
+fresh participant lookup. Requester receipts come from the current owner payment
+source; owner earnings come from the exact payout receipt. Requester test/live/legacy mode remains source-backed. The existing owner
+receipt does not expose payment mode, so Feed calls it a recorded receipt and
+never infers a mode or settlement method. A Feed event alone
+never establishes payment, delivery, saved status or a returned transfer.
+
+Query caches and result-return snapshots stay in the owner/auth/vault episode's
+memory, fenced by Feed invalidation. Return preserves query/scope and scroll;
+fresh Feed navigation starts at All. Source decisions still recheck their own
+state when opened. See the [Feed UI contract](../../../hushh-webapp/docs/ui-contracts/feed.md)
+and [visual QA contract](../../../hushh-webapp/docs/ui-contracts/feed-visual-qa.md).
 
 SMS liveness and Clear eligibility follow the server's received-grant status.
 While a live SOS is visible, Location status refreshes on the shared 10-second
 cadence, paused while hidden. Device clock skew cannot end a live emergency.
 
-The actionable and history mechanisms remain distinct:
+The source mechanisms remain distinct while presentation is mixed:
 
-1. **"Needs you" (live + actionable).** A `useFeedActionables`
-   (`hushh-webapp/lib/feed/use-feed-actionables.ts`) hook aggregates the live
-   domain stores/services — not the `feed_events` log — so each action is real
-   and current:
-   - pending consent → **Review** (deep-links to the consent manager; the feed
-     never one-tap-approves because approval requires the BYOK export-key
-     ceremony that lives there),
-   - pending location-access requests → inline **Approve** (1h) / **Deny**
-     (`OneLocationService`),
-   - incoming connection requests → inline **Confirm** / **Decline**
-     (`ConnectionsService`),
-   - running Kai debates → **Resume** (reconnects the stream via
-     `analysis?focus=active&run_id=…`) + **Cancel**, and running background
-     tasks → **Open** / **Cancel** (`DebateRunManagerService`,
-     `AppBackgroundTaskService`).
-   Vault-gated actions disable cleanly when the vault is locked.
-2. **History.** The `feed_events` log, day-grouped
-   (Today / Yesterday / date), each row deep-linking into its origin screen.
+1. `useFeedActionables` reads current authorized domain services for consent,
+   document, Location, connection, KYC and Finance review actions. Review opens
+   the exact request; its source owns approval and stale-state validation.
+2. `feed_events` retains admitted outcomes and immutable dated workflow steps.
+   The server groups before pagination. A matching current actionable uses the
+   same operation key and suppresses a duplicate history representative.
 
-Both zones are built on the canonical `SettingsGroup` + `SettingsRow` list
+Both row kinds are built on the canonical `SettingsGroup` + `SettingsRow` list
 primitives (`FeedRow` for history, `FeedActionableRow` for the actionable
 zone), so the feed shares the app's list vocabulary.
 
-SMS groups are presentation over the existing received-grant resource. A new
-SMS can supersede an earlier grant; each incident keeps its own identity,
-status and original `createdAt` sent date/time, visible on phones. Revocation
-does not replace the sent time. Expiry removes Live treatment while Feed is
-mounted. Missing sent times are identified explicitly rather than fabricated.
-Ended incidents are readable in Feed and do not link to a live map that has
-already ended. The existing recipient-scoped Clear and cross-device persistence
-still apply only to ended incidents; active alerts cannot be cleared.
+Each confirmed active SMS incident uses its own grant and original confirmed
+sent time. No sender-level collapse can conceal an incident. Ended incidents
+retain exact recorded history; recipient Clear and retention update their
+preferences atomically without revoking access or revealing older cleared rows.
 
-The resource is bounded and subject to Location retention. It is not an SMS
-archive and has no disclosure of superseded incidents. Durable source history
-remains independent; names never authorize grouping or source deletion.
 
 ## Person identity and responsive rows
 
@@ -396,13 +441,11 @@ Migration 269 extends the existing indexed counterpart resolver
 to withdrawals, preserving both audiences' current photos and server-only identity
 mappings; it does not place user IDs or photo snapshots in Feed metadata.
 
-Kai analysis/import workers keep the first recognized terminal immutable and
-close generators in the owning task. Failed/canceled outcomes follow source
-cleanup and durable receipt persistence. Successful analysis and statement
-parsing are projected only after a local stream actually consumes the canonical
-terminal frame. Empty/end cursors, detached completion and remote fallback
-replay never announce a ready result. Import copy describes parsing and the
-current import, without claiming saved portfolio information.
+Analysis/import workers keep canonical streaming outcomes immutable and close
+generators in the owning task. Feed suppresses raw parsing, cancellation and
+progress outcomes. A report-ready entry is acknowledged only after encrypted
+save; statement review and saved-source records use their exact existing
+Finance identities. Failed saves never announce a saved result.
 
 The Feed projection cannot mask provider success or cause a repeated write.
 Projection failures are best effort; relationship transactions retain their

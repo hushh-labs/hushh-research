@@ -206,6 +206,27 @@ The existing owner-cloud hosting restriction remains; managed-hosting Google rea
 and private Calendar invitation actions are not enabled by these routes. Existing
 owner agents need the updated image before the new paths can serve their app.
 
+## Feed history and search
+
+Feed adds owner-scoped read adapters; source features retain their existing write
+contracts, persistence, consent and provider behavior.
+
+| Method | Path | Authority / result |
+| --- | --- | --- |
+| POST | `/api/one/feed/search` | Firebase owner; bounded labels and agent/person/date criteria before stable pagination. No read acknowledgement. |
+| GET | `/api/one/feed/{item_id}/activity` | Firebase owner; exact grouped current summary and immutable dated steps. |
+| GET | `/api/one/feed/live` | Firebase recipient; current confirmed SOS incidents, independent of normal history. At most 100 per page; explicit next cursor. |
+| POST | `/api/one/feed/funding-history` | Matching Firebase and vault owner; existing recorded transfer states only. |
+| POST | `/api/one/feed/files/{audience}/search` | `owner` requires existing content-owner admission; `requester` requires vault owner plus participant, current identity, payment and file access. |
+| POST | `/api/one/feed/files/{audience}/file` | Same authority, with exact request/file reference and fresh source reread. |
+
+Authenticated responses are private/no-store. Filename criteria stay in POST
+bodies; encrypted candidates are bounded to 100 per scan and 20 returned matches.
+A continuation can exist with no matching file on the current scan. These readers
+never pay, reconcile, share, import, save reports or alter notification settings.
+The first Feed page includes `live_incidents: {items, next_cursor}`; ordinary
+history cursors and read/clear snapshots do not hide active incidents.
+
 ## Feed counterpart profile presentation
 
 Feed metadata may include `counterpart_person_ref`, resolved at read time from
