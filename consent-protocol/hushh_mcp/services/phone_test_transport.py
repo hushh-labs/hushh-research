@@ -212,7 +212,7 @@ def _phone_test_challenge_key() -> str:
 
 def phone_test_transport_readiness() -> str | None:
     """Advisory configuration availability; never issues or verifies a challenge."""
-    if _runtime_environment() not in {"dev", "uat", "production"} and not _is_dev_environment():
+    if _runtime_environment() not in {"uat", "production"}:
         return None
     return "healthy" if _phone_test_enabled() and _phone_test_challenge_key() else "unavailable"
 
