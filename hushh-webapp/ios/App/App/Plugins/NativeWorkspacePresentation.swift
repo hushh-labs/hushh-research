@@ -1143,6 +1143,10 @@ private struct NativeWorkspaceCollectionRow: View {
     }
 
     @ViewBuilder private var workspaceChrome: some View {
+        if let editor = model.textEditor {
+            NativeWorkspaceTextActions(model: editor.model)
+                .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
+        }
         if model.state.workspace != "memory" && model.state.workspace != "consent" && model.state.workspace != "feed" && model.state.workspace != "connect" && model.state.workspace != "email" && model.state.workspace != "mail" && model.state.workspace != "calendar" && model.state.workspace != "finance" && model.state.workspace != "career" && model.state.workspace != "location" && model.state.workspace != "setup" {
             HStack {
                 if model.state.backEnabled {
@@ -1261,6 +1265,7 @@ struct NativeWorkspaceTabStrip: View {
             }.foregroundStyle(Color(uiColor: .label)).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityElement(children: .ignore)
             .accessibilityLabel("Open \(agent.label)").accessibilityValue("\(agent.metricValue) \(agent.metricLabel)")
+            .accessibilityAddTraits(.isButton)
             .accessibilityHint(agent.description).accessibilityIdentifier("native-launcher-agent-\(agent.id)")
     }
     @ViewBuilder private func icon(_ agent: NativeWorkspaceAgent) -> some View {
@@ -1351,13 +1356,21 @@ enum NativeCircleCodeSelection {
                 }
             Text("\(model.draft.text.utf16.count) / \(model.projection.maximum)").font(.caption).foregroundStyle(model.draft.text.utf16.count > model.projection.maximum ? .red : .secondary)
             if let error = model.projection.error { Text(error).font(.subheadline).foregroundStyle(.red) }
-            Button { model.action("save") } label: {
-                HStack { if model.projection.busy { ProgressView() }; Text(model.projection.submitLabel) }.frame(maxWidth: .infinity).frame(minHeight: 44)
-            }.buttonStyle(.glassProminent).disabled(!model.canSave || model.draft.text.utf16.count > model.projection.maximum).accessibilityIdentifier("native-location-submit")
+        }
+    }
+}
+@available(iOS 26.0, *) private struct NativeWorkspaceTextActions: View {
+    @ObservedObject var model: NativeProfileEditorModel<NativeWorkspaceTextProjection>
+    var body: some View {
+        HStack {
             Button { model.action("cancel") } label: {
-                Text(model.projection.cancelLabel).frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-            }.buttonStyle(.plain).foregroundStyle(Color(uiColor: model.accent))
-                .disabled(!model.canCancel).accessibilityIdentifier("native-location-cancel")
+                Text(model.projection.cancelLabel).frame(minHeight: 44)
+            }.buttonStyle(.glass).disabled(!model.canCancel)
+                .accessibilityIdentifier("native-location-cancel")
+            Spacer()
+            Button { model.action("save") } label: {
+                HStack { if model.projection.busy { ProgressView() }; Text(model.projection.submitLabel) }.frame(minHeight: 44)
+            }.buttonStyle(.glassProminent).disabled(!model.canSave || model.draft.text.utf16.count > model.projection.maximum).accessibilityIdentifier("native-location-submit")
         }
     }
 }
