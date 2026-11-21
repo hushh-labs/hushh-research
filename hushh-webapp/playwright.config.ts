@@ -137,8 +137,6 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
-        // Feed search's isolated product fixture covers scope/result/Back on iPhone.
-        /feed-search\.layout\.spec\.ts/,
         /lost-vault-delete\.layout\.spec\.ts/,
         // Puppy shares One composer geometry and touch machine controls.
         /puppy-chat-controls\.layout\.spec\.ts/,
