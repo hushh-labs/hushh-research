@@ -165,6 +165,10 @@ export function isProductionVoiceBarSuppressedRoute(input: {
     path === ROUTES.DELETE_ACCOUNT ||
     path === ROUTES.ONE_WELCOME ||
     path === HUSHH_TECH_LAUNCH_PATH ||
+    path === ROUTES.ONE_SETUP ||
+    path.startsWith(`${ROUTES.ONE_SETUP}/`) ||
+    shellPath === ROUTES.ONE_SETUP ||
+    shellPath.startsWith(`${ROUTES.ONE_SETUP}/`) ||
     isOneSetupSurfaceRoute(path) ||
     isOneSetupSurfaceRoute(shellPath) ||
     isRiaOnboardingRoute(path) ||

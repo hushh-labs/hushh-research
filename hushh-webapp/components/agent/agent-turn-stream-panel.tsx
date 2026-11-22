@@ -392,7 +392,7 @@ export function onePerPersonSharedCard<T extends { id: string; experience: Agent
 }
 
 export function AgentTurnStreamPanel({
-  streamEvents,
+  streamEvents = [],
   responseText,
   isStreaming,
   isError = false,
