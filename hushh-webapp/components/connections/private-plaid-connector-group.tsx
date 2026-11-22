@@ -439,17 +439,12 @@ export function PrivatePlaidConnectorGroup({
             leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
             title="Live scope projection"
             description={
-              <>
-                {projectionSummary.totalsLine ? (
-                  <span>{projectionSummary.totalsLine}</span>
-                ) : null}
-                {projectionSummary.projectedScopesLine ? (
-                  <span className="block pt-0.5">{projectionSummary.projectedScopesLine}</span>
-                ) : null}
-                <span className="block pt-0.5">
-                  Active ongoing shares update automatically on sync.
-                </span>
-              </>
+              [
+                projectionSummary.totalsLine,
+                "Active shares update on sync",
+              ]
+                .filter(Boolean)
+                .join(" · ")
             }
           />
         ) : null}
@@ -473,6 +468,7 @@ export function PrivatePlaidConnectorGroup({
                 type="button"
                 variant="outline"
                 size="compact"
+                data-connector-action="secondary"
                 disabled={!access || busy}
                 onClick={() => requestDisconnect(bank.key)}
               >
