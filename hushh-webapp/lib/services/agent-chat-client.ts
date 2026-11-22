@@ -780,20 +780,55 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Opening a threaded reply draft.",
     activity: "Drafting a reply",
   },
+  open_gmail_forward_draft: {
+    label: "Gmail",
+    message: "Opening a forwarded email draft.",
+    activity: "Drafting a forward",
+  },
   gmail_search_mail: {
     label: "Gmail",
     message: "Searching your Gmail.",
     activity: "Searching your Gmail",
+  },
+  gmail_scan_receipts: {
+    label: "Gmail",
+    message: "Scanning your Gmail receipts and invoices.",
+    activity: "Scanning receipts and invoices",
   },
   gmail_read_thread: {
     label: "Gmail",
     message: "Reading the email conversation.",
     activity: "Reading an email thread",
   },
+  gmail_read_attachment: {
+    label: "Gmail",
+    message: "Reading the email attachment.",
+    activity: "Reading an email attachment",
+  },
   gmail_list_needs_reply: {
     label: "Gmail",
     message: "Checking emails waiting on your reply.",
     activity: "Checking replies needed",
+  },
+  gmail_mailbox_insights: {
+    label: "Gmail",
+    message: "Checking your Gmail status and insights.",
+    activity: "Checking Gmail insights",
+  },
+  gmail_manage_labels: {
+    label: "Gmail",
+    message: "Updating your Gmail labels.",
+    activity: "Managing Gmail labels",
+  },
+  gmail_manage_drafts: {
+    label: "Gmail",
+    message: "Managing your Gmail drafts.",
+    activity: "Managing Gmail drafts",
+  },
+  gmail_manage_settings: {
+    label: "Gmail",
+    message: "Managing your Gmail settings.",
+    activity: "Managing Gmail settings",
   },
   propose_gmail_mailbox_change: {
     label: "Gmail",
@@ -956,8 +991,11 @@ export type RestoredActivityStep = {
 
 const DIRECT_MAIL_READ_TOOLS = new Set([
   "gmail_search_mail",
+  "gmail_scan_receipts",
   "gmail_read_thread",
+  "gmail_read_attachment",
   "gmail_list_needs_reply",
+  "gmail_mailbox_insights",
 ]);
 
 /** A specialist read's Activity sentence: chosen by its receipt status, never by the card it renders. */
@@ -965,8 +1003,11 @@ function specialistReadMessage(toolName: string, status: unknown, metadataOnly =
   const source = toolName === "ask_email_agent" || DIRECT_MAIL_READ_TOOLS.has(toolName) ? "Mail" : "Drive";
   if (status === "ok") {
     if (toolName === "gmail_search_mail") return "Mail search finished.";
+    if (toolName === "gmail_scan_receipts") return "Scanned Mail receipts and invoices.";
     if (toolName === "gmail_read_thread") return "Mail thread read.";
+    if (toolName === "gmail_read_attachment") return "Mail attachment read.";
     if (toolName === "gmail_list_needs_reply") return "Checked emails needing a reply.";
+    if (toolName === "gmail_mailbox_insights") return "Checked Gmail status and insights.";
     return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
   }
   if (status === "no_match" && source === "Mail") return "No matching emails found.";
