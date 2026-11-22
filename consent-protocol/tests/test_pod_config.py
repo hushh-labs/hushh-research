@@ -25,6 +25,7 @@ from hushh_mcp.services.pod_config import (  # noqa: E402
     PodConfig,
     PodConfigError,
     apply_changes,
+    background_connector_enabled,
     config_from_records,
     record_pod_config,
     resolve_pod_config,
@@ -56,6 +57,31 @@ def test_every_default_is_the_full_experience() -> None:
     assert config.memory_review_max_records == 12
     assert config.memory_review_budget_seconds == 45.0
     assert config.memory_digest_max_chars == 1200
+    assert config.session_only_lockdown is False
+    assert config.background_prep_enabled is True
+    assert config.background_prep_gmail is True
+    assert config.background_prep_calendar is True
+    assert config.background_prep_drive is True
+    assert config.background_prep_contacts is True
+    assert config.background_prep_mcp is True
+    assert config.background_daily_wake_cap == 24
+    for connector in ("gmail", "calendar", "drive", "contacts", "mcp", "custom_abcd1234"):
+        assert background_connector_enabled(config, connector) is True
+
+
+def test_session_only_lockdown_and_per_connector_toggles_gate_background_prep() -> None:
+    locked = apply_changes(PodConfig(), {"session_only_lockdown": True})
+    assert background_connector_enabled(locked, "gmail") is False
+    assert background_connector_enabled(locked, "calendar") is False
+
+    mail_paused = apply_changes(PodConfig(), {"background_prep_gmail": False})
+    assert background_connector_enabled(mail_paused, "gmail") is False
+    assert background_connector_enabled(mail_paused, "calendar") is True
+
+    with pytest.raises(PodConfigError):
+        apply_changes(PodConfig(), {"background_daily_wake_cap": 0})
+    with pytest.raises(PodConfigError):
+        apply_changes(PodConfig(), {"background_daily_wake_cap": 97})
 
 
 def test_no_record_means_defaults(tmp_path: Path) -> None:

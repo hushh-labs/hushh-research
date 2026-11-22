@@ -173,7 +173,8 @@ export type ConnectorDetailAction = { label: string; disabled: boolean; run: () 
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
   | { kind: "private-google" | "private-stripe"; status: string; purpose: string; message: string; notes: readonly string[];
-      busy: boolean; actions: readonly ConnectorDetailAction[] }
+      busy: boolean; actions: readonly ConnectorDetailAction[];
+      background?: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void } | null }
   | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
   | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
       actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;

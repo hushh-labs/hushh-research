@@ -292,7 +292,11 @@ class VirginStandbyRuntime:
                         ("hub_url", ("HUSSH_HUB_URL", "HUSSH_HUB_BASE_URL")),
                         (
                             "scheduler_caller_emails",
-                            ("HUSHH_SCHEDULER_CALLER_EMAILS", "HUSSH_POD_HUB_CALLER_EMAILS"),
+                            (
+                                "HUSHH_SCHEDULER_CALLER_EMAILS",
+                                "HUSSH_POD_HUB_CALLER_EMAILS",
+                                "HUSSH_POD_TICK_ALLOWED_EMAILS",
+                            ),
                         ),
                         ("consent_ed25519_public_keys", ("CONSENT_ED25519_PUBLIC_KEYS",)),
                         ("hub_public_key", ("CONSENT_ED25519_PUBLIC_KEYS",)),

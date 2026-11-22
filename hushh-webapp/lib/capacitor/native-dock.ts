@@ -7,7 +7,7 @@ import type { NativeControlAppearance } from "./native-control-appearance";
 
 /** Private, memory-only input adapter. Never put these payloads in chrome
  * metadata, diagnostics, storage or retained Capacitor listener events. */
-export type DockAction = "send" | "mic" | "cancel" | "voice-tap" | "capture-start" | "capture-finish" | "capture-cancel" | "mute" | "attachment-edit" | "attachment-remove" | "collapse";
+export type DockAction = "send" | "send-now" | "mic" | "cancel" | "voice-tap" | "capture-start" | "capture-finish" | "capture-cancel" | "mute" | "attachment-edit" | "attachment-remove" | "collapse";
 export type DockAttachment = { id: string; label: string; editable?: boolean };
 export type DockProjection = {
   context: string;
@@ -19,6 +19,7 @@ export type DockProjection = {
   expanded: boolean;
   editable: boolean;
   sendEnabled: boolean;
+  sendNowEnabled?: boolean;
   micEnabled: boolean;
   cancelEnabled: boolean;
   recording: boolean;
@@ -71,9 +72,9 @@ export interface HushhNativeDockPlugin {
   apply(options: DockState): Promise<DockAcknowledgement>;
   retire(options: DockIdentity & { preserveDraft?: boolean }): Promise<DockAcknowledgement>;
   suspend(options: DockIdentity): Promise<DockAcknowledgement>;
-  consumeDraft(options: Pick<DockEvent, keyof DockIdentity | "sequence" | "editRevision" | "privacyGeneration" | "context">): Promise<{ consumed: boolean; editRevision: number }>;
+  consumeDraft(options: Pick<DockEvent, keyof DockIdentity | "sequence" | "editRevision" | "privacyGeneration" | "context" | "action">): Promise<{ consumed: boolean; editRevision: number }>;
   beginEditingTransition(options: Pick<DockEvent, keyof DockIdentity | "sequence" | "editRevision" | "editorRevision" | "privacyGeneration" | "context">): Promise<{ accepted: boolean }>;
-  confirmEvent(options: Pick<DockEvent, keyof DockIdentity | "sequence" | "updateSequence" | "privacyGeneration" | "context" | "kind" | "editRevision" | "editorRevision">): Promise<{ valid: boolean }>;
+  confirmEvent(options: Pick<DockEvent, keyof DockIdentity | "sequence" | "updateSequence" | "privacyGeneration" | "context" | "kind" | "action" | "editRevision" | "editorRevision">): Promise<{ valid: boolean }>;
   addListener(eventName: "input", listener: (event: DockEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "layout", listener: (event: DockLayout) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
@@ -126,7 +127,7 @@ export function sameDock(identity: DockIdentity, other: DockIdentity): boolean {
   return identity.documentId === other.documentId && identity.ownerEpoch === other.ownerEpoch && identity.revision === other.revision;
 }
 
-const actions: readonly DockAction[] = ["send", "mic", "cancel", "voice-tap", "capture-start", "capture-finish", "capture-cancel", "mute", "attachment-edit", "attachment-remove", "collapse"];
+const actions: readonly DockAction[] = ["send", "send-now", "mic", "cancel", "voice-tap", "capture-start", "capture-finish", "capture-cancel", "mute", "attachment-edit", "attachment-remove", "collapse"];
 /** Reject malformed bridge input before it reaches a feature owner. */
 export function validDockEvent(event: DockEvent): boolean {
   if (!event || typeof event.text !== "string" || event.text.length > 1_000_000 ||

@@ -44,6 +44,7 @@ import {
 } from "@/lib/services/hosted-pod-migration";
 import { cn } from "@/lib/utils";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { PodSessionLockdownControl } from "./pod-session-lockdown-row";
 
 export const SANDBOX_CUTOVER_PILL_STORAGE_KEY = "hussh:sandbox-cutover-pill";
 
@@ -365,6 +366,8 @@ export function HusshPodsActiveCard({
                 ? "Your isolated Personal Sandbox runs across Google Cloud and Microsoft Azure with built-in AI."
                 : "Your dedicated private agent is active on Hussh Pods."}
         </p>
+
+        <PodSessionLockdownControl />
 
         {activeGraceItem ? (
           <div
