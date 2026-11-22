@@ -20,6 +20,7 @@ flowchart TD
   calendarGraph["One Calendar Knowledge Graph"]
   drive["Drive Connection And Sharing"]
   wallet["Wallet (formerly Cards)"]
+  walletProfile["Wallet Profile Card"]
 
   root --> voice
   voice --> goal
@@ -34,6 +35,7 @@ flowchart TD
   root --> calendarGraph
   root --> drive
   root --> wallet
+  wallet --> walletProfile
 ```
 
 One is the private agent and relationship layer. Current-state One reference
@@ -49,9 +51,9 @@ Current repo truth:
 - KYC owns bounded identity and verification workflows.
 
 Do not put broad One product claims under the Kai reference home. Use this index
-for One-owned current-state contracts, use [../kai/README.md](../finance/README.md)
-for finance-specialist runtime references, and keep future-only One plans under
-[../../future/README.md](../../roadmap/README.md).
+for One-owned current-state contracts, use [Finance Architecture](../finance/README.md)
+for finance-specialist runtime references, and keep unshipped One proposals under
+[Roadmap](../../roadmap/README.md).
 
 ## References
 
@@ -64,17 +66,18 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [one-goal-framework.md](./one-goal-framework.md): existing goal planning and running for Agent Chat, typed search and UI actions; command routing uses the Location lifecycle.
 - [card-network-brand-inventory.md](./card-network-brand-inventory.md): where every card network mark comes from, the two rendering tiers, and the rules for adding official artwork.
 - [wallet.md](./wallet.md): the Wallet (formerly Cards): reserved `wallet` PKM domain, `agent_wallet`, `/one/wallet`, chat widgets, scopes, flags, and the complete Cards-to-Wallet naming map (the Wallet Profile identity pass is a different feature).
+- [wallet-profile-card.md](./wallet-profile-card.md): canonical Wallet Profile (`/c/[token]`) and Apple Wallet PassKit (`pass.com.hushh.app.one`) contract, closed payload allowlist, status rules, and certificate provisioning recovery.
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
 - [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): managed Gemini command access and the existing request-scoped BYOK boundary for typed turns.
 - [one-voice-action-coverage-audit.md](./one-voice-action-coverage-audit.md): current audit of what One Voice can trigger and where screen/button/action coverage is incomplete.
 - [one-voice-kai-compatibility-runtime.md](./one-voice-kai-compatibility-runtime.md): stable Kai-era action identifiers, shared text contracts and explicit Live retirement boundaries.
 - [one-voice-popup-design.md](./one-voice-popup-design.md): the design standard every One Voice pop-up variant holds to: when a card may be raised at all, touch-target and layout rules, Cancel's fixed position, destructive colour treatment, and how to add a variant without inventing a second surface.
-- [../../vision/agent-ontology.md](../../product/principles/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
+- [Agent Ontology](../../product/principles/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
-- [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
+- [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell: the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
 - [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.
 - [one-email-knowledge-graph.md](./one-email-knowledge-graph.md): evidence-backed current Email paths, authority boundaries and failure states, including the read-only receipt cutover.
-- [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice gap, and failure states.
+- [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice read-only tool, FreeBusy invariants, and invitations contract.
 - [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
 - [protected-document-delivery.md](./protected-document-delivery.md): additive consented One PDF copies, device encryption, exact paid terms, preview/download, activity, scoped revoke, recovery and environment-wide rollout boundaries.
 - [drive-four-group-index.md](./drive-four-group-index.md): the dark four-group Drive organizing aid (three signals fused into one precision-first shelf), its held-out synthetic evidence and limits, and the storage and page plan for slice 3.
