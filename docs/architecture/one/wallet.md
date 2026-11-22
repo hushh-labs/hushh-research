@@ -259,7 +259,7 @@ successful share creates a Messages reference and a Feed notice reading
 “[Sender name] shared their card with you.” Explicit Trusted Circle recipients
 can open it directly; other connections must complete fresh identity verification.
 Owners can revoke access under Shared with. See the
-[temporary sharing API contract](../../development/contracts/api-contracts.md#wallet-profile-lifecycle)
+[temporary sharing API contract](../../development/contracts/api-route-catalog.md#wallet-profile-lifecycle)
 for rollout requirements and browser/native limits.
 
 New shares seal the number, cardholder name, network, expiry and region for each
