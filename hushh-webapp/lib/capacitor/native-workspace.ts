@@ -39,6 +39,10 @@ export function nativeWorkspaceFrameFromAnchors(anchors: NativeWorkspaceFrameAnc
     viewportHeight: viewport.height, layoutRevision, contentInset: shellInsets.left,
     ...(bottomContentInset > 0 ? { bottomContentInset } : {}) };
 }
+export type NativeCalendarWeek = {
+  contextId: string; afterSectionId: string; title: string; state: "ready" | "loading" | "unavailable";
+  days: readonly { date: string; label: string; minutes: number; meetings: number }[];
+};
 export type NativeWorkspaceProjection = NativeWorkspaceIdentity & NativeControlAppearance & {
   /** Wallet canvas sampled from the committed app CSS `--background` token. */
   canvasHex?: string;
@@ -51,6 +55,7 @@ export type NativeWorkspaceProjection = NativeWorkspaceIdentity & NativeControlA
   secondaryTabs?: { label: string; options: readonly NativeDrawerOption[] };
   search?: { id: string; query: string; label: string; live?: boolean; afterSection?: number };
   calendarDate?: { id: string; label: string; value: string; timeZone: string; enabled: boolean };
+  calendarWeek?: NativeCalendarWeek;
   launcher?: { view: "grid" | "list"; agents: readonly NativeWorkspaceAgent[] };
   circleEditor?: NativeWorkspaceCircleEditor;
   taskEditor?: Omit<NativeWorkspaceCircleEditor, "draft"> & { draft: NativeWorkspaceTaskDraft };
@@ -107,7 +112,7 @@ function validCalendarTimeZone(value: string): boolean {
 }
 export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean {
   if (!value || !closed(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "appearance", "accentHex", "foregroundHex", "canvasHex",
-    "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate"]) ||
+    "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate", "calendarWeek"]) ||
     !id(value.documentId) || !id(value.ownerEpoch) || !seq(value.ownerGeneration) || !seq(value.revision) || !["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup"].includes(value.workspace) ||
     !seq(value.updateSequence) || !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 || !Number.isSafeInteger(value.isolationGeneration) || value.isolationGeneration < 0 ||
     !["light", "dark"].includes(value.appearance) || ![value.accentHex, value.foregroundHex].every(v => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(v)) ||
@@ -146,18 +151,31 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
   };
   for (const section of value.sections) {
     if (!section || !closed(section, ["id", "title", "rows", "layout"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
-    if (section.layout !== undefined && (value.workspace !== "location" || !["cards", "tiles"].includes(section.layout) || section.layout === "tiles" && section.rows.length > 3)) return false;
+    if (section.layout !== undefined && (!(["location", "calendar"].includes(value.workspace)) ||
+        !["cards", "tiles", ...(value.workspace === "calendar" ? ["metrics", "toolbar"] : [])].includes(section.layout) ||
+        section.layout === "tiles" && section.rows.length > 3 || section.layout === "metrics" &&
+        (section.rows.length !== 3 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || row.options || row.inlineActions || row.avatar || !row.detail)) ||
+        section.layout === "toolbar" && (section.rows.length !== 1 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || !row.inlineActions?.length || row.options || row.avatar || row.formattedText || row.calendarEvent || row.detail || row.trailing || row.symbol || row.artworkId)))) return false;
     for (const row of section.rows) {
-      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) ||
+      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||
         row.symbol !== undefined && !id(row.symbol) || row.artworkId !== undefined && !id(row.artworkId) || row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex) ||
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
       if (row.sosActivation !== undefined && (value.workspace !== "location" || !["hold", "countdown"].includes(row.sosActivation) || row.readOnly || row.options || row.toggle || row.inlineActions || row.menuOnTap)) return false;
-      if (row.menuOnTap !== undefined && (value.workspace !== "location" || typeof row.menuOnTap !== "boolean" || !row.inlineActions?.some((action: NativeWorkspaceInlineAction) => action.placement === "menu"))) return false;
+      if (row.menuOnTap !== undefined && (!["location", "calendar"].includes(value.workspace) || typeof row.menuOnTap !== "boolean" || !row.inlineActions?.some((action: NativeWorkspaceInlineAction) => action.placement === "menu"))) return false;
+      if (row.choiceStyle !== undefined && (value.workspace !== "calendar" || row.choiceStyle !== "segmented" || !row.options || row.options.length > 4 || row.toggle)) return false;
+      if (row.calendarEvent !== undefined) {
+        const event = row.calendarEvent;
+        if (value.workspace !== "calendar" || !event || !closed(event, ["day", "month", "weekday", "dateLabel", "organizer", "muted"]) || typeof event.muted !== "boolean" ||
+            (event.day === undefined) !== (event.month === undefined) || event.day !== undefined && !text(event.day, 16) ||
+            event.month !== undefined && !text(event.month, 32) || event.weekday !== undefined && !text(event.weekday, 16) ||
+            event.dateLabel !== undefined && !text(event.dateLabel, 128) || event.organizer !== undefined && !text(event.organizer, 256) || row.options || row.toggle || row.formattedText) return false;
+      }
       if (row.prominent !== undefined && (value.workspace !== "location" || typeof row.prominent !== "boolean" || row.readOnly || row.options || row.toggle || row.inlineActions || row.avatar || row.formattedText)) return false;
       if (row.toggle !== undefined && typeof row.toggle !== "boolean") return false;
       if (row.avatar !== undefined || row.inlineActions !== undefined || row.milestone !== undefined || row.expanded !== undefined) {
-        if (!["feed", "connect", "location"].includes(value.workspace) || row.formattedText || row.options || row.toggle) return false;
+        if (!["feed", "connect", "location", "calendar"].includes(value.workspace) || row.formattedText || row.toggle ||
+            row.options && (value.workspace !== "calendar" || !row.avatar || row.inlineActions || row.choiceStyle)) return false;
       }
       if (row.avatar !== undefined && !admitAvatar(row.avatar)) return false;
       if (row.locationShare !== undefined) {
@@ -181,7 +199,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
               typeof action.enabled !== "boolean" || action.pending !== undefined && typeof action.pending !== "boolean" ||
               !["primary", "ghost", "danger", "success"].includes(action.tone) || action.symbol !== undefined && !id(action.symbol)) return false;
           if (action.avatar !== undefined && (value.workspace !== "connect" || !admitAvatar(action.avatar))) return false;
-          if (action.placement !== undefined && (!["connect", "location"].includes(value.workspace) || action.placement !== "menu")) return false;
+          if (action.placement !== undefined && (!["connect", "location", "calendar"].includes(value.workspace) || action.placement !== "menu")) return false;
         }
         if (row.inlineActions.filter((action: NativeWorkspaceInlineAction) => action.avatar !== undefined).length > 1) return false;
       }
@@ -224,6 +242,19 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     if (value.workspace !== "calendar" || value.page !== "overview" || !d || !closed(d, ["id", "label", "value", "timeZone", "enabled"]) ||
       !insert(d.id) || !text(d.label, 64) || !text(d.timeZone, 128) || typeof d.enabled !== "boolean" ||
       !validCalendarDate(d.value) || !validCalendarTimeZone(d.timeZone)) return false;
+  }
+  if (value.calendarWeek !== undefined) {
+    const week = value.calendarWeek;
+    if (value.workspace !== "calendar" || value.page !== "overview" || !week || !closed(week, ["contextId", "afterSectionId", "title", "state", "days"]) || !id(week.contextId) ||
+        !value.sections.some(section => section.id === week.afterSectionId) || !text(week.title, 128) ||
+        !["ready", "loading", "unavailable"].includes(week.state) || !Array.isArray(week.days) || week.days.length !== (week.state === "ready" ? 7 : 0)) return false;
+    const dates = new Set<string>();
+    for (const day of week.days) {
+      if (!day || !closed(day, ["date", "label", "minutes", "meetings"]) || !validCalendarDate(day.date) ||
+          dates.has(day.date) || !text(day.label, 32) || !Number.isFinite(day.minutes) || day.minutes < 0 || day.minutes > 1e9 ||
+          !Number.isSafeInteger(day.meetings) || day.meetings < 0 || day.meetings > 1e6) return false;
+      dates.add(day.date);
+    }
   }
   if (value.launcher !== undefined) {
     const l = value.launcher;

@@ -46,6 +46,8 @@ export type NativeDrawerRow = {
   progress?: { value: number; total: number };
   /** Authored finite choices. IDs bind to existing React writers, never values or URLs. */
   options?: readonly NativeDrawerOption[];
+  choiceStyle?: "segmented";
+  calendarEvent?: { day?: string; month?: string; weekday?: string; dateLabel?: string; organizer?: string; muted: boolean };
   toggle?: boolean;
   enabled: boolean;
   destructive?: boolean;
@@ -60,7 +62,7 @@ export type NativeDrawerRow = {
   renameActionId?: string;
   deleteActionId?: string;
 };
-export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[]; layout?: "cards" | "tiles" };
+export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[]; layout?: "cards" | "tiles" | "metrics" | "toolbar" };
 /** Bounded native destinations, not URLs or another routing authority. */
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record" | "memory-shared" | "memory-shared-person" | "memory-received" | "memory-received-files" | "memory-secrets" | "memory-secret" | "memory-secret-remove" | "memory-identity";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";

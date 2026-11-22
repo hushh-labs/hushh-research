@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Charts
 
 struct NativeWorkspaceOwner: Hashable { let documentId: String; let ownerEpoch: String; let generation: Int }
 struct NativeWorkspaceRetirementFence {
@@ -195,6 +196,26 @@ struct NativeWorkspaceCalendarDate: Codable {
     }
     func accepts(_ value: String) -> Bool { formatter.date(from: value).map { formatter.string(from: $0) == value } == true }
 }
+struct NativeCalendarWeek: Codable, Equatable {
+    struct Day: Codable, Equatable {
+        let date: String; let label: String; let minutes: Double; let meetings: Int
+        var valid: Bool {
+            NativeWorkspaceCalendarDate(id: "day", label: "Day", value: date, timeZone: "UTC", enabled: false).valid &&
+                NativeDrawerProjection.text(label, 32) && minutes.isFinite && (0...1e9).contains(minutes) && (0...1_000_000).contains(meetings)
+        }
+    }
+    let contextId: String; let afterSectionId: String; let title: String; let state: String; let days: [Day]
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any], Set(value.keys) == ["contextId", "afterSectionId", "title", "state", "days"],
+              let days = value["days"] as? [[String: Any]] else { return false }
+        return days.allSatisfy { Set($0.keys) == ["date", "label", "minutes", "meetings"] }
+    }
+    func valid(sections: [NativeDrawerSection]) -> Bool {
+        NativeDrawerIdentity.identifier(contextId) && sections.contains(where: { $0.id == afterSectionId }) &&
+            NativeDrawerProjection.text(title, 128) && ["ready", "loading", "unavailable"].contains(state) &&
+            days.count == (state == "ready" ? 7 : 0) && Set(days.map(\.date)).count == days.count && days.allSatisfy(\.valid)
+    }
+}
 struct NativeWorkspaceAgent: Codable {
     let id: String; let label: String; let description: String; let metricValue: String; let metricLabel: String; let artworkId: String; let iconHex: String
     var valid: Bool {
@@ -217,22 +238,24 @@ struct NativeWorkspaceProjection: Decodable {
     var wallet: NativeWalletCollection?
     var launcher: NativeWorkspaceLauncher?
     var calendarDate: NativeWorkspaceCalendarDate?
+    var calendarWeek: NativeCalendarWeek?
     var taskEditor: NativeWorkspaceTaskEditor?
     var textEditor: NativeWorkspaceTextEditor?
     var memoryEditor: NativeWorkspaceMemoryEditor?
     var search: NativeWorkspaceSearch?; var circleEditor: NativeWorkspaceCircleEditor?
     var identity: NativeWorkspaceIdentity { .init(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, workspace: workspace) }
     var isLocationRoot: Bool { workspace == "location" && tabs != nil && (navigation?.depth ?? 0) < 3 }
-    static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "canvasHex", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate"]
+    static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "canvasHex", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate", "calendarWeek"]
     static func closed(_ value: [String: Any]) -> Bool {
         guard Set(value.keys).isSubset(of: keys), let frame = value["frame"] as? [String: Any], Set(frame.keys).isSubset(of: ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset", "bottomContentInset"]),
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows", "layout"]), !(section["layout"] is NSNull), let rows = section["rows"] as? [[String: Any]] else { return false }
-            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options"]) { return false }
+            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent"]) { return false }
             for row in rows {
                 if let raw = row["formattedText"], !NativeMemoryText.closed(raw) { return false }
                 if let raw = row["locationShare"], !NativeWorkspaceLocationShare.closed(raw) { return false }
+                if let raw = row["calendarEvent"], !NativeCalendarEvent.closed(raw) { return false }
                 if let raw = row["avatar"] {
                     guard NativeWorkspaceAvatar.closed(raw) else { return false }
                 }
@@ -242,7 +265,7 @@ struct NativeWorkspaceProjection: Decodable {
                             !action.values.contains(where: { $0 is NSNull }) && (action["avatar"] == nil || NativeWorkspaceAvatar.closed(action["avatar"]!))
                     }) else { return false }
                 }
-                if row["milestone"] is NSNull || row["expanded"] is NSNull || row["prominent"] is NSNull || row["menuOnTap"] is NSNull || row["sosActivation"] is NSNull { return false }
+                if row["milestone"] is NSNull || row["expanded"] is NSNull || row["prominent"] is NSNull || row["menuOnTap"] is NSNull || row["sosActivation"] is NSNull || row["choiceStyle"] is NSNull { return false }
                 if let raw = row["options"] {
                     guard let options = raw as? [[String: Any]], options.allSatisfy({ Set($0.keys) == ["id", "label", "selected"] }) else { return false }
                 }
@@ -252,6 +275,7 @@ struct NativeWorkspaceProjection: Decodable {
         if let raw = value["calendarDate"] {
             guard let date = raw as? [String: Any], Set(date.keys) == ["id", "label", "value", "timeZone", "enabled"] else { return false }
         }
+        if let raw = value["calendarWeek"], !NativeCalendarWeek.closed(raw) { return false }
         if let raw = value["launcher"] {
             guard let launcher = raw as? [String: Any], Set(launcher.keys) == ["view", "agents"], let agents = launcher["agents"] as? [[String: Any]],
                   agents.allSatisfy({ Set($0.keys) == ["id", "label", "description", "metricValue", "metricLabel", "artworkId", "iconHex"] }) else { return false }
@@ -293,7 +317,11 @@ struct NativeWorkspaceProjection: Decodable {
         if let wallet { ids.formUnion(wallet.cards.map(\.id) + [wallet.addId, wallet.closeId] + (wallet.accessId.map { [$0] } ?? [])) }
         for section in sections {
             guard NativeDrawerIdentity.identifier(section.id), ids.insert(section.id).inserted, section.title == nil || NativeDrawerProjection.text(section.title!, 256) else { return false }
-            guard section.layout == nil || (workspace == "location" && ["cards", "tiles"].contains(section.layout!) && (section.layout != "tiles" || section.rows.count <= 3)) else { return false }
+            guard section.layout == nil || (["location", "calendar"].contains(workspace) &&
+                (["cards", "tiles"] + (workspace == "calendar" ? ["metrics", "toolbar"] : [])).contains(section.layout!) &&
+                (section.layout != "tiles" || section.rows.count <= 3) &&
+                (section.layout != "metrics" || section.rows.count == 3 && section.rows.allSatisfy { $0.readOnly == true && $0.options == nil && $0.inlineActions == nil && $0.avatar == nil && $0.detail != nil }) &&
+                (section.layout != "toolbar" || section.rows.count == 1 && section.rows.allSatisfy { $0.readOnly == true && $0.inlineActions?.isEmpty == false && $0.options == nil && $0.avatar == nil && $0.formattedText == nil && $0.calendarEvent == nil && $0.detail == nil && $0.trailing == nil && $0.symbol == nil && $0.artworkId == nil })) else { return false }
             for row in section.rows {
                 count += 1
                 guard count <= 200, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted, NativeDrawerProjection.text(row.label, 4096),
@@ -301,10 +329,13 @@ struct NativeWorkspaceProjection: Decodable {
                       row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!), row.artworkId == nil || NativeDrawerIdentity.identifier(row.artworkId!),
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil else { return false }
                 if let activation = row.sosActivation { guard workspace == "location", ["hold", "countdown"].contains(activation), row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.menuOnTap == nil else { return false } }
-                if row.menuOnTap != nil { guard workspace == "location", row.inlineActions?.contains(where: { $0.placement == "menu" }) == true else { return false } }
+                if row.menuOnTap != nil { guard ["location", "calendar"].contains(workspace), row.inlineActions?.contains(where: { $0.placement == "menu" }) == true else { return false } }
+                if let style = row.choiceStyle { guard workspace == "calendar", style == "segmented", let options = row.options, options.count <= 4, row.toggle != true else { return false } }
+                if let event = row.calendarEvent { guard workspace == "calendar", event.valid, row.options == nil, row.toggle != true, row.formattedText == nil else { return false } }
                 if row.prominent != nil { guard workspace == "location", row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.avatar == nil, row.formattedText == nil else { return false } }
                 if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil {
-                    guard ["feed", "connect", "location"].contains(workspace), row.formattedText == nil, row.options == nil, row.toggle != true else { return false }
+                    guard ["feed", "connect", "location", "calendar"].contains(workspace), row.formattedText == nil, row.toggle != true,
+                        row.options == nil || workspace == "calendar" && row.avatar != nil && row.inlineActions == nil && row.choiceStyle == nil else { return false }
                 }
                 if let avatar = row.avatar {
                     avatars += 1; avatarBytes += avatar.jpeg?.utf16.count ?? 0
@@ -320,7 +351,7 @@ struct NativeWorkspaceProjection: Decodable {
                     guard (1...6).contains(actions.count), actions.filter({ $0.avatar != nil }).count <= 1 else { return false }
                     for action in actions {
                         guard action.valid, ids.insert(action.id).inserted else { return false }
-                        if action.placement != nil { guard ["connect", "location"].contains(workspace) else { return false } }
+                        if action.placement != nil { guard ["connect", "location", "calendar"].contains(workspace) else { return false } }
                         if let avatar = action.avatar {
                             avatars += 1; avatarBytes += avatar.jpeg?.utf16.count ?? 0
                             guard workspace == "connect", avatar.active == nil, avatars <= 48, avatarBytes <= 1_920_000 else { return false }
@@ -345,6 +376,7 @@ struct NativeWorkspaceProjection: Decodable {
         if let calendarDate {
             guard workspace == "calendar", page == "overview", calendarDate.valid, ids.insert(calendarDate.id).inserted else { return false }
         }
+        if let calendarWeek { guard workspace == "calendar", page == "overview", calendarWeek.valid(sections: sections) else { return false } }
         if let launcher {
             guard workspace == "launcher", page == "overview", ["grid", "list"].contains(launcher.view), launcher.agents.count <= 32 else { return false }
             for agent in launcher.agents { guard agent.valid, ids.insert(agent.id).inserted else { return false } }
@@ -506,12 +538,22 @@ private struct NativeWorkspaceRichRow: View {
     let row: NativeDrawerRow
     let enabled: Bool
     let accentHex: String
+    let workspace: String
+    var toolbar: Bool = false
     let choose: (String) -> Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var accent: Color { Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label) }
+    private var compactMenu: Bool { workspace == "calendar" && row.menuOnTap != true && row.inlineActions?.allSatisfy({ $0.placement == "menu" }) == true }
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
-            if row.artworkId == "location-share-pulse" {
+            if let event = row.calendarEvent, let day = event.day, let month = event.month {
+                VStack(spacing: 3) {
+                    Text(month.uppercased()).font(.caption.weight(.medium)).foregroundStyle(accent)
+                    Text(day).font(.title2.weight(.semibold)).monospacedDigit()
+                    if let weekday = event.weekday { Text(weekday).font(.caption2).foregroundStyle(.secondary) }
+                }.frame(width: 44).padding(.vertical, 8).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityElement(children: .ignore).accessibilityLabel(event.dateLabel ?? "\(month) \(day)")
+            } else if row.artworkId == "location-share-pulse" {
                 ZStack {
                     Circle().fill(accent.opacity(0.07))
                     Circle().fill(accent.opacity(0.12)).padding(7)
@@ -533,7 +575,13 @@ private struct NativeWorkspaceRichRow: View {
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(row.label).font(.body.weight(.medium)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
-                if let detail = row.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if let detail = row.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(row.calendarEvent?.day != nil ? 3 : nil).fixedSize(horizontal: false, vertical: true) }
+                if let event = row.calendarEvent, event.day != nil, let organizer = event.organizer {
+                    HStack(spacing: 8) {
+                        if let avatar = row.avatar { NativeProfilePortraitImage(data: avatar.jpeg, initials: avatar.initials).frame(width: 28, height: 28).accessibilityHidden(true) }
+                        Text(organizer).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 if let trailing = row.trailing { Text(trailing).font(.caption).foregroundStyle(.secondary) }
             }.frame(maxWidth: .infinity, alignment: .leading)
             if let expanded = row.expanded {
@@ -543,7 +591,7 @@ private struct NativeWorkspaceRichRow: View {
             }
             else if let selected = row.selected { Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(selected ? accent : .secondary) }
             else if row.chevron == true { Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary) }
-        }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44).contentShape(Rectangle())
+        }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44).contentShape(Rectangle()).opacity(row.calendarEvent?.muted == true ? 0.6 : 1)
     }
     @ViewBuilder private var primary: some View {
         if row.menuOnTap == true, let actions = row.inlineActions {
@@ -563,8 +611,10 @@ private struct NativeWorkspaceRichRow: View {
         }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let share = row.locationShare, let actions = row.inlineActions {
+        VStack(alignment: .leading, spacing: toolbar ? 0 : 12) {
+            if toolbar { EmptyView() }
+            else if compactMenu, let actions = row.inlineActions { HStack(spacing: 12) { primary; options(actions) } }
+            else if let share = row.locationShare, let actions = row.inlineActions {
                 HStack {
                     Label("Sharing now", systemImage: "circle.fill").font(.caption.weight(.semibold)).foregroundStyle(.green)
                     Spacer(minLength: 8)
@@ -588,7 +638,8 @@ private struct NativeWorkspaceRichRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: stage)
             }
-            if row.avatar?.active == nil, let allActions = row.inlineActions {
+            if !compactMenu, row.avatar?.active == nil, let allActions = row.inlineActions,
+               !(workspace == "calendar" && row.menuOnTap == true && allActions.allSatisfy({ $0.placement == "menu" })) {
                 let actions = row.locationShare == nil ? allActions : Array(allActions.dropFirst())
                 if row.artworkId == "location-share-pulse" {
                     ForEach(actions) { action in decision(action).controlSize(.large) }.padding(.leading, 76)
@@ -599,7 +650,7 @@ private struct NativeWorkspaceRichRow: View {
                 }
                 }
             }
-        }.padding(16)
+        }.padding(toolbar ? 4 : 16)
     }
     @ViewBuilder private func options(_ actions: [NativeWorkspaceInlineAction]) -> some View {
         let overflow = actions.filter { $0.placement == "menu" }
@@ -612,7 +663,7 @@ private struct NativeWorkspaceRichRow: View {
                 }
             } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Circle()) }
                 .disabled(!enabled || !row.enabled || row.pending == true)
-                .accessibilityLabel("Options").accessibilityIdentifier("native-workspace-options-\(row.id)")
+                .accessibilityLabel(workspace == "calendar" ? "Options, \(row.label)" : "Options").accessibilityIdentifier("native-workspace-options-\(row.id)")
         }
     }
     private func decision(_ action: NativeWorkspaceInlineAction) -> some View {
@@ -973,7 +1024,7 @@ struct NativeWorkspaceAction: Equatable {
         active = false; pending = nil; emit = nil; canInteract = nil; canInteractDetail = nil; scrolled = nil; editor?.clear(); editor = nil; emitEdit = nil
         let scrub = scrubSearch; scrubSearch = nil; searchDidSettle = nil; searchOwner = nil; scrub?()
         searchField?.unmarkText(); searchField?.resignFirstResponder(); searchField?.text = ""; searchField?.undoManager?.removeAllActions()
-        state.sections = []; state.navigation = nil; state.textEditor = nil; state.calendarDate = nil; state.launcher = nil; state.tabs = nil; state.secondaryTabs = nil; state.search = nil; state.circleEditor = nil; state.wallet = nil; state.walletProfileEditor = nil; state.memoryEditor = nil; state.taskEditor = nil; state.feedback = nil; state.title = ""
+        state.sections = []; state.navigation = nil; state.textEditor = nil; state.calendarDate = nil; state.calendarWeek = nil; state.launcher = nil; state.tabs = nil; state.secondaryTabs = nil; state.search = nil; state.circleEditor = nil; state.wallet = nil; state.walletProfileEditor = nil; state.memoryEditor = nil; state.taskEditor = nil; state.feedback = nil; state.title = ""
     }
 }
 /// Local safety gesture only; the feature's existing trigger remains the sole
@@ -1033,14 +1084,21 @@ struct NativeWorkspaceAction: Equatable {
 private struct NativeWorkspaceCollectionRow: View {
     let row: NativeDrawerRow
     @ObservedObject var model: NativeWorkspaceModel
+    var toolbar: Bool = false
     var body: some View {
-        if let activation = row.sosActivation {
+        if toolbar {
+            NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex, workspace: model.state.workspace, toolbar: true) { model.choice("row", row: $0) }
+                .accessibilityElement(children: .contain).accessibilityLabel(row.label)
+        } else if row.choiceStyle == "segmented", let options = row.options {
+            NativeWorkspaceTabStrip(tabs: .init(label: row.label, options: options), model: model, identifier: "native-workspace-row-\(row.id)")
+                .padding(8).disabled(!row.enabled || row.pending == true)
+        } else if let activation = row.sosActivation {
             NativeLocationSafetyControl(label: row.label, mode: activation, enabled: row.enabled && row.pending != true && model.pending == nil, revision: { model.interactionSequence }) { model.choice("row", row: row.id) }
                 .accessibilityIdentifier("native-workspace-row-\(row.id)")
         } else if let formatted = row.formattedText {
             NativeMemoryTextBody(text: formatted, enabled: row.enabled && row.pending != true && model.pending == nil) { model.choice("row", row: $0) }
-        } else if row.avatar != nil || row.inlineActions != nil || row.locationShare != nil || row.milestone != nil || row.expanded != nil || row.artworkId == "location-share-pulse" {
-            NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
+        } else if row.options == nil && (row.avatar != nil || row.inlineActions != nil || row.calendarEvent != nil || row.locationShare != nil || row.milestone != nil || row.expanded != nil || row.artworkId == "location-share-pulse") {
+            NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex, workspace: model.state.workspace) { model.choice("row", row: $0) }
         } else if row.toggle == true, let options = row.options, options.count == 2 {
             Toggle(isOn: Binding(get: { options[0].selected }, set: { value in model.choice("row", row: options[value ? 0 : 1].id) })) {
                 NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex)
@@ -1055,7 +1113,11 @@ private struct NativeWorkspaceCollectionRow: View {
                     }.disabled(option.selected)
                 }
             } label: {
-                HStack { NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex); Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary).padding(.trailing, 16) }
+                HStack {
+                    if let avatar = row.avatar { NativeProfilePortraitImage(data: avatar.jpeg, initials: avatar.initials).frame(width: 42, height: 42).padding(.leading, 16).accessibilityHidden(true) }
+                    NativeSettingsRowLabel(row: row, accentHex: model.state.accentHex)
+                    Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary).padding(.trailing, 16)
+                }
             }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || model.pending != nil)
                 .accessibilityLabel(row.label).accessibilityValue(options.first(where: \.selected)?.label ?? "")
                 .accessibilityIdentifier("native-workspace-row-\(row.id)")
@@ -1120,6 +1182,9 @@ private struct NativeWorkspaceCollectionRow: View {
                 if let launcher = model.state.launcher { NativeWorkspaceAgentRoster(model: model, launcher: launcher) }
                 ForEach(Array(model.state.sections.enumerated()).filter { !(model.state.isLocationRoot && $0.offset == 0) }, id: \.element.id) { sectionIndex, section in
                     sectionContent(section)
+                    if let week = model.state.calendarWeek, week.afterSectionId == section.id {
+                        NativeCalendarWeekChart(week: week, accentHex: model.state.accentHex).id(week.contextId)
+                    }
                     if let search = model.state.search, search.afterSection == sectionIndex + 1 {
                         NativeWorkspaceSearchField(model: model, search: search)
                     }
@@ -1176,12 +1241,14 @@ private struct NativeWorkspaceCollectionRow: View {
     private func sectionContent(_ section: NativeDrawerSection) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
-            if section.layout == "tiles" {
+            if section.layout == "metrics" {
+                NativeCalendarMetrics(rows: section.rows)
+            } else if section.layout == "tiles" {
                 NativeLocationActionTiles(rows: section.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
             } else {
             VStack(spacing: section.layout == "cards" ? 10 : 0) {
                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
-                    NativeWorkspaceCollectionRow(row: row, model: model).background(section.layout == "cards" ? Color(uiColor: .secondarySystemGroupedBackground) : Color.clear, in: RoundedRectangle(cornerRadius: 18))
+                    NativeWorkspaceCollectionRow(row: row, model: model, toolbar: section.layout == "toolbar").background(section.layout == "cards" ? Color(uiColor: .secondarySystemGroupedBackground) : Color.clear, in: RoundedRectangle(cornerRadius: 18))
                     if section.layout == nil && index < section.rows.count - 1 && !(row.formattedText != nil && section.rows[index + 1].formattedText != nil) { Divider().padding(.horizontal, 16) }
                 }
             }.background(section.layout == "cards" ? Color.clear : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -1221,6 +1288,64 @@ struct NativeWorkspaceTabStrip: View {
             .onChange(of: control.value) { _, _ in restore() }
             .onChange(of: model.pending == nil) { _, settled in if settled { restore() } }
             .accessibilityIdentifier("native-calendar-date")
+    }
+}
+
+@available(iOS 26.0, *) private struct NativeCalendarMetrics: View {
+    let rows: [NativeDrawerRow]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private func metric(_ row: NativeDrawerRow) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(row.label).font(.title2.weight(.semibold)).monospacedDigit()
+            if let detail = row.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .ignore)
+            .accessibilityLabel(row.detail ?? row.label).accessibilityValue(row.pending == true ? "Loading" : row.label == "—" ? "Unavailable" : row.label)
+    }
+    var body: some View {
+        Group {
+            if typeSize.isAccessibilitySize { VStack(alignment: .leading, spacing: 16) { ForEach(rows) { metric($0) } } }
+            else { HStack(alignment: .top, spacing: 16) { ForEach(rows) { metric($0) } } }
+        }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+@available(iOS 26.0, *) private struct NativeCalendarWeekChart: View {
+    let week: NativeCalendarWeek
+    let accentHex: String
+    @State private var selected: String?
+    private var selection: NativeCalendarWeek.Day? { week.days.first { $0.date == selected } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(week.title).font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Scheduled minutes").font(.caption).foregroundStyle(.secondary)
+            if week.state == "ready" { Chart {
+                ForEach(week.days, id: \.date) { day in
+                    BarMark(x: .value("Day", day.date), y: .value("Scheduled minutes", day.minutes))
+                        .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label)).cornerRadius(4)
+                        .accessibilityLabel("\(day.label), \(day.date)")
+                        .accessibilityValue("\(day.meetings) events, \(day.minutes.formatted(.number.precision(.fractionLength(0...1)))) scheduled minutes")
+                }
+                if let selection { RuleMark(x: .value("Day", selection.date)).foregroundStyle(Color.secondary.opacity(0.35)) }
+            }.chartXAxis {
+                AxisMarks(values: week.days.map(\.date)) { value in
+                    AxisValueLabel { if let date = value.as(String.self), let day = week.days.first(where: { $0.date == date }) { Text(day.label) } }
+                }
+            }.chartYAxis { AxisMarks(position: .leading) }
+                .chartYScale(domain: 0...max(60, week.days.map(\.minutes).max() ?? 0))
+                .chartXSelection(value: $selected).frame(height: 180)
+                .accessibilityIdentifier("native-calendar-week-chart")
+            } else {
+                Group {
+                    if week.state == "loading" { ProgressView("Loading weekly chart") }
+                    else { Label("Weekly chart unavailable", systemImage: "chart.bar.xaxis").foregroundStyle(.secondary) }
+                }.frame(maxWidth: .infinity).frame(height: 180)
+            }
+            Group {
+                if let selection { Text("\(selection.label) · \(selection.meetings) events · \(selection.minutes.formatted(.number.precision(.fractionLength(0...1)))) min") }
+                else { Text(week.state == "ready" ? "Select a day" : week.state == "loading" ? "Checking scheduled time…" : "Scheduled time is unavailable.").foregroundStyle(.secondary) }
+            }.font(.caption).frame(minHeight: 32, alignment: .leading)
+        }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            .onChange(of: week.days) { _, _ in selected = nil }
     }
 }
 

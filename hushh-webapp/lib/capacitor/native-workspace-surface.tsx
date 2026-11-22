@@ -13,7 +13,7 @@ import { nativeFeedbackToast } from "./native-feedback";
 import { useNativeWorkspace, useNativeWorkspacePresentation, type WorkspaceEditor } from "./use-native-workspace";
 
 import { nativePersonInitials, useNativeWorkspacePortraits } from "@/components/app-ui/use-native-workspace-portraits";
-import type { NativeWorkspaceChoice, NativeWorkspaceIdentity, NativeWorkspaceTextDraft } from "./native-workspace";
+import type { NativeCalendarWeek, NativeWorkspaceChoice, NativeWorkspaceIdentity, NativeWorkspaceTextDraft } from "./native-workspace";
 import type { NativeWorkspaceLocationShare } from "./native-drawers";
 import { useNativeShellOverlayBlocked } from "./native-navigation";
 
@@ -22,12 +22,14 @@ export type NativeWorkspaceSurfaceRow = { key: string; label: string; detail?: s
   artworkId?: string; iconHex?: string; trailing?: string;
   person?: { name: string; photoUrl?: string | null; verified?: boolean; active?: boolean };
   menuOnTap?: boolean;
+  choiceStyle?: "segmented";
+  calendarEvent?: { day?: string; month?: string; weekday?: string; dateLabel?: string; organizer?: string; muted: boolean };
   sosActivation?: "hold" | "countdown";
   locationShare?: Omit<NativeWorkspaceLocationShare, "people"> & { people: { name: string; photoUrl?: string | null }[] };
   inlineActions?: (Pick<NativeWorkspaceSurfaceRow, "key" | "label" | "run" | "web" | "enabled" | "pending" | "symbol"> & { tone: "primary" | "ghost" | "danger" | "success"; placement?: "menu" })[];
   toggle?: { value: boolean; change: (value: boolean) => unknown };
   choices?: { key: string; label: string; selected: boolean; run: () => unknown }[] };
-export type NativeWorkspaceSurfaceSection = { key: string; title?: string; layout?: "cards" | "tiles"; rows: NativeWorkspaceSurfaceRow[] };
+export type NativeWorkspaceSurfaceSection = { key: string; title?: string; layout?: "cards" | "tiles" | "metrics" | "toolbar"; rows: NativeWorkspaceSurfaceRow[] };
 export type NativeWorkspaceSurfaceConfirmation = { title: string; description: string; confirm: NativeWorkspaceSurfaceRow; cancel: () => unknown; cancelLabel: string };
 export type NativeWorkspaceSurfaceTextEditor = { key: string; label: string; placeholder: string; maximum: number; value: string;
   submitLabel: string; cancelLabel?: string; format?: "circle-code"; busy?: boolean; enabled?: boolean; error?: string | null;
@@ -42,6 +44,7 @@ type SurfaceProps = {
   tabs?: { label: string; options: { key: string; label: string; selected: boolean; run: () => unknown }[] };
   search?: { query: string; label: string; change: (query: string) => void };
   calendarDate?: { key: string; label: string; value: string; timeZone: string; enabled: boolean; change: (value: string) => void };
+  calendarWeek?: Omit<NativeCalendarWeek, "afterSectionId" | "contextId"> & { key: string; afterSection: string };
   confirmation?: NativeWorkspaceSurfaceConfirmation; webChild?: boolean; fallback: ReactNode;
 };
 
@@ -142,8 +145,8 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
       });
       if (row.run) actions.set(id, () => { if (current() && row.enabled !== false && !row.pending) return row.web ? props.runWeb(section.key, row.key) : row.run!() as void | Promise<unknown>; });
       return { id, label: row.label, detail: row.detail ?? row.choices?.find(choice => choice.selected)?.label, enabled: row.enabled !== false, pending: row.pending, selected: row.selected,
-        destructive: row.destructive, ...(row.sosActivation ? { sosActivation: row.sosActivation } : {}), ...(row.menuOnTap !== undefined ? { menuOnTap: row.menuOnTap } : {}), ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
-        ...(row.person ? { avatar: { initials: nativePersonInitials(row.person.name), verified: row.person.verified === true, ...(row.person.active !== undefined ? { active: row.person.active } : {}), ...(portraits.get(row.key) ? { jpeg: portraits.get(row.key) } : {}) } } : {}),
+        destructive: row.destructive, ...(row.sosActivation ? { sosActivation: row.sosActivation } : {}), ...(row.calendarEvent ? { calendarEvent: row.calendarEvent } : {}), ...(row.menuOnTap !== undefined ? { menuOnTap: row.menuOnTap } : {}), ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
+        ...(row.person ? { avatar: { initials: nativePersonInitials(row.person.name), ...(props.workspace !== "calendar" ? { verified: row.person.verified === true } : {}), ...(row.person.active !== undefined ? { active: row.person.active } : {}), ...(portraits.get(row.key) ? { jpeg: portraits.get(row.key) } : {}) } } : {}),
         ...(row.locationShare ? { locationShare: { ...row.locationShare, people: row.locationShare.people.map((person, index) => ({ initials: nativePersonInitials(person.name),
           ...(portraits.get(`${row.key}:share:${index}`) ? { jpeg: portraits.get(`${row.key}:share:${index}`) } : {}) })) } } : {}),
         ...(row.inlineActions?.length ? { inlineActions: row.inlineActions.map(action => {
@@ -151,7 +154,7 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
           actions.set(actionId, () => { if (current() && row.enabled !== false && !row.pending && action.enabled !== false && !action.pending)
             return action.web ? props.runWeb(section.key, action.key) : action.run?.() as void | Promise<unknown>; });
           return { id: actionId, label: action.label, enabled: action.enabled !== false, pending: action.pending, tone: action.tone, symbol: action.symbol, ...(action.placement ? { placement: action.placement } : {}) };
-        }) } : {}), ...(options ? { ...(row.toggle ? { toggle: true } : {}), options } : {}), ...(!row.run && !options ? { readOnly: true } : {}) };
+        }) } : {}), ...(options ? { ...(row.toggle ? { toggle: true } : {}), ...(row.choiceStyle ? { choiceStyle: row.choiceStyle } : {}), options } : {}), ...(!row.run && !options ? { readOnly: true } : {}) };
     }),
   }));
   const options = props.tabs?.options.map(option => {
@@ -213,6 +216,7 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
     ...(props.tabs && options && !confirmation ? { tabs: { label: props.tabs.label, options } } : {}),
     ...(props.search && !confirmation ? { search: { id: searchId, query: props.search.query, label: props.search.label, live: true } } : {}),
     ...(props.calendarDate && !confirmation ? { calendarDate: { id: dateId, label: props.calendarDate.label, value: props.calendarDate.value, timeZone: props.calendarDate.timeZone, enabled: props.calendarDate.enabled } } : {}),
+    ...(props.calendarWeek && !confirmation ? { calendarWeek: { contextId: handles(`calendar-week:${props.calendarWeek.key}`), afterSectionId: handles(`section:${props.calendarWeek.afterSection}`), title: props.calendarWeek.title, state: props.calendarWeek.state, days: props.calendarWeek.days } } : {}),
   }, editor, editorKind: "text", actions, current, back: () => {}, contentFrame: props.frame, presentationOwner: props.presentation.owner,
     active: pathname === props.backPath, activationRevision: props.activationRevision });
   return <div aria-busy={phase !== "native"} data-native-feature-workspace={phase} />;
