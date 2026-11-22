@@ -197,6 +197,8 @@ def test_observation_projection_follows_split_literals_and_rejects_expressions()
     compile_contract = generator["compile_contract"]
     contract = compile_contract(source, actions_source=actions)
     assert "export_saved" in contract["events"]["one_memory_action"]
+    assert contract["events"]["hushh_mail_signin_screen_view"] == []
+    assert "account_reset_requested" not in contract["events"]
     changed = compile_contract(
         source, actions_source=actions.replace('"export_saved"', '"export_changed"')
     )

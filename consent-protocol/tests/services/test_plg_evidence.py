@@ -1263,6 +1263,11 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     mail_actions = [a for a in catalog["actions"] if a["id"].startswith("profile.gmail.")]
     assert mail_actions
     assert all(a["agentId"] == "agent_email" for a in mail_actions)
+    prompt = next(
+        a for a in catalog["actions"] if a["id"] == "observation:hushh_mail_signin_screen_view"
+    )
+    assert prompt["agentId"] == "agent_email"
+    assert prompt["proof"] == "client_reported"
     memory_ids = {
         "pkm.export_memory",
         "pkm.edit_memory",

@@ -27,13 +27,17 @@ def compile_contract(source: str, *, actions_source: str = "") -> dict:
             raise ValueError("Observation action identifiers must remain literal enums")
         arrays[name] = values
     categories = source.split("const EVENT_CATEGORY_BY_NAME", 1)[1].split("};", 1)[0]
-    names = re.findall(r'^  ([a-z][a-z0-9_]*): "(feature|funnel)"', categories, re.M)
+    names = re.findall(r'^  ([a-z][a-z0-9_]*): "(feature|funnel|system)"', categories, re.M)
     payloads = source.split("export interface EventPayloadMap", 1)[1]
     action_aliases = dict(
         re.findall(r"export type (\w+)\s*=\s*\(typeof (\w+_ACTIONS)\)\[number\]", authored)
     )
     events = {}
-    for name, _ in names:
+    for name, category in names:
+        # This user-visible prompt keeps its analytics category. The activity
+        # catalog excludes other system events, including authentication.
+        if category == "system" and name != "hushh_mail_signin_screen_view":
+            continue
         body = re.search(r"^  " + re.escape(name) + r": \{([\s\S]*?)^  \};", payloads, re.M)
         action_values = []
         if body:
