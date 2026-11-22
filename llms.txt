@@ -1,0 +1,58 @@
+# Hussh Private Agent One
+
+> Consent-first personal agent platform and zero-knowledge Personal Knowledge Model (PKM) infrastructure across Web, iOS, Android, Shared Runtime, Owner Cloud BYOC (Google Cloud and Microsoft Azure), and Personal Sandboxes.
+
+## Coding-Agent Entrypoints
+
+- [AGENTS.md](AGENTS.md): Root portable operating contract for every coding agent
+- [.agents/instructions.md](.agents/instructions.md): Binding repository engineering contract and resource lifecycle gates
+- [.agents/README.md](.agents/README.md): Skills, workflows, subagents, routing, and evaluation framework
+- [docs/development/documentation.md](docs/development/documentation.md): Dual-audience documentation standard (Hybrid Tiered, living Mermaid diagrams, Zero-Archive policy)
+
+## Product and Principles
+
+- [README.md](README.md): Human platform landing page, capability truth table, and quick start
+- [docs/README.md](docs/README.md): Five-pillar documentation atlas
+- [docs/product/README.md](docs/product/README.md): Product overview and user journeys
+- [docs/product/capabilities.md](docs/product/capabilities.md): Implemented capability boundaries
+- [docs/product/principles/agent-ontology.md](docs/product/principles/agent-ontology.md): Approved Personal Data Agent identity
+- [docs/product/principles/private-agent-requirements.md](docs/product/principles/private-agent-requirements.md): Private-agent custody, consent, recovery, and erasure north star
+
+## Architecture Atlas and Twelve Modules
+
+- [docs/architecture/README.md](docs/architecture/README.md): Architecture hub and subsystem index
+- [docs/architecture/system.md](docs/architecture/system.md): End-to-end system topology
+- [docs/architecture/engineering-principles.md](docs/architecture/engineering-principles.md): Module boundaries and ownership rules
+- [docs/architecture/modules/clients.md](docs/architecture/modules/clients.md): Web, iOS, and Android client experience
+- [docs/architecture/modules/one.md](docs/architecture/modules/one.md): Root ADK agent and bounded specialists
+- [docs/architecture/modules/identity.md](docs/architecture/modules/identity.md): Identity, vault custody, and consent scopes
+- [docs/architecture/modules/memory.md](docs/architecture/modules/memory.md): Agent memory and encrypted PKM boundaries
+- [docs/architecture/modules/files.md](docs/architecture/modules/files.md): Encrypted Files explorer and document workflows
+- [docs/architecture/modules/connections.md](docs/architecture/modules/connections.md): Connected services and OAuth boundaries
+- [docs/architecture/modules/sharing.md](docs/architecture/modules/sharing.md): Scoped Information Exchange and MCP surface
+- [docs/architecture/modules/hosting.md](docs/architecture/modules/hosting.md): Shared, BYOC, and hosted pod placement lifecycle
+- [docs/architecture/modules/browser.md](docs/architecture/modules/browser.md): Owner-controlled browser runtime
+- [docs/architecture/modules/puppy.md](docs/architecture/modules/puppy.md): Trusted local-computer model relay
+- [docs/architecture/modules/finance.md](docs/architecture/modules/finance.md): Kai finance specialist
+- [docs/architecture/modules/delivery.md](docs/architecture/modules/delivery.md): Validation, admission, and explicit release pipeline
+
+## Development and Technical Contracts
+
+- [docs/development/README.md](docs/development/README.md): Development hub
+- [docs/development/guides/getting-started.md](docs/development/guides/getting-started.md): Local bootstrap and prerequisites
+- [docs/development/repository-map.md](docs/development/repository-map.md): Monorepo package layout
+- [docs/development/contracts/api-contracts.md](docs/development/contracts/api-contracts.md): Backend and proxy API contracts
+- [docs/development/contracts/route-contracts.md](docs/development/contracts/route-contracts.md): Frontend route and proxy contracts
+- [docs/development/contracts/cache-coherence.md](docs/development/contracts/cache-coherence.md): Cache-first screen coherence rules
+- [consent-protocol/docs/README.md](consent-protocol/docs/README.md): Backend protocol and ADK package references
+- [hushh-webapp/docs/README.md](hushh-webapp/docs/README.md): Web and mobile Capacitor package references
+
+## Operations and Governance
+
+- [docs/operations/README.md](docs/operations/README.md): Operations index
+- [docs/operations/environments.md](docs/operations/environments.md): Local, Dev, UAT, and Production profiles
+- [docs/operations/releases/ci.md](docs/operations/releases/ci.md): CI validation and release governance
+- [docs/operations/releases/branch-governance.md](docs/operations/releases/branch-governance.md): Branch promotion and Merge Queue rules
+- [docs/operations/acceptance/private-agents.md](docs/operations/acceptance/private-agents.md): Source truth versus installed acceptance
+- [docs/operations/brand-and-compatibility-contract.md](docs/operations/brand-and-compatibility-contract.md): Brand naming and compatibility identifiers
+- [docs/roadmap/README.md](docs/roadmap/README.md): Active unimplemented proposals
