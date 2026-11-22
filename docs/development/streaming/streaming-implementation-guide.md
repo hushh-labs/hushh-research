@@ -546,7 +546,7 @@ an aborted preparation cannot dispatch later. The panel reports connection
 until that dispatch point, then waits for the machine's response.
 
 HTTP edges may keep the upstream alive after browser abort. The explicit
-[turn stop](../contracts/api-contracts.md#direct-puppy-turn-cancellation) joins
+[turn stop](../contracts/api-one-capabilities.md#direct-puppy-turn-cancellation) joins
 that existing producer using the same request identity. Duplicate stops do not
 interrupt cleanup or dispatch another turn. A stopped producer ends the upstream
 with `PUPPY_CANCELLED`; the bounded browser stop wait reports
