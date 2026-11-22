@@ -397,7 +397,7 @@ selected network. The dropdown uses the backend catalogue without filtering
 against that list. New backend network IDs survive resolution, encrypted storage
 and existing-card reads, with generic credential checks and neutral artwork
 until specialized client rules or approved artwork are available. Network-specific
-credential rules for future networks still require a client update. Malformed
+credential rules for newly introduced networks still require a client update. Malformed
 catalogue entries fail the request instead of silently disappearing.
 The form distinguishes owner selection from prefix identification and explains
 that neither verifies the card or issuing bank. The artwork resolver can match a
