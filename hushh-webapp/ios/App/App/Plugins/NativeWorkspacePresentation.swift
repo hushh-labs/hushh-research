@@ -650,7 +650,7 @@ private struct NativeWorkspaceRichRow: View {
                 }
                 }
             }
-        }.padding(toolbar ? 4 : 16)
+        }.padding(toolbar ? 4 : 16).frame(maxWidth: toolbar ? .infinity : nil, alignment: .leading)
     }
     @ViewBuilder private func options(_ actions: [NativeWorkspaceInlineAction]) -> some View {
         let overflow = actions.filter { $0.placement == "menu" }
@@ -681,8 +681,10 @@ private struct NativeWorkspaceRichRow: View {
                 if action.pending == true { ProgressView().controlSize(.small) }
                 if let avatar = action.avatar { NativeProfilePortraitImage(data: avatar.jpeg, initials: avatar.initials).frame(width: 22, height: 22).accessibilityHidden(true) }
                 if let symbol = action.symbol { Image(systemName: symbol).accessibilityHidden(true) }
-                Text(action.label).fixedSize(horizontal: false, vertical: true)
-            }.font(.subheadline.weight(.medium)).frame(maxWidth: row.artworkId == "location-share-pulse" ? .infinity : nil).frame(minHeight: 32)
+                if !toolbar || action.symbol == nil || action.tone != "ghost" {
+                    Text(action.label).fixedSize(horizontal: false, vertical: true)
+                }
+            }.font(.subheadline.weight(.medium)).frame(maxWidth: row.artworkId == "location-share-pulse" ? .infinity : nil).frame(minWidth: toolbar && action.symbol != nil && action.tone == "ghost" ? 24 : nil, minHeight: 32)
         }
     }
 }
@@ -1332,7 +1334,10 @@ struct NativeWorkspaceTabStrip: View {
                 }
             }.chartYAxis { AxisMarks(position: .leading) }
                 .chartYScale(domain: 0...max(60, week.days.map(\.minutes).max() ?? 0))
-                .chartXSelection(value: $selected).frame(height: 180)
+                .chartXSelection(value: $selected)
+                .chartGesture { proxy in
+                    SpatialTapGesture().onEnded { proxy.selectXValue(at: $0.location.x) }
+                }.frame(height: 180)
                 .accessibilityIdentifier("native-calendar-week-chart")
             } else {
                 Group {
@@ -1673,7 +1678,7 @@ enum NativeCircleCodeSelection {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard textField.markedTextRange == nil else { return false }
         submit()
-        if search.live == true && ["memory", "consent", "connect", "mail"].contains(model?.state.workspace ?? "") { textField.resignFirstResponder() }
+        if search.live == true && ["memory", "consent", "connect", "mail", "calendar"].contains(model?.state.workspace ?? "") { textField.resignFirstResponder() }
         return false
     }
     func textFieldDidChangeSelection(_ textField: UITextField) { queueCommittedEdit() }
