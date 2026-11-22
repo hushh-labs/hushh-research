@@ -288,7 +288,14 @@ class GmailMailboxActions(SelectedMailboxProposalMixin):
                     rejection = next(error for _, error in outcomes if error is not None)
                     raise rejection
                 if action in LABEL_ACTIONS:
-                    add, remove = ([label_id], []) if action == "add_label" else ([], [label_id])
+                    if action == "add_label" and label_id == "SPAM":
+                        add, remove = ["SPAM"], ["INBOX"]
+                    elif action == "remove_label" and label_id == "SPAM":
+                        add, remove = ["INBOX"], ["SPAM"]
+                    else:
+                        add, remove = (
+                            ([label_id], []) if action == "add_label" else ([], [label_id])
+                        )
                 else:
                     add, remove = _FIXED_LABEL_CHANGES[action]
                 try:

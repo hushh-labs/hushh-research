@@ -579,6 +579,35 @@ async def test_full_connect_records_granted_and_partial_granular_scopes(
 
 
 @pytest.mark.asyncio
+async def test_settings_purpose_requests_gmail_settings_basic_and_reports_status(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    scopes = service._oauth_scopes_for_purpose("settings")
+    assert "https://www.googleapis.com/auth/gmail.settings.basic" in scopes
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scopes
+    monkeypatch.setattr(
+        service,
+        "_read_status_snapshot",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result=(
+                {
+                    "status": "connected",
+                    "revoked": False,
+                    "scope_csv": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.settings.basic",
+                    "google_email": "owner@example.com",
+                    "google_sub": "sub-1",
+                },
+                None,
+            ),
+        ),
+    )
+    status = await service.get_status(user_id="user_123")
+    assert status["settings_permission_granted"] is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("new_sub", "new_scopes", "expected_error"),
     [

@@ -3980,7 +3980,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * cancellable while Google's window is open; on success it is cleared, as
    * the old redirect-return did, and the person stays in this chat.
    */
-  const runDirectiveConnect = (kind: "gmail_modify" | "calendar", accountId = "default") => {
+  const runDirectiveConnect = (kind: "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar", accountId = "default") => {
     const owner = user;
     if (!owner?.uid || !applicationOwnerId) return;
     const ownerId = applicationOwnerId;
@@ -3999,14 +3999,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
               isCurrent,
             })
-          : connectGmailInPlace({
-              owner,
-              purpose: "modify",
-              ...controls,
-              vaultOwnerCapability: vaultOwnerToken ?? undefined,
-              confirmLegacyTransition: confirmTransition,
-              isCurrent,
-            }),
+          : kind === "gmail_compose"
+            ? connectGmailInPlace({
+                owner,
+                purpose: "compose",
+                ...controls,
+                vaultOwnerCapability: vaultOwnerToken ?? undefined,
+                confirmLegacyTransition: confirmTransition,
+                isCurrent,
+              })
+            : kind === "gmail_settings"
+              ? connectGmailInPlace({
+                  owner,
+                  purpose: "settings",
+                  ...controls,
+                  vaultOwnerCapability: vaultOwnerToken ?? undefined,
+                  confirmLegacyTransition: confirmTransition,
+                  isCurrent,
+                })
+              : connectGmailInPlace({
+                  owner,
+                  purpose: "modify",
+                  ...controls,
+                  vaultOwnerCapability: vaultOwnerToken ?? undefined,
+                  confirmLegacyTransition: confirmTransition,
+                  isCurrent,
+                }),
       (outcome, { cancelled, surface }) => {
         setSpecialistBusy(false);
         if (
@@ -10963,10 +10981,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       >;
                       const type = String(payload.type ?? "");
                       if (type === "gmail.connect") {
-                        // The restricted gmail.modify scope is requested only
-                        // here, on first use, on top of existing grants, in a
-                        // window opened synchronously by this click.
-                        runDirectiveConnect("gmail_modify");
+                        const connectPurpose = String(payload.purpose ?? "modify");
+                        runDirectiveConnect(
+                          connectPurpose === "compose"
+                            ? "gmail_compose"
+                            : connectPurpose === "settings"
+                              ? "gmail_settings"
+                              : "gmail_modify",
+                        );
                         return;
                       }
                       if (type === "gmail.create_todos") {

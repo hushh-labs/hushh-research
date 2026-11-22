@@ -192,7 +192,7 @@ function gmailSettlementMatcher(attemptId: string) {
 export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
-    purpose: "read" | "send" | "modify" | "full";
+    purpose: "read" | "send" | "compose" | "modify" | "settings" | "full";
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -202,14 +202,18 @@ export function connectGmailInPlace(
     connected?: boolean;
     scope_csv?: string;
     send_permission_granted?: boolean;
+    compose_permission_granted?: boolean;
     modify_permission_granted?: boolean;
+    settings_permission_granted?: boolean;
   }) =>
     status.connected === true &&
     (purpose === "read" || purpose === "full"
       ? typeof status.scope_csv === "string" &&
         status.scope_csv.replaceAll(",", " ").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.readonly")
       : purpose === "send" ? status.send_permission_granted === true
-        : status.modify_permission_granted === true);
+        : purpose === "compose" ? status.compose_permission_granted === true
+          : purpose === "settings" ? status.settings_permission_granted === true
+            : status.modify_permission_granted === true);
   // A confirmed connection reaches the shared connector status, which starts this device's receipt sync.
   const settle = (status: GmailConnectionStatus, current: () => boolean): InPlaceConnectOutcome => {
     if (status.connected === true && current()) void import("@/lib/profile/gmail-connector-store")
@@ -230,7 +234,7 @@ export function connectGmailInPlace(
           const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
           return settle(status, current);
         }
-        if (purpose === 'modify') return 'not_connected';
+        if (purpose === 'modify' || purpose === 'compose' || purpose === 'settings') return 'not_connected';
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
         const before = await GmailReceiptsService.getStatus({
@@ -477,7 +481,7 @@ export function connectCalendarInPlace(
   );
 }
 
-export type InPlaceConnectKind = "gmail_send" | "gmail_modify" | "calendar";
+export type InPlaceConnectKind = "gmail_send" | "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar";
 
 /** The chat's one line of feedback for each finished in-place connect. */
 export function inPlaceConnectCopy(
@@ -502,6 +506,24 @@ export function inPlaceConnectCopy(
       connected: "Gmail changes allowed. Ask One again to organize your mailbox.",
       not_connected: "Gmail changes were not allowed.",
       failed: "Unable to request Gmail permission. Please try again.",
+    },
+    gmail_compose: {
+      unlock_required: 'Unlock your vault, then connect Gmail again.',
+      cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
+      phone_handoff: "Finish connecting Gmail on your phone, then ask your private agent again.",
+      connected: "Gmail drafts allowed. Ask One again to create or update your draft.",
+      not_connected: "Gmail drafts permission was not allowed.",
+      failed: "Unable to request Gmail drafts permission. Please try again.",
+    },
+    gmail_settings: {
+      unlock_required: 'Unlock your vault, then connect Gmail again.',
+      cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
+      phone_handoff: "Finish connecting Gmail on your phone, then ask your private agent again.",
+      connected: "Gmail settings access allowed. Ask One again to manage filters, signatures, or vacation responder.",
+      not_connected: "Gmail settings permission was not allowed.",
+      failed: "Unable to request Gmail settings permission. Please try again.",
     },
     calendar: {
       unlock_required: 'Unlock your vault, then connect Calendar again.',

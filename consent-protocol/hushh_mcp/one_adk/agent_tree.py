@@ -63,6 +63,7 @@ from hushh_mcp.agents.email.mailbox_tools import (
     propose_gmail_mailbox_change,
     propose_gmail_todo,
 )
+from hushh_mcp.agents.email.workspace_tools import GMAIL_WORKSPACE_TOOLS
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
@@ -2643,7 +2644,12 @@ def _one_roster_tools(
     tools.extend(
         pod_connector_roster()
         if pod_mode()
-        else [*GMAIL_CHAT_TOOLS, propose_gmail_mailbox_change, propose_gmail_todo]
+        else [
+            *GMAIL_CHAT_TOOLS,
+            *GMAIL_WORKSPACE_TOOLS,
+            propose_gmail_mailbox_change,
+            propose_gmail_todo,
+        ]
     )
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)

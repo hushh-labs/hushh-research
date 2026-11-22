@@ -886,7 +886,7 @@ def _prune_turn_conditional_tools(callback_context: Any, llm_request: Any) -> No
         drop.add("open_gmail_information_request_reply")
     offer = getter("hussh:mail_read_offer")
     if not (isinstance(offer, dict) and offer.get("message_ids")):
-        drop.add("open_gmail_reply_draft")
+        drop.update({"open_gmail_reply_draft", "open_gmail_forward_draft", "gmail_read_attachment"})
     if getter("temp:one_execution_surface") == "typed_chat" and "run_app_action" in tools_dict:
         drop.add("propose_app_action")
 
