@@ -1133,6 +1133,28 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testNewsPresentationKeepsArtworkBoundedAndDestinationsInRegisteredActions() throws {
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1cAAAAASUVORK5CYII="
+        var story: [String: Any] = ["publisher": "Example", "publishedAt": "Recent", "summary": "A complete authored summary", "sentiment": "positive", "symbols": ["AAPL"], "artwork": ["glyph": "A", "hue": 22, "png": png]]
+        func object(_ workspace: String = "finance") -> [String: Any] {
+            ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": workspace,
+             "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+             "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+             "page": "overview", "title": "Market news", "enabled": true, "backEnabled": false,
+             "sections": [["id": "headlines", "rows": [["id": "article", "label": "Public headline", "enabled": true, "marketNews": story]]]]]
+        }
+        func projection(_ workspace: String = "finance") throws -> NativeWorkspaceProjection {
+            try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object(workspace)))
+        }
+        XCTAssertTrue(try projection().valid); XCTAssertTrue(NativeWorkspaceProjection.closed(object()))
+        XCTAssertFalse(try projection("connect").valid)
+        story["url"] = "https://forbidden.test"; XCTAssertFalse(NativeWorkspaceProjection.closed(object())); story.removeValue(forKey: "url")
+        story["artwork"] = ["glyph": "A", "hue": 360]; XCTAssertFalse(try projection().valid)
+        story["artwork"] = ["glyph": "A", "hue": 22, "png": "data:image/png;base64,AAAA"]; XCTAssertFalse(try projection().valid)
+        story["artwork"] = ["glyph": "A", "hue": 22]; story["symbols"] = []; XCTAssertFalse(try projection().valid)
+    }
+
+    @MainActor
     func testCalendarVisualValuesStayBoundedAndCannotIntroduceDestinations() throws {
         let metrics: [[String: Any]] = (0..<3).map { ["id": "metric-\($0)", "label": "0", "detail": "Scheduled time", "enabled": true, "readOnly": true] }
         let sections: [[String: Any]] = [["id": "snapshot", "layout": "metrics", "rows": metrics], ["id": "toolbar", "layout": "toolbar", "rows": [["id": "calendar-actions", "label": "Calendar actions", "enabled": true, "readOnly": true, "inlineActions": [["id": "calendar-refresh", "label": "Refresh", "enabled": true, "tone": "ghost"]]]]]]

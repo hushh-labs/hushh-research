@@ -14,7 +14,7 @@ import { useNativeWorkspace, useNativeWorkspacePresentation, type WorkspaceEdito
 
 import { nativePersonInitials, useNativeWorkspacePortraits } from "@/components/app-ui/use-native-workspace-portraits";
 import type { NativeCalendarWeek, NativeWorkspaceChoice, NativeWorkspaceIdentity, NativeWorkspaceTextDraft } from "./native-workspace";
-import type { NativeWorkspaceLocationShare } from "./native-drawers";
+import type { NativeMarketNewsStory, NativeWorkspaceLocationShare } from "./native-drawers";
 import { useNativeShellOverlayBlocked } from "./native-navigation";
 
 export type NativeWorkspaceSurfaceRow = { key: string; label: string; detail?: string; run?: () => unknown; web?: boolean;
@@ -23,6 +23,7 @@ export type NativeWorkspaceSurfaceRow = { key: string; label: string; detail?: s
   person?: { name: string; photoUrl?: string | null; verified?: boolean; active?: boolean };
   menuOnTap?: boolean;
   choiceStyle?: "segmented";
+  marketNews?: NativeMarketNewsStory;
   calendarEvent?: { day?: string; month?: string; weekday?: string; dateLabel?: string; organizer?: string; muted: boolean };
   sosActivation?: "hold" | "countdown";
   locationShare?: Omit<NativeWorkspaceLocationShare, "people"> & { people: { name: string; photoUrl?: string | null }[] };
@@ -145,7 +146,7 @@ function SurfaceBody(props: SurfaceProps & { runWeb: (sectionKey: string, rowKey
       });
       if (row.run) actions.set(id, () => { if (current() && row.enabled !== false && !row.pending) return row.web ? props.runWeb(section.key, row.key) : row.run!() as void | Promise<unknown>; });
       return { id, label: row.label, detail: row.detail ?? row.choices?.find(choice => choice.selected)?.label, enabled: row.enabled !== false, pending: row.pending, selected: row.selected,
-        destructive: row.destructive, ...(row.sosActivation ? { sosActivation: row.sosActivation } : {}), ...(row.calendarEvent ? { calendarEvent: row.calendarEvent } : {}), ...(row.menuOnTap !== undefined ? { menuOnTap: row.menuOnTap } : {}), ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
+        destructive: row.destructive, ...(row.sosActivation ? { sosActivation: row.sosActivation } : {}), ...(row.calendarEvent ? { calendarEvent: row.calendarEvent } : {}), ...(row.marketNews ? { marketNews: row.marketNews } : {}), ...(row.menuOnTap !== undefined ? { menuOnTap: row.menuOnTap } : {}), ...(row.prominent !== undefined ? { prominent: row.prominent } : {}), symbol: row.symbol, artworkId: row.artworkId, iconHex: row.iconHex, trailing: row.trailing,
         ...(row.person ? { avatar: { initials: nativePersonInitials(row.person.name), ...(props.workspace !== "calendar" ? { verified: row.person.verified === true } : {}), ...(row.person.active !== undefined ? { active: row.person.active } : {}), ...(portraits.get(row.key) ? { jpeg: portraits.get(row.key) } : {}) } } : {}),
         ...(row.locationShare ? { locationShare: { ...row.locationShare, people: row.locationShare.people.map((person, index) => ({ initials: nativePersonInitials(person.name),
           ...(portraits.get(`${row.key}:share:${index}`) ? { jpeg: portraits.get(`${row.key}:share:${index}`) } : {}) })) } } : {}),

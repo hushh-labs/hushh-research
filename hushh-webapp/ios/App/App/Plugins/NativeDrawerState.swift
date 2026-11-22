@@ -90,6 +90,7 @@ struct NativeDrawerRow: Codable, Identifiable {
     var progress: NativeDrawerProgress? = nil
     var options: [NativeDrawerOption]? = nil
     var choiceStyle: String? = nil
+    var marketNews: NativeMarketNewsStory? = nil
     var calendarEvent: NativeCalendarEvent? = nil
     var toggle: Bool? = nil
     var portrait: Bool? = nil
@@ -102,6 +103,37 @@ struct NativeDrawerRow: Codable, Identifiable {
     var sosActivation: String? = nil
     var milestone: Int? = nil
     var expanded: Bool? = nil
+}
+
+struct NativeMarketNewsStory: Codable {
+    struct Artwork: Codable {
+        let glyph: String; let hue: Int; var png: String?
+        var valid: Bool {
+            guard NativeDrawerProjection.text(glyph, 8), (0..<360).contains(hue) else { return false }
+            guard let png else { return true }
+            let prefix = "data:image/png;base64,"
+            guard png.utf16.count <= 40_000, png.hasPrefix(prefix), let data = Data(base64Encoded: String(png.dropFirst(prefix.count))), data.count >= 24,
+                  Array(data.prefix(8)) == [137, 80, 78, 71, 13, 10, 26, 10], Array(data[12..<16]) == Array("IHDR".utf8) else { return false }
+            let width = data[16..<20].reduce(0) { ($0 << 8) | Int($1) }, height = data[20..<24].reduce(0) { ($0 << 8) | Int($1) }
+            return (1...128).contains(width) && (1...128).contains(height)
+        }
+    }
+    let publisher: String; let publishedAt: String; var summary: String?; var sentiment: String?
+    let symbols: [String]; var artwork: Artwork?
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any], Set(value.keys).isSubset(of: ["publisher", "publishedAt", "summary", "sentiment", "symbols", "artwork"]),
+              !value.values.contains(where: { $0 is NSNull }) else { return false }
+        if let art = value["artwork"] {
+            guard let art = art as? [String: Any], Set(art.keys).isSubset(of: ["glyph", "hue", "png"]), !art.values.contains(where: { $0 is NSNull }) else { return false }
+        }
+        return true
+    }
+    var valid: Bool {
+        NativeDrawerProjection.text(publisher, 256) && NativeDrawerProjection.text(publishedAt, 128) &&
+            (summary == nil || NativeDrawerProjection.text(summary!, 4096)) && (sentiment == nil || ["positive", "risk"].contains(sentiment!)) &&
+            symbols.count <= 32 && Set(symbols).count == symbols.count && symbols.allSatisfy { NativeDrawerProjection.text($0, 64) } &&
+            symbols.isEmpty == (artwork == nil) && (artwork?.valid ?? true)
+    }
 }
 
 struct NativeCalendarEvent: Codable {

@@ -251,11 +251,12 @@ struct NativeWorkspaceProjection: Decodable {
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows", "layout"]), !(section["layout"] is NSNull), let rows = section["rows"] as? [[String: Any]] else { return false }
-            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent"]) { return false }
+            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews"]) { return false }
             for row in rows {
                 if let raw = row["formattedText"], !NativeMemoryText.closed(raw) { return false }
                 if let raw = row["locationShare"], !NativeWorkspaceLocationShare.closed(raw) { return false }
                 if let raw = row["calendarEvent"], !NativeCalendarEvent.closed(raw) { return false }
+                if let raw = row["marketNews"], !NativeMarketNewsStory.closed(raw) { return false }
                 if let raw = row["avatar"] {
                     guard NativeWorkspaceAvatar.closed(raw) else { return false }
                 }
@@ -331,6 +332,12 @@ struct NativeWorkspaceProjection: Decodable {
                 if let activation = row.sosActivation { guard workspace == "location", ["hold", "countdown"].contains(activation), row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.menuOnTap == nil else { return false } }
                 if row.menuOnTap != nil { guard ["location", "calendar"].contains(workspace), row.inlineActions?.contains(where: { $0.placement == "menu" }) == true else { return false } }
                 if let style = row.choiceStyle { guard workspace == "calendar", style == "segmented", let options = row.options, options.count <= 4, row.toggle != true else { return false } }
+                if let story = row.marketNews {
+                    guard workspace == "finance", story.valid, row.readOnly != true, row.detail == nil, row.symbol == nil, row.artworkId == nil,
+                          row.avatar == nil, row.inlineActions == nil, row.options == nil, row.toggle == nil, row.formattedText == nil, row.calendarEvent == nil else { return false }
+                    avatarBytes += story.artwork?.png?.utf16.count ?? 0
+                    guard avatarBytes <= 1_920_000 else { return false }
+                }
                 if let event = row.calendarEvent { guard workspace == "calendar", event.valid, row.options == nil, row.toggle != true, row.formattedText == nil else { return false } }
                 if row.prominent != nil { guard workspace == "location", row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.avatar == nil, row.formattedText == nil else { return false } }
                 if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil {
@@ -1088,7 +1095,9 @@ private struct NativeWorkspaceCollectionRow: View {
     @ObservedObject var model: NativeWorkspaceModel
     var toolbar: Bool = false
     var body: some View {
-        if toolbar {
+        if let story = row.marketNews {
+            NativeMarketNewsRow(row: row, story: story, enabled: model.pending == nil) { model.choice("row", row: row.id) }
+        } else if toolbar {
             NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex, workspace: model.state.workspace, toolbar: true) { model.choice("row", row: $0) }
                 .accessibilityElement(children: .contain).accessibilityLabel(row.label)
         } else if row.choiceStyle == "segmented", let options = row.options {
@@ -1274,6 +1283,55 @@ struct NativeWorkspaceTabStrip: View {
             .accessibilityIdentifier(identifier)
     }
 }
+@available(iOS 26.0, *) private struct NativeMarketNewsRow: View {
+    let row: NativeDrawerRow; let story: NativeMarketNewsStory; let enabled: Bool; let choose: () -> Bool
+    private func hsl(_ hue: Double, _ saturation: Double, _ light: Double) -> Color {
+        let brightness = light + saturation * min(light, 1 - light)
+        return Color(hue: hue / 360, saturation: brightness == 0 ? 0 : 2 * (1 - light / brightness), brightness: brightness)
+    }
+    @ViewBuilder private var artwork: some View {
+        if let art = story.artwork {
+            if let png = art.png, let data = Data(base64Encoded: String(png.dropFirst("data:image/png;base64,".count))), let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFit().frame(width: 24, height: 24).frame(width: 40, height: 40)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.25)))
+            } else {
+                Text(art.glyph).font(.system(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.85)).frame(width: 40, height: 40)
+                    .background(LinearGradient(colors: [hsl(Double(art.hue), 0.6, 0.3).opacity(0.95), hsl(Double((art.hue + 38) % 360), 0.66, 0.22).opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(hsl(Double(art.hue), 0.68, 0.6).opacity(0.28)))
+            }
+        } else { Image(systemName: "newspaper").font(.body).foregroundStyle(.secondary).frame(width: 40, height: 40).background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16)) }
+    }
+    var body: some View {
+        Button { _ = choose() } label: {
+            HStack(alignment: .top, spacing: 14) {
+                artwork.accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) { source; sentiment }
+                        VStack(alignment: .leading, spacing: 4) { source; sentiment }
+                    }
+                    Text(row.label).font(.body.weight(.semibold)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                    if let summary = story.summary { Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 56), alignment: .leading)], alignment: .leading, spacing: 6) {
+                        ForEach(story.symbols, id: \.self) { symbol in
+                            Text(symbol).font(.system(.caption2, design: .monospaced).weight(.semibold)).padding(.horizontal, 7).padding(.vertical, 4)
+                                .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if row.enabled { Image(systemName: "arrow.up.right.square").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true) }
+            }.padding(16).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(!enabled || !row.enabled || row.pending == true)
+            .accessibilityLabel(row.label).accessibilityValue([story.publisher, story.publishedAt, story.sentiment == "positive" ? "Positive" : story.sentiment == "risk" ? "Risk" : nil, story.summary, story.symbols.isEmpty ? "Market" : story.symbols.joined(separator: ", ")].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityIdentifier("native-workspace-row-\(row.id)")
+    }
+    private var source: some View { Text("\(story.publisher) · \(story.publishedAt)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+    @ViewBuilder private var sentiment: some View {
+        if let tone = story.sentiment { Text(tone == "positive" ? "Positive" : "Risk").font(.caption2.weight(.semibold)).foregroundStyle(tone == "positive" ? Color.green : Color.red)
+            .padding(.horizontal, 6).padding(.vertical, 3).background((tone == "positive" ? Color.green : .red).opacity(0.1), in: RoundedRectangle(cornerRadius: 6)) }
+    }
+}
+
 @available(iOS 26.0, *) private struct NativeWorkspaceCalendarDatePicker: View {
     @ObservedObject var model: NativeWorkspaceModel
     let control: NativeWorkspaceCalendarDate

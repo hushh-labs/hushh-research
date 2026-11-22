@@ -7,8 +7,45 @@ const MAX_BYTES = 512 * 1024;
 
 /** Bounded, cancellable media preparation. Remote sources are admitted by the
  * authored provider gate; this is not an arbitrary URL or authenticated API. */
-export async function prepareProfilePortrait(source: string, signal: AbortSignal, family: "account" | "people" = "account"): Promise<string> {
-  if (!admittedPortraitSource(source) && !(family === "people" && googlePeoplePhotoSource(source))) throw new Error("PORTRAIT_UNAVAILABLE");
+export function prepareProfilePortrait(source: string, signal: AbortSignal, family: "account" | "people" = "account"): Promise<string> {
+  if (!admittedPortraitSource(source) && !(family === "people" && googlePeoplePhotoSource(source))) return Promise.reject(new Error("PORTRAIT_UNAVAILABLE"));
+  return preparePublicImage(source, signal, family);
+}
+
+export function prepareNativeSymbolArtwork(source: string, signal: AbortSignal): Promise<string> {
+  let url: URL;
+  try { url = new URL(source); } catch { return Promise.reject(new Error("ARTWORK_UNAVAILABLE")); }
+  const segment = url.pathname.match(/^\/image-stock\/([^/]+)\.png$/)?.[1];
+  let symbol = "";
+  try { symbol = segment ? decodeURIComponent(segment) : ""; } catch { return Promise.reject(new Error("ARTWORK_UNAVAILABLE")); }
+  if (source.length > 512 || url.protocol !== "https:" || url.hostname !== "financialmodelingprep.com" || url.port || url.username || url.password || url.search || url.hash ||
+      !symbol || symbol.length > 64 || /[\/\\\x00-\x1f]/.test(symbol)) return Promise.reject(new Error("ARTWORK_UNAVAILABLE"));
+  return preparePublicImage(source, signal, "symbol");
+}
+
+async function symbolRaster(data: string, signal: AbortSignal): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    const finish = () => { image.onload = image.onerror = null; signal.removeEventListener("abort", cancel); };
+    const cancel = () => { finish(); image.src = ""; reject(new Error("ARTWORK_UNAVAILABLE")); };
+    image.onload = () => { finish(); resolve(image); };
+    image.onerror = () => { finish(); reject(new Error("ARTWORK_UNAVAILABLE")); };
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) { cancel(); return; }
+    image.src = data;
+  });
+  if (signal.aborted) throw new Error("ARTWORK_UNAVAILABLE");
+  const canvas = document.createElement("canvas"); canvas.width = canvas.height = 72;
+  const context = canvas.getContext("2d");
+  if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) throw new Error("ARTWORK_UNAVAILABLE");
+  const scale = Math.min(72 / image.naturalWidth, 72 / image.naturalHeight);
+  context.drawImage(image, (72 - image.naturalWidth * scale) / 2, (72 - image.naturalHeight * scale) / 2, image.naturalWidth * scale, image.naturalHeight * scale);
+  const png = canvas.toDataURL("image/png");
+  if (signal.aborted || !png.startsWith("data:image/png;base64,") || png.length > 40_000) throw new Error("ARTWORK_UNAVAILABLE");
+  return png;
+}
+
+async function preparePublicImage(source: string, signal: AbortSignal, family: "account" | "people" | "symbol"): Promise<string> {
   // CapacitorHttp's GET proxy buffers an entire URLSession response before JS
   // sees its stream. Use the SDK-preserved WebKit fetch for this public media
   // read, so byte limits, AbortSignal and redirect policy apply during transfer.
@@ -23,7 +60,7 @@ export async function prepareProfilePortrait(source: string, signal: AbortSignal
   const timer = setTimeout(abort, 8_000);
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
-    const response = await download.call(globalThis, source, { signal: timeout.signal, credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store", redirect: "error" });
+    const response = await download.call(globalThis, source, { signal: timeout.signal, credentials: "omit", referrerPolicy: "no-referrer", cache: family === "symbol" ? "default" : "no-store", redirect: "error" });
     if (!response.ok || Number(response.headers.get("content-length")) > MAX_BYTES) throw new Error("PORTRAIT_UNAVAILABLE");
     reader = response.body?.getReader();
     if (!reader) throw new Error("PORTRAIT_UNAVAILABLE");
@@ -51,7 +88,7 @@ export async function prepareProfilePortrait(source: string, signal: AbortSignal
       if (timeout.signal.aborted) { finish(); reject(new Error("PORTRAIT_UNAVAILABLE")); return; }
       file.readAsDataURL(blob);
     });
-    return await normalizeToAvatarDataUrl(data, timeout.signal, family === "people" ? 128 : 256);
+    return family === "symbol" ? await symbolRaster(data, timeout.signal) : await normalizeToAvatarDataUrl(data, timeout.signal, family === "people" ? 128 : 256);
   } finally {
     clearTimeout(timer); signal.removeEventListener("abort", abort);
     await reader?.cancel().catch(() => undefined);
