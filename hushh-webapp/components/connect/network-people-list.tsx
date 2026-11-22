@@ -295,7 +295,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
   return <section ref={root} tabIndex={-1} className={cn("mx-auto w-full min-w-0 max-w-[880px] space-y-3 sm:space-y-4", !embedded && "px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5")} data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
       {!embedded || mode !== "discovery" ? <Heading>{title}</Heading> : null}
-      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Discovery follows their privacy settings." : "Find people through connections that allow discovery."}</p>
+      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "Eligible people connected to your direct connection." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Eligible profiles appear automatically." : "Discover people through your accepted connections. Degrees are relative to you."}</p>
       {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
     {mode !== "mutuals" ? (

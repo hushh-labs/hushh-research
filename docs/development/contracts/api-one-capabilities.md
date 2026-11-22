@@ -116,9 +116,9 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), mutual count/preview, `canBrowseConnections`, and nullable `visibleConnectionCount`. The count uses the unfiltered shared list's eligibility, excludes the viewer, and caps at 501 for the **500+** label. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects the exact shortest eligible distance over active accepted connections. Both intermediaries on a third-degree path must allow discovery. `query` searches names within that graph set (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. The legacy `include_suggestions` flag is accepted and has no effect. A viewer with no eligible paths receives an empty list. Direct, second-degree, fourth-degree and unrelated people are excluded from the third-degree filter. Current eligibility and path permissions are rechecked after profile loading. The service refuses a result whose degree or permission changed during the read so that the caller can retry. |
-| `GET /api/one/connections/network/visibility` | The caller's own extended network discovery preference, retaining the compatibility key `shareConnectionList`. Missing or existing accounts default to false. This preference does not restrict accepted direct connections from viewing the caller's eligible connection count and list. |
-| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's extended network discovery preference. Account reset clears this permission. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects the exact shortest eligible distance over active accepted connections. Eligible accepted paths determine third degree automatically, without an intermediary sharing toggle. `query` searches names within that graph set (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. The legacy `include_suggestions` flag is accepted and has no effect. A viewer with no eligible paths receives an empty list. Direct, second-degree, fourth-degree and unrelated people are excluded from the third-degree filter. Current eligibility and path permissions are rechecked after profile loading. The service refuses a result whose degree or permission changed during the read so that the caller can retry. |
+| `GET /api/one/connections/network/visibility` | Deprecated compatibility read: returns `{ "shareConnectionList": true, "automaticDiscovery": true }`. The former preference no longer controls discovery. |
+| `PATCH /api/one/connections/network/visibility` | Deprecated compatibility write: accepts the existing strict boolean body, returns the same effective automatic policy and performs no preference write. |
 
 A person's connection count and list require the viewer's current accepted active
 direct connection, without a separate sharing opt-in. Every page rechecks that
@@ -134,8 +134,10 @@ Mutuals remain people directly connected to both viewer and target; their existi
 count can exceed the number of viewable profiles. Pending requests, contact books,
 trusted designations and Circle membership alone do not count as graph edges.
 First degree is a direct active connection. Second degree follows the existing
-shared-neighbor visibility contract. Third degree requires both intermediaries
-to enable sharing; it exposes a distance only. `null` does not prove that no
+shared-neighbor visibility contract. Third degree follows the shortest eligible
+accepted path automatically; legacy `connection_list_shared` values no longer
+control discovery. Profile eligibility, lifecycle and blocks remain authoritative.
+It exposes a distance only. `null` does not prove that no
 connection exists. Anonymous public profiles remain unchanged.
 
 Discovery admits at most 4,000 live eligible nodes and 12,000 edges, uses a

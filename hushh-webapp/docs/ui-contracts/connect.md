@@ -903,7 +903,8 @@ available profile (resolving a missing preview through one mutual page), and mor
 than one opens a list. An unavailable single profile explains that state.
 
 **Extended network** shows people whose shortest eligible connection path has
-three active edges. Both intermediaries must allow discovery. Search and
+three active edges between eligible profiles. Discovery is automatic; no separate
+intermediary toggle is required. Search and
 pagination stay within this third-degree set. Each result carries its degree
 and uses the existing profile preview and connection request controls.
 An empty list explains how connecting with people grows the network.
@@ -921,9 +922,10 @@ Signed-in profiles show network details under the hero's contact details. The
 connection count opens the paginated list after the server confirms that
 the viewer is an accepted active direct connection, without a separate owner opt-in. It
 uses **500+ connections** above 500. Rows show **Connected**, **Connect**, or
-the applicable pending state for the viewer. **Extended network discovery** starts
-off, controls anonymous third-degree discovery rather than direct list visibility, and confirms only
-server-acknowledged changes. It grants no access to private contacts or information.
+the applicable pending state for the viewer. There is no **Extended network discovery**
+toggle. Accepted connections and existing profile visibility determine anonymous
+degrees automatically. Legacy stored sharing flags no longer control discovery.
+This grants no access to private contacts, graph paths or information.
 Anonymous public profile projections do not fetch network information.
 
 Every profile or list may open the next profile or list inside the same shared
