@@ -728,7 +728,7 @@ export function SpecialistPendingConsentRequestCard({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold text-foreground tabular-nums">
-                  {displayCoins > 0 ? formatCommerceMoney(displayCoins) : "Paid scope"}
+                  {displayCoins > 0 ? formatCommerceMoney(displayCoins) : "Paid access"}
                 </span>
                 {paidStatusCopy ? (
                   <span className="font-medium text-muted-foreground">{paidStatusCopy}</span>
