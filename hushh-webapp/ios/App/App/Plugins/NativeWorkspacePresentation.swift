@@ -1313,7 +1313,7 @@ struct NativeWorkspaceTabStrip: View {
                     Text(row.label).font(.body.weight(.semibold)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
                     if let summary = story.summary { Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 56), alignment: .leading)], alignment: .leading, spacing: 6) {
-                        ForEach(story.symbols, id: \.self) { symbol in
+                        ForEach(story.symbols.isEmpty ? ["Market"] : story.symbols, id: \.self) { symbol in
                             Text(symbol).font(.system(.caption2, design: .monospaced).weight(.semibold)).padding(.horizontal, 7).padding(.vertical, 4)
                                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
                         }
