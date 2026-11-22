@@ -182,10 +182,14 @@ async def resolve_scheduled_model(
     expected: ScheduledModelBinding | None = None,
 ) -> ScheduledModel:
     from hushh_mcp.services.agent_chat_service import load_one_agent_runtime_manifest
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
     await check()
-    if not owner_cloud_agent() or log is None or getattr(log, "_owner_id", None) != pod_id:
+    if (
+        not personal_sandbox_workspace_runtime()
+        or log is None
+        or getattr(log, "_owner_id", None) != pod_id
+    ):
         raise ScheduleRefused("SCHEDULE_MODEL_OWNER_REFUSED")
     await log.require_open()
     revision = ai_selection_revision()
