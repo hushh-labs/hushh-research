@@ -53,7 +53,7 @@
   },
   "environments": {
     "local": {
-      "project": "hushh-pda-uat",
+      "project": "hushh-pda-dev",
       "auth_mode": "vertex_adc",
       "text_model": "gemini-4-hydrogen",
       "text_locations": [
