@@ -95,7 +95,7 @@ struct NativeFinanceRow: View {
         Group {
             if row.readOnly == true { bodyContent }
             else { Button { _ = model.choice("row", row: row.id) } label: { bodyContent }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || model.pending != nil) }
-        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(.horizontal, 16).padding(.vertical, content.kind == "sector" ? 6 : 16).frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("native-workspace-row-\(row.id)")
     }
     @ViewBuilder private var bodyContent: some View {
@@ -177,9 +177,9 @@ struct NativeFinanceRow: View {
         let art = content.artwork
         ZStack {
             if content.style == "holding" { RoundedRectangle(cornerRadius: 10).fill(.quaternary); Text(art?.glyph ?? "").font(.caption.weight(.semibold)) } else {
-            RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Color(hue: Double(art?.hue ?? 0) / 360, saturation: 0.6, brightness: 0.3), Color(hue: Double((art?.hue ?? 0) + 38) / 360, saturation: 0.66, brightness: 0.22)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            if let png = art?.png, let data = Data(base64Encoded: String(png.dropFirst("data:image/png;base64,".count))), let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit().padding(8) }
-            else { Text(art?.glyph ?? "").font(.caption.weight(.semibold)).foregroundStyle(.white) }
+            RoundedRectangle(cornerRadius: content.style == "mover" ? 20 : 12).fill(LinearGradient(colors: [Color(hue: Double(art?.hue ?? 0) / 360, saturation: 0.6, brightness: 0.3), Color(hue: Double((art?.hue ?? 0) + 38) / 360, saturation: 0.66, brightness: 0.22)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            if let png = art?.png, let data = Data(base64Encoded: String(png.dropFirst("data:image/png;base64,".count))), let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit().padding(content.style == "mover" ? 0 : 8) }
+            else { Text(art?.glyph ?? "").font(.system(size: content.style == "mover" ? 30 : 12, weight: .semibold)).foregroundStyle(.white) }
             }
         }.frame(width: 40, height: 40).accessibilityHidden(true)
     }

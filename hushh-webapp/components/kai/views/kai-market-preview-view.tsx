@@ -373,15 +373,20 @@ export function OneMarketIndexStrip({
   );
 }
 
+function sharedMoverQuoteTime(groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]>): string | null {
+  const shown = [...groups.gain.slice(0, 3), ...groups.lose.slice(0, 3)];
+  const time = shown[0]?.asOf;
+  return time && shown.every(row => row.asOf === time) && Number.isFinite(Date.parse(time)) ? time : null;
+}
+
 export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
   const id = useId();
   const columns = [
     { key: "gain", title: "Movers", rows: groups.gain.slice(0, 3) },
     { key: "lose", title: "Losers", rows: groups.lose.slice(0, 3) },
   ] as const;
-  const shown = columns.flatMap((column) => column.rows);
-  const commonAsOf = shown[0]?.asOf ?? null;
-  const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
+  const commonAsOf = sharedMoverQuoteTime(groups);
+  const sharedTime = Boolean(commonAsOf);
   return (
     <div>
       <div className="grid grid-cols-2 gap-4">
@@ -1231,11 +1236,13 @@ export function KaiMarketPreviewView() {
       ...(sectorModel.canExpand ? [{ key: "sector-scope", label: sectorModel.expanded ? "Show highlights" : `All ${sectorModel.chartRows.length} sectors`, detail: !sectorModel.expanded ? "3 highest · 3 lowest" : "All available sectors", run: () => sectorModel.setExpanded(value => !value) }] : []),
       ...(sectorModel.chartRows[0]?.basis ? [{ key: "sector-basis", label: sectorModel.chartRows[0].basis }] : []),
     ] });
+    const moverAsOf = sharedMoverQuoteTime(moverGroups);
     for (let rank = 0; rank < 3; rank++) sections.push({ key: `movers:${rank}`, ...(rank === 0 ? { title: "Market movers" } : {}), layout: "tiles", rows: (["gain", "lose"] as const).map(group => {
       const row = moverGroups[group][rank];
-      return row ? { key: `mover:${group}:${row.symbol}`, label: row.symbol, ...(rank === 0 ? { detail: group === "gain" ? "Movers" : "Losers" } : {}), finance: { kind: "security" as const, style: "mover" as const, symbol: row.symbol, artwork: symbolAvatarFallback(row.symbol), price: formatOneMarketPercent(row.changePct), ...(row.changePct === null ? {} : { change: row.changePct }), metadata: row.companyName, note: row.asOf ? formatOverviewAsOf(row.asOf) : "Time unavailable" },
+      return row ? { key: `mover:${group}:${row.symbol}`, label: row.symbol, ...(rank === 0 ? { detail: group === "gain" ? "Movers" : "Losers" } : {}), finance: { kind: "security" as const, style: "mover" as const, symbol: row.symbol, artwork: symbolAvatarFallback(row.symbol), price: formatOneMarketPercent(row.changePct), ...(row.changePct === null ? {} : { change: row.changePct }), metadata: row.companyName, ...(!moverAsOf && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? { note: formatMarketQuoteTime(row.asOf) } : {}) },
         run: () => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol })) } : { key: `mover-empty:${group}:${rank}`, label: "Quote unavailable", detail: `${group === "gain" ? "Movers" : "Losers"} ${rank + 1}` };
     }) });
+    if (moverAsOf) sections.push({ key: "mover-freshness", rows: [{ key: "mover-time", label: formatOverviewAsOf(moverAsOf) }] });
     if (showConnectPortfolio) sections.push({ key: "connect-portfolio", rows: vaultOwnerToken ? [
       { key: "portfolio-description", label: "See insights tailored to your portfolio", detail: "Unlock personalized analysis and real-time alerts." },
       { key: "connect-portfolio", label: "Connect Portfolio", run: () => openOneMarketHref(ROUTES.KAI_IMPORT) },

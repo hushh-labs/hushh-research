@@ -495,7 +495,7 @@ export function RiaPicksList({
     { key: "stock-controls", rows: [...nativeStatus, ...(onHistory ? [{ key: "history", label: "History", web: true, run: onHistory }] : [])] },
     { key: "stock-filters", layout: "toolbar", rows: filters },
     { key: "companies", title: `${visibleStart}–${visibleEnd} of ${filteredRows.length} companies`, rows: companies },
-    { key: "pages", rows: [{ key: "page", label: `Page ${page} of ${totalPages}`, ...(totalPages > 1 ? { choices: pageNumbers.flatMap(value => typeof value === "number" ? [{ key: String(value), label: String(value), selected: page === value, run: () => goToPage(value) }] : []) } : {}) }, { key: "previous", label: "Previous companies", enabled: page > 1, run: () => goToPage(page - 1) }, { key: "next", label: "Next companies", enabled: page < totalPages, run: () => goToPage(page + 1) }] },
+    ...(filteredRows.length > pageSize ? [{ key: "pages", rows: [{ key: "page", label: `Page ${page} of ${totalPages}`, choices: pageNumbers.flatMap(value => typeof value === "number" ? [{ key: String(value), label: String(value), selected: page === value, run: () => goToPage(value) }] : []) }, { key: "previous", label: "Previous companies", enabled: page > 1, run: () => goToPage(page - 1) }, { key: "next", label: "Next companies", enabled: page < totalPages, run: () => goToPage(page + 1) }] }] : []),
   ];
   return <NativeFinanceLayer pane="analysis" active contentPresentation="native" title="Stocks" sections={sections} viewKey={`${activeSourceId}:${page}:${pageSize}:${tierFilter}:${sectorFilter}`} search={{ query, label: "Search stocks", change: setQuery }} webChild={Boolean(selectedRow) || historyOpen} fallback={content} />;
 }

@@ -81,9 +81,8 @@ enum NativeFinanceArtwork {
 struct NativeFinanceNewsCover: View {
     @ObservedObject var model: NativeWorkspaceModel
     let sources: [NativeFinanceArtworkSource]
-    @Environment(\.scenePhase) private var scenePhase
     @State private var image: UIImage?
-    @State private var privacyAllowed = false
+    @State private var privacy = HushhSessionPrivacyShield.shared.snapshot()
     private struct Request: Equatable {
         let owner: NativeWorkspaceIdentity; let privacy: Int; let active: Bool
         let sources: [NativeFinanceArtworkSource]
@@ -93,19 +92,18 @@ struct NativeFinanceNewsCover: View {
         return model.active && privacy.appIsActive && !privacy.shielded && privacy.generation == model.state.privacyGeneration
     }
     private func refreshPrivacy() {
-        privacyAllowed = authorized
-        if !privacyAllowed { image = nil }
+        privacy = HushhSessionPrivacyShield.shared.snapshot()
+        if !authorized { image = nil }
     }
     var body: some View {
         let request = Request(owner: model.state.identity, privacy: model.state.privacyGeneration,
-            active: privacyAllowed && model.active && scenePhase == .active, sources: sources)
+            active: model.active && privacy.appIsActive && !privacy.shielded && privacy.generation == model.state.privacyGeneration, sources: sources)
         Group {
             if let image { Image(uiImage: image).resizable().scaledToFill() }
             else { Image(systemName: "newspaper").font(.title2).foregroundStyle(.secondary) }
         }.frame(width: 56, height: 56).background(Color(uiColor: .tertiarySystemFill))
             .clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
             .onAppear { refreshPrivacy() }
-            .onChange(of: scenePhase) { _, _ in refreshPrivacy() }
             .onReceive(NotificationCenter.default.publisher(for: HushhSessionPrivacyShield.presentationDidChange)) { _ in refreshPrivacy() }
             .task(id: request) {
                 image = nil
