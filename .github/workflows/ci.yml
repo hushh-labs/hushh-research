@@ -1223,6 +1223,7 @@ jobs:
           import json
           import re
           import subprocess
+          import sys
 
           payload = json.loads(
               subprocess.check_output(
@@ -1235,14 +1236,19 @@ jobs:
               key=lambda item: tuple(int(n) for n in re.findall(r"\d+", item[0])),
               reverse=True,
           )
-          for runtime, devices in runtimes:
-              if "iOS" not in runtime:
-                  continue
-              for device in devices:
-                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
-                      print(device["udid"])
-                      raise SystemExit(0)
-          raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
+          candidates = [
+              (runtime, device["name"], device["udid"])
+              for runtime, devices in runtimes
+              if "iOS" in runtime
+              for device in devices
+              if device.get("isAvailable") and device.get("name", "").startswith("iPhone")
+          ]
+          standard = [c for c in candidates if "Duo" not in c[1]]
+          chosen = (standard or candidates or [None])[0]
+          if not chosen:
+              raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
+          print(f"Selected simulator: {chosen[1]} ({chosen[0]})", file=sys.stderr)
+          print(chosen[2])
           PY
           )"
           echo "SIMULATOR_ID=${SIMULATOR_ID}" >> "$GITHUB_ENV"

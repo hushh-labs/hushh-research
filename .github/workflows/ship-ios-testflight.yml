@@ -613,7 +613,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          simulator_id="$(python3 -c 'import json, re, subprocess; payload = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True)); runtimes = sorted(payload.get("devices", {}).items(), key=lambda item: tuple(int(n) for n in re.findall(r"\d+", item[0])), reverse=True); matches = [device["udid"] for runtime, devices in runtimes if "iOS" in runtime for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; print(matches[0] if matches else ""); raise SystemExit(0 if matches else "No available iPhone Simulator is installed on the release runner.")')"
+          simulator_id="$(python3 -c 'import json, re, subprocess; payload = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True)); runtimes = sorted(payload.get("devices", {}).items(), key=lambda item: tuple(int(n) for n in re.findall(r"\d+", item[0])), reverse=True); candidates = [device for runtime, devices in runtimes if "iOS" in runtime for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; standard = [d for d in candidates if "Duo" not in d.get("name", "")]; chosen = (standard or candidates or [None])[0]; print(chosen["udid"] if chosen else ""); raise SystemExit(0 if chosen else "No available iPhone Simulator is installed on the release runner.")')"
           xcodebuild test \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
