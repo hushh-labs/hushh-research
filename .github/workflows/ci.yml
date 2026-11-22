@@ -1221,6 +1221,7 @@ jobs:
           set -euo pipefail
           SIMULATOR_ID="$(python3 - <<'PY'
           import json
+          import re
           import subprocess
 
           payload = json.loads(
@@ -1229,7 +1230,12 @@ jobs:
                   text=True,
               )
           )
-          for runtime, devices in payload.get("devices", {}).items():
+          runtimes = sorted(
+              payload.get("devices", {}).items(),
+              key=lambda item: tuple(int(n) for n in re.findall(r"\d+", item[0])),
+              reverse=True,
+          )
+          for runtime, devices in runtimes:
               if "iOS" not in runtime:
                   continue
               for device in devices:

@@ -690,7 +690,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(scene.update(publicNameScene(update: 2, appearance: "dark")))
         XCTAssertTrue(presented.isModalInPresentation)
         XCTAssertTrue(scene.settle(pending))
-        XCTAssertFalse(presented.isModalInPresentation, "Rejected/refused Save must restore native drag dismissal")
+        let privacyAfterSettle = HushhSessionPrivacyShield.shared.snapshot()
+        XCTAssertFalse(
+            presented.isModalInPresentation,
+            "Rejected/refused Save must restore native drag dismissal (shielded=\(privacyAfterSettle.shielded), appIsActive=\(privacyAfterSettle.appIsActive), canEdit=\(scene.model.canEdit))"
+        )
         let first = expectation(description: "First actual dismissal observer")
         let second = expectation(description: "Joined actual dismissal observer")
         scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
