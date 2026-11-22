@@ -250,6 +250,10 @@
         ],
         "one_tool_names": [
           "ask_email_agent",
+          "gmail_list_needs_reply",
+          "gmail_read_thread",
+          "gmail_search_mail",
+          "open_gmail_reply_draft",
           "propose_gmail_mailbox_change",
           "propose_gmail_todo"
         ],

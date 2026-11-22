@@ -235,4 +235,62 @@ describe("connector read receipts", () => {
     expect(parseConnectorReadReceipt({ ...listing, owner_compile_query: null,
       owner_compile_window: null })).not.toHaveProperty("ownerCompileAvailable");
   });
+
+  it("parses direct Gmail REST tool results with bounded live_sources while keeping durable receipts opaque", () => {
+    const mailResult = {
+      status: "ok",
+      structured: {
+        schema_version: "specialist_read.v1",
+        connector: "mail",
+        status: "ok",
+        sources: [
+          { source_ref: "mail:1", kind: "message", label: "Mail" },
+          { source_ref: "mail:2", kind: "message", label: "Mail" },
+        ],
+        truncated: false,
+        metadata_only: false,
+      },
+      live_sources: [
+        {
+          ordinal: 1,
+          source_ref: "mail:1",
+          sender: "Ravi Gupta\x00",
+          subject: "Term sheet notes",
+          received_at: "2026-10-09T08:30:00Z",
+          unread: true,
+          has_body: true,
+          attachments: ["TermSheet.pdf"],
+        },
+        {
+          ordinal: 99,
+          source_ref: "mail:99",
+          sender: "Invalid",
+          subject: "Dropped",
+        },
+      ],
+    };
+
+    const parsed = parseAgentToolResultExperience("gmail_search_mail", mailResult);
+    expect(parsed).toMatchObject({
+      type: "one.connector_read.v1",
+      connector: "mail",
+      status: "ok",
+      metadataOnly: false,
+      sourceRefs: ["mail:1", "mail:2"],
+      liveSources: [
+        {
+          ordinal: 1,
+          sourceRef: "mail:1",
+          sender: "Ravi Gupta",
+          subject: "Term sheet notes",
+          receivedAt: "2026-10-09T08:30:00Z",
+          unread: true,
+          hasBody: true,
+          attachments: ["TermSheet.pdf"],
+        },
+      ],
+    });
+    // Durable receipt parser strictly ignores live_sources and never accepts extra keys.
+    expect(parseConnectorReadReceipt({ ...mailResult.structured, live_sources: mailResult.live_sources })).toBeNull();
+  });
 });

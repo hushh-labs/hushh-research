@@ -32,6 +32,18 @@ The host validates provenance, lifetime and exact account/grant through staging;
 the model still decides meaning and plans the review. Actual-model interpretation
 of this clarification contract remains separate from scripted enforcement tests.
 
+### Declared: direct Gmail REST tools and ephemeral hybrid re-ranking
+
+- Owner: One (`agent_one`, `hushh_mcp/agents/one/agent.yaml`), with typed Gmail REST API v1 tools in `hushh_mcp/agents/email/chat_tools.py` (`gmail_search_mail`, `gmail_read_thread`, `gmail_list_needs_reply`, `open_gmail_reply_draft`) and pure in-RAM ranking gene `hushh_mcp/services/gmail_semantic_ranker.py`.
+- Semantic boundary: One decides when to query Mail, authors 1 to 3 complementary Gmail REST `q` queries (exact operator, synonym `OR` net, recent-window fallback), chooses whether to broaden on `no_match`, decides whether to drill into an offered thread or open an editable reply, and synthesizes the final answer. Host code never classifies user intent by regex/keywords, never routes around One, and never invents recipients or replies.
+- Deterministic support & validators:
+  - `workspace_mcp_tools._owner(tool_context, "gmail")` enforces owner identity, `typed_chat` admission, `gmail_chat_reads` feature admission, and cryptographic owner/pod token verification before every provider fetch.
+  - `gmail_metadata_reader.py` enforces `Accept-Encoding: identity`, byte/deadline/concurrency caps, owner-timezone epoch pinning (`_epoch_date_terms`), pre/post grant verification (`require_current`), and hidden-CSS/HTML prompt-injection stripping (`gmail_message_text.py`).
+  - `gmail_semantic_ranker.py` runs purely in RAM over the bounded REST candidates (Reciprocal Rank Fusion + Unicode lexical + optional already-loaded `intfloat/multilingual-e5-small`); candidate snippets and vectors are discarded before return and never persisted.
+  - `external_read_boundary.py` enforces a 3-state CaMeL taint lattice: zero-match reads clear taint up to 2 automatic retries; non-empty reads lock the turn to answer, at most one strict ordinal-only `gmail_read_thread` drill-down (`query == ""`), or a reviewable draft/reply (`open_gmail_reply_draft` with server-pinned AES-GCM `rs1.` `source_mail_ref`).
+  - `external_read_projection.py` strips tool arguments, bodies, `live_sources`, and `rs1.` tokens before encrypting durable sessions.
+- Verification before promotion: automated unit + real `multilingual-e5-small` Hinglish/conceptual ranking tests + real AES-GCM reply-source tampering negative controls + full ADK Runner E2E tests in `tests/services/test_gmail_chat_tools.py`, followed by UAT post-deploy verification over real Gmail REST accounts.
+
 ### Declared: recipient-requested Finance object review
 
 `one_adk/finance_share_context.py` admits an explicit recipient-selected curated

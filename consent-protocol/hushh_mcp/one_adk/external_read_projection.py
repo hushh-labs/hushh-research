@@ -13,6 +13,8 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
     STATE_EXTERNAL_READ_CONTINUATION,
+    STATE_MAIL_DRILLDOWN_USED,
+    STATE_MAIL_EMPTY_RETRIES,
     STATE_SELECTED_DRIVE_SHARE,
 )
 from hushh_mcp.one_adk.receipt_client_tools import (
@@ -32,6 +34,8 @@ _EPHEMERAL = frozenset(
         STATE_EXTERNAL_READ,
         STATE_EXTERNAL_READ_CONTINUATION,
         STATE_CONTACT_CALENDAR_READ,
+        STATE_MAIL_EMPTY_RETRIES,
+        STATE_MAIL_DRILLDOWN_USED,
         STATE_SELECTED_DRIVE_SHARE,
         STATE_RECEIPT_RESULT,
         "temp:hussh:workspace_chat_admission",
@@ -47,6 +51,7 @@ _EPHEMERAL = frozenset(
         "hussh:gmail_information_request_context",
         "hussh:pending_directive:gmail_information_request_reply",
         "hussh:pending_directive:agent_email_specialist",
+        "hussh:pending_directive:gmail_reply_draft",
     }
 )
 _PRIVATE_DRAFT_TOOLS = frozenset(
@@ -57,6 +62,7 @@ _PRIVATE_DRAFT_TOOLS = frozenset(
         "propose_calendar_cancellation",
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
+        "open_gmail_reply_draft",
     }
 )
 

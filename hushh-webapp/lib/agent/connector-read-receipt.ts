@@ -24,6 +24,17 @@ function isMailTruncationReason(value: unknown): value is MailTruncationReason {
   return MAIL_TRUNCATION_REASONS.some(reason => reason === value);
 }
 
+export type LiveMailSource = {
+  ordinal: number;
+  sourceRef: string;
+  sender: string;
+  subject: string;
+  receivedAt: string | null;
+  unread: boolean;
+  hasBody: boolean;
+  attachments: string[];
+};
+
 export type ConnectorReadExperience = {
   type: typeof CONNECTOR_READ_EXPERIENCE_TYPE;
   connector: "mail" | "drive";
@@ -32,6 +43,8 @@ export type ConnectorReadExperience = {
   truncated: boolean;
   metadataOnly: boolean;
   truncationReasons?: MailTruncationReason[];
+  /** Ephemeral display rows for live Mail turns only; stripped before persistence. */
+  liveSources?: LiveMailSource[];
   sourcePages?: (number | null)[];
   backgroundSearchAvailable?: boolean;
   backgroundSearchQuery?: string;
@@ -185,6 +198,46 @@ export function parseDriveOwnerCompileWindow(value: unknown): DriveOwnerCompileW
     return null;
   }
   return input as DriveOwnerCompileWindow;
+}
+
+export function parseLiveMailSources(value: unknown): LiveMailSource[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const parsed: LiveMailSource[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.slice(0, 15)) {
+    const item = record(raw);
+    if (!item) continue;
+    const ordinal = typeof item.ordinal === "number" && Number.isInteger(item.ordinal) &&
+      item.ordinal >= 1 && item.ordinal <= 25 ? item.ordinal : null;
+    const sourceRef = typeof item.source_ref === "string" &&
+      /^mail:(?:[1-9]|1[0-9]|2[0-5])$/.test(item.source_ref) ? item.source_ref : null;
+    const sender = typeof item.sender === "string"
+      ? item.sender.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 120) : "";
+    const subject = typeof item.subject === "string"
+      ? item.subject.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 180) : "";
+    if (ordinal === null || !sourceRef || seen.has(sourceRef) || !sender || !subject) continue;
+    seen.add(sourceRef);
+    const receivedAt = typeof item.received_at === "string" && item.received_at.length <= 64
+      ? item.received_at : null;
+    const attachments = Array.isArray(item.attachments)
+      ? item.attachments
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 120))
+        .filter(Boolean)
+        .slice(0, 4)
+      : [];
+    parsed.push({
+      ordinal,
+      sourceRef,
+      sender,
+      subject,
+      receivedAt,
+      unread: item.unread === true,
+      hasBody: item.has_body === true,
+      attachments,
+    });
+  }
+  return parsed.length > 0 ? parsed : undefined;
 }
 
 export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperience | null {

@@ -14,6 +14,7 @@ import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
 import { parseSharedFieldSensitivities, type SharedFieldSensitivity } from "@/lib/consent/field-sensitivity";
 import {
   parseConnectorReadReceipt,
+  parseLiveMailSources,
   parseWorkspaceConnectorSetup,
   parseWorkspaceConnectorSetupDescriptor,
   WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
@@ -803,12 +804,22 @@ export function parseAgentToolResultExperience(
   if (sharedCard) return sharedCard;
   const financeCard = parseFinanceToolResult(toolName, content);
   if (financeCard) return financeCard;
-  if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
-    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapToolResult(content)) : null;
+  const directMailReadTool =
+    toolName === "gmail_search_mail" ||
+    toolName === "gmail_read_thread" ||
+    toolName === "gmail_list_needs_reply";
+  if (toolName === "ask_email_agent" || directMailReadTool || toolName === "ask_documents_agent") {
+    const unwrapped = unwrapToolResult(content);
+    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapped) : null;
     if (brief) return brief;
-    const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
-    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
-      ? receipt : null;
+    const receipt = parseConnectorReadReceipt(unwrapped?.structured);
+    const expectedConnector = toolName === "ask_documents_agent" ? "drive" : "mail";
+    if (receipt?.connector !== expectedConnector) return null;
+    if (expectedConnector === "mail") {
+      const liveSources = parseLiveMailSources(unwrapped?.live_sources);
+      if (liveSources) return { ...receipt, liveSources };
+    }
+    return receipt;
   }
   if (toolName === "read_workspace_tool") {
     const result = unwrapToolResult(content);
