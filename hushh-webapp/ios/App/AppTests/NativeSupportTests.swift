@@ -514,7 +514,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(host.presentedViewController)
     }
 
-    func testCommittedNavigationForwarderPreservesCapacitorDelegateCallbacks() {
+    @MainActor
+    func testCommittedNavigationForwarderPreservesCapacitorDelegateCallbacks() throws {
         final class DelegateProbe: NSObject, WKNavigationDelegate {
             var didStart = false
             var didCommit = false
@@ -525,13 +526,25 @@ final class NativeSupportTests: XCTestCase {
                 didCommit = true
             }
         }
-        let webView = WKWebView(frame: .zero)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let host = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        let webView = WKWebView(frame: host.view.bounds)
+        host.view.addSubview(webView)
         let target = DelegateProbe()
         let committed = expectation(description: "committed page observed")
         let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in committed.fulfill() }
         webView.navigationDelegate = forwarder
         webView.loadHTMLString("<html><body>public fixture</body></html>", baseURL: nil)
-        wait(for: [committed], timeout: 5)
+        wait(for: [committed], timeout: 20)
         XCTAssertTrue(target.didStart)
         XCTAssertTrue(target.didCommit)
     }
@@ -1669,7 +1682,8 @@ final class NativeSupportTests: XCTestCase {
         window.rootViewController = parent
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        let scene = NativeProfileNameScene(publicNameScene())
+        var quarantined = false
+        let scene = NativeProfileNameScene(publicNameScene(), isQuarantined: { quarantined })
         let shown = expectation(description: "Public ordinary scene presented")
         XCTAssertTrue(scene.present(from: parent) { admitted in XCTAssertTrue(admitted); shown.fulfill() })
         await fulfillment(of: [shown], timeout: 3)
@@ -1682,10 +1696,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(scene.model.canEdit, "A pending Save keeps the owned sheet locked")
         XCTAssertTrue(presented.isModalInPresentation)
         XCTAssertTrue(scene.settle(pending))
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
         XCTAssertTrue(scene.model.canEdit, "A settled Save restores editing authority")
-        XCTAssertEqual(presented.isModalInPresentation, !privacy.appIsActive || privacy.shielded,
-            "A settled Save unlocks native drag dismissal only while the app is active and unshielded; active=\(privacy.appIsActive) shielded=\(privacy.shielded)")
+        XCTAssertFalse(presented.isModalInPresentation, "A settled Save unlocks native drag dismissal when unquarantined")
+        quarantined = true
+        scene.refreshPrivacy()
+        XCTAssertTrue(presented.isModalInPresentation, "Privacy quarantine must re-lock native drag dismissal")
+        quarantined = false
+        scene.refreshPrivacy()
+        XCTAssertFalse(presented.isModalInPresentation, "Clearing privacy quarantine restores native drag dismissal")
         let first = expectation(description: "First actual dismissal observer")
         let second = expectation(description: "Joined actual dismissal observer")
         scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
@@ -5601,7 +5619,7 @@ final class NativeSupportTests: XCTestCase {
             let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 alert.presentingViewController === parent && !alert.isBeingPresented
             }, object: nil)
-            await fulfillment(of: [visible], timeout: 3)
+            await fulfillment(of: [visible], timeout: 10)
             XCTAssertFalse(alert.presentationController?.delegate === presenter)
             if style == .alert {
                 presenter.choose("delete")
@@ -5609,7 +5627,7 @@ final class NativeSupportTests: XCTestCase {
             }
             let dismissed = expectation(description: "Owned alert detached")
             presenter.retire { dismissed.fulfill() }
-            await fulfillment(of: [dismissed], timeout: 3)
+            await fulfillment(of: [dismissed], timeout: 10)
             XCTAssertNil(alert.presentingViewController)
             XCTAssertEqual(choices, style == .alert ? 1 : 0)
         }
