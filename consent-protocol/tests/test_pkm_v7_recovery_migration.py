@@ -201,7 +201,8 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "GOOGLE_GENAI_USE_VERTEXAI=true" in candidate_evaluator
     assert "GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}" in candidate_evaluator
     assert "GOOGLE_CLOUD_LOCATION=global" in candidate_evaluator
-    assert "HUSHH_VERTEX_LOCATIONS=global,us,eu" in candidate_evaluator
+    assert "HUSHH_VERTEX_LOCATIONS=global" in candidate_evaluator
+    assert "HUSHH_VERTEX_LOCATIONS=global,us,eu" not in candidate_evaluator
     assert "REVIEWER_" not in candidate_evaluator
     assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in release_gate
     assert "verify-reviewer-byok" in workflow
