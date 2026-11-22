@@ -367,15 +367,19 @@ export function AppStreamPanel({
             )}
             aria-live={isStreaming ? "polite" : undefined}
           >
-            {response ?? <p className="whitespace-pre-wrap break-words">{responseText}</p>}
-            {isStreaming ? (
-              <StreamingCursor
-                isStreaming
-                color={isError ? "error" : "primary"}
-                size="md"
-                className="ml-1"
-              />
-            ) : null}
+            {response ?? (
+              <p className="whitespace-pre-wrap break-words">
+                {responseText}
+                {isStreaming ? (
+                  <StreamingCursor
+                    isStreaming
+                    color={isError ? "error" : "primary"}
+                    size="md"
+                    className="ml-1"
+                  />
+                ) : null}
+              </p>
+            )}
           </div>
         ) : null}
 

@@ -10797,10 +10797,36 @@ html:has([data-profile-type-scale]),
   }
 }
 
+@keyframes agent-stream-caret {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 0.78;
+    transform: scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   [data-agent-streaming-settle="true"] > :last-child,
   [data-agent-streaming-settle="true"] [data-slot="markdown"] > :last-child {
     animation: agent-phrase-settle 160ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+
+  [data-agent-streaming-cursor="true"] [data-slot="markdown"] > p:last-child::after,
+  [data-agent-streaming-cursor="true"] [data-slot="markdown"] > ul:last-child > li:last-child::after,
+  [data-agent-streaming-cursor="true"] [data-slot="markdown"] > ol:last-child > li:last-child::after {
+    content: "";
+    display: inline-block;
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-left: 0.25rem;
+    border-radius: 9999px;
+    vertical-align: middle;
+    background: currentColor;
+    animation: agent-stream-caret 920ms ease-in-out infinite;
   }
 }
 @media (max-width: 959px) {

@@ -54,6 +54,12 @@ import { beginChatPreferredNameTurn } from "@/lib/agent/chat-preferred-name-turn
 import { saveChatPreferredName } from "@/lib/agent/owner-style-settings-writer";
 import { reconcileChatOnboardingNameChoice } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
 import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
+import {
+  aliasAgentThoughtSummaryServerId,
+  appendThinkingSummaryChunk,
+  deleteAgentThoughtSummary,
+  setAgentThoughtSummary,
+} from "@/lib/agent/agent-thought-summary-store";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -5051,6 +5057,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     let toolStatusMessageId: string | null = null;
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
+    let pendingThinkingDelta = "";
+    let thinkingFlushFrame: number | null = null;
+    let accumulatedThinkingSummary = "";
+    let latestServerMessageId: string | null = null;
     const patchTurnSessionState = (patch: {
       conversationId?: string | null;
       isChatLoading?: boolean;
@@ -5073,11 +5083,80 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (patch.stop !== undefined) stopActiveTurnRef.current = patch.stop;
       }
     };
+    const flushThinkingDelta = (stillThinking = true) => {
+      thinkingFlushFrame = null;
+      if (!isTurnSessionActive()) {
+        pendingThinkingDelta = "";
+        return;
+      }
+      const delta = pendingThinkingDelta;
+      pendingThinkingDelta = "";
+      if (delta) {
+        accumulatedThinkingSummary = appendThinkingSummaryChunk(
+          accumulatedThinkingSummary,
+          delta,
+        );
+      }
+      if (!accumulatedThinkingSummary && stillThinking) return;
+      if (accumulatedThinkingSummary) {
+        setAgentThoughtSummary({
+          ownerId: userId,
+          vaultEpoch: vaultSessionEpoch,
+          conversationId:
+            conversationIdRef.current ||
+            activeSessionBinding?.conversationId ||
+            turnConversationId,
+          messageId: assistantMessageId,
+          serverMessageId: latestServerMessageId,
+          text: accumulatedThinkingSummary,
+        });
+      }
+      updateMessage(assistantMessageId, (message) => {
+        if (
+          message.receiptRedacted ||
+          message.receiptPrivate ||
+          message.consentBundleId ||
+          message.consentAccessEnded
+        ) {
+          return message;
+        }
+        if (!accumulatedThinkingSummary && !message.isThinkingStreaming) {
+          return message;
+        }
+        return {
+          ...message,
+          ...(accumulatedThinkingSummary
+            ? { thinkingSummary: accumulatedThinkingSummary }
+            : {}),
+          isThinkingStreaming: Boolean(accumulatedThinkingSummary && stillThinking),
+        };
+      });
+    };
+
+    const queueThinkingDelta = (delta: string) => {
+      if (!delta) return;
+      pendingThinkingDelta = appendThinkingSummaryChunk(
+        pendingThinkingDelta,
+        delta,
+      );
+      if (!isWorkspaceMountedRef.current) {
+        flushThinkingDelta(true);
+        return;
+      }
+      if (thinkingFlushFrame !== null) return;
+      thinkingFlushFrame = window.requestAnimationFrame(() =>
+        flushThinkingDelta(true),
+      );
+    };
+
     const flushAssistantDelta = () => {
       assistantFlushFrame = null;
       if (!isTurnSessionActive()) {
         pendingAssistantDelta = "";
         return;
+      }
+      if (pendingThinkingDelta || accumulatedThinkingSummary) {
+        flushThinkingDelta(false);
       }
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
@@ -5086,6 +5165,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ...message,
         text: message.ephemeral ? delta : `${message.text}${delta}`,
         status: "streaming",
+        isThinkingStreaming: false,
         ephemeral: false,
       }));
     };
@@ -5108,16 +5188,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         window.cancelAnimationFrame(assistantFlushFrame);
         assistantFlushFrame = null;
       }
+      if (thinkingFlushFrame !== null) {
+        window.cancelAnimationFrame(thinkingFlushFrame);
+        thinkingFlushFrame = null;
+      }
       pendingAssistantDelta = "";
+      pendingThinkingDelta = "";
     };
 
     const finishCanceledTurn = () => {
       if (!isTurnSessionActive()) return;
+      flushThinkingDelta(false);
       flushAssistantDelta();
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.text || "Agent turn canceled.",
-        status: "done", structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
+        status: "done",
+        isThinkingStreaming: false,
+        structuredExperiences: withoutSyncingReceiptCard(message.structuredExperiences),
         streamEvents: settleVisibleStreamEvents(
           message.streamEvents,
           "blocked",
@@ -5956,7 +6044,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onReceiptPrivate: () => {
             if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, message => ({ ...message, receiptPrivate: {
+            accumulatedThinkingSummary = "";
+            pendingThinkingDelta = "";
+            deleteAgentThoughtSummary({
+              conversationId:
+                conversationIdRef.current ||
+                activeSessionBinding?.conversationId ||
+                turnConversationId,
+              messageId: assistantMessageId,
+              serverMessageId: latestServerMessageId,
+            });
+            updateMessage(assistantMessageId, message => ({ ...message, thinkingSummary: undefined, isThinkingStreaming: false, receiptPrivate: {
               ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
               expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
@@ -5966,8 +6064,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             updateMessage(assistantMessageId, (message) => ({ ...message, structuredExperiences: upsertAgentStructuredExperience(
               message.structuredExperiences ?? [], `${assistantMessageId}:receipt-setup`, receiptSetupExperience(state)) }));
           },
-          // No onThinkingSummary: the model's reasoning is never shown in
-          // chat, live or restored. Only the answer and Activity render.
+          onThinkingSummary: (chunk) => {
+            if (streamAbortController.signal.aborted || turnStopped) return;
+            queueThinkingDelta(chunk);
+          },
           onStreamHealth: (signal) => {
             if (streamAbortController.signal.aborted || turnStopped) return;
             if (signal.kind === "waking") {
@@ -6260,6 +6360,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // card. The card remains actionable, but the assistant turn has
             // finished thinking until the owner confirms or cancels it.
             if (isWorkspaceMountedRef.current) slowNotice.finish("answered");
+            flushThinkingDelta(false);
             flushAssistantDelta();
             const finalConversationId =
               nextConversationId || activeSessionBinding?.conversationId || turnConversationId;
@@ -6269,6 +6370,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
+              isThinkingStreaming: false,
               streamEvents: settleVisibleStreamEvents(
                 message.streamEvents,
                 "done",
@@ -6285,6 +6387,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             finalizeSettledTurn(finalConversationId, false);
           },
           onServerMessageId: (serverMessageId) => {
+            latestServerMessageId = serverMessageId;
+            aliasAgentThoughtSummaryServerId({
+              conversationId:
+                conversationIdRef.current ||
+                activeSessionBinding?.conversationId ||
+                turnConversationId,
+              messageId: assistantMessageId,
+              serverMessageId,
+            });
             if (!streamAbortController.signal.aborted) {
               setPendingSpecialistDirective(current =>
                 current?.sourceAssistantMessageId === assistantMessageId &&
@@ -6304,15 +6415,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             nameTurnCompleted = true;
             if (isWorkspaceMountedRef.current) slowNotice.finish("answered");
-            flushAssistantDelta();
             const finalConversationId =
               nextConversationId || activeSessionBinding?.conversationId || turnConversationId;
             if (nextConversationId) {
               updateTurnConversationId(nextConversationId);
             }
+            flushThinkingDelta(false);
+            flushAssistantDelta();
+            if (accumulatedThinkingSummary) {
+              setAgentThoughtSummary({
+                ownerId: userId,
+                vaultEpoch: vaultSessionEpoch,
+                conversationId: finalConversationId,
+                messageId: assistantMessageId,
+                serverMessageId: latestServerMessageId,
+                text: accumulatedThinkingSummary,
+              });
+            }
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
+              isThinkingStreaming: false,
               streamEvents: settleVisibleStreamEvents(
                 message.streamEvents,
                 "done",
@@ -6334,6 +6457,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // The error in the transcript owns this turn; only server strain
             // keeps the notice up, as the heavy-usage explanation.
             if (isWorkspaceMountedRef.current) slowNotice.finish("failed");
+            flushThinkingDelta(false);
             flushAssistantDelta();
             updateMessage(assistantMessageId, (current) =>
               settleAssistantMessageError(current, message),
