@@ -842,6 +842,20 @@ describe("private route-body presentation boundary", () => {
     expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: calendarVisuals.calendarWeek!.days.map(day => ({ ...day, href: "https://forbidden.test" })) } } as never)).toBe(false);
     expect(validNativeWorkspace({ ...calendarVisuals, sections: [{ ...calendarVisuals.sections[1]!, rows: calendarVisuals.sections[1]!.rows.map(row => ({ ...row, readOnly: false })) }] })).toBe(false);
     expect(validNativeWorkspace({ ...calendarVisuals, workspace: "connect", calendarDate: undefined, calendarWeek: undefined, sections: [calendarVisuals.sections[3]!] })).toBe(false);
+    const news: NativeWorkspaceProjection = { ...calendar, workspace: "finance", calendarDate: undefined, sections: [{ id: "headlines", rows: [{
+      id: "article", label: "A public headline", enabled: true, marketNews: { publisher: "Example", publishedAt: "Recent", summary: "Full authored summary", sentiment: "positive",
+        symbols: ["AAPL", "MSFT"], artwork: { glyph: "A", hue: 22, png: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1cAAAAASUVORK5CYII=" } } }] }] };
+    expect(validNativeWorkspace(news)).toBe(true);
+    const story = news.sections[0]!.rows[0]!.marketNews!;
+    const withStory = (marketNews: unknown) => ({ ...news, sections: [{ id: "headlines", rows: [{ ...news.sections[0]!.rows[0]!, marketNews }] }] }) as NativeWorkspaceProjection;
+    expect(validNativeWorkspace(withStory({ ...story, url: "https://forbidden.test" }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, publisher: "P".repeat(257) }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, summary: "S".repeat(4097) }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, symbols: [] }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, artwork: null }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, artwork: { ...story.artwork, hue: 360 } }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, artwork: { ...story.artwork, png: "data:image/png;base64,AAAA" } }))).toBe(false);
+    expect(validNativeWorkspace({ ...news, workspace: "connect" })).toBe(false);
     const setup: NativeWorkspaceProjection = { ...calendar, workspace: "setup", calendarDate: undefined, sections: [{ id: "settings", rows: [{ id: "prepare", label: "Prepare automatically", enabled: true, toggle: true,
       options: [{ id: "prepare-on", label: "On", selected: true }, { id: "prepare-off", label: "Off", selected: false }] }] }] };
     expect(validNativeWorkspace(setup)).toBe(true);

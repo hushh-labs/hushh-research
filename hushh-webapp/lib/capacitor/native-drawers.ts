@@ -25,6 +25,11 @@ export type NativeWorkspaceInlineAction = {
   avatar?: NativeWorkspaceAvatar;
   placement?: "menu";
 };
+/** News presentation values only; publisher destinations stay in registered JS actions. */
+export type NativeMarketNewsStory = {
+  publisher: string; publishedAt: string; summary?: string; sentiment?: "positive" | "risk";
+  symbols: readonly string[]; artwork?: { glyph: string; hue: number; png?: string };
+};
 export type NativeDrawerRow = {
   id: string;
   label: string;
@@ -47,6 +52,7 @@ export type NativeDrawerRow = {
   /** Authored finite choices. IDs bind to existing React writers, never values or URLs. */
   options?: readonly NativeDrawerOption[];
   choiceStyle?: "segmented";
+  marketNews?: NativeMarketNewsStory;
   calendarEvent?: { day?: string; month?: string; weekday?: string; dateLabel?: string; organizer?: string; muted: boolean };
   toggle?: boolean;
   enabled: boolean;
