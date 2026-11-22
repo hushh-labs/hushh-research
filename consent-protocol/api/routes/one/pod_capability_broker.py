@@ -113,6 +113,65 @@ class _PooledCutoverCustodyRegistryView:
         fn = getattr(self._base, "tombstone_exists", None)
         return bool(await fn(key)) if callable(fn) else False
 
+    def clear_request_cache(self) -> None:
+        clear_fn = getattr(self._base, "clear_request_cache", None)
+        if callable(clear_fn):
+            clear_fn()
+
+
+class _RequestScopedRegistryReadCache:
+    """Per-request read cache avoiding redundant registry reads across auth + pre-fence.
+
+    Always cleared before post-I/O fencing via ``clear_request_cache()`` so mid-flight
+    placement or erasure mutations during external STS/KMS calls are never masked.
+    Cross-indexing ``user_id`` from ``get_by_hushh_id`` is enabled ONLY when backed by
+    ``PersonalAgentRegistryRepo``, where PostgreSQL enforces ``UNIQUE(user_id)`` PK and
+    ``UNIQUE(hushh_id)``.
+    """
+
+    def __init__(self, base_registry: Any, *, unique_owner_pk: bool = False) -> None:
+        self._base = base_registry
+        self._unique_owner_pk = unique_owner_pk
+        self._by_hushh: dict[str, Optional[dict[str, Any]]] = {}
+        self._by_user: dict[str, Optional[dict[str, Any]]] = {}
+
+    def clear_request_cache(self) -> None:
+        self._by_hushh.clear()
+        self._by_user.clear()
+
+    async def get_by_hushh_id(self, hushh_id: str) -> Optional[dict[str, Any]]:
+        if hushh_id in self._by_hushh:
+            cached = self._by_hushh[hushh_id]
+            return dict(cached) if isinstance(cached, dict) else None
+        row = await self._base.get_by_hushh_id(hushh_id)
+        copied = dict(row) if isinstance(row, dict) else None
+        self._by_hushh[hushh_id] = copied
+        if self._unique_owner_pk and isinstance(copied, dict):
+            uid = str(copied.get("user_id") or "").strip()
+            if uid:
+                self._by_user[uid] = copied
+        return dict(copied) if isinstance(copied, dict) else None
+
+    async def get(self, user_id: str) -> Optional[dict[str, Any]]:
+        if user_id in self._by_user:
+            cached = self._by_user[user_id]
+            return dict(cached) if isinstance(cached, dict) else None
+        row = await self._base.get(user_id)
+        copied = dict(row) if isinstance(row, dict) else None
+        self._by_user[user_id] = copied
+        if self._unique_owner_pk and isinstance(copied, dict):
+            hid = str(copied.get("hushh_id") or "").strip()
+            if hid:
+                self._by_hushh[hid] = copied
+        return dict(copied) if isinstance(copied, dict) else None
+
+    async def tombstone_exists(self, key: str) -> bool:
+        fn = getattr(self._base, "tombstone_exists", None)
+        return bool(await fn(key)) if callable(fn) else False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
 
 async def _verify_precutover_pooled_sandbox(
     request: Request,
@@ -229,19 +288,34 @@ async def _resolve_custody_caller(
     refresh: Any = None,
     standbys: Any = None,
 ) -> tuple[VerifiedPod, Any]:
+    from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+        PersonalAgentRegistryRepo,
+    )
+
+    if registry is None:
+        base_registry: Any = PersonalAgentRegistryRepo()
+        unique_owner_pk = True
+    else:
+        base_registry = registry
+        unique_owner_pk = isinstance(base_registry, PersonalAgentRegistryRepo)
+
+    cached_registry = _RequestScopedRegistryReadCache(
+        base_registry,
+        unique_owner_pk=unique_owner_pk,
+    )
     verified = await verify_pod_request(
         request,
         authorization,
         owner_bound=True,
-        registry=registry,
+        registry=cached_registry,
         store=store,
         refresh=refresh,
         standbys=standbys,
     )
     if verified is not None and verified.signed:
-        return verified, registry
+        return verified, cached_registry
     precutover_pod, overlay_reg = await _verify_precutover_pooled_sandbox(
-        request, registry=registry, store=store
+        request, registry=cached_registry, store=store
     )
     if precutover_pod is not None and precutover_pod.signed:
         return precutover_pod, overlay_reg

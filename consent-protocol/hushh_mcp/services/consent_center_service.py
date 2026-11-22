@@ -137,6 +137,8 @@ class ConsentCenterService:
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
         self._owned_identifier_inflight: dict[str, asyncio.Task[list[str]]] = {}
+        self._summary_audit_rows_cache: dict[str, list[dict[str, Any]]] = {}
+        self._summary_audit_rows_inflight: dict[str, asyncio.Task[list[dict[str, Any]]]] = {}
         self._drive_center = DriveSharingCenterContributor()
         from hushh_mcp.services.pkm_answer_center_contributor import PkmAnswerCenterContributor
 
@@ -260,16 +262,24 @@ class ConsentCenterService:
             return empty
 
     async def _extra_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
-        marketplace = await self._marketplace_buckets_async(user_id)
         contributor = getattr(self, "_answer_center", None)
         if contributor is None:
-            return marketplace
-        try:
-            answers = await contributor.collect(user_id)
-        except Exception as error:
-            if getattr(self, "_require_complete", False):
-                raise
-            logger.warning("answer_center.unavailable type=%s", type(error).__name__)
+            return await self._marketplace_buckets_async(user_id)
+
+        async def _load_answers() -> dict[str, list[dict[str, Any]]] | None:
+            try:
+                return await contributor.collect(user_id)
+            except Exception as error:
+                if getattr(self, "_require_complete", False):
+                    raise
+                logger.warning("answer_center.unavailable type=%s", type(error).__name__)
+                return None
+
+        marketplace, answers = await asyncio.gather(
+            self._marketplace_buckets_async(user_id),
+            _load_answers(),
+        )
+        if answers is None:
             return marketplace
         return {key: [*marketplace.get(key, []), *answers.get(key, [])] for key in marketplace}
 
@@ -1023,7 +1033,16 @@ class ConsentCenterService:
         request_ids = [str(row["request_id"]) for row in rows]
         status_loader = getattr(self._consent_db, "get_request_statuses", None)
         if callable(status_loader):
-            statuses = await status_loader(user_id, request_ids)
+            summary_rows = await self._summary_audit_rows_if_available(user_id)
+            if (
+                summary_rows is not None
+                and isinstance(self._consent_db, ConsentDBService)
+                and getattr(status_loader, "__func__", None)
+                is ConsentDBService.get_request_statuses
+            ):
+                statuses = await status_loader(user_id, request_ids, prefetched_rows=summary_rows)
+            else:
+                statuses = await status_loader(user_id, request_ids)
         else:
             statuses = {
                 request_id: await self._consent_db.get_request_status(user_id, request_id)
@@ -1649,12 +1668,71 @@ class ConsentCenterService:
             "metadata": metadata,
         }
 
+    async def _summary_audit_rows_if_available(
+        self,
+        user_id: str,
+        identifiers: list[str] | None = None,
+    ) -> list[dict[str, Any]] | None:
+        """Single-flight shared `consent_audit` snapshot for `get_center_summary`."""
+        if not getattr(self, "_skip_summary_hydration", False):
+            return None
+        if not isinstance(self._consent_db, ConsentDBService):
+            return None
+        cache = getattr(self, "_summary_audit_rows_cache", None)
+        inflight = getattr(self, "_summary_audit_rows_inflight", None)
+        if cache is None or inflight is None:
+            return None
+        if user_id in cache:
+            return cache[user_id]
+        task = inflight.get(user_id)
+        if task is None:
+            resolved_ids = (
+                identifiers
+                if identifiers is not None
+                else await self._owned_user_identifiers(user_id)
+            )
+            if user_id in cache:
+                return cache[user_id]
+            task = inflight.get(user_id)
+            if task is None:
+                row_limit = None if getattr(self, "_require_complete", False) else 5000
+
+                async def _fetch() -> list[dict[str, Any]]:
+                    rows = await self._consent_db.fetch_user_audit_rows(
+                        user_id,
+                        limit=row_limit,
+                        **self._identifier_filter_kwargs(user_id, resolved_ids),
+                    )
+                    cache[user_id] = rows
+                    return rows
+
+                task = asyncio.create_task(_fetch())
+                inflight[user_id] = task
+        try:
+            return await task
+        finally:
+            if inflight.get(user_id) is task:
+                inflight.pop(user_id, None)
+
     async def _load_investor_pending_entries(self, user_id: str) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
-        pending = await self._consent_db.get_pending_requests(
-            user_id,
-            **self._identifier_filter_kwargs(user_id, identifiers),
-        )
+        summary_rows = await self._summary_audit_rows_if_available(user_id, identifiers)
+        if (
+            summary_rows is not None
+            and getattr(self._consent_db.get_pending_requests, "__func__", None)
+            is ConsentDBService.get_pending_requests
+        ):
+            pending = await self._consent_db.get_pending_requests(
+                user_id,
+                prefetched_rows=summary_rows,
+                include_notification_opened=False,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
+        else:
+            pending = await self._consent_db.get_pending_requests(
+                user_id,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
         entries = [self._normalize_pending(item) for item in pending]
         return (
             entries
@@ -1664,10 +1742,22 @@ class ConsentCenterService:
 
     async def _load_investor_active_entries(self, user_id: str) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
-        active = await self._consent_db.get_active_tokens(
-            user_id,
-            **self._identifier_filter_kwargs(user_id, identifiers),
-        )
+        summary_rows = await self._summary_audit_rows_if_available(user_id, identifiers)
+        if (
+            summary_rows is not None
+            and getattr(self._consent_db.get_active_tokens, "__func__", None)
+            is ConsentDBService.get_active_tokens
+        ):
+            active = await self._consent_db.get_active_tokens(
+                user_id,
+                prefetched_rows=summary_rows,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
+        else:
+            active = await self._consent_db.get_active_tokens(
+                user_id,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
         entries = [self._normalize_active(item) for item in active]
         if not getattr(self, "_skip_summary_hydration", False):
             entries = await self._hydrate_entry_identities(entries)
@@ -1675,12 +1765,26 @@ class ConsentCenterService:
 
     async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
         identifiers = await self._owned_user_identifiers(user_id)
-        history_result = await self._consent_db.get_audit_log(
-            user_id,
-            page=1,
-            limit=None if getattr(self, "_require_complete", False) else 5000,
-            **self._identifier_filter_kwargs(user_id, identifiers),
-        )
+        summary_rows = await self._summary_audit_rows_if_available(user_id, identifiers)
+        if (
+            summary_rows is not None
+            and getattr(self._consent_db.get_audit_log, "__func__", None)
+            is ConsentDBService.get_audit_log
+        ):
+            history_result = await self._consent_db.get_audit_log(
+                user_id,
+                page=1,
+                limit=None if getattr(self, "_require_complete", False) else 5000,
+                prefetched_rows=summary_rows,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
+        else:
+            history_result = await self._consent_db.get_audit_log(
+                user_id,
+                page=1,
+                limit=None if getattr(self, "_require_complete", False) else 5000,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
         if getattr(self, "_require_complete", False) and history_result.get("total", 0) > len(
             history_result.get("items", [])
         ):
@@ -2183,33 +2287,35 @@ class ConsentCenterService:
                         self._drive_counts(user_id),
                     ),
                 )
+
+                def contributor_count(surface: str) -> int:
+                    bucket = {
+                        "pending": "incoming_requests",
+                        "active": "active_grants",
+                        "previous": "history",
+                    }[surface]
+                    return (
+                        location_counts[surface]
+                        + len(marketplace_buckets[bucket])
+                        + drive_counts[bucket]
+                    )
+
+                pending_count = (
+                    len(
+                        await self._present_pending_bundles(
+                            user_id,
+                            self._filter_mode_entries(
+                                pending_entries, actor=normalized_actor, mode=normalized_mode
+                            ),
+                        )
+                    )
+                    + contributor_count("pending")
+                    + connection_count
+                )
             finally:
                 self._skip_summary_hydration = prev_skip_hydration
-
-            def contributor_count(surface: str) -> int:
-                bucket = {
-                    "pending": "incoming_requests",
-                    "active": "active_grants",
-                    "previous": "history",
-                }[surface]
-                return (
-                    location_counts[surface]
-                    + len(marketplace_buckets[bucket])
-                    + drive_counts[bucket]
-                )
-
-            pending_count = (
-                len(
-                    await self._present_pending_bundles(
-                        user_id,
-                        self._filter_mode_entries(
-                            pending_entries, actor=normalized_actor, mode=normalized_mode
-                        ),
-                    )
-                )
-                + contributor_count("pending")
-                + connection_count
-            )
+                if hasattr(self, "_summary_audit_rows_cache"):
+                    self._summary_audit_rows_cache.pop(user_id, None)
             active_count = len(
                 self._collapse_consent_chains(
                     self._filter_mode_entries(

@@ -1103,6 +1103,78 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
 
 
 @pytest.mark.asyncio
+async def test_consent_center_summary_shares_single_consent_audit_snapshot(monkeypatch):
+    """Investor summary must execute ONE consent_audit read across pending, active, and history."""
+    import time
+    from unittest.mock import AsyncMock
+
+    monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
+    service = ConsentCenterService(read_only=True)
+    now_ms = int(time.time() * 1000)
+    fetch_calls = 0
+
+    sample_rows = [
+        {
+            "id": 101,
+            "user_id": "owner_single_scan",
+            "agent_id": "developer:app_a",
+            "scope": "attr.profile",
+            "action": "REQUESTED",
+            "request_id": "req_1",
+            "issued_at": now_ms - 1000,
+            "poll_timeout_at": now_ms + 60_000,
+            "metadata": {},
+        },
+        {
+            "id": 100,
+            "user_id": "owner_single_scan",
+            "agent_id": "developer:app_b",
+            "scope": "attr.financial",
+            "action": "CONSENT_GRANTED",
+            "token_id": "tok_active_1",
+            "request_id": "req_2",
+            "issued_at": now_ms - 5000,
+            "expires_at": now_ms + 3_600_000,
+            "metadata": {},
+        },
+    ]
+
+    async def _fetch_once(user_id: str, *, user_ids=None, limit=None):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return list(sample_rows)
+
+    async def _unexpected_internal(*_args, **_kwargs):
+        raise AssertionError("Summary count path must not query internal notification events")
+
+    monkeypatch.setattr(
+        service._identity, "list_account_identifiers", AsyncMock(return_value=["owner_single_scan"])
+    )
+    monkeypatch.setattr(service._consent_db, "fetch_user_audit_rows", _fetch_once)
+    monkeypatch.setattr(service._consent_db, "list_internal_request_events", _unexpected_internal)
+    monkeypatch.setattr(
+        service,
+        "_location_counts_async",
+        AsyncMock(return_value={"pending": 0, "active": 0, "previous": 0}),
+    )
+    monkeypatch.setattr(
+        service,
+        "_extra_buckets_async",
+        AsyncMock(return_value={"incoming_requests": [], "active_grants": [], "history": []}),
+    )
+    monkeypatch.setattr(service, "_incoming_connection_request_count", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        service,
+        "_drive_counts",
+        AsyncMock(return_value={"incoming_requests": 0, "active_grants": 0, "history": 0}),
+    )
+
+    payload = await service.get_center_summary("owner_single_scan", actor="investor")
+    assert fetch_calls == 1
+    assert payload["counts"] == {"pending": 1, "active": 1, "previous": 2}
+
+
+@pytest.mark.asyncio
 async def test_consent_center_identifier_expansion_is_single_flight_per_owner(monkeypatch):
     service = ConsentCenterService()
     calls: list[str] = []

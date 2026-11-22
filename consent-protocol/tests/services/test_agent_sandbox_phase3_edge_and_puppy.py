@@ -692,3 +692,114 @@ def test_virgin_standby_prewarm_and_hub_broker_activation_envs(
     assert launched.get("metadata_disabled") == "1"
     assert launched.get("files_enabled") == "true"
     assert launched.get("host_kind") == "gcp_ace"
+
+
+@pytest.mark.asyncio
+async def test_edge_gateway_fails_fast_on_blackholed_pod_ip_and_rotates_expiring_claims(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dead/blackholed pod IPs fail over in <= proxy_connect_timeout_s (never 127s TCP SYN hang)
+    and claims approaching K8s wall-clock shutdownTime extend or proactively rotate."""
+    import time
+
+    now = [1000.0]
+    extended_claims: list[str] = []
+    allow_extend = [True]
+
+    class _LifecycleClaimClient(_LocalStandbyClaimClient):
+        def extend_claim_shutdown(
+            self, claim_name: str, *, idle_shutdown_seconds: int = 600
+        ) -> bool:
+            extended_claims.append(claim_name)
+            return allow_extend[0]
+
+    claim_client = _LifecycleClaimClient(tmp_path, activation_guard="edge-act-fast-01")
+    manager = SandboxEdgeGatewayManager(
+        claim_client=claim_client,
+        master_seed=b"F" * 32,
+        idle_timeout_s=600.0,
+        activation_header_value="edge-act-fast-01",
+        admin_header_value="edge-admin-fast-01",
+        claim_timeout_s=15.0,
+        health_poll_timeout_s=15.0,
+        proxy_connect_timeout_s=0.35,
+        clock_s=lambda: now[0],
+    )
+    gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    gw_port = _free_port()
+    gw_server = uvicorn.Server(
+        uvicorn.Config(gw_app, host="127.0.0.1", port=gw_port, log_level="error")
+    )
+    gw_thread = threading.Thread(target=gw_server.run, daemon=True)
+    gw_thread.start()
+
+    try:
+        base_http = f"http://127.0.0.1:{gw_port}"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for _ in range(30):
+                try:
+                    if (await client.get(f"{base_http}/health")).status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    await asyncio.sleep(0.05)
+
+            # 1. Initial request creates lease and uses pooled proxy client with fast connect timeout
+            r1 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r1.status_code == 200
+            assert r1.json()["sandbox"] == "sbx-live-1"
+            proxy_client = manager._proxy_http_client
+            assert proxy_client is not None
+            assert proxy_client.timeout.connect == pytest.approx(0.35)
+            assert proxy_client.timeout.read == pytest.approx(160.0)
+
+            # Second warm request reuses the exact same pooled client instance
+            r2 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r2.status_code == 200
+            assert manager._proxy_http_client is proxy_client
+
+            # 2. Simulate silent TCP SYN blackhole on cached lease IP -> must fail fast (< 2s) and recover
+            lease1 = manager.get_lease("owner_fast")
+            assert lease1 is not None
+            stale_port = lease1.port
+            real_send = proxy_client.send
+
+            async def _blackhole_once(
+                req: httpx.Request, *args: Any, **kwargs: Any
+            ) -> httpx.Response:
+                if req.url.port == stale_port:
+                    await asyncio.sleep(0.1)
+                    raise httpx.ConnectTimeout("simulated VPC blackhole timeout")
+                return await real_send(req, *args, **kwargs)
+
+            monkeypatch.setattr(proxy_client, "send", _blackhole_once)
+            t0 = time.monotonic()
+            r3 = await client.get(f"{base_http}/u/owner_fast/health")
+            elapsed = time.monotonic() - t0
+            assert r3.status_code == 200
+            assert r3.json()["sandbox"] == "sbx-live-2"
+            assert elapsed < 5.0
+            monkeypatch.setattr(proxy_client, "send", real_send)
+
+            # 3. Approaching claim_expires_at_s extends claim in place when supported
+            lease2 = manager.get_lease("owner_fast")
+            assert lease2 is not None
+            initial_exp = lease2.claim_expires_at_s
+            assert initial_exp > now[0]
+            now[0] = initial_exp - 60.0
+            r4 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r4.status_code == 200
+            assert r4.json()["sandbox"] == "sbx-live-2"
+            assert lease2.claim_name in extended_claims
+            assert lease2.claim_expires_at_s > initial_exp
+
+            # 4. When extension is unsupported/fails near expiry, Edge proactively rotates BEFORE K8s kills pod
+            allow_extend[0] = False
+            now[0] = lease2.claim_expires_at_s - 10.0
+            r5 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r5.status_code == 200
+            assert r5.json()["sandbox"] == "sbx-live-3"
+    finally:
+        gw_server.should_exit = True
+        gw_thread.join(timeout=3.0)
+        for cname in list(claim_client.runtimes):
+            claim_client.delete_claim(cname)
