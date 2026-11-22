@@ -1161,6 +1161,7 @@ final class NativeSupportTests: XCTestCase {
         }
         let cover: [String: Any] = ["kind": "headline", "publisher": "Example", "publishedAt": "Recent", "sources": [["url": "https://static.seekingalpha.com/uploads/public.jpeg"]]]
         XCTAssertTrue(NativeFinanceContent.closed(cover)); XCTAssertTrue(try content(cover).valid)
+        XCTAssertNotNil(NativeFinanceArtworkSource(url: "https://media.zenfs.com/en/public.jpeg").admittedURL)
         var executable = cover; executable["destination"] = "forbidden"; XCTAssertFalse(NativeFinanceContent.closed(executable))
         for url in ["http://static.seekingalpha.com/a.jpeg", "https://static.seekingalpha.com.evil.test/a.jpeg", "https://owner:secret@s.yimg.com/a.jpeg", "https://127.0.0.1/a.png", "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2Fsecret.png"] {
             XCTAssertNil(NativeFinanceArtworkSource(url: url).admittedURL)

@@ -241,3 +241,31 @@ private struct NativeFinanceBalanceHistory: View {
         } else { Text("Dated balance history unavailable.").font(.subheadline).foregroundStyle(.secondary) }
     }
 }
+
+/// Compact native finite-choice menus share the workspace's existing action IDs.
+@available(iOS 26.0, *)
+struct NativeFinanceFilters: View {
+    let rows: [NativeDrawerRow]
+    @ObservedObject var model: NativeWorkspaceModel
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(rows) { row in
+                Menu {
+                    ForEach(row.options ?? []) { option in
+                        Button { _ = model.choice("row", row: option.id) } label: {
+                            if option.selected { Label(option.label, systemImage: "checkmark") } else { Text(option.label) }
+                        }
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(row.label).font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 4) { Text(row.options?.first(where: \.selected)?.label ?? row.label).lineLimit(1); Image(systemName: "chevron.down").font(.caption2) }.font(.subheadline.weight(.medium))
+                    }.padding(12).frame(maxWidth: .infinity, minHeight: 54, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                    .disabled(!row.enabled || row.pending == true || model.pending != nil)
+                    .accessibilityLabel(row.label).accessibilityValue(row.options?.first(where: \.selected)?.label ?? "")
+                    .accessibilityIdentifier("native-workspace-row-\(row.id)")
+            }
+        }
+    }
+}

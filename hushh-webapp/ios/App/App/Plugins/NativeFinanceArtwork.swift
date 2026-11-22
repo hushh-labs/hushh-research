@@ -13,7 +13,7 @@ struct NativeFinanceArtworkSource: Codable, Equatable {
         if host == "financialmodelingprep.com" {
             guard value.query == nil, result.path.range(of: #"^/image-stock/[^/\\\p{Cc}]{1,64}\.png$"#, options: .regularExpression) != nil else { return nil }
         } else {
-            guard ["static.seekingalpha.com", "s.yimg.com"].contains(host), !result.path.isEmpty else { return nil }
+            guard ["static.seekingalpha.com", "s.yimg.com", "media.zenfs.com"].contains(host), !result.path.isEmpty else { return nil }
         }
         return result
     }

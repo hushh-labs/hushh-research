@@ -18,7 +18,7 @@ export function nativeFinanceArtworkSource(source: unknown): boolean {
     const url = new URL(source);
     if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash || /^https:\/\/[^/?#]*:/i.test(source) || source.includes("#")) return false;
     if (url.hostname === "financialmodelingprep.com") return !url.search && /^\/image-stock\/[^/\\\x00-\x1f]{1,64}\.png$/.test(decodeURIComponent(url.pathname));
-    return ["static.seekingalpha.com", "s.yimg.com"].includes(url.hostname) && url.pathname.length > 1;
+    return ["static.seekingalpha.com", "s.yimg.com", "media.zenfs.com"].includes(url.hostname) && url.pathname.length > 1;
   } catch { return false; }
 }
 export function validNativeFinanceContent(candidate: unknown): candidate is NativeFinanceContent {

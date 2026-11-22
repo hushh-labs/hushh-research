@@ -320,10 +320,10 @@ struct NativeWorkspaceProjection: Decodable {
         for section in sections {
             guard NativeDrawerIdentity.identifier(section.id), ids.insert(section.id).inserted, section.title == nil || NativeDrawerProjection.text(section.title!, 256) else { return false }
             guard section.layout == nil || (["location", "calendar", "finance"].contains(workspace) &&
-                (["cards", "tiles"] + (workspace == "calendar" ? ["metrics", "toolbar"] : [])).contains(section.layout!) &&
+                (["cards", "tiles"] + (workspace == "calendar" ? ["metrics", "toolbar"] : workspace == "finance" ? ["toolbar"] : [])).contains(section.layout!) &&
                 (section.layout != "tiles" || section.rows.count <= 3) &&
                 (section.layout != "metrics" || section.rows.count == 3 && section.rows.allSatisfy { $0.readOnly == true && $0.options == nil && $0.inlineActions == nil && $0.avatar == nil && $0.detail != nil }) &&
-                (section.layout != "toolbar" || section.rows.count == 1 && section.rows.allSatisfy { $0.readOnly == true && $0.inlineActions?.isEmpty == false && $0.options == nil && $0.avatar == nil && $0.formattedText == nil && $0.calendarEvent == nil && $0.detail == nil && $0.trailing == nil && $0.symbol == nil && $0.artworkId == nil })) else { return false }
+                (section.layout != "toolbar" || (workspace == "finance" ? (1...4).contains(section.rows.count) && section.rows.allSatisfy { $0.options != nil && $0.readOnly != true && $0.finance == nil && $0.inlineActions == nil && $0.toggle != true } : section.rows.count == 1 && section.rows.allSatisfy { $0.readOnly == true && $0.inlineActions?.isEmpty == false && $0.options == nil && $0.avatar == nil && $0.formattedText == nil && $0.calendarEvent == nil && $0.detail == nil && $0.trailing == nil && $0.symbol == nil && $0.artworkId == nil }))) else { return false }
             for row in section.rows {
                 count += 1
                 guard count <= 200, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted, NativeDrawerProjection.text(row.label, 4096),
@@ -1263,7 +1263,9 @@ private struct NativeWorkspaceCollectionRow: View {
     private func sectionContent(_ section: NativeDrawerSection) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
-            if section.layout == "metrics" {
+            if section.layout == "toolbar" && model.state.workspace == "finance" {
+                NativeFinanceFilters(rows: section.rows, model: model)
+            } else if section.layout == "metrics" {
                 NativeCalendarMetrics(rows: section.rows)
             } else if section.layout == "tiles" && model.state.workspace == "finance" {
                 HStack(alignment: .top, spacing: 12) {

@@ -904,6 +904,13 @@ describe("private route-body presentation boundary", () => {
     const finance = (content: unknown) => ({ ...news, sections: [{ id: "finance-content", rows: [{ id: "financial-row", label: "Public headline", enabled: true, finance: content }] }] }) as NativeWorkspaceProjection;
     const cover = { kind: "headline", publisher: "Example", publishedAt: "Recent", sources: [{ url: "https://static.seekingalpha.com/uploads/public.jpeg" }] };
     expect(validNativeWorkspace(finance(cover))).toBe(true);
+    expect(validNativeWorkspace(finance({ ...cover, sources: [{ url: "https://media.zenfs.com/en/public.jpeg" }] }))).toBe(true);
+    expect(validNativeWorkspace(finance({ kind: "index", value: "12", change: "0%", tone: ["neutral"], points: [], quotedAt: "Recent" }))).toBe(false);
+    expect(validNativeWorkspace(finance({ kind: "allocation", showBar: true, slices: [{ label: "Cash", value: 5, colorHex: ["#ffffff"] }] }))).toBe(false);
+    const filters: NativeWorkspaceProjection = { ...news, sections: [{ id: "filters", layout: "toolbar", rows: ["Tier", "Sector", "Rows"].map((label, index) => ({ id: `filter-${index}`, label, enabled: true, options: [{ id: `choice-${index}-a`, label: "All", selected: true }, { id: `choice-${index}-b`, label: "Subset", selected: false }] })) }] };
+    expect(validNativeWorkspace(filters)).toBe(true);
+    expect(validNativeWorkspace({ ...filters, sections: [{ ...filters.sections[0]!, rows: [{ ...filters.sections[0]!.rows[0]!, readOnly: true }] }] })).toBe(false);
+
     for (const url of ["http://static.seekingalpha.com/a.jpeg", "https://static.seekingalpha.com.evil.test/a.jpeg", "https://owner:secret@s.yimg.com/a.jpeg", "https://127.0.0.1/a.png", "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2Fsecret.png"]) expect(validNativeWorkspace(finance({ ...cover, sources: [{ url }] }))).toBe(false);
     expect(validNativeWorkspace(finance({ ...cover, destination: "forbidden" }))).toBe(false);
     expect(validNativeWorkspace(finance({ ...cover, sources: Array.from({ length: 4 }, (_, i) => ({ url: `https://s.yimg.com/${i}.jpg` })) }))).toBe(false);

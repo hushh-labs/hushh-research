@@ -492,7 +492,8 @@ export function RiaPicksList({
   });
   if (!companies.length) companies.push({ key: "no-stocks", label: rows.length ? "No stocks match the current filters." : `No stocks are available in ${activeSource?.label || "this list"}.` });
   const sections: NativeWorkspaceSurfaceSection[] = [
-    { key: "stock-controls", rows: [...nativeStatus, ...(onHistory ? [{ key: "history", label: "History", web: true, run: onHistory }] : []), ...filters] },
+    { key: "stock-controls", rows: [...nativeStatus, ...(onHistory ? [{ key: "history", label: "History", web: true, run: onHistory }] : [])] },
+    { key: "stock-filters", layout: "toolbar", rows: filters },
     { key: "companies", title: `${visibleStart}–${visibleEnd} of ${filteredRows.length} companies`, rows: companies },
     { key: "pages", rows: [{ key: "page", label: `Page ${page} of ${totalPages}`, ...(totalPages > 1 ? { choices: pageNumbers.flatMap(value => typeof value === "number" ? [{ key: String(value), label: String(value), selected: page === value, run: () => goToPage(value) }] : []) } : {}) }, { key: "previous", label: "Previous companies", enabled: page > 1, run: () => goToPage(page - 1) }, { key: "next", label: "Next companies", enabled: page < totalPages, run: () => goToPage(page + 1) }] },
   ];

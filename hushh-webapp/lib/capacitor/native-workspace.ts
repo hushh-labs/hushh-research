@@ -169,10 +169,10 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
   for (const section of value.sections) {
     if (!section || !closed(section, ["id", "title", "rows", "layout"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
     if (section.layout !== undefined && (!(["location", "calendar", "finance"].includes(value.workspace)) ||
-        !["cards", "tiles", ...(value.workspace === "calendar" ? ["metrics", "toolbar"] : [])].includes(section.layout) ||
+        !["cards", "tiles", ...(value.workspace === "calendar" ? ["metrics", "toolbar"] : value.workspace === "finance" ? ["toolbar"] : [])].includes(section.layout) ||
         section.layout === "tiles" && section.rows.length > 3 || section.layout === "metrics" &&
         (section.rows.length !== 3 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || row.options || row.inlineActions || row.avatar || !row.detail)) ||
-        section.layout === "toolbar" && (section.rows.length !== 1 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || !row.inlineActions?.length || row.options || row.avatar || row.formattedText || row.calendarEvent || row.detail || row.trailing || row.symbol || row.artworkId)))) return false;
+        section.layout === "toolbar" && (value.workspace === "finance" ? section.rows.length < 1 || section.rows.length > 4 || section.rows.some((row: NativeDrawerRow) => !row?.options || row.readOnly || row.finance || row.inlineActions || row.toggle) : section.rows.length !== 1 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || !row.inlineActions?.length || row.options || row.avatar || row.formattedText || row.calendarEvent || row.detail || row.trailing || row.symbol || row.artworkId)))) return false;
     for (const row of section.rows) {
       if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews", "finance"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||

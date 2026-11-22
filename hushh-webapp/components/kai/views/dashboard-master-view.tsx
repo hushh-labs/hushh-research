@@ -1,6 +1,5 @@
 "use client";
 
-import { useTheme } from "next-themes";
 import { NativeFinanceLayer, NativeFinanceReactOnly, useNativeFinancePaneActive, useFinancePaneSelected } from "../native-finance-workspace";
 import type { NativeWorkspaceSurfaceSection, NativeWorkspaceSurfaceRow, NativeWorkspaceSurfaceConfirmation } from "@/lib/capacitor/native-workspace-surface";
 import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
@@ -36,7 +35,7 @@ import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sh
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { allocationColor } from "@/lib/kai/allocation-colors";
-import { nativeColorTokenHex } from "@/lib/capacitor/native-control-appearance";
+import { nativeColorTokenHex, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { symbolAvatarFallback } from "@/components/kai/shared/symbol-avatar";
 import { normalizePriceHistory } from "@/lib/kai/price-history";
 import { PortfolioOverview, portfolioOverviewLayout } from "@/components/kai/views/portfolio-overview";
@@ -384,7 +383,7 @@ export function DashboardMasterView({
   onReupload,
   section = "overview",
 }: DashboardMasterViewProps) {
-  useTheme(); // Reproject the authored allocation palette after appearance changes.
+  useNativeControlAppearance(); // Reproject palette values after CSS appearance commits.
   const nativeActive = useNativeFinancePaneActive("portfolio");
   const portfolioPaneSelected = useFinancePaneSelected("portfolio");
   const [presentationView, setPresentationView] = useState<FinancePortfolioPresentation["view"]>(null);
