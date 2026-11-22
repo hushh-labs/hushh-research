@@ -256,7 +256,7 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Listening closely…");
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
     expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
@@ -320,7 +320,7 @@ describe("AgentTurnStreamPanel", () => {
       };
       render(<AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />);
       expect(screen.queryByText("Preparing your private memory.")).not.toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("Listening closely…");
+      expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
 
       act(() => { vi.advanceTimersByTime(ROUTINE_STEP_SLOW_MS); });
       expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
@@ -482,7 +482,7 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
     expect(screen.queryByRole("log", { name: "Thinking details" })).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Listening closely…");
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
     expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
 

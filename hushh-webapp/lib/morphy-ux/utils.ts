@@ -205,6 +205,15 @@ export const getVariantStyles = (
         return "bg-transparent text-red-600 border border-red-300/80 shadow-sm backdrop-blur-md hover:bg-red-50 dark:bg-transparent dark:text-red-600 dark:border-red-300/80 dark:hover:bg-red-50 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
       }
 
+    case "muted":
+      if (effect === "fill") {
+        return "bg-black/[0.05] dark:bg-white/[0.08] text-foreground border border-[color:var(--profile-pane-hair,var(--app-border))] hover:bg-black/[0.09] dark:hover:bg-white/[0.13] hover:text-foreground shadow-none transition-colors duration-100";
+      } else if (effect === "fade") {
+        return "bg-black/[0.03] dark:bg-white/[0.05] text-foreground border border-transparent hover:bg-black/[0.07] dark:hover:bg-white/[0.10] hover:text-foreground shadow-none transition-colors duration-100";
+      } else {
+        return "bg-white/45 dark:bg-white/[0.06] text-foreground hover:text-foreground border border-[color:var(--profile-pane-hair,var(--app-border))] shadow-none backdrop-blur-md hover:bg-white/60 dark:hover:bg-white/[0.10] transition-[background-color,border-color,color,opacity,transform] duration-100";
+      }
+
     case "none":
     default:
       if (effect === "fill") {
@@ -329,6 +338,15 @@ export const getVariantStylesNoHover = (
         return "bg-destructive/10 text-destructive border border-destructive/30 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
       }
       return "bg-transparent text-red-600 border border-red-300/80 shadow-sm backdrop-blur-md dark:bg-transparent dark:text-red-600 dark:border-red-300/80 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
+
+    case "muted":
+      if (effect === "fill") {
+        return "bg-black/[0.05] dark:bg-white/[0.08] text-foreground border border-[color:var(--profile-pane-hair,var(--app-border))] shadow-none transition-colors duration-100";
+      }
+      if (effect === "fade") {
+        return "bg-black/[0.03] dark:bg-white/[0.05] text-foreground border border-transparent shadow-none transition-colors duration-100";
+      }
+      return "bg-white/45 dark:bg-white/[0.06] text-foreground border border-[color:var(--profile-pane-hair,var(--app-border))] shadow-none backdrop-blur-md transition-[background-color,border-color,color,opacity,transform] duration-100";
 
     case "none":
     default:

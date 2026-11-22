@@ -67,6 +67,7 @@ import {
 } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -528,12 +529,12 @@ function OwnerCloudSetupPage({ user, owner }: {
           onClick={() => {
             const requested = requestInternalAppNavigation({
               href: ROUTES.ONE_HOME,
-              replace: false,
+              replace: true,
               scroll: false,
               source: "programmatic",
               transitionMode: "full",
             });
-            if (!requested) router.push(ROUTES.ONE_HOME);
+            if (!requested) router.replace(ROUTES.ONE_HOME);
           }}
         >
           Open Home
@@ -563,16 +564,28 @@ function OwnerCloudSetupPage({ user, owner }: {
           }
         : null;
 
+  // Guard mid-provisioning / mid-save transitions so accidental Back taps or
+  // edge swipes cannot strand the owner before hosting placement commits.
+  useBackLayer(ROUTES.ONE_SETUP_CLOUD, saving || hostingSaving ? 2 : 0, () => true);
+
   const finish = useCallback(() => {
     if (!ownerCurrent() || !authorized || !aiReady || hostingSaving) {
       return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
     }
-    const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
+    const rawReturnTo = searchParams.get("return_to");
+    const isProfilePaneHostingReturn =
+      typeof rawReturnTo === "string" &&
+      rawReturnTo.startsWith("/") &&
+      !rawReturnTo.startsWith("//") &&
+      rawReturnTo.includes("profile_panel=hosting");
+    const returnTo = resolveOneSetupReturnTo(rawReturnTo);
     const completed = !!ownerId && (OneSetupCompletionHintService.isResolved(ownerId) ||
       PreVaultUserStateService.getCachedBootstrapState(ownerId)?.setupCompleted === true);
-    const href = returnTo === ROUTES.PROFILE_HOSTING || (!returnTo && completed)
-      ? ROUTES.PROFILE_HOSTING
-      : buildOneSetupRoute({ returnTo });
+    const href = isProfilePaneHostingReturn
+      ? rawReturnTo
+      : returnTo === ROUTES.PROFILE_HOSTING || (!returnTo && completed)
+        ? ROUTES.PROFILE_HOSTING
+        : buildOneSetupRoute({ returnTo });
     const requested = requestInternalAppNavigation({
       href,
       replace: true,
@@ -743,14 +756,22 @@ function OwnerCloudSetupPage({ user, owner }: {
                   type="button"
                   className="min-h-11 self-start text-sm underline underline-offset-4"
                   onClick={() => {
+                    const rawReturnTo = searchParams.get("return_to");
+                    const hostingHref =
+                      typeof rawReturnTo === "string" &&
+                      rawReturnTo.startsWith("/") &&
+                      !rawReturnTo.startsWith("//") &&
+                      rawReturnTo.includes("profile_panel=hosting")
+                        ? rawReturnTo
+                        : ROUTES.PROFILE_HOSTING;
                     const requested = requestInternalAppNavigation({
-                      href: ROUTES.PROFILE_HOSTING,
-                      replace: false,
+                      href: hostingHref,
+                      replace: true,
                       scroll: false,
                       source: "programmatic",
                       transitionMode: "full",
                     });
-                    if (!requested) router.push(ROUTES.PROFILE_HOSTING);
+                    if (!requested) router.replace(hostingHref);
                   }}
                   data-testid="byoc-agent-failed-hosting"
                 >
