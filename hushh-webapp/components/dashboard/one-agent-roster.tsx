@@ -356,7 +356,7 @@ function resolvePrimaryMetric({
 }): OneAgentMode["primaryMetric"] {
   if (capabilityId === "consent") {
     if (!status || status.state === "unknown") {
-      return { value: "—", label: "checking" };
+      return { value: "--", label: "checking" };
     }
     const pendingConsentCount = status.pendingCount;
     return {
@@ -366,7 +366,7 @@ function resolvePrimaryMetric({
   }
 
   if (!status || status.state === "unknown") {
-    return { value: "—", label: "status not loaded" };
+    return { value: "--", label: "checking" };
   }
 
   if (status.pendingCount > 0) {

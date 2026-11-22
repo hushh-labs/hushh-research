@@ -1089,6 +1089,10 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     consent_continuation_block = consent_continuation_instruction(state_getter)
     # A push tap about one feed update: grounded only in that item, no tools.
     consent_continuation_block += feed_attention_instruction(state_getter)
+    # Incoming consent cards already popped inline above in Main Chat (dynamic tail only).
+    from hushh_mcp.one_adk.live_consent_cards import visible_incoming_consent_cards_instruction
+
+    consent_continuation_block += visible_incoming_consent_cards_instruction(state_getter)
     pending_draft_instruction = pending_email_draft_instruction(state_getter)
     memory_instruction = (  # pod only; restored after 0d514ebe2 left memory write-only
         agent_memory_instruction(

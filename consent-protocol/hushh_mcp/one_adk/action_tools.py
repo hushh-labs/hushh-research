@@ -2172,6 +2172,7 @@ async def discover_person_information(
                 person,
                 tool_context,
                 selection_handle,
+                True,
             )
         except ConsentLifecycleError as exc:
             if private_discovery:
@@ -2202,20 +2203,46 @@ async def discover_person_information(
             }
         requested_domain = normalize_spoken_name(domain)
         scopes = []
+        paid_items = []
         for item in profile.get("requestableScopes") or []:
             item_domain = str(item.get("domain") or "").strip()
             if requested_domain and requested_domain not in normalize_spoken_name(item_domain):
                 continue
-            scopes.append(
-                {
-                    "scopeRef": item.get("scopeRef"),
-                    "label": item.get("label") or "Information",
-                    "description": item.get("description"),
-                    "domain": item_domain or "Other",
-                    "sensitivity": item.get("sensitivity") or "sensitive",
-                    "pathSegments": item.get("pathSegments") or [],
-                }
+            raw_price = item.get("priceCents")
+            price_cents = (
+                int(raw_price)
+                if isinstance(raw_price, int) and not isinstance(raw_price, bool) and raw_price > 0
+                else None
             )
+            raw_base_hours = item.get("baseDurationHours")
+            base_hours = (
+                int(raw_base_hours)
+                if isinstance(raw_base_hours, int)
+                and not isinstance(raw_base_hours, bool)
+                and raw_base_hours > 0
+                else None
+            )
+            scope_entry: dict[str, Any] = {
+                "scopeRef": item.get("scopeRef"),
+                "label": item.get("label") or "Information",
+                "description": item.get("description"),
+                "domain": item_domain or "Other",
+                "sensitivity": item.get("sensitivity") or "sensitive",
+                "pathSegments": item.get("pathSegments") or [],
+            }
+            if price_cents is not None:
+                scope_entry["priceCents"] = price_cents
+                if base_hours is not None:
+                    scope_entry["baseDurationHours"] = base_hours
+                paid_items.append(
+                    {
+                        "label": scope_entry["label"],
+                        "domain": scope_entry["domain"],
+                        "priceCents": price_cents,
+                        "baseDurationHours": base_hours or 168,
+                    }
+                )
+            scopes.append(scope_entry)
         active_grants = profile.get("grants") or []
         shared_with_you = [
             {
@@ -2244,10 +2271,13 @@ async def discover_person_information(
             "sharedCount": len(shared_with_you),
             "requestableScopes": scopes,
             "scopeCount": len(scopes),
+            "paidCount": len(paid_items),
+            **({"paidItems": paid_items} if paid_items else {}),
             "scopeCatalog": profile.get("scopeCatalog"),
             "nextStep": (
                 "scopeCount is the current page; scopeCatalog.totalCount describes all matching fields. "
                 "Use scopeCatalog.nextPage and catalogRevision only when more fields are requested. "
+                "If paidItems is present, clearly mention which items are paid and their coin/dollar price. "
                 "If they have shared information with you (sharedWithYou), tell the user what has been granted. "
                 "For new requests, let the card present the fields and ask for the purpose and duration. "
                 "Keep the selected person for the proposal; open their profile only if requested."
@@ -2258,6 +2288,7 @@ async def discover_person_information(
             for key in ("sharedWithYou", "sharedCount", "scopeCatalog"):
                 result.pop(key)
             result["nextStep"] = (
+                "If paidItems is present, clearly mention which items are paid and their coin/dollar price. "
                 "Let the card present the available fields and ask for the purpose and duration. "
                 "Keep the selected person for the proposal. Nothing has been requested yet."
             )
@@ -2442,6 +2473,7 @@ def _resolve_person_for_information(
     spoken: str,
     tool_context: ToolContext | None = None,
     selection_handle: str = "",
+    allow_read_only_switch: bool = False,
 ) -> tuple[str, str]:
     """Resolve one named person to ``(public_person_ref, display_name)``.
 
@@ -2628,7 +2660,7 @@ def _resolve_person_for_information(
         raise ConsentLifecycleError(
             "PERSON_PROFILE_NOT_READY", "That person's request profile is not ready yet."
         )
-    if confirm_changed_person:
+    if confirm_changed_person and not (allow_read_only_switch and not resolution.unresolved):
         raise InformationPersonAmbiguous([person])
     return _remember_information_person(
         tool_context,
@@ -3456,6 +3488,23 @@ async def propose_information_request(
         # stayed after Send and could send a second request (2026-09-28). A
         # model that still calls run_app_action("consent.request") with this
         # proposal id gets the confirmation from that tool, as before.
+        paid_matched = [
+            {
+                "label": str(item.get("label") or "Information"),
+                "priceCents": int(item["priceCents"]),
+                "baseDurationHours": int(item.get("baseDurationHours") or 168),
+            }
+            for item in matched
+            if isinstance(item.get("priceCents"), int)
+            and not isinstance(item.get("priceCents"), bool)
+            and int(item["priceCents"]) > 0
+        ]
+        paid_note = (
+            " This request includes paid information; mention briefly that the exact coin price "
+            "and balance appear on the card and are reserved on Send (refunded if declined)."
+            if paid_matched
+            else ""
+        )
         result = {
             "status": "proposal_ready",
             "proposalId": proposal_id,
@@ -3468,6 +3517,7 @@ async def propose_information_request(
             "unmatchedFields": unmatched,
             "purpose": cleaned_purpose,
             "durationHours": hours,
+            **({"paidItems": paid_matched} if paid_matched else {}),
             # Contract C4 shape. ``scope`` is the opaque per-person reference
             # (the same one the catalog search returns), never a raw scope.
             "proposed": [
@@ -3486,7 +3536,7 @@ async def propose_information_request(
                 "Send and Change, so do not repeat it, do not offer to prepare a card, and do "
                 "not say they have not shared anything with you. Never say grant, scope, "
                 "domain or PKM. Do not ask for a spoken yes or call another consent action: "
-                "their tap on Send is what authorizes it, and nothing is sent until then."
+                f"their tap on Send is what authorizes it, and nothing is sent until then.{paid_note}"
                 if connector_ready
                 else "The owner's secure key is not ready yet, so nothing can be asked for. "
                 "Say exactly that in plain words, tell them to unlock their private agent and try "

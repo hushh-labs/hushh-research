@@ -48,6 +48,8 @@ class RequestableItem(BaseModel):
     sensitivity: Literal["sensitive", "standard"]
     wildcard: StrictBool
     pathSegments: list[str] = Field(max_length=100)
+    priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
+    baseDurationHours: int | None = Field(default=None, ge=1, le=8760)
 
 
 class RequestableCatalog(BaseModel):
@@ -319,13 +321,23 @@ async def read_information_discovery(owner: str, options: InformationDiscoveryOp
                 or ""
             ).lower()
             amt = (
-                getattr(t, "amount_cents", None)
+                getattr(t, "priceCents", None)
+                or getattr(t, "price_cents", None)
+                or getattr(t, "amount_cents", None)
                 if not isinstance(t, dict)
-                else t.get("amount_cents")
+                else (
+                    t.get("priceCents")
+                    if t.get("priceCents") is not None
+                    else (
+                        t.get("price_cents")
+                        if t.get("price_cents") is not None
+                        else t.get("amount_cents")
+                    )
+                )
             )
             is_paid = mode not in {"", "free"} or (isinstance(amt, (int, float)) and amt > 0)
             if is_paid:
-                for key in ("machine_scope", "scope_handle"):
+                for key in ("machineScope", "scopeHandle", "machine_scope", "scope_handle"):
                     val = getattr(t, key, None) if not isinstance(t, dict) else t.get(key)
                     if isinstance(val, str) and val.strip():
                         paid_scopes.append(val.strip())

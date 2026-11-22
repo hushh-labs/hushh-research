@@ -651,7 +651,14 @@ async def _record_notification_event(
 
 
 _REQUESTER_DOORBELL_ACTIONS = frozenset(
-    {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}
+    {
+        "CONSENT_GRANTED",
+        "CONSENT_PAID_APPROVED",
+        "CONSENT_DENIED",
+        "CANCELLED",
+        "REVOKED",
+        "TIMEOUT",
+    }
 )
 
 
@@ -713,12 +720,18 @@ async def _information_requester_doorbell(
     if not requester_user_id or requester_user_id == subject_user_id:
         return None
     issued_at = data.get("issued_at") or ""
+    raw_metadata = data.get("metadata")
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    commerce_status = str(
+        data.get("commerce_status") or metadata.get("commerce_status") or ""
+    ).strip()
     return requester_user_id, {
         "type": "information_request_updated",
         "user_id": requester_user_id,
         "action": action,
         "bundle_id": bundle_id,
         "request_id": request_id,
+        **({"commerce_status": commerce_status} if commerce_status else {}),
         "at": _event_time_iso(issued_at),
         "message_id": f"information-request:{bundle_id}:{request_id}:{action}:{issued_at}",
         "request_url": "/",
@@ -748,8 +761,18 @@ async def _with_bundle_outcome(requester_user_id: str, payload: Dict[str, Any]) 
 
 async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     """Backfill fields for older trigger payloads so SSE/push still render useful request details."""
+    needs_price_enrichment = (
+        str(data.get("action") or "").strip().upper() == "REQUESTED"
+        and bool(
+            data.get("bundle_id")
+            or str(data.get("request_id") or "").strip().startswith("one_person_")
+        )
+        and "bundle_price_coins" not in data
+        and "request_price_coins" not in data
+    )
     if (
-        data.get("scope_description")
+        not needs_price_enrichment
+        and data.get("scope_description")
         and data.get("request_url")
         and data.get("requester_label")
         and "approval_timeout_at" in data
@@ -870,6 +893,20 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
             or "",
             "bundle_id": bundle_id,
             "bundle_label": data.get("bundle_label") or metadata.get("bundle_label") or "",
+            **(
+                {"bundle_price_coins": str(int(metadata["bundle_price_coins"]))}
+                if isinstance(metadata.get("bundle_price_coins"), int)
+                and not isinstance(metadata.get("bundle_price_coins"), bool)
+                and int(metadata["bundle_price_coins"]) > 0
+                else {}
+            ),
+            **(
+                {"request_price_coins": str(int(metadata["request_price_coins"]))}
+                if isinstance(metadata.get("request_price_coins"), int)
+                and not isinstance(metadata.get("request_price_coins"), bool)
+                and int(metadata["request_price_coins"]) > 0
+                else {}
+            ),
             "bundle_scope_count": data.get("bundle_scope_count")
             or metadata.get("bundle_scope_count")
             or "1",

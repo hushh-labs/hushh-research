@@ -1424,17 +1424,20 @@ async function streamAgentChatAttempt(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
-  const plaidEligible = Boolean(
+  // Keep client-declared Plaid tool schemas byte-identical across normal turns
+  // and consent continuations so Gemini 4 implicit prefix caching stays hot
+  // (~90% reuse instead of dropping to 0% on a 2-tool schema hash shift).
+  const plaidToolsEligible = Boolean(
     input.vaultKey &&
       input.vaultOwnerToken &&
-      !input.consentContinuation &&
       !input.financeShare &&
       !input.feedAttention &&
       !recovered,
   );
-  if (plaidEligible) {
+  if (plaidToolsEligible) {
     tools.push(...(PLAID_TOOL_DECLARATIONS as unknown as Tool[]));
   }
+  const plaidEligible = Boolean(plaidToolsEligible && !input.consentContinuation);
   const wikiEligible = plaidEligible;
   const resolveTurnSharedWiki = async (): Promise<{
     wiki: SharedWikiLibrary | null;
@@ -1539,7 +1542,17 @@ async function streamAgentChatAttempt(input: {
     }
     throw error;
   }
-  const sharedWikiSession = turnWiki.wiki;
+  // Reuse an already-bound Wiki session synchronously on consent continuations
+  // so client-declared Wiki tool schemas stay byte-identical with normal turns
+  // (keeping Gemini 4 implicit prefix caching hot without adding a pre-turn fetch).
+  const warmContinuationWiki =
+    !turnWiki.wiki &&
+    plaidToolsEligible &&
+    Boolean(input.consentContinuation) &&
+    mcpSessionCurrent()
+      ? peekActiveSharedWiki()
+      : null;
+  const sharedWikiSession = turnWiki.wiki ?? warmContinuationWiki;
   if (sharedWikiSession) {
     tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
   }

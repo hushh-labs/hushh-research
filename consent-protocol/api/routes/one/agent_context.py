@@ -293,6 +293,10 @@ def sanitize_agent_context(payload: dict[str, Any]) -> dict[str, Any]:
             # flat half is the payload.get(...) here, so both transports reach
             # the same sanitizer instead of voice seeing state that chat cannot.
             "screen_state": payload.get("screen_state") or snapshot_map.get("screen_state"),
+            "visible_incoming_consent_cards": (
+                payload.get("visible_incoming_consent_cards")
+                or snapshot_map.get("visible_incoming_consent_cards")
+            ),
         }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))
@@ -426,6 +430,9 @@ def sanitize_agent_context(payload: dict[str, Any]) -> dict[str, Any]:
         # flags the screen already computes every render. This dict IS the
         # allowlist: what is not named here never reaches the model.
         "screen_state": sanitize_screen_state(payload.get("screen_state")),
+        "visible_incoming_consent_cards": sanitize_visible_incoming_consent_cards(
+            payload.get("visible_incoming_consent_cards")
+        ),
         "visible_modules": bounded_text_list(payload.get("visible_modules"), AGENT_MODULE_CAP),
         "visible_control_ids": bounded_text_list(
             payload.get("visible_control_ids"), AGENT_MODULE_CAP
@@ -621,6 +628,71 @@ def sanitize_screen_state(value: Any) -> dict[str, Any]:
             # invites it to ask.
             out[key] = None if _looks_like_personal_identifier(text) else text
     return out
+
+
+def sanitize_visible_incoming_consent_cards(value: Any) -> list[dict[str, Any]]:
+    """Bound live popped incoming consent card summaries without leaking PII or secrets."""
+    if not isinstance(value, list):
+        return []
+    cards: list[dict[str, Any]] = []
+    for raw in value[:5]:
+        if not isinstance(raw, dict):
+            continue
+        requester = bounded_text(raw.get("requester_label") or raw.get("requesterLabel"), 80)
+        if not requester or _looks_like_personal_identifier(requester):
+            continue
+        raw_labels = raw.get("labels")
+        labels = [
+            cleaned
+            for item in (raw_labels if isinstance(raw_labels, list) else [])[:6]
+            if (cleaned := bounded_text(item, 80)) and not _looks_like_personal_identifier(cleaned)
+        ]
+        if not labels:
+            continue
+        raw_status = bounded_text(raw.get("status") or "pending", 24).lower()
+        status = (
+            raw_status if raw_status in {"pending", "approved", "denied", "expired"} else "pending"
+        )
+        raw_reason = bounded_text(raw.get("reason"), 180)
+        reason = "" if _looks_like_personal_identifier(raw_reason) else raw_reason
+        duration = bounded_text(raw.get("duration_label") or raw.get("durationLabel"), 40)
+        raw_price = raw.get("price_coins", raw.get("priceCoins"))
+        price_coins = (
+            int(raw_price)
+            if isinstance(raw_price, int)
+            and not isinstance(raw_price, bool)
+            and 0 < raw_price < 10_000_000
+            else 0
+        )
+        raw_commerce = bounded_text(
+            raw.get("commerce_status") or raw.get("commerceStatus"), 32
+        ).lower()
+        commerce_status = (
+            raw_commerce
+            if raw_commerce
+            in {
+                "awaiting_owner",
+                "awaiting_payment",
+                "reserved",
+                "preparing",
+                "staged",
+                "active",
+                "free",
+            }
+            else ""
+        )
+        cards.append(
+            {
+                "requester_label": requester,
+                "labels": labels,
+                "status": status,
+                "reason": reason,
+                "duration_label": duration,
+                "price_coins": price_coins,
+                "commerce_status": commerce_status,
+            }
+        )
+    return cards
 
 
 def sanitize_onboarding_context(value: Any) -> dict[str, Any]:

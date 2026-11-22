@@ -21,6 +21,7 @@ import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import type { InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
+import type { NegativeNetAcknowledgement } from "@/lib/services/scope-commerce-service";
 import {
   OneStreamEventCard,
   SpecialistConsentActionsCard,
@@ -387,6 +388,7 @@ export const AgentBubble = memo(function AgentBubble({
   onConsentDetails?: (item: SpecialistConsentActionItem) => void;
   onPendingConsentApprove?: (
     item: SpecialistPendingConsentRequestItem,
+    negativeNetAcknowledgement?: NegativeNetAcknowledgement,
   ) => Promise<void> | void;
   onPendingConsentDeny?: (
     item: SpecialistPendingConsentRequestItem,
@@ -775,8 +777,8 @@ export const AgentBubble = memo(function AgentBubble({
             <SpecialistPendingConsentRequestCard
               item={pendingConsentRequestPayload.item}
               busy={busyConsentItemId === pendingConsentRequestPayload.item.id}
-              onApprove={(item) => {
-                void onPendingConsentApprove?.(item);
+              onApprove={(item, negativeNetAcknowledgement) => {
+                void onPendingConsentApprove?.(item, negativeNetAcknowledgement);
               }}
               onDeny={(item) => {
                 void onPendingConsentDeny?.(item);
