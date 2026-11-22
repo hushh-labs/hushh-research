@@ -819,6 +819,29 @@ describe("private route-body presentation boundary", () => {
     expect(workspaceChoiceDomainAllowed({ ...dateChoice, text: "2026-02-30" }, calendar, false)).toBe(false);
     expect(workspaceChoiceDomainAllowed(dateChoice, { ...calendar, calendarDate: { ...calendar.calendarDate!, enabled: false } }, false)).toBe(false);
     expect(workspaceChoiceDomainAllowed(dateChoice, calendar, true)).toBe(false);
+    const calendarVisuals: NativeWorkspaceProjection = { ...calendar, sections: [
+      { id: "calendar-actions", layout: "toolbar", rows: [{ id: "calendar-toolbar", label: "Calendar actions", enabled: true, readOnly: true, inlineActions: [{ id: "calendar-refresh", label: "Refresh", enabled: true, tone: "ghost" }] }] },
+      { id: "snapshot", layout: "metrics", rows: ["Events", "Scheduled time", "Recurring time"].map((detail, index) => ({ id: `metric-${index}`, label: "0", detail, enabled: true, readOnly: true })) },
+      { id: "account-controls", rows: [{ id: "calendar-account", label: "Calendar account", enabled: true, avatar: { initials: "PA" }, options: [
+        { id: "account-personal", label: "Personal", selected: true }, { id: "account-work", label: "Work", selected: false },
+      ] }, { id: "calendar-view", label: "Account view", choiceStyle: "segmented", enabled: true, options: [
+        { id: "account-events", label: "Events", selected: true }, { id: "account-free", label: "Free time", selected: false },
+      ] }] },
+      { id: "invitations", layout: "cards", rows: [{ id: "invitation", label: "Public meeting", enabled: true, avatar: { initials: "PA" },
+        calendarEvent: { day: "5", month: "Nov", weekday: "Thu", organizer: "Public organizer", muted: false },
+        inlineActions: [{ id: "open-organizer", label: "View organizer", tone: "ghost", enabled: true, placement: "menu" }] }] },
+    ], calendarWeek: { contextId: "calendar-personal", afterSectionId: "snapshot", title: "Your week at a glance", state: "ready",
+      days: Array.from({ length: 7 }, (_, index) => ({ date: `2026-11-${String(index + 5).padStart(2, "0")}`, label: `Day ${index + 1}`, minutes: index + 0.5, meetings: index })) } };
+    expect(validNativeWorkspace(calendarVisuals)).toBe(true);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, state: "loading", days: [] } })).toBe(true);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, state: "unavailable", days: [] } })).toBe(true);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: [] } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, afterSectionId: "missing-section" } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: [...calendarVisuals.calendarWeek!.days, calendarVisuals.calendarWeek!.days[0]!] } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: calendarVisuals.calendarWeek!.days.map(day => ({ ...day, minutes: NaN })) } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: calendarVisuals.calendarWeek!.days.map(day => ({ ...day, href: "https://forbidden.test" })) } } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, sections: [{ ...calendarVisuals.sections[1]!, rows: calendarVisuals.sections[1]!.rows.map(row => ({ ...row, readOnly: false })) }] })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, workspace: "connect", calendarDate: undefined, calendarWeek: undefined, sections: [calendarVisuals.sections[3]!] })).toBe(false);
     const setup: NativeWorkspaceProjection = { ...calendar, workspace: "setup", calendarDate: undefined, sections: [{ id: "settings", rows: [{ id: "prepare", label: "Prepare automatically", enabled: true, toggle: true,
       options: [{ id: "prepare-on", label: "On", selected: true }, { id: "prepare-off", label: "Off", selected: false }] }] }] };
     expect(validNativeWorkspace(setup)).toBe(true);

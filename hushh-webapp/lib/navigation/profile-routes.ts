@@ -112,6 +112,7 @@ const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
   google_drive: "Google Drive",
   calendar: "Calendar",
   plaid: "Plaid",
+  stripe: "Stripe",
   instagram: "Instagram",
   linkedin: "LinkedIn",
 };

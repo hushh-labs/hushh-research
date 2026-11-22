@@ -64,9 +64,12 @@ async def run_gmail_proposal(
 ) -> dict:
     """Keep exact email terms in the owner's log; preparation sends nothing."""
     from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+    from hushh_mcp.services.pod_owner_cloud import (
+        personal_sandbox_workspace_runtime,
+        pod_owner_user_id,
+    )
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         raise HTTPException(404, detail="not found")
 
     async def require_access() -> dict:
@@ -98,9 +101,9 @@ async def pod_gmail_proposal_route(
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
     authorization: Optional[str] = Header(default=None),
 ) -> dict:
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         raise HTTPException(404, detail="not found")
     # Settle authority before reading content. Explicit byte bound before JSON parsing.
     door = await owner_local_door(x_consent_token, authorization, scope=SCOPE_POD_ACT, held=True)
@@ -175,9 +178,14 @@ async def run_action_confirm(
 ) -> dict:
     """Admit the owner's own session, then claim and run the one prepared change."""
     from hushh_mcp.services.pod_action_proposals import kind_of
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+    from hushh_mcp.services.pod_owner_cloud import (
+        personal_sandbox_workspace_runtime,
+        pod_owner_user_id,
+    )
 
-    if not owner_cloud_agent():  # before admission: no other pod reveals the door exists
+    if (
+        not personal_sandbox_workspace_runtime()
+    ):  # before admission: no other pod reveals the door exists
         raise HTTPException(status_code=404, detail="not found")
     claims = await admit_owner_local(
         consent_token, verifier=verifier, session=session, scope=SCOPE_POD_ACT
@@ -216,9 +224,12 @@ async def run_email_send_status(
 ) -> dict:
     """Read this owner's existing send receipt; never infer safe redispatch."""
     from hushh_mcp.services.pod_action_proposals import pod_action_proposals
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+    from hushh_mcp.services.pod_owner_cloud import (
+        personal_sandbox_workspace_runtime,
+        pod_owner_user_id,
+    )
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         raise HTTPException(404, detail="not found")
     claims = await admit_owner_local(
         consent_token, verifier=verifier, session=session, scope=SCOPE_POD_ACT
@@ -245,9 +256,9 @@ async def pod_email_send_status_route(
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
     authorization: Optional[str] = Header(default=None),
 ) -> dict:
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         raise HTTPException(404, detail="not found")
     door = await owner_local_door(x_consent_token, authorization, scope=SCOPE_POD_ACT, held=True)
     return await run_email_send_status(proposal_id, **door)
@@ -259,9 +270,11 @@ async def pod_action_confirm_route(
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
     authorization: Optional[str] = Header(default=None),
 ) -> dict:
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if not owner_cloud_agent():  # before any session check: other pods never reveal the door
+    if (
+        not personal_sandbox_workspace_runtime()
+    ):  # before any session check: other pods never reveal the door
         raise HTTPException(status_code=404, detail="not found")
     door = await owner_local_door(x_consent_token, authorization, scope=SCOPE_POD_ACT, held=True)
     return await run_action_confirm(proposal_id, **door)

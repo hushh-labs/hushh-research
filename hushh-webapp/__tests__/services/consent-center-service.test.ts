@@ -432,5 +432,42 @@ describe("normalizeConsentEntry — local-override precedence matrix", () => {
     // and the status is NOT promoted.  This is the current contract.
     expect(items[0]!.status).toBe("pending");
   });
+
+  it("coalesces concurrent cold getSummary requests into a single network flight", async () => {
+    let resolveFetch!: (value: Response) => void;
+    mockApiFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const first = ConsentCenterService.getSummary({
+      idToken: "tok",
+      userId: "u-coalesce",
+      mode: "consents",
+    });
+    const second = ConsentCenterService.getSummary({
+      idToken: "tok",
+      userId: "u-coalesce",
+      mode: "consents",
+    });
+
+    await vi.waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        actor: "investor",
+        mode: "consents",
+        counts: { pending: 2, active: 1, previous: 0 },
+      }),
+    } as unknown as Response);
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    expect(a.counts.pending).toBe(2);
+    expect(b.counts.pending).toBe(2);
+  });
 });
 // ── End override-precedence proof ─────────────────────────────────────────────

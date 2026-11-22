@@ -89,6 +89,8 @@ struct NativeDrawerRow: Codable, Identifiable {
     var trailing: String? = nil
     var progress: NativeDrawerProgress? = nil
     var options: [NativeDrawerOption]? = nil
+    var choiceStyle: String? = nil
+    var calendarEvent: NativeCalendarEvent? = nil
     var toggle: Bool? = nil
     var portrait: Bool? = nil
     var portraitData: String? = nil
@@ -102,6 +104,18 @@ struct NativeDrawerRow: Codable, Identifiable {
     var expanded: Bool? = nil
 }
 
+struct NativeCalendarEvent: Codable {
+    var day: String?; var month: String?; var weekday: String?; var dateLabel: String?; var organizer: String?; let muted: Bool
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any] else { return false }
+        return Set(value.keys).isSubset(of: ["day", "month", "weekday", "dateLabel", "organizer", "muted"]) && !value.values.contains(where: { $0 is NSNull })
+    }
+    var valid: Bool {
+        (day == nil) == (month == nil) && (day == nil || NativeDrawerProjection.text(day!, 16)) &&
+            (month == nil || NativeDrawerProjection.text(month!, 32)) && (weekday == nil || NativeDrawerProjection.text(weekday!, 16)) &&
+            (dateLabel == nil || NativeDrawerProjection.text(dateLabel!, 128)) && (organizer == nil || NativeDrawerProjection.text(organizer!, 256))
+    }
+}
 struct NativeWorkspaceLocationShare: Codable {
     struct Audience: Codable {
         let locationCount: Int; let smsCount: Int; let bothCount: Int

@@ -51,7 +51,10 @@ class CalendarWindow(BaseModel):
 
 
 async def _admit(door: dict[str, Any]) -> str:
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+    from hushh_mcp.services.pod_owner_cloud import (
+        personal_sandbox_workspace_runtime,
+        pod_owner_user_id,
+    )
     from hushh_mcp.services.pod_session_authority import (
         PodSessionRefused,
         active_session_authority,
@@ -67,8 +70,8 @@ async def _admit(door: dict[str, Any]) -> str:
         await active_session_authority().require_held()
     except PodSessionRefused:
         raise _refuse(409, "POD_SESSION_CHANGED") from None
-    # Match the existing local Google ports; managed hosting is not newly admitted.
-    if not owner_cloud_agent():
+    # Match the existing local Google ports; legacy managed hosting is not newly admitted.
+    if not personal_sandbox_workspace_runtime():
         raise _refuse(503, "OWNER_GOOGLE_READ_UNAVAILABLE")
     if claims["user_id"] != pod_owner_user_id():
         raise _refuse(403, "POD_OWNER_CHANGED")

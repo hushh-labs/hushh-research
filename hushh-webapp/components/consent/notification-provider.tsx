@@ -1329,8 +1329,19 @@ export function ConsentNotificationProvider({
     };
   }, [fcmInitStatus, user, applicationOwnerId]);
 
+  const prioritizeConsentRealtime = shouldPrioritizeConsentRealtime(pathname);
+  const sseCapabilityRef = useRef<{
+    ownerId: string;
+    enabled: boolean;
+    checkedAt: number;
+  } | null>(null);
+
   useEffect(() => {
-    if (!user || !applicationOwnerId) { disabledSseUser.current = null; return; }
+    if (!user || !applicationOwnerId) {
+      disabledSseUser.current = null;
+      sseCapabilityRef.current = null;
+      return;
+    }
     if (Capacitor.isNativePlatform() || disabledSseUser.current === applicationOwnerId) return;
     const initStatus = fcmInitStatus;
     if (!initStatus || initStatus === "push_active") return;
@@ -1341,7 +1352,7 @@ export function ConsentNotificationProvider({
     let idleHandle: number | null = null;
     let delayedConnectTimer: ReturnType<typeof setTimeout> | null = null;
     const abortController = new AbortController();
-    const prioritizeRealtime = shouldPrioritizeConsentRealtime(pathname);
+    const prioritizeRealtime = prioritizeConsentRealtime;
 
     if (!prioritizeRealtime) {
       setDeliveryMode(
@@ -1354,24 +1365,41 @@ export function ConsentNotificationProvider({
       let connectedAt: number | null = null;
       try {
         const idToken = await user.getIdToken(reconnectAttempt > 0);
-        const availability = await ApiService.apiFetch(
-          `/api/consent/events/${encodeURIComponent(applicationOwnerId)}?capabilities=1`,
-          {
-            method: "GET",
-            headers: { Authorization: `Bearer ${idToken}` },
-            signal: abortController.signal,
-            cache: "no-store",
-          },
-        );
-        if (!availability.ok) {
-          throw new ConsentSseError("consent_delivery_discovery_failed", availability.status);
+        const cachedCapability = sseCapabilityRef.current;
+        const capabilityFresh =
+          reconnectAttempt === 0 &&
+          cachedCapability &&
+          cachedCapability.ownerId === applicationOwnerId &&
+          Date.now() - cachedCapability.checkedAt < 300_000;
+        let sseEnabled: boolean;
+        if (capabilityFresh) {
+          sseEnabled = cachedCapability.enabled;
+        } else {
+          const availability = await ApiService.apiFetch(
+            `/api/consent/events/${encodeURIComponent(applicationOwnerId)}?capabilities=1`,
+            {
+              method: "GET",
+              headers: { Authorization: `Bearer ${idToken}` },
+              signal: abortController.signal,
+              cache: "no-store",
+            },
+          );
+          if (!availability.ok) {
+            throw new ConsentSseError("consent_delivery_discovery_failed", availability.status);
+          }
+          const capability = await availability.json() as { enabled?: unknown };
+          if (cancelled || abortController.signal.aborted) return;
+          if (typeof capability.enabled !== "boolean") {
+            throw new ConsentSseError("consent_delivery_discovery_invalid", 502);
+          }
+          sseEnabled = capability.enabled;
+          sseCapabilityRef.current = {
+            ownerId: applicationOwnerId,
+            enabled: sseEnabled,
+            checkedAt: Date.now(),
+          };
         }
-        const capability = await availability.json() as { enabled?: unknown };
-        if (cancelled || abortController.signal.aborted) return;
-        if (typeof capability.enabled !== "boolean") {
-          throw new ConsentSseError("consent_delivery_discovery_invalid", 502);
-        }
-        if (!capability.enabled) {
+        if (!sseEnabled) {
           disabledSseUser.current = applicationOwnerId;
           setDeliveryMode(initStatus === "push_blocked" ? "push_blocked" : "inbox_only");
           return;
@@ -1571,7 +1599,7 @@ export function ConsentNotificationProvider({
         globalThis.clearTimeout(delayedConnectTimer);
       }
     };
-  }, [fcmInitStatus, pathname, user, applicationOwnerId]);
+  }, [fcmInitStatus, prioritizeConsentRealtime, user, applicationOwnerId]);
 
   useEffect(() => {
     if (!user || !isVaultUnlocked) return;
