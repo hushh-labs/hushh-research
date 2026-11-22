@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { PrivateGoogleConnectorsPanel, usePrivateGoogleConnectorsModel } from "@/components/connections/private-google-connectors-panel";
 import { PrivatePlaidConnectorGroup, usePrivatePlaidConnectorModel } from "@/components/connections/private-plaid-connector-group";
 import { StripeConnectorReadiness, useStripeConnectorReadiness, STRIPE_CONNECTION_STATUS } from "@/components/agent/stripe-connector-readiness";
@@ -42,8 +43,8 @@ export function PrivateOwnerConnectorsPanel(props: {
     const entry = google.entries.find(item => item.connector === selected);
     const disabled = !google.enabled || google.busy !== null;
     const webDetailBody = entry ? (
-      <section className="space-y-4" data-testid={`private-connector-detail-${entry.connector}`}>
-        <Button variant="ghost" size="sm" onClick={() => select(null)} className="gap-1.5 px-2">
+      <section className="space-y-4" data-connector-detail={entry.connector} data-testid={`private-connector-detail-${entry.connector}`}>
+        <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
           <ArrowLeftIcon className="size-4" aria-hidden="true" />
           <span>All connectors</span>
         </Button>
@@ -67,26 +68,47 @@ export function PrivateOwnerConnectorsPanel(props: {
             />
           ) : null}
         </SettingsGroup>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
           {entry.allowChanges ? (
-            <Button variant="outline" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
+            <Button variant="default" size="compact" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
               Allow changes
             </Button>
           ) : null}
-          <Button variant="outline" disabled={disabled} onClick={() => void google.run(entry.connector, entry.connected)}>
+          <Button
+            variant={entry.connected ? "outline" : "default"}
+            size="compact"
+            data-connector-action={entry.connected ? "secondary" : "primary"}
+            disabled={disabled}
+            onClick={() => void google.run(entry.connector, entry.connected)}
+          >
             {google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect"}
           </Button>
-          <Button variant="outline" disabled={disabled} onClick={() => void google.refresh()}>
+          <Button variant="outline" size="compact" data-connector-action="secondary" disabled={disabled} onClick={() => void google.refresh()}>
             Check connection
           </Button>
         </div>
-        {google.message ? <p role="status" className="text-sm">{google.message}</p> : null}
+        {google.message ? <p role="status" className="text-xs text-muted-foreground">{google.message}</p> : null}
+      </section>
+    ) : selected === "stripe" ? (
+      <section className="space-y-4" data-connector-detail="stripe" data-testid="private-connector-detail-stripe">
+        <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
+          <ArrowLeftIcon className="size-4" aria-hidden="true" />
+          <span>All connectors</span>
+        </Button>
+        <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
       </section>
     ) : null;
+    const stripeSummaryDescription = stripe.checking
+      ? "Checking connection…"
+      : stripe.status === "verified"
+        ? "Verified · Account and balance tools ready"
+        : stripe.status === "connected"
+          ? "Connected · Account tools need verification"
+          : "Payouts and optional Stripe tools";
     const webBody = <div className={inDrawer ? "flex h-full min-h-0 flex-col bg-background text-foreground" : "min-w-0 space-y-5"}>
       {inDrawer ? (
         <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
-          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : "Connectors"}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : selected === "stripe" ? "Stripe" : "Connectors"}</h2>
           <ShellActionSurface
             className="size-11 text-foreground"
             onClick={() => { (props.onClose ?? props.onBack)(); }}
@@ -101,7 +123,16 @@ export function PrivateOwnerConnectorsPanel(props: {
           <>
             <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} onSelectConnector={connector => select(connector)} />
             <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} />
-            <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
+            <SettingsGroup title="Payments" testId="private-stripe-settings-group">
+              <SettingsRow
+                testId="private-stripe-row"
+                leading={<ConnectorVectorGlyph id="stripe" variant="profile" />}
+                title="Stripe"
+                description={stripeSummaryDescription}
+                onClick={() => select("stripe")}
+                chevron
+              />
+            </SettingsGroup>
             {customBody}
           </>
         )}

@@ -236,6 +236,17 @@ export function FilesWorkspace({
     },
   );
 
+  const activeToasts = useRef<Set<string | number>>(new Set());
+  useEffect(() => {
+    const toasts = activeToasts.current;
+    return () => {
+      for (const id of toasts) {
+        morphyToast.dismiss(id);
+      }
+      toasts.clear();
+    };
+  }, []);
+
   const act = async (
     operation: () => Promise<unknown>,
     success: string | (() => string),
@@ -262,15 +273,24 @@ export function FilesWorkspace({
             ? error.message
             : "Could not finish. Check your Files connection and try again.",
     });
+    if (typeof notification === "string" || typeof notification === "number") {
+      activeToasts.current.add(notification);
+    }
     const retireNotification = () => {
-      if (typeof notification === "string" || typeof notification === "number")
+      if (typeof notification === "string" || typeof notification === "number") {
+        activeToasts.current.delete(notification);
         morphyToast.dismiss(notification);
+      }
     };
     signal.addEventListener("abort", retireNotification, { once: true });
     try {
       await notification.unwrap();
+      if (typeof notification === "string" || typeof notification === "number") {
+        activeToasts.current.delete(notification);
+      }
     } catch {
-      // The shared notification owns the settled action result.
+      // The shared notification owns the settled action result; retain its id
+      // in activeToasts so navigating away from Files dismisses stale errors.
     } finally {
       signal.removeEventListener("abort", retireNotification);
       if (!signal.aborted) {

@@ -586,6 +586,8 @@ export class ConsentCenterService {
       return payload;
     };
 
+    const inflightKey = JSON.stringify([cacheKey, generation, version]);
+
     // Stale-while-revalidate: on an in-memory miss, fall back to the persisted
     // IndexedDB device cache so a page reload after unlock returns the last
     // known summary instantly instead of blocking on a cold backend call.
@@ -599,13 +601,29 @@ export class ConsentCenterService {
         });
       if (stored && isCurrent()) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
-        void this.refreshSummaryInBackground(JSON.stringify([cacheKey, generation, version]), fetchFresh);
+        void this.refreshSummaryInBackground(inflightKey, fetchFresh);
         return stored;
       }
     }
 
-    return fetchFresh();
+    if (!options.force) {
+      const existingInflight = this.summaryFetchInflight.get(inflightKey);
+      if (existingInflight) return existingInflight;
+    }
+
+    const requestPromise = fetchFresh().finally(() => {
+      if (this.summaryFetchInflight.get(inflightKey) === requestPromise) {
+        this.summaryFetchInflight.delete(inflightKey);
+      }
+    });
+    this.summaryFetchInflight.set(inflightKey, requestPromise);
+    return requestPromise;
   }
+
+  private static readonly summaryFetchInflight = new Map<
+    string,
+    Promise<ConsentCenterPageSummary>
+  >();
 
   private static readonly summaryRefreshInflight = new Map<
     string,
