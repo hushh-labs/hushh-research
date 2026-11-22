@@ -387,7 +387,7 @@ jobs:
       - preflight
       - hardware-capture
     if: ${{ always() && needs.preflight.result == 'success' && (needs.hardware-capture.result == 'success' || needs.hardware-capture.result == 'skipped') }}
-    runs-on: macos-15
+    runs-on: xcode-27
     concurrency:
       group: ios-build-and-upload
       cancel-in-progress: false
@@ -472,7 +472,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "27.2"
 
       - name: Set up Node
         uses: actions/setup-node@v6

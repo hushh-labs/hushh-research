@@ -1125,11 +1125,11 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.ios == 'true')
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 45
     env:
       # Also part of the Swift package cache key; the saver pins the same.
-      XCODE_VERSION: "26.3"
+      XCODE_VERSION: "27.2"
       XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
       XCODE_SCHEME: App
       NODE_OPTIONS: --max-old-space-size=8192

@@ -120,7 +120,7 @@ For production-backed TestFlight, use the upload and resume path above.
   independently checks that run's terminal conclusion after watching. An uncertain dispatch must
   be inspected before retrying. The release evidence includes the backend target and sanitized
   ASC readback of the exact attached build, release type, notes verification, and submission state.
-- **Runner:** GitHub-hosted `macos-15`, Xcode 26.3 — GCP has no macOS instances and local builds
+- **Runner:** GitHub-hosted `xcode-27`, Xcode 27.2 (iOS 27.2 SDK) - GCP has no macOS instances and local builds
   hang inside iCloud Drive, so only the *dispatch* runs on your machine; the Apple build runs in CI.
 - **Target:** bundle `com.hushh.app`, marketing version from `MARKETING_VERSION` in the pbxproj
   `backend_target` backend (default **production**) + that target's verified Firebase identity,
@@ -205,7 +205,7 @@ export/upload, or version/build validation):
    App Store Connect workflow is a production surface regardless of the binary's backend.)
 3. **Validate the release SHA.** `require-deploy-sha-on-main.sh` confirms the SHA is on `main` and
    passed the required check (`Main Post-Merge Smoke Gate`), then checks it out detached.
-4. **Toolchain.** Xcode 26.3; Node 22; `npm ci --prefix hushh-webapp` — this must precede any Swift
+4. **Toolchain.** Xcode 27.2 (iOS 27.2 SDK); Node 22; `npm ci --prefix hushh-webapp` - this must precede any Swift
    Package step because `CapApp-SPM/Package.swift` resolves its dependencies from the hoisted
    `node_modules` three directory levels up.
 5. **Authenticate to Google Cloud.** Production WIF first materializes production

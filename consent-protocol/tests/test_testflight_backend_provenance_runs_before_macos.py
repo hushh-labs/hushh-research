@@ -245,7 +245,7 @@ def test_native_source_uses_protected_history_without_waiving_branch_authority(
 
 def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check() -> None:
     ship = _jobs()["ship"]
-    assert str(ship["runs-on"]).startswith("macos")
+    assert str(ship["runs-on"]).startswith(("macos", "xcode-"))
     assert "preflight" in ship["needs"]
     assert "needs.preflight.result == 'success'" in ship["if"]
     assert CHECK not in _names(ship)
