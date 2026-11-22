@@ -836,7 +836,7 @@ export class GmailReceiptsService {
     userId: string;
     loginHint?: string | null;
     includeGrantedScopes: boolean;
-    purpose?: "read" | "send" | "compose" | "modify";
+    purpose?: "read" | "send" | "compose" | "modify" | "full";
   }): Promise<GmailConnectStartResponse> {
     await requireSharedGoogleExchange();
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {

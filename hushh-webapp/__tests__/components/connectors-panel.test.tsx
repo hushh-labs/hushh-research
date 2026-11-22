@@ -1007,16 +1007,31 @@ describe("supported connector catalog", () => {
     expect(state.startOAuthConnect).not.toHaveBeenCalled();
   });
 
-  it("offers explicit Gmail draft permission only for a connected account without it", async () => {
-    state.gmailStatus = { connected: true, compose_permission_granted: false };
+  it("offers explicit Gmail draft and organize permissions plus one-click enable-all when multiple permissions are missing", async () => {
+    state.gmailStatus = {
+      connected: true,
+      send_permission_granted: true,
+      compose_permission_granted: false,
+      modify_permission_granted: false,
+    };
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.getByRole("button", { name: "Enable Gmail drafts" })).toBeInTheDocument();
-    state.gmailStatus = { connected: true, compose_permission_granted: true };
+    expect(screen.getByRole("button", { name: "Enable Gmail organize" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable all Mail permissions" })).toBeInTheDocument();
+
+    state.gmailStatus = {
+      connected: true,
+      send_permission_granted: true,
+      compose_permission_granted: true,
+      modify_permission_granted: true,
+    };
     cleanup();
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enable Gmail organize" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enable all Mail permissions" })).not.toBeInTheDocument();
   });
 
   it("requests the Gmail send grant during the first native connection", async () => {

@@ -91,7 +91,7 @@ _GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 # Archive, labels, read state and trash. A Google restricted scope: requested
 # incrementally on first reviewed use, never as part of a read-only connect.
 _GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
-GmailConnectPurpose = Literal["read", "send", "compose", "modify"]
+GmailConnectPurpose = Literal["read", "send", "compose", "modify", "full"]
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -985,12 +985,26 @@ class GmailReceiptsService:
             raise GmailApiError("OAuth state is invalid", status_code=400)
         if issued_at_ms <= 0 or issued_at_ms > int(_utcnow().timestamp() * 1000):
             raise GmailApiError("OAuth state is invalid", status_code=400)
-        if payload.get("purpose", "read") not in {"read", "send", "compose", "modify"}:
+        if payload.get("purpose", "read") not in {"read", "send", "compose", "modify", "full"}:
             raise GmailApiError("Invalid Gmail OAuth purpose", status_code=400)
         return payload
 
     @staticmethod
     def _oauth_scopes_for_purpose(purpose: GmailConnectPurpose) -> tuple[str, ...]:
+        if purpose == "full":
+            # Google OAuth 2.0 Granular Consent renders individual checkboxes
+            # (plus "Select all") for every Mail capability in one authorization
+            # step. Partial checkbox grants remain valid and are reflected
+            # verbatim via scope_csv on completion.
+            return (
+                "openid",
+                "email",
+                "profile",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SEND_SCOPE,
+                _GMAIL_COMPOSE_SCOPE,
+                _GMAIL_MODIFY_SCOPE,
+            )
         if purpose == "compose":
             # Provider-side draft creation is a distinct, explicitly selected
             # capability. It does not silently opt every Mail connection into

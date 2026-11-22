@@ -60,7 +60,7 @@ Owners: [Profile controller](../../components/profile/profile-connectors-section
 
 | Detail | Controls and commit boundary |
 | --- | --- |
-| Gmail | Connect/Reconnect starts Google authorization; read/send/drafts permission status. **Enable drafts** explicitly authorizes compose scope. **Cancel sign-in** aborts attempt, **Retry** reloads failed status. Confirmed Disconnect invokes existing Gmail disconnect. |
+| Gmail | Connect/Reconnect starts Google OAuth 2.0 granular authorization (`purpose:"full"` on web, `send` on native); read/send/drafts/organize permission status. **Enable all permissions** grants all missing web capabilities in one step; per-row **Enable** authorizes individual missing capabilities. **Cancel sign-in** aborts attempt, **Retry** reloads failed status. Confirmed Disconnect invokes existing Gmail disconnect. |
 | Calendar | Connect/Reconnect requests read connection through existing Google flow. **Cancel sign-in**, status **Retry**, confirmed Disconnect. Completion must verify connected/service/access level. |
 | Plaid | Encrypted financial connection list. Each bank Disconnect confirmation removes connected vault records and refreshes. Successful empty offers **Connect a bank** → portfolio sources; failed read is not an empty account. |
 | Drive | Enabled selected/live connection profile. Selected files do not grant whole-Drive access. **Enable full Drive access** can upgrade, **Retry Drive** verifies status, **Cancel sign-in** aborts. Confirmed Disconnect removes One's selected records; existing Google sharing requires separate revocation and outcome stays explicit. |
@@ -215,8 +215,8 @@ not enter buyer packet response. [Packet service](../../lib/services/drive-packe
 
 | Row/action | Wire and consumed fields | Branch |
 | --- | --- | --- |
-| Mail status/Retry | GET `/api/kai/gmail/status/<uid>`,Firebase | `configured,connected,needs_reauth,google_email,scope_csv,compose_permission_granted,send_permission_granted`→Mail/account/permission. Force bypasses1-minute cache. |
-| Mail Connect/Enable drafts | POST `/api/kai/gmail/connect/start`, `{user_id,login_hint,include_granted_scopes,purpose:"read"\|"compose",redirect_uri}` | `{configured,authorize_url,state,redirect_uri,expires_at}`→provider. Compose separate deliberate permission. |
+| Mail status/Retry | GET `/api/kai/gmail/status/<uid>`,Firebase | `configured,connected,needs_reauth,google_email,scope_csv,compose_permission_granted,modify_permission_granted,send_permission_granted`→Mail/account/permission. Force bypasses1-minute cache. |
+| Mail Connect/Enable permissions | POST `/api/kai/gmail/connect/start`, `{user_id,login_hint,include_granted_scopes,purpose:"read"\|"send"\|"compose"\|"modify"\|"full",redirect_uri}` | `{configured,authorize_url,state,redirect_uri,expires_at}`→provider. Web defaults to `full` granular checkboxes; partial checkbox grants persist verbatim. |
 | Mail complete | POST `/api/kai/gmail/connect/complete`, `{user_id,code,state,redirect_uri}` | Verified status before subsequent sync. Native complete `{user_id,server_auth_code}`. |
 | Mail Disconnect | POST `/api/kai/gmail/disconnect`, `{user_id}` | Must confirm connected:false then invalidate status/receipt caches. Catalog confirms; legacy pane immediate. |
 | Legacy Sync now/reconcile | POST `/api/kai/gmail/sync`, `{user_id}`→`{accepted,reason,run}`; POST `/reconcile` same user | accepted:false can mean already running; GET `/sync/<runId>?user_id=`→run. No false sync-complete claim. |
