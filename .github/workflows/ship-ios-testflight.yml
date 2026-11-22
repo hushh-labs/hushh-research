@@ -177,29 +177,62 @@ jobs:
           )
           '
             # Run the candidate release controls with signing credentials only
-            # when they agree with the Main dispatch revision. Test-only selectors
-            # and browser diagnostics unused by the archive are not signing/build inputs.
+            # when every build and signing input agrees with the Main dispatch revision.
+            # Lock the positive allowlist of scripts actually executed or imported by
+            # the archive and preflight instead of maintaining an exclusion denylist.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
-              .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
+              .npmrc hushh-webapp/.npmrc hushh-webapp/package-lock.json \
               hushh-webapp/vitest.config.ts hushh-webapp/__tests__/setup.ts \
-              hushh-webapp/scripts scripts/native \
+              hushh-webapp/scripts/native hushh-webapp/scripts/voice \
+              hushh-webapp/scripts/prepare-wallet-ocr.mjs \
+              hushh-webapp/scripts/testing/reviewer-test-identity.mjs \
+              hushh-webapp/scripts/testing/signed-in-ui-flows.mjs \
+              scripts/native \
               ':(glob)hushh-webapp/next.config.*' ':(glob)hushh-webapp/capacitor.config.*' \
               hushh-webapp/ios/App/App.xcodeproj/project.pbxproj \
               hushh-webapp/ios/App/CapApp-SPM/Package.swift hushh-webapp/ios/ExportOptions \
               ':(glob)hushh-webapp/ios/**/Package.resolved' \
               ':(glob)hushh-webapp/ios/**/*.sh' \
               ':(glob)scripts/ci/*ios*' ':(glob)scripts/ci/*testflight*' \
-              ':(glob)scripts/ci/*appstore*' \
-              ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/verify-signed-in-routes.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/benchmark-advisor-matching.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/build-advisor-preview.mjs' || {
+              ':(glob)scripts/ci/*appstore*' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }
+            # The package manifest stays a signing/build input: every non-script field,
+            # every npm lifecycle hook (pre*, post*, install, prepare, dependencies),
+            # and every script invoked directly or transitively by this workflow must match.
+            python3 -c '
+          import json, os, subprocess
+          INVOKED_SCRIPTS = {
+              "cap:build",
+              "cap:sync:ios",
+              "ios:prepare:uat",
+              "ios:verify-archive-symbols",
+              "verify:capability-graph",
+              "verify:capacitor:plugins",
+              "verify:capacitor:product-assets",
+              "verify:capacitor:static",
+              "verify:native:css",
+              "verify:one-voice",
+              "verify:route-orchestration-index",
+              "verify:siri-action-contract",
+              "verify:voice-gateway",
+          }
+          LIFECYCLE = {"install", "prepare", "dependencies"}
+          def manifest(rev):
+              data = json.loads(subprocess.check_output(["git", "show", rev + ":hushh-webapp/package.json"]))
+              data["scripts"] = {
+                  k: v
+                  for k, v in data.get("scripts", {}).items()
+                  if k in INVOKED_SCRIPTS or k in LIFECYCLE or k.startswith(("pre", "post"))
+              }
+              return data
+          raise SystemExit(0 if manifest(os.environ["GITHUB_SHA"]) == manifest(os.environ["SHA"]) else 1)
+          ' || {
+              echo "UAT package manifest differs from the Main dispatch revision." >&2
+              exit 1
+            }
           else
             test "$SOURCE_BRANCH" = main
             bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
@@ -361,7 +394,7 @@ jobs:
       - preflight
       - hardware-capture
     if: ${{ always() && needs.preflight.result == 'success' && (needs.hardware-capture.result == 'success' || needs.hardware-capture.result == 'skipped') }}
-    runs-on: macos-15
+    runs-on: xcode-27
     concurrency:
       group: ios-build-and-upload
       cancel-in-progress: false
@@ -446,7 +479,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "27.2"
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -587,7 +620,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          simulator_id="$(python3 -c 'import json, subprocess; payload = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True)); matches = [device["udid"] for runtime, devices in payload.get("devices", {}).items() if "iOS" in runtime for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; print(matches[0] if matches else ""); raise SystemExit(0 if matches else "No available iPhone Simulator is installed on the release runner.")')"
+          simulator_id="$(python3 -c 'import json, re, subprocess; payload = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True)); runtimes = sorted(payload.get("devices", {}).items(), key=lambda item: tuple(int(n) for n in re.findall(r"\d+", item[0])), reverse=True); candidates = [device for runtime, devices in runtimes if "iOS" in runtime for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; standard = [d for d in candidates if "Duo" not in d.get("name", "")]; chosen = (standard or candidates or [None])[0]; print(chosen["udid"] if chosen else ""); raise SystemExit(0 if chosen else "No available iPhone Simulator is installed on the release runner.")')"
           xcodebuild test \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \

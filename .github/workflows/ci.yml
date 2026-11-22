@@ -1125,11 +1125,11 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.ios == 'true')
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 45
     env:
       # Also part of the Swift package cache key; the saver pins the same.
-      XCODE_VERSION: "26.3"
+      XCODE_VERSION: "27.2"
       XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
       XCODE_SCHEME: App
       NODE_OPTIONS: --max-old-space-size=8192
@@ -1221,7 +1221,9 @@ jobs:
           set -euo pipefail
           SIMULATOR_ID="$(python3 - <<'PY'
           import json
+          import re
           import subprocess
+          import sys
 
           payload = json.loads(
               subprocess.check_output(
@@ -1229,14 +1231,24 @@ jobs:
                   text=True,
               )
           )
-          for runtime, devices in payload.get("devices", {}).items():
-              if "iOS" not in runtime:
-                  continue
-              for device in devices:
-                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
-                      print(device["udid"])
-                      raise SystemExit(0)
-          raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
+          runtimes = sorted(
+              payload.get("devices", {}).items(),
+              key=lambda item: tuple(int(n) for n in re.findall(r"\d+", item[0])),
+              reverse=True,
+          )
+          candidates = [
+              (runtime, device["name"], device["udid"])
+              for runtime, devices in runtimes
+              if "iOS" in runtime
+              for device in devices
+              if device.get("isAvailable") and device.get("name", "").startswith("iPhone")
+          ]
+          standard = [c for c in candidates if "Duo" not in c[1]]
+          chosen = (standard or candidates or [None])[0]
+          if not chosen:
+              raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
+          print(f"Selected simulator: {chosen[1]} ({chosen[0]})", file=sys.stderr)
+          print(chosen[2])
           PY
           )"
           echo "SIMULATOR_ID=${SIMULATOR_ID}" >> "$GITHUB_ENV"

@@ -180,7 +180,7 @@ def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
     mutated[CI] += old_cache
     assert any("full Swift clone cache" in error for error in cache_scope_errors(mutated.__getitem__))
 
-    errors = errors_after(SPM_SAVER, 'XCODE_VERSION: "26.3"', 'XCODE_VERSION: "26.4"')
+    errors = errors_after(SPM_SAVER, 'XCODE_VERSION: "27.2"', 'XCODE_VERSION: "27.3"')
     assert any("XCODE_VERSION, part of the key" in error for error in errors), errors
 
     errors = errors_after(SMOKE, "date -u +%Y%m%d", "date -u +%Y%W")
