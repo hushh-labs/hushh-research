@@ -26,6 +26,7 @@ import {
   PodCloudBadge,
   PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
+import { PodSessionLockdownControl } from "@/components/connections/pod-session-lockdown-row";
 import { ROUTES } from "@/lib/navigation/routes";
 import { HOST_LABELS, agentSettingsSummary, useAgentSettingsController, type AgentSettingsController } from "./use-agent-settings-controller";
 export { HOST_LABELS, agentSettingsSummary, useAgentSettingsController } from "./use-agent-settings-controller";
@@ -110,6 +111,9 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           <SettingsGroup title="Hussh Pods cloud" density="compact" headingClassName="!mt-5">
             <HusshPodsActiveCard deploymentTarget={status?.deploymentTarget} embedded />
           </SettingsGroup>
+        ) : null}
+        {mode === "byoc" && status?.state === "active" ? (
+          <PodSessionLockdownControl testId="byoc-session-only-lockdown" />
         ) : null}
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice model={azureHosting} />
