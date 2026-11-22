@@ -180,6 +180,7 @@ def activity_catalog(environment: str = "production") -> dict:
         "one_crm_": "agent_connected_systems",
         "one_location_": "agent_location",
         "gmail_": "agent_email",
+        "hushh_mail_": "agent_email",
         "consent_": "agent_nav",
         "analysis_": "agent_kai",
         "portfolio_": "agent_kai",
