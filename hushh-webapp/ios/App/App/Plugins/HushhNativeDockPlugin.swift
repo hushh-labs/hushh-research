@@ -76,19 +76,20 @@ struct HushhDockFence {
         emissions.removeValue(forKey: event - 256)
         return event
     }
-    mutating func confirm(_ requested: Identity, sequence: Int, applied: Int, editRevision: Int, kind: String, allowed: Bool) -> Bool {
+    mutating func confirm(_ requested: Identity, sequence: Int, applied: Int, editRevision: Int, kind: String, action: String? = nil, allowed: Bool) -> Bool {
         guard allowed, identity == requested, sequence > confirmed,
               let emission = emissions[sequence], emission.update == applied,
-              emission.edit == editRevision, emission.kind == kind,
+              emission.edit == editRevision, emission.kind == kind, action == nil || emission.action == action,
               kind != "action" || applied == update && editRevision == edit else { return false }
         confirmed = sequence
         confirmedEmission = emission
         emissions = emissions.filter { $0.key > sequence }
         return true
     }
-    mutating func consume(_ requested: Identity, sequence: Int, editRevision: Int, allowed: Bool) -> Bool {
+    mutating func consume(_ requested: Identity, sequence: Int, editRevision: Int, action: String, allowed: Bool) -> Bool {
         guard allowed, identity == requested, sequence == confirmed, sequence > consumedSequence,
-              confirmedEmission?.kind == "action", confirmedEmission?.action == "send",
+              confirmedEmission?.kind == "action",
+              confirmedAction == action, action == "send" || action == "send-now",
               confirmedEmission?.edit == editRevision, edit == editRevision else { return false }
         consumedSequence = sequence
         edited()
@@ -121,6 +122,7 @@ final class NativeDockModel: ObservableObject {
     @Published var awaitingConsumption = false
     @Published var awaitingTransition = false
     @Published var sendEnabled = false
+    @Published var sendNowEnabled = false
     @Published var micEnabled = false
     @Published var cancelEnabled = false
     @Published var recording = false
@@ -135,6 +137,7 @@ final class NativeDockModel: ObservableObject {
     weak var editor: DockTextView?
     var emit: ((String, String?, String?, String?, NSRange?) -> Void)?
     var changedHeight: (() -> Void)?
+    var canSendNow: Bool { mode == "text" && sendEnabled && sendNowEnabled }
     func action(_ name: String, attachment: String? = nil) {
         guard visible, interactionEnabled, editor?.markedTextRange == nil else { return }
         emit?("action", name, attachment, nil, nil)
@@ -255,7 +258,10 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.accessibilityIdentifier = "native-dock-editor"
         editor.returnKeyType = .default
         editor.keyboardDismissMode = .interactive
-        editor.submit = { [weak model] in if model?.sendEnabled == true { model?.action("send") } }
+        editor.submit = { [weak model] in
+            guard let model, model.sendEnabled else { return }
+            model.action(model.canSendNow ? "send-now" : "send")
+        }
         model.editor = editor
         return editor
     }
@@ -376,6 +382,10 @@ struct NativeAgentDockView: View {
                                     else if Date().timeIntervalSince(began) >= 0.25 { model.action("capture-finish") }
                                 })
                     }
+                    if model.canSendNow {
+                        dockButton("bolt.fill", "Send immediately", foreground: .primary) { model.action("send-now") }
+                            .disabled(model.awaitingConsumption || model.awaitingTransition)
+                    }
                     if model.mode == "text" && !model.expanded {
                         if model.cancelEnabled {
                             dockButton("stop.fill", "Stop One", prominent: true) { model.action("cancel") }
@@ -409,11 +419,11 @@ struct NativeAgentDockView: View {
         .tint(Color(uiColor: model.accent))
         .accessibilityElement(children: .contain)
     }
-    private func dockButton(_ symbol: String, _ label: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+    private func dockButton(_ symbol: String, _ label: String, prominent: Bool = false, foreground: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: glyphSize, weight: .semibold))
-                .foregroundStyle(Color(uiColor: prominent ? model.accentForeground : model.accent))
+                .foregroundStyle(foreground ?? Color(uiColor: prominent ? model.accentForeground : model.accent))
                 .frame(width: actionSize, height: actionSize)
                 // Filled actions and plain glyphs share a 44-point target.
                 // The outer dock alone owns the glass material.
@@ -621,6 +631,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.model.expanded = call.getBool("expanded") ?? false
             self.model.editable = call.getBool("editable") ?? false
             self.model.sendEnabled = call.getBool("sendEnabled") ?? false
+            self.model.sendNowEnabled = call.getBool("sendNowEnabled") ?? false
             self.model.micEnabled = call.getBool("micEnabled") ?? false
             self.model.cancelEnabled = call.getBool("cancelEnabled") ?? false
             self.model.recording = call.getBool("recording") ?? false
@@ -757,6 +768,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
+                action: call.getString("action"),
                 allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.interactionIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
@@ -790,8 +802,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(["consumed": false, "editRevision": 0]); return
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
-            let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit,
-                allowed: self.safe && self.compositor?.interactionIsolated != true && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
+            let action = call.getString("action") ?? "send" // Older callers could only consume Send.
+            let sendAllowed = action == "send-now" ? self.model.canSendNow : self.model.sendEnabled
+            let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit, action: action,
+                allowed: self.safe && self.compositor?.interactionIsolated != true && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && sendAllowed &&
                     self.model.editor?.markedTextRange == nil && call.getString("context") == self.context &&
                     call.getInt("privacyGeneration") == privacy.generation)
             if consumed {
