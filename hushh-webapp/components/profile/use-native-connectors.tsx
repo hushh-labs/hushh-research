@@ -111,7 +111,10 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   if (model?.selectedConnector && detail) {
     let detailRows: NativeDrawerRow[] = [];
     if (detail.kind === "private-google" || detail.kind === "private-stripe") detailRows = [read("private-status", detail.status), ...text("private-purpose", detail.purpose),
-      ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)), ...detail.actions.flatMap((item, index) => action(`private-action-${index}`, item)), ...text("private-message", detail.message)];
+      ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)),
+      ...(detail.background ? [read("private-background-state", "Background preparation", detail.background.description),
+        ...(detail.background.enabled === null ? [] : [toggle("private-background", "Background preparation", detail.background.enabled, !detail.background.busy, detail.background.change)])] : []),
+      ...detail.actions.flatMap((item, index) => action(`private-action-${index}`, item)), ...text("private-message", detail.message)];
     else if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...action("mail-connect", detail.connect), ...action("mail-disconnect", detail.disconnect),
       ...action("mail-retry", detail.retry), ...(detail.connected ? [read("mail-read", "Read mail", "Allowed"), read("mail-send", "Send mail", detail.sendAllowed ? "Allowed · review required" : "Not enabled"),
         ...(detail.draftsAllowed ? [read("mail-drafts", "Drafts", "Allowed · review required")] : action("mail-drafts", detail.enableDrafts))] : []), ...action("mail-cancel", detail.cancelSignIn), ...text("mail-message", detail.message)];
