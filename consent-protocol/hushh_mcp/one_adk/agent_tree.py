@@ -20,6 +20,7 @@ loaded into this runtime.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -140,7 +141,11 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
-from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
+from hushh_mcp.one_adk.mail_instruction import (
+    legacy_draft_addressing,
+    mail_admission_instruction,
+    owner_clock_line,
+)
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
@@ -853,11 +858,23 @@ def _strip_dynamic_turn_context(parts: list[Any]) -> list[Any]:
     return kept
 
 
+_STEP_DYNAMIC_CONTEXT: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
+    "one_step_dynamic_context", default=None
+)
+
+
 def _one_dynamic_turn_context(context: Any) -> str:
     """Volatile per-turn screen, memory, draft, and clock notes for model tail injection."""
     from hushh_mcp.agents.calendar.read_projection import turn_clock
 
-    _, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(context)
+    cached = _STEP_DYNAMIC_CONTEXT.get()
+    if cached is not None:
+        _STEP_DYNAMIC_CONTEXT.set(None)
+        legacy_draft_instruction, dynamic_tail = cached
+    else:
+        _, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+            context, split_clock=True
+        )
     return (legacy_draft_instruction + dynamic_tail + str(turn_clock(context))).strip()
 
 
@@ -919,12 +936,16 @@ def _one_runtime_instruction(context: Any) -> str:
 
         state_getter = getattr(getattr(context, "state", None), "get", None)
         if callable(state_getter) and state_getter("temp:hussh:split_dynamic_context") is True:
-            static_prefix, _, _ = _compose_one_instruction_parts(context)
+            static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+                context, split_clock=True
+            )
+            _STEP_DYNAMIC_CONTEXT.set((legacy_draft_instruction, dynamic_tail))
             return (
                 static_prefix
                 + follow_up_instruction(state_getter)
                 + reaction_instruction(state_getter)
             )
+        _STEP_DYNAMIC_CONTEXT.set(None)
         return (
             _compose_one_runtime_instruction(context)
             + str(turn_clock(context))
@@ -936,11 +957,15 @@ def _one_runtime_instruction(context: Any) -> str:
 
 
 def _compose_one_runtime_instruction(context: Any) -> str:
-    static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(context)
+    static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+        context, split_clock=False
+    )
     return static_prefix + legacy_draft_instruction + dynamic_tail
 
 
-def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
+def _compose_one_instruction_parts(
+    context: Any, *, split_clock: bool = False
+) -> tuple[str, str, str]:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -950,12 +975,15 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and connector_feature_enabled("gmail_chat_reads", str(state_getter(STATE_USER_ID) or ""))
     )
+    timezone_val = state_getter(STATE_TIMEZONE) if callable(state_getter) else None
     mail_core_instruction = mail_admission_instruction(
         admitted=mail_admitted,
         mailbox_changes=mail_admitted
         and (not pod_mode() or owner_cloud_agent() or hosted_ace_runtime()),
-        timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
+        timezone=timezone_val,
+        include_clock=not split_clock,
     )
+    split_mail_clock = owner_clock_line(timezone_val) if (split_clock and mail_admitted) else ""
     legacy_draft_instruction = legacy_draft_addressing(state_getter)
     drive_admitted = (
         callable(state_getter)
@@ -1132,7 +1160,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         dynamic_tail = (
-            selected_drive_instruction
+            split_mail_clock
+            + selected_drive_instruction
             + pkm_instruction
             + memory_instruction
             + owner_identity_instruction
@@ -1325,7 +1354,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     playbook = voice_context.get("route_playbook")
     if not isinstance(playbook, dict):
         dynamic_tail = (
-            selected_drive_instruction
+            split_mail_clock
+            + selected_drive_instruction
             + layer_instruction
             + action_inventory
             + screen_state_instruction
@@ -1356,7 +1386,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         "inventory, and runtime guards " + "remain the only execution authority."
     )
     dynamic_tail = (
-        selected_drive_instruction
+        split_mail_clock
+        + selected_drive_instruction
         + layer_instruction
         + playbook_instruction
         + action_inventory

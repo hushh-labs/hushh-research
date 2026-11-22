@@ -795,6 +795,7 @@ def _one_head() -> TimedADKAgent:
         user_id_extractor=_user_id,
     )
     agent.detached_turn_hook = _notify_detached_turn
+    agent.post_turn_hook = _persist_hub_rolling_horizon
     return agent
 
 
@@ -831,6 +832,18 @@ def __getattr__(name: str) -> Any:
     if name == "_intro_agent":
         return _intro_head()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+async def _persist_hub_rolling_horizon(owner_id: str, conversation_id: str) -> None:
+    """Silently persist encrypted rolling-horizon digest after RUN_FINISHED (zero turn pause)."""
+    from hushh_mcp.one_adk.rolling_horizon import persist_rolling_horizon_post_turn
+
+    await persist_rolling_horizon_post_turn(
+        _shared_sessions(),
+        app_name=ONE_APP_NAME,
+        user_id=owner_id,
+        session_id=conversation_id,
+    )
 
 
 async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
