@@ -4250,8 +4250,52 @@ function ProfilePageContent({
         activePanel === "hosting"
           ? "Where Agent One runs."
           : "Your version and available updates.",
-      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
+      content: (
+        <AgentSettingsPanel
+          kind={activePanel}
+          userId={applicationOwnerId}
+          controller={agentSettings}
+          onOpenDetail={(nextDetail) =>
+            updateProfileView({ panel: activePanel, detail: nextDetail }, "push")
+          }
+        />
+      ),
     });
+    if (activePanel === "hosting" && activeDetail === "hosting-details") {
+      profileStackEntries.push({
+        key: "detail:hosting-details",
+        title: "Hosting details",
+        description: "Active cloud runtime and background controls.",
+        content: (
+          <AgentSettingsPanel
+            kind="hosting"
+            userId={applicationOwnerId}
+            controller={agentSettings}
+            detail="hosting-details"
+            onOpenDetail={(nextDetail) =>
+              updateProfileView({ panel: "hosting", detail: nextDetail }, "push")
+            }
+          />
+        ),
+      });
+    } else if (activePanel === "software-updates" && activeDetail === "update-details") {
+      profileStackEntries.push({
+        key: "detail:update-details",
+        title: "Version details",
+        description: "Build and verification status.",
+        content: (
+          <AgentSettingsPanel
+            kind="software-updates"
+            userId={applicationOwnerId}
+            controller={agentSettings}
+            detail="update-details"
+            onOpenDetail={(nextDetail) =>
+              updateProfileView({ panel: "software-updates", detail: nextDetail }, "push")
+            }
+          />
+        ),
+      });
+    }
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",

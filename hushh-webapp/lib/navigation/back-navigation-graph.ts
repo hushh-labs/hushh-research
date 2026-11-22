@@ -592,9 +592,18 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         .split("/")
         .filter(Boolean)[0];
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-      const managementReturn = pathname === ROUTES.ONE_SETUP_CLOUD
-        && searchParams?.get("return_to") === ROUTES.PROFILE_HOSTING
-        ? ROUTES.PROFILE_HOSTING : undefined;
+      const rawReturnTo = normalizeInternalRouteHref(searchParams?.get("return_to"));
+      const isHostingOrigin = (href: string | undefined) =>
+        Boolean(
+          href &&
+            (href === ROUTES.PROFILE_HOSTING ||
+              href.startsWith(`${ROUTES.PROFILE_HOSTING}?`) ||
+              href.includes("profile_panel=hosting")),
+        );
+      const managementReturn =
+        pathname === ROUTES.ONE_SETUP_CLOUD && isHostingOrigin(rawReturnTo)
+          ? rawReturnTo
+          : undefined;
       const setupBackHref = originHref || managementReturn || ROUTES.ONE_SETUP;
       return {
         backHref: setupBackHref,
@@ -603,7 +612,10 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         hideBack: false,
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: setupBackHref === ROUTES.PROFILE_HOSTING ? "Hosting" : "Setup", href: setupBackHref },
+          {
+            label: isHostingOrigin(setupBackHref) ? "Hosting" : "Setup",
+            href: setupBackHref,
+          },
           ...(capabilitySegment
             ? [
                 {

@@ -6,7 +6,7 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
-import { OneThinkingIndicator } from "@/components/agent/one-thinking-indicator";
+import { OneThinkingIndicator, type OneTurnPendingPhase } from "@/components/agent/one-thinking-indicator";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -199,6 +199,8 @@ export type AgentTurnStreamPanelProps = {
   responseText: string;
   isStreaming: boolean;
   isError?: boolean;
+  pendingPhase?: OneTurnPendingPhase;
+  pendingLabel?: string | null;
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
@@ -401,6 +403,8 @@ export function AgentTurnStreamPanel({
   responseText,
   isStreaming,
   isError = false,
+  pendingPhase = "thinking",
+  pendingLabel = null,
   opportunities,
   response,
   className,
@@ -538,7 +542,11 @@ export function AgentTurnStreamPanel({
           </div>
         ) : null
       }
-      responsePendingLabel={checkingMail || preparingPrivateMemory || currentBatchProgress ? undefined : <OneThinkingIndicator />}
+      responsePendingLabel={
+        checkingMail || preparingPrivateMemory || currentBatchProgress
+          ? undefined
+          : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+      }
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}

@@ -1343,7 +1343,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const vaultOwnerTokenGetterRef = useRef(getVaultOwnerToken);
   vaultOwnerTokenGetterRef.current = getVaultOwnerToken;
   // One calm notice when a reply is slow or the server is strained.
-  const slowNotice = useAgentChatSlowNotice();
+  const [slowNoticeState, setSlowNoticeState] = useState<
+    "slow" | "waking" | "connecting" | "busy" | "unavailable" | null
+  >(null);
+  const slowNotice = useAgentChatSlowNotice(setSlowNoticeState);
   const liveTurnQueueRef = useRef<LiveTurnQueue | null>(null);
   if (liveTurnQueueRef.current === null) {
     liveTurnQueueRef.current = new LiveTurnQueue(
@@ -5901,9 +5904,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted || turnStopped) return;
             if (signal.kind === "waking") {
               setIsTurnWaking(true);
-              return;
-            }
-            if (signal.kind === "bytes" || signal.kind === "activity") {
+            } else if (signal.kind === "bytes" || signal.kind === "activity") {
               setIsTurnWaking(false);
             }
             slowNotice.signal(signal);
@@ -6606,9 +6607,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             if (signal.kind === "waking") {
               setIsTurnWaking(true);
-              return;
-            }
-            if (signal.kind === "bytes" || signal.kind === "activity") {
+            } else if (signal.kind === "bytes" || signal.kind === "activity") {
               setIsTurnWaking(false);
             }
             slowNotice.signal(signal);
@@ -9600,6 +9599,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      pendingPhase={
+                        message.isStreaming
+                          ? isTurnWaking || chatWake.isWaking || slowNoticeState === "waking"
+                            ? "waking"
+                            : slowNoticeState === "connecting"
+                              ? "reconnecting"
+                              : "thinking"
+                          : "thinking"
+                      }
                       driveMemoryReview={renderDriveMemoryReview(message)}
                       onResendAttachment={
                         message.role === "user" && message.attachments?.length && !message.calendarMeeting && !message.attachments.some(item => item.name === "Meeting sources.txt")

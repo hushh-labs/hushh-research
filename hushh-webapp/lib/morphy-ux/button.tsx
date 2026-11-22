@@ -187,9 +187,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           className={cn(
             "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
             variantStyles,
-            effect === "fill" && !plain && variant !== "none" && variant !== "link"
+            effect === "fill" && !plain && variant !== "none" && variant !== "link" && variant !== "muted"
               ? "border border-transparent"
-              : "border-transparent",
+              : variant === "muted"
+                ? ""
+                : "border-transparent",
             isXl ? "h-16 px-12 text-lg" : "",
             fullWidth ? "w-full" : "",
             loading ? "cursor-wait" : "",
@@ -220,9 +222,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(
           "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
           variantStyles,
-          effect === "fill" && !plain && variant !== "none" && variant !== "link"
+          effect === "fill" && !plain && variant !== "none" && variant !== "link" && variant !== "muted"
             ? "border border-transparent"
-            : "border-transparent",
+            : variant === "muted"
+              ? ""
+              : "border-transparent",
           isXl ? "h-16 px-12 text-lg" : "",
           fullWidth ? "w-full" : "",
           loading ? "cursor-wait" : "",

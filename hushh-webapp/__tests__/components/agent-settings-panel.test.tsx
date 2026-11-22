@@ -261,7 +261,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText("Hussh Shared")).toBeTruthy();
     expect(screen.getByText("Hussh Pods")).toBeTruthy();
     expect(
-      screen.getByText("Dedicated hosting is unavailable for new setups."),
+      screen.getByText("Unavailable for new setups."),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Bring your own cloud/ }),
@@ -442,7 +442,13 @@ describe("owner hosting and software settings", () => {
 
     expect(screen.getByText("Sep 2026 · Dev 1")).toBeTruthy();
     expect(screen.getByText("27.09.26 · Dev 2")).toBeTruthy();
+    expect(screen.queryByText("What’s in this update")).toBeNull();
+    expect(screen.queryByText("abcdef123456")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
+    expect(screen.getByTestId("update-details-view")).toBeTruthy();
     expect(screen.getByText("What’s in this update")).toBeTruthy();
+    expect(screen.getByText("Improved reconnect behavior.")).toBeTruthy();
     expect(screen.queryByText("abcdef123456")).toBeNull();
   });
 
@@ -638,9 +644,16 @@ describe("owner hosting and software settings", () => {
       status("hussh_pods", { state: "active", deploymentTarget, featureEnabled: true });
 
       const { unmount } = render(<AgentSettingsPanel userId="owner" kind="hosting" />);
-      expect((await screen.findAllByText(expectedDisplay)).length).toBeGreaterThanOrEqual(2);
+      expect(await screen.findByText(expectedDisplay)).toBeTruthy();
       expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent(expectedBadge);
-      expect(screen.getByTestId("hussh-pods-connected")).toHaveAttribute("data-provider", deploymentTarget);
+      expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+      // Detailed cloud card lives inside Hosting details, keeping top-level uniform.
+      expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
+      fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
+      expect(await screen.findByTestId("hussh-pods-connected")).toHaveAttribute(
+        "data-provider",
+        deploymentTarget,
+      );
 
       const { result } = renderHook(() =>
         useNativeAgentSettings(
@@ -722,15 +735,40 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("shows multi-cloud Personal Sandbox identity for ace and hides switch card", async () => {
+  it("shows multi-cloud Personal Sandbox identity for ace with top-level signal and focused details", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(await screen.findByText("Hussh Pods · Personal Sandbox")).toBeTruthy();
+    expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+    expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
+    expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
     const card = await screen.findByTestId("hussh-pods-connected");
     expect(card).toHaveAttribute("data-provider", "ace");
     expect(card).toHaveTextContent("Isolated Personal Sandbox across Google Cloud and Microsoft Azure");
     expect(screen.getByTestId("hussh-pods-active-dual-cloud")).toBeInTheDocument();
-    expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
+  });
+
+  it("reports Personal Sandbox as Managed automatically and keeps raw build hashes inside Version details", () => {
+    const rawSha = "dev-6aa3fb3c5aa664565a2b11a228b9d0086e8f2102";
+    status("hussh_pods", {
+      state: "active",
+      deploymentTarget: "ace",
+      installedReleaseVerified: false,
+      installedRelease: { version: rawSha },
+    });
+
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(screen.getByText("Managed automatically")).toBeTruthy();
+    expect(screen.queryByText("Running version not verified")).toBeNull();
+    expect(screen.getByText("Personal Sandbox · Latest")).toBeTruthy();
+    expect(screen.queryByText(rawSha)).toBeNull();
+
+    fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
+    expect(screen.getByTestId("update-details-view")).toBeTruthy();
+    expect(screen.getByText(rawSha)).toBeTruthy();
   });
 });
