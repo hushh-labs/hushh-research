@@ -129,6 +129,40 @@ if (!docsReadme.includes("brand-and-compatibility-contract.md")) {
   failures.push("docs/README.md must link brand-and-compatibility-contract.md");
 }
 
+// Wave 1 progressive guardrails: root machine index, brand hero assets, and clean typography.
+const llmsPath = path.join(repoRoot, "llms.txt");
+if (!fs.existsSync(llmsPath)) {
+  failures.push("missing root machine discovery index: llms.txt");
+} else {
+  const llmsSource = read("llms.txt");
+  for (const match of llmsSource.matchAll(/\[[^\]\n]+\]\(([^)\s]+)\)/g)) {
+    const rawTarget = match[1].split("#")[0];
+    if (/^https?:\/\//.test(rawTarget) || !rawTarget) continue;
+    if (!fs.existsSync(path.join(repoRoot, rawTarget))) {
+      failures.push(`llms.txt links missing target: ${rawTarget}`);
+    }
+  }
+}
+
+for (const heroDoc of ["README.md", "docs/README.md"]) {
+  const src = read(heroDoc);
+  const baseDir = path.dirname(path.join(repoRoot, heroDoc));
+  for (const match of src.matchAll(/(?:srcset|src)="([^"]+\.svg)"/g)) {
+    const asset = match[1];
+    if (!fs.existsSync(path.resolve(baseDir, asset))) {
+      failures.push(`${heroDoc} references missing brand SVG asset: ${asset}`);
+    }
+  }
+}
+
+for (const dashFreeDoc of ["README.md", "AGENTS.md", "docs/README.md", "docs/development/documentation.md", "llms.txt"]) {
+  if (!fs.existsSync(path.join(repoRoot, dashFreeDoc))) continue;
+  const src = read(dashFreeDoc);
+  if (/[\u2013\u2014]/.test(src)) {
+    failures.push(`${dashFreeDoc} contains forbidden em or en dash punctuation`);
+  }
+}
+
 function walkMarkdown(relStart) {
   const start = path.join(repoRoot, relStart);
   const out = [];
