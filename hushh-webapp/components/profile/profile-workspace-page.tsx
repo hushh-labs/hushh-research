@@ -2,7 +2,6 @@
 
 import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
-import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
@@ -3579,7 +3578,6 @@ function ProfilePageContent({
             />
           }
         />
-        <NetworkVisibilitySetting />
         <SettingsRow
           icon={PROFILE_ICONS.visibility}
           iconTone="capability"

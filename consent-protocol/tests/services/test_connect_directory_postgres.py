@@ -763,7 +763,9 @@ def test_mutual_list_settles_target_authority_even_on_empty_pages(connection, mo
     assert failure.value.status_code == 503
 
 
-def test_extended_network_shortest_degrees_require_shared_paths_and_live_accounts(connection):
+def test_extended_network_shortest_degrees_ignore_legacy_flags_and_require_live_accounts(
+    connection,
+):
     network = _network(connection)
     for uid in (OWNER, "alice", "bob", "carol", "dave", "hidden", "disabled", "stranger"):
         _person(connection, uid, uid.title())
@@ -787,15 +789,18 @@ def test_extended_network_shortest_degrees_require_shared_paths_and_live_account
     directory = _Directory(connection)
     directory._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
     network._directory = directory
-    assert network.preference(OWNER) == {"shareConnectionList": False}
-    # Third-degree discovery remains opt-in even though direct lists are automatic.
-    assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2}
+    assert network.preference(OWNER) == {"shareConnectionList": True, "automaticDiscovery": True}
+    expected = {"alice": 1, "bob": 1, "carol": 2, "dave": 3}
+    assert network.degrees(OWNER) == expected
     for uid in ("bob", "carol"):
-        network.set_preference(uid, True)
-    assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2, "dave": 3}
-    network.set_preference("carol", False)
-    assert "dave" not in network.degrees(OWNER)
-    network.set_preference("carol", True)
+        assert network.set_preference(uid, False) == network.preference(uid)
+    assert network.degrees(OWNER) == expected
+    assert (
+        connection.execute(
+            text("SELECT COUNT(*) FROM actor_profiles WHERE connection_list_shared")
+        ).scalar_one()
+        == 0
+    )
     # Any blocked path segment is excluded in either direction.
     connection.execute(
         text(
@@ -810,7 +815,6 @@ def test_extended_network_contains_only_exact_third_degree_people(connection, in
     network = _network(connection)
     for uid in (OWNER, "first", "second", "third", "fourth", "unrelated"):
         _person(connection, uid, uid.title(), email=f"{uid}@example.test")
-        network.set_preference(uid, True)
     connection.execute(text("UPDATE actor_profiles SET public_person_ref=user_id"))
     assert network.browse(OWNER, degree=3, include_suggestions=include_suggestions)["items"] == []
     for a, b in ((OWNER, "first"), ("first", "second"), ("second", "third"), ("third", "fourth")):
@@ -841,7 +845,6 @@ def test_extended_network_pages_only_eligible_third_degree_people(connection):
     network = _network(connection)
     for uid in (OWNER, "first", "second"):
         _person(connection, uid, uid.title())
-        network.set_preference(uid, True)
     _network_edge(connection, OWNER, "first")
     _network_edge(connection, "first", "second")
     expected = []
@@ -903,7 +906,6 @@ def test_extended_network_rechecks_paths_after_provider_reads(connection, monkey
     network = _network(connection)
     for uid in (OWNER, "first", "second", "third", "new-mutual"):
         _person(connection, uid, uid.title())
-        network.set_preference(uid, True)
     connection.execute(text("UPDATE actor_profiles SET public_person_ref=user_id"))
     for a, b in ((OWNER, "first"), ("first", "second"), ("second", "third")):
         _network_edge(connection, a, b)
@@ -953,7 +955,7 @@ def test_extended_network_rechecks_paths_after_provider_reads(connection, monkey
         return result
 
     monkeypatch.setattr(network.directory(), "search_directory_candidates", read_then_change)
-    if change:
+    if change and change != "sharing":
         with pytest.raises(ConnectionsError) as failure:
             network.browse(OWNER, degree=3, include_suggestions=True)
         assert failure.value.status_code == 503
@@ -968,7 +970,6 @@ def test_network_cycles_do_not_extend_degrees_or_include_viewer(connection):
     network = _network(connection)
     for uid in (OWNER, "a", "b", "c", "d"):
         _person(connection, uid, f"Person {uid}")
-        network.set_preference(uid, True)
     for a, b in ((OWNER, "a"), ("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")):
         _network_edge(connection, a, b)
     assert network.degrees(OWNER) == {"a": 1, "b": 2, "c": 2, "d": 3}
@@ -1066,7 +1067,7 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     )
     _network_edge(connection, OWNER, "target")
     _network_edge(connection, "target", "peer")
-    assert network.preference("target") == {"shareConnectionList": False}
+    assert network.preference("target")["automaticDiscovery"] is True
     # Accepted connections see the count and list with the default-false preference.
     assert network.summary(OWNER, target_ref)["canBrowseConnections"] is True
     page = network.browse(OWNER, person_ref=target_ref)
@@ -1205,29 +1206,6 @@ def test_shared_network_display_cap_preserves_pagination(connection):
     assert page["hasMore"] is False
 
 
-def test_extended_discovery_rechecks_third_hop_opt_out_after_page_read(connection):
-    from hushh_mcp.services.connections_service import ConnectionsError
-
-    network = _network(connection)
-    for uid in (OWNER, "alice", "bob", "carol"):
-        _person(connection, uid, uid.title())
-        network.set_preference(uid, True)
-    for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
-        _network_edge(connection, a, b)
-    original = network.directory().search_directory_candidates
-
-    def read_then_revoke(**kwargs):
-        result = original(**kwargs)
-        if "network_user_ids" in kwargs:
-            network.set_preference("bob", False)
-        return result
-
-    network.directory().search_directory_candidates = read_then_revoke
-    with pytest.raises(ConnectionsError) as caught:
-        network.browse(OWNER, degree=3)
-    assert caught.value.status_code == 503
-
-
 def test_network_budget_refuses_partial_or_invented_degrees(connection, monkeypatch):
     from hushh_mcp.services.connections_service import ConnectionsError
 
@@ -1243,7 +1221,8 @@ def test_network_budget_refuses_partial_or_invented_degrees(connection, monkeypa
 
 
 @pytest.mark.parametrize(
-    "change", ["disconnect", "block", "disable", "preview_disconnect", "preview_disable"]
+    "change",
+    ["disconnect", "block", "disable", "preview_disconnect", "preview_disable", "unlisted"],
 )
 def test_network_summary_rechecks_authority_after_preview_read(connection, change):
     from hushh_mcp.services.connections_service import ConnectionsError
@@ -1262,13 +1241,20 @@ def test_network_summary_rechecks_authority_after_preview_read(connection, chang
             text("SELECT public_person_ref FROM actor_profiles WHERE user_id='target'")
         ).scalar_one()
     )
-    for a, b in ((OWNER, "target"), (OWNER, "preview"), ("preview", "target")):
-        _network_edge(connection, a, b)
-    assert network.summary(OWNER, target_ref)["networkDegree"] == 1
+    if change != "unlisted":
+        for a, b in ((OWNER, "target"), (OWNER, "preview"), ("preview", "target")):
+            _network_edge(connection, a, b)
+    assert network.summary(OWNER, target_ref)["networkDegree"] == (
+        None if change == "unlisted" else 1
+    )
     original = network.profiles
 
     def read_then_revoke(viewer, ids):
         people = original(viewer, ids)
+        if change == "unlisted" and ids == ["target"]:
+            connection.execute(
+                text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='target'")
+            )
         if ids == ["preview"]:
             if change == "block":
                 connection.execute(
@@ -1309,7 +1295,6 @@ def test_final_network_qualification_enforces_edge_budget_on_unexpanded_leaves(
     ids = [OWNER, "a", "b", "c", "d"]
     for uid in ids:
         _person(connection, uid, f"Person {uid}")
-        network.set_preference(uid, True)
     for a, b in ((OWNER, "a"), ("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")):
         _network_edge(connection, a, b)
     # Five undirected edges become nine eligible directed edges. Qualification

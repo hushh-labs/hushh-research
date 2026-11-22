@@ -30,8 +30,6 @@ describe("ConnectionsService", () => {
     expect(Object.fromEntries(params)).toEqual({ degree: "3", query: "A & B", page: "2", limit: "20", include_suggestions: "true" });
     expect(options).toMatchObject({ method: "GET", cache: "no-store", headers: { Authorization: "Bearer token" } });
     mockApiFetch.mockResolvedValue(jsonResponse({ shareConnectionList: true }));
-    expect(await ConnectionsService.updateNetworkVisibility({ idToken: "token", shareConnectionList: true })).toEqual({ shareConnectionList: true });
-    expect(mockApiFetch).toHaveBeenLastCalledWith("/api/one/connections/network/visibility", expect.objectContaining({ method: "PATCH", cache: "no-store", body: '{"share_connection_list":true}' }));
     mockApiFetch.mockResolvedValue(jsonResponse({ detail: "Unavailable" }, 403));
     await expect(ConnectionsService.listNetwork({ idToken: "token", personRef: "private-person", page: 1 })).rejects.toMatchObject({ status: 403 });
   });
