@@ -201,6 +201,7 @@ export type AgentTurnStreamPanelProps = {
   isError?: boolean;
   pendingPhase?: OneTurnPendingPhase;
   pendingLabel?: string | null;
+  pendingTrailingAction?: ReactNode;
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
@@ -405,6 +406,7 @@ export function AgentTurnStreamPanel({
   isError = false,
   pendingPhase = "thinking",
   pendingLabel = null,
+  pendingTrailingAction,
   opportunities,
   response,
   className,
@@ -544,8 +546,21 @@ export function AgentTurnStreamPanel({
       }
       responsePendingLabel={
         checkingMail || preparingPrivateMemory || currentBatchProgress
-          ? undefined
-          : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+          ? pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-end">
+                  {pendingTrailingAction}
+                </div>
+              )
+            : undefined
+          : pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-between gap-2">
+                  <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+                  {pendingTrailingAction}
+                </div>
+              )
+            : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
       }
       isStreaming={isStreaming}
       isError={isError}

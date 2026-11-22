@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Info,
   Loader2,
   Mail,
   RotateCcw,
@@ -50,8 +51,10 @@ import { AgentMessageReactionBadge } from "../agent-message-reaction";
 import { QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
+import { AgentThoughtProcessSheet } from "@/components/agent/agent-thought-process-sheet";
 import { SecretPlaceholderText } from "@/components/secrets/secret-placeholder-text";
 import type { GmailInformationRequestSourcePreview } from "@/lib/services/gmail-information-requests-service";
+import { useAnimatedStreamText } from "./use-animated-stream-text";
 import {
   AGENT_STREAM_RENDER_FRAME_MS,
   getConsentActionsPayload,
@@ -60,146 +63,8 @@ import {
   type AgentMessage,
 } from "./agent-message-transforms";
 
-function advanceToNaturalWordBoundary(
-  target: string,
-  currentLen: number,
-  rawStep: number,
-): number {
-  const desiredEnd = Math.min(target.length, currentLen + rawStep);
-  if (desiredEnd >= target.length) return target.length;
-  // Prefer snapping forward up to 10 chars to include a trailing space/newline
-  // so whole words and markdown tokens appear coherently instead of mid-glyph jitter.
-  const lookaheadLimit = Math.min(target.length, desiredEnd + 10);
-  for (let i = desiredEnd; i < lookaheadLimit; i += 1) {
-    const ch = target.charCodeAt(i);
-    if (ch === 32 || ch === 10 || ch === 9) {
-      return i + 1;
-    }
-  }
-  return desiredEnd;
-}
-
 function useAnimatedAssistantText(targetText: string, active: boolean) {
-  const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
-  const [tailSettling, setTailSettling] = useState(false);
-  const displayedTextRef = useRef(displayedText);
-  const targetTextRef = useRef(targetText);
-  const activeRef = useRef(active);
-  const frameRef = useRef(0);
-  const lastPaintAtRef = useRef(0);
-
-  useEffect(() => {
-    const wasActive = activeRef.current;
-    activeRef.current = active;
-    targetTextRef.current = targetText;
-
-    const reducedMotion =
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (!active) {
-      if (frameRef.current) {
-        window.cancelAnimationFrame(frameRef.current);
-        frameRef.current = 0;
-      }
-      lastPaintAtRef.current = 0;
-      const hadRemainingTail =
-        wasActive &&
-        !reducedMotion &&
-        displayedTextRef.current.length < targetText.length;
-      displayedTextRef.current = targetText;
-      setDisplayedText(targetText);
-      if (hadRemainingTail) {
-        setTailSettling(true);
-        const timer = window.setTimeout(() => setTailSettling(false), 160);
-        return () => window.clearTimeout(timer);
-      }
-      return undefined;
-    }
-
-    if (reducedMotion || (typeof document !== "undefined" && document.visibilityState === "hidden")) {
-      displayedTextRef.current = targetText;
-      setDisplayedText(targetText);
-      return undefined;
-    }
-
-    // Start a single continuous rAF loop only if one is not already running;
-    // incoming SSE chunks update targetTextRef without cancelling active frames.
-    if (frameRef.current === 0 && displayedTextRef.current.length < targetText.length) {
-      const tick = (now: number) => {
-        if (!activeRef.current) {
-          frameRef.current = 0;
-          return;
-        }
-        const target = targetTextRef.current;
-        const current = displayedTextRef.current;
-
-        if (!target.startsWith(current)) {
-          displayedTextRef.current = target;
-          setDisplayedText(target);
-          frameRef.current = 0;
-          return;
-        }
-
-        if (current.length >= target.length) {
-          frameRef.current = 0;
-          lastPaintAtRef.current = 0;
-          return;
-        }
-
-        if (
-          lastPaintAtRef.current &&
-          now - lastPaintAtRef.current < AGENT_STREAM_RENDER_FRAME_MS
-        ) {
-          frameRef.current = window.requestAnimationFrame(tick);
-          return;
-        }
-
-        const elapsedMs = lastPaintAtRef.current
-          ? Math.min(48, Math.max(12, now - lastPaintAtRef.current))
-          : AGENT_STREAM_RENDER_FRAME_MS;
-        lastPaintAtRef.current = now;
-
-        const backlog = target.length - current.length;
-        // Continuous proportional velocity curve: smooth 60fps flow with zero cliff jumps.
-        const charsPerSecond = Math.min(3400, Math.max(460, 420 + backlog * 8.2));
-        const rawStep = Math.max(
-          1,
-          Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000)),
-        );
-        const nextEnd = advanceToNaturalWordBoundary(target, current.length, rawStep);
-        const nextText = target.slice(0, nextEnd);
-        displayedTextRef.current = nextText;
-        setDisplayedText(nextText);
-
-        if (nextText.length < targetTextRef.current.length) {
-          frameRef.current = window.requestAnimationFrame(tick);
-        } else {
-          frameRef.current = 0;
-        }
-      };
-
-      frameRef.current = window.requestAnimationFrame(tick);
-    }
-
-    return undefined;
-  }, [active, targetText]);
-
-  useEffect(() => {
-    return () => {
-      if (frameRef.current) {
-        window.cancelAnimationFrame(frameRef.current);
-        frameRef.current = 0;
-      }
-    };
-  }, []);
-
-  return {
-    displayedText: active ? displayedText : targetText,
-    isAnimating: active,
-    tailSettling,
-  };
+  return useAnimatedStreamText(targetText, active, AGENT_STREAM_RENDER_FRAME_MS);
 }
 
 function AgentThinkingDots({
@@ -419,6 +284,8 @@ export const AgentBubble = memo(function AgentBubble({
 }) {
   const backgroundCard = ephemeralCard ?? businessProfileCard;
   const [copied, setCopied] = useState(false);
+  const [thoughtOpen, setThoughtOpen] = useState(false);
+  const thoughtTriggerRef = useRef<HTMLButtonElement | null>(null);
   // The rating is owned by the workspace so it survives a reload; the bubble
   // only reflects it. It used to be local state that died with the tab, which
   // meant nobody could ever read what people thought of an answer.
@@ -427,6 +294,18 @@ export const AgentBubble = memo(function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
+  const thinkingSummary =
+    !isUser &&
+    !isError &&
+    !message.receiptRedacted &&
+    !message.consentAccessEnded &&
+    !message.consentBundleId
+      ? (message.thinkingSummary ?? "").trim()
+      : "";
+  const hasThinkingSummary = thinkingSummary.length > 0;
+  const isThinkingStreaming = Boolean(
+    hasThinkingSummary && isStreaming && message.isThinkingStreaming,
+  );
   const streamEvents = (message.streamEvents ?? []).filter(
     (event) => event.label !== "Memory" && event.label !== "Add to Memory",
   );
@@ -609,6 +488,43 @@ export const AgentBubble = memo(function AgentBubble({
     </div>
   ) : null;
 
+  const renderThoughtButton = (floating: boolean) => {
+    if (!hasThinkingSummary) return null;
+    const label = isThinkingStreaming
+      ? "View live thought process"
+      : "View thought process";
+    return (
+      <button
+        ref={thoughtTriggerRef}
+        type="button"
+        data-testid="agent-bubble-thought-trigger"
+        data-streaming={isThinkingStreaming ? "true" : undefined}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={thoughtOpen}
+        title={isThinkingStreaming ? "Thought process (live)" : "Thought process"}
+        onClick={() => setThoughtOpen(true)}
+        className={cn(
+          "grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[background-color,color,opacity] duration-[140ms] ease-[var(--ease-out)] after:absolute after:-inset-2 after:content-[''] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
+          floating ? "absolute top-2 right-2 z-10" : "relative",
+          isThinkingStreaming
+            ? "bg-[color:var(--app-accent)]/14 text-[color:var(--app-accent)]"
+            : "text-[color:var(--one-chat-meta)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.07] [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground dark:[@media(hover:hover)_and_(pointer:fine)]:hover:bg-white/[0.09]",
+        )}
+      >
+        <Info
+          aria-hidden="true"
+          weight={thoughtOpen || isThinkingStreaming ? "fill" : "regular"}
+          className={cn(
+            "size-3.5",
+            isThinkingStreaming && "motion-safe:animate-pulse",
+          )}
+        />
+        <MaterialRipple variant="none" effect="glass" />
+      </button>
+    );
+  };
+
   return (
     <div
       data-message-role={message.role}
@@ -675,6 +591,7 @@ export const AgentBubble = memo(function AgentBubble({
               isError={isError}
               pendingPhase={pendingPhase}
               pendingLabel={pendingLabel}
+              pendingTrailingAction={renderThoughtButton(false)}
               opportunities={turnPanelOpportunities}
               response={
                 assistantText ? (
@@ -683,8 +600,14 @@ export const AgentBubble = memo(function AgentBubble({
                     data-agent-streaming-settle={
                       isStreaming || animated.tailSettling ? "true" : undefined
                     }
-                    className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-full min-w-0 max-w-full break-words")}
+                    data-agent-streaming-cursor={isStreaming ? "true" : undefined}
+                    className={cn(
+                      ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
+                      "relative w-full min-w-0 max-w-full break-words",
+                      hasThinkingSummary && "pr-9",
+                    )}
                   >
+                    {renderThoughtButton(true)}
                     <AgentMarkdown text={assistantText} />
                     {hoverResponseActionsNode}
                   </div>
@@ -693,17 +616,27 @@ export const AgentBubble = memo(function AgentBubble({
             />
           ) : assistantText ? (
             <>
+              {showAssistantBubble ? renderThoughtButton(true) : null}
               <div
                 data-agent-streaming-settle={
                   !isUser && (isStreaming || animated.tailSettling) ? "true" : undefined
                 }
+                data-agent-streaming-cursor={
+                  !isUser && isStreaming ? "true" : undefined
+                }
+                className={cn(hasThinkingSummary && showAssistantBubble && "pr-5")}
               >
                 <AgentMarkdown text={assistantText} />
               </div>
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
           ) : backgroundOnly || canRenderConsentActions ||
-            canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : (
+            canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : hasThinkingSummary ? (
+            <div className="flex items-center justify-between gap-2">
+              <AgentThinkingDots phase={pendingPhase} label={pendingLabel} />
+              {renderThoughtButton(false)}
+            </div>
+          ) : (
             <AgentThinkingDots phase={pendingPhase} label={pendingLabel} />
           )}
           {!isUser && isError && message.errorNotice ? (
@@ -741,6 +674,15 @@ export const AgentBubble = memo(function AgentBubble({
           })() : null}
           {!isUser && backgroundCard ? <div className={backgroundOnly ? undefined : "mt-3"}>{backgroundCard}</div> : null}
         </OneChatBubble>
+        {hasThinkingSummary ? (
+          <AgentThoughtProcessSheet
+            open={thoughtOpen}
+            onOpenChange={setThoughtOpen}
+            text={thinkingSummary}
+            isStreaming={isThinkingStreaming}
+            returnFocusRef={thoughtTriggerRef}
+          />
+        ) : null}
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} canConfirmNeedsOwner={canConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
         {!isUser && !isStreaming && !isError ? driveMemoryReview : null}

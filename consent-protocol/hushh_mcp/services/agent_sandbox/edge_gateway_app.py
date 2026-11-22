@@ -1047,6 +1047,8 @@ def create_sandbox_edge_gateway_app(
 
             content_type = str(upstream.headers.get("content-type") or "").lower()
             if content_type.startswith("text/event-stream"):
+                resp_headers.setdefault("Cache-Control", "no-cache, no-store, no-transform")
+                resp_headers.setdefault("X-Accel-Buffering", "no")
 
                 async def _stream_sse(
                     upstream_resp: httpx.Response = upstream,

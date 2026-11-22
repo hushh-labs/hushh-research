@@ -99,6 +99,7 @@ authority. Failed runs release their in-memory capture just like completed runs.
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Approved provider thought summaries (`REASONING_MESSAGE_CONTENT` marked `husshThoughtSummary: true`) remain optional, display-only telemetry. When the selected model emits a summary on an ordinary turn, the assistant bubble surfaces a compact top-right info trigger that opens a responsive modal/sheet with the live or settled thought summary; turns without model thoughts, private receipt turns, and consent-shared turns omit the trigger. Thought summaries stay in owner-and-vault-epoch-scoped memory only and never enter SDK message snapshots, plaintext browser storage, or unredacted history endpoints.
 - Agent Chat's 90-second byte-idle watchdog begins after response headers and a
   stream body arrive. Cold pod admission retains its separate HTTP deadline;
   admission is not a silent model stream. Cancellation invalidates the run so

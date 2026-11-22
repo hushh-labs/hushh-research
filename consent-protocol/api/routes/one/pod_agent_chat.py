@@ -291,7 +291,10 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     admitted = input.model_copy(update={"state": state, "forwarded_props": {}})
     return EventSourceResponse(
         pod_chat_events(agent, admitted, owner_id=owner.owner),
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-cache, no-store, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

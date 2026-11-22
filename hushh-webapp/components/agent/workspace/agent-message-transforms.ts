@@ -38,6 +38,7 @@ import type { McpReviewActivityOutcome } from "@/components/agent/mcp-call-revie
 import type { PendingConsent } from "@/lib/consent/use-consent-actions";
 import { ConsentCenterService, type PendingConsentLookupItem } from "@/lib/services/consent-center-service";
 import { trackEvent } from "@/lib/observability/client";
+import { getAgentThoughtSummary } from "@/lib/agent/agent-thought-summary-store";
 import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
 import {
   AGENT_CHAT_STREAM_LOST_ERROR,
@@ -100,6 +101,10 @@ export type AgentMessage = {
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
   driveCompilation?: DriveCompilationUiState;
+  /** Provider-authored thought summary (`husshThoughtSummary: true`) when generated. */
+  thinkingSummary?: string;
+  /** True while the model is actively streaming thought summary chunks. */
+  isThinkingStreaming?: boolean;
   /** Why a partial answer stopped, shown below the text that did arrive. */
   errorNotice?: string;
   /** The stream was lost, not the turn: Retry checks history before resending. */
@@ -202,6 +207,7 @@ export function settleAssistantMessageError<T extends AgentMessage>(
       : {}),
     ...(lostTurn ? { lostTurn } : {}),
     status: "error",
+    isThinkingStreaming: false,
     streamEvents: settleVisibleStreamEvents(current.streamEvents, "error"),
   };
 }
@@ -494,7 +500,7 @@ export function isSilentMemoryToolEvent(event: AgentChatToolEvent): boolean {
   return event.actionId === "pkm.add" || event.raw?.toolName === "add_to_pkm";
 }
 
-export const AGENT_STREAM_RENDER_FRAME_MS = 32;
+export const AGENT_STREAM_RENDER_FRAME_MS = 16;
 
 export function getConsentRequiredPayload(
   event: SpecialistDirectiveEvent | null,
@@ -1451,10 +1457,22 @@ export function storedMessageToAgentMessage(
   const attachments = message.role === "user"
     ? parseStoredTextAttachments(message.metadata?.attachments)
     : [];
+  const restoredThinkingSummary =
+    message.role === "assistant" &&
+    message.status !== "error" &&
+    !message.metadata?.consentBundleId &&
+    !message.metadata?.consentAccessEnded
+      ? getAgentThoughtSummary({
+          conversationId: message.conversation_id,
+          messageId: message.id,
+        })
+      : undefined;
   return {
     id: message.id,
+    serverMessageId: message.role === "assistant" ? message.id : undefined,
     role: message.role,
     text: displayText,
+    ...(restoredThinkingSummary ? { thinkingSummary: restoredThinkingSummary } : {}),
     ...(attachments.length ? { attachments } : {}),
     structuredExperience: connectorRead,
     timestamp:
