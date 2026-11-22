@@ -526,24 +526,16 @@ def test_dev_secret_sync_retains_its_own_environment_policy():
     assert "--environment uat" not in sync["run"]
 
 
-def test_dev_enables_consent_summary_v2_and_syncs_sandbox_edge_gateway_image():
+def test_dev_enables_consent_summary_v2_and_keeps_sandbox_edge_gateway_decoupled():
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
     )
     steps = workflow["jobs"]["deploy"]["steps"]
-    names = [step.get("name") for step in steps]
     sync = next(
         step for step in steps if step.get("name") == "Sync canonical hosted runtime secrets"
     )
     assert "--consent-center-summary-v2-enabled" in sync["run"]
     assert "vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true'" in sync["run"]
-
-    edge = next(step for step in steps if step.get("id") == "sync-sandbox-edge-gateway")
-    assert "env.DEV_TARGET == 'shared-dev'" in edge["if"]
-    assert "steps.classify-dev-release.outputs.release_failed == 'false'" in edge["if"]
-    assert "steps.scope.outputs.deploy_backend == 'true'" in edge["if"]
-    assert names.index("Activate tombstone-aware account deletion") < names.index(edge["name"])
-    assert 'edge_service="sandbox-edge-gateway"' in edge["run"]
-    assert "${{ steps.build-backend-image.outputs.image_reference }}" in edge["run"]
-    assert "scripts/ci/cloudrun-rollback.sh" in edge["run"]
-    assert "/health" in edge["run"]
+    # sandbox-edge-gateway runs the Pod release image under its own dedicated
+    # service account (hussh-sandbox-edge-dev), never the Hub backend image.
+    assert all(step.get("id") != "sync-sandbox-edge-gateway" for step in steps)
