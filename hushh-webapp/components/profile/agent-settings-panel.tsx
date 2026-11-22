@@ -27,6 +27,7 @@ import {
   PodCloudBadge,
   PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
+import { CircleAutoApprovePanel } from "@/components/connections/circle-auto-approve-panel";
 import { PodSessionLockdownControl } from "@/components/connections/pod-session-lockdown-row";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -231,6 +232,10 @@ function AgentSettingsBody({
                 </div>
               ) : null}
             </>
+          ) : null}
+
+          {(mode === "hussh_pods" || mode === "byoc") && status?.state === "active" ? (
+            <CircleAutoApprovePanel />
           ) : null}
         </div>
       );
