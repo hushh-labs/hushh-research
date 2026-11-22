@@ -14,6 +14,10 @@ import { GoogleConnectorPhoneHandoff } from './google-connector-phone-handoff';
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from '@/lib/vault/session-epoch';
 import { useGoogleConnectorTransitionReview } from './google-connector-transition-review';
 import { connectorAccessPurpose } from '@/lib/agent/connector-access-copy';
+import {
+  GOOGLE_APPS_CLEARANCE_NOTE,
+  isProductionVisitorPostureEnabled,
+} from '@/lib/agent/production-visitor-posture';
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from '@/lib/auth/session-owner';
 
 const LABELS: Record<GoogleConnector, string> = { gmail: 'Gmail', calendar: 'Google Calendar', drive: 'Google Drive', contacts: 'Google Contacts' };
@@ -111,6 +115,7 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
   return <section className="space-y-4" data-testid="private-google-connectors">
     {surface !== 'profile' && <Button variant="ghost" onClick={onClose ?? onBack}>Back</Button>}
     <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
+    {isProductionVisitorPostureEnabled() ? <p role="note" data-testid="connector-google-clearance-note" className="text-xs leading-5 text-muted-foreground">{GOOGLE_APPS_CLEARANCE_NOTE}</p> : null}
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup title="Google Workspace">
       {entries.map(({ connector, status, connected, allowChanges }) => {
