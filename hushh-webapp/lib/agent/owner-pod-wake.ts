@@ -9,8 +9,8 @@
  *
  * Only failures that prove the turn never reached the agent are retried:
  * a network failure before the turn was handed over (`PodNotReachedError`),
- * a refused admission with a gateway status, or a gateway status on the send
- * itself that is not the agent's own JSON answer. A network failure on the send
+ * a refused admission with a gateway status, or a gateway status on a read-only
+ * probe. A gateway response or network failure on the actual turn POST
  * is ambiguous (the agent may already be running the turn), so it is reported
  * as `PodSendUnconfirmedError`, never resent. A device that reports itself
  * offline is told so (`DeviceOfflineError`) instead of being shown a wake.
@@ -105,6 +105,9 @@ const WAKING_REFUSAL = /^(?:POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):(?:502|
 export function isAgentStillWaking(outcome: unknown): boolean {
   if (outcome instanceof Response) {
     if (!GATEWAY_STATUSES.has(outcome.status)) return false;
+    if (outcome.headers.get("x-hussh-pod-state")?.trim().toLowerCase() === "waking") {
+      return true;
+    }
     return !(outcome.headers.get("content-type") ?? "").includes("application/json");
   }
   if (outcome instanceof PodNotReachedError) return true;
@@ -116,6 +119,8 @@ export type AgentWakePorts = {
   onWaking: () => void;
   /** Whether this turn goes to the owner's own agent; nothing else is woken. */
   isOwnerAgent: () => Promise<boolean>;
+  /** True when the pod already answered recently, suppressing speculative slow-byte wake hints. */
+  isAlreadyAwake?: () => boolean;
   signal?: AbortSignal | null;
   hintMs?: number;
   budgetMs?: number;
@@ -174,7 +179,10 @@ export async function sendWhileAgentWakes(
     woke = true;
     ports.onWaking();
   };
-  const hintIfOwnerAgent = () => void isOwnerAgent().then((owner) => owner && waking());
+  const hintIfOwnerAgent = () => {
+    if (ports.isAlreadyAwake?.()) return;
+    void isOwnerAgent().then((owner) => owner && waking());
+  };
   for (let attempt = 0; ; attempt += 1) {
     const outcome = await settleWithHint(send, ports.hintMs ?? WAKE_HINT_MS, hintIfOwnerAgent);
     const value = outcome.response ?? outcome.error;
