@@ -26,6 +26,7 @@ import {
   PodCloudBadge,
   PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
+import { CircleAutoApprovePanel } from "@/components/connections/circle-auto-approve-panel";
 import { PodSessionLockdownControl } from "@/components/connections/pod-session-lockdown-row";
 import { ROUTES } from "@/lib/navigation/routes";
 import { HOST_LABELS, agentSettingsSummary, useAgentSettingsController, type AgentSettingsController } from "./use-agent-settings-controller";
@@ -114,6 +115,9 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         ) : null}
         {mode === "byoc" && status?.state === "active" ? (
           <PodSessionLockdownControl testId="byoc-session-only-lockdown" />
+        ) : null}
+        {(mode === "hussh_pods" || mode === "byoc") && status?.state === "active" ? (
+          <CircleAutoApprovePanel />
         ) : null}
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice model={azureHosting} />
