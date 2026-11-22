@@ -61,7 +61,6 @@
     "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
     "hushh-webapp/components/kai/views/kai-stocks-view.voice-action-contract.json",
     "hushh-webapp/components/onboarding/setup/one-setup-hub.voice-action-contract.json",
-    "hushh-webapp/components/profile/network-visibility-setting.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json"
@@ -1762,29 +1761,6 @@
         "guard_ids": [
           "auth_signed_in"
         ]
-      },
-      "search": {},
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_network_visibility",
-      "surface_title": "Network visibility",
-      "docs_references": [],
-      "contract_file": "hushh-webapp/components/profile/network-visibility-setting.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
-          ]
-        },
-        "speaker_persona": "one"
       },
       "search": {},
       "orchestration": {
@@ -38458,109 +38434,6 @@
             "type": "action",
             "action_id": "setup.hub_continue",
             "label": "Continue",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.network_visibility.choose",
-      "surface_id": "one_network_visibility",
-      "label": "Extended network discovery",
-      "aliases": [],
-      "search_keywords": [
-        "network",
-        "connections",
-        "visibility",
-        "privacy"
-      ],
-      "meaning": "The owner explicitly chooses whether their connections may contribute anonymous third-degree discovery. Accepted active direct connections can view their eligible connection list regardless of this setting. Private contact details and information grants are unaffected. Extended discovery starts off.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/profile/my-data"
-        ],
-        "screens": [
-          "profile_my_data"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "The signed-in owner has loaded their saved preference."
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "The owner chooses extended network discovery using the visible switch after reviewing the disclosure.",
-        "intended_handler": "NetworkVisibilitySetting"
-      },
-      "control_ids": [
-        "network-share-connection-list"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/architecture/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/profile/my-data"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.network_visibility.choose",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.network_visibility.choose",
-            "label": "Extended network discovery",
             "failure_behavior": "stop"
           }
         ],
