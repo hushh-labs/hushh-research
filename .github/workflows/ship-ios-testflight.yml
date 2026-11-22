@@ -177,49 +177,56 @@ jobs:
           )
           '
             # Run the candidate release controls with signing credentials only
-            # when they agree with the Main dispatch revision. Test-only selectors
-            # and browser diagnostics unused by the archive are not signing/build inputs.
+            # when every build and signing input agrees with the Main dispatch revision.
+            # Lock the positive allowlist of scripts actually executed or imported by
+            # the archive and preflight instead of maintaining an exclusion denylist.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
               .npmrc hushh-webapp/.npmrc hushh-webapp/package-lock.json \
               hushh-webapp/vitest.config.ts hushh-webapp/__tests__/setup.ts \
-              hushh-webapp/scripts scripts/native \
+              hushh-webapp/scripts/native hushh-webapp/scripts/voice \
+              hushh-webapp/scripts/prepare-wallet-ocr.mjs \
+              hushh-webapp/scripts/testing/reviewer-test-identity.mjs \
+              hushh-webapp/scripts/testing/signed-in-ui-flows.mjs \
+              scripts/native \
               ':(glob)hushh-webapp/next.config.*' ':(glob)hushh-webapp/capacitor.config.*' \
               hushh-webapp/ios/App/App.xcodeproj/project.pbxproj \
               hushh-webapp/ios/App/CapApp-SPM/Package.swift hushh-webapp/ios/ExportOptions \
               ':(glob)hushh-webapp/ios/**/Package.resolved' \
               ':(glob)hushh-webapp/ios/**/*.sh' \
               ':(glob)scripts/ci/*ios*' ':(glob)scripts/ci/*testflight*' \
-              ':(glob)scripts/ci/*appstore*' \
-              ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/verify-signed-in-routes.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/benchmark-advisor-matching.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/build-advisor-preview.mjs' \
-              ':(exclude)hushh-webapp/scripts/architecture/cache-source-evidence.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/build-feed-search-preview.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/capture-feed-needs-you-fixture.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/capture-feed-visual-previews.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/feed-policy-preview-cases.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/feed-uat-evidence-contract.test.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/feed-visual-journey.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/generate-feed-activity-policy.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/location-feed-preview-cases.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/location-feed-uat-journey.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/verify-feed-uat-evidence.mjs' \
-              ':(exclude)hushh-webapp/scripts/testing/verify-finance-chat-uat.mjs' || {
+              ':(glob)scripts/ci/*appstore*' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }
-            # The package manifest stays a signing/build input. Only the named
-            # Feed verification script entries, which the archive never runs, may differ.
+            # The package manifest stays a signing/build input: every non-script field,
+            # every npm lifecycle hook (pre*, post*, install, prepare, dependencies),
+            # and every script invoked directly or transitively by this workflow must match.
             python3 -c '
           import json, os, subprocess
-          UNINVOKED = {"verify:feed", "build:feed-policy", "verify:feed-policy"}
+          INVOKED_SCRIPTS = {
+              "cap:build",
+              "cap:sync:ios",
+              "ios:prepare:uat",
+              "ios:verify-archive-symbols",
+              "verify:capability-graph",
+              "verify:capacitor:plugins",
+              "verify:capacitor:product-assets",
+              "verify:capacitor:static",
+              "verify:native:css",
+              "verify:one-voice",
+              "verify:route-orchestration-index",
+              "verify:siri-action-contract",
+              "verify:voice-gateway",
+          }
+          LIFECYCLE = {"install", "prepare", "dependencies"}
           def manifest(rev):
               data = json.loads(subprocess.check_output(["git", "show", rev + ":hushh-webapp/package.json"]))
-              data["scripts"] = {k: v for k, v in data.get("scripts", {}).items() if k not in UNINVOKED}
+              data["scripts"] = {
+                  k: v
+                  for k, v in data.get("scripts", {}).items()
+                  if k in INVOKED_SCRIPTS or k in LIFECYCLE or k.startswith(("pre", "post"))
+              }
               return data
           raise SystemExit(0 if manifest(os.environ["GITHUB_SHA"]) == manifest(os.environ["SHA"]) else 1)
           ' || {
