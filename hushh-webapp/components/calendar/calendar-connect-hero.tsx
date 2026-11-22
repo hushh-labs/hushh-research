@@ -3,6 +3,10 @@ import { CheckCircle2 } from "@/components/icons";
 
 import { CalendarConnectIllustration } from "@/components/calendar/calendar-connect-illustration";
 import { Button } from "@/components/ui/button";
+import {
+  GOOGLE_APPS_CLEARANCE_NOTE,
+  isProductionVisitorPostureEnabled,
+} from "@/lib/agent/production-visitor-posture";
 import presentationStyles from "./calendar-presentation.module.css";
 
 type CalendarConnectHeroProps = {
@@ -89,6 +93,16 @@ export function CalendarConnectHero({
       >
         Connect your calendar
       </Button>
+
+      {isProductionVisitorPostureEnabled() ? (
+        <p
+          role="note"
+          data-testid="calendar-google-clearance-note"
+          className="mt-3 max-w-[320px] text-xs leading-5 text-muted-foreground"
+        >
+          {GOOGLE_APPS_CLEARANCE_NOTE}
+        </p>
+      ) : null}
 
       <CalendarSetupPermissions />
 
