@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from importlib.metadata import PackageNotFoundError, version
 
-PINNED_GOOGLE_ADK_VERSION = "2.14.0"
+PINNED_GOOGLE_ADK_VERSION = "2.15.0"
 
 
 def assert_account_generation_configuration() -> None:
