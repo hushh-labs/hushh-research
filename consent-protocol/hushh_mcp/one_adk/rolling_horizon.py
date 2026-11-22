@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 VERBATIM_USER_TURN_HORIZON = 20
 HORIZON_CACHE_STEP_TURNS = 4
 OLD_TOOL_RESPONSE_KEEP_VERBATIM_TURNS = 4
+TOOL_COMPACT_CACHE_STEP_TURNS = 8
 OLD_TOOL_RESPONSE_CHAR_BUDGET = 1600
 MAX_ROLLING_DIGEST_CHARS = 3200
 
@@ -256,16 +257,24 @@ def compact_horizon_before_model(callback_context: Any, llm_request: Any) -> Non
 
     user_turn_indices = [idx for idx, item in enumerate(contents) if _is_genuine_user_turn(item)]
 
-    # 2. Trim oversized historical tool payloads older than the last 4 turns
+    # 2. Trim oversized historical tool payloads on quantized epoch boundaries so
+    # intermediate turns never mutate historical contents in place and bust
+    # Gemini 4 implicit prefix caches (measured live: sliding T-4 mutation
+    # crashed cached_content_token_count from 92.2% to 0.0% to save ~678 tokens).
     if len(user_turn_indices) > OLD_TOOL_RESPONSE_KEEP_VERBATIM_TURNS:
-        recent_boundary = user_turn_indices[-OLD_TOOL_RESPONSE_KEEP_VERBATIM_TURNS]
-        for idx in range(0, recent_boundary):
-            parts = getattr(contents[idx], "parts", None)
-            if not isinstance(parts, list):
-                continue
-            updated_parts = [_compact_old_function_response_part(p) for p in parts]
-            if any(a is not b for a, b in zip(parts, updated_parts, strict=False)):
-                contents[idx].parts = updated_parts
+        raw_tool_turns = len(user_turn_indices) - OLD_TOOL_RESPONSE_KEEP_VERBATIM_TURNS
+        quantized_tool_turns = (
+            raw_tool_turns // TOOL_COMPACT_CACHE_STEP_TURNS
+        ) * TOOL_COMPACT_CACHE_STEP_TURNS
+        if quantized_tool_turns > 0:
+            recent_boundary = user_turn_indices[quantized_tool_turns]
+            for idx in range(0, recent_boundary):
+                parts = getattr(contents[idx], "parts", None)
+                if not isinstance(parts, list):
+                    continue
+                updated_parts = [_compact_old_function_response_part(p) for p in parts]
+                if any(a is not b for a, b in zip(parts, updated_parts, strict=False)):
+                    contents[idx].parts = updated_parts
 
     if len(user_turn_indices) <= VERBATIM_USER_TURN_HORIZON:
         return None

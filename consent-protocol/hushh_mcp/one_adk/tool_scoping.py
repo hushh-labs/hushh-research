@@ -430,7 +430,14 @@ def _active_leaf_tools(
     return active, pruned_pack_ids
 
 
-def _is_tool_scoping_enabled() -> bool:
+def _is_gemini_model_name(model: Any) -> bool:
+    name = str(model or "").strip().lower()
+    if "/" in name:
+        name = name.rsplit("/", maxsplit=1)[-1]
+    return name.startswith("gemini-")
+
+
+def _is_tool_scoping_enabled(model: Any = None) -> bool:
     if os.getenv("HUSHH_ONE_TOOL_SCOPING_DISABLED", "").strip().lower() in {
         "1",
         "true",
@@ -442,14 +449,20 @@ def _is_tool_scoping_enabled() -> bool:
         return True
     if explicit in {"0", "false", "no"}:
         return False
+    # Live Gemini 4 Hydrogen measurements showed dynamic per-turn tool-list
+    # mutation busts Vertex implicit prefix caching on every topic shift (13.3%
+    # hit rate vs 92% on static tools — ~2.9x higher uncached token burn). Keep
+    # tool declarations static by default on Gemini unless explicitly opted in.
+    if _is_gemini_model_name(model):
+        return False
     from hushh_mcp.runtime_settings import pod_sentinel_model_enabled
 
     return pod_sentinel_model_enabled()
 
 
 def scope_leaf_tools_before_model(callback_context: Any, llm_request: Any) -> None:
-    """Before-model callback: two-tier O(1) pack index + dynamic capability-pack unlock."""
-    if not _is_tool_scoping_enabled():
+    """Before-model callback: two-tier O(1) pack index + monotonic sticky pack latch."""
+    if not _is_tool_scoping_enabled(getattr(llm_request, "model", None)):
         return
     config = getattr(llm_request, "config", None)
     existing_tools = list(getattr(config, "tools", None) or [])
@@ -481,6 +494,13 @@ def scope_leaf_tools_before_model(callback_context: Any, llm_request: Any) -> No
         history_tools,
         explicit_packs=state_packs | history_packs,
     )
+    # Monotonic session-sticky pack latch: once a capability pack activates in a
+    # live session, keep it latched in state so later follow-up turns never evict
+    # tool declarations and invalidate implicit prefix caches.
+    if state is not None and hasattr(state, "__setitem__"):
+        active_pack_ids = sorted(set(CAPABILITY_PACKS_BY_ID) - set(pruned_pack_ids))
+        if active_pack_ids and set(active_pack_ids) != state_packs:
+            state["active_tool_packs"] = active_pack_ids
     excluded_leaves = ALL_SCOPED_LEAF_TOOLS - active_leaves
     if not excluded_leaves:
         return
