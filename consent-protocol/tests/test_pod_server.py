@@ -436,6 +436,10 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/session/revoke",
         # Memory and the AI selection: two-door admission; APP_SURFACE_EXACT owns reach.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/circle-rules",
+        "/api/one/pod/circle-rules/preview",
+        "/api/one/pod/circle-rules/{rule_id}",
+        "/api/one/pod/circle-rules/{rule_id}/toggle",
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/rewrite",
@@ -465,6 +469,7 @@ def _concrete(path: str) -> str:
         if path.startswith("/api/one/pod/connectors/")
         else "custom_" + "0" * 32,
         "proposal_id": "gmod_" + "a" * 16,
+        "rule_id": "rule_" + "a" * 16,
         "client_message_id": "message_123",
     }
     return re.sub(r"\{([^}]+)\}", lambda match: values.get(match[1], "sample"), path)

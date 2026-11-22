@@ -389,7 +389,9 @@
     "454_calendar_email_followup_temporal.sql",
     "456_finance_advisor_one_time_payment.sql",
     "457_advisor_payment_minimum_50c.sql",
-    "458_location_feed_confirmed_incidents.sql"
+    "458_location_feed_confirmed_incidents.sql",
+    "461_hosted_azure_deployment_target.sql",
+    "462_hosted_ace_deployment_target.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -829,6 +831,8 @@
     "456_finance_advisor_one_time_payment.sql": "rollback/456_finance_advisor_one_time_payment.rollback.sql",
     "457_advisor_payment_minimum_50c.sql": "rollback/457_advisor_payment_minimum_50c.rollback.sql",
     "458_location_feed_confirmed_incidents.sql": "rollback/458_location_feed_confirmed_incidents.rollback.sql",
-    "459_feed_request_realtime.sql": "rollback/459_feed_request_realtime.rollback.sql"
+    "459_feed_request_realtime.sql": "rollback/459_feed_request_realtime.rollback.sql",
+    "461_hosted_azure_deployment_target.sql": "rollback/461_hosted_azure_deployment_target.rollback.sql",
+    "462_hosted_ace_deployment_target.sql": "rollback/462_hosted_ace_deployment_target.rollback.sql"
   }
 }

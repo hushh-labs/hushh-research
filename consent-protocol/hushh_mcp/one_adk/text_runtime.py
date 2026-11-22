@@ -222,6 +222,12 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
+    if runtime_mode == "sentinel_vertex":
+        from hushh_mcp.runtime_providers.sentinel_gemini import build_sentinel_gemini_adk_model
+
+        if credential:
+            raise ValueError("Sentinel Vertex cannot be constructed from an API key")
+        return build_sentinel_gemini_adk_model(model, vertex_location=managed_location)
     if runtime_mode in {"user_adc", "hosted_pod_adc"}:
         # Native owner ADC by default; an explicit dev bridge changes only the
         # inference destination and verifies the attached owner workload identity.

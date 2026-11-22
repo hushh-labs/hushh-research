@@ -32,12 +32,17 @@ from __future__ import annotations
 import json as _json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
 import requests  # type: ignore[import-untyped]
+
+_DEFAULT_REQUESTS_MODULE = requests
+_DEFAULT_REQUESTS_GET = requests.get
+_DEFAULT_REQUESTS_POST = requests.post
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,26 @@ _TOKEN_REFRESH_SKEW_SECONDS = 300
 # spend a failed lookup per request, so an absence is remembered this long and the
 # request goes out signed only.
 _METADATA_ABSENT_RETRY_SECONDS = 60
+_METADATA_PROBE_TIMEOUT_SECONDS = 1.5
+_PROCESS_METADATA_LOCK = threading.Lock()
+_PROCESS_METADATA_ABSENT_UNTIL = 0.0
+
+
+def _metadata_identity_disabled() -> bool:
+    raw = (os.getenv("HUSSH_POD_METADATA_IDENTITY_DISABLED") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _is_process_metadata_absent(now: float) -> bool:
+    with _PROCESS_METADATA_LOCK:
+        return now < _PROCESS_METADATA_ABSENT_UNTIL
+
+
+def _mark_process_metadata_absent(until: float) -> None:
+    global _PROCESS_METADATA_ABSENT_UNTIL
+    with _PROCESS_METADATA_LOCK:
+        if until > _PROCESS_METADATA_ABSENT_UNTIL:
+            _PROCESS_METADATA_ABSENT_UNTIL = until
 
 
 @dataclass(frozen=True)
@@ -78,6 +103,47 @@ def hub_base_url() -> Optional[str]:
     return (os.getenv("HUSSH_HUB_BASE_URL") or "").strip().rstrip("/") or None
 
 
+_SIGNING_IN_PROGRESS = threading.local()
+
+
+def _resolve_request_signing_epoch(path: str) -> Optional[int]:
+    """Resolve `signing_epoch()` without chicken-and-egg storage/DEK bootstrap recursion.
+
+    Custody/storage bootstrap endpoints (`/api/one/pod/custody/*`) mint the very
+    storage bearer or DEK that `read_pod_role()` would otherwise need to read
+    `keys/pod-role.bin`. On those paths (or if re-entered on the same thread),
+    consult the in-memory `cached_role()` first and fall back to an explicit
+    `HUSSH_POD_PLACEMENT_EPOCH` (> 0) without triggering recursive storage I/O.
+    """
+    from hushh_mcp.services.pod_role import (  # noqa: PLC0415
+        PRIMARY_AT_ZERO,
+        cached_role,
+        signing_epoch,
+    )
+
+    raw_env_epoch = (os.getenv("HUSSH_POD_PLACEMENT_EPOCH") or "").strip()
+    env_epoch = int(raw_env_epoch) if raw_env_epoch.isdigit() and int(raw_env_epoch) > 0 else None
+
+    hit = cached_role()
+    if hit is not None:
+        if hit is PRIMARY_AT_ZERO:
+            return env_epoch
+        hit_ep = int(hit.epoch)
+        return max(hit_ep, env_epoch) if env_epoch is not None else hit_ep
+
+    if getattr(_SIGNING_IN_PROGRESS, "active", False) or path.startswith("/api/one/pod/custody/"):
+        return env_epoch
+
+    _SIGNING_IN_PROGRESS.active = True
+    try:
+        ep = signing_epoch()
+        if isinstance(ep, int):
+            return max(ep, env_epoch) if env_epoch is not None else ep
+        return env_epoch
+    finally:
+        _SIGNING_IN_PROGRESS.active = False
+
+
 def _signature_headers(
     aud: str, method: str, url: str, query_pairs: list[tuple[str, str]], body: bytes
 ) -> dict[str, str]:
@@ -87,19 +153,20 @@ def _signature_headers(
         return {}
     try:
         from hushh_mcp.services.pod_request_signing import sign_pod_request  # noqa: PLC0415
-        from hushh_mcp.services.pod_role import signing_epoch  # noqa: PLC0415
         from hushh_mcp.services.pod_self_registration import pod_signing_key  # noqa: PLC0415
 
-        return sign_pod_request(
+        path = urlsplit(url).path
+        signed = sign_pod_request(
             pod_signing_key(),
             aud=aud,
             hushh_id=hushh_id,
             method=method,
-            path=urlsplit(url).path,
+            path=path,
             query_pairs=query_pairs,
             body=body,
-            epoch=signing_epoch(),
+            epoch=_resolve_request_signing_epoch(path),
         )
+        return {str(k): str(v) for k, v in signed.items()}
     except Exception as exc:  # noqa: BLE001 - an unsignable request keeps the token path
         logger.warning("pod_hub_client.signing_unavailable %s", type(exc).__name__)
         return {}
@@ -119,8 +186,22 @@ class PodHubClient:
         # the signed audience, and a trailing slash would change both.
         self._base = ((base_url if base_url is not None else hub_base_url()) or "").rstrip("/")
         self._timeout = timeout_seconds
+        self._using_default_session = session is None
         # Injectable for hermetic tests; never reaches the metadata server in unit tests.
-        self._session = session if session is not None else requests
+        if session is not None:
+            self._session = session
+        elif (
+            requests is _DEFAULT_REQUESTS_MODULE
+            and requests.get is _DEFAULT_REQUESTS_GET
+            and requests.post is _DEFAULT_REQUESTS_POST
+        ):
+            from hushh_mcp.services.pod_storage_transport import (
+                shared_pod_storage_transport,
+            )
+
+            self._session = shared_pod_storage_transport()
+        else:
+            self._session = requests
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
         self._metadata_absent_until: float = 0.0
@@ -137,12 +218,13 @@ class PodHubClient:
         now = time.time()
         if self._token and now < self._token_expiry:
             return self._token
+        probe_timeout = min(float(self._timeout), _METADATA_PROBE_TIMEOUT_SECONDS)
         try:
             r = self._session.get(
                 _METADATA_IDENTITY_URL,
                 params={"audience": self._base, "format": "full"},
                 headers=_METADATA_HEADERS,
-                timeout=self._timeout,
+                timeout=probe_timeout,
             )
         except Exception as exc:  # noqa: BLE001 - surface as a typed failure
             raise PodHubUnavailable(f"metadata server unreachable: {type(exc).__name__}") from exc
@@ -157,12 +239,21 @@ class PodHubClient:
 
     def _google_identity_token(self) -> Optional[str]:
         """The Google ID token, or None when this pod has no metadata server to ask."""
-        if time.time() < self._metadata_absent_until:
+        if _metadata_identity_disabled():
+            self._metadata_failure = "metadata identity disabled"
+            return None
+        now = time.time()
+        if now < self._metadata_absent_until:
+            return None
+        if self._using_default_session and _is_process_metadata_absent(now):
             return None
         try:
             return self._identity_token()
         except PodHubUnavailable as exc:
-            self._metadata_absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
+            absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
+            self._metadata_absent_until = absent_until
+            if self._using_default_session:
+                _mark_process_metadata_absent(absent_until)
             self._metadata_failure = str(exc)
             return None
 
@@ -332,3 +423,91 @@ class PodHubClient:
             except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 raise PodHubUnavailable("hub did not confirm requested calendar coverage") from exc
         return state
+
+    def get_custody_broker_key(self) -> dict[str, str]:
+        """Fetch the Hub Custody Broker X25519 public key (`GET /api/one/pod/custody/broker-key`)."""
+        response = self.get("/api/one/pod/custody/broker-key")
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(f"hub refused custody broker key status={status}")
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON custody broker key") from exc
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("brokerPublicKey"), str)
+            or not isinstance(body.get("brokerKeyId"), str)
+        ):
+            raise PodHubUnavailable("hub returned malformed custody broker key")
+        return {
+            "brokerPublicKey": body["brokerPublicKey"],
+            "brokerKeyId": body["brokerKeyId"],
+            "wrappingAlg": str(body.get("wrappingAlg") or ""),
+        }
+
+    def mint_storage_prefix_token(
+        self,
+        *,
+        ttl_seconds: int = 900,
+        subprefix: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Mint a `pods/{hushh_id}/*` (or `workspaces/v1/<ws_id>` subprefix) storage capability."""
+        req_json: dict[str, Any] = {"ttlSeconds": int(ttl_seconds)}
+        if subprefix:
+            req_json["subprefix"] = str(subprefix)
+        if provider:
+            req_json["provider"] = str(provider)
+        response = self.post(
+            "/api/one/pod/custody/storage-token",
+            json=req_json,
+        )
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(f"hub refused storage capability status={status}")
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON storage capability") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("expiresInSeconds"), int):
+            raise PodHubUnavailable("hub returned malformed storage capability")
+        return body
+
+    def mint_storage_prefix_bearer(self, *, ttl_seconds: int = 900) -> tuple[str, int]:
+        """Return `(bearer_token, expires_in_seconds)` for `PrefixTokenObjectStore` refresh."""
+        body = self.mint_storage_prefix_token(ttl_seconds=ttl_seconds)
+        token = body.get("bearerToken")
+        if not isinstance(token, str) or not token.strip():
+            raise PodHubUnavailable("hub storage capability omitted bearerToken")
+        return token.strip(), int(body["expiresInSeconds"])
+
+    def broker_dek_envelope(
+        self,
+        *,
+        operation: str,
+        sealed_dek: Optional[str] = None,
+        broker_key_id: Optional[str] = None,
+        wrapped_dek: Optional[str] = None,
+    ) -> dict[str, str]:
+        """Wrap or unwrap a pod DEK via `POST /api/one/pod/custody/dek` (zero plaintext DEK)."""
+        payload: dict[str, Any] = {"operation": operation}
+        if sealed_dek is not None:
+            payload["sealedDek"] = sealed_dek
+        if broker_key_id is not None:
+            payload["brokerKeyId"] = broker_key_id
+        if wrapped_dek is not None:
+            payload["wrappedDek"] = wrapped_dek
+        response = self.post("/api/one/pod/custody/dek", json=payload)
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(
+                f"hub refused DEK custody operation={operation} status={status}"
+            )
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON DEK custody body") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("sealedDek"), str):
+            raise PodHubUnavailable("hub returned malformed DEK custody body")
+        return {str(k): str(v) for k, v in body.items() if isinstance(v, str)}

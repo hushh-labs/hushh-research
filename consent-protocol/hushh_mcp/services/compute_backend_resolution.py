@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Any, Literal, Optional
 
 from hushh_mcp.services.compute_backend import (
+    BACKEND_ACE,
+    BACKEND_AZURE,
     BACKEND_GCP,
     BACKEND_NULL,
+    BACKEND_USER_AWS,
     BACKEND_USER_AZURE,
     BACKEND_USER_GCP,
     ComputeBackend,
@@ -18,7 +21,7 @@ from hushh_mcp.services.compute_backend import (
 
 
 def resolve_deployment_backend(backend_id: Optional[str] = None) -> ComputeBackend:
-    """Resolve configured GCP hosting; empty/null remains safely unconfigured."""
+    """Resolve configured fleet hosting; empty/null remains safely unconfigured."""
     from hushh_mcp.runtime_settings import personal_agent_backend
 
     chosen = (backend_id if backend_id is not None else personal_agent_backend()).strip().lower()
@@ -31,6 +34,16 @@ def resolve_deployment_backend(backend_id: Optional[str] = None) -> ComputeBacke
         # but makes NO live GCP call until explicitly enabled with credentials.
         gcp: ComputeBackend = GcpBackend()
         return gcp
+    if chosen == BACKEND_ACE:
+        from hushh_mcp.services.ace_backend import AceComputeBackend
+
+        ace: ComputeBackend = AceComputeBackend()
+        return ace
+    if chosen == BACKEND_AZURE:
+        from hushh_mcp.services.hosted_azure_backend import HostedAzureBackend
+
+        azure_hosted: ComputeBackend = HostedAzureBackend()
+        return azure_hosted
     if chosen == BACKEND_USER_GCP:
         from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
@@ -38,10 +51,10 @@ def resolve_deployment_backend(backend_id: Optional[str] = None) -> ComputeBacke
         # Plan-mode by default; live raises until the owner bootstrap exists.
         user_gcp: ComputeBackend = UserGcpBackend()
         return user_gcp
-    # `user_azure` is deliberately absent: it has no deployment-wide destination, so it
-    # resolves only per person, through `resolve_compute_backend_for_spec`.
+    # `user_azure` and `user_aws` are deliberately absent: they have no deployment-wide
+    # destination, so they resolve only per person through `resolve_compute_backend_for_spec`.
     raise NotImplementedError(
-        f"compute backend '{chosen}' is not recognized (expected: null | gcp | user_gcp)"
+        f"compute backend '{chosen}' is not recognized (expected: null | gcp | ace | user_gcp)"
     )
 
 
@@ -70,6 +83,8 @@ def resolve_owner_backend(spec: PodSpec) -> ComputeBackend:
         raise ValueError("Azure VM host cannot be used with another deployment target")
     if target == BACKEND_USER_AZURE:
         return owner_azure_backend(spec)
+    if target == BACKEND_USER_AWS:
+        return owner_aws_backend(spec)
     if target != BACKEND_USER_GCP:
         from hushh_mcp.services.compute_backend import resolve_compute_backend
 
@@ -136,10 +151,42 @@ def owner_azure_backend(spec: PodSpec) -> ComputeBackend:
     return azure
 
 
+def owner_aws_backend(spec: PodSpec) -> ComputeBackend:
+    """Resolve recorded owner AWS coordinates without any deployment-wide fallback."""
+    coordinates = {
+        "account_id": spec.user_cloud_account_id,
+        "region": spec.user_cloud_region,
+        "role_arn": spec.user_cloud_role_arn,
+    }
+    if not owner_cloud_coordinates_complete(BACKEND_USER_AWS, coordinates):
+        missing = sorted(name for name, value in coordinates.items() if not (value or "").strip())
+        raise ValueError(
+            "a user_aws pod needs the person's own account_id, region and role_arn on its "
+            f"spec, and none is ever inferred (missing: {missing})."
+        )
+    from hushh_mcp.services.user_aws_backend import UserAwsBackend
+
+    aws: ComputeBackend = UserAwsBackend(
+        account_id=str(spec.user_cloud_account_id).strip(),
+        region=str(spec.user_cloud_region).strip(),
+        role_arn=str(spec.user_cloud_role_arn).strip(),
+        image_digest=spec.expected_image_digest or "",
+    )
+    return aws
+
+
 def private_pod_row(row: Any) -> bool:
     """Known owner cloud or a verified per-owner managed placement; never a fleet flag."""
     from collections.abc import Mapping
 
+    from hushh_mcp.services.hosted_ace_placement import (
+        has_hosted_ace_evidence,
+        retained_hosted_ace_placement,
+    )
+    from hushh_mcp.services.hosted_azure_placement import (
+        has_hosted_azure_evidence,
+        retained_hosted_azure_placement,
+    )
     from hushh_mcp.services.hosted_gcp_placement import (
         has_hosted_evidence,
         retained_hosted_placement,
@@ -148,6 +195,10 @@ def private_pod_row(row: Any) -> bool:
     if not isinstance(row, Mapping):
         return False
     candidate = dict(row)
+    if has_hosted_ace_evidence(candidate):
+        return retained_hosted_ace_placement(candidate) is not None
+    if has_hosted_azure_evidence(candidate):
+        return retained_hosted_azure_placement(candidate) is not None
     if has_hosted_evidence(candidate):
         return retained_hosted_placement(candidate) is not None
     return is_owner_cloud_target(row.get("deployment_target"))

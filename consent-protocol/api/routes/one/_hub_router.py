@@ -62,11 +62,13 @@ from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
 from .plg import router as plg_router
 from .pod_browser_approval import router as pod_browser_approval_router
+from .pod_capability_broker import router as pod_capability_broker_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
 from .pod_lifecycle import router as pod_lifecycle_router
 from .pod_mcp_approval import router as pod_mcp_approval_router
 from .pod_owner_feed import router as pod_owner_feed_router
+from .pod_prefix_storage_gateway import router as pod_prefix_storage_gateway_router
 from .pod_relay import router as pod_relay_router
 from .pod_specialist import router as pod_specialist_router
 from .pod_wake import router as pod_wake_router
@@ -79,6 +81,7 @@ from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
+from .sandbox_claims import router as sandbox_claims_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .shared_files import router as shared_files_router
 from .source_journal import router as source_journal_router
@@ -158,6 +161,8 @@ router.include_router(people_router)
 # NEVER mount this -- a pod serving the relay could proxy to other pods. The
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_consent_router)
+router.include_router(pod_capability_broker_router)
+router.include_router(pod_prefix_storage_gateway_router)
 router.include_router(pod_mcp_approval_router)
 router.include_router(pod_browser_approval_router)
 router.include_router(pod_owner_feed_router)
@@ -167,6 +172,7 @@ router.include_router(pod_heartbeat_router)
 router.include_router(pod_lifecycle_router)
 router.include_router(pod_wake_router)
 router.include_router(pod_relay_router)
+router.include_router(sandbox_claims_router)
 router.include_router(puppy_relay_router)
 # Hub-only, like the relay: the broker READS a DB-backed specialist for a
 # keyless pod. A pod holds no DB credential and must never mount this. The

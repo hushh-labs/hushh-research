@@ -260,6 +260,10 @@ POST /api/one/agent-chat/runs/{conversation_id}/stop
 POST /api/one/agent-chat/proposals/prepare
 GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
+GET /api/one/pod/custody/broker-key
+GET /api/one/pod/custody/sandbox-placement/{hushh_id}
+POST /api/one/pod/custody/storage-token
+POST /api/one/pod/custody/dek
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
@@ -296,6 +300,7 @@ GET /api/one/finance/advisor-reviews/{request_id}
 GET,POST /api/one/finance/shares
 DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export
+DELETE,GET,PUT /api/one/pod/storage-gateway/{object_path:path}
 GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}
@@ -435,6 +440,8 @@ POST /api/one/pod/heartbeat
 GET /api/one/pod/lifecycle
 GET /api/one/pod/lifecycle/stream
 POST /api/one/pod/wake
+POST /api/one/pod/wake/signal
+POST /api/one/pod/wake/drain
 GET /api/one/puppy/status/{device_id}
 POST /api/one/runtime/byoc/authorize/begin
 POST /api/one/runtime/byoc/authorize/complete
@@ -445,6 +452,11 @@ GET /api/one/runtime/byoc/azure/hosting
 POST /api/one/runtime/byoc/azure/rebuild/begin
 POST /api/one/runtime/byoc/azure/upgrade/begin
 POST /api/one/runtime/byoc/hosted/select
+GET /api/one/runtime/byoc/hosted/azure/migrate/status
+POST /api/one/runtime/byoc/hosted/azure/migrate
+GET /api/one/runtime/byoc/hosted/cells/status
+GET /api/one/runtime/byoc/hosted/source-retirement/status
+POST /api/one/runtime/byoc/hosted/source-retirement/confirm
 POST /api/one/runtime/byoc/project/check
 POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save
@@ -452,8 +464,11 @@ GET /api/one/runtime/byoc/project/suggest
 GET /api/one/runtime/byoc/setup/status
 GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
+POST /api/one/runtime/pooled-sandbox/adopt
 POST /api/one/runtime/shared/select
 POST /api/one/runtime/standby/sync
+POST /api/one/sandbox/claims
+DELETE,GET /api/one/sandbox/claims/{lease_id}
 GET /api/one/u/{hushh_id}/diagnostics/model
 GET /api/one/u/{hushh_id}/info
 GET /api/one/u/{hushh_id}/memory/status

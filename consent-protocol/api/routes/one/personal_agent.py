@@ -538,6 +538,24 @@ async def resolve_personal_agent_status(
             _diagnostic_detail(exc),
         )
 
+    if registry_read_ok:
+        try:
+            from hushh_mcp.services.pooled_sandbox_cutover import (  # noqa: PLC0415
+                ensure_pooled_sandbox_placement,
+                sandbox_pool_cutover_enabled,
+            )
+
+            if sandbox_pool_cutover_enabled():
+                row = await ensure_pooled_sandbox_placement(
+                    user_id=user_id, existing_row=row, registry=repo
+                )
+        except Exception as exc:  # fail safe: keep status endpoint responsive
+            logger.warning(
+                "personal_agent.pooled_cutover_failed err=%s detail=%s",
+                type(exc).__name__,
+                _diagnostic_detail(exc),
+            )
+
     status = str((row or {}).get("status") or "").strip()
 
     # This GET is now a PURE READER, and that is a security property, not tidiness.
@@ -692,7 +710,7 @@ async def plan_personal_agent_files_update(user_id: str = Depends(require_fireba
     except (ValueError, RuntimeError) as exc:
         message = getattr(exc, "public_message", "Files setup cannot be verified for this pod yet.")
         raise HTTPException(409, detail=message) from None
-    offer: dict = public_files_offer(plan)
+    offer: dict = public_files_offer(plan, hosted=row.get("deployment_target") == "gcp")
     return offer
 
 

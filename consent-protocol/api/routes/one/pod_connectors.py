@@ -149,10 +149,16 @@ async def run_connector_put(
         ConnectorCredentialRefused,
         open_connector_credential,
     )
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        hosted_ace_runtime,
+        owner_cloud_agent,
+    )
     from hushh_mcp.services.pod_self_registration import pod_keypair  # noqa: PLC0415
     from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
 
     await _admit(consent_token, verifier, session, SCOPE_POD_CONFIG)
+    if connector_id == "contacts" and hosted_ace_runtime() and not owner_cloud_agent():
+        return _refused("CONTACTS_OWNER_CLOUD_ONLY")
     if read_envelope is not None:
         envelope = await read_envelope()
     transition = None

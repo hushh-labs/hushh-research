@@ -112,7 +112,8 @@ def _load_durable_keypair() -> Optional[PodKeyPair]:
         path = (os.getenv(POD_PRIVATE_KEY_FILE_ENV) or "").strip()
         if path:
             try:
-                material = open(path, encoding="utf-8").read()  # noqa: SIM115, PTH123
+                with open(path, encoding="utf-8") as handle:  # noqa: PTH123
+                    material = handle.read()
             except OSError as exc:
                 # A CONFIGURED durable source that cannot be read is an error worth
                 # shouting about, not a quiet fall-through to ephemeral: the operator
@@ -124,6 +125,22 @@ def _load_durable_keypair() -> Optional[PodKeyPair]:
                     type(exc).__name__,
                 )
                 return None
+            if (os.getenv("HUSSH_UNLINK_POD_PRIVATE_KEY_AFTER_LOAD") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                try:
+                    with open(path, "w", encoding="utf-8") as wipe_handle:  # noqa: PTH123
+                        wipe_handle.write("0" * len(material))
+                        wipe_handle.flush()
+                        os.fsync(wipe_handle.fileno())
+                except OSError:
+                    pass
+                try:
+                    os.unlink(path)  # noqa: PTH108
+                except OSError:
+                    pass
     raw = _decode_private_key(material)
     if raw is None:
         if material:
@@ -177,6 +194,13 @@ def pod_key_is_durable() -> bool:
     key. An ephemeral key is fine for session-scoped exchange and nothing else.
     """
     return _state()[0]
+
+
+def reset_pod_keypair_cache_for_tests() -> None:
+    """Reset module-level cached X25519/Ed25519 keys cleanly between test cases."""
+    global _STATE, _SIGNING
+    _STATE = None
+    _SIGNING = None
 
 
 def pod_public_key_payload() -> dict[str, str]:

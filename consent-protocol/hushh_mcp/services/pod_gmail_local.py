@@ -352,9 +352,9 @@ def email_read_port(
     local port serves only an owner-session turn (:func:`owner_session_turn`); a turn
     the hub admitted gets a local port that refuses, never the hub door.
     """
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if owner_cloud_agent():
+    if personal_sandbox_workspace_runtime():
         session = owner_session_turn(turn_token, verifier)
         return PodLocalEmailReadPort(owner_user_id, owner_session=session)
     return PodEmailReadPort(owner_user_id, scope_token)

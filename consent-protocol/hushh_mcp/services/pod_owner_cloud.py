@@ -21,17 +21,54 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE, BACKEND_USER_GCP
+from hushh_mcp.services.compute_backend import (
+    BACKEND_USER_AWS,
+    BACKEND_USER_AZURE,
+    BACKEND_USER_GCP,
+)
 
 _GCP_KEY_ENV = "HUSSH_POD_KMS_KEY"
 _AZURE_KEY_ENV = "HUSSH_POD_KEY_VAULT_KEY"
+_AWS_KEY_ENV = "HUSSH_POD_AWS_KMS_KEY_ARN"
+_HOSTED_AZURE_CELL_ENV = "HUSSH_POD_CELL_ID"
+_HOSTED_AZURE_SLOT_ENV = "HUSSH_POD_SLOT_ID"
+_POOLED_SANDBOX_PROFILE_ENV = "HUSSH_SANDBOX_PROFILE"
+_POOLED_SANDBOX_LEASE_ENV = "HUSSH_LEASE_ID"
+_POOLED_SANDBOX_PROFILE_V1 = "virgin_pool_v1"
 
 
-def owner_cloud_provider() -> Optional[str]:
-    """``user_gcp`` or ``user_azure`` inside an owner-cloud agent; None anywhere else."""
+def hosted_ace_runtime() -> bool:
+    """True inside an activated Hussh Pooled Personal Sandbox (`virgin_pool_v1`)."""
     from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
 
     if not pod_mode():
+        return False
+    return (
+        (os.environ.get(_POOLED_SANDBOX_PROFILE_ENV) or "").strip() == _POOLED_SANDBOX_PROFILE_V1
+        and bool((os.environ.get(_POOLED_SANDBOX_LEASE_ENV) or "").strip())
+        and bool((os.environ.get("HUSSH_ID") or "").strip())
+    )
+
+
+def hosted_azure_runtime() -> bool:
+    """True only inside a Hussh-Hosted Azure Umbrella Cell pod."""
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    if not pod_mode():
+        return False
+    return bool(
+        (os.environ.get(_HOSTED_AZURE_CELL_ENV) or "").strip()
+        or (os.environ.get(_HOSTED_AZURE_SLOT_ENV) or "").strip()
+    )
+
+
+def owner_cloud_provider() -> Optional[str]:
+    """``user_gcp``, ``user_azure`` or ``user_aws`` inside an owner-cloud agent; None elsewhere."""
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    if not pod_mode():
+        return None
+    if hosted_azure_runtime() or hosted_ace_runtime():
         return None
     # Hosted private pods reuse KMS envelope custody. A key's presence describes
     # encryption, not who owns the cloud account. Explicit hosted or malformed
@@ -52,17 +89,35 @@ def owner_cloud_provider() -> Optional[str]:
                 return None
         except ValueError:
             return None
-    gcp = bool((os.environ.get(_GCP_KEY_ENV) or "").strip())
-    azure = bool((os.environ.get(_AZURE_KEY_ENV) or "").strip())
-    if gcp == azure:
-        # Neither, or a contradictory pair: not provably an owner cloud.
+    candidates = [
+        target
+        for env_name, target in (
+            (_GCP_KEY_ENV, BACKEND_USER_GCP),
+            (_AZURE_KEY_ENV, BACKEND_USER_AZURE),
+            (_AWS_KEY_ENV, BACKEND_USER_AWS),
+        )
+        if (os.environ.get(env_name) or "").strip()
+    ]
+    if len(candidates) != 1:
+        # None, or a contradictory pair: not provably an owner cloud.
         return None
-    return str(BACKEND_USER_GCP if gcp else BACKEND_USER_AZURE)
+    return str(candidates[0])
 
 
 def owner_cloud_agent() -> bool:
     """True only inside an agent that runs in its owner's own cloud account."""
     return owner_cloud_provider() is not None
+
+
+def personal_sandbox_workspace_runtime() -> bool:
+    """True inside an owner-cloud pod OR an activated Personal Sandbox (`virgin_pool_v1`).
+
+    Both runtimes isolate the owner's encrypted connector credentials inside their
+    own pod storage boundary and enforce per-owner session authority. Legacy
+    hosted pods stay excluded, and Google Contacts stays strictly
+    `owner_cloud_agent()`-only.
+    """
+    return owner_cloud_agent() or hosted_ace_runtime()
 
 
 def private_pod_runtime() -> bool:
@@ -73,7 +128,12 @@ def private_pod_runtime() -> bool:
     """
     from hushh_mcp.services.private_gcp_deployment import hosted_runtime_deployment
 
-    return hosted_runtime_deployment() is not None or owner_cloud_agent()
+    return (
+        hosted_runtime_deployment() is not None
+        or hosted_azure_runtime()
+        or hosted_ace_runtime()
+        or owner_cloud_agent()
+    )
 
 
 def pod_owner_user_id() -> str:
@@ -98,4 +158,12 @@ def pod_owner_user_id() -> str:
     return owners.pop() if len(owners) == 1 else ""
 
 
-__all__ = ["owner_cloud_agent", "owner_cloud_provider", "pod_owner_user_id", "private_pod_runtime"]
+__all__ = [
+    "hosted_ace_runtime",
+    "hosted_azure_runtime",
+    "owner_cloud_agent",
+    "owner_cloud_provider",
+    "personal_sandbox_workspace_runtime",
+    "pod_owner_user_id",
+    "private_pod_runtime",
+]
