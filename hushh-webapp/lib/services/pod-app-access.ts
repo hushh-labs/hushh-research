@@ -86,6 +86,7 @@ const OWNER_POD_ROUTES = new Set([
   "files/wiki/migrate",
   "files/wiki/rollback",
   "files/wiki/import",
+  "files/wiki/optimize",
   "files/workspaces/status",
   "files/workspaces/execute",
   "files/workspaces/control",
