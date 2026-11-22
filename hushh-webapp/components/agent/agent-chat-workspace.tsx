@@ -694,6 +694,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     !initialActiveSession && isVaultUnlocked && applicationOwnerId
       ? peekAgentChatHistoryCache(applicationOwnerId)
       : null;
+  const initialPinnedOneConversationId =
+    initialHistorySnapshot?.conversations.find(isPinnedOneStreamConversation)?.id ?? null;
   const initialSelectedId =
     isVaultUnlocked && applicationOwnerId
       ? selectedInAppChat(applicationOwnerId)
@@ -704,7 +706,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         initialSelectedId &&
         initialHistorySnapshot.conversations.some((item) => item.id === initialSelectedId)
       ? initialSelectedId
-      : null;
+      : initialPinnedOneConversationId;
   const emailScopeRef = useRef({ ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch });
   if (emailScopeRef.current.ownerId !== renderedWorkspaceOwnerId || emailScopeRef.current.epoch !== vaultSessionEpoch) {
     emailScopeRef.current = { ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch };
@@ -936,16 +938,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     () => initialHistorySnapshot?.conversations ?? [],
   );
+  const [pendingMainChatId, setPendingMainChatId] = useState<string | null>(null);
   const [isOneStreamDraft, setIsOneStreamDraft] = useState<boolean>(
-    () => !initialSelectedConversationId,
+    () =>
+      !initialSelectedConversationId ||
+      (initialPinnedOneConversationId !== null &&
+        initialSelectedConversationId === initialPinnedOneConversationId),
   );
   const pinnedOneConversation = useMemo(
     () => conversations.find(isPinnedOneStreamConversation) ?? null,
     [conversations],
   );
-  const pinnedOneConversationId = pinnedOneConversation?.id ?? null;
+  const pinnedOneConversationId = pinnedOneConversation?.id ?? pendingMainChatId;
   const isOneStreamDraftRef = useRef(isOneStreamDraft);
   isOneStreamDraftRef.current = isOneStreamDraft;
+  const pendingMainChatIdRef = useRef(pendingMainChatId);
+  pendingMainChatIdRef.current = pendingMainChatId;
   const pinnedOneConversationIdRef = useRef(pinnedOneConversationId);
   pinnedOneConversationIdRef.current = pinnedOneConversationId;
   const inlineOneStreamEventIdsRef = useRef<Set<string>>(new Set());
@@ -2379,6 +2387,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setActivePkmToolCount(0);
     setWalletWidgets([]);
     updateConversationId(restoredSession?.conversationId ?? null, false);
+    setPendingMainChatId(null);
+    pendingMainChatIdRef.current = null;
+    setIsOneStreamDraft(!restoredSession?.conversationId);
     setConversations([]);
     historyListOwner.current = null;
     setCalendarSlot(null);
@@ -3666,6 +3677,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (!current()) return;
       historyListOwner.current = { auth: historyOwner!, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
+      const snapshotMainId =
+        snapshot.conversations.find(isPinnedOneStreamConversation)?.id ?? null;
+      if (snapshotMainId && pendingMainChatIdRef.current) {
+        pendingMainChatIdRef.current = null;
+        setPendingMainChatId(null);
+      }
       const selectedId = selectedInAppChat(applicationOwnerId);
       const activeSession =
         typeof peekActiveAgentTurnSession === "function"
@@ -3688,11 +3705,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       // A first turn the person left may not be in a cached list yet; its
       // history load below is still owner-checked by the server.
-      if (
-        !selectedId ||
-        (!snapshot.conversations.some((item) => item.id === selectedId) &&
-          !isAgentTurnWatched(applicationOwnerId, selectedId))
-      ) {
+      const hasValidSelected =
+        Boolean(selectedId) &&
+        (snapshot.conversations.some((item) => item.id === selectedId) ||
+          isAgentTurnWatched(applicationOwnerId, selectedId!));
+      const canonicalMainId = snapshotMainId ?? pendingMainChatIdRef.current;
+      const targetConversationId = hasValidSelected
+        ? selectedId!
+        : isOneStreamDraftRef.current
+          ? canonicalMainId
+          : null;
+      if (!targetConversationId) {
         updateConversationId(null, false);
         setMessages((current) =>
           mergePendingConsentMessages([createGreetingMessage()], current),
@@ -3701,19 +3724,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       // A turn the person left is still running server-side: read fresh
       // history rather than the cache, and show it as in progress.
-      const reattaching = isAgentTurnWatched(applicationOwnerId, selectedId);
+      const reattaching = isAgentTurnWatched(applicationOwnerId, targetConversationId);
       const loadSelected = () => loadAgentChatConversationHistory({
-        userId: applicationOwnerId, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
+        userId: applicationOwnerId, conversationId: targetConversationId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
         force: refresh,
       });
       let stored: Awaited<ReturnType<typeof loadSelected>>;
       try {
-        stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
+        stored = !refresh && targetConversationId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
           ? snapshot.latestMessages
           : await loadSelected();
         if (!current()) return;
         // It may have settled while that read was in flight; read the answer.
-        if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
+        if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, targetConversationId)) stored = await loadSelected();
       } catch (error) {
         if (error instanceof Error && (error as { status?: number }).status === 404) {
           clearInAppChatSelection(applicationOwnerId);
@@ -3731,8 +3754,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ...message,
         restoredFromHistory: true,
       }));
-      const stillRunning = isAgentTurnWatched(applicationOwnerId, selectedId);
-      updateConversationId(selectedId, false);
+      const stillRunning = isAgentTurnWatched(applicationOwnerId, targetConversationId);
+      if (canonicalMainId && targetConversationId === canonicalMainId) {
+        setIsOneStreamDraft(true);
+      }
+      updateConversationId(targetConversationId, false);
       setMessages((current) =>
         mergePendingConsentMessages(
           restored.length > 0
@@ -3740,7 +3766,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ...restored,
                 ...(stillRunning
                   ? [{
-                      id: `reattach-${selectedId}`,
+                      id: `reattach-${targetConversationId}`,
                       role: "assistant" as const,
                       text: "",
                       ...stampNow(),
@@ -3758,7 +3784,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setHasResponseOutput(false);
         setIsStreaming(true);
       } else {
-        void restorePendingMcpReviews(selectedId, vaultOwnerToken, current).catch(() => undefined);
+        void restorePendingMcpReviews(targetConversationId, vaultOwnerToken, current).catch(() => undefined);
       }
     };
 
@@ -5485,7 +5511,43 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
 
     if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
-    const turnConversationId = conversationIdRef.current || crypto.randomUUID();
+    const existingConversationId =
+      conversationIdRef.current ||
+      (isOneStreamDraftRef.current ? pinnedOneConversationIdRef.current : null);
+    const turnStartedInOneStreamDraft =
+      !existingConversationId &&
+      isOneStreamDraftRef.current &&
+      !pinnedOneConversationIdRef.current;
+    const turnConversationId = existingConversationId || crypto.randomUUID();
+    const isMainChatTurn = Boolean(
+      turnStartedInOneStreamDraft ||
+        (pinnedOneConversationIdRef.current &&
+          turnConversationId === pinnedOneConversationIdRef.current),
+    );
+    if (turnStartedInOneStreamDraft) {
+      pendingMainChatIdRef.current = turnConversationId;
+      setPendingMainChatId(turnConversationId);
+      const nowIso = new Date().toISOString();
+      setConversations((current) => {
+        if (current.some((item) => item.id === turnConversationId)) {
+          return current.map((item) =>
+            item.id === turnConversationId ? { ...item, title: "One" } : item,
+          );
+        }
+        return [
+          {
+            id: turnConversationId,
+            title: "One",
+            status: "active",
+            message_count: 1,
+            created_at: nowIso,
+            updated_at: nowIso,
+            last_message_at: nowIso,
+          },
+          ...current,
+        ];
+      });
+    }
     if (isWorkspaceMountedRef.current) {
       updateConversationId(turnConversationId, true);
     } else {
@@ -5526,10 +5588,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     liveAssistantMessageIdRef.current = assistantMessageId;
     const releaseForegroundChatPriority = beginForegroundChatPriority();
 
-    const turnStartedInOneStreamDraft =
-      !turnConversationId &&
-      isOneStreamDraftRef.current &&
-      !pinnedOneConversationIdRef.current;
     let nameConversationId: string | null = turnConversationId;
     let nameTurnCompleted = false;
     let turnStopped = false;
@@ -5560,18 +5618,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             session.messages,
             finalConversationId,
           ),
-          title: turnStartedInOneStreamDraft
+          title: isMainChatTurn
             ? "One"
             : userMessages[0]?.text?.trim().slice(0, 64) || undefined,
         });
       }
-      if (turnStartedInOneStreamDraft && finalConversationId && token) {
+      if (isMainChatTurn && finalConversationId) {
         const nowIso = new Date().toISOString();
         setConversations((current) => {
           const exists = current.some((item) => item.id === finalConversationId);
           if (exists) {
             return current.map((item) =>
-              item.id === finalConversationId ? { ...item, title: "One" } : item,
+              item.id === finalConversationId
+                ? {
+                    ...item,
+                    title: "One",
+                    updated_at: nowIso,
+                    last_message_at: nowIso,
+                  }
+                : item,
             );
           }
           return [
@@ -5587,12 +5652,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             ...current,
           ];
         });
-        void renameAgentChatConversation({
-          conversationId: finalConversationId,
-          title: "One",
-          vaultOwnerToken: token,
-          vaultKey: vaultKey ?? "",
-        }).catch(() => undefined);
+        if (turnStartedInOneStreamDraft && token) {
+          void renameAgentChatConversation({
+            conversationId: finalConversationId,
+            title: "One",
+            vaultOwnerToken: token,
+            vaultKey: vaultKey ?? "",
+          }).catch(() => undefined);
+        }
       }
       if (
         notifyIfUnmounted &&
@@ -5881,6 +5948,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             },
           };
         })() as unknown as Record<string, unknown>,
+        mainChat: isMainChatTurn,
         signal: streamAbortController.signal,
         handlers: {
           onContextUsage: (usage) => {
@@ -6322,7 +6390,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           status: "done",
         };
       });
-      void loadConversationList(true).catch(() => undefined);
+      // Ongoing turns in the canonical Main chat already updated local state and
+      // cache; skip hammering the single-worker pod with a forced conversation
+      // list reload on every turn.
+      if (!isMainChatTurn || turnStartedInOneStreamDraft) {
+        void loadConversationList(true).catch(() => undefined);
+      }
       patchTurnSessionState({
         conversationId: finalConversationId,
         isChatLoading: false,
@@ -6371,7 +6444,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           setVaultDialogOpen(true);
         }
       } else {
+        // Ongoing turns in the canonical Main chat already updated local state and
+      // cache; skip hammering the single-worker pod with a forced conversation
+      // list reload on every turn.
+      if (!isMainChatTurn || turnStartedInOneStreamDraft) {
         void loadConversationList(true).catch(() => undefined);
+      }
       }
       patchTurnSessionState({
         isChatLoading: false,
