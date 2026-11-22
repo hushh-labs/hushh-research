@@ -297,7 +297,9 @@ async def _resolve_custody_caller(
         unique_owner_pk = True
     else:
         base_registry = registry
-        unique_owner_pk = isinstance(base_registry, PersonalAgentRegistryRepo)
+        unique_owner_pk = isinstance(PersonalAgentRegistryRepo, type) and isinstance(
+            base_registry, PersonalAgentRegistryRepo
+        )
 
     cached_registry = _RequestScopedRegistryReadCache(
         base_registry,

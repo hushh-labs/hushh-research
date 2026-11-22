@@ -72,7 +72,8 @@ class MarketplaceCenterContributor:
             return self._empty()
 
         use_combined = (
-            isinstance(self._requests, MarketplaceRequestService)
+            isinstance(MarketplaceRequestService, type)
+            and isinstance(self._requests, MarketplaceRequestService)
             and getattr(self._requests.list_requests, "__func__", None)
             is MarketplaceRequestService.list_requests
             and getattr(self._requests.list_buyer_requests, "__func__", None)

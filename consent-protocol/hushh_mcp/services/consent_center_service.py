@@ -1036,6 +1036,7 @@ class ConsentCenterService:
             summary_rows = await self._summary_audit_rows_if_available(user_id)
             if (
                 summary_rows is not None
+                and isinstance(ConsentDBService, type)
                 and isinstance(self._consent_db, ConsentDBService)
                 and getattr(status_loader, "__func__", None)
                 is ConsentDBService.get_request_statuses
@@ -1676,7 +1677,9 @@ class ConsentCenterService:
         """Single-flight shared `consent_audit` snapshot for `get_center_summary`."""
         if not getattr(self, "_skip_summary_hydration", False):
             return None
-        if not isinstance(self._consent_db, ConsentDBService):
+        if not isinstance(ConsentDBService, type) or not isinstance(
+            self._consent_db, ConsentDBService
+        ):
             return None
         cache = getattr(self, "_summary_audit_rows_cache", None)
         inflight = getattr(self, "_summary_audit_rows_inflight", None)
