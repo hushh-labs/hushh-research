@@ -525,10 +525,10 @@ html.native-keyboard-inset.kb-open
   --app-tertiary-label: #8e8e93;
   --app-disabled-label: #aeaeb2;
   --app-quaternary-label: #c7c7cc;
-  --app-separator: rgba(60, 60, 67, 0.12);
-  --app-opaque-separator: #e5e5ea;
-  --app-neutral-fill: rgba(120, 120, 128, 0.16);
-  --app-neutral-fill-strong: rgba(120, 120, 128, 0.2);
+  --app-separator: rgba(15, 23, 42, 0.08);
+  --app-opaque-separator: #e6e6eb;
+  --app-neutral-fill: rgba(15, 23, 42, 0.055);
+  --app-neutral-fill-strong: rgba(15, 23, 42, 0.095);
   --app-icon-tile-background: #8e8e93;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff3b30;
@@ -1240,10 +1240,11 @@ html.native-keyboard-inset.kb-open
   --app-card-surface-hero: #ffffff;
   --app-card-surface-sticky-header: #f6f7fb;
   --app-card-surface-sticky-header-solid: #f6f7fb;
-  --app-card-border-standard: rgba(60, 60, 67, 0.09);
-  --app-card-border-strong: rgba(60, 60, 67, 0.18);
+  --app-card-border-standard: rgba(15, 23, 42, 0.075);
+  --app-card-border-strong: rgba(15, 23, 42, 0.14);
+  --app-card-specular: rgba(255, 255, 255, 0.9);
   --app-card-shadow-standard: none;
-  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.04);
+  --app-card-shadow-feature: 0 8px 24px rgba(15, 23, 42, 0.05);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
@@ -1313,18 +1314,18 @@ html.native-keyboard-inset.kb-open
   --app-screen-background: #0e0e10;
   --app-grouped-background: #0e0e10;
   --one-launcher-background: var(--background);
-  --app-primary-surface: #17171a;
-  --app-secondary-surface: #1e1e22;
-  --app-elevated-surface: #222226;
+  --app-primary-surface: #161619;
+  --app-secondary-surface: #1c1c20;
+  --app-elevated-surface: #232328;
   --app-label: #f5f5f7;
-  --app-secondary-label: rgba(235, 235, 245, 0.72);
-  --app-section-label: rgba(235, 235, 245, 0.72);
-  --app-tertiary-label: rgba(235, 235, 245, 0.3);
-  --app-quaternary-label: rgba(235, 235, 245, 0.18);
-  --app-separator: rgba(84, 84, 88, 0.65);
-  --app-opaque-separator: #38383a;
-  --app-neutral-fill: rgba(255, 255, 255, 0.06);
-  --app-neutral-fill-strong: rgba(255, 255, 255, 0.1);
+  --app-secondary-label: rgba(235, 235, 245, 0.68);
+  --app-section-label: rgba(235, 235, 245, 0.68);
+  --app-tertiary-label: rgba(235, 235, 245, 0.42);
+  --app-quaternary-label: rgba(235, 235, 245, 0.22);
+  --app-separator: rgba(255, 255, 255, 0.085);
+  --app-opaque-separator: #2c2c30;
+  --app-neutral-fill: rgba(255, 255, 255, 0.08);
+  --app-neutral-fill-strong: rgba(255, 255, 255, 0.13);
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -2240,25 +2241,25 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-row-inset: 6px;
   --app-side-pane-row-gap: 5px;
   --app-side-pane-row-title-size: 13px;
-  --app-side-pane-row-title-line: 1.2;
-  --app-side-pane-row-title-weight: 550;
+  --app-side-pane-row-title-line: 1.25;
+  --app-side-pane-row-title-weight: 600;
   --app-side-pane-row-description-size: 9px;
-  --app-side-pane-row-description-line: 1.2;
+  --app-side-pane-row-description-line: 1.25;
   --app-side-pane-section-size: 10px;
   --app-side-pane-section-line: 14px;
   --app-side-pane-section-weight: 600;
   --app-side-pane-section-tracking: 0.02em;
   /* Reading panes must not blend with the dimmed canvas behind the scrim. */
   --profile-pane-surface: var(--background);
-  --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
-  --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
-  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
-  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
-  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
-  --profile-pane-hair: rgba(36, 43, 52, 0.12);
+  --profile-pane-surface-strong: rgba(15, 23, 42, 0.095);
+  --profile-pane-surface-soft: rgba(15, 23, 42, 0.055);
+  --profile-pane-card-surface: #ffffff;
+  --profile-pane-card-border: rgba(15, 23, 42, 0.08);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.9);
+  --profile-pane-hair: rgba(15, 23, 42, 0.08);
   --profile-pane-shadow:
-    0 36px 90px rgba(35, 42, 51, 0.22),
-    0 4px 18px rgba(35, 42, 51, 0.1);
+    0 36px 90px rgba(15, 23, 42, 0.16),
+    0 4px 18px rgba(15, 23, 42, 0.08);
 }
 
 .profile-pane-sheet[data-slot="sheet-content"],
@@ -2323,17 +2324,19 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark [data-agent-history-drawer],
 .dark [data-app-side-pane],
-.dark [data-app-pane-material="profile"] {
+.dark [data-app-pane-material="profile"],
+html.dark [data-profile-type-scale],
+.dark [data-profile-type-scale] {
   --profile-pane-surface: var(--background);
-  --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
-  --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
-  --profile-pane-card-surface: rgba(39, 42, 49, 0.78);
+  --profile-pane-surface-strong: rgba(255, 255, 255, 0.13);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.08);
+  --profile-pane-card-surface: #161619;
   --profile-pane-card-border: rgba(255, 255, 255, 0.08);
-  --profile-pane-card-highlight: rgba(255, 255, 255, 0.12);
-  --profile-pane-hair: rgba(237, 234, 228, 0.14);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.065);
+  --profile-pane-hair: rgba(255, 255, 255, 0.08);
   --profile-pane-shadow:
-    0 42px 110px rgba(0, 0, 0, 0.58),
-    0 4px 20px rgba(0, 0, 0, 0.32);
+    0 42px 110px rgba(0, 0, 0, 0.62),
+    0 4px 20px rgba(0, 0, 0, 0.34);
 }
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
@@ -2906,28 +2909,34 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"],
 [data-app-pane-material="profile"] {
   border: 1px solid var(--profile-pane-card-border) !important;
-  border-radius: 17px !important;
+  border-radius: 16px !important;
   background: var(--profile-pane-card-surface) !important;
-  box-shadow:
-    inset 0 1px 0 var(--profile-pane-card-highlight),
-    0 8px 24px rgba(35, 42, 51, 0.05) !important;
+  box-shadow: inset 0 1px 0 var(--profile-pane-card-highlight) !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
   --settings-row-px: 14px;
   --settings-row-py: 9px;
-  --settings-row-gap: 9px;
-  min-height: 58px !important;
+  --settings-row-gap: 11px;
+  min-height: 56px !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] > :is(button, [data-slot="settings-row-content"]) {
-  min-height: 58px !important;
+  min-height: 56px !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"]::after {
-  left: 0 !important;
-  right: 0 !important;
   background: var(--profile-pane-hair) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-inset-separators="true"] > [data-row-layout="settings"]::after {
+  left: 14px !important;
+  right: 14px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-inset-separators="true"] > [data-row-layout="settings"]:has([data-slot="settings-row-icon"], [data-connector-brand])::after {
+  left: 49px !important;
+  right: 14px !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
@@ -5214,16 +5223,16 @@ body:has([data-testid="one-location-onboarding"])
 
   --background: #0e0e10;
   --foreground: #f5f5f7;
-  --card: #17171a;
+  --card: #161619;
   --card-foreground: #f5f5f7;
-  --popover: #17171a;
+  --popover: #161619;
   --popover-foreground: #f5f5f7;
   --primary: #f5f5f7;
   --primary-foreground: #000000;
   --secondary: #222226;
   --secondary-foreground: #f5f5f7;
   --muted: #222226;
-  --muted-foreground: rgba(235, 235, 245, 0.72);
+  --muted-foreground: rgba(235, 235, 245, 0.68);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
   --destructive: #ff453a;
@@ -5233,7 +5242,7 @@ body:has([data-testid="one-location-onboarding"])
   --critical-soft-bg: oklch(0.31 0.06 24);
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
-  --border: rgba(84, 84, 88, 0.65);
+  --border: rgba(255, 255, 255, 0.09);
   --input: #141418;
   --ring: var(--app-accent-ring);
   /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
@@ -5323,8 +5332,9 @@ body:has([data-testid="one-location-onboarding"])
   --app-card-surface-hero: var(--app-neutral-fill-strong);
   --app-card-surface-sticky-header: #2f2f31;
   --app-card-surface-sticky-header-solid: #2f2f31;
-  --app-card-border-standard: var(--app-separator);
-  --app-card-border-strong: rgba(255, 255, 255, 0.18);
+  --app-card-border-standard: rgba(255, 255, 255, 0.08);
+  --app-card-border-strong: rgba(255, 255, 255, 0.14);
+  --app-card-specular: rgba(255, 255, 255, 0.06);
   --app-card-shadow-standard: none;
   --app-card-shadow-feature: none;
   --app-segmented-track-surface: var(--app-neutral-fill);
@@ -6986,46 +6996,54 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
    [data-one-chat-surface]; no other page reads these tokens. Light shares the
    launcher’s grey canvas with soft grey bubbles, dark a neutral near-black with raised
    greys. The accent (user bubbles, focus) stays One's own blue. */
+/* Subtle Quiet Obsidian / Porcelain surface edge craft on grouped cards
+   app-wide without breaking flat standard-shadow contracts. */
+[data-ui-role="grouped-card"] {
+  box-shadow:
+    inset 0 0 0 1px var(--app-card-border-standard),
+    inset 0 1px 0 var(--app-card-specular);
+}
+
 [data-one-chat-surface] {
   --one-chat-canvas: var(--one-launcher-background);
   /* One surface with the chat, as in the reference: the hairline divides. */
   --one-chat-sidebar: var(--one-chat-canvas);
-  --one-chat-search-border: rgba(0, 0, 0, 0.12);
+  --one-chat-search-border: rgba(15, 23, 42, 0.09);
   --one-chat-search-bg: transparent;
-  --one-chat-divider: rgba(0, 0, 0, 0.075);
+  --one-chat-divider: rgba(15, 23, 42, 0.08);
   --one-chat-bubble: #ebebee;
   --one-chat-raised: #ffffff;
   --one-chat-menu: #ffffff;
-  --one-chat-field: rgba(0, 0, 0, 0.045);
-  --one-chat-field-strong: rgba(0, 0, 0, 0.07);
-  --one-chat-row-hover: rgba(0, 0, 0, 0.04);
-  --one-chat-row-active: rgba(0, 0, 0, 0.045);
+  --one-chat-field: rgba(15, 23, 42, 0.048);
+  --one-chat-field-strong: rgba(15, 23, 42, 0.085);
+  --one-chat-row-hover: rgba(15, 23, 42, 0.045);
+  --one-chat-row-active: rgba(15, 23, 42, 0.065);
   --one-chat-meta: rgba(60, 60, 67, 0.64);
   --one-chat-composer: #ffffff;
-  --one-chat-composer-border: rgba(0, 0, 0, 0.1);
+  --one-chat-composer-border: rgba(15, 23, 42, 0.09);
   --one-chat-get-app-stage: color-mix(in oklab, var(--app-accent) 16%, #ffffff);
   --one-chat-get-app-bezel: color-mix(in oklab, var(--app-accent) 10%, #ffffff);
 }
 
 .dark [data-one-chat-surface],
 [data-one-chat-surface].dark {
-  --one-chat-canvas: #171717;
-  --one-chat-sidebar: #171717;
-  --one-chat-search-border: rgba(255, 255, 255, 0.12);
-  --one-chat-search-bg: rgba(255, 255, 255, 0.04);
+  --one-chat-canvas: var(--background);
+  --one-chat-sidebar: var(--background);
+  --one-chat-search-border: rgba(255, 255, 255, 0.09);
+  --one-chat-search-bg: rgba(255, 255, 255, 0.045);
   --one-chat-divider: rgba(255, 255, 255, 0.08);
-  --one-chat-bubble: #242424;
-  --one-chat-raised: #202020;
-  --one-chat-menu: #2e2e30;
-  --one-chat-field: rgba(255, 255, 255, 0.06);
-  --one-chat-field-strong: rgba(255, 255, 255, 0.1);
-  --one-chat-row-hover: rgba(255, 255, 255, 0.05);
-  --one-chat-row-active: rgba(255, 255, 255, 0.065);
-  --one-chat-meta: rgba(235, 235, 245, 0.55);
-  --one-chat-composer: #2a2a2a;
-  --one-chat-composer-border: rgba(255, 255, 255, 0.06);
-  --one-chat-get-app-stage: #2a2a2f;
-  --one-chat-get-app-bezel: #3a3a40;
+  --one-chat-bubble: #1c1c20;
+  --one-chat-raised: #161619;
+  --one-chat-menu: #1c1c20;
+  --one-chat-field: rgba(255, 255, 255, 0.065);
+  --one-chat-field-strong: rgba(255, 255, 255, 0.11);
+  --one-chat-row-hover: rgba(255, 255, 255, 0.055);
+  --one-chat-row-active: rgba(255, 255, 255, 0.085);
+  --one-chat-meta: rgba(235, 235, 245, 0.58);
+  --one-chat-composer: #18181c;
+  --one-chat-composer-border: rgba(255, 255, 255, 0.085);
+  --one-chat-get-app-stage: #1d1d22;
+  --one-chat-get-app-bezel: #2a2a30;
 }
 
 /* Drawer controls inherit Profile's material; the workspace keeps its palette. */
@@ -10043,10 +10061,10 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     [data-slot="settings-group-heading"] {
     color: var(--ios-account-secondary-label) !important;
     font-family: var(--font-app-body) !important;
-    font-size: 10px !important;
+    font-size: 11px !important;
     font-weight: 600 !important;
-    letter-spacing: 0.02em !important;
-    line-height: 14px !important;
+    letter-spacing: 0.015em !important;
+    line-height: 15px !important;
     text-transform: none !important;
   }
 
@@ -10054,10 +10072,10 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     [data-slot="settings-row-title"] {
     color: var(--ios-account-label) !important;
     font-family: var(--font-app-body) !important;
-    font-size: 13px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0 !important;
-    line-height: 1.22 !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em !important;
+    line-height: 1.3 !important;
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
@@ -10072,7 +10090,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     font-size: 12px !important;
     font-weight: 400 !important;
     letter-spacing: 0 !important;
-    line-height: 1.3 !important;
+    line-height: 1.35 !important;
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]

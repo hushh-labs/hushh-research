@@ -45,7 +45,12 @@ function formatRefreshedTime(value: string | null | undefined): string | null {
   if (!value) return null;
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed).toLocaleString();
+  const date = new Date(parsed);
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString("en-US", sameYear
+    ? { month: "short", day: "numeric" }
+    : { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function usePrivatePlaidConnectorModel({
@@ -365,9 +370,11 @@ export type PrivatePlaidConnectorModel = ReturnType<typeof usePrivatePlaidConnec
 export function PrivatePlaidConnectorGroup({
   model,
   showAccessDetails = false,
+  onSelectConnector,
 }: {
   model: PrivatePlaidConnectorModel;
   showAccessDetails?: boolean;
+  onSelectConnector?: () => void;
 }) {
   const {
     access,
@@ -387,9 +394,36 @@ export function PrivatePlaidConnectorGroup({
     cancelDisconnect,
   } = model;
 
+  if (onSelectConnector) {
+    return (
+      <section className="space-y-2" data-testid="private-plaid-connectors" aria-label="Plaid bank connections">
+        <SettingsGroup title="Banking & Finance" separatorInset testId="private-plaid-settings-group">
+          <SettingsRow
+            testId="private-connector-row-plaid"
+            leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
+            title="Plaid"
+            description={
+              showAccessDetails ? (
+                <>
+                  <span>{statusLabel}</span>
+                  <span className="block pt-0.5">{connectorAccessPurpose("plaid")}</span>
+                </>
+              ) : (
+                statusLabel
+              )
+            }
+            textOverflow={showAccessDetails ? undefined : "truncate"}
+            onClick={onSelectConnector}
+            chevron
+          />
+        </SettingsGroup>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-2" data-testid="private-plaid-connectors" aria-label="Plaid bank connections">
-      <SettingsGroup title="Banking & Finance" testId="private-plaid-settings-group">
+      <SettingsGroup title="Banking & Finance" separatorInset testId="private-plaid-settings-group">
         <SettingsRow
           testId="private-connector-row-plaid"
           leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
@@ -404,6 +438,7 @@ export function PrivatePlaidConnectorGroup({
               statusLabel
             )
           }
+          textOverflow={showAccessDetails ? undefined : "truncate"}
           trailing={
             <div className="flex flex-wrap items-center gap-2">
               {banks.length > 0 ? (
@@ -411,6 +446,7 @@ export function PrivatePlaidConnectorGroup({
                   type="button"
                   variant="outline"
                   size="row"
+                  data-connector-action="secondary"
                   disabled={!access || busy || loading}
                   onClick={() => void refreshLive()}
                 >
@@ -421,6 +457,7 @@ export function PrivatePlaidConnectorGroup({
                 type="button"
                 variant="outline"
                 size="row"
+                data-connector-action="primary"
                 disabled={!access || busy || loading || Boolean(error)}
                 onClick={() => void connect()}
               >
@@ -468,7 +505,7 @@ export function PrivatePlaidConnectorGroup({
                 type="button"
                 variant="outline"
                 size="compact"
-                data-connector-action="secondary"
+                data-connector-action="destructive"
                 disabled={!access || busy}
                 onClick={() => requestDisconnect(bank.key)}
               >
@@ -490,5 +527,134 @@ export function PrivatePlaidConnectorGroup({
         onCancel={cancelDisconnect}
       />
     </section>
+  );
+}
+
+export function PrivatePlaidConnectorDetail({
+  model,
+  showAccessDetails = false,
+}: {
+  model: PrivatePlaidConnectorModel;
+  showAccessDetails?: boolean;
+}) {
+  const {
+    access,
+    banks,
+    projectionSummary,
+    loading,
+    error,
+    busy,
+    busyAction,
+    message,
+    statusLabel,
+    confirmItemId,
+    connect,
+    refreshLive,
+    requestDisconnect,
+    confirmDisconnect,
+    cancelDisconnect,
+  } = model;
+
+  return (
+    <div className="space-y-4" aria-label="Plaid connection details">
+      <SettingsGroup title="Banking & Finance" separatorInset testId="private-plaid-detail-overview">
+        <div className="flex items-start gap-3 px-4 pb-3 pt-3.5">
+          <ConnectorVectorGlyph id="plaid" variant="profile" className="mt-0.5" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="text-sm font-semibold leading-tight text-foreground">Plaid</h3>
+            <p className="text-xs leading-relaxed text-muted-foreground">{statusLabel}</p>
+            {showAccessDetails ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">{connectorAccessPurpose("plaid")}</p>
+            ) : null}
+          </div>
+        </div>
+        {banks.length > 0 && projectionSummary.hasData ? (
+          <div
+            data-testid="private-plaid-projection-summary"
+            className="space-y-1 border-t border-[color:var(--app-separator)] px-4 py-3 text-xs leading-relaxed text-muted-foreground"
+          >
+            <p className="font-semibold text-foreground">Live scope projection</p>
+            {projectionSummary.totalsLine ? <p>{projectionSummary.totalsLine}</p> : null}
+            {projectionSummary.projectedScopesLine ? <p>{projectionSummary.projectedScopesLine}</p> : null}
+            <p>Active ongoing shares update automatically on sync.</p>
+          </div>
+        ) : null}
+        <div className="border-t border-[color:var(--app-separator)] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
+            <Button
+              type="button"
+              variant="default"
+              size="compact"
+              data-connector-action="primary"
+              disabled={!access || busy || loading || Boolean(error)}
+              onClick={() => void connect()}
+            >
+              {busyAction === "connect"
+                ? "Connecting…"
+                : banks.length > 0
+                  ? "Add bank"
+                  : "Connect a bank"}
+            </Button>
+            {banks.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="compact"
+                data-connector-action="secondary"
+                disabled={!access || busy || loading}
+                onClick={() => void refreshLive()}
+              >
+                {busyAction === "refresh" ? "Refreshing…" : "Refresh live"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </SettingsGroup>
+
+      {banks.length > 0 ? (
+        <SettingsGroup title="Connected banks" separatorInset testId="private-plaid-banks-group">
+          {banks.map((bank) => (
+            <SettingsRow
+              key={bank.key}
+              testId={`private-plaid-bank-${bank.key}`}
+              title={bank.name}
+              description={
+                [
+                  bank.status,
+                  bank.amountLabel,
+                  bank.lastRefreshedLabel ? `Updated ${bank.lastRefreshedLabel}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+              trailing={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="compact"
+                  data-connector-action="destructive"
+                  disabled={!access || busy}
+                  onClick={() => requestDisconnect(bank.key)}
+                >
+                  Disconnect
+                </Button>
+              }
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
+
+      {message ? (
+        <p role="status" aria-live="polite" className="px-1.5 text-xs text-muted-foreground">
+          {message}
+        </p>
+      ) : null}
+      <ConnectorConfirm
+        target={confirmItemId ? `plaid:${confirmItemId}` : null}
+        busy={busyAction === "disconnect"}
+        onConfirm={() => void confirmDisconnect()}
+        onCancel={cancelDisconnect}
+      />
+    </div>
   );
 }

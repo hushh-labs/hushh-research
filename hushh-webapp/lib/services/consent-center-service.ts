@@ -588,6 +588,18 @@ export class ConsentCenterService {
 
     const inflightKey = JSON.stringify([cacheKey, generation, version]);
 
+    const startOrJoinInflight = (): Promise<ConsentCenterPageSummary> => {
+      const existingInflight = this.summaryFetchInflight.get(inflightKey);
+      if (existingInflight) return existingInflight;
+      const requestPromise = fetchFresh().finally(() => {
+        if (this.summaryFetchInflight.get(inflightKey) === requestPromise) {
+          this.summaryFetchInflight.delete(inflightKey);
+        }
+      });
+      this.summaryFetchInflight.set(inflightKey, requestPromise);
+      return requestPromise;
+    };
+
     // Stale-while-revalidate: on an in-memory miss, fall back to the persisted
     // IndexedDB device cache so a page reload after unlock returns the last
     // known summary instantly instead of blocking on a cold backend call.
@@ -601,23 +613,12 @@ export class ConsentCenterService {
         });
       if (stored && isCurrent()) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
-        void this.refreshSummaryInBackground(inflightKey, fetchFresh);
+        void this.refreshSummaryInBackground(inflightKey, startOrJoinInflight);
         return stored;
       }
     }
 
-    if (!options.force) {
-      const existingInflight = this.summaryFetchInflight.get(inflightKey);
-      if (existingInflight) return existingInflight;
-    }
-
-    const requestPromise = fetchFresh().finally(() => {
-      if (this.summaryFetchInflight.get(inflightKey) === requestPromise) {
-        this.summaryFetchInflight.delete(inflightKey);
-      }
-    });
-    this.summaryFetchInflight.set(inflightKey, requestPromise);
-    return requestPromise;
+    return startOrJoinInflight();
   }
 
   private static readonly summaryFetchInflight = new Map<

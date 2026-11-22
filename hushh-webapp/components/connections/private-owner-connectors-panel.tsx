@@ -8,7 +8,8 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { PrivateGoogleConnectorsPanel, usePrivateGoogleConnectorsModel } from "@/components/connections/private-google-connectors-panel";
-import { PrivatePlaidConnectorGroup, usePrivatePlaidConnectorModel } from "@/components/connections/private-plaid-connector-group";
+import { GoogleConnectorPhoneHandoff } from "@/components/connections/google-connector-phone-handoff";
+import { PrivatePlaidConnectorDetail, PrivatePlaidConnectorGroup, usePrivatePlaidConnectorModel } from "@/components/connections/private-plaid-connector-group";
 import { StripeConnectorReadiness, useStripeConnectorReadiness, STRIPE_CONNECTION_STATUS } from "@/components/agent/stripe-connector-readiness";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
 import type { CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
@@ -50,12 +51,12 @@ export function PrivateOwnerConnectorsPanel(props: {
     const webDetailBody = entry ? (
       <section className="space-y-4" data-connector-detail={entry.connector} data-testid={`private-connector-detail-${entry.connector}`}>
         {inDrawer ? (
-          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
             <ArrowLeftIcon className="size-4" aria-hidden="true" />
             <span>All connectors</span>
           </Button>
         ) : null}
-        <SettingsGroup title={entry.label}>
+        <SettingsGroup title={entry.label} separatorInset>
           <SettingsRow title="Connection" description={entry.status} />
           <SettingsRow title="Purpose" description={entry.purpose} />
           {entry.connected ? (
@@ -77,14 +78,14 @@ export function PrivateOwnerConnectorsPanel(props: {
         </SettingsGroup>
         <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
           {entry.allowChanges ? (
-            <Button variant="default" size="compact" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
+            <Button variant="default" size="compact" data-connector-action="primary" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
               Allow changes
             </Button>
           ) : null}
           <Button
             variant={entry.connected ? "outline" : "default"}
             size="compact"
-            data-connector-action={entry.connected ? "secondary" : "primary"}
+            data-connector-action={entry.connected ? "destructive" : "primary"}
             disabled={disabled}
             onClick={() => void google.run(entry.connector, entry.connected)}
           >
@@ -94,12 +95,24 @@ export function PrivateOwnerConnectorsPanel(props: {
             Check connection
           </Button>
         </div>
+        {google.handoff ? <GoogleConnectorPhoneHandoff handoff={google.handoff} /> : null}
         {google.message ? <p role="status" className="text-xs text-muted-foreground">{google.message}</p> : null}
+        {google.transition.transitionDialog}
+      </section>
+    ) : selected === "plaid" ? (
+      <section className="space-y-4" data-connector-detail="plaid" data-testid="private-connector-detail-plaid">
+        {inDrawer ? (
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            <span>All connectors</span>
+          </Button>
+        ) : null}
+        <PrivatePlaidConnectorDetail model={plaid} showAccessDetails={props.showAccessDetails} />
       </section>
     ) : selected === "stripe" ? (
       <section className="space-y-4" data-connector-detail="stripe" data-testid="private-connector-detail-stripe">
         {inDrawer ? (
-          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
             <ArrowLeftIcon className="size-4" aria-hidden="true" />
             <span>All connectors</span>
           </Button>
@@ -117,7 +130,7 @@ export function PrivateOwnerConnectorsPanel(props: {
     const webBody = <div className={inDrawer ? "flex h-full min-h-0 flex-col bg-background text-foreground" : "min-w-0 space-y-5"}>
       {inDrawer ? (
         <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
-          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : selected === "stripe" ? "Stripe" : "Connectors"}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : selected === "plaid" ? "Plaid" : selected === "stripe" ? "Stripe" : "Connectors"}</h2>
           <ShellActionSurface
             className="size-11 text-foreground"
             onClick={() => { (props.onClose ?? props.onBack)(); }}
@@ -131,13 +144,14 @@ export function PrivateOwnerConnectorsPanel(props: {
         {webDetailBody ?? (
           <>
             <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} onSelectConnector={connector => select(connector)} />
-            <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} />
-            <SettingsGroup title="Payments" testId="private-stripe-settings-group">
+            <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} onSelectConnector={() => select("plaid")} />
+            <SettingsGroup title="Payments" separatorInset testId="private-stripe-settings-group">
               <SettingsRow
                 testId="private-stripe-row"
                 leading={<ConnectorVectorGlyph id="stripe" variant="profile" />}
                 title="Stripe"
                 description={stripeSummaryDescription}
+                textOverflow="truncate"
                 onClick={() => select("stripe")}
                 chevron
               />

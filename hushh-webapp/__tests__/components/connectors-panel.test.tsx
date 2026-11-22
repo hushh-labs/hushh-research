@@ -134,8 +134,34 @@ describe("supported connector catalog", () => {
   });
   afterEach(() => { cleanup(); publishValidatedAuthSessionPrincipal(null); });
 
-  it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
+  it('private placement mounts only pod connectors, uses 1-row progressive disclosure, and drills cleanly into Google and Plaid details', async () => {
     state.privatePlacement.mockResolvedValue(true);
+    state.financial = {
+      loading: false,
+      error: null,
+      data: {
+        data: {
+          connections_v1: {
+            item_1: {
+              item_id: "item_1",
+              institution_name: "First Platypus Bank",
+              status: "active",
+              last_refreshed_at: "2026-11-19T12:00:00Z",
+            },
+          },
+          derived_v1: {
+            schema: "plaid-derived-v1",
+            net_worth: { value: 115000 },
+            liquid_cash: { value: 50000 },
+            investable_assets: { value: 65000 },
+          },
+          summary: {
+            schema: "plaid-summary-v1",
+            net_worth_band: "$100k-$250k",
+          },
+        },
+      },
+    };
     const view = render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
     expect(await screen.findByTestId('private-plaid-connectors')).toBeInTheDocument();
@@ -144,11 +170,30 @@ describe("supported connector catalog", () => {
     expect(document.querySelector('img[data-connector-brand="plaid"][src="/icons/connectors/plaid.svg"]')).not.toBeNull();
     expect(document.querySelector('img[data-connector-brand="stripe"][src="/icons/connectors/stripe.svg"]')).not.toBeNull();
     expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
-    expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
-    expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
+    expect(await screen.findAllByText('Connected · reading only')).toHaveLength(2);
+    // Strict 1-row progressive disclosure: root list keeps action buttons and bank sub-rows inside detail views.
+    expect(screen.queryByRole('button', { name: 'Allow changes' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('private-plaid-bank-item_1')).not.toBeInTheDocument();
     expect(state.ownerPodRequest).toHaveBeenCalledTimes(4);
     expect(state.overview).not.toHaveBeenCalled();
     expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+
+    // Drilling into Gmail exposes Allow changes, Disconnect, Check connection, and Background preparation.
+    fireEvent.click(within(screen.getByTestId('private-connector-row-gmail')).getByRole('button'));
+    const gmailDetail = await screen.findByTestId('private-connector-detail-gmail');
+    expect(within(gmailDetail).getByRole('button', { name: 'Allow changes' })).toBeEnabled();
+    expect(within(gmailDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+    expect(within(gmailDetail).getByRole('button', { name: 'Check connection' })).toBeEnabled();
+
+    // Drilling into Plaid shows projection summary, primary Add bank, Refresh live, and connected bank Disconnect.
+    view.rerender(<ConnectorsPanel open surface="profile" activeConnector="plaid" showAccessDetails {...callbacks} />);
+    const plaidDetail = await screen.findByTestId('private-connector-detail-plaid');
+    expect(within(plaidDetail).getByTestId('private-plaid-projection-summary')).toHaveTextContent('Net worth $115,000');
+    expect(within(plaidDetail).getByRole('button', { name: 'Add bank' })).toHaveAttribute('data-connector-action', 'primary');
+    expect(within(plaidDetail).getByRole('button', { name: 'Refresh live' })).toHaveAttribute('data-connector-action', 'secondary');
+    expect(within(plaidDetail).getByText('First Platypus Bank')).toBeInTheDocument();
+    expect(within(plaidDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+
     state.token = null;
     view.rerender(panel());
     expect(await screen.findByText('Sign in and unlock your vault to connect Google.')).toBeInTheDocument();

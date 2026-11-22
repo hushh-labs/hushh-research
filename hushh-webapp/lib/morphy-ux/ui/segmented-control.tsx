@@ -248,7 +248,7 @@ export function SegmentedControl({
               mobileColumns === 2 && !isSliding && "min-h-11",
 
               // Active state
-              isActive && (isSliding ? "text-slate-950 font-medium dark:text-white" : [
+              isActive && (isSliding ? "text-slate-950 font-semibold dark:text-white" : [
                 "bg-white text-neutral-900 font-semibold shadow-[0_1px_2.5px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.04)]",
                 "dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2.5px_rgba(0,0,0,0.34),inset_0_0.5px_0_rgba(255,255,255,0.1)]",
               ]),

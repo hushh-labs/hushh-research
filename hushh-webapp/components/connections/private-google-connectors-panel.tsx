@@ -156,27 +156,55 @@ function OwnedPrivateGoogleConnectorsPanel(props: Parameters<typeof PrivateGoogl
 function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAccessDetails = false, onSelectConnector, model }: Parameters<typeof PrivateGoogleConnectorsPanel>[0] & { model: PrivateGoogleConnectorsModel }) {
   const { enabled, busy, message, handoff, refresh, run, entries, transition: { transitionDialog } } = model;
   if (!open) return null;
-  return <section className="space-y-4" data-testid="private-google-connectors">
+  const progressiveDisclosure = Boolean(onSelectConnector);
+  return <section className="space-y-3" data-testid="private-google-connectors">
     {surface !== 'profile' && <Button variant="ghost" onClick={onClose ?? onBack}>Back</Button>}
-    <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
+    {surface !== 'profile' ? <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Your agent asks you to confirm changes.</p> : null}
     {isProductionVisitorPostureEnabled() ? <p role="note" data-testid="connector-google-clearance-note" className="text-xs leading-5 text-muted-foreground">{GOOGLE_APPS_CLEARANCE_NOTE}</p> : null}
-    {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
-    <SettingsGroup title="Google Workspace">
+    {!enabled && <p role="status" className="px-1 text-xs text-muted-foreground">Sign in and unlock your vault to connect Google.</p>}
+    <SettingsGroup title="Google Workspace" separatorInset>
       {entries.map(({ connector, status, connected, allowChanges }) => {
-        return <SettingsRow key={connector} leading={<ConnectorVectorGlyph id={connector} variant="profile" />} title={LABELS[connector]}
-        onClick={connected && onSelectConnector ? () => onSelectConnector(connector) : undefined}
-        chevron={Boolean(connected && onSelectConnector)}
-        description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
-        trailing={<div className="flex items-center gap-2" onClick={event => event.stopPropagation()}>
-          {allowChanges && <Button variant="outline" size="row" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
-          <Button variant="outline" size="row" disabled={!enabled || busy !== null}
-          onClick={() => void run(connector, connected)}>
-          {busy === connector ? 'Working…' : connected ? 'Disconnect' : 'Connect'}
-        </Button></div>} />; })}
+        const rowDescription = showAccessDetails ? (
+          <><span>{status}</span><span className="block pt-0.5">{connectorAccessPurpose(connector)}</span></>
+        ) : status;
+        if (progressiveDisclosure && onSelectConnector) {
+          return (
+            <SettingsRow
+              key={connector}
+              testId={`private-connector-row-${connector}`}
+              leading={<ConnectorVectorGlyph id={connector} variant="profile" />}
+              title={LABELS[connector]}
+              description={rowDescription}
+              textOverflow={showAccessDetails ? undefined : 'truncate'}
+              onClick={() => onSelectConnector(connector)}
+              chevron
+            />
+          );
+        }
+        return (
+          <SettingsRow
+            key={connector}
+            testId={`private-connector-row-${connector}`}
+            leading={<ConnectorVectorGlyph id={connector} variant="profile" />}
+            title={LABELS[connector]}
+            textOverflow={showAccessDetails ? undefined : 'truncate'}
+            description={rowDescription}
+            trailing={
+              <div className="flex items-center gap-2" onClick={event => event.stopPropagation()}>
+                {allowChanges && <Button variant="outline" size="row" data-connector-action="primary" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
+                <Button variant="outline" size="row" data-connector-action={connected ? 'destructive' : 'secondary'} disabled={!enabled || busy !== null}
+                  onClick={() => void run(connector, connected)}>
+                  {busy === connector ? 'Working…' : connected ? 'Disconnect' : 'Connect'}
+                </Button>
+              </div>
+            }
+          />
+        );
+      })}
     </SettingsGroup>
     {handoff && <GoogleConnectorPhoneHandoff handoff={handoff} />}
-    {message && <p role="status" className="text-sm">{message}</p>}
-    {handoff && <Button variant="outline" onClick={() => void refresh()}>Check connection</Button>}
+    {message && <p role="status" className="px-1 text-xs text-muted-foreground">{message}</p>}
+    {handoff && <Button variant="outline" size="compact" onClick={() => void refresh()}>Check connection</Button>}
     {transitionDialog}
   </section>;
 }

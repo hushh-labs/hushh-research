@@ -110,7 +110,9 @@ export function normalizeConnectorDetailId(value: string | null): string | null 
 const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
   gmail: "Gmail",
   google_drive: "Google Drive",
+  drive: "Google Drive",
   calendar: "Calendar",
+  contacts: "Google Contacts",
   plaid: "Plaid",
   stripe: "Stripe",
   instagram: "Instagram",

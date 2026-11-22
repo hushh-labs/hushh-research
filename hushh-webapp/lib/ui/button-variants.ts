@@ -16,15 +16,15 @@ export const buttonVariants = cva(
         // exactly that a non-destructive action never shares destructive's
         // background).
         default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-accent-hover)]",
+          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-accent-hover)]",
         destructive:
-          "bg-[color:var(--app-destructive)] text-white [@media(hover:hover)_and_(pointer:fine)]:hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "bg-[color:var(--app-destructive)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] [@media(hover:hover)_and_(pointer:fine)]:hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
-          "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
+          "border border-[color:var(--app-card-border-strong)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] [@media(hover:hover)_and_(pointer:fine)]:hover:border-[color:var(--app-card-border-strong)]",
         secondary:
-          "bg-[color:var(--app-neutral-fill)] text-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]",
+          "border border-transparent bg-[color:var(--app-neutral-fill)] text-foreground shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]",
         subdued:
-          "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
+          "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)] shadow-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         ghost:
           "text-[color:var(--app-accent)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-accent-tint)]",
         plain: "bg-transparent text-foreground [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-80",
