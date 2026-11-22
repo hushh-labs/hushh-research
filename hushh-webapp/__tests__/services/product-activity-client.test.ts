@@ -16,6 +16,17 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it("records the Mail connection prompt under its governed identifier", async () => {
+    const client = await fixture();
+    client.observeProductEvent("hushh_mail_signin_screen_view", undefined, "success");
+    client.observeProductEvent("account_reset_requested", undefined, "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({
+      actionId: "observation:hushh_mail_signin_screen_view",
+      phase: "returned",
+    });
+  });
+
   it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
     "withholds observations during a %s reviewer run while product operations complete",
     async reviewerMutationPolicy => {
