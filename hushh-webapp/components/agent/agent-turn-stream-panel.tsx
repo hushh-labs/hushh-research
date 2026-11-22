@@ -124,8 +124,12 @@ export function connectorBrandForTool(toolName: unknown, provider?: unknown): Co
 
 const GMAIL_TOOLS: ReadonlySet<string> = new Set([
   "ask_email_agent",
+  "gmail_search_mail",
+  "gmail_read_thread",
+  "gmail_list_needs_reply",
   "open_gmail_email_draft",
   "open_gmail_information_request_reply",
+  "open_gmail_reply_draft",
   "propose_gmail_mailbox_change",
   "propose_gmail_todo",
 ]);
@@ -215,6 +219,7 @@ export type AgentTurnStreamPanelProps = {
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
+  onMailQuickAction?: (prompt: string) => void;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -393,6 +398,7 @@ export function AgentTurnStreamPanel({
   onCompileDriveNotes,
   onDownloadDriveNotes,
   driveCompilation,
+  onMailQuickAction,
 }: AgentTurnStreamPanelProps) {
   const turnStartedAt = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
@@ -505,6 +511,7 @@ export function AgentTurnStreamPanel({
                 onCompileDriveNotes={onCompileDriveNotes}
                 onDownloadDriveNotes={scopedCompilation ? onDownloadDriveNotes : undefined}
                 driveCompilation={scopedCompilation}
+                onMailQuickAction={onMailQuickAction}
               />;
             })}
           </div>

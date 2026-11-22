@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -94,6 +95,8 @@ class PodGmailMailboxActions(GmailMailboxActions):
         limit: int,
         label: str,
         require_access: RequireAccess,
+        message_ids: Sequence[str] | None = None,
+        expect_account: str | None = None,
     ) -> dict[str, Any]:
         if user_id != self._owner:
             raise _error("GMAIL_NOT_CONNECTED", "Connect Gmail first.")
@@ -101,21 +104,35 @@ class PodGmailMailboxActions(GmailMailboxActions):
             raise _error("GMAIL_MAILBOX_INVALID", "Choose one mailbox change.", 422)
         bound = self._credential().credential_id
         await self.assert_modify_ready(user_id=user_id)
-        arguments: dict[str, Any] = {
-            "limit": limit,
-            "mailbox": "inbox" if action == "archive" else mailbox,
-        }
-        if query.strip():
-            arguments["query"] = query.strip()
-        reader = self._reader_factory(
-            gmail=self._gmail,
-            user_id=user_id,
-            require_access=require_access,
-            transport=self._transport,
-        )
-        targets = await reader.resolve_targets(
-            arguments, label_name=label.strip() if action in LABEL_ACTIONS else None
-        )
+        target_mailbox = "inbox" if action == "archive" else mailbox
+        label_name = label.strip() if action in LABEL_ACTIONS else None
+        if message_ids:
+            reader = self._reader_factory(
+                gmail=self._gmail,
+                user_id=user_id,
+                require_access=require_access,
+                transport=self._transport,
+                expect_account=expect_account,
+            )
+            targets = await reader.resolve_targets_by_ids(
+                message_ids,
+                mailbox=target_mailbox,
+                label_name=label_name,
+            )
+        else:
+            arguments: dict[str, Any] = {
+                "limit": limit,
+                "mailbox": target_mailbox,
+            }
+            if query.strip():
+                arguments["query"] = query.strip()
+            reader = self._reader_factory(
+                gmail=self._gmail,
+                user_id=user_id,
+                require_access=require_access,
+                transport=self._transport,
+            )
+            targets = await reader.resolve_targets(arguments, label_name=label_name)
         if not targets.message_ids:
             return {"status": "no_match", "preview": targets.preview}
         self._credential(bound)

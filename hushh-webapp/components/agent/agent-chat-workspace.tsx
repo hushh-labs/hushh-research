@@ -992,6 +992,48 @@ export function getGmailInformationRequestReplyPayload(
   return body && body.length <= 12_000 ? { body } : null;
 }
 
+const SOURCE_MAIL_REF_PATTERN = /^rs1\.[A-Za-z0-9_-]{32,2048}$/;
+
+export function getGmailReplyDraftPayload(
+  event: AgentChatToolEvent | null,
+): {
+  sourceMailRef: string;
+  to: string;
+  subject: string;
+  body: string;
+} | null {
+  if (!event || event.raw.toolName !== "open_gmail_reply_draft") return null;
+  const rawResult = event.raw.result;
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof rawResult === "string") {
+    try {
+      const value = JSON.parse(rawResult);
+      parsed = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+    } catch {
+      parsed = null;
+    }
+  } else if (rawResult && typeof rawResult === "object") {
+    parsed = rawResult as Record<string, unknown>;
+  }
+  if (!parsed || parsed.status !== "draft_opened") return null;
+  const sourceMailRef = typeof parsed.source_mail_ref === "string" ? parsed.source_mail_ref.trim() : "";
+  const body = typeof event.slots.body === "string" ? event.slots.body.trim() : "";
+  if (!SOURCE_MAIL_REF_PATTERN.test(sourceMailRef) || !body || body.length > 12_000) return null;
+  const to =
+    (typeof parsed.recipient_display === "string" && parsed.recipient_display.trim()) ||
+    (typeof parsed.to === "string" && parsed.to.trim()) ||
+    "Recipient verified when you send";
+  const subject =
+    (typeof parsed.subject === "string" && parsed.subject.trim()) ||
+    "Reply in original thread";
+  return {
+    sourceMailRef,
+    to: to.slice(0, 320),
+    subject: subject.slice(0, 512),
+    body,
+  };
+}
+
 export function getCalendarDirectiveFromToolEvent(
   event: AgentChatToolEvent | null,
 ): SpecialistDirectiveEvent | null {
@@ -1822,6 +1864,7 @@ export function AgentBubble({
   onInformationRequestSubmitted,
   onCompileDriveNotes,
   onDownloadDriveNotes,
+  onMailQuickAction,
   onRetry,
   retryDisabled = false,
   busyConsentItemId = null,
@@ -1853,6 +1896,7 @@ export function AgentBubble({
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
+  onMailQuickAction?: (prompt: string) => void;
   onRetry?: () => void;
   retryDisabled?: boolean;
   busyConsentItemId?: string | null;
@@ -2113,6 +2157,7 @@ export function AgentBubble({
               onInformationRequestSubmitted={onInformationRequestSubmitted}
               onCompileDriveNotes={onCompileDriveNotes}
               onDownloadDriveNotes={onDownloadDriveNotes}
+              onMailQuickAction={onMailQuickAction}
               driveCompilation={message.driveCompilation}
               responseText={assistantText}
               isStreaming={isStreaming}
@@ -4017,6 +4062,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           sourceWorkflowId: gmailKycEmailDraftWorkflowId ?? undefined,
         });
         setEmailDraftAutoDraft(false);
+        setEmailDraftAnchorMessageId(assistantMessageId);
+        setEmailDraftOpen(true);
+        return true;
+      }
+      const threadReply = getGmailReplyDraftPayload(event);
+      if (threadReply) {
+        if (!hasChatAccess) {
+          if (user) setVaultDialogOpen(true);
+          else router.push(ROUTES.LOGIN);
+          return true;
+        }
+        setGmailKycEmailDraftWorkflowId(null);
+        setGmailKycEmailDraftEnvelope(null);
+        setEmailDraftInstruction(`Replying in thread: ${threadReply.subject}`);
+        setEmailDraftInitialValue({
+          to: threadReply.to,
+          cc: "",
+          bcc: "",
+          subject: threadReply.subject,
+          body: threadReply.body,
+          sourceMailRef: threadReply.sourceMailRef,
+        });
+        setEmailDraftAutoDraft(false);
+        setEmailDraftGmailSend(null);
         setEmailDraftAnchorMessageId(assistantMessageId);
         setEmailDraftOpen(true);
         return true;
@@ -10015,6 +10084,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       onDownloadDriveNotes={hasChatAccess && compiledDriveMarkdownRef.current.has(message.id)
                         ? () => void downloadCompiledDriveNotes(message.id)
                         : undefined}
+                      onMailQuickAction={
+                        hasChatAccess &&
+                        message.status === "done" &&
+                        message.id === visibleMessages.at(-1)?.id &&
+                        !responseActionBusy &&
+                        !recoveryInspectionPending &&
+                        !isVoiceConnecting &&
+                        !voiceActive
+                          ? submitSuggestedPrompt
+                          : undefined
+                      }
                       gmailInformationRequestAttachment={
                         hasChatAccess && message.gmailInformationRequestWorkflowId ? (
                           <GmailInformationRequestAttachment

@@ -870,11 +870,53 @@ def record_chat_context_usage(value: dict[str, Any]) -> None:
         timing.context_usage_events.append(dict(value))
 
 
+def _prune_turn_conditional_tools(callback_context: Any, llm_request: Any) -> None:
+    """Prune tools whose preconditions are absent on this turn to cut schema noise."""
+    tools_dict = getattr(llm_request, "tools_dict", None)
+    config = getattr(llm_request, "config", None)
+    if not isinstance(tools_dict, dict) or not tools_dict or config is None:
+        return
+    state = getattr(callback_context, "state", None)
+    getter = getattr(state, "get", None)
+    if not callable(getter):
+        return
+
+    drop: set[str] = set()
+    if not getter("temp:hussh:gmail_information_request_workflow_id"):
+        drop.add("open_gmail_information_request_reply")
+    offer = getter("hussh:mail_read_offer")
+    if not (isinstance(offer, dict) and offer.get("message_ids")):
+        drop.add("open_gmail_reply_draft")
+    if getter("temp:one_execution_surface") == "typed_chat" and "run_app_action" in tools_dict:
+        drop.add("propose_app_action")
+
+    removed = [name for name in drop if name in tools_dict]
+    if not removed:
+        return
+    for name in removed:
+        tools_dict.pop(name, None)
+    raw_tools = getattr(config, "tools", None)
+    if not isinstance(raw_tools, list):
+        return
+    pruned_tools: list[Any] = []
+    for entry in raw_tools:
+        decls = getattr(entry, "function_declarations", None)
+        if isinstance(decls, list):
+            kept = [d for d in decls if getattr(d, "name", None) not in drop]
+            if kept:
+                entry.function_declarations = kept
+                pruned_tools.append(entry)
+        else:
+            pruned_tools.append(entry)
+    config.tools = pruned_tools
+
+
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
     drop_empty_history_parts(llm_request)
     drop_replayed_tool_placeholders(llm_request)
     render_text_attachments_for_model(llm_request)
+    _prune_turn_conditional_tools(callback_context, llm_request)
     guarded_response = before_external_read_model(callback_context, llm_request)
     if guarded_response is not None:
         return guarded_response

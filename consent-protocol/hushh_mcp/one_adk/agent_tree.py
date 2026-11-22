@@ -58,6 +58,7 @@ from hushh_mcp.agents.calendar.tools import (
     propose_calendar_event,
     propose_calendar_reschedule,
 )
+from hushh_mcp.agents.email.chat_tools import GMAIL_CHAT_TOOLS
 from hushh_mcp.agents.email.mailbox_tools import (
     propose_gmail_mailbox_change,
     propose_gmail_todo,
@@ -1080,8 +1081,9 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     # were still on.
     voice_settings = voice_context.get("voice_settings")
     voice_settings = voice_settings if isinstance(voice_settings, dict) else {}
+    is_typed_chat = callable(state_getter) and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
     voice_disabled_instruction = ""
-    if voice_settings.get("voice_enabled") is False:
+    if not is_typed_chat and voice_settings.get("voice_enabled") is False:
         voice_disabled_instruction = (
             "\n\nVOICE CONTROL IS OFF: the person has turned off voice control "
             "in their own settings (Profile, Preferences, Voice). Every app "
@@ -1175,6 +1177,14 @@ def _compose_one_runtime_instruction(context: Any) -> str:
                 if unrendered
                 else ""
             )
+            + "\nDIRECT DOMAIN-TOOL PRIORITY: If the person asks to search, list, read, "
+            "summarize, or reply to their Mail/Gmail, check Calendar events/availability, "
+            "query Drive files, check Memory/PKM, inspect Connections/Consent, or search "
+            "the web, call the owning domain tool directly (e.g. gmail_search_mail, "
+            "gmail_read_thread, gmail_list_needs_reply, open_gmail_reply_draft, "
+            "calendar_events, ask_documents_agent) WITHOUT calling list_app_actions first. "
+            "Only check ACTIVE EXECUTABLE CONTROLS / list_app_actions for UI navigation "
+            "or screen-control actions."
             + "\nFirst check whether the person's own words closely echo one of the "
             "labels above. If so, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "
@@ -1595,6 +1605,7 @@ async def _specialist_turn(
         user_id=user_id,
         consent_token=consent_token,
         voice_context=voice_context,
+        execution_surface=tool_context.state.get(STATE_EXECUTION_SURFACE),
     )
     availability_payload = availability.as_dict()
     if availability.state == "setup_required":
@@ -2630,7 +2641,9 @@ def _one_roster_tools(
         react_to_message,
     ]
     tools.extend(
-        pod_connector_roster() if pod_mode() else [propose_gmail_mailbox_change, propose_gmail_todo]
+        pod_connector_roster()
+        if pod_mode()
+        else [*GMAIL_CHAT_TOOLS, propose_gmail_mailbox_change, propose_gmail_todo]
     )
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)

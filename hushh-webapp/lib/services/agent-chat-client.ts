@@ -775,6 +775,26 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Opening a reply draft.",
     activity: "Drafting a reply",
   },
+  open_gmail_reply_draft: {
+    label: "Gmail",
+    message: "Opening a threaded reply draft.",
+    activity: "Drafting a reply",
+  },
+  gmail_search_mail: {
+    label: "Gmail",
+    message: "Searching your Gmail.",
+    activity: "Searching your Gmail",
+  },
+  gmail_read_thread: {
+    label: "Gmail",
+    message: "Reading the email conversation.",
+    activity: "Reading an email thread",
+  },
+  gmail_list_needs_reply: {
+    label: "Gmail",
+    message: "Checking emails waiting on your reply.",
+    activity: "Checking replies needed",
+  },
   propose_gmail_mailbox_change: {
     label: "Gmail",
     message: "Preparing a mailbox change for your confirmation.",
@@ -934,10 +954,22 @@ export type RestoredActivityStep = {
   connectorId?: string;
 };
 
+const DIRECT_MAIL_READ_TOOLS = new Set([
+  "gmail_search_mail",
+  "gmail_read_thread",
+  "gmail_list_needs_reply",
+]);
+
 /** A specialist read's Activity sentence: chosen by its receipt status, never by the card it renders. */
 function specialistReadMessage(toolName: string, status: unknown, metadataOnly = false): string {
-  const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-  if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  const source = toolName === "ask_email_agent" || DIRECT_MAIL_READ_TOOLS.has(toolName) ? "Mail" : "Drive";
+  if (status === "ok") {
+    if (toolName === "gmail_search_mail") return "Mail search finished.";
+    if (toolName === "gmail_read_thread") return "Mail thread read.";
+    if (toolName === "gmail_list_needs_reply") return "Checked emails needing a reply.";
+    return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  }
+  if (status === "no_match" && source === "Mail") return "No matching emails found.";
   if (status === "input_required") return `${source} needs more detail.`;
   // The Email specialist read no mail and handed a receipts question back to One.
   if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
@@ -995,7 +1027,12 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
         : step.readStatus === "input_required" ? "Choose the file again."
           : "Drive file could not be checked.";
     }
-    else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+    else if (
+      toolName === "ask_email_agent" ||
+      DIRECT_MAIL_READ_TOOLS.has(toolName) ||
+      toolName === "ask_documents_agent" ||
+      toolName === "inspect_selected_drive_files"
+    ) {
       message = step.readStatus === "status_checked" ? "Drive status checked." : specialistReadMessage(toolName, step.readStatus);
     }
     return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
@@ -1788,19 +1825,23 @@ async function streamAgentChatAttempt(input: {
       }
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
-      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+      const isDirectMailRead = DIRECT_MAIL_READ_TOOLS.has(toolName);
+      if (toolName === "ask_email_agent" || isDirectMailRead || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
         // The row reads the result's own receipt, so a brief card, a receipt card or no card all report the same read.
-        const receipt = asRecord(unwrapParkedActionResult(event.content)?.structured);
-        const own = receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive") ? receipt : null;
+        const unwrapped = unwrapParkedActionResult(event.content);
+        const receipt = asRecord(unwrapped?.structured);
+        const isMail = toolName === "ask_email_agent" || isDirectMailRead;
+        const own = receipt?.connector === (isMail ? "mail" : "drive") ? receipt : null;
+        const statusForMessage = unwrapped?.status === "no_match" ? "no_match" : own?.status;
         payload.message = toolName === "inspect_selected_drive_files"
           ? parseRecord(event.content)?.status === "ok" ? "Drive status checked." : "Drive status could not be checked."
-          : specialistReadMessage(toolName, own?.status, own?.metadata_only === true);
+          : specialistReadMessage(toolName, statusForMessage, own?.metadata_only === true);
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
-        if (experience) {
+        if (experience && unwrapped?.status !== "no_match") {
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;

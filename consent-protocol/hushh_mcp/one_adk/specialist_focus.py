@@ -93,6 +93,10 @@ def scope_email_workspace_tools(callback_context: Any, llm_request: Any) -> None
         return
     allowed = {
         "ask_email_agent",
+        "gmail_search_mail",
+        "gmail_read_thread",
+        "gmail_list_needs_reply",
+        "open_gmail_reply_draft",
         "get_current_time",
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",

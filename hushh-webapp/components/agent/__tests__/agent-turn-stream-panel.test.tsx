@@ -718,4 +718,55 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByText("Your memory").closest("li")?.querySelector('[data-agent-activity-icon="memory"]')).not.toBeNull();
     expect(screen.getByText("Connectors").closest("li")?.querySelector('[data-agent-activity-icon="connectors"]')).not.toBeNull();
   });
+
+  it("renders rich live Mail source rows with 1-tap Read thread and Reply actions", () => {
+    const onMailQuickAction = vi.fn();
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[
+          agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+            callId: "gmail-search-1",
+            actionId: null,
+            label: "Gmail",
+            execution: "server",
+            message: "Mail search finished.",
+            raw: { protocol: "ag-ui", toolName: "gmail_search_mail" },
+          }), 1),
+        ]}
+        responseText="Found your email from Ravi."
+        isStreaming={false}
+        onMailQuickAction={onMailQuickAction}
+        structuredExperience={{
+          type: "one.connector_read.v1",
+          connector: "mail",
+          status: "ok",
+          sourceRefs: ["mail:1"],
+          truncated: false,
+          metadataOnly: false,
+          liveSources: [
+            {
+              ordinal: 1,
+              sourceRef: "mail:1",
+              sender: "Ravi Gupta",
+              subject: "Term sheet notes",
+              receivedAt: "2026-10-09T08:30:00Z",
+              unread: true,
+              hasBody: true,
+              attachments: ["TermSheet.pdf"],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Ravi Gupta")).toBeInTheDocument();
+    expect(screen.getByText("Term sheet notes")).toBeInTheDocument();
+    expect(screen.getByText(/1 attachment: TermSheet\.pdf/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("mail-source-read-1"));
+    expect(onMailQuickAction).toHaveBeenCalledWith("Read email #1 in full.");
+
+    fireEvent.click(screen.getByTestId("mail-source-reply-1"));
+    expect(onMailQuickAction).toHaveBeenCalledWith("Draft a reply to email #1.");
+  });
 });

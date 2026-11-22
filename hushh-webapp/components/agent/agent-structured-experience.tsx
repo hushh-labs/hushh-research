@@ -123,6 +123,7 @@ export function AgentStructuredExperienceView({
   onCompileDriveNotes,
   onDownloadDriveNotes,
   driveCompilation,
+  onMailQuickAction,
 }: {
   experience: AgentStructuredExperience;
   allowFinancePreviewStart?: boolean;
@@ -132,6 +133,7 @@ export function AgentStructuredExperienceView({
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
+  onMailQuickAction?: (prompt: string) => void;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
@@ -150,7 +152,7 @@ export function AgentStructuredExperienceView({
     case "one.connector_read.v1":
       return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections}
         onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes}
-        driveCompilation={driveCompilation} />;
+        driveCompilation={driveCompilation} onMailQuickAction={onMailQuickAction} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;

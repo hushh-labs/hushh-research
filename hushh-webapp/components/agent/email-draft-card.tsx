@@ -820,12 +820,34 @@ function EmailDraftCardView({
               <span>
                 {error.message}{" "}
                 {error.needsGmailReconnect ? (
-                  <Link className="font-medium underline" href="/one/gmail">
-                    Reconnect Mail
-                  </Link>
+                  onOpenConnections ? (
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      data-testid="one-email-draft-reconnect-gmail"
+                      onClick={(event) => onOpenConnections("gmail", event.currentTarget)}
+                    >
+                      Reconnect Mail
+                    </button>
+                  ) : (
+                    <Link className="font-medium underline" href="/one/gmail">
+                      Reconnect Mail
+                    </Link>
+                  )
                 ) : null}
                 {error.needsGmailSendingEnabled ? (
-                  <Link className="font-medium underline" href="/one/gmail">Reconnect Mail</Link>
+                  onOpenConnections ? (
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      data-testid="one-email-draft-reconnect-gmail"
+                      onClick={(event) => onOpenConnections("gmail", event.currentTarget)}
+                    >
+                      Reconnect Mail
+                    </button>
+                  ) : (
+                    <Link className="font-medium underline" href="/one/gmail">Reconnect Mail</Link>
+                  )
                 ) : null}
                 {error.needsGmailConnect ? (
                   onOpenConnections ? (
