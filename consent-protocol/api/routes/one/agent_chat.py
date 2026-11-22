@@ -595,6 +595,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
         STATE_RECEIPT_MEMORY: "",
         STATE_RECEIPT_RESULT: receipt_result,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
 
 

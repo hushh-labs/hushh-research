@@ -149,16 +149,21 @@ export function warmAgentChatHistoryCache(input: {
         warmPriority: "agent_chat_history",
         durationMs: Date.now() - startedAt,
       });
-      const latestConversationId = conversations[0]?.id;
-      if (latestConversationId && (input.force || !messagesByConversation.has(latestConversationId))) {
+      // Prefetch at most the single primary conversation on cold cache only.
+      // Force-refreshes must not fire redundant GET /history calls against a
+      // single-worker personal pod.
+      const primaryConversation =
+        conversations.find((item) => item.title.trim().toLowerCase() === "one") ??
+        conversations[0];
+      if (primaryConversation && !messagesByConversation.has(primaryConversation.id)) {
         // The list is usable as soon as it arrives. A slow transcript must not
         // hold the entire sidebar in its loading state.
         void loadAgentChatConversationHistory({
           userId: input.userId,
-          conversationId: latestConversationId,
+          conversationId: primaryConversation.id,
           vaultOwnerToken: input.vaultOwnerToken,
           vaultKey: input.vaultKey,
-          force: input.force,
+          force: false,
         }).catch(() => undefined);
       }
       return snapshot(next, input.userId);

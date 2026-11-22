@@ -13,7 +13,7 @@ from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
 
 from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
 from hushh_mcp.one_adk.mcp_turn_scope import McpTurnResources
-from hushh_mcp.services.chat_key import retain_request_chat_key
+from hushh_mcp.services.chat_key import current_request_chat_key, retain_request_chat_key
 from hushh_mcp.services.pod_upgrade_admission import (
     ADMISSION,
     PodUpgradeInProgress,
@@ -22,6 +22,8 @@ from hushh_mcp.services.pod_upgrade_admission import (
 
 logger = logging.getLogger(__name__)
 _CLEANUP_TASKS: set[asyncio.Task] = set()
+_POST_RUN_TASKS: set[asyncio.Task] = set()
+_POST_RUN_LOCKS: dict[str, asyncio.Lock] = {}
 _ACTIVE_THREADS: set[str] = set()
 
 
@@ -29,6 +31,12 @@ def _cleanup_finished(task: asyncio.Task) -> None:
     _CLEANUP_TASKS.discard(task)
     if not task.cancelled() and task.exception() is not None:
         logger.error("pod_chat.cleanup_failed")
+
+
+def _post_run_finished(task: asyncio.Task) -> None:
+    _POST_RUN_TASKS.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning("pod_chat.post_run_failed")
 
 
 class PodTimedADKAgent(TimedADKAgent):
@@ -150,6 +158,7 @@ class PodTimedADKAgent(TimedADKAgent):
             raise RuntimeError("Pod conversation recovery write failed.") from None
 
     async def _settle(self, *, cancel: bool, permit: Any, thread: str) -> None:
+        permit_transferred = False
         with retain_request_chat_key():
             try:
                 tasks = tuple(self._pod_background)
@@ -160,6 +169,10 @@ class PodTimedADKAgent(TimedADKAgent):
                     await asyncio.gather(*tasks, return_exceptions=True)
                 if self._pod_hooks:
                     await asyncio.gather(*self._pod_hooks, return_exceptions=True)
+                if self._pod_mcp_scope is not None:
+                    await self._pod_mcp_scope.close()
+                await self.close()
+
                 post_run = getattr(self, "_pod_post_run", None)
                 last_input = getattr(self, "_pod_last_input", None)
                 if (
@@ -168,17 +181,40 @@ class PodTimedADKAgent(TimedADKAgent):
                     and post_run is not None
                     and last_input is not None
                 ):
+                    holder = current_request_chat_key()
+                    retained = holder.retain() if holder is not None else False
+                    runtime_scope = self._pod_runtime_scope
+
+                    async def _run_detached_post_run() -> None:
+                        lock = _POST_RUN_LOCKS.setdefault(thread, asyncio.Lock())
+                        try:
+                            async with lock:
+                                with runtime_scope():
+                                    await post_run(last_input)
+                        except Exception:
+                            logger.warning("pod_chat.post_run_failed")
+                        finally:
+                            try:
+                                await permit.release()
+                            finally:
+                                if retained and holder is not None:
+                                    holder.release()
+                                if not lock.locked() and _POST_RUN_LOCKS.get(thread) is lock:
+                                    _POST_RUN_LOCKS.pop(thread, None)
+
                     try:
-                        with self._pod_runtime_scope():
-                            await post_run(last_input)
-                    except Exception:
-                        logger.warning("pod_chat.post_run_failed")
-                if self._pod_mcp_scope is not None:
-                    await self._pod_mcp_scope.close()
-                await self.close()
+                        post_task = asyncio.create_task(_run_detached_post_run())
+                    except BaseException:
+                        if retained and holder is not None:
+                            holder.release()
+                        raise
+                    _POST_RUN_TASKS.add(post_task)
+                    post_task.add_done_callback(_post_run_finished)
+                    permit_transferred = True
             finally:
                 try:
-                    await permit.release()
+                    if not permit_transferred:
+                        await permit.release()
                 finally:
                     _ACTIVE_THREADS.discard(thread)
 

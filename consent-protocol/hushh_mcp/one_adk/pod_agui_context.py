@@ -21,10 +21,15 @@ _projection: PodAdkSessionProjection | None = None
 class PodChatContext:
     async def _finish_snapshot(self, _input: Any) -> None:
         await self.require_access()
-        await self.projection.snapshot(force_save=True)
+        # Catch up the in-memory session projection before RUN_FINISHED; the
+        # durable checkpoint upload runs in detached post-turn settlement so the
+        # SSE stream closes immediately without delaying the next turn.
+        await self.projection.snapshot(force_save=False)
         await self.require_access()
 
     async def _finish_post_turn(self, memory: Any, input: Any) -> None:
+        await self.require_access()
+        await self.projection.snapshot(force_save=True)
         wrote = False
         if memory is not None:
             wrote = bool(await memory.commit(input))
@@ -55,7 +60,15 @@ class PodChatContext:
         if not self.owner or not self.hushh_id or self.hushh_id != os.environ.get("HUSSH_ID"):
             raise HTTPException(403, detail={"code": "POD_CHAT_OWNER_MISMATCH"})
         global _projection
-        self.log = _projection.log if _projection is not None else _resolve_log()
+        authority_log = getattr(getattr(self.authority, "_store", None), "_log", None)
+        if _projection is not None:
+            self.log = _projection.log
+        elif (
+            authority_log is not None and getattr(authority_log, "_owner_id", None) == self.hushh_id
+        ):
+            self.log = authority_log
+        else:
+            self.log = _resolve_log()
         if self.log is None or self.log._owner_id != self.hushh_id:
             raise HTTPException(503, detail={"code": "POD_CHAT_RECOVERY_UNAVAILABLE"})
         bind_request_chat_key_owner(self.owner)
