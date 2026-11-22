@@ -11,6 +11,8 @@ from google.adk.memory.base_memory_service import BaseMemoryService
 
 logger = logging.getLogger(__name__)
 _memory_replay: tuple[Any, Any] | None = None
+_WIKI_HYGIENE_MIN_INTERVAL_SECONDS = 300.0
+_LAST_WIKI_HYGIENE_AT: dict[str, float] = {}
 
 
 class PodChatMemory(BaseMemoryService):
@@ -133,6 +135,7 @@ class PodChatMemory(BaseMemoryService):
                 app_name=ONE_APP_NAME,
                 user_id=self.context.owner,
                 session_id=input.thread_id,
+                session=session,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("pod_chat.rolling_horizon_failed kind=%s", type(exc).__name__)
@@ -149,7 +152,14 @@ class PodChatMemory(BaseMemoryService):
             wrote = False
 
         # 2. Continuous bounded background wiki hygiene (grant-pinned deduplication & link/digest refresh)
-        if new_events and self.wiki_library is not None:
+        # Throttle hygiene sweeps so rapid conversational turns never flood storage with redundant scans.
+        now_mono = time.monotonic()
+        last_hyg = _LAST_WIKI_HYGIENE_AT.get(self.context.owner)
+        hygiene_due = (
+            last_hyg is None or (now_mono - last_hyg) >= _WIKI_HYGIENE_MIN_INTERVAL_SECONDS
+        )
+        if new_events and self.wiki_library is not None and hygiene_due:
+            _LAST_WIKI_HYGIENE_AT[self.context.owner] = now_mono
             try:
                 from hushh_mcp.services.pod_files.runtime import (
                     require_files_access,

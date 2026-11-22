@@ -216,6 +216,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         STATE_WIKI_CLIENT_READY: wiki_client_ready,
         STATE_PLAID_POSTURE: plaid_posture,
         STATE_PLAID_CLIENT_READY: plaid_client_ready,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
     return state, options
 
