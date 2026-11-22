@@ -2,9 +2,15 @@ import type { SupportMessageKind } from "@/lib/services/support-service";
 
 import { ROUTES, buildOneSetupCloudRoute } from "@/lib/navigation/routes";
 
-/** Management preserves its parent for both shell and native Back. */
-export function profileHostingSetupHref(): string {
-  return `${buildOneSetupCloudRoute(ROUTES.PROFILE_HOSTING)}&${new URLSearchParams({ from: ROUTES.PROFILE_HOSTING })}`;
+/** Management preserves its parent (Profile pane or direct route) for Back. */
+export function profileHostingSetupHref(originHref?: string | null): string {
+  const normalizedOrigin =
+    typeof originHref === "string" &&
+    originHref.startsWith("/") &&
+    !originHref.startsWith("//")
+      ? originHref
+      : ROUTES.PROFILE_HOSTING;
+  return `${buildOneSetupCloudRoute(normalizedOrigin)}&${new URLSearchParams({ from: normalizedOrigin })}`;
 }
 
 export type ProfilePanel =
@@ -31,6 +37,8 @@ export type ProfileDetail =
   | `connector:${string}`
   | "sharing"
   | "phone"
+  | "hosting-details"
+  | "update-details"
   | "kai-preferences"
   | "gemini"
   | "device"
@@ -169,6 +177,12 @@ export function normalizeProfileDetail(
   if (panel === "account" && detail === "phone") {
     return detail;
   }
+  if (panel === "hosting" && detail === "hosting-details") {
+    return detail;
+  }
+  if (panel === "software-updates" && detail === "update-details") {
+    return detail;
+  }
   if (
     panel === "preferences" &&
     (detail === "kai-preferences" ||
@@ -282,7 +296,11 @@ export function buildProfileRoute(params?: {
   }
 
   if (panel === "hosting" || panel === "software-updates") {
-    return appendQuery(panel === "hosting" ? ROUTES.PROFILE_HOSTING : ROUTES.PROFILE_SOFTWARE_UPDATES, {}, params?.searchParams);
+    return appendQuery(
+      panel === "hosting" ? ROUTES.PROFILE_HOSTING : ROUTES.PROFILE_SOFTWARE_UPDATES,
+      detail ? { detail } : {},
+      params?.searchParams,
+    );
   }
   if (panel === "payouts" || panel === "request-pricing") {
     return appendQuery(
@@ -460,8 +478,15 @@ export function resolveProfileRouteState(
       ? new URLSearchParams(rawQuery)
       : toSearchParams(searchParams);
   const normalizedPath = normalizePathname(rawPathname);
-  if (normalizedPath === ROUTES.PROFILE_HOSTING) return { panel: "hosting", detail: null };
-  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) return { panel: "software-updates", detail: null };
+  if (normalizedPath === ROUTES.PROFILE_HOSTING) {
+    return { panel: "hosting", detail: normalizeProfileDetail("hosting", query.get("detail")) };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) {
+    return {
+      panel: "software-updates",
+      detail: normalizeProfileDetail("software-updates", query.get("detail")),
+    };
+  }
 
   if (normalizedPath === ROUTES.PROFILE) {
     return resolveProfileRouteStateFromSearchParams(query);

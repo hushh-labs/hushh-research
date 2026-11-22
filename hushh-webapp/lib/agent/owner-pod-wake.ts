@@ -105,8 +105,12 @@ const WAKING_REFUSAL = /^(?:POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):(?:502|
 export function isAgentStillWaking(outcome: unknown): boolean {
   if (outcome instanceof Response) {
     if (!GATEWAY_STATUSES.has(outcome.status)) return false;
-    if (outcome.headers.get("x-hussh-pod-state")?.trim().toLowerCase() === "waking") {
+    const podState = outcome.headers.get("x-hussh-pod-state")?.trim().toLowerCase();
+    if (podState === "waking") {
       return true;
+    }
+    if (podState === "unavailable" || podState === "error") {
+      return false;
     }
     return !(outcome.headers.get("content-type") ?? "").includes("application/json");
   }

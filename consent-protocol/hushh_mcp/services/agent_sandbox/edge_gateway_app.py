@@ -39,12 +39,31 @@ from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
 SANDBOX_INTERNAL_PATH_FORBIDDEN = "SANDBOX_INTERNAL_PATH_FORBIDDEN"
 SANDBOX_OWNER_ID_INVALID = "SANDBOX_OWNER_ID_INVALID"
 SANDBOX_WAKING_CODE = "SANDBOX_WAKING"
+SANDBOX_HYDRATION_FAILED_CODE = "SANDBOX_HYDRATION_FAILED"
 SANDBOX_EDGE_PLACEMENT_TS_HEADER = "x-hussh-sandbox-edge-ts"
 SANDBOX_EDGE_PLACEMENT_SIG_HEADER = "x-hussh-sandbox-edge-sig"
 _OWNER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 _POD_IDENTITY_SALT = b"hussh-sandbox-pod-identity-v1"
 _EDGE_PLACEMENT_SIG_CONTEXT = b"hussh-sandbox-edge-placement-v1"
 _EDGE_PLACEMENT_WINDOW_SECONDS = 60
+_TERMINAL_HEALTH_STATUSES = frozenset(
+    {"hydration_failed", "storage_unavailable", "error", "failed", "unhealthy"}
+)
+
+
+class SandboxActivationError(RuntimeError):
+    """Non-transient activation or memory-hydration failure that must fail fast."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = SANDBOX_HYDRATION_FAILED_CODE,
+        phase: str = "unlocking",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.phase = phase
 
 
 def sign_sandbox_edge_placement_headers(
@@ -200,7 +219,7 @@ class SandboxEdgeGatewayManager:
         sentinel_vertex_location: str | None = None,
         enable_prefix_storage: bool = False,
         claim_timeout_s: float = 180.0,
-        health_poll_timeout_s: float = 90.0,
+        health_poll_timeout_s: float = 25.0,
         proxy_connect_timeout_s: float = 2.5,
         proxy_read_timeout_s: float = 160.0,
         clock_s: Callable[[], float] | None = None,
@@ -442,9 +461,19 @@ class SandboxEdgeGatewayManager:
                     if resp.status_code == 200:
                         last_exc = None
                         break
-                    last_exc = RuntimeError(
-                        f"Lease activation HTTP {resp.status_code}: {resp.text[:200]}"
+                    if 400 <= resp.status_code < 500:
+                        raise SandboxActivationError(
+                            f"Lease activation rejected (HTTP {resp.status_code})",
+                            code=SANDBOX_HYDRATION_FAILED_CODE,
+                            phase="unlocking",
+                        )
+                    last_exc = SandboxActivationError(
+                        f"Lease activation HTTP {resp.status_code}: {resp.text[:200]}",
+                        code=SANDBOX_HYDRATION_FAILED_CODE,
+                        phase="unlocking",
                     )
+                except SandboxActivationError:
+                    raise
                 except httpx.HTTPError as exc:
                     last_exc = exc
                 await asyncio.sleep(0.15)
@@ -456,16 +485,39 @@ class SandboxEdgeGatewayManager:
             while time.monotonic() < deadline:
                 try:
                     h_resp = await client.get(f"{base_url}/health", timeout=health_timeout)
+                    try:
+                        health_body = h_resp.json()
+                    except Exception:  # noqa: BLE001 - non-JSON health is still not virgin_ready
+                        health_body = None
+                    if isinstance(health_body, dict):
+                        health_status = str(health_body.get("status") or "").strip().lower()
+                        if health_status in _TERMINAL_HEALTH_STATUSES:
+                            err_detail = str(
+                                health_body.get("error")
+                                or health_body.get("message")
+                                or f"Sandbox failed during {health_status}"
+                            )
+                            raise SandboxActivationError(
+                                err_detail[:200],
+                                code=SANDBOX_HYDRATION_FAILED_CODE,
+                                phase="unlocking",
+                            )
+                        if h_resp.status_code in {500, 502, 503} and (
+                            health_body.get("code") or health_body.get("detail")
+                        ):
+                            raise SandboxActivationError(
+                                f"Sandbox health failed (HTTP {h_resp.status_code})",
+                                code=SANDBOX_HYDRATION_FAILED_CODE,
+                                phase="unlocking",
+                            )
                     if h_resp.status_code == 200:
-                        try:
-                            health_body = h_resp.json()
-                        except Exception:  # noqa: BLE001 - non-JSON health is still not virgin_ready
-                            health_body = None
                         if (
                             not isinstance(health_body, dict)
                             or health_body.get("status") != "virgin_ready"
                         ):
                             return pub_b64, pod_key_id
+                except SandboxActivationError:
+                    raise
                 except httpx.HTTPError:
                     pass
                 await asyncio.sleep(0.03)
@@ -894,6 +946,24 @@ def create_sandbox_edge_gateway_app(
             headers=headers,
         )
 
+    def _unavailable_response(
+        request: Request,
+        *,
+        code: str = SANDBOX_HYDRATION_FAILED_CODE,
+        phase: str = "unlocking",
+        message: str = "Personal sandbox could not finish starting",
+    ) -> JSONResponse:
+        headers = {
+            "X-Hussh-Pod-State": "unavailable",
+            "Cache-Control": "no-store",
+            **_cors_headers(request),
+        }
+        return JSONResponse(
+            status_code=503,
+            content={"detail": {"code": code, "phase": phase, "message": message}},
+            headers=headers,
+        )
+
     async def _proxy_owner_http(request: Request, hushh_id: str, subpath: str) -> Response:
         clean_sub = str(subpath or "").lstrip("/")
         if clean_sub == "internal" or clean_sub.startswith("internal/"):
@@ -926,6 +996,13 @@ def create_sandbox_edge_gateway_app(
                 lease = await manager.ensure_owner_lease(hushh_id)
             except HTTPException:
                 raise
+            except SandboxActivationError as exc:
+                return _unavailable_response(
+                    request,
+                    code=exc.code,
+                    phase=exc.phase,
+                    message="Personal sandbox could not finish starting. Try again shortly.",
+                )
             except (TimeoutError, httpx.HTTPError, RuntimeError):
                 return _waking_response(request)
 
@@ -1072,7 +1149,7 @@ def create_edge_gateway_from_env() -> FastAPI:
         warm_pool_name=warm_pool,
         idle_timeout_s=float(os.environ.get("HUSSH_SANDBOX_IDLE_TIMEOUT_SECONDS") or "600"),
         health_poll_timeout_s=float(
-            os.environ.get("HUSSH_SANDBOX_HEALTH_POLL_TIMEOUT_SECONDS") or "90"
+            os.environ.get("HUSSH_SANDBOX_HEALTH_POLL_TIMEOUT_SECONDS") or "25"
         ),
         activation_header_value=os.environ.get("HUSSH_SANDBOX_ACTIVATION_TOKEN"),
         admin_header_value=os.environ.get("HUSSH_EDGE_ADMIN_TOKEN"),

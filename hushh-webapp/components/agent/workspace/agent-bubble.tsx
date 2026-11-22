@@ -44,7 +44,7 @@ import {
   AgentActivityMark,
   type AgentActivityIcon,
 } from "@/components/agent/agent-turn-stream-panel";
-import { OneThinkingIndicator } from "@/components/agent/one-thinking-indicator";
+import { OneThinkingIndicator, type OneTurnPendingPhase } from "@/components/agent/one-thinking-indicator";
 import type { ChatTimeSeparator } from "@/lib/agent/chat-time-separators";
 import { AgentMessageReactionBadge } from "../agent-message-reaction";
 import { QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
@@ -202,10 +202,16 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
   };
 }
 
-function AgentThinkingDots() {
+function AgentThinkingDots({
+  phase = "thinking",
+  label = null,
+}: {
+  phase?: OneTurnPendingPhase;
+  label?: string | null;
+}) {
   return (
-    <span role="status" aria-live="polite" aria-label="Agent is thinking">
-      <OneThinkingIndicator />
+    <span role="status" aria-live="polite" aria-label="Agent status">
+      <OneThinkingIndicator phase={phase} label={label} />
     </span>
   );
 }
@@ -365,6 +371,8 @@ export const AgentBubble = memo(function AgentBubble({
   onUnlockVault,
   ephemeralCard,
   businessProfileCard,
+  pendingPhase = "thinking",
+  pendingLabel = null,
 }: {
   message: AgentMessage;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -405,6 +413,9 @@ export const AgentBubble = memo(function AgentBubble({
   ephemeralCard?: ReactNode;
   /** Compatibility for the existing Business Intelligence card. */
   businessProfileCard?: ReactNode;
+  /** Phase-accurate pending indicator driven by live wake/reconnect/stream state. */
+  pendingPhase?: OneTurnPendingPhase;
+  pendingLabel?: string | null;
 }) {
   const backgroundCard = ephemeralCard ?? businessProfileCard;
   const [copied, setCopied] = useState(false);
@@ -662,6 +673,8 @@ export const AgentBubble = memo(function AgentBubble({
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
+              pendingPhase={pendingPhase}
+              pendingLabel={pendingLabel}
               opportunities={turnPanelOpportunities}
               response={
                 assistantText ? (
@@ -691,7 +704,7 @@ export const AgentBubble = memo(function AgentBubble({
             </>
           ) : backgroundOnly || canRenderConsentActions ||
             canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : (
-            <AgentThinkingDots />
+            <AgentThinkingDots phase={pendingPhase} label={pendingLabel} />
           )}
           {!isUser && isError && message.errorNotice ? (
             <p

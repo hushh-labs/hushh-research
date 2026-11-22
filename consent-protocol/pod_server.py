@@ -61,6 +61,7 @@ from api.routes.one.pod_capabilities import (
     connectors_capability,
     pod_capabilities,
 )
+from api.routes.one.pod_circle_rules import router as pod_circle_rules_router
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
@@ -163,6 +164,7 @@ _POD_ROUTERS = (
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
     pod_session_router,
+    pod_circle_rules_router,
     pod_files_router,
     pod_scheduled_tasks_router,
     pod_commands_router,

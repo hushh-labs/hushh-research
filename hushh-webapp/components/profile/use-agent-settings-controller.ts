@@ -28,19 +28,35 @@ export const HOST_LABELS = {
 
 type HostingMode = keyof typeof HOST_LABELS;
 
+const RAW_BUILD_SHA_PATTERN = /^(?:(?:dev|uat|prod|main)-)?[0-9a-f]{12,}$/i;
+
+function isRawBuildIdentifier(value: string | null | undefined): boolean {
+  const trimmed = (value ?? "").trim();
+  return trimmed.length > 0 && RAW_BUILD_SHA_PATTERN.test(trimmed);
+}
+
 export function agentSettingsSummary(model: Pick<AgentSettingsController, "status" | "mode" | "update" | "awaitingMicrosoft" | "isPod">) {
   const { status, mode, update, awaitingMicrosoft, isPod } = model;
+  const isPersonalSandbox = mode === "hussh_pods" && status?.deploymentTarget === "ace";
   const activity = awaitingMicrosoft ? AZURE_UPDATE_AWAITING_LABEL : updateActivityLabel(update);
   const stateLabel = !status ? "Checking update status…" : mode === "shared" ? "Updated automatically by Hussh" :
+    isPersonalSandbox ? "Managed automatically" :
     mode === "pending" || mode === "unplaced" ? "Available after setup finishes" : mode === "unknown" ? "Hosting status unavailable" :
     activity ?? (update.presentationState === "deferred" && !canInstallUpdate(status) ? "Update reminder saved" :
       update.available === true && canInstallUpdate(status) ? "Update ready for your approval" :
       update.available === true ? updateCheckMessage(status) : status.installedReleaseVerified === true && update.available === false ? "Up to date" : "Running version not verified");
-  const release = isPod ? status?.availableRelease : null;
+  const release = isPod && !isPersonalSandbox ? status?.availableRelease : null;
   const version = status?.installedRelease?.version;
   const releasedAt = version && version === release?.version ? release.releasedAt : null;
-  const versionLabel = mode === "shared" ? version?.replace(/^Managed service /, "Managed build ") : version ? releaseLabel(version, releasedAt) : null;
-  return { stateLabel, release, versionLabel };
+  const rawBuildLabel = version ?? null;
+  const versionLabel = mode === "shared"
+    ? version?.replace(/^Managed service /, "Managed build ")
+    : isPersonalSandbox
+      ? (version && !isRawBuildIdentifier(version) ? releaseLabel(version, releasedAt) : "Personal Sandbox · Latest")
+      : version
+        ? (isRawBuildIdentifier(version) ? "Current build" : releaseLabel(version, releasedAt))
+        : null;
+  return { stateLabel, release, versionLabel, rawBuildLabel, isPersonalSandbox };
 }
 
 function isHostingMode(value: unknown): value is HostingMode {
@@ -297,7 +313,15 @@ export function useAgentSettingsController({
   return { kind, userId: userId ?? "", status, update, refresh, azureUpdate, busy, browser, azureHosting, notice: current() ? notice : null,
     inspection, mode, isPod, needsLinkRecovery, awaitingMicrosoft, working,
     checkStatus, act, reconnectDirectPod, sendFailureReport, recoverExistingPod, current,
-    chooseHosting: () => { if (current()) router.push(profileHostingSetupHref()); } };
+    chooseHosting: () => {
+      if (!current()) return;
+      const paneOrigin =
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("profile_pane") === "1"
+          ? `${window.location.pathname}${window.location.search}`
+          : null;
+      router.push(profileHostingSetupHref(paneOrigin));
+    } };
 }
 
 export type AgentSettingsController = ReturnType<typeof useAgentSettingsController>;
