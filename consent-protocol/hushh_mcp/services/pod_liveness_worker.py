@@ -126,9 +126,13 @@ async def _confirm_and_act(
     if not decision.should_probe:
         # Nothing to confirm -- record the verdict as it stands. This is the path
         # every economy pod takes, and it performs no network call at all.
+        clear_failures = (
+            0 if failures > 0 and decision.health_state in {"sleeping", "healthy"} else None
+        )
         await record_state(
             user_id=user_id,
             health_state=decision.health_state,
+            **({"liveness_failures": clear_failures} if clear_failures is not None else {}),
             healed=False,
         )
         return decision
