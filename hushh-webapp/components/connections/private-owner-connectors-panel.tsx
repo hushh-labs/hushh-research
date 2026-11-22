@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeftIcon, XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -32,7 +32,12 @@ export function PrivateOwnerConnectorsPanel(props: {
     ? { userId, vaultKey, vaultOwnerToken } : null;
   const [query, setQuery] = useState("");
   const [localSelection, setSelection] = useState<string | null>(null);
+  const drawerScrollRef = useRef<HTMLDivElement | null>(null);
   const selected = props.activeConnector !== undefined ? props.activeConnector : localSelection;
+  useEffect(() => {
+    if (props.surface === "profile" || !selected) return;
+    drawerScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [props.surface, selected]);
   const google = usePrivateGoogleConnectorsModel({ open: props.open, visitKey: selected });
   const plaid = usePrivatePlaidConnectorModel({ open: props.open, access, visitKey: selected });
   const stripe = useStripeConnectorReadiness({ access, onPrepareRecovery: props.onPrepareRecovery });
@@ -44,10 +49,12 @@ export function PrivateOwnerConnectorsPanel(props: {
     const disabled = !google.enabled || google.busy !== null;
     const webDetailBody = entry ? (
       <section className="space-y-4" data-connector-detail={entry.connector} data-testid={`private-connector-detail-${entry.connector}`}>
-        <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
-          <ArrowLeftIcon className="size-4" aria-hidden="true" />
-          <span>All connectors</span>
-        </Button>
+        {inDrawer ? (
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            <span>All connectors</span>
+          </Button>
+        ) : null}
         <SettingsGroup title={entry.label}>
           <SettingsRow title="Connection" description={entry.status} />
           <SettingsRow title="Purpose" description={entry.purpose} />
@@ -91,10 +98,12 @@ export function PrivateOwnerConnectorsPanel(props: {
       </section>
     ) : selected === "stripe" ? (
       <section className="space-y-4" data-connector-detail="stripe" data-testid="private-connector-detail-stripe">
-        <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
-          <ArrowLeftIcon className="size-4" aria-hidden="true" />
-          <span>All connectors</span>
-        </Button>
+        {inDrawer ? (
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-medium">
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            <span>All connectors</span>
+          </Button>
+        ) : null}
         <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
       </section>
     ) : null;
@@ -118,7 +127,7 @@ export function PrivateOwnerConnectorsPanel(props: {
           </ShellActionSurface>
         </header>
       ) : null}
-      <div className={inDrawer ? "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "space-y-5"}>
+      <div ref={inDrawer ? drawerScrollRef : undefined} className={inDrawer ? "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "space-y-5"}>
         {webDetailBody ?? (
           <>
             <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} onSelectConnector={connector => select(connector)} />

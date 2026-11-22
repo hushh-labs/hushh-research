@@ -416,7 +416,7 @@ async def ensure_pooled_sandbox_placement(
         backend="ace",
         billing_space_id=billing_space_id,
         backend_metadata=merged_meta,
-        liveness_mode="warm",
+        liveness_mode="economy",
         deployment_target="ace",
         model_credential_mode="byok_per_turn",
     )

@@ -71,7 +71,13 @@ export function describeOneVoiceLiveStatus(readiness: OneVoiceReadiness): {
     };
   }
   if (readiness.microphoneOwner === "pod_commands") {
-    return { status: "ready", label: "Private commands", description: "Recorded commands use your BYOC pod. Its private connection must be available." };
+    const description =
+      readiness.hostingMode === "hussh_pods" && readiness.deploymentTarget === "ace"
+        ? "Recorded commands run privately on your Personal Sandbox."
+        : readiness.hostingMode === "hussh_pods"
+          ? "Recorded commands run privately on your hosted pod."
+          : "Recorded commands use your BYOC pod. Its private connection must be available.";
+    return { status: "ready", label: "Private commands", description };
   }
   if (readiness.liveEnabled && readiness.serverStatus === "ready") {
     return {
@@ -83,6 +89,13 @@ export function describeOneVoiceLiveStatus(readiness: OneVoiceReadiness): {
     };
   }
   if (readiness.microphoneOwner === "none") {
+    if (readiness.deploymentTarget === "user_azure" || readiness.deploymentTarget === "azure") {
+      return {
+        status: "unavailable",
+        label: "Unavailable",
+        description: "Voice is not supported on Azure hosting yet. Switch to Personal Sandbox, Google Cloud, or Shared in Hosting to use voice.",
+      };
+    }
     return { status: "unavailable", label: "Unavailable", description: "Voice needs an available agent connection. Check Hosting and try again." };
   }
   if (readiness.serverStatus === "disabled") {

@@ -169,7 +169,7 @@ async def test_unplaced_new_signup_places_onto_ace_pooled_sandbox_with_exact_key
     assert row["deployment_target"] == "ace"
     assert row["backend"] == "ace"
     assert row["status"] == "provisioned"
-    assert row["liveness_mode"] == "warm"
+    assert row["liveness_mode"] == "economy"
     assert row["model_credential_mode"] == "byok_per_turn"
 
     hushh_id = row["hushh_id"]

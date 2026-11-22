@@ -636,6 +636,14 @@ async def resolve_personal_agent_status(
         health = _HEALTH_BY_REGISTRY_HEALTH_STATE.get(
             str((row or {}).get("health_state") or "").strip()
         )
+        # Disposable Personal Sandboxes (`ace`) scale to zero via idle lease
+        # reaping. Normalize any stale pre-fix warm-sweep verdict (`unreachable`
+        # / `degraded`) to `sleeping` so owners see truthful idle state and
+        # proactive wake runs cleanly on open.
+        if (
+            deployment_target == "ace" or str((row or {}).get("backend") or "").strip() == "ace"
+        ) and health in {"unreachable", "degraded"}:
+            health = "sleeping"
         if health:
             result["health"] = health
             # Only alongside a real verdict: a timestamp on its own invites a client
