@@ -30,7 +30,7 @@ flowchart LR
 
 **Current execution:** Calendar PR [#9843](https://github.com/hushh-labs/hushh-research/pull/9843) landed in Dev as `b06c4f204f` after current-head and combined-source CI passed. News source/native checks and the connected simulator pass succeeded; its separate Dev publication is next. No whole-app or release acceptance is implied.
 
-**Next boundary:** keep one persistent Finance tab rail above the Market body, then preserve all four index series/detail, four image-bearing stories, signed sector chart, paired mover table and portfolio CTA. Portfolio and Stocks retain their complete rich bodies. Do not lift Market's rich gate with partial graphics or a second tab owner.
+**Next boundary:** complete the Finance root family (Market, Portfolio overview and Stocks) together under one retained existing workspace presenter. Preserve its native tab rail, charts, tables, imagery, value cards and authored rich nested handoffs. A Market-only cutover cannot keep a native rail over rich sibling panes with the current contract. Qualify bounded publisher-thumbnail transport with owner/privacy cancellation and the original fallback order; one real cover displays in the page but cannot be read by WebKit fetch. Retain the complete rich family until these mappings are ready; add no independent rail/body lifecycle.
 
 **Build cost:** Calendar used one web export/full native build plus three native-only corrections. News used one export/sync/full build plus one native-only correction for the original symbol-free Market badge. Browser Close required an observed-label correction and a bounded center touch; accessibility tap success alone did not dismiss it. Preserve both failed guards and positive outcomes.
 
