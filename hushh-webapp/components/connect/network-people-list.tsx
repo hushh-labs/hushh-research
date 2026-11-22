@@ -112,10 +112,11 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
   }, [result, saved]);
 
   const title = mode === "discovery" ? "Explore your network" : mode === "mutuals" ? `${result?.totalCount ?? ""} mutual ${result?.totalCount === 1 ? "connection" : "connections"}`.trim() : result?.person ? `${connectPersonName(result.person)}’s connections` : "Connections";
+  const people = (result?.items ?? []).filter(person => !degree || person.networkDegree === degree);
   return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-4 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
       <h1 className="break-words text-xl font-semibold">{title}</h1>
-      <p className="text-sm text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : "Discover people through connections that allow network discovery. Degrees are relative to you."}</p>
+      <p className="text-sm text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "Eligible people connected to your direct connection." : degree === 3 ? "3rd-degree connections are people connected to your 2nd-degree connections. Eligible profiles appear automatically." : "Discover people through your accepted connections. Degrees are relative to you."}</p>
       {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
     {mode !== "mutuals" ? <Input aria-label="Search network by name" placeholder="Search by name" value={query} onChange={event => { restore.current = false; setQuery(event.target.value); setPage(1); }} /> : null}
@@ -125,7 +126,7 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
     {busy && !result ? <p role="status" className="py-6 text-muted-foreground">Loading connections…</p> : null}
     {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRevision(value => value + 1)}>Try again</button></div> : null}
     {result ? <ul className="divide-y rounded-2xl border bg-card" aria-busy={busy}>
-      {result.items.map(person => <li key={person.publicPersonRef}><button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${connectPersonName(person)}'s profile`} className="flex min-h-[76px] w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring" onClick={event => {
+      {people.map(person => <li key={person.publicPersonRef}><button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${connectPersonName(person)}'s profile`} className="flex min-h-[76px] w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring" onClick={event => {
         const scrollTop = root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop();
         snapshot.current = { query, degree, page: result.page, scrollTop, focusRef: person.publicPersonRef };
         saveConnectListMemory(owner, memoryKey, snapshot.current);
@@ -137,7 +138,7 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
         <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline" aria-hidden="true">View profile</span>
       </button></li>)}
     </ul> : null}
-    {result && !result.items.length ? <p role="status" className="py-4 text-muted-foreground">No profiles to show{query ? " for this name" : " right now"}.</p> : null}
+    {result && !people.length ? <p role="status" className="py-4 text-muted-foreground">{degree === 3 && !query ? "No 3rd-degree connections to show yet. Connect with people you know to grow your network." : `No profiles to show${query ? " for this name" : " right now"}.`}</p> : null}
     {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
     {result?.hasMore ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : "Load more connections"}</button> : null}
   </section>;

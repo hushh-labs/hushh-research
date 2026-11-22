@@ -1,8 +1,8 @@
 """Permission-aware, bounded discovery over the canonical active graph.
 
 Never return graph paths, internal identities, or another owner's contacts.
-Mutuals retain their existing viewer-relative contract. Wider lists require
-both an active direct relationship and the list owner's explicit opt-in.
+Mutuals retain their existing viewer-relative contract. Active, eligible
+connections determine anonymous degrees without a separate discovery preference.
 """
 
 from __future__ import annotations
@@ -63,6 +63,7 @@ class ConnectionNetworkService:
         self._directory: Any = None
         self._scope: ExitStack | None = None
         self._admitted: list[str] = []
+        self._observed_first_degree: list[str] = []
 
     def __enter__(self) -> ConnectionNetworkService:
         from db.db_client import get_db_connection
@@ -123,27 +124,18 @@ class ConnectionNetworkService:
         )
 
     def preference(self, viewer: str) -> dict[str, bool]:
-        row = self.connections._execute_one(
-            "SELECT connection_list_shared FROM actor_profiles WHERE user_id = :viewer",
-            {"viewer": viewer},
-        )
-        return {"shareConnectionList": bool((row or {}).get("connection_list_shared"))}
+        """Legacy clients receive effective policy, never a new consent grant."""
+        return {"shareConnectionList": True, "automaticDiscovery": True}
 
     def set_preference(self, viewer: str, enabled: bool) -> dict[str, bool]:
-        row = self.connections._execute_one(
-            """UPDATE actor_profiles SET connection_list_shared = :enabled
-               WHERE user_id = :viewer RETURNING connection_list_shared""",
-            {"viewer": viewer, "enabled": enabled},
-        )
-        if not row:
-            raise self.unavailable()
-        return {"shareConnectionList": bool(row["connection_list_shared"])}
+        """Retired preference writes cannot change automatic graph discovery."""
+        return self.preference(viewer)
 
     def target(self, viewer: str, person_ref: str) -> dict[str, Any]:
         from hushh_mcp.services.connections_service import ConnectionsError
 
         row = self.connections._execute_one(
-            """SELECT user_id, connection_list_shared FROM actor_profiles
+            """SELECT user_id FROM actor_profiles
                WHERE public_person_ref = CAST(:person_ref AS UUID)
                  AND public_profile_status = 'active'""",
             {"person_ref": person_ref},
@@ -168,7 +160,6 @@ class ConnectionNetworkService:
         return {
             **people[0],
             "userId": uid,
-            "shared": bool((row or {}).get("connection_list_shared")),
         }
 
     def neighbors(self, viewer: str, frontier: list[str], remaining: int) -> list[dict[str, Any]]:
@@ -185,7 +176,6 @@ class ConnectionNetworkService:
             self.connections._execute_one(
                 """SELECT 1 FROM actor_profiles p
                WHERE p.user_id = :target AND p.public_profile_status = 'active'
-                 AND p.connection_list_shared = TRUE
                  AND EXISTS (SELECT 1 FROM connections c WHERE c.status = 'active'
                    AND ((c.user_a_id = :viewer AND c.user_b_id = :target)
                      OR (c.user_b_id = :viewer AND c.user_a_id = :target)))
@@ -201,13 +191,14 @@ class ConnectionNetworkService:
         """Breadth-first shortest distances, with bounded work and live accounts.
 
         Two-hop mutual existence is already disclosed by the mutuals contract.
-        Beyond that, both intermediaries must opt in. Only anonymous distance
-        is disclosed, never a third person's full list or a connecting path.
+        Only eligible accepted edges contribute to anonymous distance. A degree
+        never reveals the connecting path or grants access to private information.
         """
         deadline = time.monotonic() + 12
         distances: dict[str, int] = {}
+        self._observed_first_degree = []
         frontier = [viewer]
-        shared_path: set[str] = {viewer}
+        expanded: set[str] = set()
         edges_seen = 0
         for depth in range(1, max_degree + 1):
             if not frontier:
@@ -215,8 +206,11 @@ class ConnectionNetworkService:
             if time.monotonic() >= deadline:
                 raise self.unavailable()
             rows = self.neighbors(viewer, frontier, MAX_NETWORK_EDGES - edges_seen)
+            expanded.update(frontier)
             edges_seen += len(rows)
             candidates = sorted({str(row["peer_id"]) for row in rows} - {viewer})
+            if depth == 1:
+                self._observed_first_degree = candidates
             if len(set(distances).union(candidates)) > MAX_NETWORK_NODES:
                 raise self.unavailable()
             # The canonical directory checks current Firebase account status,
@@ -235,25 +229,7 @@ class ConnectionNetworkService:
                 distances.setdefault(uid, depth)
             if depth == max_degree:
                 break
-            prefs = (
-                self.connections._execute_many(
-                    """SELECT user_id FROM actor_profiles
-                   WHERE user_id = ANY(CAST(:ids AS TEXT[])) AND connection_list_shared = TRUE""",
-                    {"ids": sorted(visible)},
-                )
-                if visible
-                else []
-            )
-            opted_in = {str(row["user_id"]) for row in prefs}
-            next_shared = {
-                str(row["peer_id"])
-                for row in rows
-                if str(row["source_id"]) in shared_path and str(row["peer_id"]) in opted_in
-            }
-            # The second expansion preserves existing mutual visibility. The
-            # third is allowed only along two explicitly shared intermediaries.
-            frontier = sorted(visible if depth == 1 else next_shared)
-            shared_path = next_shared
+            frontier = sorted(visible - expanded)
         self._admitted = [viewer, *sorted(distances)]
         settled = self.qualify_degrees(viewer, list(distances), max_degree)
         if time.monotonic() >= deadline:
@@ -268,7 +244,9 @@ class ConnectionNetworkService:
                 QUALIFIED_DEGREES_SQL,
                 {
                     "viewer": viewer,
+                    "owner_user_id": viewer,
                     "admitted": self._admitted,
+                    "observed_first_degree": self._observed_first_degree,
                     "candidates": candidates,
                     "max_degree": max_degree,
                     "edge_limit": MAX_NETWORK_EDGES + 1,
@@ -313,6 +291,8 @@ class ConnectionNetworkService:
             {
                 "viewer": viewer,
                 "user_id": viewer,
+                "owner_user_id": viewer,
+                "observed_first_degree": self._observed_first_degree,
                 "target": uid,
                 "preview": preview_id,
                 "admitted": self._admitted,
@@ -345,7 +325,7 @@ class ConnectionNetworkService:
             }
             if preview
             else None,
-            "canBrowseConnections": degree == 1 and bool(final["connection_list_shared"]),
+            "canBrowseConnections": degree == 1,
         }
 
     def browse(
@@ -403,7 +383,12 @@ class ConnectionNetworkService:
             qualified = (
                 self.connections._execute_many(
                     QUALIFIED_TARGET_ROWS_SQL,
-                    {"viewer": viewer, "target": target["userId"], "candidates": page_ids},
+                    {
+                        "viewer": viewer,
+                        "owner_user_id": viewer,
+                        "target": target["userId"],
+                        "candidates": page_ids,
+                    },
                 )
                 if page_ids
                 else []

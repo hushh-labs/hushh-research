@@ -901,10 +901,13 @@ available profile (resolving a missing preview through one mutual page), and mor
 than one opens a list. An unavailable single profile explains that state.
 
 Signed-in profiles show network details beside the profile hero. **View connections**
-appears only after the server confirms that the target opted in and the viewer is
-an active direct connection. The privacy setting **Share my connection list** starts
-off, discloses anonymous extended-network degree contribution, and confirms only
-server-acknowledged changes. It grants no access to private contacts or information.
+appears only after the server confirms that the viewer is an active direct
+connection. Extended discovery follows eligible accepted connections automatically;
+there is no Profile discovery toggle. Third degree means the shortest eligible
+path has three edges. Hidden or retired profiles and blocked paths remain excluded.
+Only public profile identity and degree are shown, never the connecting path or
+access to private contacts, files or information. Stored legacy discovery flags
+are no longer used; existing profile visibility controls remain authoritative.
 Anonymous public profile projections do not fetch network information.
 
 Every profile or list may open the next profile or list inside the same shared

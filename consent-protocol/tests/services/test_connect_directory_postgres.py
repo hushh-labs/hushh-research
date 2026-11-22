@@ -152,13 +152,17 @@ def _person(
 ) -> None:
     params = {
         "uid": user_id,
+        "public_ref": str(uuid4()),
         "name": name,
         "discoverable": discoverable,
         "email": email,
         "phone": phone,
         "phone_verified": phone_verified,
     }
-    conn.execute(text("INSERT INTO actor_profiles (user_id) VALUES (:uid)"), params)
+    conn.execute(
+        text("INSERT INTO actor_profiles (user_id, public_person_ref) VALUES (:uid, :public_ref)"),
+        params,
+    )
     conn.execute(
         text(
             "INSERT INTO actor_identity_cache"
@@ -234,7 +238,9 @@ def _network_edge(connection: Connection, a: str, b: str, status: str = "active"
     )
 
 
-def test_extended_network_shortest_degrees_require_shared_paths_and_live_accounts(connection):
+def test_extended_network_shortest_degrees_ignore_legacy_flags_and_require_live_accounts(
+    connection,
+):
     network = _network(connection)
     for uid in (OWNER, "alice", "bob", "carol", "dave", "hidden", "disabled", "stranger"):
         _person(connection, uid, uid.title())
@@ -258,15 +264,18 @@ def test_extended_network_shortest_degrees_require_shared_paths_and_live_account
     directory = _Directory(connection)
     directory._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
     network._directory = directory
-    assert network.preference(OWNER) == {"shareConnectionList": False}
-    # Mutual existence is retained even when full lists are private.
-    assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2}
+    assert network.preference(OWNER) == {"shareConnectionList": True, "automaticDiscovery": True}
+    expected = {"alice": 1, "bob": 1, "carol": 2, "dave": 3}
+    assert network.degrees(OWNER) == expected
     for uid in ("bob", "carol"):
-        network.set_preference(uid, True)
-    assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2, "dave": 3}
-    network.set_preference("carol", False)
-    assert "dave" not in network.degrees(OWNER)
-    network.set_preference("carol", True)
+        assert network.set_preference(uid, False) == network.preference(uid)
+    assert network.degrees(OWNER) == expected
+    assert (
+        connection.execute(
+            text("SELECT COUNT(*) FROM actor_profiles WHERE connection_list_shared")
+        ).scalar_one()
+        == 0
+    )
     # Any blocked path segment is excluded in either direction.
     connection.execute(
         text(
@@ -335,11 +344,7 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
     )
     _network_edge(connection, OWNER, "target")
     _network_edge(connection, "target", "peer")
-    assert network.preference("target") == {"shareConnectionList": False}
-    with pytest.raises(ConnectionsError) as private:
-        network.browse(OWNER, person_ref=target_ref)
-    assert private.value.status_code == 404
-    network.set_preference("target", True)
+    assert network.preference("target")["automaticDiscovery"] is True
     page = network.browse(OWNER, person_ref=target_ref)
     assert len(page["items"]) == 1
     assert page["items"][0]["networkDegree"] == 2
@@ -370,18 +375,34 @@ def test_shared_network_rechecks_permission_after_directory_work(connection, cha
         return result
 
     network.directory().search_directory_candidates = read_then_revoke
+    if change == "opt_out":
+        assert network.browse(OWNER, person_ref=target_ref) == page
+        return
     with pytest.raises(ConnectionsError) as caught:
         network.browse(OWNER, person_ref=target_ref)
     assert caught.value.status_code in (404, 503)
 
 
-def test_extended_discovery_rechecks_third_hop_opt_out_after_page_read(connection):
+@pytest.mark.parametrize(
+    "change",
+    [
+        "legacy_flag",
+        "intermediary_hidden",
+        "target_hidden",
+        "enrollment",
+        "retired",
+        "blocked",
+        "direct_shortcut",
+        "mutual_shortcut",
+        "new_mutual",
+    ],
+)
+def test_automatic_extended_discovery_rechecks_eligibility_after_page_read(connection, change):
     from hushh_mcp.services.connections_service import ConnectionsError
 
     network = _network(connection)
-    for uid in (OWNER, "alice", "bob", "carol"):
+    for uid in (OWNER, "alice", "bob", "carol", "new-mutual"):
         _person(connection, uid, uid.title())
-        network.set_preference(uid, True)
     for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
         _network_edge(connection, a, b)
     original = network.directory().search_directory_candidates
@@ -389,13 +410,70 @@ def test_extended_discovery_rechecks_third_hop_opt_out_after_page_read(connectio
     def read_then_revoke(**kwargs):
         result = original(**kwargs)
         if "network_user_ids" in kwargs:
-            network.set_preference("bob", False)
+            if change == "legacy_flag":
+                network.set_preference("bob", False)
+            elif change in ("intermediary_hidden", "target_hidden"):
+                connection.execute(
+                    text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id=:uid"),
+                    {"uid": "bob" if change == "intermediary_hidden" else "carol"},
+                )
+            elif change == "enrollment":
+                connection.execute(
+                    text("UPDATE vault_keys SET environment_enrolled_at=NULL WHERE user_id='bob'")
+                )
+            elif change == "retired":
+                connection.execute(
+                    text(
+                        "UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='bob'"
+                    )
+                )
+            elif change == "blocked":
+                connection.execute(
+                    text(
+                        "INSERT INTO connection_requests VALUES ('bob','carol','rejected',"
+                        '\'{"blocked_by":"bob"}\')'
+                    )
+                )
+            elif change == "new_mutual":
+                _network_edge(connection, OWNER, "new-mutual")
+                _network_edge(connection, "new-mutual", "carol")
+            else:
+                _network_edge(connection, OWNER, "carol" if change == "direct_shortcut" else "bob")
         return result
 
     network.directory().search_directory_candidates = read_then_revoke
+    if change == "legacy_flag":
+        page = network.browse(OWNER, degree=3)
+        assert len(page["items"]) == 1
+        assert page["items"][0]["networkDegree"] == 3
+        return
     with pytest.raises(ConnectionsError) as caught:
         network.browse(OWNER, degree=3)
     assert caught.value.status_code == 503
+
+
+def test_automatic_third_degree_pagination_is_graph_only_and_has_no_shorter_paths(connection):
+    network = _network(connection)
+    for uid in (OWNER, "first", "second", "unrelated", "fourth"):
+        _person(connection, uid, f"Demo {uid}")
+    _network_edge(connection, OWNER, "first")
+    _network_edge(connection, "first", "second")
+    for index in range(45):
+        uid = f"third-{index:02}"
+        _person(connection, uid, f"Demo {index:02}")
+        _network_edge(connection, "second", uid)
+    _network_edge(connection, "third-44", "fourth")
+    page = network.browse(OWNER, degree=3, query="Demo", page=2, limit=20)
+    assert [person["displayName"] for person in page["items"]] == [
+        f"Demo {i:02}" for i in range(20, 40)
+    ]
+    assert page["hasMore"] is True
+    assert {person["networkDegree"] for person in page["items"]} == {3}
+    _network_edge(connection, OWNER, "third-00")
+    _network_edge(connection, "first", "third-01")
+    degrees = network.degrees(OWNER)
+    assert degrees["third-00"] == 1 and degrees["third-01"] == 2
+    assert "unrelated" not in degrees
 
 
 def test_network_budget_refuses_partial_or_invented_degrees(connection, monkeypatch):
@@ -413,7 +491,8 @@ def test_network_budget_refuses_partial_or_invented_degrees(connection, monkeypa
 
 
 @pytest.mark.parametrize(
-    "change", ["disconnect", "block", "disable", "preview_disconnect", "preview_disable"]
+    "change",
+    ["disconnect", "block", "disable", "preview_disconnect", "preview_disable", "unlisted"],
 )
 def test_network_summary_rechecks_authority_after_preview_read(connection, change):
     from hushh_mcp.services.connections_service import ConnectionsError
@@ -432,13 +511,20 @@ def test_network_summary_rechecks_authority_after_preview_read(connection, chang
             text("SELECT public_person_ref FROM actor_profiles WHERE user_id='target'")
         ).scalar_one()
     )
-    for a, b in ((OWNER, "target"), (OWNER, "preview"), ("preview", "target")):
-        _network_edge(connection, a, b)
-    assert network.summary(OWNER, target_ref)["networkDegree"] == 1
+    if change != "unlisted":
+        for a, b in ((OWNER, "target"), (OWNER, "preview"), ("preview", "target")):
+            _network_edge(connection, a, b)
+    assert network.summary(OWNER, target_ref)["networkDegree"] == (
+        None if change == "unlisted" else 1
+    )
     original = network.profiles
 
     def read_then_revoke(viewer, ids):
         people = original(viewer, ids)
+        if change == "unlisted" and ids == ["target"]:
+            connection.execute(
+                text("UPDATE actor_profiles SET directory_listed=FALSE WHERE user_id='target'")
+            )
         if ids == ["preview"]:
             if change == "block":
                 connection.execute(
