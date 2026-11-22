@@ -219,6 +219,7 @@ export type AppStreamPanelProps = {
   isStreaming?: boolean;
   isError?: boolean;
   opportunities?: ReactNode;
+  footerNote?: ReactNode;
   className?: string;
 };
 
@@ -243,6 +244,7 @@ export function AppStreamPanel({
   isStreaming = false,
   isError = false,
   opportunities,
+  footerNote,
   className,
 }: AppStreamPanelProps) {
   const hasResponseText = responseText.trim().length > 0;
@@ -378,6 +380,16 @@ export function AppStreamPanel({
         ) : null}
 
         {structuredContent && structuredContentPlacement === "after" ? <div>{structuredContent}</div> : null}
+
+        {footerNote ? (
+          <p
+            role="note"
+            data-testid="agui-google-clearance-note"
+            className="px-1 text-xs leading-5 text-muted-foreground"
+          >
+            {footerNote}
+          </p>
+        ) : null}
       </div>
     </section>
   );

@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { XIcon } from "@/components/icons";
+import { ArrowLeftIcon, XIcon } from "@/components/icons";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PrivateGoogleConnectorsPanel, usePrivateGoogleConnectorsModel } from "@/components/connections/private-google-connectors-panel";
 import { PrivatePlaidConnectorGroup, usePrivatePlaidConnectorModel } from "@/components/connections/private-plaid-connector-group";
@@ -36,10 +39,54 @@ export function PrivateOwnerConnectorsPanel(props: {
   if (!props.open) return null;
   const render = (custom: CustomConnectorSettingsModel | null, customBody: ReactNode) => {
     const inDrawer = props.surface !== "profile";
+    const entry = google.entries.find(item => item.connector === selected);
+    const disabled = !google.enabled || google.busy !== null;
+    const webDetailBody = entry ? (
+      <section className="space-y-4" data-testid={`private-connector-detail-${entry.connector}`}>
+        <Button variant="ghost" size="sm" onClick={() => select(null)} className="gap-1.5 px-2">
+          <ArrowLeftIcon className="size-4" aria-hidden="true" />
+          <span>All connectors</span>
+        </Button>
+        <SettingsGroup title={entry.label}>
+          <SettingsRow title="Connection" description={entry.status} />
+          <SettingsRow title="Purpose" description={entry.purpose} />
+          {entry.connected ? (
+            <SettingsRow
+              title="Background preparation"
+              description={entry.backgroundPrep.description}
+              trailing={
+                entry.backgroundPrep.enabled === null ? undefined : (
+                  <Switch
+                    aria-label={`${entry.label} background preparation`}
+                    checked={entry.backgroundPrep.enabled}
+                    disabled={entry.backgroundPrep.busy}
+                    onCheckedChange={checked => entry.backgroundPrep.change(checked)}
+                  />
+                )
+              }
+            />
+          ) : null}
+        </SettingsGroup>
+        <div className="flex flex-wrap gap-2">
+          {entry.allowChanges ? (
+            <Button variant="outline" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
+              Allow changes
+            </Button>
+          ) : null}
+          <Button variant="outline" disabled={disabled} onClick={() => void google.run(entry.connector, entry.connected)}>
+            {google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect"}
+          </Button>
+          <Button variant="outline" disabled={disabled} onClick={() => void google.refresh()}>
+            Check connection
+          </Button>
+        </div>
+        {google.message ? <p role="status" className="text-sm">{google.message}</p> : null}
+      </section>
+    ) : null;
     const webBody = <div className={inDrawer ? "flex h-full min-h-0 flex-col bg-background text-foreground" : "min-w-0 space-y-5"}>
       {inDrawer ? (
         <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
-          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">Connectors</h2>
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : "Connectors"}</h2>
           <ShellActionSurface
             className="size-11 text-foreground"
             onClick={() => { (props.onClose ?? props.onBack)(); }}
@@ -50,10 +97,14 @@ export function PrivateOwnerConnectorsPanel(props: {
         </header>
       ) : null}
       <div className={inDrawer ? "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "space-y-5"}>
-        <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} />
-        <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} />
-        <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
-        {customBody}
+        {webDetailBody ?? (
+          <>
+            <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} onSelectConnector={connector => select(connector)} />
+            <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} />
+            <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
+            {customBody}
+          </>
+        )}
       </div>
     </div>;
     if (!props.render) return webBody;
@@ -62,10 +113,9 @@ export function PrivateOwnerConnectorsPanel(props: {
       { id: "plaid", name: "Plaid", detail: plaid.statusLabel, connected: plaid.connected, onOpen: () => select("plaid") },
       { id: "stripe", name: "Stripe", detail: STRIPE_CONNECTION_STATUS[stripe.status], connected: stripe.status === "connected" || stripe.status === "verified", onOpen: () => select("stripe") }]
       .filter(entry => `${entry.name} ${entry.detail}`.toLowerCase().includes(query.toLowerCase()));
-    const entry = google.entries.find(item => item.connector === selected);
-    const disabled = !google.enabled || google.busy !== null;
     const detail: ConnectorDetailPresentation | null = entry ? { kind: "private-google", status: entry.status, purpose: entry.purpose,
       message: google.message, notes: ["Connect Google directly to Agent One. Your agent asks you to confirm changes."], busy: google.busy !== null,
+      background: entry.connected ? entry.backgroundPrep : null,
       actions: [
         ...(entry.allowChanges ? [{ label: "Allow changes", disabled, run: () => { void google.run(entry.connector, false); } }] : []),
         { label: google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect", disabled,

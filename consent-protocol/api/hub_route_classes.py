@@ -432,6 +432,8 @@ POST /api/one/pod/heartbeat
 GET /api/one/pod/lifecycle
 GET /api/one/pod/lifecycle/stream
 POST /api/one/pod/wake
+POST /api/one/pod/wake/signal
+POST /api/one/pod/wake/drain
 GET /api/one/puppy/status/{device_id}
 POST /api/one/runtime/byoc/authorize/begin
 POST /api/one/runtime/byoc/authorize/complete

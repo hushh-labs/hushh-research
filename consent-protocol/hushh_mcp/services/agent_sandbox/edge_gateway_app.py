@@ -331,13 +331,28 @@ class SandboxEdgeGatewayManager:
                     "pod_ip": endpoint.pod_ip,
                 }
                 if (
-                    self.hub_url
-                    and "domain_rules"
+                    "domain_rules"
                     in inspect.signature(self.sentinel_control.set_lease_policy_with_ip).parameters
                 ):
-                    hub_host = (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
-                    if hub_host:
-                        policy_kwargs["domain_rules"] = {hub_host: "allow"}
+                    domain_rules: dict[str, str] = {
+                        "oauth2.googleapis.com": "allow",
+                        "gmail.googleapis.com": "allow",
+                        "www.googleapis.com": "allow",
+                    }
+                    extra_domains = str(
+                        os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or ""
+                    ).strip()
+                    for extra in extra_domains.split(","):
+                        host_clean = extra.strip().lower()
+                        if host_clean:
+                            domain_rules[host_clean] = "allow"
+                    if self.hub_url:
+                        hub_host = (
+                            (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
+                        )
+                        if hub_host:
+                            domain_rules[hub_host] = "allow"
+                    policy_kwargs["domain_rules"] = domain_rules
                 sentinel_tasks.append(
                     asyncio.to_thread(
                         self.sentinel_control.set_lease_policy_with_ip,

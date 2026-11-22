@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  isProductionProfileLegalSubsurface,
+  isProductionVoiceBarSuppressedRoute,
+} from "@/lib/agent/production-visitor-posture";
 
 describe("app shell bottom-clearance contract", () => {
   const source = readFileSync(join(process.cwd(), "app/providers.tsx"), "utf8");
@@ -71,5 +75,94 @@ describe("app shell bottom-clearance contract", () => {
 
   it("does not mount the archived app-wide Search", () => {
     expect(source).not.toContain("KaiCommandBarGlobal");
+  });
+
+  it("suppresses the Production voice bar on research, blog, early/setup, and legal routes without affecting signed-in app workspaces or UAT/Dev", () => {
+    try {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+      for (const path of [
+        "/research",
+        "/research/protocol",
+        "/blog",
+        "/blog/privacy-first-agents",
+        "/welcome",
+        "/developers",
+        "/terms",
+        "/privacy",
+        "/one/profile/regulatory",
+        "/getting-started",
+        "/delete-account",
+        "/one/welcome",
+        "/one/setup/gmail",
+        "/one/setup/calendar",
+        "/ria/onboarding",
+      ]) {
+        expect(
+          isProductionVoiceBarSuppressedRoute({
+            pathname: path,
+            shellPathname: path,
+            isAuthenticated: true,
+            useOnboardingChrome: false,
+          }),
+          `expected ${path} to suppress voice bar on Production`,
+        ).toBe(true);
+      }
+
+      // Unauthenticated early entry on `/` also suppresses voice bar on Production.
+      expect(
+        isProductionVoiceBarSuppressedRoute({
+          pathname: "/",
+          shellPathname: "/login",
+          isAuthenticated: false,
+          useOnboardingChrome: false,
+        }),
+      ).toBe(true);
+
+      // Authenticated core workspaces keep their normal shell on Production.
+      for (const activePath of ["/", "/one", "/one/location", "/one/kai", "/consents"]) {
+        expect(
+          isProductionVoiceBarSuppressedRoute({
+            pathname: activePath,
+            shellPathname: activePath,
+            isAuthenticated: true,
+            useOnboardingChrome: false,
+          }),
+          `expected ${activePath} to retain shell when authenticated`,
+        ).toBe(false);
+      }
+
+      // In-profile Legal subviews suppress only the voice launcher slot on Production.
+      expect(
+        isProductionProfileLegalSubsurface(
+          "/one/profile",
+          new URLSearchParams("panel=legal"),
+        ),
+      ).toBe(true);
+      expect(
+        isProductionProfileLegalSubsurface(
+          "/one",
+          new URLSearchParams("profile=open&profile_panel=legal"),
+        ),
+      ).toBe(true);
+      expect(
+        isProductionProfileLegalSubsurface(
+          "/one/profile",
+          new URLSearchParams("panel=account"),
+        ),
+      ).toBe(false);
+
+      // Non-production environments retain existing route behavior unchanged.
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+      expect(
+        isProductionVoiceBarSuppressedRoute({
+          pathname: "/research/protocol",
+          shellPathname: "/research/protocol",
+          isAuthenticated: false,
+          useOnboardingChrome: false,
+        }),
+      ).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

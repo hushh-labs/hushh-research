@@ -1,63 +1,74 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/brand/pillar-roadmap-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="../assets/brand/pillar-roadmap-light.svg" />
+    <img alt="Roadmap and Active Designs" src="../assets/brand/pillar-roadmap-light.svg" width="100%" />
+  </picture>
+</p>
+
 # Roadmap and active designs
 
-[Documentation](../README.md) · [Current capabilities](../product/capabilities.md)
+[Documentation](../README.md) · [Current capabilities](../product/capabilities.md) · **Intent:** Active unimplemented proposals
 
-This section owns proposals, research and unfinished implementation plans.
-A design is not a deployment guarantee. Promote a claim to current architecture
-only after its source contracts and required acceptance establish the behavior.
+> [!NOTE]
+> **Proposals Are Not Guarantees:** Everything under `docs/roadmap/` represents reviewed proposals, active research, or unfinished designs. Promote a claim into live Architecture or Product docs only after source contracts and required acceptance pass, then delete the superseded plan under our Zero-Archive policy.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-  idea["Proposed outcome"]
-  design["Reviewed design and boundaries"]
-  source["Implemented contracts"]
-  acceptance["Qualified deployment and owner journey"]
-  current["Current module documentation"]
+  idea["1. Proposed outcome"]
+  design["2. Reviewed trust boundaries"]
+  source["3. Implemented contracts"]
+  acceptance["4. Qualified live acceptance"]
+  current["5. Promote to Module Docs & Delete Plan"]
   idea --> design
   design --> source
   source --> acceptance
   acceptance --> current
 ```
 
-## Workstreams
+## Active workstreams
 
-- [Private-agent remaining work](personal-agent/README.md): installed acceptance and lifecycle requirements.
-- [Active implementation plans](implementation/README.md): retained peer plans; reconcile status with their owner before retirement.
-- [On-device research](on-device/README.md): prospective capacity and packaging, not current device guarantees.
-- [Identity assurance](identity-assurance/README.md): proposed assurance capabilities.
-- [Infrastructure direction](hussh-one-infra/README.md): future integration and hosting designs.
-- [Finance roadmap](kai/README.md).
+| Workstream | Status | Focus |
+| --- | --- | --- |
+| [Private-agent remaining work](personal-agent/README.md) | `Proposed` | Installed acceptance, custody proofs, and multi-cloud lifecycle milestones. |
+| [Active implementation plans](implementation/README.md) | `Proposed` | Retained peer plans scheduled for Wave 3 Zero-Archive distillation. |
+| [On-device research](on-device/README.md) | `Proposed` | Prospective local-device capacity and packaging research. |
+| [Identity assurance](identity-assurance/README.md) | `Proposed` | Proposed identity verification and assurance tiers. |
+| [Infrastructure direction](hussh-one-infra/README.md) | `Proposed` | Future integration, isolation, and hosting designs. |
+| [Finance roadmap](kai/README.md) | `Proposed` | Proposed Kai specialist extensions. |
 
-Current memory remains encrypted Markdown inside PKM. An independent wiki/blob
-memory model requires its own design, custody and migration acceptance before it
-can replace that implementation. See [current memory](../architecture/modules/memory.md)
-and the [Personal Wiki Memory plan](personal-wiki-memory-plan.md).
+Current shipped UAT and production memory remains encrypted Markdown inside PKM. See [Memory and PKM](../architecture/modules/memory.md) and the [Personal Wiki Memory plan](personal-wiki-memory-plan.md) for how Dev preview work graduates into general availability.
 
-## Promotion rule
+## Promotion and retirement rule
 
-Keep intended behavior, dependencies and unresolved decisions explicit in each
-plan. Reconcile durable implementation facts into their module owner when work
-finishes, then delete completed narrative copies after preserving required evidence.
-Do not remove active peer work based on its date.
+Keep intended behavior, dependencies, and open decisions explicit in each proposal. Once work finishes, distill durable implementation facts into the owning Architecture module page and delete the completed narrative plan, relying on Git history for historical snapshots.
 
 ## Further reading
 
 - [Agent Sandbox microVM pool and standalone Terminal](personal-agent/agent-sandbox-microvm-plan.md)
 - [Apple a plus](apple-a-plus/README.md)
-- [Email Agent — Inbox Nudges & A2A (`feat/email-a2a`)](email-agent-nudges-plan.md)
+- [Email Agent: Inbox Nudges & A2A (`feat/email-a2a`)](email-agent-nudges-plan.md)
 - [Independent Email OTP and Microsoft Sign-In Plan](independent-email-otp-and-microsoft-sign-in-plan.md)
-- [Information Marketplace Agent — product plan](information-marketplace-agent-plan.md)
+- [Information Marketplace Agent: product plan](information-marketplace-agent-plan.md)
 - [One DocuSign and Fund Setup Workflow Plan](one-docusign-fund-setup-plan.md)
-- [One Location → Consent Center Integration Plan (Phase C backend)](one-location-consent-center-integration-plan.md)
-- [One on Meta Glasses — Ambient Private Agent Plan](one-meta-glasses-ambient-agent-plan.md)
-- [One on Meta Glasses — DAT Integration Execution Plan](one-meta-glasses-dat-execution-plan.md)
+- [One Location to Consent Center Integration Plan (Phase C backend)](one-location-consent-center-integration-plan.md)
+- [One on Meta Glasses: Ambient Private Agent Plan](one-meta-glasses-ambient-agent-plan.md)
+- [One on Meta Glasses: DAT Integration Execution Plan](one-meta-glasses-dat-execution-plan.md)
 - [One/Kai/Nav/KYC Runtime Plan](one-nav-runtime-plan.md)
 - [One Product Surface Evolution Plan](one-product-surface-evolution-plan.md)
-- [Agent One Voice — Siri Handshake and Voice Handoff PRD](one-voice-siri-handshake-prd.md)
+- [Agent One Voice: Siri Handshake and Voice Handoff PRD](one-voice-siri-handshake-prd.md)
 - [Personal Wiki Memory, Consent-Safe PKM Projections, and ADK Recall Plan](personal-wiki-memory-plan.md)
 - [PKM Data-Slice Marketplace Plan](pkm-slice-marketplace-plan.md)
 - [Proposals](proposals/README.md)
 - [Repository organization and unified development agents](repository-organization-plan.md)
 - [Strategy](strategy/README.md)
+
+<details>
+<summary><strong>For coding agents: roadmap hygiene rules</strong></summary>
+
+- Never cite a `docs/roadmap/` file as proof that a feature is implemented or deployed.
+- When retiring a completed plan, update inbound links and run `./bin/hushh docs verify` and `python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates`.
+
+</details>
