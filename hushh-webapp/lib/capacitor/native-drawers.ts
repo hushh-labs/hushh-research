@@ -1,3 +1,4 @@
+import type { NativeFinanceContent } from "./native-finance-content";
 import type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
 export type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
 import { validNativePayoutPath, validNativeAgentSettingsPath, type NativePayoutPageId, type NativeAgentSettingsPageId } from "./native-profile-paths";
@@ -53,6 +54,7 @@ export type NativeDrawerRow = {
   options?: readonly NativeDrawerOption[];
   choiceStyle?: "segmented";
   marketNews?: NativeMarketNewsStory;
+  finance?: NativeFinanceContent;
   calendarEvent?: { day?: string; month?: string; weekday?: string; dateLabel?: string; organizer?: string; muted: boolean };
   toggle?: boolean;
   enabled: boolean;

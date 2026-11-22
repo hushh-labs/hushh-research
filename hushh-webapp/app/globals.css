@@ -8344,8 +8344,9 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
 }
 
 /* The coherent shell retains chrome without the legacy regions capability.
-   Portals consume the same mirrored geometry as its existing workspace seat. */
-html:has([data-native-workspace-seat="true"]):not(.native-reserved-chrome) {
+   Portals consume the same mirrored geometry while a rich handoff retires
+   the workspace seat but preserves the native navigation reservation. */
+html:is(:has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not(.native-reserved-chrome) {
   --native-overlay-top: var(--native-workspace-top, var(--app-top-content-offset, 0px));
   --native-overlay-bottom: max(var(--native-workspace-bottom, var(--bottom-chrome-stack-height, 0px)), var(--kb-height, 0px));
 }
@@ -8353,7 +8354,7 @@ html:has([data-native-workspace-seat="true"]):not(.native-reserved-chrome) {
 /* Full-screen Profile covers the workspace chrome. Its nested portals clear
    the keyboard, rather than reserving the hidden dock a second time. */
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
-  html:has([data-native-workspace-seat="true"]):not(.native-reserved-chrome):has(
+  html:is(:has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not(.native-reserved-chrome):has(
     .native-feature-page[data-native-feature-pane="profile"][data-state="open"],
     [data-testid="profile-pane"][data-state="open"]
   ) {
@@ -8363,7 +8364,7 @@ html:has([data-native-workspace-seat="true"]):not(.native-reserved-chrome) {
 }
 
 /* Acknowledged native seats bound web overlays; panel motion stays React. */
-html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) :is(
   [data-slot="sheet-overlay"], [data-slot="dialog-overlay"],
   [data-slot="alert-dialog-overlay"], [data-slot="popover-scrim"],
   [data-agent-history-scrim], [data-profile-preview-scrim]
@@ -8371,7 +8372,7 @@ html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not(
   top: var(--native-overlay-top, 0px);
   bottom: var(--native-overlay-bottom, 0px);
 }
-html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) :is(
   [data-agent-history-drawer], [data-profile-preview],
   [data-slot="sheet-content"][data-sheet-side="left"],
   [data-slot="sheet-content"][data-sheet-side="right"]
@@ -8380,7 +8381,7 @@ html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not(
   bottom: var(--native-overlay-bottom, 0px);
   height: auto;
 }
-html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) :is(
   [data-slot="dialog-content"]:not(.native-feature-page), [data-slot="alert-dialog-content"]
 ) {
   top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
@@ -8390,13 +8391,15 @@ html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not(
   margin-top: 0;
   overflow-y: auto;
 }
-html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
   bottom: var(--native-overlay-bottom, 0px);
-  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+  /* Authored task sizes cannot exceed the retained shell’s content region. */
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) !important;
 }
-html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
   top: var(--native-overlay-top, 0px);
-  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+  /* Authored task sizes cannot exceed the retained shell’s content region. */
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) !important;
 }
 html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
   padding-top: 1rem;

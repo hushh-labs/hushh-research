@@ -3814,7 +3814,7 @@ export function KaiFlow({
 
   if (state === "checking") {
     return (
-      <NativeFinanceLayer active={nativePortfolioActive} title="Portfolio" sections={[{ key: "portfolio-loading", rows: [{ key: "loading", label: toInvestorLoading("ACCOUNT_STATE"), pending: true }] }]} fallback={<div className="w-full">
+      <NativeFinanceLayer pane="portfolio" active={nativePortfolioActive} title="Portfolio" sections={[{ key: "portfolio-loading", rows: [{ key: "loading", label: toInvestorLoading("ACCOUNT_STATE"), pending: true }] }]} fallback={<div className="w-full">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -3964,7 +3964,7 @@ export function KaiFlow({
         state === "dashboard" &&
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
-          <NativeFinanceLayer active={nativePortfolioActive} title="Portfolio" sections={[{ key: "portfolio-empty", rows: [
+          <NativeFinanceLayer pane="portfolio" active={nativePortfolioActive} contentPresentation="rich" title="Portfolio" sections={[{ key: "portfolio-empty", rows: [
             { key: "empty", label: "Start your portfolio", detail: "Choose a statement or a read-only bank connection in the import workspace." },
             { key: "import", label: "Import portfolio", run: handleReimport },
           ] }]} fallback={<PortfolioDashboardEmpty onOpenImport={handleReimport}

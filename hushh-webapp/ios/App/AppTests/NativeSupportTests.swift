@@ -1155,6 +1155,28 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testFinanceCompositionBoundsArtworkAndKeepsActionsOutOfValues() throws {
+        func content(_ value: [String: Any]) throws -> NativeFinanceContent {
+            try JSONDecoder().decode(NativeFinanceContent.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let cover: [String: Any] = ["kind": "headline", "publisher": "Example", "publishedAt": "Recent", "sources": [["url": "https://static.seekingalpha.com/uploads/public.jpeg"]]]
+        XCTAssertTrue(NativeFinanceContent.closed(cover)); XCTAssertTrue(try content(cover).valid)
+        XCTAssertNotNil(NativeFinanceArtworkSource(url: "https://media.zenfs.com/en/public.jpeg").admittedURL)
+        var executable = cover; executable["destination"] = "forbidden"; XCTAssertFalse(NativeFinanceContent.closed(executable))
+        for url in ["http://static.seekingalpha.com/a.jpeg", "https://static.seekingalpha.com.evil.test/a.jpeg", "https://owner:secret@s.yimg.com/a.jpeg", "https://127.0.0.1/a.png", "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2Fsecret.png"] {
+            XCTAssertNil(NativeFinanceArtworkSource(url: url).admittedURL)
+        }
+        let balance: [String: Any] = ["kind": "balance", "value": "$12", "cash": "$2", "invested": "$10", "period": "Saved snapshot", "points": [["date": "2026-11-01", "value": 12]]]
+        XCTAssertTrue(try content(balance).valid)
+        let roundtrip = try JSONDecoder().decode(NativeFinanceContent.self, from: JSONEncoder().encode(content(balance)))
+        XCTAssertEqual(roundtrip.history?.first?.value, 12); XCTAssertTrue(roundtrip.valid)
+        XCTAssertFalse(try content(["kind": "sector", "value": -4, "maximum": 3]).valid)
+        var oversized = balance; oversized["points"] = Array(repeating: ["date": "2026-11-01", "value": 12], count: 1001)
+        XCTAssertFalse(try content(oversized).valid)
+        XCTAssertNil(NativeFinanceArtwork.thumbnail(Data(repeating: 0, count: NativeFinanceArtwork.maximumBytes + 1)))
+    }
+
+    @MainActor
     func testCalendarVisualValuesStayBoundedAndCannotIntroduceDestinations() throws {
         let metrics: [[String: Any]] = (0..<3).map { ["id": "metric-\($0)", "label": "0", "detail": "Scheduled time", "enabled": true, "readOnly": true] }
         let sections: [[String: Any]] = [["id": "snapshot", "layout": "metrics", "rows": metrics], ["id": "toolbar", "layout": "toolbar", "rows": [["id": "calendar-actions", "label": "Calendar actions", "enabled": true, "readOnly": true, "inlineActions": [["id": "calendar-refresh", "label": "Refresh", "enabled": true, "tone": "ghost"]]]]]]
