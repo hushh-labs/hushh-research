@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" width="1200" height="200" role="img" aria-label="Roadmap &amp; Active Designs">
+  <defs>
+    <linearGradient id="pillar-roadmap-light-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <radialGradient id="pillar-roadmap-light-glow" cx="90%" cy="35%" r="40%">
+      <stop offset="0%" stop-color="#D97706" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="pillar-roadmap-light-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#CBD5E1" stroke-width="0.7" stroke-opacity="0.4"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-roadmap-light-bg)"/>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-roadmap-light-grid)"/>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-roadmap-light-glow)"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="198.5" rx="15.25" fill="none" stroke="#E2E8F0" stroke-width="1.5"/>
+  <rect x="48" y="36" width="4" height="92" rx="2" fill="#D97706"/>
+  <text x="66" y="50" fill="#D97706" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="600" letter-spacing="0.1em">PILLAR 05 · ACTIVE UNIMPLEMENTED PROPOSALS</text>
+  <text x="66" y="92" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.025em">Roadmap &amp; Active Designs</text>
+  <text x="66" y="122" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15">Reviewed designs and prospective research clearly separated from live production guarantees.</text>
+  <rect x="48" y="148" width="146" height="28" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/><text x="62" y="166" fill="#1E293B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Proposed Designs</text><rect x="206" y="148" width="139" height="28" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/><text x="220" y="166" fill="#1E293B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Promotion Rules</text><rect x="357" y="148" width="160" height="28" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/><text x="371" y="166" fill="#1E293B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Zero Dead Archives</text>
+</svg>
