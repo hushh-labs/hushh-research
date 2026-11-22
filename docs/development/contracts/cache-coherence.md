@@ -596,22 +596,53 @@ warm-up failures do not consume a current session's
 explicit Review attempt. All keys and decrypted context remain memory-only;
 existing secure device snapshots remain encrypted.
 
-### Cross-route PKM freshness (2026-09-02)
+### Cross-route PKM freshness and warm-revisit bounds
 
 A domain stored on one route (Wallet, the Kai statement import, chat) used to
 reach Memory only if Memory was mounted at that moment: `pkm-domain-changed` is
 a fire-and-forget window event, and the metadata write-through patch reset the
 TTL, so `getMetadata(force=false)` on the next mount served the patch for up to
-five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
+five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap without
+trapping later revisits in permanent cold reloads:
 
 - `CacheSyncService` bumps the per-owner epoch on every stored / cleared /
-  restored emit, alongside the event.
-- `usePkmDomainChangeRevision` seeds from the epoch, so a screen that mounts
-  after a write starts above zero and forces a fresh read; the listener still
-  covers writes made while it is mounted.
-- Profile my-data applies the same rule through `refreshPkmMetadata(true)`.
+  restored emit and invalidates cached domain scope availability alongside
+  metadata.
+- `usePkmDomainChangeRevision` reads the epoch so mounted surfaces react
+  immediately when a write occurs.
+- `usePkmNaturalModel` seeds metadata synchronously from
+  `CacheService.peek(CACHE_KEYS.PKM_METADATA(...))` so warm `/one/pkm` revisits
+  paint without `Opening Memory...` loaders, and forces a cold metadata/card
+  reload only when `pkmChangeRevision` advances while mounted or on explicit
+  refresh. Profile my-data retains `refreshPkmMetadata(true)`.
 - `audit-cache-coherence.mjs` invariant 0 fails the build if either side of the
-  link is removed.
+  epoch link is removed.
+
+### Paid scope commerce, Memory earnings, and hub traffic hygiene (2026-11-22)
+
+- **Single-catalog tariff pricing:** `ScopeTariffEditor` hydrates from the
+  batched owner `tariffCatalog` snapshot (`peekOwnerTariff` plus single-flight
+  `GET /api/one/scope-commerce/tariffs`) and treats handles absent from a
+  settled catalog as `Free` instead of firing per-row `N x 2` tariff/readiness
+  lookups. Backend `GET /api/one/scope-commerce/tariffs` coalesces tariff
+  listing and seller/environment/retention readiness into one DB transaction
+  (`list_tariffs_with_readiness`) and one consolidated readiness query.
+- **Cached domain scope discovery and Memory earnings:**
+  `PersonalKnowledgeModelService.getAvailableScopes` caches per owner at
+  `CACHE_TTL.MEDIUM` with vault-session-epoch fencing and inflight coalescing,
+  invalidated on PKM domain store/clear through `CacheSyncService`.
+  `useCommerceRead` supports opt-in memory-only SWR warm snapshots
+  (`warmSnapshot` for `memory-earnings`), fenced by owner, vault session epoch,
+  and `CONSENT_STATE_CHANGED_EVENT`, with zero plaintext device persistence.
+- **Navigation and hub traffic-storm guards:** `ConsentNotificationProvider`
+  keys web SSE lifecycle on the boolean `prioritizeConsentRealtime` predicate
+  rather than raw `pathname` and caches `?capabilities=1` per owner for five
+  minutes so routine tab switches do not tear down SSE or repeat capability
+  probes. `ConsentCenterService.getSummary` coalesces concurrent cold
+  foreground reads per `(cacheKey, generation, version)`. Connect defers
+  multi-degree `preloadNetworkDiscovery` and preview reads until the `Discover`
+  view is active, and `PublicProfileDiscoveryService` negative-caches `404`
+  status probes per auth session generation and token key for five minutes.
 
 - Domain metadata patches should preserve canonical summary counters (`attribute_count`, `item_count`, `holdings_count`).
 - Raw `total_value` is not retained in index summary cache patches; numeric values should map to `portfolio_total_value`.
