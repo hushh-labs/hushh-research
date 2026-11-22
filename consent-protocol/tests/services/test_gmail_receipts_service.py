@@ -465,6 +465,120 @@ def test_compose_uses_separate_explicit_scope_without_sending():
 
 
 @pytest.mark.asyncio
+async def test_full_purpose_requests_all_gmail_capabilities_and_validates_state(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_oauth_client_id", lambda: "synthetic-client-id")
+    monkeypatch.setattr(
+        service,
+        "_resolve_oauth_redirect_uri",
+        lambda _uri: "https://uat.one.hussh.ai/one/profile/gmail/oauth/return",
+    )
+
+    started = await service.start_connect(
+        user_id="user_123",
+        redirect_uri="https://uat.one.hussh.ai/one/profile/gmail/oauth/return",
+        login_hint="owner@example.com",
+        include_granted_scopes=True,
+        purpose="full",
+    )
+    parsed = urlparse(started["authorize_url"])
+    params = parse_qs(parsed.query)
+    requested_scopes = set(params["scope"][0].split())
+    assert {
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://www.googleapis.com/auth/gmail.modify",
+    } == requested_scopes
+    assert params["include_granted_scopes"] == ["true"]
+
+    verified = service._verify_state_token(
+        state=started["state"],
+        user_id="user_123",
+        redirect_uri="https://uat.one.hussh.ai/one/profile/gmail/oauth/return",
+    )
+    assert verified["purpose"] == "full"
+
+    # Negative control: unknown purpose in a forged state token is rejected.
+    bad_state = service._build_state_token(
+        user_id="user_123",
+        redirect_uri="https://uat.one.hussh.ai/one/profile/gmail/oauth/return",
+        purpose="invalid",  # type: ignore[arg-type]
+    )
+    with pytest.raises(GmailApiError, match="Invalid Gmail OAuth purpose"):
+        service._verify_state_token(
+            state=bad_state,
+            user_id="user_123",
+            redirect_uri="https://uat.one.hussh.ai/one/profile/gmail/oauth/return",
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("returned_scope", "expected_send", "expected_compose", "expected_modify"),
+    [
+        (
+            "openid email profile "
+            "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.send "
+            "https://www.googleapis.com/auth/gmail.compose "
+            "https://www.googleapis.com/auth/gmail.modify",
+            True,
+            True,
+            True,
+        ),
+        (
+            # Partial checkbox grant from Google Granular Consent: user kept
+            # read + send checked and left compose + modify unchecked.
+            "openid email profile "
+            "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.send",
+            True,
+            False,
+            False,
+        ),
+    ],
+)
+async def test_full_connect_records_granted_and_partial_granular_scopes(
+    monkeypatch,
+    returned_scope,
+    expected_send,
+    expected_compose,
+    expected_modify,
+):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    monkeypatch.setattr(
+        service,
+        "_read_status_snapshot",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result=(
+                {
+                    "status": "connected",
+                    "revoked": False,
+                    "scope_csv": returned_scope,
+                    "google_email": "owner@example.com",
+                    "google_sub": "same-google-account",
+                },
+                None,
+            ),
+        ),
+    )
+
+    status = await service.get_status(user_id="user_123")
+    assert status["connected"] is True
+    assert status["send_permission_granted"] is expected_send
+    assert status["compose_permission_granted"] is expected_compose
+    assert status["modify_permission_granted"] is expected_modify
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("new_sub", "new_scopes", "expected_error"),
     [

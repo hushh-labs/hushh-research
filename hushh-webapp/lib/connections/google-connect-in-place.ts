@@ -192,7 +192,7 @@ function gmailSettlementMatcher(attemptId: string) {
 export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
-    purpose: "read" | "send" | "modify";
+    purpose: "read" | "send" | "modify" | "full";
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -205,7 +205,7 @@ export function connectGmailInPlace(
     modify_permission_granted?: boolean;
   }) =>
     status.connected === true &&
-    (purpose === "read"
+    (purpose === "read" || purpose === "full"
       ? typeof status.scope_csv === "string" &&
         status.scope_csv.replaceAll(",", " ").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.readonly")
       : purpose === "send" ? status.send_permission_granted === true
@@ -239,10 +239,11 @@ export function connectGmailInPlace(
           force: true,
         }).catch(() => null);
         if (!current()) return "stale";
+        const nativePurpose: "read" | "send" = purpose === "read" ? "read" : "send";
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
           userId: input.applicationOwnerId,
-          purpose,
+          purpose: nativePurpose,
         });
         if (!current()) return "stale";
         if (!start.configured) return "failed";

@@ -209,6 +209,23 @@ describe("connectGmailInPlace (web)", () => {
     await expect(start.result).resolves.toBe("connected");
   });
 
+  it("requests full Mail scopes on web and accepts partial Google checkbox grants when read is present", async () => {
+    mocks.gmailGetStatus.mockResolvedValue({
+      connected: true,
+      scope_csv: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send",
+      send_permission_granted: true,
+      compose_permission_granted: false,
+      modify_permission_granted: false,
+    });
+    const start = connectGmailInPlace({ owner, purpose: "full" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.gmailStartConnect).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: "full", includeGrantedScopes: true }),
+    );
+    post(gmailSettlement(attemptIn(popup, GMAIL_ATTEMPT_KEY).attemptId, "succeeded"), popup);
+    await expect(start.result).resolves.toBe("connected");
+  });
+
   it("cancel ends quietly as not connected, and a late callback changes nothing", async () => {
     const cancel = new AbortController();
     const start = connectGmailInPlace({ owner, purpose: "send", cancelSignal: cancel.signal });

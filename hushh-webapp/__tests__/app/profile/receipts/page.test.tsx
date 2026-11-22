@@ -1918,7 +1918,7 @@ describe("ProfileReceiptsPage", () => {
         userId: "user-123",
         loginHint: "akshat@example.com",
         includeGrantedScopes: true,
-        purpose: "send",
+        purpose: "full",
       });
     });
     expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalledWith(
@@ -2182,7 +2182,7 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^connect mail$/i }));
     await waitFor(() =>
       expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "user-123", purpose: "send" }),
+        expect.objectContaining({ userId: "user-123", purpose: "full" }),
       ),
     );
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -2334,7 +2334,7 @@ describe("ProfileReceiptsPage", () => {
           userId: "user-123",
           loginHint: "akshat@example.com",
           includeGrantedScopes: true,
-          purpose: "send",
+          purpose: "full",
         });
         expect(assignWindowLocation).toHaveBeenCalledWith(
           "https://accounts.google.com/o/oauth2/v2/auth",
@@ -2575,7 +2575,7 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
     await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: "send", userId: "user-123" }),
+      expect.objectContaining({ purpose: "full", userId: "user-123" }),
     ));
     expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledOnce();
   });
