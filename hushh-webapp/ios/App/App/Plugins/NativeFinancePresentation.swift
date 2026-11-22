@@ -205,11 +205,19 @@ private struct NativeFinanceBalanceHistory: View {
     @State private var range = 0
     @State private var selected: Int?
     private let ranges = [(7, "1W"), (30, "1M"), (90, "3M"), (365, "1Y"), (0, "All")]
-    private func date(_ value: String) -> Date? {
-        let formatter = ISO8601DateFormatter(), input = value.count == 10 ? value + "T00:00:00Z" : value
-        if let result = formatter.date(from: input) { return result }
-        formatter.formatOptions.insert(.withFractionalSeconds); return formatter.date(from: input)
+    private let dates: [String: Date]
+    init(points: [NativeFinanceContent.Point]) {
+        self.points = points
+        let iso = ISO8601DateFormatter(), fractional = ISO8601DateFormatter()
+        fractional.formatOptions.insert(.withFractionalSeconds)
+        var parsed: [String: Date] = [:]
+        for point in points where parsed[point.date] == nil {
+            let input = point.date.count == 10 ? point.date + "T00:00:00Z" : point.date
+            if let date = iso.date(from: input) ?? fractional.date(from: input) { parsed[point.date] = date }
+        }
+        dates = parsed
     }
+    private func date(_ value: String) -> Date? { dates[value] }
     private func label(_ value: String, short: Bool = false) -> String {
         guard let parsed = date(value) else { return value }
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US"); formatter.timeZone = TimeZone(identifier: value.count == 10 ? "UTC" : "America/New_York"); formatter.dateFormat = short ? "MMM d" : "MMM d, yyyy"
