@@ -140,6 +140,12 @@ describe("Initial history warm return", () => {
         setConversations: vi.fn(), setMessages: vi.fn(), updateConversationId: vi.fn(),
         setHistoryReadyForSlot: vi.fn(), setIsLoadingHistory: vi.fn(), setSlotHistoryFailed: vi.fn(),
         restorePendingMcpReviews: vi.fn(async () => undefined),
+        isPinnedOneStreamConversation: (item: { title?: string }) =>
+          String(item.title ?? "").trim().toLowerCase() === "one",
+        pendingMainChatIdRef: { current: null },
+        setPendingMainChatId: vi.fn(),
+        isOneStreamDraftRef: { current: true },
+        setIsOneStreamDraft: vi.fn(),
       };
       const restore = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as () => Promise<void>;
       const pending = restore();

@@ -675,6 +675,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_PLAID_POSTURE: plaid_posture,
         STATE_PLAID_CLIENT_READY: plaid_client_ready,
         STATE_PLAID_RESULT: plaid_result,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
 
 

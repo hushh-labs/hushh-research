@@ -71,17 +71,35 @@ async def test_post_run_runs_in_settle_after_run_finished_while_holding_admissio
         post_run=post_memory,
     )
 
-    iterator = agent.run(_input())
+    turn_input = _input()
+    iterator = agent.run(turn_input)
     event = await anext(iterator)
     assert isinstance(event, RunFinishedEvent)
     yielded_finished = True
     assert not post_started.is_set()
 
+    # Stream settlement completes immediately without blocking on detached post_run,
+    # releasing the thread lock while retaining upgrade admission until post_run settles.
     finishing = asyncio.create_task(iterator.aclose())
-    await asyncio.wait_for(post_started.wait(), 2)
-    assert (await admission.status(incarnation="synthetic"))["activeWork"] == 1
-    post_release.set()
     await asyncio.wait_for(finishing, 2)
+    await asyncio.wait_for(post_started.wait(), 2)
+    assert turn_input.thread_id not in pod._ACTIVE_THREADS
+    assert (await admission.status(incarnation="synthetic"))["activeWork"] == 1
+
+    # A back-to-back follow-up turn on the same thread succeeds immediately (no POD_CHAT_BUSY).
+    second_agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    second_agent.close = AsyncMock()
+    second_agent.configure_pod_turn(
+        require_access=AsyncMock(),
+        runtime_scope=nullcontext,
+    )
+    second_events = [evt async for evt in second_agent.run(turn_input)]
+    assert len(second_events) == 1
+    assert isinstance(second_events[0], RunFinishedEvent)
+
+    post_release.set()
+    if pod._POST_RUN_TASKS:
+        await asyncio.wait_for(asyncio.gather(*tuple(pod._POST_RUN_TASKS)), 2)
     assert ran_after_yield == [1]
     assert (await admission.status(incarnation="synthetic"))["activeWork"] == 0
 

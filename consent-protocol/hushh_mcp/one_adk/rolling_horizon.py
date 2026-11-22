@@ -305,13 +305,15 @@ async def persist_rolling_horizon_post_turn(
     app_name: str,
     user_id: str,
     session_id: str,
+    session: Any = None,
 ) -> bool:
     """Silently update the encrypted rolling thread digest after RUN_FINISHED when needed."""
     from google.adk.events import Event, EventActions
 
-    session = await session_service.get_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
+    if session is None:
+        session = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
     if session is None:
         return False
 
