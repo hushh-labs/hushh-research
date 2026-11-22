@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
-import { prepareProfilePortrait } from "@/lib/services/profile-portrait-service";
+import { prepareProfilePortrait } from "@/lib/services/native-public-image-service";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 
 /** Memory-only presentation replica. Native gets bounded raster bytes, never a

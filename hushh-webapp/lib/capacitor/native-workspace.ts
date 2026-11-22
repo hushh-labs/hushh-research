@@ -3,7 +3,7 @@ import { validNativeWalletProfileDraft, type NativeWalletProfileDraft } from "./
 import { validNativeWalletCollection, type NativeWalletCollection } from "./native-wallet-workspace";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
-import type { NativeDrawerRow, NativeDrawerSection, NativeDrawerOption, NativeWorkspaceInlineAction } from "./native-drawers";
+import type { NativeDrawerRow, NativeDrawerSection, NativeDrawerOption, NativeWorkspaceInlineAction, NativeMarketNewsStory } from "./native-drawers";
 
 /** Private route body below the existing shell and native drawers. This is
  * additive to NativeDrawers v1, not another router or a Profile-modal lease. */
@@ -110,6 +110,34 @@ function validCalendarDate(value: unknown): value is string {
 function validCalendarTimeZone(value: string): boolean {
   try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; }
 }
+/** Match native PNG header bounds before any image decoder allocates pixels. */
+function validNewsLogo(png: string): boolean {
+  if (png.length > 40_000 || !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(png)) return false;
+  try {
+    const encoded = png.slice("data:image/png;base64,".length);
+    if (encoded.length % 4) return false;
+    const bytes = Uint8Array.from(atob(encoded), value => value.charCodeAt(0));
+    if (bytes.length < 24 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value) ||
+        String.fromCharCode(...bytes.slice(12, 16)) !== "IHDR") return false;
+    const view = new DataView(bytes.buffer), width = view.getUint32(16), height = view.getUint32(20);
+    return width > 0 && width <= 128 && height > 0 && height <= 128;
+  } catch { return false; }
+}
+
+/** Shared by News admission and the private bridge; unsupported feed text stays rich. */
+export function validNativeMarketNewsStory(label: unknown, candidate: unknown): candidate is NativeMarketNewsStory {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+  const story = candidate as NativeMarketNewsStory;
+  if (!text(label, 4096) || !closed(story, ["publisher", "publishedAt", "summary", "sentiment", "symbols", "artwork"]) ||
+      !text(story.publisher, 256) || !text(story.publishedAt, 128) || story.summary !== undefined && !text(story.summary, 4096) ||
+      story.sentiment !== undefined && !["positive", "risk"].includes(story.sentiment) ||
+      !Array.isArray(story.symbols) || story.symbols.length > 32 || new Set(story.symbols).size !== story.symbols.length || !story.symbols.every((symbol: unknown) => text(symbol, 64)) ||
+      Boolean(story.symbols.length) !== Boolean(story.artwork) || story.artwork !== undefined && !story.artwork) return false;
+  const art = story.artwork;
+  return !art || closed(art, ["glyph", "hue", "png"]) && text(art.glyph, 8) && Number.isInteger(art.hue) && art.hue >= 0 && art.hue < 360 &&
+    (art.png === undefined || typeof art.png === "string" && validNewsLogo(art.png));
+}
+
 export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean {
   if (!value || !closed(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "appearance", "accentHex", "foregroundHex", "canvasHex",
     "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate", "calendarWeek"]) ||
@@ -157,13 +185,20 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
         (section.rows.length !== 3 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || row.options || row.inlineActions || row.avatar || !row.detail)) ||
         section.layout === "toolbar" && (section.rows.length !== 1 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || !row.inlineActions?.length || row.options || row.avatar || row.formattedText || row.calendarEvent || row.detail || row.trailing || row.symbol || row.artworkId)))) return false;
     for (const row of section.rows) {
-      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent"]) ||
+      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||
         row.symbol !== undefined && !id(row.symbol) || row.artworkId !== undefined && !id(row.artworkId) || row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex) ||
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
       if (row.sosActivation !== undefined && (value.workspace !== "location" || !["hold", "countdown"].includes(row.sosActivation) || row.readOnly || row.options || row.toggle || row.inlineActions || row.menuOnTap)) return false;
       if (row.menuOnTap !== undefined && (!["location", "calendar"].includes(value.workspace) || typeof row.menuOnTap !== "boolean" || !row.inlineActions?.some((action: NativeWorkspaceInlineAction) => action.placement === "menu"))) return false;
       if (row.choiceStyle !== undefined && (value.workspace !== "calendar" || row.choiceStyle !== "segmented" || !row.options || row.options.length > 4 || row.toggle)) return false;
+      if (row.marketNews !== undefined) {
+        const story = row.marketNews;
+        if (value.workspace !== "finance" || !validNativeMarketNewsStory(row.label, story) || row.readOnly === true || row.detail !== undefined || row.symbol !== undefined || row.artworkId !== undefined ||
+            row.avatar !== undefined || row.inlineActions !== undefined || row.options !== undefined || row.toggle !== undefined || row.formattedText !== undefined || row.calendarEvent !== undefined) return false;
+        avatarBytes += story.artwork?.png?.length ?? 0;
+        if (avatarBytes > 1_920_000) return false;
+      }
       if (row.calendarEvent !== undefined) {
         const event = row.calendarEvent;
         if (value.workspace !== "calendar" || !event || !closed(event, ["day", "month", "weekday", "dateLabel", "organizer", "muted"]) || typeof event.muted !== "boolean" ||
