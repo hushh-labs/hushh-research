@@ -1,0 +1,27 @@
+.reader {
+  max-height: min(52dvh, 28rem);
+  overflow-y: scroll;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-secondary-label) transparent;
+  padding-inline-end: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.reader:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 3px;
+}
+
+.reader::-webkit-scrollbar { width: 7px; }
+.reader::-webkit-scrollbar-track { background: transparent; }
+.reader::-webkit-scrollbar-thumb {
+  background: var(--app-secondary-label);
+  border-radius: 999px;
+}
+
+
+@media (max-width: 640px) {
+  .reader { max-height: min(45dvh, 22rem); }
+}

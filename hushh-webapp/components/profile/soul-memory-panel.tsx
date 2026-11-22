@@ -18,6 +18,7 @@ import {
   type SoulMemoryModel,
   type SoulMemoryModelOptions,
 } from "./use-soul-memory-model";
+import styles from "./soul-memory-panel.module.css";
 
 /** Existing web entrypoint; the shared owner also supports native presentation. */
 export function SoulMemoryPanel(options: SoulMemoryModelOptions) {
@@ -177,10 +178,17 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
                 <RowDescription as="p">Your draft. Save changes to update memory.</RowDescription>
               </div>
             ) : null}
-            <SoulMemoryDocument
-              markdown={editing ? current.draft : current.document.markdown}
-              preview={editing}
-            />
+            <div
+              className={styles.reader}
+              role="region"
+              aria-label={editing ? "Scrollable memory preview" : "Scrollable long-term memory"}
+              tabIndex={0}
+            >
+              <SoulMemoryDocument
+                markdown={editing ? current.draft : current.document.markdown}
+                preview={editing}
+              />
+            </div>
           </div>
         </div>
         {editing ? (
