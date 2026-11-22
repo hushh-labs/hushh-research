@@ -1343,7 +1343,7 @@ provider receipt. Expiry is enforced by the database clock on every access;
 See [universal sharing operations](../../architecture/one/wallet-sharing.md) for migration,
 compatibility, verification and rollback details.
 See [Wallet](../../architecture/one/wallet.md) and the
-[Wallet Profile contract](../../roadmap/implementation/specs/2026-08-03-wallet-card-contract.md).
+[Wallet Profile contract](../../architecture/one/wallet-profile-card.md).
 
 ### Public (No Auth)
 

@@ -1,8 +1,10 @@
 # One Calendar Knowledge Graph
 
-[One](README.md)
+[One](README.md) · [One Email Knowledge Graph](./one-email-knowledge-graph.md)
 
-Status: current-code graph, including cross-account Chat availability source qualification on 2026-11-04. Live Google and deployed acceptance remain separate. This graph describes the owner's Google Calendar connection and One surfaces. It is context for people and agents, not a permission grant or alternate runtime router. The [Email graph](./one-email-knowledge-graph.md) describes the parallel Gmail boundary. The [implementation plan](../../roadmap/implementation/plans/2026-10-09-one-email-calendar-read-voice-plan.md) tracks repairs and remaining scope.
+**Status:** Live | **Intent:** Reference | **Audience:** Backend, Frontend, Voice, and Security
+
+This graph describes the owner's Google Calendar connection and Hussh One surfaces (typed Chat, Calendar UI, and read-only Live Voice). It documents current capability boundaries, authority checks, and fail-closed availability invariants for people and coding agents.
 
 ## Visual Map
 
@@ -161,9 +163,19 @@ the Calendar event receipt, and sends the reviewed message with the original
 thread and MIME headers. The sealed status read separates Calendar success
 from a refused or uncertain Gmail send. Checking status dispatches no effects.
 
-## Second read-reliability audit
+## OAuth Scope & Voice Read-Continuity Invariants
 
-The [implementation plan and 64-case matrix](../../roadmap/implementation/plans/2026-10-09-one-email-calendar-read-voice-plan.md#second-audit-read-reliability-and-latency) records the current follow-up: stable authorization generations, strict availability validation, read cancellation/deadlines, owner-fenced cards, empty-Mail grounding, and private Calendar continuation. Implementation and release evidence are tracked there; baseline tests alone did not cover the reproduced gaps.
+| Google Scope | Provider Permission | Current Product Boundary |
+| --- | --- | --- |
+| `calendar.events.readonly` | Read events | Primary and selected-calendar list, search, and exact event detail. |
+| `calendar.events` | Read and edit events | Existing manage grant satisfies event reads; Live Voice never exposes Calendar write tools. |
+| `calendar.freebusy` | Read availability | Busy intervals and bounded openings; failed or malformed responses fail closed (never treated as free). |
+| `calendar.calendarlist.readonly` | List subscribed calendars | Incremental optional list capability; absence never blocks primary calendar reads. |
+| `calendar.readonly` | Broader Calendar read | Existing broad grants satisfy contained reads while new connections stay on narrower scopes. |
+
+- **Connected Read & Cancellation Fence:** Live Voice reads (`read_calendar`) keep query windows, cursors, and entity details private to the active session and render them on the owner-fenced private screen card while passing only status/count receipts to the operational voice model. New speech, typed input, or provider cancellation immediately supersedes pending reads and bounds receipt/transport settlement (3s settlement ceiling, 1s unhealthy-transport close).
+- **DST & Availability Precision:** Owner-local DST transitions validate nonexistent and ambiguous wall-clock times explicitly. FreeBusy rejects missing busy arrays, malformed timestamps, zero-length/reversed intervals, and incomplete group expansion.
+- **Explicit Remaining Scope:** Cross-calendar multi-page aggregation beyond bounded windows and measured live p50/p95 voice audio latency SLOs remain outside the baseline automated contract.
 
 
 ## Invitations (source implementation, 2026-10-16)
