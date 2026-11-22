@@ -3,6 +3,16 @@
 import { useState } from "react";
 import { CloudHostingHealth } from "./cloud-hosting-health";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AgentUpdateActivity } from "./agent-update-activity";
 import { BrowserActivationPanel } from "@/components/computer-use/browser-activation-panel";
 import { AzureHostingNotice } from "./azure-hosting-notice";
@@ -100,6 +110,11 @@ function AgentSettingsBody({
   onOpenDetail?: (detail: Exclude<AgentSettingsDetailView, null>) => void;
 }) {
   const [localDetail, setLocalDetail] = useState<AgentSettingsDetailView>(null);
+  const [confirmSwitch, setConfirmSwitch] = useState<
+    "shared" | "own_cloud" | "sandbox" | null
+  >(null);
+  const [removePriorCloudOnSandboxSwitch, setRemovePriorCloudOnSandboxSwitch] =
+    useState(false);
   const activeDetail = onOpenDetail ? controlledDetail : localDetail;
   const openDetail = (next: Exclude<AgentSettingsDetailView, null>) => {
     if (onOpenDetail) {
@@ -130,19 +145,38 @@ function AgentSettingsBody({
     sendFailureReport,
     recoverExistingPod,
     chooseHosting,
+    switchToSharedHosting,
+    switchToOwnCloud,
+    switchToPersonalSandbox,
     browser,
     azureHosting,
   } = model;
 
   if (kind === "hosting") {
+    const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+    const isPersonalSandboxActive =
+      mode === "hussh_pods" && status?.deploymentTarget === "ace";
     const canManageCloud =
       status?.featureEnabled === true &&
-      (mode === "shared" || mode === "pending" || mode === "byoc" || mode === "unplaced");
+      (mode === "shared" ||
+        mode === "pending" ||
+        mode === "byoc" ||
+        mode === "unplaced" ||
+        mode === "hussh_pods");
+    const canSwitchToShared = mode === "hussh_pods";
     const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
+    const canSwitchToSandboxFromRow =
+      pooledSwitchAvailable &&
+      (mode === "shared" ||
+        mode === "unplaced" ||
+        mode === "pending" ||
+        mode === "byoc" ||
+        (mode === "hussh_pods" && status?.deploymentTarget !== "ace"));
     const canChooseHosted =
-      !hostedUnderMaintenance &&
-      status?.featureEnabled === true &&
-      (mode === "shared" || mode === "pending" || mode === "unplaced");
+      canSwitchToSandboxFromRow ||
+      (!hostedUnderMaintenance &&
+        status?.featureEnabled === true &&
+        (mode === "shared" || mode === "pending" || mode === "unplaced"));
     const activeHostedProvider = hostedPodProvider(status?.deploymentTarget);
     const activeCloudProvider = podCloudProvider(status?.deploymentTarget);
     const currentHostingDescription = !status
@@ -150,7 +184,6 @@ function AgentSettingsBody({
       : mode === "hussh_pods"
         ? hostedPodDisplayLabel(status.deploymentTarget)
         : HOST_LABELS[mode];
-    const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
     const showPooledSandboxSwitch =
       pooledSwitchAvailable &&
       (mode === "byoc" ||
@@ -355,16 +388,32 @@ function AgentSettingsBody({
                 : "Managed shared service with automatic updates."
             }
             textOverflow="truncate"
-            trailing={mode === "shared" ? "Current" : mode === "unplaced" ? "Choose" : undefined}
-            onClick={mode === "unplaced" ? chooseHosting : undefined}
-            chevron={mode === "unplaced"}
+            trailing={
+              mode === "shared"
+                ? "Current"
+                : mode === "unplaced"
+                  ? "Choose"
+                  : canSwitchToShared
+                    ? "Switch"
+                    : undefined
+            }
+            disabled={busy && canSwitchToShared}
+            onClick={
+              mode === "unplaced"
+                ? chooseHosting
+                : canSwitchToShared
+                  ? () => setConfirmSwitch("shared")
+                  : undefined
+            }
+            chevron={mode === "unplaced" || canSwitchToShared}
+            testId="hosting-choice-shared"
           />
           <SettingsRow
             title="Bring your own cloud"
             description={
               status && !status.featureEnabled
                 ? "Temporarily unavailable for new setups."
-                : "Your own cloud project. You approve updates."
+                : "Your own Google Cloud or Azure project. You approve updates."
             }
             textOverflow="truncate"
             trailing={
@@ -374,38 +423,176 @@ function AgentSettingsBody({
                   ? "Unavailable"
                   : mode === "pending"
                     ? "Continue"
-                    : undefined
+                    : canManageCloud && (mode === "shared" || mode === "hussh_pods")
+                      ? "Switch"
+                      : canManageCloud && mode === "unplaced"
+                        ? "Choose"
+                        : undefined
             }
-            onClick={canManageCloud ? chooseHosting : undefined}
+            disabled={busy && canManageCloud}
+            onClick={
+              !canManageCloud
+                ? undefined
+                : mode === "hussh_pods"
+                  ? () => setConfirmSwitch("own_cloud")
+                  : mode === "shared"
+                    ? () => void switchToOwnCloud()
+                    : chooseHosting
+            }
             chevron={canManageCloud}
+            testId="hosting-choice-own-cloud"
           />
           <SettingsRow
             title="Hussh Pods"
             description={
-              mode === "hussh_pods"
-                ? status?.deploymentTarget === "ace"
-                  ? "Isolated Personal Sandbox with built-in AI."
-                  : activeHostedProvider
+              isPersonalSandboxActive
+                ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure."
+                : mode === "hussh_pods"
+                  ? activeHostedProvider
                     ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}.`
                     : "Dedicated Hussh-hosted pod."
-                : hostedUnderMaintenance
-                  ? "Unavailable for new setups."
-                  : "Dedicated pod on Google Cloud or Azure."
+                  : pooledSwitchAvailable
+                    ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure."
+                    : hostedUnderMaintenance
+                      ? "Unavailable for new setups."
+                      : "Dedicated pod on Google Cloud or Azure."
             }
             textOverflow="truncate"
             trailing={
-              mode === "hussh_pods" ? (
+              isPersonalSandboxActive || (mode === "hussh_pods" && !pooledSwitchAvailable) ? (
                 "Current"
-              ) : hostedUnderMaintenance ? (
+              ) : mode === "hussh_pods" && pooledSwitchAvailable ? (
+                "Switch"
+              ) : !pooledSwitchAvailable && hostedUnderMaintenance ? (
                 "Unavailable"
+              ) : canSwitchToSandboxFromRow ? (
+                <span className="inline-flex items-center gap-2">
+                  <HostedPodDualCloudMarks />
+                  <span className="text-xs font-medium text-[var(--app-text-secondary)]">
+                    Switch
+                  </span>
+                </span>
               ) : (
                 <HostedPodDualCloudMarks />
               )
             }
-            onClick={canChooseHosted ? chooseHosting : undefined}
-            chevron={canChooseHosted}
+            disabled={busy && canChooseHosted}
+            onClick={
+              !canChooseHosted
+                ? undefined
+                : canSwitchToSandboxFromRow
+                  ? () => {
+                      setRemovePriorCloudOnSandboxSwitch(false);
+                      setConfirmSwitch("sandbox");
+                    }
+                  : chooseHosting
+            }
+            chevron={canChooseHosted && !(isPersonalSandboxActive || (mode === "hussh_pods" && !pooledSwitchAvailable))}
+            testId="hosting-choice-pods"
           />
         </SettingsGroup>
+
+        <AlertDialog
+          open={confirmSwitch === "shared"}
+          onOpenChange={(open) => !busy && setConfirmSwitch(open ? "shared" : null)}
+        >
+          <AlertDialogContent size="default">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch to Hussh Shared?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Agent One will run on the managed Hussh Shared service with automatic updates. Your encrypted Vault stays intact, and your prior pod placement is retained safely in history.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                data-testid="hosting-switch-shared-confirm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void Promise.resolve(switchToSharedHosting()).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
+                }}
+              >
+                {busy ? "Switching…" : "Switch to Hussh Shared"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={confirmSwitch === "own_cloud"}
+          onOpenChange={(open) => !busy && setConfirmSwitch(open ? "own_cloud" : null)}
+        >
+          <AlertDialogContent size="default">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch to Bring your own cloud?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your current Hussh Pod placement will be detached and retained safely in history so you can connect your own Google Cloud project or Microsoft Azure subscription next.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                data-testid="hosting-switch-own-cloud-confirm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void Promise.resolve(switchToOwnCloud()).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
+                }}
+              >
+                {busy ? "Preparing…" : "Continue to cloud setup"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={confirmSwitch === "sandbox"}
+          onOpenChange={(open) => !busy && setConfirmSwitch(open ? "sandbox" : null)}
+        >
+          <AlertDialogContent size="default">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch to Hussh Personal Sandbox?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Move Agent One into an isolated Hussh Personal Sandbox across Google Cloud and Microsoft Azure with built-in AI. Your encrypted Vault stays intact.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {mode === "byoc" ? (
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-[var(--app-border)] bg-background p-3 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={removePriorCloudOnSandboxSwitch}
+                  onChange={(e) => setRemovePriorCloudOnSandboxSwitch(e.target.checked)}
+                  data-testid="hosting-choice-sandbox-remove-cloud-checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-[var(--app-border)] accent-[color:var(--app-accent)]"
+                />
+                <span>Also remove Hussh pod resources from my cloud in the background</span>
+              </label>
+            ) : null}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                data-testid="hosting-switch-sandbox-confirm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  const removeCloud = mode === "byoc" && removePriorCloudOnSandboxSwitch;
+                  void Promise.resolve(
+                    switchToPersonalSandbox({ removePriorCloudResources: removeCloud }),
+                  ).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
+                }}
+              >
+                {busy ? "Switching…" : "Switch to Personal Sandbox"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {mode === "unknown" && status ? (
           <p className="text-sm text-[var(--app-text-secondary)]">

@@ -2026,7 +2026,38 @@ export class ApiService {
       body: JSON.stringify({}),
     });
     if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+    ApiService.clearRoutingHostingBurstCache();
     return response.json();
+  }
+
+  static async switchHostingMode(options: {
+    target: "shared" | "own_cloud";
+    isEffectCurrent?: () => boolean;
+  }): Promise<{
+    hostingMode: string;
+    detachedPriorHost: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/hosting/switch", {
+      method: "POST",
+      isEffectCurrent: options.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ target: options.target }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not switch hosting right now. Your existing setup is unchanged.",
+        ),
+      );
+    }
+    ApiService.clearRoutingHostingBurstCache();
+    return payload;
   }
 
   static async adoptPooledSandbox(options?: {
@@ -2068,6 +2099,7 @@ export class ApiService {
         ),
       );
     }
+    ApiService.clearRoutingHostingBurstCache();
     return payload;
   }
 

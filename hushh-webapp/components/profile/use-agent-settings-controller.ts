@@ -310,18 +310,189 @@ export function useAgentSettingsController({
     }
   }
 
+  function resolvePaneOrigin(): string | null {
+    return typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("profile_pane") === "1"
+      ? `${window.location.pathname}${window.location.search}`
+      : null;
+  }
+
+  function chooseHosting() {
+    if (!current()) return;
+    router.push(profileHostingSetupHref(resolvePaneOrigin()));
+  }
+
+  function syncLocalPodDisconnectInBackground() {
+    if (!userId) return;
+    const targetOwnerId = userId;
+    void import("@/lib/services/owner-pod-endpoint")
+      .then((mod) => mod.clearPinnedPodEndpoint?.(targetOwnerId))
+      .catch(() => undefined);
+    void import("@/lib/services/pre-vault-user-state-service")
+      .then((mod) => mod.PreVaultUserStateService?.bootstrapState?.(targetOwnerId, { force: true }))
+      .catch(() => undefined);
+  }
+
+  async function switchToSharedHosting(): Promise<boolean> {
+    if (busyRef.current || !current() || typeof ApiService.switchHostingMode !== "function") {
+      return false;
+    }
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await notify(
+        ApiService.switchHostingMode({ target: "shared", isEffectCurrent }),
+        {
+          loading: "Switching to Hussh Shared…",
+          success: "Switched to Hussh Shared.",
+          error: (err) =>
+            err instanceof Error && err.message
+              ? err.message
+              : "Could not switch to Hussh Shared. Your existing setup is unchanged.",
+        },
+        isEffectCurrent,
+      ).unwrap();
+      if (isEffectCurrent()) {
+        syncLocalPodDisconnectInBackground();
+        refresh();
+        dispatchFeedStateChanged();
+        return true;
+      }
+      return false;
+    } catch {
+      // Promise toast reports failure.
+      return false;
+    } finally {
+      if (current()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function switchToOwnCloud(): Promise<boolean> {
+    if (busyRef.current || !current()) return false;
+    if (mode !== "hussh_pods") {
+      router.push(
+        profileHostingSetupHref(
+          resolvePaneOrigin(),
+          mode === "shared" ? { intent: "own" } : undefined,
+        ),
+      );
+      return true;
+    }
+    if (typeof ApiService.switchHostingMode !== "function") {
+      router.push(profileHostingSetupHref(resolvePaneOrigin(), { intent: "own" }));
+      return true;
+    }
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await notify(
+        ApiService.switchHostingMode({ target: "own_cloud", isEffectCurrent }),
+        {
+          loading: "Preparing cloud setup…",
+          success: "Ready to connect your cloud.",
+          error: (err) =>
+            err instanceof Error && err.message
+              ? err.message
+              : "Could not switch from Hussh Pods right now. Your existing setup is unchanged.",
+        },
+        isEffectCurrent,
+      ).unwrap();
+      if (isEffectCurrent()) {
+        syncLocalPodDisconnectInBackground();
+        refresh();
+        dispatchFeedStateChanged();
+        router.push(profileHostingSetupHref(resolvePaneOrigin(), { intent: "own" }));
+        return true;
+      }
+      return false;
+    } catch {
+      // Promise toast reports failure.
+      return false;
+    } finally {
+      if (current()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function switchToPersonalSandbox(options?: {
+    removePriorCloudResources?: boolean;
+  }): Promise<boolean> {
+    if (busyRef.current || !current() || typeof ApiService.adoptPooledSandbox !== "function") {
+      return false;
+    }
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await notify(
+        ApiService.adoptPooledSandbox({
+          allowCleanSlate: true,
+          ...(options?.removePriorCloudResources ? { removePriorCloudResources: true } : {}),
+          isEffectCurrent,
+        }),
+        {
+          loading: isPod
+            ? "Switching to Hussh Personal Sandbox…"
+            : "Starting Hussh Personal Sandbox…",
+          success: "Your Hussh Personal Sandbox is ready.",
+          error: (err) =>
+            err instanceof Error && err.message
+              ? err.message
+              : "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+        },
+        isEffectCurrent,
+      ).unwrap();
+      if (isEffectCurrent()) {
+        refresh();
+        dispatchFeedStateChanged();
+        const targetOwnerId = userId;
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          void ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
+        if (targetOwnerId) {
+          void import("@/lib/services/pre-vault-user-state-service")
+            .then((mod) =>
+              mod.PreVaultUserStateService?.bootstrapState?.(targetOwnerId, { force: true }),
+            )
+            .catch(() => undefined);
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      // Promise toast reports failure.
+      return false;
+    } finally {
+      if (current()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
   return { kind, userId: userId ?? "", status, update, refresh, azureUpdate, busy, browser, azureHosting, notice: current() ? notice : null,
     inspection, mode, isPod, needsLinkRecovery, awaitingMicrosoft, working,
     checkStatus, act, reconnectDirectPod, sendFailureReport, recoverExistingPod, current,
-    chooseHosting: () => {
-      if (!current()) return;
-      const paneOrigin =
-        typeof window !== "undefined" &&
-        new URLSearchParams(window.location.search).get("profile_pane") === "1"
-          ? `${window.location.pathname}${window.location.search}`
-          : null;
-      router.push(profileHostingSetupHref(paneOrigin));
-    } };
+    chooseHosting, switchToSharedHosting, switchToOwnCloud, switchToPersonalSandbox };
 }
 
 export type AgentSettingsController = ReturnType<typeof useAgentSettingsController>;

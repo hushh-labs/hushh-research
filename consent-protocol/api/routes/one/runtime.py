@@ -758,6 +758,15 @@ class SharedHostingSelectResponse(BaseModel):
     nextStep: str
 
 
+class HostingSwitchRequest(BaseModel):
+    target: Literal["shared", "own_cloud"]
+
+
+class HostingSwitchResponse(BaseModel):
+    hostingMode: str
+    detachedPriorHost: bool = False
+
+
 class HostedCloudSelectResponse(BaseModel):
     deploymentTarget: str
     # The claim the hosted tier is allowed to make, returned by the server so the
@@ -864,6 +873,21 @@ async def select_shared_hosting(
         hostingMode="shared",
         nextStep="Choose how your agent reaches a model next.",
     )
+
+
+@router.post("/hosting/switch", response_model=HostingSwitchResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def switch_hosting_mode_route(
+    request: Request,
+    body: HostingSwitchRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> HostingSwitchResponse:
+    """Switch an owner's hosting mode safely from Profile Hosting."""
+    del request
+    from api.routes.one.runtime_placement import switch_hosting_placement
+
+    verdict = await switch_hosting_placement(firebase_uid, target=body.target)
+    return HostingSwitchResponse(**verdict)
 
 
 @router.post("/byoc/project/save", response_model=ByocProjectSaveResponse)

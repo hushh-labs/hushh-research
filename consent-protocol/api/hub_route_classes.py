@@ -454,6 +454,7 @@ POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save
 GET /api/one/runtime/byoc/project/suggest
 GET /api/one/runtime/byoc/setup/status
+POST /api/one/runtime/hosting/switch
 GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
 POST /api/one/runtime/pooled-sandbox/adopt

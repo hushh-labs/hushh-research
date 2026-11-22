@@ -119,7 +119,9 @@ function OwnerCloudSetupPage({ user, owner }: {
     rationale: string;
   } | null>(null);
   // Which hosting card is picked. Null falls back to the confirmed Shared state.
-  const [choice, setChoice] = useState<HostingChoice | null>(null);
+  const [choice, setChoice] = useState<HostingChoice | null>(() =>
+    searchParams.get("intent") === "own" ? "own" : null,
+  );
   // The hosted door stays paused outside Dev unless NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0;
   // on Dev (`NEXT_PUBLIC_APP_ENV=dev`) it opens for fixed-cohort pilot owners.
   const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
@@ -421,6 +423,28 @@ function OwnerCloudSetupPage({ user, owner }: {
     setError(null);
     setHostedSaving(true);
     try {
+      if (
+        isPooledSandboxSwitchAvailable() &&
+        typeof ApiService.adoptPooledSandbox === "function"
+      ) {
+        const adopted = await ApiService.adoptPooledSandbox({
+          allowCleanSlate: true,
+          isEffectCurrent: ownerCurrent,
+        });
+        if (!ownerCurrent()) return;
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
+        setHostingMode("hussh_pods");
+        setAgentState("active");
+        setAgentTarget(adopted.deploymentTarget || "ace");
+        if (ownerId) {
+          await PreVaultUserStateService.bootstrapState(ownerId, {
+            force: true,
+          }).catch(() => undefined);
+        }
+        return;
+      }
       const result = await ApiService.selectHostedCloud();
       if (!ownerCurrent()) return;
       setHosted(result);
@@ -489,17 +513,19 @@ function OwnerCloudSetupPage({ user, owner }: {
     reservedProjectId && setupStatusReadOk && job?.status === "recorded" &&
       job.projectId === reservedProjectId,
   );
-  const authorized =
-    connectedBefore || recordedReservedProject || hostedChosen || (sharedChosen && hostingMode === "shared" && job === null) ||
-    hostingMode === "hussh_pods";
-  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
-  // One alert, whichever cloud's authorization refused.
-  const shownError = error ?? azureSignIn.error;
-
   // Shared is the confirmed default when the server says so or this session chose it.
   const sharedConfirmed = hostingMode === "shared" || sharedChosen;
   const selectedHosting: HostingChoice | null =
     choice ?? (sharedConfirmed ? "shared" : null);
+  const authorized =
+    connectedBefore ||
+    recordedReservedProject ||
+    hostedChosen ||
+    (sharedChosen && selectedHosting === "shared" && hostingMode === "shared" && job === null) ||
+    hostingMode === "hussh_pods";
+  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
+  // One alert, whichever cloud's authorization refused.
+  const shownError = error ?? azureSignIn.error;
   // Azure is named only on a build where it can actually be chosen.
   const azureSelectable = isAzureHomeSelectable();
   const hostingOptions = hostingOptionsFor({ azureSelectable, hostedUnderMaintenance, ownCloudAvailable });
