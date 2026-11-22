@@ -31,26 +31,29 @@ function AddRequestCoins({
   refresh: () => void;
 }) {
   const state = useScopeCommerceAccount({ suggestedCents });
+  const fundingEnabled = state.account?.readiness?.capabilities.start_funding === true;
+  const checkBalanceButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      data-consent-role="compact-action"
+      data-consent-quiet-action="true"
+      className="whitespace-nowrap"
+      disabled={state.busy}
+      onClick={() => { void Promise.resolve(state.refresh()).finally(refresh); }}
+    >
+      Check balance
+    </Button>
+  );
   return <div className="motion-step-enter space-y-2.5 border-t border-border/60 pt-2.5">
     {state.account?.sandboxVerified === true ? <p data-consent-role="disclosure" className="text-xs text-muted-foreground">{COMMERCE_SANDBOX_COPY}</p> : null}
-    <CommerceFundingControls enabled={state.account?.readiness?.capabilities.start_funding === true}
+    <CommerceFundingControls enabled={fundingEnabled}
       busy={state.busy || state.loading} amount={state.amount} changeAmount={state.changeAmount}
       maxCents={state.account?.sandboxRemainingCents ?? null}
       checkout={() => { void state.checkout()?.then(refresh); }}
-      secondaryAction={
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          data-consent-role="compact-action"
-          data-consent-quiet-action="true"
-          className="whitespace-nowrap"
-          disabled={state.busy}
-          onClick={() => { void state.refresh().then(refresh); }}
-        >
-          Check balance
-        </Button>
-      } />
+      secondaryAction={fundingEnabled ? checkBalanceButton : null} />
+    {!fundingEnabled ? <div>{checkBalanceButton}</div> : null}
     {state.hostedPending ? <p role="status" data-consent-role="status" className="text-sm">Finish checkout in Stripe, then return here.</p> : null}
     {state.message ? <p role="alert" data-consent-role="status" className="text-sm text-destructive">{state.message}</p> : null}
   </div>;

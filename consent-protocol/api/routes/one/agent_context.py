@@ -430,8 +430,14 @@ def sanitize_agent_context(payload: dict[str, Any]) -> dict[str, Any]:
         # flags the screen already computes every render. This dict IS the
         # allowlist: what is not named here never reaches the model.
         "screen_state": sanitize_screen_state(payload.get("screen_state")),
-        "visible_incoming_consent_cards": sanitize_visible_incoming_consent_cards(
-            payload.get("visible_incoming_consent_cards")
+        **(
+            {"visible_incoming_consent_cards": visible_incoming_cards}
+            if (
+                visible_incoming_cards := sanitize_visible_incoming_consent_cards(
+                    payload.get("visible_incoming_consent_cards")
+                )
+            )
+            else {}
         ),
         "visible_modules": bounded_text_list(payload.get("visible_modules"), AGENT_MODULE_CAP),
         "visible_control_ids": bounded_text_list(

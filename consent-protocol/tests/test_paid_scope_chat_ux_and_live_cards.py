@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -287,3 +288,114 @@ async def test_consent_listener_enriches_paid_bundle_price_even_when_core_fields
     )
     assert enriched["bundle_price_coins"] == "500"
     assert enriched["request_price_coins"] == "500"
+
+
+def test_neutral_note_never_renders_from_they_placeholder() -> None:
+    from hushh_mcp.one_adk.consent_redaction import neutral_note
+
+    assert (
+        neutral_note(["Agent memory"], "they")
+        == "Access to Agent memory from the other person ended; do not use or repeat it."
+    )
+    assert (
+        neutral_note(["Agent memory"], "Kushal Trivedi")
+        == "Access to Agent memory from Kushal Trivedi ended; do not use or repeat it."
+    )
+
+
+@pytest.mark.asyncio
+async def test_admit_session_continuation_resolves_person_name_from_submission_card() -> None:
+    from hushh_mcp.one_adk.consent_chat_admission import admit_session_continuation
+
+    bundle_id = "468f164a-7997-57cb-8167-1a33bc11908e"
+    fake_event = MagicMock()
+    fake_event.custom_metadata = {
+        "kind": "information_request_submission_v1",
+        "card": {
+            "bundleId": bundle_id,
+            "personName": "Kushal Trivedi",
+            "subjectRef": "person_ref_1",
+        },
+    }
+    fake_session = MagicMock()
+    fake_session.events = [fake_event]
+    fake_session.state = {}
+
+    fake_sessions = MagicMock()
+    fake_sessions.get_session = AsyncMock(return_value=fake_session)
+
+    async def fake_get_bundle(*, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
+        assert requester_user_id == "buyer-1"
+        return {
+            "bundleId": bundle_id,
+            "personRef": "person_ref_1",
+            "items": [
+                {
+                    "requestId": "req-1",
+                    "label": "Agent memory",
+                    "status": "granted",
+                    "sensitivity": "standard",
+                    "modelProcessingAllowed": True,
+                    "accessReady": True,
+                }
+            ],
+            "progress": {
+                "outcome": "granted",
+                "fields": [
+                    {
+                        "label": "Agent memory",
+                        "status": "granted",
+                        "sensitivity": "standard",
+                    }
+                ],
+            },
+        }
+
+    input_data = MagicMock()
+    input_data.thread_id = "thread-1"
+    input_data.messages = [{"role": "user", "content": "Consent approved"}]
+
+    admitted = await admit_session_continuation(
+        {
+            "consentContinuation": {
+                "bundleId": bundle_id,
+                "outcome": "granted",
+                "sharedInformation": "Agent memory\nRole: Synthetic reviewer",
+            }
+        },
+        input_data=input_data,
+        owner_id="buyer-1",
+        sessions=fake_sessions,
+        app_name="hussh_one",
+        get_bundle=fake_get_bundle,
+        person_name=lambda _: "they",
+    )
+    shared_state = admitted[f"hussh:consent_shared:{bundle_id}"]
+    assert shared_state["personName"] == "Kushal Trivedi"
+
+
+@pytest.mark.asyncio
+async def test_pod_agent_chat_history_returns_consent_outcomes_and_ended_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes.one.pod_agent_chat import history
+
+    bundle_id = "468f164a-7997-57cb-8167-1a33bc11908e"
+    fake_session = MagicMock()
+    fake_session.events = []
+    fake_session.state = {
+        f"hussh:consent_outcome:{bundle_id}": "granted",
+        f"hussh:consent_invocations:{bundle_id}": ["inv-1"],
+        f"hussh:consent_access_ended:{bundle_id}": "revoked",
+    }
+    fake_owner = MagicMock()
+    fake_owner.owner = "buyer-1"
+    fake_owner.sessions.get_session = AsyncMock(return_value=fake_session)
+    fake_owner.require_access = AsyncMock()
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.pod_mcp_restore.pending_reviews", AsyncMock(return_value=[])
+    )
+
+    res = await history(conversation_id="conv-1", limit=1, before=None, owner=fake_owner)
+    assert res["consentOutcomes"] == {bundle_id: "granted"}
+    assert res["consentAccessEnded"] == {bundle_id: "revoked"}

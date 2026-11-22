@@ -6610,6 +6610,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     message: string,
     extra: {
       consentContinuation?: AgentChatConsentContinuation;
+      consentOutcomeMessageId?: string;
       feedAttention?: { itemId: string };
       pkmContext?: string;
       communicationPreferences?: OwnerStyleSettings;
@@ -6646,6 +6647,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           : null;
       const isConflict409 =
         errStatus === 409 || /\b409\b|conflict/i.test(failure.reason || "");
+      const dropOptimisticContinuationBubbles = () => {
+        if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+        setMessages((current) =>
+          chatSessionRef.current.isCurrent(chatEpoch)
+            ? current.filter(
+                (item) =>
+                  item.id !== assistantMessageId &&
+                  (!extra.consentOutcomeMessageId ||
+                    item.id !== extra.consentOutcomeMessageId),
+              )
+            : current,
+        );
+      };
       if (threadId && key && await continuedElsewhere({
         conversationId: threadId,
         bundleId: consentBundleId,
@@ -6653,8 +6667,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey: key,
       })) {
         if (!chatSessionRef.current.isCurrent(chatEpoch)) return "failed";
-        setMessages((current) => chatSessionRef.current.isCurrent(chatEpoch)
-          ? current.filter((item) => item.id !== assistantMessageId) : current);
+        dropOptimisticContinuationBubbles();
         clearAgentChatHistoryCache(userId);
         dispatchAgentChatHistoryInvalidated(userId);
         if (conversationIdRef.current === threadId) {
@@ -6663,16 +6676,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }
         return "continued_elsewhere";
       }
-      // If a background continuation collided with an active turn on the same
+      // If a continuation was already settled or collided on the same
       // conversation (HTTP 409), coalesce cleanly without leaving a stray red
-      // error bubble underneath the user's healthy turn.
+      // error bubble or re-arming a retry loop.
       if (isConflict409) {
-        if (chatSessionRef.current.isCurrent(chatEpoch)) {
-          setMessages((current) =>
-            current.filter((item) => item.id !== assistantMessageId),
-          );
-        }
-        return "failed";
+        dropOptimisticContinuationBubbles();
+        return "continued_elsewhere";
       }
       updateMessage(assistantMessageId, (current) =>
         settleAssistantMessageError(current, failure.reason, failure.error),
@@ -7931,11 +7940,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       userScrolled: transcriptUserScrollRef,
       scrollToSubmittedTurn: scrollToSubmittedTurnRef,
     });
+    const outcomeChipMessageId = `msg-${crypto.randomUUID()}-consent-outcome`;
     setMessages((current) => {
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return current;
       const card = collectOutgoingRequestCards(current).find((entry) => entry.bundleId === bundleId);
       return [...current, {
-        id: `msg-${crypto.randomUUID()}-consent-outcome`,
+        id: outcomeChipMessageId,
         role: "user",
         text: sent.message,
         consentBundleId: bundleId,
@@ -7956,7 +7966,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           userScrolled: transcriptUserScrollRef,
           scrollToSubmittedTurn: scrollToSubmittedTurnRef,
         });
-        const settled = await sendFollowUpTurn(sent.message, { consentContinuation: sent.continuation });
+        const settled = await sendFollowUpTurn(sent.message, {
+          consentContinuation: sent.continuation,
+          consentOutcomeMessageId: outcomeChipMessageId,
+        });
         setInformationRequestPhase(ownerId, input.bundleId, settled === "failed" ? null : "answered");
       },
     });

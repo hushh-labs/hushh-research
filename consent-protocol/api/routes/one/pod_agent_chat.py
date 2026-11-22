@@ -350,6 +350,7 @@ async def history(
     submitted = {source for event in session.events if (source := _submitted_source_id(event))}
     providers = _call_providers(session.events)
     from hushh_mcp.one_adk.consent_chat_admission import consent_history_access
+    from hushh_mcp.one_adk.consent_continuation import continued_outcomes
     from hushh_mcp.services.pod_consent_read import PodConsentReadPort
 
     consent_by_invocation, consent_ended = await consent_history_access(
@@ -378,6 +379,8 @@ async def history(
         or conversation_id in _ACTIVE_THREADS
         or turn_is_preparing(owner.owner, conversation_id)
     }
+    result["consentOutcomes"] = continued_outcomes(session.state)
+    result["consentAccessEnded"] = consent_ended
     from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews
 
     result["mcpReviews"] = [

@@ -2553,10 +2553,24 @@ async function streamAgentChatAttempt(input: {
       const httpStatus = (error as Error & { status?: unknown }).status;
       const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
       if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
-      failure = refusal
-        ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
-            !runStarted && (error as Error & { status?: number }).status === 403)
-        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
+      if (refusal) {
+        failure = routeChatKeyRefusal(
+          refusal,
+          mcpVaultEpoch,
+          !runStarted && (error as Error & { status?: number }).status === 403,
+        );
+      } else {
+        const nextFailure = new Error(
+          formatAgentChatErrorMessage(
+            error.message || "",
+            (error as Error & { code?: string }).code,
+          ),
+        );
+        if (typeof httpStatus === "number") {
+          Object.assign(nextFailure, { status: httpStatus });
+        }
+        failure = nextFailure;
+      }
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
