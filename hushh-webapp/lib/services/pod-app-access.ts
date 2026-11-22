@@ -3,8 +3,11 @@ import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import { AuthService } from "./auth-service";
 import { hasAuthSessionIdentity, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
-import { markAgentAnswered, sendChatTurn } from "./pod-chat-turn-transport";
-export { forgetAgentAnswers } from "./pod-chat-turn-transport";
+import {
+  forgetAgentAnswers as clearTransportAgentAnswers,
+  markAgentAnswered,
+  sendChatTurn,
+} from "./pod-chat-turn-transport";
 import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
@@ -24,6 +27,47 @@ type AccessPorts = {
   onChatAdmission?: (hushhId: string) => void;
   isCurrent?: () => boolean;
 };
+
+const PREWARM_GRANTS_TTL_MS = 45_000;
+type PrewarmedGrantsEntry = {
+  key: string;
+  fetchedAt: number;
+  grants: Record<string, string>;
+};
+let prewarmedChatGrants: PrewarmedGrantsEntry | null = null;
+const prewarmInFlight = new Map<string, Promise<void>>();
+const directGrantsInFlight = new Map<string, Promise<Record<string, string>>>();
+
+export function resetCachedChatGrantsForTests(): void {
+  prewarmedChatGrants = null;
+  prewarmInFlight.clear();
+  directGrantsInFlight.clear();
+}
+
+export function forgetAgentAnswers(): void {
+  clearTransportAgentAnswers();
+  prewarmedChatGrants = null;
+  directGrantsInFlight.clear();
+}
+
+function prewarmGrantsCacheKey(uid: string, endpoint: PinnedEndpoint): string {
+  return `${uid}:${endpoint.hushhId}:${endpoint.endpointVersion}:${snapshotVaultSessionEpoch()}`;
+}
+
+function isStalePinnedEndpointAdmissionError(error: unknown): boolean {
+  const code =
+    typeof (error as { code?: unknown })?.code === "string"
+      ? String((error as { code: string }).code)
+      : error instanceof Error
+        ? error.message
+        : "";
+  return (
+    code === "BINDING_POD_KEY_MISMATCH" ||
+    code === "BINDING_OWNER_OR_ENDPOINT_MISMATCH" ||
+    code.startsWith("POD_CHALLENGE_REFUSED:") ||
+    code.startsWith("POD_ADMISSION_REFUSED:")
+  );
+}
 
 function capturePodOwner() {
   const principal = snapshotValidatedAuthSessionPrincipal();
@@ -52,6 +96,10 @@ const OWNER_POD_ROUTES = new Set([
   "memory/rewrite",
   "memory/status",
   "memory/provider-consent",
+  "status",
+  "config",
+  "circle-rules",
+  "circle-rules/preview",
   "turn/stream",
   "turn/cancel",
   "puppy/models",
@@ -76,6 +124,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
+  /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
   /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
@@ -135,15 +184,37 @@ export async function ownerPodRequest(
     route === "agent-chat" && init.method?.toUpperCase() === "POST";
   // Admission is shared, so a cancelled caller stops waiting without cancelling it.
   const connect = async () => {
-    if (!(await ownerPod.loadPinnedEndpoint(uid)))
+    const pinned = await ownerPod.loadPinnedEndpoint(uid);
+    if (!pinned) {
       await untilCancelled(
         ownerPod.refreshEndpointFromHub(uid, transport),
         init.signal,
       );
-    return untilCancelled(
-      ownerPod.currentPodConnection(uid, transport),
-      init.signal,
-    );
+      return untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    }
+    try {
+      return await untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    } catch (error) {
+      if (!isStalePinnedEndpointAdmissionError(error)) throw error;
+      prewarmedChatGrants = null;
+      const refreshed = await untilCancelled(
+        ownerPod.refreshEndpointFromHub(uid, transport),
+        init.signal,
+      );
+      if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+        throw error;
+      }
+      return untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    }
   };
   // A chat turn's admission happens before the turn is handed over: a network
   // failure there (an agent still waking) proves nothing was sent.
@@ -226,6 +297,48 @@ export async function ownerPodRequest(
       method !== "POST")
   ) {
     throw new Error("POD_ACTION_REQUEST_REFUSED");
+  }
+  if (route === "status") {
+    if (
+      method !== "GET" ||
+      (body !== undefined && body !== null) ||
+      session.role !== "app" ||
+      !session.scopes.includes("pod.status")
+    ) {
+      throw new Error("POD_STATUS_REQUEST_REFUSED");
+    }
+  }
+  if (route === "config") {
+    if (
+      method !== "POST" ||
+      session.role !== "app" ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_CONFIG_REQUEST_REFUSED");
+    }
+  }
+  if (
+    route === "circle-rules" ||
+    route === "circle-rules/preview" ||
+    /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/.test(route)
+  ) {
+    const isRead =
+      (route === "circle-rules" && method === "GET") ||
+      (route === "circle-rules/preview" && method === "POST");
+    const isWrite =
+      (route === "circle-rules" && method === "PUT") ||
+      (/^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}$/.test(route) &&
+        method === "DELETE") ||
+      (/^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}\/toggle$/.test(route) &&
+        method === "POST");
+    const requiredScope = isRead ? "pod.status" : "pod.config";
+    if (
+      (!isRead && !isWrite) ||
+      session.role !== "app" ||
+      !session.scopes.includes(requiredScope)
+    ) {
+      throw new Error("POD_CIRCLE_RULES_REQUEST_REFUSED");
+    }
   }
   if (/^connectors\/(gmail|calendar|drive|contacts)$/.test(route)) {
     if (
@@ -417,6 +530,27 @@ async function chatGrantsFollowingEndpoint(
   }
 }
 
+async function directChatGrantsDeduped(
+  cacheKey: string,
+  endpoint: PinnedEndpoint,
+  transport: OwnerPodTransport,
+  signal?: AbortSignal | null,
+): Promise<Record<string, string>> {
+  const existing = directGrantsInFlight.get(cacheKey);
+  if (existing) {
+    return untilCancelled(existing, signal);
+  }
+  const work = directChatGrants(endpoint, transport, signal);
+  directGrantsInFlight.set(cacheKey, work);
+  try {
+    return await untilCancelled(work, signal);
+  } finally {
+    if (directGrantsInFlight.get(cacheKey) === work) {
+      directGrantsInFlight.delete(cacheKey);
+    }
+  }
+}
+
 async function directChatGrants(
   endpoint: PinnedEndpoint,
   transport: OwnerPodTransport,
@@ -515,6 +649,117 @@ export async function reconnectOwnerPod(
     cache: "no-store",
   });
   if (!probe.ok) throw new Error(`POD_DIRECT_UNAVAILABLE:${probe.status}`);
+}
+
+/**
+ * Non-blockingly warms the signed pod binding, standing capability grants, and
+ * private agent container on authenticated app load so Send starts at 0ms setup.
+ */
+export async function prewarmOwnerPodChatAccess(ports: {
+  hosting: () => Promise<{ hostingMode?: string }>;
+  transport: () => Promise<OwnerPodTransport>;
+  fetch: (url: string, init: RequestInit) => Promise<Response>;
+}): Promise<void> {
+  let admittedOwner: ReturnType<typeof capturePodOwner>;
+  try {
+    admittedOwner = capturePodOwner();
+  } catch {
+    return;
+  }
+  const uid = admittedOwner.ownerId;
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const dedupeKey = `${uid}:${vaultEpoch}`;
+  const existing = prewarmInFlight.get(dedupeKey);
+  if (existing) return existing;
+
+  let task!: Promise<void>;
+  task = (async () => {
+    try {
+      const usePod = await usesOwnerPod(ports.hosting).catch(() => false);
+      if (
+        !usePod ||
+        !isFirebaseSessionOwnerCurrent(admittedOwner) ||
+        !isVaultSessionEpochCurrent(vaultEpoch)
+      ) {
+        return;
+      }
+      const ownerPod = await import("./owner-pod-endpoint");
+      const transport = await ports.transport();
+      const pinned = await ownerPod.loadPinnedEndpoint(uid);
+      if (!pinned) {
+        await ownerPod.refreshEndpointFromHub(uid, transport);
+      }
+      let connection: OwnerPodConnection;
+      try {
+        connection = await ownerPod.currentPodConnection(uid, transport);
+      } catch (error) {
+        if (!pinned || !isStalePinnedEndpointAdmissionError(error)) throw error;
+        const refreshed = await ownerPod.refreshEndpointFromHub(uid, transport);
+        if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+          throw error;
+        }
+        connection = await ownerPod.currentPodConnection(uid, transport);
+      }
+      if (
+        !isFirebaseSessionOwnerCurrent(admittedOwner) ||
+        !isVaultSessionEpochCurrent(vaultEpoch)
+      ) {
+        return;
+      }
+      const cacheKey = prewarmGrantsCacheKey(uid, connection.endpoint);
+      const alreadyFresh =
+        prewarmedChatGrants &&
+        prewarmedChatGrants.key === cacheKey &&
+        Date.now() - prewarmedChatGrants.fetchedAt <= PREWARM_GRANTS_TTL_MS;
+
+      await Promise.allSettled([
+        alreadyFresh
+          ? Promise.resolve()
+          : directChatGrantsDeduped(cacheKey, connection.endpoint, transport)
+              .then((grants) => {
+                if (
+                  Object.keys(grants).length > 0 &&
+                  isFirebaseSessionOwnerCurrent(admittedOwner) &&
+                  isVaultSessionEpochCurrent(vaultEpoch)
+                ) {
+                  prewarmedChatGrants = {
+                    key: prewarmGrantsCacheKey(uid, connection.endpoint),
+                    fetchedAt: Date.now(),
+                    grants,
+                  };
+                }
+              })
+              .catch(async (error: unknown) => {
+                if (
+                  error instanceof EndpointAdvancedError &&
+                  isFirebaseSessionOwnerCurrent(admittedOwner)
+                ) {
+                  await ownerPod.refreshEndpointFromHub(uid, transport).catch(() => undefined);
+                }
+              }),
+        ports
+          .fetch(`${connection.endpoint.url}/health`, {
+            method: "GET",
+            credentials: "omit",
+            cache: "no-store",
+          })
+          .then((res) => {
+            if (!isAgentStillWaking(res)) markAgentAnswered(connection.endpoint.url);
+            return res.body?.cancel().catch(() => undefined);
+          })
+          .catch(() => undefined),
+      ]);
+    } catch {
+      // Pre-warming is strictly best-effort and must never surface an error.
+    } finally {
+      if (prewarmInFlight.get(dedupeKey) === task) {
+        prewarmInFlight.delete(dedupeKey);
+      }
+    }
+  })();
+
+  prewarmInFlight.set(dedupeKey, task);
+  return task;
 }
 
 /** Select hosting once per request. A verified pin permits hub-outage continuity. */

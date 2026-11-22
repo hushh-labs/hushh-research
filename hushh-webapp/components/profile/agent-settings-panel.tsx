@@ -8,7 +8,27 @@ import { AzureHostingNotice } from "./azure-hosting-notice";
 import { CloudRemovalControl } from "./cloud-removal-control";
 import { canInstallUpdate, releaseLabel } from "@/lib/feed/agent-update-status";
 import { Button } from "@/lib/morphy-ux/morphy";
-import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import {
+  HOSTED_POD_PROVIDER_LABELS,
+  hostedPodDisplayLabel,
+  hostedPodProvider,
+  isHostedAzureMigrationAvailable,
+  isHostedPodTierUnderMaintenance,
+  isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
+  ownerCloudProvider,
+  podCloudProvider,
+} from "@/lib/one/owner-cloud";
+import {
+  HostedPodDualCloudMarks,
+  HusshPodsActiveCard,
+  HusshPodsMigrationCard,
+  PodCloudBadge,
+  PooledSandboxSwitchCard,
+} from "@/components/connections/hussh-pods-cloud-card";
+import { CircleAutoApprovePanel } from "@/components/connections/circle-auto-approve-panel";
+import { PodSessionLockdownControl } from "@/components/connections/pod-session-lockdown-row";
+import { ROUTES } from "@/lib/navigation/routes";
 import { HOST_LABELS, agentSettingsSummary, useAgentSettingsController, type AgentSettingsController } from "./use-agent-settings-controller";
 export { HOST_LABELS, agentSettingsSummary, useAgentSettingsController } from "./use-agent-settings-controller";
 export type { AgentSettingsController } from "./use-agent-settings-controller";
@@ -32,12 +52,51 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
     const canManageCloud =
       status?.featureEnabled === true &&
       (mode === "shared" || mode === "pending" || mode === "byoc" || mode === "unplaced");
+    const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
+    const canChooseHosted =
+      !hostedUnderMaintenance &&
+      status?.featureEnabled === true &&
+      (mode === "shared" || mode === "pending" || mode === "unplaced");
+    const activeHostedProvider = hostedPodProvider(status?.deploymentTarget);
+    const activeCloudProvider = podCloudProvider(status?.deploymentTarget);
+    const currentHostingDescription = !status
+      ? "Checking hosting…"
+      : mode === "hussh_pods"
+        ? hostedPodDisplayLabel(status.deploymentTarget)
+        : HOST_LABELS[mode];
+    const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+    const showPooledSandboxSwitch =
+      pooledSwitchAvailable &&
+      (mode === "byoc" ||
+        mode === "pending" ||
+        (mode === "hussh_pods" && status?.deploymentTarget !== "ace"));
+    const showHostedMigration =
+      !pooledSwitchAvailable &&
+      isHostedAzureMigrationAvailable() &&
+      status?.state === "active" &&
+      (mode === "byoc" || (mode === "hussh_pods" && activeHostedProvider === "gcp"));
+
     return (
       <div className="space-y-5">
         <SettingsGroup density="compact">
           <SettingsRow
             title="Current hosting"
-            description={status ? HOST_LABELS[mode] : "Checking hosting…"}
+            description={currentHostingDescription}
+            trailing={
+              activeCloudProvider ? (
+                <PodCloudBadge
+                  provider={activeCloudProvider}
+                  label={
+                    mode === "hussh_pods" && activeHostedProvider
+                      ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
+                      : undefined
+                  }
+                  testId="current-hosting-cloud-badge"
+                />
+              ) : mode === "hussh_pods" && status?.deploymentTarget === "ace" ? (
+                <HostedPodDualCloudMarks />
+              ) : undefined
+            }
           />
           {mode === "byoc" && status?.cloudProject ? (
             <SettingsRow
@@ -49,8 +108,58 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           ) : null}
           <CloudHostingHealth inspection={inspection} />
         </SettingsGroup>
+        {mode === "hussh_pods" && !hostedUnderMaintenance ? (
+          <SettingsGroup title="Hussh Pods cloud" density="compact" headingClassName="!mt-5">
+            <HusshPodsActiveCard deploymentTarget={status?.deploymentTarget} embedded />
+          </SettingsGroup>
+        ) : null}
+        {mode === "byoc" && status?.state === "active" ? (
+          <PodSessionLockdownControl testId="byoc-session-only-lockdown" />
+        ) : null}
+        {(mode === "hussh_pods" || mode === "byoc") && status?.state === "active" ? (
+          <CircleAutoApprovePanel />
+        ) : null}
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice model={azureHosting} />
+        ) : null}
+        {showPooledSandboxSwitch ? (
+          <SettingsGroup title="Personal Sandbox" density="compact" headingClassName="!mt-5">
+            <PooledSandboxSwitchCard
+              hasAssignedCloudPod={mode === "byoc" || mode === "hussh_pods"}
+              isOwnerCloud={mode === "byoc"}
+              sourceCloudLabel={
+                mode === "byoc"
+                  ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||
+                    (ownerCloudProvider(status?.deploymentTarget) === "azure"
+                      ? "Microsoft Azure"
+                      : ownerCloudProvider(status?.deploymentTarget) === "gcp"
+                        ? "Google Cloud"
+                        : null)
+                  : mode === "hussh_pods" && activeHostedProvider
+                    ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
+                    : null
+              }
+              owningRoute={ROUTES.PROFILE_HOSTING}
+              onSwitched={refresh}
+              embedded
+            />
+          </SettingsGroup>
+        ) : null}
+        {showHostedMigration ? (
+          <SettingsGroup title="Move to Hussh Pods" density="compact" headingClassName="!mt-5">
+            <HusshPodsMigrationCard
+              sourceMode={mode}
+              sourceTarget={status?.deploymentTarget}
+              sourceProject={
+                mode === "byoc"
+                  ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") || null
+                  : null
+              }
+              onMigrated={refresh}
+              owningRoute={ROUTES.PROFILE_HOSTING}
+              embedded
+            />
+          </SettingsGroup>
         ) : null}
 
         <SettingsGroup
@@ -92,10 +201,22 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
             title="Hussh Pods"
             description={
               mode === "hussh_pods"
-                ? "Your dedicated pod. You approve updates."
-                : "Closed to new setups."
+                ? activeHostedProvider
+                  ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.`
+                  : "Your dedicated pod. You approve updates."
+                : hostedUnderMaintenance
+                  ? "Closed to new setups."
+                  : "Dedicated Personal Sandbox managed by Hussh."
             }
-            trailing={mode === "hussh_pods" ? "Current" : "Unavailable"}
+            trailing={
+              mode === "hussh_pods"
+                ? "Current"
+                : hostedUnderMaintenance
+                  ? "Unavailable"
+                  : "Available"
+            }
+            onClick={canChooseHosted ? chooseHosting : undefined}
+            chevron={canChooseHosted}
           />
         </SettingsGroup>
 

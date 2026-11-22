@@ -36,6 +36,17 @@ import { AuthService } from "@/lib/services/auth-service";
 import { decodeFirebaseTokenSubject } from "@/lib/auth/firebase-token-subject";
 import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
+import {
+  extractHostedMigrationErrorMessage,
+  parseHostedAzureMigrationResult,
+  parseHostedAzureMigrationStatus,
+  parseHostedSourceRetirementStatus,
+  parseHostedUmbrellaCellsStatus,
+  type HostedAzureMigrationResult,
+  type HostedAzureMigrationStatus,
+  type HostedSourceRetirementStatus,
+  type HostedUmbrellaCellsStatus,
+} from "@/lib/services/hosted-pod-migration";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import {
@@ -1923,6 +1934,146 @@ export class ApiService {
     });
     if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
     return response.json();
+  }
+
+  static async getHostedUmbrellaCellsStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedUmbrellaCellsStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/cells/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_CELLS_STATUS_UNAVAILABLE");
+    return parseHostedUmbrellaCellsStatus(await response.json());
+  }
+
+  static async getHostedAzureMigrationStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedAzureMigrationStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/azure/migrate/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_MIGRATION_STATUS_UNAVAILABLE");
+    return parseHostedAzureMigrationStatus(await response.json());
+  }
+
+  static async migrateToHostedAzure(options?: {
+    cellId?: string;
+    allowFreshPodLog?: boolean;
+    isEffectCurrent?: () => boolean;
+  }): Promise<HostedAzureMigrationResult> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/azure/migrate", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        ...(options?.cellId ? { cellId: options.cellId } : {}),
+        ...(options?.allowFreshPodLog ? { allowFreshPodLog: true } : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not move your pod right now. Your current setup is unchanged.",
+        ),
+      );
+    }
+    return parseHostedAzureMigrationResult(payload);
+  }
+
+  static async getHostedSourceRetirementStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedSourceRetirementStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/source-retirement/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_SOURCE_RETIREMENT_UNAVAILABLE");
+    return parseHostedSourceRetirementStatus(await response.json());
+  }
+
+  static async confirmHostedSourceRetirement(options?: {
+    placementId?: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<HostedSourceRetirementStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/source-retirement/confirm", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(options?.placementId ? { placementId: options.placementId } : {}),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not confirm your new pod right now. Your safety window is unchanged.",
+        ),
+      );
+    }
+    return parseHostedSourceRetirementStatus(payload);
+  }
+
+  static async adoptPooledSandbox(options?: {
+    allowCleanSlate?: boolean;
+    removePriorCloudResources?: boolean;
+    isEffectCurrent?: () => boolean;
+  }): Promise<{
+    status: string;
+    hostingMode: string;
+    deploymentTarget: string;
+    hushhId: string;
+    podUrl: string;
+    detachedPriorHost: boolean;
+    migrationMode?: string;
+    syncedRecordCount?: number;
+    backgroundCleanupQueued?: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/pooled-sandbox/adopt", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        allowCleanSlate: options?.allowCleanSlate === true,
+        ...(options?.removePriorCloudResources === true
+          ? { removePriorCloudResources: true }
+          : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+        ),
+      );
+    }
+    return payload;
   }
 
   static async selectManagedGeminiRuntime(): Promise<{
@@ -4362,6 +4513,26 @@ export class ApiService {
     };
   }
 
+  private static rewriteLocalDevSandboxUrl(url: string): string {
+    if (process.env.NODE_ENV !== "development") return url;
+    const rawOverride = (process.env.NEXT_PUBLIC_LOCAL_SANDBOX_EDGE_URL ?? "").trim();
+    if (!rawOverride) return url;
+    try {
+      const localBase = new URL(rawOverride);
+      if (
+        (localBase.protocol !== "http:" && localBase.protocol !== "https:") ||
+        (localBase.hostname !== "127.0.0.1" && localBase.hostname !== "localhost")
+      ) {
+        return url;
+      }
+      const parsed = new URL(url);
+      if (!parsed.pathname.startsWith("/u/")) return url;
+      return `${localBase.origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+
   /** Exact app routes only; content never falls back to the shared hub. */
   static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
     onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string, isCurrent?: () => boolean): Promise<Response> {
@@ -4376,10 +4547,27 @@ export class ApiService {
     if (!current()) throw new Error("POD_OWNER_CHANGED");
     return access.ownerPodRequest(path, init, {
       transport: () => this.ownerPodTransport(),
-      fetch: (url, options) => fetchRequest(url, withCurrentOwnerEffect(options, current)),
+      fetch: (url, options) => fetchRequest(ApiService.rewriteLocalDevSandboxUrl(url), withCurrentOwnerEffect(options, current)),
       onChatAdmission,
       isCurrent: current,
     }, expectedHushhId, principal.ownerId, vaultEpoch);
+  }
+
+  /**
+   * Best-effort app-load pre-warming of private agent pod connection,
+   * standing capability grants, and container wake state.
+   */
+  static async prewarmOwnerPodChatAccess(): Promise<void> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    if (!principal || !isFirebaseSessionOwnerCurrent(principal)) {
+      return;
+    }
+    const access = await import("./pod-app-access");
+    await access.prewarmOwnerPodChatAccess({
+      hosting: () => this.getPersonalAgentStatusForRouting(),
+      transport: () => this.ownerPodTransport(),
+      fetch: (url, init) => apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), init),
+    });
   }
 
   /** Public identity only, after signed endpoint verification and app admission. */
