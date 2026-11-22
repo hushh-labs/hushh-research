@@ -91,6 +91,7 @@ struct NativeDrawerRow: Codable, Identifiable {
     var options: [NativeDrawerOption]? = nil
     var choiceStyle: String? = nil
     var marketNews: NativeMarketNewsStory? = nil
+    var finance: NativeFinanceContent? = nil
     var calendarEvent: NativeCalendarEvent? = nil
     var toggle: Bool? = nil
     var portrait: Bool? = nil

@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeFinanceLayer } from "@/components/kai/native-finance-workspace";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, X } from "@/components/icons";
@@ -1199,6 +1200,7 @@ export function KaiAnalysisPageContent() {
 
   return (
     <>
+      {showWorkspace ? <NativeFinanceLayer pane="analysis" active title="Analysis" contentPresentation="rich" sections={[]} fallback={null} /> : null}
       {showWorkspace ? (
         <div
           className="w-full min-w-0 max-w-full"

@@ -1,5 +1,10 @@
 "use client";
 
+import { marketNewsArticleUrl } from "@/lib/kai/market-news-diversity";
+import { Browser } from "@capacitor/browser";
+import { marketNewsCoverSources } from "@/components/kai/cards/market-news-briefing";
+import { nativeFinanceArtworkSource } from "@/lib/capacitor/native-finance-content";
+import { symbolAvatarFallback } from "@/components/kai/shared/symbol-avatar";
 import { NativeFinanceLayer, useNativeFinancePaneActive } from "../native-finance-workspace";
 import { useVault } from "@/lib/vault/vault-context";
 import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
@@ -1197,11 +1202,13 @@ export function KaiMarketPreviewView() {
   const sections: NativeWorkspaceSurfaceSection[] = [{ key: "market-controls", title: "US markets", rows: [
     ...(marketStatus ? [{ key: "status", label: marketStatus.label }] : []),
     { key: "refresh", label: "Refresh market home", enabled: !displayRefreshing, pending: displayRefreshing, run: () => loadInsights({ manual: true }) },
-  ] }, { key: "indices", title: "Index levels in points", rows: indexStripItems.map(metric => ({
+  ] }];
+  for (let index = 0; index < indexStripItems.length; index += 2) sections.push({ key: `indices:${index}`, ...(index === 0 ? { title: "Index levels in points" } : {}), layout: "tiles", rows: indexStripItems.slice(index, index + 2).map(metric => ({
     key: `index:${metric.id || metric.label}`, label: metric.label,
-    detail: [metric.value, metric.delta, metric.quoteStatus, metric.quotedAt ? formatOverviewAsOf(metric.quotedAt) : "Time unavailable"].filter(Boolean).join(" · "),
-    web: Boolean(metric.detailPanel), run: () => setSelectedOverviewMetricId(metric.id || metric.label),
-  })) }];
+    finance: { kind: "index", value: metric.value, change: metric.delta || "Unavailable", tone: metric.tone === "positive" || metric.tone === "negative" ? metric.tone : "neutral", points: metric.sparkline ?? [],
+      quotedAt: [metric.quoteStatus, metric.quotedAt ? formatOverviewAsOf(metric.quotedAt) : "Time unavailable"].filter(Boolean).join(" · ") },
+    ...(metric.detailPanel ? { web: true, run: () => setSelectedOverviewMetricId(metric.id || metric.label) } : {}),
+  })) });
   if (displayLoading && !hasPayload) sections.push({ key: "market-loading", rows: [{ key: "loading", label: "Loading your market view.", pending: true }] });
   if (displayError) sections.push({ key: "market-error", rows: [
     { key: "error", label: hasPayload ? "Showing saved data. Couldn't refresh just now." : "Failed to load market home", detail: hasPayload ? undefined : displayError },
@@ -1211,31 +1218,29 @@ export function KaiMarketPreviewView() {
     sections.push({ key: "market-news", title: "Market news", rows: [
       { key: "all-news", label: "All news", run: () => openOneMarketHref(ROUTES.KAI_NEWS) },
       ...marketNewsRows.slice(0, 4).map((row, index) => ({ key: `headline:${index}:${row.url}`, label: row.title,
-        detail: [row.source_name || "Market news", row.published_at ? formatOverviewAsOf(row.published_at) : "Recent", row.summary].filter(Boolean).join(" · "),
-        web: true, run: () => openOneMarketHref(row.url),
+        finance: { kind: "headline" as const, publisher: row.source_name || "Market news", publishedAt: row.published_at ? formatOverviewAsOf(row.published_at) : "Recent", sources: marketNewsCoverSources(row, true).map(url => ({ url })) },
+        enabled: Boolean(marketNewsArticleUrl(row.url)), run: () => { const url = marketNewsArticleUrl(row.url); return url ? Browser.open({ url }) : undefined; },
       })),
       ...(!marketNewsRows.length ? [{ key: "news-empty", label: "Headlines will appear here when a market source is available." }] : []),
     ] });
     if (sectorRotationRows.length) sections.push({ key: "sectors", title: "Sector rotation", rows: [
       { key: "sector-range", label: sectorModel.period === "1w" ? "Five trading sessions" : "Daily price change", detail: sectorModel.shortDateRange },
-      ...(["1d", "1w"] as const).map(period => ({ key: `sector-period:${period}`, label: period === "1d" ? "1 day" : "1 week", selected: sectorModel.period === period, run: () => sectorModel.setPeriod(period) })),
-      ...sectorModel.visibleRows.map(row => ({ key: `sector:${row.sector}`, label: row.sector, detail: formatOneMarketPercent(row.changePct) })),
+      { key: "sector-period", label: "Sector performance period", choiceStyle: "segmented", choices: (["1d", "1w"] as const).map(period => ({ key: period, label: period === "1d" ? "1 day" : "1 week", selected: sectorModel.period === period, run: () => sectorModel.setPeriod(period) })) },
+      ...sectorModel.visibleRows.map(row => ({ key: `sector:${row.sector}`, label: row.sector, finance: { kind: "sector" as const, value: row.changePct, maximum: sectorModel.maximumReturn } })),
       ...(!sectorModel.chartRows.length ? [{ key: "sectors-empty", label: `${sectorModel.period === "1w" ? "Weekly" : "Daily"} sector performance is unavailable.` }] : []),
-      ...(sectorModel.canExpand ? [{ key: "sector-scope", label: sectorModel.expanded ? "Show highlights" : "Show all sectors", run: () => sectorModel.setExpanded(value => !value) }] : []),
+      ...(sectorModel.canExpand ? [{ key: "sector-scope", label: sectorModel.expanded ? "Show highlights" : `All ${sectorModel.chartRows.length} sectors`, detail: !sectorModel.expanded ? "3 highest · 3 lowest" : "All available sectors", run: () => sectorModel.setExpanded(value => !value) }] : []),
+      ...(sectorModel.chartRows[0]?.basis ? [{ key: "sector-basis", label: sectorModel.chartRows[0].basis }] : []),
     ] });
-    for (const group of [{ key: "gain", title: "Gainers" }, { key: "lose", title: "Losers" }] as const) {
-      const rows = moverGroups[group.key].slice(0, 3);
-      sections.push({ key: `movers:${group.key}`, title: group.title, rows: Array.from({ length: 3 }, (_, index) => {
-        const row = rows[index];
-        return row ? { key: `mover:${group.key}:${row.symbol}`, label: row.symbol, detail: [row.companyName, formatOneMarketPercent(row.changePct), row.asOf ? formatOverviewAsOf(row.asOf) : "Time unavailable"].join(" · "),
-          run: () => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol })) } : { key: `mover-empty:${group.key}:${index}`, label: `${group.title} ${index + 1}: Quote unavailable` };
-      }) });
-    }
+    for (let rank = 0; rank < 3; rank++) sections.push({ key: `movers:${rank}`, ...(rank === 0 ? { title: "Market movers" } : {}), layout: "tiles", rows: (["gain", "lose"] as const).map(group => {
+      const row = moverGroups[group][rank];
+      return row ? { key: `mover:${group}:${row.symbol}`, label: row.symbol, ...(rank === 0 ? { detail: group === "gain" ? "Movers" : "Losers" } : {}), finance: { kind: "security" as const, style: "mover" as const, symbol: row.symbol, artwork: symbolAvatarFallback(row.symbol), price: formatOneMarketPercent(row.changePct), ...(row.changePct === null ? {} : { change: row.changePct }), metadata: row.companyName, note: row.asOf ? formatOverviewAsOf(row.asOf) : "Time unavailable" },
+        run: () => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol })) } : { key: `mover-empty:${group}:${rank}`, label: "Quote unavailable", detail: `${group === "gain" ? "Movers" : "Losers"} ${rank + 1}` };
+    }) });
     if (showConnectPortfolio) sections.push({ key: "connect-portfolio", rows: vaultOwnerToken ? [
       { key: "portfolio-description", label: "See insights tailored to your portfolio", detail: "Unlock personalized analysis and real-time alerts." },
       { key: "connect-portfolio", label: "Connect Portfolio", run: () => openOneMarketHref(ROUTES.KAI_IMPORT) },
       { key: "continue-exploring", label: "Or continue exploring", run: () => openOneMarketHref(ROUTES.KAI_HOME) },
     ] : [{ key: "portfolio-locked", label: "Unlock your vault to see portfolio valuation." }] });
   }
-  return <NativeFinanceLayer active contentPresentation="rich" title="Market" sections={sections} webChild={Boolean(retainedOverviewMetric?.detailPanel)} fallback={content} />;
+  return <NativeFinanceLayer pane="market" active contentPresentation={marketNewsRows.slice(0, 4).some(row => marketNewsCoverSources(row, true).some(url => !nativeFinanceArtworkSource(url))) ? "rich" : "native"} title="Market" sections={sections} webChild={Boolean(retainedOverviewMetric?.detailPanel)} fallback={content} />;
 }

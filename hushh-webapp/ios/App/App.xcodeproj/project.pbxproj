@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0F010D2F0EA44038BCA50237 /* NativeFinancePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A1B69E82134D5DA49BA95C /* NativeFinancePresentation.swift */; };
 		C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A7B90100000000000000A1; };
 		5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */; };
 		AC0011223344556677889901 /* CountryPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0011223344556677889902 /* CountryPickerTests.swift */; };
@@ -36,6 +37,7 @@
 		5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */; };
 		5E5510C100000000000000E7 /* NativeProfilePaymentsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */; };
 		5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */; };
+		6A9998C6948441A98534688F /* NativeFinanceArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27EB9DA7BBC482180FB5AD8 /* NativeFinanceArtwork.swift */; };
 		5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */; };
 		5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000D /* NativeProfileStyleScene.swift */; };
 		5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000F /* NativeProfileSupportScene.swift */; };
@@ -145,6 +147,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C7A1B69E82134D5DA49BA95C /* NativeFinancePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFinancePresentation.swift; sourceTree = "<group>"; };
 		C4A7B90100000000000000A1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFeedbackPresentation.swift; path = Plugins/NativeFeedbackPresentation.swift; sourceTree = "<group>"; };
 		5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GoogleConnectorAuthPlugin.swift; path = Plugins/GoogleConnectorAuthPlugin.swift; sourceTree = "<group>"; };
 		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
@@ -184,6 +187,7 @@
 		5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileMemoryScene.swift; path = Plugins/NativeProfileMemoryScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePaymentsScene.swift; path = Plugins/NativeProfilePaymentsScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWorkspacePresentation.swift; path = Plugins/NativeWorkspacePresentation.swift; sourceTree = "<group>"; };
+		B27EB9DA7BBC482180FB5AD8 /* NativeFinanceArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFinanceArtwork.swift; path = Plugins/NativeFinanceArtwork.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileOwnedSheet.swift; path = Plugins/NativeProfileOwnedSheet.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000D /* NativeProfileStyleScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileStyleScene.swift; path = Plugins/NativeProfileStyleScene.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000F /* NativeProfileSupportScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileSupportScene.swift; path = Plugins/NativeProfileSupportScene.swift; sourceTree = "<group>"; };
@@ -432,6 +436,8 @@
 				5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */,
 				5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */,
 				5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */,
+				B27EB9DA7BBC482180FB5AD8 /* NativeFinanceArtwork.swift */,
+				C7A1B69E82134D5DA49BA95C /* NativeFinancePresentation.swift */,
 				FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */,
 				FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */,
 				FA82B4AC0000000000000005 /* NativeWalletProfileEditor.swift */,
@@ -724,6 +730,8 @@
 				5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */,
 				5E5510C100000000000000E7 /* NativeProfilePaymentsScene.swift in Sources */,
 				5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */,
+				6A9998C6948441A98534688F /* NativeFinanceArtwork.swift in Sources */,
+				0F010D2F0EA44038BCA50237 /* NativeFinancePresentation.swift in Sources */,
 				FA82B4AC000000000000000C /* NativeAuthoredIcon.swift in Sources */,
 				FA82B4AC0000000000000008 /* NativeMapActionPresentation.swift in Sources */,
 				FA82B4AC0000000000000006 /* NativeWalletProfileEditor.swift in Sources */,

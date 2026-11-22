@@ -1,3 +1,4 @@
+import { NativeFinanceRoute, NativeFinanceLayer } from "@/components/kai/native-finance-workspace";
 import { NativeWorkspaceSurface } from "@/lib/capacitor/native-workspace-surface";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -204,6 +205,50 @@ describe("private route-body presentation boundary", () => {
       expect(open).toHaveBeenCalledOnce();
       expect(drawerBridge.applyWorkspace).not.toHaveBeenCalled();
     } finally { view.unmount(); }
+  });
+
+  it("retains the Finance presenter across root tabs and fences callbacks from a prior pane visit", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-finance-owner");
+    bridge.documentId = crypto.randomUUID(); profile.pathname = "/one/kai";
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    document.documentElement.style.setProperty("--background", "#ffffff");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; seat.style.paddingBottom = "0px"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["finance"], ...nativeDrawerIsolation() });
+    drawerBridge.applyWorkspace.mockImplementation(async state => ({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    drawerBridge.confirmWorkspaceChoice.mockResolvedValue({ valid: true });
+    drawerBridge.settleWorkspaceChoice.mockResolvedValue({ valid: true });
+    const open = vi.fn();
+    function Finance({ pane }: { pane: "market" | "portfolio" | "analysis" }) {
+      const frame = useRef<HTMLDivElement>(null);
+      return <NativeFinanceRoute frame={frame} model={{ owner: "synthetic-finance-owner", view: pane, navigation: { tabs: ["market", "portfolio", "analysis"].map(value => ({ value, label: value })), select: () => {} } }}>
+        {["market", "portfolio", "analysis"].map(value => <NativeFinanceLayer key={value} pane={value as typeof pane} active={pane === value} title={value}
+          sections={[{ key: "items", rows: [{ key: "open", label: "Open detail", run: open }] }]} fallback={<button>Web {value}</button>} />)}
+      </NativeFinanceRoute>;
+    }
+    const view = render(<Finance pane="market" />);
+    const latest = () => drawerBridge.applyWorkspace.mock.calls.at(-1)?.[0];
+    try {
+      await waitFor(() => expect(latest()?.title).toBe("market"));
+      const first = latest()!;
+      view.rerender(<Finance pane="analysis" />);
+      await waitFor(() => expect(latest()?.title).toBe("analysis"));
+      view.rerender(<Finance pane="market" />);
+      await waitFor(() => expect(latest()?.title).toBe("market"));
+      expect(latest()?.ownerEpoch).toBe(first.ownerEpoch);
+      expect(latest()?.revision).toBe(first.revision);
+      expect(latest()?.sections[0]?.id).not.toBe(first.sections[0]?.id);
+      expect(drawerBridge.retireWorkspace).not.toHaveBeenCalled();
+      const emit = (state: NativeWorkspaceProjection, sequence: number) => act(() => drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback({ ...state, sequence, action: "row", rowId: state.sections[0]!.rows[0]!.id })));
+      emit(first, 1); await act(async () => { await Promise.resolve(); });
+      expect(open).not.toHaveBeenCalled();
+      emit(latest()!, 2); await waitFor(() => expect(open).toHaveBeenCalledOnce());
+    } finally { view.unmount(); seat.remove(); profile.pathname = "/"; vi.stubGlobal("ResizeObserver", originalObserver); await nativeWorkspaceRetirementBarrier(); }
   });
 
   it.each([false, true])("reconciles a retiring Location text visit without overwriting its reopened successor (confirmation: %s)", async confirmation => {
@@ -856,6 +901,19 @@ describe("private route-body presentation boundary", () => {
     expect(validNativeWorkspace(withStory({ ...story, artwork: { ...story.artwork, hue: 360 } }))).toBe(false);
     expect(validNativeWorkspace(withStory({ ...story, artwork: { ...story.artwork, png: "data:image/png;base64,AAAA" } }))).toBe(false);
     expect(validNativeWorkspace({ ...news, workspace: "connect" })).toBe(false);
+    const finance = (content: unknown) => ({ ...news, sections: [{ id: "finance-content", rows: [{ id: "financial-row", label: "Public headline", enabled: true, finance: content }] }] }) as NativeWorkspaceProjection;
+    const cover = { kind: "headline", publisher: "Example", publishedAt: "Recent", sources: [{ url: "https://static.seekingalpha.com/uploads/public.jpeg" }] };
+    expect(validNativeWorkspace(finance(cover))).toBe(true);
+    for (const url of ["http://static.seekingalpha.com/a.jpeg", "https://static.seekingalpha.com.evil.test/a.jpeg", "https://owner:secret@s.yimg.com/a.jpeg", "https://127.0.0.1/a.png", "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2Fsecret.png"]) expect(validNativeWorkspace(finance({ ...cover, sources: [{ url }] }))).toBe(false);
+    expect(validNativeWorkspace(finance({ ...cover, destination: "forbidden" }))).toBe(false);
+    expect(validNativeWorkspace(finance({ ...cover, sources: Array.from({ length: 4 }, (_, i) => ({ url: `https://s.yimg.com/${i}.jpg` })) }))).toBe(false);
+    expect(validNativeWorkspace({ ...finance(cover), workspace: "connect" })).toBe(false);
+    const balance = { kind: "balance", value: "$12", invested: "$10", cash: "$2", period: "Saved snapshot", points: [{ date: "2026-11-01", value: 12 }] };
+    expect(validNativeWorkspace(finance(balance))).toBe(true);
+    expect(validNativeWorkspace(finance({ ...balance, points: [{ date: "2026-11-01", value: NaN }] }))).toBe(false);
+    expect(validNativeWorkspace(finance({ ...balance, points: Array.from({ length: 1001 }, () => balance.points[0]) }))).toBe(false);
+    expect(validNativeWorkspace(finance({ kind: "sector", value: -4, maximum: 3 }))).toBe(false);
+    expect(validNativeWorkspace(finance({ kind: "security", symbol: "AAPL", price: "$12", metadata: "Apple", artwork: { glyph: "A", hue: 12, png: "data:image/png;base64,AAAA" } }))).toBe(false);
     const setup: NativeWorkspaceProjection = { ...calendar, workspace: "setup", calendarDate: undefined, sections: [{ id: "settings", rows: [{ id: "prepare", label: "Prepare automatically", enabled: true, toggle: true,
       options: [{ id: "prepare-on", label: "On", selected: true }, { id: "prepare-off", label: "Off", selected: false }] }] }] };
     expect(validNativeWorkspace(setup)).toBe(true);
