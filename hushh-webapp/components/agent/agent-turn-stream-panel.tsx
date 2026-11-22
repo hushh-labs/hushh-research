@@ -22,6 +22,7 @@ import {
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
+import { resolveProductionTurnGoogleNote } from "@/lib/agent/production-visitor-posture";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { Activity, AccountProfileIcon, ConnectedSystemsAgentIcon, ConsentAgentIcon, FinanceAgentIcon, Globe, LocationAgentIcon, MemoryAgentIcon, WalletAgentIcon } from "@/components/icons";
 
@@ -377,7 +378,7 @@ export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
 export function AgentTurnStreamPanel({
   allowFinancePreviewStart,
   onConfirmFinanceAnalysis,
-  streamEvents,
+  streamEvents = [],
   responseText,
   isStreaming,
   isError = false,
@@ -509,14 +510,11 @@ export function AgentTurnStreamPanel({
           </div>
         ) : null
       }
-      responsePendingLabel={
-        preparingPrivateMemory || currentBatchProgress
-          ? undefined
-          : "One is preparing your response."
-      }
+      responsePendingLabel={preparingPrivateMemory || currentBatchProgress ? undefined : "One is preparing your response."}
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}
+      footerNote={resolveProductionTurnGoogleNote({ isStreaming, streamEvents, sources, experienceItems, responseText, isError })}
       className={className}
     />
   );

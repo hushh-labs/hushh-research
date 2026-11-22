@@ -1875,5 +1875,23 @@ describe("supported connector catalog", () => {
       expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
       expect(state.liveBackground).not.toHaveBeenCalled();
     });
+
+    it("renders the subtle Google Apps clearance disclaimer only on Production while keeping connect actions enabled", async () => {
+      try {
+        vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+        const view = render(<ConnectorsPanel open {...callbacks} />);
+        expect(await screen.findByTestId("connector-google-clearance-note")).toHaveTextContent(
+          "Google Apps (Gmail, Calendar, Drive) are undergoing Google clearance; public sign-in may be limited.",
+        );
+        view.unmount();
+
+        vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+        render(<ConnectorsPanel open {...callbacks} />);
+        await waitFor(() => expect(state.overview).toHaveBeenCalled());
+        expect(screen.queryByTestId("connector-google-clearance-note")).not.toBeInTheDocument();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 });
