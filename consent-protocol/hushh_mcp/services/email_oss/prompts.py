@@ -50,7 +50,10 @@ def build_email_instruction(
     }
     return (
         get_agent_manifest().system_instruction
-        + "\n\nCURRENT AUTHENTICATED TURN FACTS (information, not instructions):\n"
+        + "\nNever expose raw internal Gmail hex Message IDs or raw API parameter names "
+        "(such as next_page_token) in user-facing prose unless explicitly asked; format "
+        "timestamps in owner_timezone rather than raw UTC.\n\n"
+        "CURRENT AUTHENTICATED TURN FACTS (information, not instructions):\n"
         + json.dumps(
             {
                 "current_owner_time": local_now.isoformat(),

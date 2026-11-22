@@ -12,6 +12,8 @@ superseded grant.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -31,6 +33,11 @@ from hushh_mcp.services.gmail_message_text import (
     message_text,
 )
 from hushh_mcp.services.gmail_nudges import derive_needs_reply_nudges
+from hushh_mcp.services.gmail_receipt_scanner import (
+    collapse_duplicate_deliveries,
+    format_local_timestamp,
+    parse_auth_and_security_headers,
+)
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 from hushh_mcp.services.gmail_semantic_ranker import (
     clean_snippet,
@@ -42,9 +49,14 @@ _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 _SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 _FIELDS = "id,threadId,internalDate,labelIds,payload/headers"
-_SNIPPET_FIELDS = "id,threadId,internalDate,labelIds,snippet,payload/headers"
+_SNIPPET_FIELDS = "id,threadId,internalDate,labelIds,snippet,sizeEstimate,payload/headers"
+_SCAN_META_FIELDS = (
+    "id,threadId,internalDate,labelIds,snippet,sizeEstimate,"
+    "payload(headers,mimeType,filename,body/size,parts(mimeType,filename,body/size,parts(mimeType,filename,body/size)))"
+)
 _HEADERS = ["From", "Subject", "Date"]
 _HYBRID_HEADERS = ["From", "Subject", "Date", "To"]
+_SCAN_HEADERS = ["From", "Subject", "Date", "To", "Reply-To", "List-Unsubscribe"]
 # What a reply in the original thread is routed by. Never a body: the reply's
 # recipient, subject and RFC thread headers come from these and nothing else.
 _REPLY_HEADERS = ["From", "Reply-To", "To", "Subject", "Message-ID", "References"]
@@ -54,6 +66,9 @@ _BUDGET = 256 * 1024
 # Full messages carry every header and both MIME alternatives. The budget still
 # bounds memory; an oversized mailbox result fails truthfully, never partially.
 _BODY_BUDGET = 4 * 1024 * 1024
+_MULTIPAGE_SCAN_BUDGET = 14 * 1024 * 1024
+_MULTIPAGE_SCAN_DEADLINE = 42.0
+_MAX_ATTACHMENT_DOWNLOAD_BYTES = 4 * 1024 * 1024
 _DEADLINE = 20.0
 # Gmail documents rate-limit reasons inside a 403 JSON body. Only this small
 # bounded error body is inspected, and no provider text crosses the reader.
@@ -136,9 +151,58 @@ MAIL_READ_ERROR_CODES = frozenset(
 )
 
 
-# System labels a person may add or remove by name. INBOX and UNREAD have their
-# own actions (archive, read state); SPAM, TRASH and DRAFT are never labels here.
-_SETTABLE_SYSTEM_LABELS = frozenset({"STARRED", "IMPORTANT"})
+# System labels a person may add or remove by name. TRASH and DRAFT remain
+# gated behind their dedicated endpoints; STARRED, IMPORTANT, INBOX and SPAM
+# are supported through the owner-confirmed proposal card.
+_SETTABLE_SYSTEM_LABELS = frozenset({"STARRED", "IMPORTANT", "INBOX", "SPAM"})
+
+
+def _extract_attachment_details(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Collect attachment metadata (filename, mime_type, size_bytes, attachment_id)."""
+    if not isinstance(payload, dict):
+        return []
+    found: list[dict[str, Any]] = []
+    stack: list[dict[str, Any]] = [payload]
+    visited = 0
+    while stack and visited < 128 and len(found) < 25:
+        part = stack.pop()
+        visited += 1
+        if not isinstance(part, dict):
+            continue
+        filename = str(part.get("filename") or "").strip()
+        body = part.get("body") if isinstance(part.get("body"), dict) else {}
+        att_id = body.get("attachmentId")
+        size = body.get("size")
+        mime_type = str(part.get("mimeType") or "application/octet-stream").strip()
+        if filename or (isinstance(att_id, str) and att_id):
+            found.append(
+                {
+                    "index": len(found) + 1,
+                    "filename": filename or f"attachment-{len(found) + 1}",
+                    "mime_type": mime_type[:120],
+                    "size_bytes": int(size) if isinstance(size, int) and size >= 0 else None,
+                    "attachment_id": str(att_id) if isinstance(att_id, str) else None,
+                }
+            )
+        parts = part.get("parts")
+        if isinstance(parts, list):
+            for child in reversed(parts):
+                if isinstance(child, dict):
+                    stack.append(child)
+    return found
+
+
+def _public_attachment_details(details: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Strip server-side attachmentId before exposing metadata to model/UI."""
+    return [
+        {
+            "index": item["index"],
+            "filename": item["filename"],
+            "mime_type": item["mime_type"],
+            "size_bytes": item["size_bytes"],
+        }
+        for item in details
+    ]
 
 
 @dataclass(frozen=True)
@@ -332,6 +396,7 @@ class GmailMetadataReader:
         require_access: RequireAccess,
         transport: httpx.AsyncBaseTransport | None = None,
         expect_account: str | None = None,
+        timezone_name: str = "UTC",
     ) -> None:
         self._gmail = gmail
         self._user_id = user_id
@@ -343,6 +408,7 @@ class GmailMetadataReader:
         # that matters when the owner reconnected a different Google account
         # between being shown a list and asking for the second thing on it.
         self._expect_account = expect_account
+        self._timezone_name = str(timezone_name or "UTC").strip() or "UTC"
         self._observation: dict[str, Any] | None = None
         self._account: str | None = None
         self._used = False
@@ -487,6 +553,7 @@ class GmailMetadataReader:
         thread_ids: Sequence[str] = (),
         mailbox: Mailbox = "anywhere",
         whole_thread: bool = True,
+        include_headers: bool = False,
     ) -> dict[str, Any]:
         """Read full chronological threads or specific messages by server-minted IDs."""
         if mailbox not in _MAILBOX_LABELS:
@@ -509,9 +576,444 @@ class GmailMetadataReader:
                 by_thread_id=bool(thread_ids),
                 mailbox=mailbox,
                 whole_thread=whole_thread,
+                include_headers=include_headers,
             )
 
         return await self._session(body, reads_bodies=True)
+
+    async def scan_messages_multipage(
+        self,
+        *,
+        query: str,
+        mailbox: Mailbox = "anywhere",
+        max_pages: int = 6,
+        max_messages: int = 250,
+        hydrate_selector: Callable[[dict[str, Any]], bool] | None = None,
+        max_body_hydrations: int = 35,
+        include_spam_trash: bool = False,
+    ) -> dict[str, Any]:
+        """Auto-paginating multi-page REST scanner with resilient backoff retries.
+
+        Loops ``nextPageToken`` up to ``max_pages`` / ``max_messages`` inside a
+        single fenced session, fetches metadata + snippet + attachment summaries
+        concurrently with per-message error tolerance, and selectively hydrates
+        full bodies for matched receipt/invoice candidates.
+        """
+        if mailbox not in _MAILBOX_LABELS:
+            raise GmailMetadataError("invalid_argument")
+        if not isinstance(query, str) or len(query.encode("utf-8")) > 1024:
+            raise GmailMetadataError("invalid_argument")
+        if any(ord(char) < 32 for char in query):
+            raise GmailMetadataError("invalid_argument")
+        bounded_pages = max(1, min(int(max_pages), 8))
+        bounded_messages = max(1, min(int(max_messages), 300))
+        bounded_hydrations = max(0, min(int(max_body_hydrations), 50))
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            label = _MAILBOX_LABELS[mailbox]
+            collected_ids: list[str] = []
+            collected_tids: dict[str, str] = {}
+            seen_ids: set[str] = set()
+            page_token: str | None = None
+            pages_scanned = 0
+            estimated_total: int | None = None
+            has_more_pages = False
+
+            while pages_scanned < bounded_pages and len(collected_ids) < bounded_messages:
+                remaining = bounded_messages - len(collected_ids)
+                params: dict[str, Any] = {
+                    "maxResults": min(100, remaining),
+                    "includeSpamTrash": "true" if include_spam_trash else "false",
+                    "fields": "messages(id,threadId),nextPageToken,resultSizeEstimate",
+                }
+                if label is not None:
+                    params["labelIds"] = label
+                if query.strip():
+                    params["q"] = query.strip()
+                if page_token:
+                    params["pageToken"] = page_token
+                listing = await self._get(
+                    client, token, "/messages", params, recheck=False, max_attempts=3
+                )
+                pages_scanned += 1
+                if estimated_total is None and isinstance(listing.get("resultSizeEstimate"), int):
+                    estimated_total = max(0, listing["resultSizeEstimate"])
+                entries = listing.get("messages") or []
+                if not isinstance(entries, list):
+                    raise GmailMetadataError("invalid_response")
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    mid = entry.get("id")
+                    tid = entry.get("threadId")
+                    if not isinstance(mid, str) or not _ID.fullmatch(mid) or mid in seen_ids:
+                        continue
+                    seen_ids.add(mid)
+                    collected_ids.append(mid)
+                    if isinstance(tid, str) and _ID.fullmatch(tid):
+                        collected_tids[mid] = tid
+                next_tok = listing.get("nextPageToken")
+                if isinstance(next_tok, str) and next_tok.strip():
+                    page_token = next_tok.strip()
+                else:
+                    page_token = None
+                    break
+            has_more_pages = bool(page_token)
+
+            if not collected_ids:
+                self._offered_message_ids = ()
+                self._offered_thread_ids = ()
+                return {
+                    "status": "ok",
+                    "messages": [],
+                    "pages_scanned": pages_scanned,
+                    "listed_count": 0,
+                    "loaded_count": 0,
+                    "failed_count": 0,
+                    "estimated_total": estimated_total or 0,
+                    "all_matches_scanned": not has_more_pages,
+                    "has_more_pages": has_more_pages,
+                    "bodies_hydrated": 0,
+                }
+
+            meta_params = {
+                "format": "full",
+                "fields": _SCAN_META_FIELDS,
+            }
+            semaphore = asyncio.Semaphore(12)
+            failed_count = 0
+
+            async def fetch_scan_meta(identity: str) -> tuple[str, dict[str, Any] | None]:
+                nonlocal failed_count
+                async with semaphore:
+                    try:
+                        payload = await self._get(
+                            client,
+                            token,
+                            f"/messages/{identity}",
+                            meta_params,
+                            recheck=False,
+                            max_attempts=3,
+                        )
+                        if payload.get("id") != identity or not isinstance(
+                            payload.get("payload"), dict
+                        ):
+                            failed_count += 1
+                            return identity, None
+                        return identity, payload
+                    except GmailMetadataError as exc:
+                        if exc.code in {
+                            "connect_required",
+                            "reconnect_required",
+                            "connection_changed",
+                            "permission_denied",
+                        }:
+                            raise
+                        failed_count += 1
+                        return identity, None
+
+            await self.require_current()
+            fetched_pairs = await asyncio.gather(*(fetch_scan_meta(mid) for mid in collected_ids))
+            await self.require_current()
+
+            loaded_items: list[dict[str, Any]] = []
+            loaded_msg_ids: list[str] = []
+            loaded_thread_ids: list[str] = []
+            for identity, payload in fetched_pairs:
+                if payload is None:
+                    continue
+                item = self._message_item(payload, mailbox, include_snippet=True)
+                details = _extract_attachment_details(payload.get("payload"))
+                if details:
+                    item["attachments"] = _public_attachment_details(details)
+                size_est = payload.get("sizeEstimate")
+                if isinstance(size_est, int) and size_est >= 0:
+                    item["size_bytes"] = size_est
+                headers_map = self._gmail._extract_headers(payload)
+                if headers_map.get("list-unsubscribe"):
+                    item["has_list_unsubscribe"] = True
+                loaded_items.append(item)
+                loaded_msg_ids.append(identity)
+                loaded_thread_ids.append(
+                    str(payload.get("threadId") or collected_tids.get(identity) or identity)
+                )
+
+            # Selective full-body hydration for receipt/invoice candidates that need deeper text
+            bodies_hydrated = 0
+            if hydrate_selector is not None and bounded_hydrations > 0 and loaded_items:
+                hydrate_indices = [
+                    idx for idx, item in enumerate(loaded_items) if hydrate_selector(item)
+                ][:bounded_hydrations]
+                if hydrate_indices:
+                    full_params = {"format": "full", "fields": _FULL_FIELDS}
+                    body_sem = asyncio.Semaphore(8)
+
+                    async def fetch_body(idx: int) -> tuple[int, str | None]:
+                        mid = loaded_msg_ids[idx]
+                        async with body_sem:
+                            try:
+                                full_payload = await self._get(
+                                    client,
+                                    token,
+                                    f"/messages/{mid}",
+                                    full_params,
+                                    recheck=False,
+                                    max_attempts=3,
+                                )
+                                if full_payload.get("id") != mid:
+                                    return idx, None
+                                _validate_message(full_payload, max_headers=400)
+                                text = message_text(full_payload["payload"])
+                                capped, _ = cap_utf8(text, 6000)
+                                return idx, capped
+                            except (GmailMetadataError, MessageTextError):
+                                return idx, None
+
+                    await self.require_current()
+                    body_results = await asyncio.gather(*(fetch_body(i) for i in hydrate_indices))
+                    await self.require_current()
+                    for idx, text in body_results:
+                        if text:
+                            loaded_items[idx]["body"] = text
+                            bodies_hydrated += 1
+
+            # Offer up to top 25 scanned message IDs so follow-up "read #2" / "forward #3" works
+            offer_ids = tuple(loaded_msg_ids[:25])
+            offer_tids = tuple(loaded_thread_ids[:25])
+            self._offered_message_ids = offer_ids
+            self._offered_thread_ids = offer_tids
+            return {
+                "status": "ok",
+                "messages": loaded_items,
+                "message_ids": loaded_msg_ids,
+                "thread_ids": loaded_thread_ids,
+                "pages_scanned": pages_scanned,
+                "listed_count": len(collected_ids),
+                "loaded_count": len(loaded_items),
+                "failed_count": failed_count,
+                "estimated_total": max(estimated_total or 0, len(collected_ids)),
+                "all_matches_scanned": not has_more_pages and failed_count == 0,
+                "has_more_pages": has_more_pages,
+                "bodies_hydrated": bodies_hydrated,
+            }
+
+        return await self._session(
+            body,
+            reads_bodies=True,
+            budget=_MULTIPAGE_SCAN_BUDGET,
+            deadline=_MULTIPAGE_SCAN_DEADLINE,
+        )
+
+    async def get_attachment_bytes(
+        self,
+        *,
+        message_id: str,
+        filename: str = "",
+        attachment_index: int = 1,
+    ) -> dict[str, Any]:
+        """Download one bounded PDF/CSV attachment by verified server-side message ID."""
+        if not isinstance(message_id, str) or not _ID.fullmatch(message_id):
+            raise GmailMetadataError("invalid_argument")
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            msg_payload = await self._get(
+                client,
+                token,
+                f"/messages/{message_id}",
+                {"format": "full", "fields": _FULL_FIELDS},
+                max_attempts=2,
+            )
+            if msg_payload.get("id") != message_id:
+                raise GmailMetadataError("invalid_response")
+            details = _extract_attachment_details(msg_payload.get("payload"))
+            if not details:
+                return {"status": "no_attachments", "attachments": []}
+
+            wanted_name = str(filename or "").strip().casefold()
+            target: dict[str, Any] | None = None
+            if wanted_name:
+                target = next(
+                    (
+                        d
+                        for d in details
+                        if d["filename"].casefold() == wanted_name
+                        or wanted_name in d["filename"].casefold()
+                    ),
+                    None,
+                )
+            elif 1 <= attachment_index <= len(details):
+                target = details[attachment_index - 1]
+            if target is None or not target.get("attachment_id"):
+                return {
+                    "status": "attachment_not_found",
+                    "attachments": _public_attachment_details(details),
+                }
+
+            att_id = str(target["attachment_id"])
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", att_id):
+                raise GmailMetadataError("invalid_response")
+            blob = await self._get(
+                client,
+                token,
+                f"/messages/{message_id}/attachments/{att_id}",
+                {},
+                max_attempts=2,
+            )
+            raw_b64 = blob.get("data")
+            if not isinstance(raw_b64, str) or not raw_b64:
+                raise GmailMetadataError("invalid_response")
+            if len(raw_b64) > ((_MAX_ATTACHMENT_DOWNLOAD_BYTES + 2) // 3) * 4 + 16:
+                raise GmailMetadataError("response_too_large")
+            try:
+                content = base64.b64decode(
+                    raw_b64 + "=" * (-len(raw_b64) % 4), altchars=b"-_", validate=True
+                )
+            except (binascii.Error, ValueError):
+                raise GmailMetadataError("invalid_response") from None
+            if len(content) > _MAX_ATTACHMENT_DOWNLOAD_BYTES:
+                raise GmailMetadataError("response_too_large")
+            return {
+                "status": "ok",
+                "filename": target["filename"],
+                "mime_type": target["mime_type"],
+                "size_bytes": len(content),
+                "content": content,
+                "attachments": _public_attachment_details(details),
+            }
+
+        return await self._session(
+            body, reads_bodies=True, budget=_MULTIPAGE_SCAN_BUDGET, deadline=25.0
+        )
+
+    async def get_profile_and_history(
+        self,
+        *,
+        start_history_id: str | None = None,
+        max_results: int = 50,
+        label_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch live Gmail profile (historyId, totals) and optional incremental history."""
+        if start_history_id is not None and not re.fullmatch(r"\d{1,30}", str(start_history_id)):
+            raise GmailMetadataError("invalid_argument")
+        bounded_limit = max(1, min(int(max_results), 100))
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            profile = await self._get(client, token, "/profile", {}, max_attempts=2)
+            out: dict[str, Any] = {
+                "status": "ok",
+                "email_address": profile.get("emailAddress"),
+                "messages_total": profile.get("messagesTotal"),
+                "threads_total": profile.get("threadsTotal"),
+                "history_id": str(profile.get("historyId") or ""),
+            }
+            if start_history_id:
+                params: dict[str, Any] = {
+                    "startHistoryId": str(start_history_id),
+                    "maxResults": bounded_limit,
+                }
+                if label_id:
+                    params["labelId"] = label_id
+                try:
+                    hist = await self._get(client, token, "/history", params, max_attempts=2)
+                except GmailMetadataError as exc:
+                    if exc.code == "source_changed":
+                        out["history_expired"] = True
+                        out["changes"] = {
+                            "messages_added": 0,
+                            "messages_deleted": 0,
+                            "labels_added": 0,
+                            "labels_removed": 0,
+                        }
+                        return out
+                    raise
+                records = hist.get("history") or []
+                added, deleted, labels_added, labels_removed = 0, 0, 0, 0
+                recent_added_ids: list[str] = []
+                label_events: list[dict[str, Any]] = []
+                for row in records:
+                    if not isinstance(row, dict):
+                        continue
+                    for entry in row.get("messagesAdded") or []:
+                        added += 1
+                        mid = (entry.get("message") or {}).get("id")
+                        if isinstance(mid, str) and len(recent_added_ids) < 15:
+                            recent_added_ids.append(mid)
+                    deleted += len(row.get("messagesDeleted") or [])
+                    for entry in row.get("labelsAdded") or []:
+                        labels_added += 1
+                        if len(label_events) < 15:
+                            label_events.append(
+                                {"change": "added", "labels": entry.get("labelIds") or []}
+                            )
+                    for entry in row.get("labelsRemoved") or []:
+                        labels_removed += 1
+                        if len(label_events) < 15:
+                            label_events.append(
+                                {"change": "removed", "labels": entry.get("labelIds") or []}
+                            )
+                out["history_expired"] = False
+                out["start_history_id"] = str(start_history_id)
+                out["latest_history_id"] = str(hist.get("historyId") or out["history_id"])
+                out["has_more_history"] = bool(hist.get("nextPageToken"))
+                out["changes"] = {
+                    "messages_added": added,
+                    "messages_deleted": deleted,
+                    "labels_added": labels_added,
+                    "labels_removed": labels_removed,
+                    "label_events_sample": label_events,
+                }
+                # Fetch safe metadata for up to 10 newly added messages (no raw IDs leaked)
+                if recent_added_ids:
+                    meta_req = {
+                        "format": "metadata",
+                        "metadataHeaders": _HEADERS,
+                        "fields": _FIELDS,
+                    }
+                    new_msgs: list[dict[str, Any]] = []
+                    for mid in recent_added_ids[:10]:
+                        try:
+                            p = await self._get(
+                                client, token, f"/messages/{mid}", meta_req, recheck=False
+                            )
+                            new_msgs.append(self._message_item(p, "anywhere"))
+                        except GmailMetadataError:
+                            continue
+                    out["new_messages_sample"] = new_msgs
+            return out
+
+        return await self._session(body, reads_bodies=False, budget=_BODY_BUDGET, deadline=25.0)
+
+    async def resolve_thread_message_ids(
+        self,
+        thread_ids: Sequence[str],
+        *,
+        max_items: int = 25,
+    ) -> tuple[str, ...]:
+        """Expand verified server-offered thread IDs into all member message IDs (capped)."""
+        raw_tids = tuple(t for t in thread_ids if isinstance(t, str) and _ID.fullmatch(t))
+        if not raw_tids:
+            raise GmailMetadataError("invalid_argument")
+
+        async def body(client: httpx.AsyncClient, token: str) -> tuple[str, ...]:
+            expanded: list[str] = []
+            for tid in raw_tids[:10]:
+                payload = await self._get(
+                    client,
+                    token,
+                    f"/threads/{tid}",
+                    {"format": "minimal", "fields": "id,messages(id)"},
+                    recheck=False,
+                )
+                for msg in payload.get("messages") or []:
+                    mid = msg.get("id") if isinstance(msg, dict) else None
+                    if isinstance(mid, str) and _ID.fullmatch(mid) and mid not in expanded:
+                        expanded.append(mid)
+                        if len(expanded) >= max_items:
+                            return tuple(expanded)
+            return tuple(expanded)
+
+        result: tuple[str, ...] = await self._session(body, reads_bodies=False)
+        return result
 
     async def resolve_targets_by_ids(
         self,
@@ -659,7 +1161,7 @@ class GmailMetadataReader:
             account=str(self._account),
         )
 
-    async def reply_source(self, message_id: str) -> dict[str, Any]:
+    async def reply_source(self, message_id: str, *, include_cc: bool = False) -> dict[str, Any]:
         """Routing headers of one message this server offered, for a reply in its thread.
 
         Metadata only, never a body, under the same fenced session as a read:
@@ -671,12 +1173,14 @@ class GmailMetadataReader:
         if not isinstance(message_id, str) or not _ID.fullmatch(message_id):
             raise GmailMetadataError("invalid_argument")
 
+        wanted_headers = [*_REPLY_HEADERS, "Cc"] if include_cc else _REPLY_HEADERS
+
         async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
             payload = await self._get(
                 client,
                 token,
                 f"/messages/{message_id}",
-                {"format": "metadata", "metadataHeaders": _REPLY_HEADERS, "fields": _FIELDS},
+                {"format": "metadata", "metadataHeaders": wanted_headers, "fields": _FIELDS},
             )
             thread_id = payload.get("threadId")
             if (
@@ -716,14 +1220,20 @@ class GmailMetadataReader:
         body: Callable[[httpx.AsyncClient, str], Awaitable[Any]],
         *,
         reads_bodies: bool,
+        budget: int | None = None,
+        deadline: float | None = None,
     ) -> Any:
         if self._used:
             raise GmailMetadataError("read_already_used")
         self._used = True
-        if reads_bodies:
+        if budget is not None:
+            self._remaining = budget
+        elif reads_bodies:
             self._remaining = _BODY_BUDGET
         try:
-            self._deadline_at = asyncio.get_running_loop().time() + _DEADLINE
+            self._deadline_at = asyncio.get_running_loop().time() + (
+                deadline if deadline is not None else _DEADLINE
+            )
             async with asyncio.timeout_at(self._deadline_at):
                 await self._require_access()
                 row = await asyncio.to_thread(
@@ -772,10 +1282,13 @@ class GmailMetadataReader:
         params: dict[str, Any],
         *,
         recheck: bool = True,
+        max_attempts: int = 2,
     ) -> dict[str, Any]:
         # HTTPX URL spans otherwise retain inbox queries and provider IDs.
         with suppress_instrumentation():
-            return await self._get_private(client, token, path, params, recheck=recheck)
+            return await self._get_private(
+                client, token, path, params, recheck=recheck, max_attempts=max_attempts
+            )
 
     async def _get_private(
         self,
@@ -785,15 +1298,17 @@ class GmailMetadataReader:
         params: dict[str, Any],
         *,
         recheck: bool,
+        max_attempts: int = 2,
     ) -> dict[str, Any]:
         # A concurrent page is rechecked once by its caller before and after the
         # fan-out, so it holds one database connection rather than one per read.
-        for attempt in range(2):
+        attempts = max(1, min(max_attempts, 4))
+        for attempt in range(attempts):
             if recheck or attempt:
                 # Even a harmless GET must not retry against a changed grant.
                 await self.require_current()
             retry_allowed = False
-            retry_delay = _RETRY_DELAY_SECONDS
+            retry_delay = _RETRY_DELAY_SECONDS * (attempt + 1)
             async with client.stream(
                 "GET",
                 _BASE + path,
@@ -841,7 +1356,7 @@ class GmailMetadataReader:
                     )
             deadline_at = self._deadline_at
             can_retry = (
-                attempt == 0
+                attempt + 1 < attempts
                 and retry_allowed
                 and deadline_at is not None
                 and asyncio.get_running_loop().time() + retry_delay + _MIN_RETRY_REQUEST_SECONDS
@@ -1230,16 +1745,32 @@ class GmailMetadataReader:
             self._message_item(payload, mailbox, include_snippet=True) for payload in meta_payloads
         ]
 
+        # Collapse duplicate mailing-list/alias deliveries (same sender, subject, minute)
+        # before ranking/slicing so "10 latest emails" never shows the same email twice.
+        dedup_indices, duplicates_collapsed = collapse_duplicate_deliveries(raw_candidates)
+        dedup_candidates = [raw_candidates[i] for i in dedup_indices]
+        dedup_payloads = [meta_payloads[i] for i in dedup_indices]
+        dedup_fused = [fused[i] for i in dedup_indices]
+
         used_semantic = False
-        if intent and len(raw_candidates) > 1:
+        is_pure_recency = not queries
+        if is_pure_recency:
+            # Strict newest-first chronology for "latest emails" / "recent mail" listings;
+            # never scramble chronological inbox listings with semantic reranking.
+            ordered_indices = sorted(
+                range(len(dedup_candidates)),
+                key=lambda idx: int(dedup_payloads[idx].get("internalDate") or 0),
+                reverse=True,
+            )
+        elif intent and len(dedup_candidates) > 1:
             ordered_indices, used_semantic = await asyncio.to_thread(
                 rerank_mail_candidates,
                 intent,
-                raw_candidates,
+                dedup_candidates,
                 embedding_client=embedding_client,
             )
         else:
-            ordered_indices = list(range(len(raw_candidates)))
+            ordered_indices = list(range(len(dedup_candidates)))
 
         assessed = len(raw_candidates)
         selected_indices = ordered_indices[:limit]
@@ -1249,7 +1780,7 @@ class GmailMetadataReader:
         body_payloads: dict[int, dict[str, Any]] = {}
         if hydrate_count > 0:
             top_indices = selected_indices[:hydrate_count]
-            top_ids = [fused[idx]["id"] for idx in top_indices]
+            top_ids = [dedup_fused[idx]["id"] for idx in top_indices]
             full_request = {"format": "full", "fields": _FULL_FIELDS}
 
             async def fetch_full(identity: str) -> dict[str, Any]:
@@ -1278,7 +1809,7 @@ class GmailMetadataReader:
         ordered_thread_ids: list[str] = []
 
         for ordinal, idx in enumerate(selected_indices, 1):
-            base = dict(raw_candidates[idx])
+            base = dict(dedup_candidates[idx])
             if idx in body_payloads:
                 full_item = self._message_item(
                     body_payloads[idx],
@@ -1292,6 +1823,8 @@ class GmailMetadataReader:
                 content_shortened = content_shortened or cut_body
                 if full_item.get("attachments"):
                     base["attachments"] = full_item["attachments"]
+                if full_item.get("attachment_details"):
+                    base["attachment_details"] = full_item["attachment_details"]
 
             subject, cut_subject = _label(base["subject"], 320)
             sender, cut_sender = _label(base["sender"], 160)
@@ -1303,6 +1836,8 @@ class GmailMetadataReader:
                 "received_at": base["received_at"],
                 "unread": base["unread"],
             }
+            if base.get("received_at_local"):
+                projected["received_at_local"] = base["received_at_local"]
             if base.get("snippet"):
                 projected["snippet"] = base["snippet"]
             if base.get("recipient"):
@@ -1314,21 +1849,31 @@ class GmailMetadataReader:
                 projected["body_truncated"] = base["body_truncated"]
             if base.get("attachments"):
                 projected["attachments"] = base["attachments"]
-            if fused[idx]["thread_hits"] > 1:
-                projected["thread_hits"] = fused[idx]["thread_hits"]
+            if base.get("attachment_details"):
+                projected["attachment_details"] = base["attachment_details"]
+            if dedup_fused[idx]["thread_hits"] > 1:
+                projected["thread_hits"] = dedup_fused[idx]["thread_hits"]
             items.append(projected)
-            ordered_msg_ids.append(fused[idx]["id"])
-            ordered_thread_ids.append(fused[idx]["threadId"])
+            ordered_msg_ids.append(dedup_fused[idx]["id"])
+            ordered_thread_ids.append(dedup_fused[idx]["threadId"])
 
+        # For a bounded "latest N emails" request (pure recency), an inbox having
+        # more than N total emails is expected, NOT incomplete coverage!
+        effective_truncated = (
+            content_shortened
+            if is_pure_recency
+            else (matches_beyond_page or items_omitted or content_shortened)
+        )
         result: dict[str, Any] = {
             "status": "ok",
             "operation": "search_hybrid",
             "mailbox": mailbox,
             "untrusted_external_content": items,
-            "truncated": matches_beyond_page or items_omitted or content_shortened,
+            "truncated": effective_truncated,
             "metadata_only": hydrate_count == 0,
             "one_page_only": True,
             "semantic_reranked": used_semantic,
+            "duplicates_collapsed": duplicates_collapsed,
         }
         while len(json.dumps(result).encode("utf-8")) > 24000 and items:
             items.pop()
@@ -1359,6 +1904,7 @@ class GmailMetadataReader:
             "matches_beyond_page": matches_beyond_page,
             "items_omitted": items_omitted,
             "content_shortened": content_shortened,
+            "duplicates_collapsed": duplicates_collapsed,
             "content_depth": "message" if hydrate_count > 0 else "metadata",
             "one_page_only": True,
         }
@@ -1373,6 +1919,7 @@ class GmailMetadataReader:
         by_thread_id: bool,
         mailbox: Mailbox,
         whole_thread: bool,
+        include_headers: bool = False,
     ) -> dict[str, Any]:
         """Fetch full chronological threads or individual messages by verified provider ID."""
         resolved_thread_ids: list[str] = []
@@ -1411,7 +1958,8 @@ class GmailMetadataReader:
             fetch_ids = list(raw_ids)
             is_threads = False
 
-        fields = f"id,messages({_FULL_FIELDS})" if is_threads else _FULL_FIELDS
+        full_fields = f"{_FULL_FIELDS},sizeEstimate" if include_headers else _FULL_FIELDS
+        fields = f"id,messages({full_fields})" if is_threads else full_fields
         request = {"format": "full", "fields": fields}
 
         async def fetch(identity: str) -> dict[str, Any]:
@@ -1447,7 +1995,13 @@ class GmailMetadataReader:
             items_omitted = True
 
         raw_items = [
-            self._message_item(m, mailbox, with_body=True, include_attachments=True)
+            self._message_item(
+                m,
+                mailbox,
+                with_body=True,
+                include_attachments=True,
+                include_headers=include_headers,
+            )
             for m in messages
         ]
         ordered_msg_ids = [str(m.get("id") or "") for m in messages]
@@ -1471,12 +2025,20 @@ class GmailMetadataReader:
                 "body": body_text,
                 "body_truncated": cut_body,
             }
+            if raw_item.get("received_at_local"):
+                projected["received_at_local"] = raw_item["received_at_local"]
             if raw_item.get("recipient"):
                 recipient, cut_recipient = _label(raw_item["recipient"], 160)
                 content_shortened = content_shortened or cut_recipient
                 projected["recipient"] = recipient
             if raw_item.get("attachments"):
                 projected["attachments"] = raw_item["attachments"]
+            if raw_item.get("attachment_details"):
+                projected["attachment_details"] = raw_item["attachment_details"]
+            if raw_item.get("headers_metadata"):
+                projected["headers_metadata"] = raw_item["headers_metadata"]
+            if raw_item.get("auth_security"):
+                projected["auth_security"] = raw_item["auth_security"]
             tid = str(msg.get("threadId") or "")
             if tid:
                 projected["thread_ref"] = thread_refs.setdefault(
@@ -1535,16 +2097,24 @@ class GmailMetadataReader:
         with_body: bool = False,
         include_snippet: bool = False,
         include_attachments: bool = False,
+        include_headers: bool = False,
     ) -> dict[str, Any]:
         headers = self._gmail._extract_headers(payload)
         sender, email = self._gmail._parse_from_header(headers.get("from", ""))
         received = self._gmail._message_received_at(payload, headers)
+        if self._timezone_name and self._timezone_name != "UTC" and received is not None:
+            iso_local, display_local, _ = format_local_timestamp(received, self._timezone_name)
+        else:
+            iso_local = received.isoformat() if received else None
+            display_local = None
         item: dict[str, Any] = {
             "subject": headers.get("subject") or "(no subject)",
             "sender": sender or email or "Unknown sender",
-            "received_at": received.isoformat() if received else None,
+            "received_at": iso_local,
             "unread": "UNREAD" in payload.get("labelIds", []),
         }
+        if display_local:
+            item["received_at_local"] = display_local
         if mailbox == "sent" or (include_snippet and headers.get("to")):
             # Sent mail (and hybrid anywhere views) benefit from counterparty recipients.
             item["recipient"] = _recipient_label(headers.get("to", ""))
@@ -1561,4 +2131,29 @@ class GmailMetadataReader:
                 files = attachment_filenames(payload["payload"])
                 if files:
                     item["attachments"] = files
+                details = _extract_attachment_details(payload.get("payload"))
+                if details:
+                    item["attachment_details"] = _public_attachment_details(details)
+        if include_headers:
+            raw_hdr_list = (payload.get("payload") or {}).get("headers") or []
+            received_hops = [
+                str(h.get("value") or "")
+                for h in raw_hdr_list
+                if isinstance(h, dict) and str(h.get("name") or "").lower() == "received"
+            ]
+            item["headers_metadata"] = {
+                "from": (headers.get("from") or "")[:240],
+                "to": (headers.get("to") or "")[:300],
+                "cc": (headers.get("cc") or "")[:300],
+                "reply_to": (headers.get("reply-to") or "")[:240],
+                "return_path": (headers.get("return-path") or "")[:240],
+                "message_id_header": (headers.get("message-id") or "")[:200],
+                "in_reply_to": (headers.get("in-reply-to") or "")[:200],
+                "date_header": (headers.get("date") or "")[:120],
+                "labels": list(payload.get("labelIds") or []),
+                "size_bytes": payload.get("sizeEstimate"),
+            }
+            item["auth_security"] = parse_auth_and_security_headers(
+                headers, received_headers=received_hops
+            )
         return item

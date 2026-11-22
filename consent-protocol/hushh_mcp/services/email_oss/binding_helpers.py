@@ -36,7 +36,7 @@ def build_email_model(policy: dict):
         # Vertex retries retryable HTTP status codes before opening the stream.
         # This never restarts a consumed model stream or the agent graph.
         max_retries=2,
-        timeout=20,
+        timeout=45,
     )
 
 

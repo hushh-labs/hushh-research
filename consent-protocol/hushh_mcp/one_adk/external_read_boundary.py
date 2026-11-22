@@ -55,13 +55,23 @@ _DRIVE_CONNECTION_ANSWERS = {
 }
 MAIL_TOOL = "ask_email_agent"
 DIRECT_MAIL_READ_TOOLS = frozenset(
-    {"gmail_search_mail", "gmail_read_thread", "gmail_list_needs_reply"}
+    {
+        "gmail_search_mail",
+        "gmail_scan_receipts",
+        "gmail_read_thread",
+        "gmail_read_attachment",
+        "gmail_list_needs_reply",
+        "gmail_mailbox_insights",
+    }
 )
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
     "gmail_search_mail": "gmail_chat_reads",
+    "gmail_scan_receipts": "gmail_chat_reads",
     "gmail_read_thread": "gmail_chat_reads",
+    "gmail_read_attachment": "gmail_chat_reads",
     "gmail_list_needs_reply": "gmail_chat_reads",
+    "gmail_mailbox_insights": "gmail_chat_reads",
     # Resolves bounded Gmail metadata into an owner-confirmation card. It is
     # still a connector read, so no later tool in this model turn can act on
     # the selected email text.
@@ -125,12 +135,12 @@ def _reviewable_draft_tool(tool: Any) -> bool:
         from hushh_mcp.agents.calendar import tools as calendar_tools
 
         return type(tool) is FunctionTool and tool.func is getattr(calendar_tools, tool.name)
-    if getattr(tool, "name", None) == "open_gmail_reply_draft":
+    if getattr(tool, "name", None) in {"open_gmail_reply_draft", "open_gmail_forward_draft"}:
         from google.adk.tools import FunctionTool
 
-        from hushh_mcp.agents.email.chat_tools import open_gmail_reply_draft
+        from hushh_mcp.agents.email import chat_tools as email_chat_tools
 
-        return type(tool) is FunctionTool and tool.func is open_gmail_reply_draft
+        return type(tool) is FunctionTool and tool.func is getattr(email_chat_tools, tool.name)
     if getattr(tool, "name", None) != "open_gmail_email_draft":
         return False
     from google.adk.tools import FunctionTool
@@ -152,28 +162,35 @@ def _mail_ordinal_drilldown_available(context: Any) -> bool:
 
 
 def _mail_ordinal_drilldown_tool(tool: Any, args: dict | None, context: Any) -> bool:
-    """Allow at most ONE ordinal-only ``gmail_read_thread`` drill-down on offered mail.
+    """Allow at most ONE ordinal-only ``gmail_read_thread`` or ``gmail_read_attachment`` drill-down.
 
     CaMeL safety boundary:
-    - Only the exact application-owned ``gmail_read_thread`` function is admitted.
-    - ``query`` MUST be empty so untrusted mail text can never trigger an arbitrary
-      exfiltration search.
-    - ``ordinals`` MUST be a non-empty list of 1..25 integers referencing only
-      messages already offered in ``STATE_MAIL_READ_OFFER``.
+    - Only the exact application-owned ``gmail_read_thread`` or ``gmail_read_attachment``
+      function is admitted.
+    - For ``gmail_read_thread``, ``query`` MUST be empty and ``ordinals`` MUST be a
+      non-empty list of 1..25 integers referencing only messages already offered in
+      ``STATE_MAIL_READ_OFFER``.
+    - For ``gmail_read_attachment``, ``ordinal`` MUST be an integer in 1..25 referencing
+      an offered message.
     - Allowed at most once per invocation (enforced via ``STATE_MAIL_DRILLDOWN_USED``).
     """
-    if getattr(tool, "name", None) != "gmail_read_thread":
+    tool_name = getattr(tool, "name", None)
+    if tool_name not in {"gmail_read_thread", "gmail_read_attachment"}:
         return False
     if not _mail_ordinal_drilldown_available(context):
         return False
     from google.adk.tools import FunctionTool
 
-    from hushh_mcp.agents.email.chat_tools import gmail_read_thread
+    from hushh_mcp.agents.email.chat_tools import gmail_read_attachment, gmail_read_thread
 
-    if not (type(tool) is FunctionTool and tool.func is gmail_read_thread):
+    expected_func = gmail_read_thread if tool_name == "gmail_read_thread" else gmail_read_attachment
+    if not (type(tool) is FunctionTool and tool.func is expected_func):
         return False
     if args is None:
         return True
+    if tool_name == "gmail_read_attachment":
+        ordinal = args.get("ordinal")
+        return type(ordinal) is int and 1 <= ordinal <= 25
     raw_query = args.get("query")
     if isinstance(raw_query, str) and raw_query.strip():
         return False

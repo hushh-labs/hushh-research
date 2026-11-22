@@ -251,8 +251,15 @@
         "one_tool_names": [
           "ask_email_agent",
           "gmail_list_needs_reply",
+          "gmail_mailbox_insights",
+          "gmail_manage_drafts",
+          "gmail_manage_labels",
+          "gmail_manage_settings",
+          "gmail_read_attachment",
           "gmail_read_thread",
+          "gmail_scan_receipts",
           "gmail_search_mail",
+          "open_gmail_forward_draft",
           "open_gmail_reply_draft",
           "propose_gmail_mailbox_change",
           "propose_gmail_todo"
