@@ -1,10 +1,10 @@
 # One Email Knowledge Graph
 
-[One](README.md)
+[One](README.md) · [Owner-Approved Gmail Delivery](./gmail-owner-approved-email.md) · [One Calendar Knowledge Graph](./one-calendar-knowledge-graph.md)
 
-Status: current-code evidence graph, audited 2026-10-09 with implementation dispositions below. This page describes the personal Gmail surface in this checkout. It is context for people and agents, not a runtime router, permission grant, or claim of live provider acceptance. The [owner-approved delivery contract](./gmail-owner-approved-email.md) remains the delivery authority. Earlier work lives in the [reliability plan](../../roadmap/implementation/plans/2026-10-09-one-email-reliability-plan.md).
+**Status:** Live | **Intent:** Reference | **Audience:** Backend, Frontend, Voice, and Security
 
-The [Email and Calendar read/voice plan](../../roadmap/implementation/plans/2026-10-09-one-email-calendar-read-voice-plan.md) records the 2026-10-09 follow-up audit and implementation wave. The fault edges below distinguish code-backed risk from observed incidents.
+This page describes the personal Gmail surface in the current runtime. It documents capability flows, authority boundaries, OAuth scopes, and verified reliability invariants for people and coding agents. The [owner-approved delivery contract](./gmail-owner-approved-email.md) remains the delivery authority.
 
 ## Visual Map
 
@@ -181,6 +181,20 @@ The current live-mail path preflights connection/read permission before semantic
 
 New speech, typed input or provider cancellation retires the pending Voice read and isolated narration. Provider receipt settlement has a bounded close path and never retries an uncertain receipt. This lifecycle does not cancel or replay accepted sends. Citation validation remains reference validation, not proof of every generated factual claim.
 
-## Second read-reliability audit
+## OAuth Scope & Reliability Boundaries
 
-The [implementation plan and 64-case matrix](../../roadmap/implementation/plans/2026-10-09-one-email-calendar-read-voice-plan.md#second-audit-read-reliability-and-latency) records the current follow-up: stable authorization generations, strict availability validation, read cancellation/deadlines, owner-fenced cards, empty-Mail grounding, and private Calendar continuation. Implementation and release evidence are tracked there; baseline tests alone did not cover the reproduced gaps.
+| Google Scope | Provider Permission | Current Product Boundary |
+| --- | --- | --- |
+| `gmail.readonly` | Read mailbox content | Inbox/sent/search, bounded message bodies and threads, semantic analyses. Attachments and full mailbox export remain out of scope. |
+| `gmail.metadata` | Headers/labels without bodies | Not a substitute for the body-capable reader; not requested separately. |
+| `gmail.send` | Send mail | Requested incrementally when entering a send path; never authorizes reads. |
+| `gmail.modify` / `gmail.compose` | Mailbox mutations / drafts | Incremental owner-reviewed paths only; OAuth scope presence never authorizes an unreviewed effect. |
+
+### Distilled Hardening Invariants
+
+- **Send Reconciliation Before Retry:** Pending action IDs remain owner-scoped in session storage; status reads query `gmail_owner_send_actions` before offering a fresh retry. Ambiguous post-POST failures settle as `outcome_unknown` (never blind auto-retry) and direct the owner to check Sent Mail.
+- **Provider Error Taxonomy:** Only confirmed `invalid_grant` or revoked authority marks a connection `needs_reauth`. Transient `429`/`5xx` token-refresh failures preserve the grant, and idempotent `GET` reads honor `Retry-After` within the single request deadline while mutations remain single-attempt.
+- **Shared Disconnect Cache Invalidation:** Disconnecting Gmail from any surface clears the owner-scoped receipt cache and in-memory projection immediately, while backend deletion remains authoritative.
+- **Explicit Stream Settlement:** Clean truncated AG-UI SSE EOF settles once as incomplete (never spinning indefinitely) and reconciles against persisted turn state.
+- **Legacy Receipt Sync Precondition:** While `legacy_read_only` cutover keeps receipt writes and history sync disabled (migration 267 enforces this at the database), any later reactivation must keep the last *successfully processed* `history_id` separate from received webhook notifications and advance it only after complete, error-free page drain.
+- **Explicit Remaining Scope:** Multi-query compound mailbox reads, attachments/full mailbox export, claim-level factual entailment beyond citation checks, and durable per-message Trash reconciliation remain open improvements rather than shipped guarantees.
