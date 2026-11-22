@@ -15,23 +15,36 @@ import asyncio
 import hashlib
 import json
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from email.utils import getaddresses
 from typing import Any, Literal
+from weakref import WeakKeyDictionary
 
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
-from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
+from hushh_mcp.services.gmail_message_text import (
+    MessageTextError,
+    attachment_filenames,
+    cap_utf8,
+    message_text,
+)
 from hushh_mcp.services.gmail_nudges import derive_needs_reply_nudges
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
+from hushh_mcp.services.gmail_semantic_ranker import (
+    clean_snippet,
+    fuse_query_candidates,
+    rerank_mail_candidates,
+)
 
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 _SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 _FIELDS = "id,threadId,internalDate,labelIds,payload/headers"
+_SNIPPET_FIELDS = "id,threadId,internalDate,labelIds,snippet,payload/headers"
 _HEADERS = ["From", "Subject", "Date"]
+_HYBRID_HEADERS = ["From", "Subject", "Date", "To"]
 # What a reply in the original thread is routed by. Never a body: the reply's
 # recipient, subject and RFC thread headers come from these and nothing else.
 _REPLY_HEADERS = ["From", "Reply-To", "To", "Subject", "Message-ID", "References"]
@@ -53,6 +66,32 @@ _NUDGE_QUERY = "in:inbox category:primary newer_than:30d -in:spam -in:trash"
 # Per-message reads for one listing page run concurrently, bounded so a page
 # never opens more than this many provider requests at once.
 _FETCH_CONCURRENCY = 8
+_HYBRID_FETCH_CONCURRENCY = 16
+_MAX_HYBRID_QUERIES = 3
+_SHARED_HTTP_CLIENTS: WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
+    WeakKeyDictionary()
+)
+
+
+def _shared_http_client() -> httpx.AsyncClient:
+    """Reuse one pooled HTTP/2 client per event loop to avoid cold TLS handshakes."""
+    loop = asyncio.get_running_loop()
+    client = _SHARED_HTTP_CLIENTS.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(
+            http2=True,
+            timeout=10.0,
+            follow_redirects=False,
+            limits=httpx.Limits(
+                max_connections=64,
+                max_keepalive_connections=32,
+                keepalive_expiry=60.0,
+            ),
+        )
+        _SHARED_HTTP_CLIENTS[loop] = client
+    return client
+
+
 _BODY_OPERATIONS = frozenset({"read_message", "read_thread", "read_message_by_id", "analyze_mail"})
 MAX_BODY_MESSAGES = 5
 # Analysis examines actual text, not just a heading, over one bounded page.
@@ -214,14 +253,17 @@ def _validate_message(message: Any, *, max_headers: int = 16) -> None:
 
 
 async def in_listing_order(
-    items: list[str], fetch: Callable[[str], Awaitable[dict[str, Any]]]
+    items: list[str],
+    fetch: Callable[[str], Awaitable[dict[str, Any]]],
+    *,
+    concurrency: int = _FETCH_CONCURRENCY,
 ) -> list[dict[str, Any]]:
     """Run bounded concurrent reads and return results in the listing's order.
 
     The first failure cancels the rest: an unavailable message is never read
     as an absent one, and no orphaned request outlives the read.
     """
-    semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
+    semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def one(item: str) -> dict[str, Any]:
         async with semaphore:
@@ -307,6 +349,7 @@ class GmailMetadataReader:
         self._remaining = _BUDGET
         self._message_ids: list[str] = []
         self._offered_message_ids: tuple[str, ...] = ()
+        self._offered_thread_ids: tuple[str, ...] = ()
         self._deadline_at: float | None = None
 
     async def require_current(self) -> None:
@@ -379,6 +422,206 @@ class GmailMetadataReader:
         read the wrong mail.
         """
         return self._offered_message_ids
+
+    def offered_thread_ids(self) -> tuple[str, ...]:
+        """Provider thread ids aligned 1:1 with ``offered_message_ids()``."""
+        return self._offered_thread_ids
+
+    async def search_hybrid(
+        self,
+        *,
+        intent: str = "",
+        queries: Sequence[str] = (),
+        mailbox: Mailbox = "anywhere",
+        limit: int = 12,
+        read_top_bodies: int = 3,
+        max_candidates: int = 24,
+        embedding_client: Any | None = None,
+    ) -> dict[str, Any]:
+        """Pure-REST multi-query recall + in-RAM semantic re-rank + top-K body hydration."""
+        if mailbox not in _MAILBOX_LABELS:
+            raise GmailMetadataError("invalid_argument")
+        if type(limit) is not int or not 1 <= limit <= 25:
+            raise GmailMetadataError("invalid_argument")
+        if type(read_top_bodies) is not int or not 0 <= read_top_bodies <= MAX_BODY_MESSAGES:
+            raise GmailMetadataError("invalid_argument")
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 30:
+            raise GmailMetadataError("invalid_argument")
+        if not isinstance(intent, str) or len(intent.encode("utf-8")) > 512:
+            raise GmailMetadataError("invalid_argument")
+        if any(ord(char) < 32 for char in intent):
+            raise GmailMetadataError("invalid_argument")
+        if not isinstance(queries, Sequence) or isinstance(queries, str | bytes):
+            raise GmailMetadataError("invalid_argument")
+        cleaned_queries: list[str] = []
+        for raw_query in queries:
+            if not isinstance(raw_query, str):
+                raise GmailMetadataError("invalid_argument")
+            q = raw_query.strip()
+            if len(q.encode("utf-8")) > 512 or any(ord(char) < 32 for char in q):
+                raise GmailMetadataError("invalid_argument")
+            if q and q not in cleaned_queries:
+                cleaned_queries.append(q)
+        if len(cleaned_queries) > _MAX_HYBRID_QUERIES:
+            raise GmailMetadataError("invalid_argument")
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            return await self._search_hybrid(
+                client=client,
+                token=token,
+                intent=intent.strip(),
+                queries=tuple(cleaned_queries),
+                mailbox=mailbox,
+                limit=limit,
+                read_top_bodies=read_top_bodies,
+                max_candidates=max_candidates,
+                embedding_client=embedding_client,
+            )
+
+        return await self._session(body, reads_bodies=read_top_bodies > 0)
+
+    async def read_threads(
+        self,
+        *,
+        message_ids: Sequence[str] = (),
+        thread_ids: Sequence[str] = (),
+        mailbox: Mailbox = "anywhere",
+        whole_thread: bool = True,
+    ) -> dict[str, Any]:
+        """Read full chronological threads or specific messages by server-minted IDs."""
+        if mailbox not in _MAILBOX_LABELS:
+            raise GmailMetadataError("invalid_argument")
+        if bool(message_ids) == bool(thread_ids):
+            raise GmailMetadataError("invalid_argument")
+        raw_ids = tuple(thread_ids) if thread_ids else tuple(message_ids)
+        if (
+            not 1 <= len(raw_ids) <= MAX_BODY_MESSAGES
+            or any(not isinstance(v, str) or not _ID.fullmatch(v) for v in raw_ids)
+            or len(set(raw_ids)) != len(raw_ids)
+        ):
+            raise GmailMetadataError("invalid_argument")
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            return await self._read_threads(
+                client=client,
+                token=token,
+                raw_ids=raw_ids,
+                by_thread_id=bool(thread_ids),
+                mailbox=mailbox,
+                whole_thread=whole_thread,
+            )
+
+        return await self._session(body, reads_bodies=True)
+
+    async def resolve_targets_by_ids(
+        self,
+        message_ids: Sequence[str],
+        *,
+        mailbox: Mailbox = "anywhere",
+        label_name: str | None = None,
+    ) -> MailboxTargets:
+        """Resolve exact server-offered message IDs into a reviewed metadata preview.
+
+        IDs must come from server-minted ``STATE_MAIL_READ_OFFER``, never from a
+        model argument. The session fence pins ``expect_account`` so an account
+        switch refuses cleanly.
+        """
+        if mailbox not in _MAILBOX_LABELS:
+            raise GmailMetadataError("invalid_argument")
+        raw_ids = tuple(message_ids)
+        if (
+            not 1 <= len(raw_ids) <= 25
+            or any(not isinstance(v, str) or not _ID.fullmatch(v) for v in raw_ids)
+            or len(set(raw_ids)) != len(raw_ids)
+        ):
+            raise GmailMetadataError("invalid_argument")
+        if label_name is not None and (
+            not isinstance(label_name, str)
+            or not label_name.strip()
+            or len(label_name) > 225
+            or any(ord(char) < 32 for char in label_name)
+        ):
+            raise GmailMetadataError("invalid_argument")
+
+        async def body(client: httpx.AsyncClient, token: str) -> tuple[dict[str, Any], str | None]:
+            label_id = (
+                await self._label_id(client, token, label_name.strip()) if label_name else None
+            )
+            request = {
+                "format": "metadata",
+                "metadataHeaders": _HEADERS + (["To"] if mailbox == "sent" else []),
+                "fields": _FIELDS,
+            }
+
+            async def fetch(identity: str) -> dict[str, Any]:
+                payload = await self._get(
+                    client, token, f"/messages/{identity}", request, recheck=False
+                )
+                if payload.get("id") != identity:
+                    raise GmailMetadataError("invalid_response")
+                _validate_message(payload, max_headers=16)
+                return payload
+
+            await self.require_current()
+            payloads = await in_listing_order(list(raw_ids), fetch)
+            await self.require_current()
+            raw_items = [self._message_item(payload, mailbox) for payload in payloads]
+            items: list[dict[str, Any]] = []
+            content_shortened = False
+            for ordinal, item in enumerate(raw_items, 1):
+                subject, cut_subject = _label(item["subject"], 320)
+                sender, cut_sender = _label(item["sender"], 160)
+                content_shortened = content_shortened or cut_subject or cut_sender
+                projected: dict[str, Any] = {
+                    "source_ref": f"mail:{ordinal}",
+                    "subject": subject,
+                    "sender": sender,
+                    "received_at": item["received_at"],
+                }
+                if "unread" in item:
+                    projected["unread"] = item["unread"]
+                if "recipient" in item:
+                    recipient, cut_recipient = _label(item["recipient"], 160)
+                    content_shortened = content_shortened or cut_recipient
+                    projected["recipient"] = recipient
+                items.append(projected)
+            preview: dict[str, Any] = {
+                "status": "ok",
+                "operation": "read_message_by_id",
+                "mailbox": mailbox,
+                "untrusted_external_content": items,
+                "truncated": content_shortened,
+                "metadata_only": True,
+                "one_page_only": True,
+            }
+            items_omitted = False
+            while len(json.dumps(preview).encode("utf-8")) > 24000 and items:
+                items.pop()
+                items_omitted = True
+                preview["truncated"] = True
+            preview["coverage"] = {
+                "operation": "read_message_by_id",
+                "mailbox": mailbox,
+                "scope": "selected",
+                "unit": "messages",
+                "assessed": len(raw_ids),
+                "returned": len(items),
+                "matches_beyond_page": False,
+                "items_omitted": items_omitted,
+                "content_shortened": content_shortened,
+                "content_depth": "metadata",
+                "one_page_only": True,
+            }
+            return preview, label_id
+
+        preview, label_id = await self._session(body, reads_bodies=False)
+        shown = len(preview["untrusted_external_content"])
+        return MailboxTargets(
+            message_ids=tuple(raw_ids[:shown]),
+            preview=preview,
+            label_id=label_id,
+            account=str(self._account),
+        )
 
     async def resolve_targets(
         self, arguments: dict[str, Any], *, label_name: str | None = None
@@ -504,10 +747,13 @@ class GmailMetadataReader:
                     # position.
                     raise GmailMetadataError("source_changed")
                 await self.require_current()
-                async with httpx.AsyncClient(
-                    transport=self._transport, timeout=10, follow_redirects=False
-                ) as client:
-                    result = await body(client, access_token)
+                if self._transport is None:
+                    result = await body(_shared_http_client(), access_token)
+                else:
+                    async with httpx.AsyncClient(
+                        transport=self._transport, timeout=10, follow_redirects=False
+                    ) as client:
+                        result = await body(client, access_token)
                 await self.require_current()
                 return result
         except GmailApiError as exc:
@@ -880,8 +1126,415 @@ class GmailMetadataReader:
             [str(n.message_id or "") for n in shown],
         )
 
+    async def _search_hybrid(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        token: str,
+        intent: str,
+        queries: tuple[str, ...],
+        mailbox: Mailbox,
+        limit: int,
+        read_top_bodies: int,
+        max_candidates: int,
+        embedding_client: Any | None,
+    ) -> dict[str, Any]:
+        """Parallel multi-query REST recall + in-RAM E5/RRF re-rank + top-K body hydration."""
+        label = _MAILBOX_LABELS[mailbox]
+        page_size = max(limit, min(25, max_candidates))
+        effective_queries: tuple[str, ...] = queries if queries else ("",)
+
+        async def list_one(query: str) -> tuple[list[dict[str, str]], bool]:
+            params: dict[str, Any] = {
+                "maxResults": page_size,
+                "includeSpamTrash": "false",
+                "fields": "messages(id,threadId),nextPageToken",
+            }
+            if label is not None:
+                params["labelIds"] = label
+            if query:
+                params["q"] = query
+            listing = await self._get(client, token, "/messages", params, recheck=False)
+            entries = listing.get("messages", [])
+            if not isinstance(entries, list) or len(entries) > page_size:
+                raise GmailMetadataError("invalid_response")
+            validated: list[dict[str, str]] = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise GmailMetadataError("invalid_response")
+                msg_id = entry.get("id")
+                thread_id = entry.get("threadId")
+                if not isinstance(msg_id, str) or not _ID.fullmatch(msg_id):
+                    raise GmailMetadataError("invalid_response")
+                if thread_id is not None and (
+                    not isinstance(thread_id, str) or not _ID.fullmatch(thread_id)
+                ):
+                    raise GmailMetadataError("invalid_response")
+                validated.append({"id": msg_id, "threadId": thread_id or msg_id})
+            return validated, bool(listing.get("nextPageToken"))
+
+        list_results = await asyncio.gather(*(list_one(q) for q in effective_queries))
+        ranked_lists = [entries for entries, _ in list_results]
+        matches_beyond_page = any(has_more for _, has_more in list_results)
+
+        fused = fuse_query_candidates(ranked_lists, max_candidates=max_candidates)
+        if not fused:
+            self._offered_message_ids = ()
+            self._offered_thread_ids = ()
+            return {
+                "status": "ok",
+                "operation": "search_hybrid",
+                "mailbox": mailbox,
+                "untrusted_external_content": [],
+                "truncated": False,
+                "metadata_only": True,
+                "one_page_only": True,
+                "semantic_reranked": False,
+                "coverage": {
+                    "operation": "search_hybrid",
+                    "mailbox": mailbox,
+                    "scope": "search" if queries else "newest",
+                    "unit": "messages",
+                    "assessed": 0,
+                    "returned": 0,
+                    "matches_beyond_page": False,
+                    "items_omitted": False,
+                    "content_shortened": False,
+                    "content_depth": "metadata",
+                    "one_page_only": True,
+                },
+            }
+
+        candidate_ids = [item["id"] for item in fused]
+        meta_request = {
+            "format": "metadata",
+            "metadataHeaders": _HYBRID_HEADERS,
+            "fields": _SNIPPET_FIELDS,
+        }
+
+        async def fetch_meta(identity: str) -> dict[str, Any]:
+            payload = await self._get(
+                client, token, f"/messages/{identity}", meta_request, recheck=False
+            )
+            if payload.get("id") != identity:
+                raise GmailMetadataError("invalid_response")
+            _validate_message(payload, max_headers=16)
+            return payload
+
+        await self.require_current()
+        meta_payloads = await in_listing_order(
+            candidate_ids, fetch_meta, concurrency=_HYBRID_FETCH_CONCURRENCY
+        )
+        await self.require_current()
+        raw_candidates = [
+            self._message_item(payload, mailbox, include_snippet=True) for payload in meta_payloads
+        ]
+
+        used_semantic = False
+        if intent and len(raw_candidates) > 1:
+            ordered_indices, used_semantic = await asyncio.to_thread(
+                rerank_mail_candidates,
+                intent,
+                raw_candidates,
+                embedding_client=embedding_client,
+            )
+        else:
+            ordered_indices = list(range(len(raw_candidates)))
+
+        assessed = len(raw_candidates)
+        selected_indices = ordered_indices[:limit]
+        items_omitted = len(ordered_indices) > limit
+
+        hydrate_count = min(read_top_bodies, len(selected_indices))
+        body_payloads: dict[int, dict[str, Any]] = {}
+        if hydrate_count > 0:
+            top_indices = selected_indices[:hydrate_count]
+            top_ids = [fused[idx]["id"] for idx in top_indices]
+            full_request = {"format": "full", "fields": _FULL_FIELDS}
+
+            async def fetch_full(identity: str) -> dict[str, Any]:
+                payload = await self._get(
+                    client, token, f"/messages/{identity}", full_request, recheck=False
+                )
+                if payload.get("id") != identity:
+                    raise GmailMetadataError("invalid_response")
+                _validate_message(payload, max_headers=400)
+                return payload
+
+            await self.require_current()
+            hydrated = await in_listing_order(top_ids, fetch_full)
+            await self.require_current()
+            for idx, payload in zip(top_indices, hydrated, strict=True):
+                body_payloads[idx] = payload
+
+        content_shortened = False
+        body_allowance = (
+            max(1000, min(8000, (_BODY_TEXT_BUDGET - 4000) // max(1, hydrate_count)))
+            if hydrate_count > 0
+            else 0
+        )
+        items: list[dict[str, Any]] = []
+        ordered_msg_ids: list[str] = []
+        ordered_thread_ids: list[str] = []
+
+        for ordinal, idx in enumerate(selected_indices, 1):
+            base = dict(raw_candidates[idx])
+            if idx in body_payloads:
+                full_item = self._message_item(
+                    body_payloads[idx],
+                    mailbox,
+                    with_body=True,
+                    include_attachments=True,
+                )
+                body_text, cut_body = cap_utf8(full_item["body"], body_allowance)
+                base["body"] = body_text
+                base["body_truncated"] = cut_body
+                content_shortened = content_shortened or cut_body
+                if full_item.get("attachments"):
+                    base["attachments"] = full_item["attachments"]
+
+            subject, cut_subject = _label(base["subject"], 320)
+            sender, cut_sender = _label(base["sender"], 160)
+            content_shortened = content_shortened or cut_subject or cut_sender
+            projected: dict[str, Any] = {
+                "source_ref": f"mail:{ordinal}",
+                "subject": subject,
+                "sender": sender,
+                "received_at": base["received_at"],
+                "unread": base["unread"],
+            }
+            if base.get("snippet"):
+                projected["snippet"] = base["snippet"]
+            if base.get("recipient"):
+                recipient, cut_recipient = _label(base["recipient"], 160)
+                content_shortened = content_shortened or cut_recipient
+                projected["recipient"] = recipient
+            if "body" in base:
+                projected["body"] = base["body"]
+                projected["body_truncated"] = base["body_truncated"]
+            if base.get("attachments"):
+                projected["attachments"] = base["attachments"]
+            if fused[idx]["thread_hits"] > 1:
+                projected["thread_hits"] = fused[idx]["thread_hits"]
+            items.append(projected)
+            ordered_msg_ids.append(fused[idx]["id"])
+            ordered_thread_ids.append(fused[idx]["threadId"])
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "operation": "search_hybrid",
+            "mailbox": mailbox,
+            "untrusted_external_content": items,
+            "truncated": matches_beyond_page or items_omitted or content_shortened,
+            "metadata_only": hydrate_count == 0,
+            "one_page_only": True,
+            "semantic_reranked": used_semantic,
+        }
+        while len(json.dumps(result).encode("utf-8")) > 24000 and items:
+            items.pop()
+            items_omitted = True
+            result["truncated"] = True
+
+        surviving_msg_ids = ordered_msg_ids[: len(items)]
+        surviving_thread_ids = ordered_thread_ids[: len(items)]
+        self._offered_message_ids = (
+            tuple(surviving_msg_ids)
+            if len(surviving_msg_ids) == len(items)
+            and all(_ID.fullmatch(value) for value in surviving_msg_ids)
+            else ()
+        )
+        self._offered_thread_ids = (
+            tuple(surviving_thread_ids)
+            if len(surviving_thread_ids) == len(items)
+            and all(_ID.fullmatch(value) for value in surviving_thread_ids)
+            else ()
+        )
+        result["coverage"] = {
+            "operation": "search_hybrid",
+            "mailbox": mailbox,
+            "scope": "search" if queries else "newest",
+            "unit": "messages",
+            "assessed": assessed,
+            "returned": len(items),
+            "matches_beyond_page": matches_beyond_page,
+            "items_omitted": items_omitted,
+            "content_shortened": content_shortened,
+            "content_depth": "message" if hydrate_count > 0 else "metadata",
+            "one_page_only": True,
+        }
+        return result
+
+    async def _read_threads(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        token: str,
+        raw_ids: tuple[str, ...],
+        by_thread_id: bool,
+        mailbox: Mailbox,
+        whole_thread: bool,
+    ) -> dict[str, Any]:
+        """Fetch full chronological threads or individual messages by verified provider ID."""
+        resolved_thread_ids: list[str] = []
+        if whole_thread and not by_thread_id:
+
+            async def resolve_tid(msg_id: str) -> dict[str, Any]:
+                payload = await self._get(
+                    client,
+                    token,
+                    f"/messages/{msg_id}",
+                    {"format": "minimal", "fields": "id,threadId"},
+                    recheck=False,
+                )
+                tid = payload.get("threadId")
+                if (
+                    payload.get("id") != msg_id
+                    or not isinstance(tid, str)
+                    or not _ID.fullmatch(tid)
+                ):
+                    raise GmailMetadataError("invalid_response")
+                return payload
+
+            await self.require_current()
+            resolved = await in_listing_order(list(raw_ids), resolve_tid)
+            await self.require_current()
+            for item in resolved:
+                tid = str(item["threadId"])
+                if tid not in resolved_thread_ids:
+                    resolved_thread_ids.append(tid)
+            fetch_ids = resolved_thread_ids
+            is_threads = True
+        elif whole_thread and by_thread_id:
+            fetch_ids = list(raw_ids)
+            is_threads = True
+        else:
+            fetch_ids = list(raw_ids)
+            is_threads = False
+
+        fields = f"id,messages({_FULL_FIELDS})" if is_threads else _FULL_FIELDS
+        request = {"format": "full", "fields": fields}
+
+        async def fetch(identity: str) -> dict[str, Any]:
+            payload = await self._get(
+                client,
+                token,
+                f"/{'threads' if is_threads else 'messages'}/{identity}",
+                request,
+                recheck=False,
+            )
+            if payload.get("id") != identity:
+                raise GmailMetadataError("invalid_response")
+            if is_threads:
+                messages = payload.get("messages")
+                if not isinstance(messages, list) or not messages or len(messages) > 100:
+                    raise GmailMetadataError("invalid_response")
+                for message in messages:
+                    _validate_message(message, max_headers=400)
+            else:
+                _validate_message(payload, max_headers=400)
+            return payload
+
+        await self.require_current()
+        payloads = await in_listing_order(fetch_ids, fetch)
+        await self.require_current()
+        messages = (
+            [m for payload in payloads for m in payload["messages"]] if is_threads else payloads
+        )
+        assessed = len(messages)
+        items_omitted = False
+        if is_threads and len(messages) > _MAX_THREAD_MESSAGES:
+            messages = messages[-_MAX_THREAD_MESSAGES:]
+            items_omitted = True
+
+        raw_items = [
+            self._message_item(m, mailbox, with_body=True, include_attachments=True)
+            for m in messages
+        ]
+        ordered_msg_ids = [str(m.get("id") or "") for m in messages]
+        ordered_thread_ids = [str(m.get("threadId") or "") for m in messages]
+        allowance = max(800, min(12000, _BODY_TEXT_BUDGET // max(1, len(raw_items))))
+        content_shortened = False
+        items: list[dict[str, Any]] = []
+        thread_refs: dict[str, str] = {}
+
+        for ordinal, (raw_item, msg) in enumerate(zip(raw_items, messages, strict=True), 1):
+            body_text, cut_body = cap_utf8(raw_item["body"], allowance)
+            subject, cut_subject = _label(raw_item["subject"], 320)
+            sender, cut_sender = _label(raw_item["sender"], 160)
+            content_shortened = content_shortened or cut_body or cut_subject or cut_sender
+            projected: dict[str, Any] = {
+                "source_ref": f"mail:{ordinal}",
+                "subject": subject,
+                "sender": sender,
+                "received_at": raw_item["received_at"],
+                "unread": raw_item["unread"],
+                "body": body_text,
+                "body_truncated": cut_body,
+            }
+            if raw_item.get("recipient"):
+                recipient, cut_recipient = _label(raw_item["recipient"], 160)
+                content_shortened = content_shortened or cut_recipient
+                projected["recipient"] = recipient
+            if raw_item.get("attachments"):
+                projected["attachments"] = raw_item["attachments"]
+            tid = str(msg.get("threadId") or "")
+            if tid:
+                projected["thread_ref"] = thread_refs.setdefault(
+                    tid, f"thread:{len(thread_refs) + 1}"
+                )
+            items.append(projected)
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "operation": "read_thread" if is_threads else "read_message_by_id",
+            "mailbox": mailbox,
+            "untrusted_external_content": items,
+            "truncated": items_omitted or content_shortened,
+            "metadata_only": False,
+            "one_page_only": True,
+        }
+        while len(json.dumps(result).encode("utf-8")) > 24000 and items:
+            items.pop()
+            items_omitted = True
+            result["truncated"] = True
+
+        surviving_msg_ids = ordered_msg_ids[: len(items)]
+        surviving_thread_ids = ordered_thread_ids[: len(items)]
+        self._offered_message_ids = (
+            tuple(surviving_msg_ids)
+            if len(surviving_msg_ids) == len(items)
+            and all(_ID.fullmatch(value) for value in surviving_msg_ids)
+            else ()
+        )
+        self._offered_thread_ids = (
+            tuple(surviving_thread_ids)
+            if len(surviving_thread_ids) == len(items)
+            and all(_ID.fullmatch(value) for value in surviving_thread_ids)
+            else ()
+        )
+        result["coverage"] = {
+            "operation": result["operation"],
+            "mailbox": mailbox,
+            "scope": "selected",
+            "unit": "messages",
+            "assessed": assessed,
+            "returned": len(items),
+            "matches_beyond_page": False,
+            "items_omitted": items_omitted,
+            "content_shortened": content_shortened,
+            "content_depth": "message",
+            "one_page_only": True,
+        }
+        return result
+
     def _message_item(
-        self, payload: dict[str, Any], mailbox: str, *, with_body: bool = False
+        self,
+        payload: dict[str, Any],
+        mailbox: str,
+        *,
+        with_body: bool = False,
+        include_snippet: bool = False,
+        include_attachments: bool = False,
     ) -> dict[str, Any]:
         headers = self._gmail._extract_headers(payload)
         sender, email = self._gmail._parse_from_header(headers.get("from", ""))
@@ -892,13 +1545,20 @@ class GmailMetadataReader:
             "received_at": received.isoformat() if received else None,
             "unread": "UNREAD" in payload.get("labelIds", []),
         }
-        if mailbox == "sent":
-            # The owner sent these, so the sender is always them; the
-            # useful metadata is who received it.
+        if mailbox == "sent" or (include_snippet and headers.get("to")):
+            # Sent mail (and hybrid anywhere views) benefit from counterparty recipients.
             item["recipient"] = _recipient_label(headers.get("to", ""))
+        if include_snippet:
+            snippet = clean_snippet(payload.get("snippet"))
+            if snippet:
+                item["snippet"] = snippet
         if with_body:
             try:
                 item["body"] = message_text(payload["payload"])
             except MessageTextError:
                 raise GmailMetadataError("invalid_response") from None
+            if include_attachments:
+                files = attachment_filenames(payload["payload"])
+                if files:
+                    item["attachments"] = files
         return item

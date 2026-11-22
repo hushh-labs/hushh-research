@@ -1210,7 +1210,10 @@ describe("EmailDraftCard", () => {
         onOpenConnections={onOpenConnections}
       />,
     );
-    expect(await screen.findByText("Reconnect Mail")).toBeInTheDocument();
+    const reconnect = await screen.findByTestId("one-email-draft-reconnect-gmail");
+    expect(reconnect).toHaveTextContent("Reconnect Mail");
     expect(screen.queryByTestId("one-email-draft-connect-gmail")).not.toBeInTheDocument();
+    fireEvent.click(reconnect);
+    expect(onOpenConnections).toHaveBeenCalledWith("gmail", reconnect);
   });
 });

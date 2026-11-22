@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import secrets
+from collections.abc import Sequence
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, get_args
@@ -100,27 +101,43 @@ class GmailMailboxActions:
         limit: int,
         label: str,
         require_access: RequireAccess,
+        message_ids: Sequence[str] | None = None,
+        expect_account: str | None = None,
     ) -> dict[str, Any]:
         if action not in MAILBOX_ACTIONS or (action in LABEL_ACTIONS) != bool(label.strip()):
             raise _error("GMAIL_MAILBOX_INVALID", "Choose one mailbox change.", 422)
         await self._purge(user_id=user_id)
         await self.assert_modify_ready(user_id=user_id)
-        # Archiving removes the Inbox label, so its targets are Inbox messages.
-        arguments: dict[str, Any] = {
-            "limit": limit,
-            "mailbox": "inbox" if action == "archive" else mailbox,
-        }
-        if query.strip():
-            arguments["query"] = query.strip()
-        reader = self._reader_factory(
-            gmail=self._gmail,
-            user_id=user_id,
-            require_access=require_access,
-            transport=self._transport,
-        )
-        targets = await reader.resolve_targets(
-            arguments, label_name=label.strip() if action in LABEL_ACTIONS else None
-        )
+        target_mailbox = "inbox" if action == "archive" else mailbox
+        label_name = label.strip() if action in LABEL_ACTIONS else None
+        if message_ids:
+            reader = self._reader_factory(
+                gmail=self._gmail,
+                user_id=user_id,
+                require_access=require_access,
+                transport=self._transport,
+                expect_account=expect_account,
+            )
+            targets = await reader.resolve_targets_by_ids(
+                message_ids,
+                mailbox=target_mailbox,
+                label_name=label_name,
+            )
+        else:
+            # Archiving removes the Inbox label, so its targets are Inbox messages.
+            arguments: dict[str, Any] = {
+                "limit": limit,
+                "mailbox": target_mailbox,
+            }
+            if query.strip():
+                arguments["query"] = query.strip()
+            reader = self._reader_factory(
+                gmail=self._gmail,
+                user_id=user_id,
+                require_access=require_access,
+                transport=self._transport,
+            )
+            targets = await reader.resolve_targets(arguments, label_name=label_name)
         if not targets.message_ids:
             return {"status": "no_match", "preview": targets.preview}
         proposal_id = f"gmod_{secrets.token_urlsafe(24)}"

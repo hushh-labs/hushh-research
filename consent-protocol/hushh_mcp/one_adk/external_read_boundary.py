@@ -24,6 +24,9 @@ STATE_DRIVE_READ_OUTCOME = "temp:one_drive_read_outcome"
 STATE_SELECTED_DRIVE_SHARE = "temp:one_selected_drive_share"
 STATE_RECEIPT_HANDBACK = "temp:one_receipt_handback_invocation"
 STATE_READ_CALL_REFUSED = "temp:one_read_call_refused_invocation"
+STATE_MAIL_EMPTY_RETRIES = "temp:one_mail_empty_retries"
+STATE_MAIL_DRILLDOWN_USED = "temp:one_mail_drilldown_used"
+_MAX_EMPTY_MAIL_RETRIES = 2
 _DRIVE_READ_FAILED_ANSWER = (
     "I couldn’t complete a fresh Drive check. Earlier filenames and links in this chat "
     "have not been verified again, so I can’t confirm the current result. Please try again."
@@ -50,8 +53,14 @@ _DRIVE_CONNECTION_ANSWERS = {
     ),
 }
 MAIL_TOOL = "ask_email_agent"
+DIRECT_MAIL_READ_TOOLS = frozenset(
+    {"gmail_search_mail", "gmail_read_thread", "gmail_list_needs_reply"}
+)
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
+    "gmail_search_mail": "gmail_chat_reads",
+    "gmail_read_thread": "gmail_chat_reads",
+    "gmail_list_needs_reply": "gmail_chat_reads",
     # Resolves bounded Gmail metadata into an owner-confirmation card. It is
     # still a connector read, so no later tool in this model turn can act on
     # the selected email text.
@@ -112,6 +121,12 @@ def _reviewable_draft_tool(tool: Any) -> bool:
         from hushh_mcp.agents.calendar import tools as calendar_tools
 
         return type(tool) is FunctionTool and tool.func is getattr(calendar_tools, tool.name)
+    if getattr(tool, "name", None) == "open_gmail_reply_draft":
+        from google.adk.tools import FunctionTool
+
+        from hushh_mcp.agents.email.chat_tools import open_gmail_reply_draft
+
+        return type(tool) is FunctionTool and tool.func is open_gmail_reply_draft
     if getattr(tool, "name", None) != "open_gmail_email_draft":
         return False
     from google.adk.tools import FunctionTool
@@ -119,6 +134,53 @@ def _reviewable_draft_tool(tool: Any) -> bool:
     from hushh_mcp.one_adk.agent_tree import open_gmail_email_draft
 
     return type(tool) is FunctionTool and tool.func is open_gmail_email_draft
+
+
+def _mail_ordinal_drilldown_available(context: Any) -> bool:
+    """True when one strict ordinal-only thread drill-down is still permitted."""
+    invocation = getattr(context, "invocation_id", None)
+    if not invocation or context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat":
+        return False
+    if context.state.get(STATE_MAIL_DRILLDOWN_USED) == invocation:
+        return False
+    offer = context.state.get("hussh:mail_read_offer")
+    return isinstance(offer, dict) and bool(offer.get("message_ids"))
+
+
+def _mail_ordinal_drilldown_tool(tool: Any, args: dict | None, context: Any) -> bool:
+    """Allow at most ONE ordinal-only ``gmail_read_thread`` drill-down on offered mail.
+
+    CaMeL safety boundary:
+    - Only the exact application-owned ``gmail_read_thread`` function is admitted.
+    - ``query`` MUST be empty so untrusted mail text can never trigger an arbitrary
+      exfiltration search.
+    - ``ordinals`` MUST be a non-empty list of 1..25 integers referencing only
+      messages already offered in ``STATE_MAIL_READ_OFFER``.
+    - Allowed at most once per invocation (enforced via ``STATE_MAIL_DRILLDOWN_USED``).
+    """
+    if getattr(tool, "name", None) != "gmail_read_thread":
+        return False
+    if not _mail_ordinal_drilldown_available(context):
+        return False
+    from google.adk.tools import FunctionTool
+
+    from hushh_mcp.agents.email.chat_tools import gmail_read_thread
+
+    if not (type(tool) is FunctionTool and tool.func is gmail_read_thread):
+        return False
+    if args is None:
+        return True
+    raw_query = args.get("query")
+    if isinstance(raw_query, str) and raw_query.strip():
+        return False
+    if raw_query not in (None, ""):
+        return False
+    ordinals = args.get("ordinals")
+    return (
+        isinstance(ordinals, list)
+        and 1 <= len(ordinals) <= 5
+        and all(type(item) is int and 1 <= item <= 25 for item in ordinals)
+    )
 
 
 def _reviewable_selected_drive_share_tool(tool: Any) -> bool:
@@ -203,6 +265,13 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         return None
     if external_read_active(tool_context):
         if (
+            _mail_ordinal_drilldown_tool(tool, args, tool_context)
+            and tool_context.state.get(STATE_EXTERNAL_READ_CONTINUATION)
+            == tool_context.invocation_id
+        ):
+            tool_context.state[STATE_MAIL_DRILLDOWN_USED] = tool_context.invocation_id
+            return None
+        if (
             (
                 _reviewable_draft_tool(tool)
                 or (
@@ -279,6 +348,30 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
     successful first result. This state contains no provider text or file IDs.
     """
     name = getattr(tool, "name", "")
+    if (
+        name in DIRECT_MAIL_READ_TOOLS
+        and isinstance(tool_response, dict)
+        and tool_response.get("status") == "no_match"
+        and external_read_active(tool_context)
+    ):
+        # Zero external content entered the model context, so the turn is still
+        # untainted: clear the read barrier up to _MAX_EMPTY_MAIL_RETRIES times
+        # so One can broaden its Gmail query and retry automatically.
+        invocation = getattr(tool_context, "invocation_id", None)
+        tracker = tool_context.state.get(STATE_MAIL_EMPTY_RETRIES)
+        count = (
+            int(tracker.get("count", 0))
+            if isinstance(tracker, dict) and tracker.get("invocation") == invocation
+            else 0
+        )
+        if invocation and count < _MAX_EMPTY_MAIL_RETRIES:
+            tool_context.state[STATE_MAIL_EMPTY_RETRIES] = {
+                "invocation": invocation,
+                "count": count + 1,
+            }
+            tool_context.state[STATE_EXTERNAL_READ] = None
+            tool_context.state[STATE_EXTERNAL_READ_CONTINUATION] = None
+        return
     if (
         name == MAIL_TOOL
         and tool_response.get("status") == "receipt_functions_required"
@@ -381,6 +474,7 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
             if scheduled_finish_tool(tool, callback_context)
             or _reviewed_mcp_tool(tool)
             or _reviewable_draft_tool(tool)
+            or _mail_ordinal_drilldown_tool(tool, None, callback_context)
             or (
                 _selected_share_ready(callback_context)
                 and _reviewable_selected_drive_share_tool(tool)

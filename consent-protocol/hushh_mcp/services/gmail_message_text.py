@@ -22,6 +22,13 @@ _BLOCK_TAGS = frozenset(
     {"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "table"}
 )
 _SKIPPED_TAGS = frozenset({"script", "style", "head", "title", "template", "noscript"})
+_VOID_TAGS = frozenset(
+    {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"}
+)
+_HIDDEN_STYLE = re.compile(
+    r"(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?(?:\s*;|\s*$)|font-size\s*:\s*0(?:px|pt|em|rem|%)?(?:\s*;|\s*$))",
+    re.IGNORECASE,
+)
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -29,27 +36,47 @@ class MessageTextError(ValueError):
     """The provider payload is not a well-formed message tree."""
 
 
+def _is_hidden_attrs(attrs: list[tuple[str, str | None]]) -> bool:
+    for name, value in attrs:
+        attr = name.lower()
+        if attr == "hidden":
+            return True
+        if attr == "style" and isinstance(value, str) and _HIDDEN_STYLE.search(value):
+            return True
+    return False
+
+
 class _HtmlText(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._chunks: list[str] = []
         self._skipping = 0
+        self._hidden_stack: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs  # Links, images and styles are never followed or surfaced.
         if tag in _SKIPPED_TAGS:
             self._skipping += 1
-        elif tag in _BLOCK_TAGS:
+        elif tag not in _VOID_TAGS and (self._hidden_stack or _is_hidden_attrs(attrs)):
+            # Skip CSS/HTML-hidden subtrees (display:none, visibility:hidden,
+            # opacity:0, font-size:0, [hidden]) to block invisible prompt injection.
+            self._hidden_stack.append(tag)
+        elif tag in _BLOCK_TAGS and not self._skipping and not self._hidden_stack:
             self._chunks.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _SKIPPED_TAGS and self._skipping:
             self._skipping -= 1
-        elif tag in _BLOCK_TAGS:
+        elif self._hidden_stack:
+            if tag in self._hidden_stack:
+                while self._hidden_stack:
+                    popped = self._hidden_stack.pop()
+                    if popped == tag:
+                        break
+        elif tag in _BLOCK_TAGS and not self._skipping:
             self._chunks.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if not self._skipping:
+        if not self._skipping and not self._hidden_stack:
             self._chunks.append(data)
 
     def text(self) -> str:
@@ -136,6 +163,31 @@ def message_text(payload: Any) -> str:
         elif mime_type == "text/html":
             html.append(_html_to_text(_decode(part)))
     return _normalize("\n\n".join(plain if any(p.strip() for p in plain) else html))
+
+
+def attachment_filenames(payload: Any, *, max_files: int = 8) -> list[str]:
+    """Return bounded, sanitized attachment filenames without reading attachment bytes."""
+    if not isinstance(payload, dict) or max_files <= 0:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    stack: list[tuple[Any, int]] = [(payload, 0)]
+    visited = 0
+    while stack and len(names) < max_files:
+        part, depth = stack.pop()
+        visited += 1
+        if not isinstance(part, dict) or visited > _MAX_PARTS or depth > _MAX_DEPTH:
+            break
+        raw_name = part.get("filename")
+        if isinstance(raw_name, str) and raw_name.strip():
+            cleaned = " ".join(_CONTROL.sub(" ", raw_name).split())[:120]
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                names.append(cleaned)
+        children = part.get("parts")
+        if isinstance(children, list):
+            stack.extend((child, depth + 1) for child in reversed(children))
+    return names
 
 
 def cap_utf8(text: str, maximum: int) -> tuple[str, bool]:
