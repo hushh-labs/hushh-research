@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SettingsRow } from "@/components/profile/settings-ui";
 import { Switch } from "@/components/ui/switch";
 import {
   isValidatedAuthSessionOwnerCurrent,
@@ -15,8 +16,10 @@ import {
 
 export function PodSessionLockdownControl({
   testId = "pod-session-only-lockdown",
+  asSettingsRow = false,
 }: {
   testId?: string;
+  asSettingsRow?: boolean;
 }) {
   const [available, setAvailable] = useState(false);
   const [lockedDown, setLockedDown] = useState(false);
@@ -69,18 +72,36 @@ export function PodSessionLockdownControl({
     }
   };
 
+  const statusDescription = lockedDown
+    ? "Paused · One runs only while your app is open."
+    : "Off · One quietly prepares drafts and memory updates while you are away.";
+
+  if (asSettingsRow) {
+    return (
+      <SettingsRow
+        testId={testId}
+        title="Session-only lockdown"
+        description={statusDescription}
+        trailing={
+          <Switch
+            aria-label="Session-only lockdown"
+            checked={lockedDown}
+            disabled={busy}
+            onCheckedChange={(checked) => void toggle(checked)}
+          />
+        }
+      />
+    );
+  }
+
   return (
     <div
       data-testid={testId}
-      className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-background p-3"
+      className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-black/[0.02] p-3 dark:bg-white/[0.03]"
     >
       <div className="min-w-0 space-y-0.5">
         <p className="text-xs font-semibold text-foreground">Session-only lockdown</p>
-        <p className="text-xs text-[var(--app-text-secondary)]">
-          {lockedDown
-            ? "Paused · One runs only while your app is open."
-            : "Off · One quietly prepares drafts and memory updates while you are away."}
-        </p>
+        <p className="text-xs text-[var(--app-text-secondary)]">{statusDescription}</p>
       </div>
       <Switch
         aria-label="Session-only lockdown"

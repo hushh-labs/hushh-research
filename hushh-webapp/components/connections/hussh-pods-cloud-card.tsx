@@ -213,11 +213,13 @@ export function HusshPodsActiveCard({
   deploymentTarget,
   cutover,
   embedded = false,
+  showRetiredHistory = false,
   dataTestId = "hussh-pods-connected",
 }: {
   deploymentTarget?: string | null;
   cutover?: HostedAzureCutoverState | null;
   embedded?: boolean;
+  showRetiredHistory?: boolean;
   dataTestId?: string;
 }) {
   const provider = hostedPodProvider(deploymentTarget);
@@ -366,10 +368,10 @@ export function HusshPodsActiveCard({
 
         <PodSessionLockdownControl />
 
-        {activeGraceItem ? (
+        {activeGraceItem && (!activeItemRetired || showRetiredHistory) ? (
           <div
             data-testid="hussh-pods-source-retirement"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-background p-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-black/[0.02] p-3 dark:bg-white/[0.03]"
           >
             <div className="min-w-0 space-y-0.5">
               <p className="text-xs font-semibold text-foreground">
