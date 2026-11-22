@@ -74,7 +74,7 @@ export function PodSessionLockdownControl({
 
   const statusDescription = lockedDown
     ? "Paused · One runs only while your app is open."
-    : "Off · One prepares drafts and memory updates while you are away.";
+    : "Off · One quietly prepares drafts and memory updates while you are away.";
 
   if (asSettingsRow) {
     return (

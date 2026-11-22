@@ -9600,7 +9600,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <AgentBubble
                       message={message}
                       pendingPhase={
-                        message.isStreaming
+                        message.status === "streaming"
                           ? isTurnWaking || chatWake.isWaking || slowNoticeState === "waking"
                             ? "waking"
                             : slowNoticeState === "connecting"

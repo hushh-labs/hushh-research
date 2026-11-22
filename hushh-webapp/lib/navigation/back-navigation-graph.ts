@@ -593,7 +593,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         .filter(Boolean)[0];
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const rawReturnTo = normalizeInternalRouteHref(searchParams?.get("return_to"));
-      const isHostingOrigin = (href: string | undefined) =>
+      const isHostingOrigin = (href: string | null | undefined) =>
         Boolean(
           href &&
             (href === ROUTES.PROFILE_HOSTING ||
@@ -602,7 +602,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         );
       const managementReturn =
         pathname === ROUTES.ONE_SETUP_CLOUD && isHostingOrigin(rawReturnTo)
-          ? rawReturnTo
+          ? rawReturnTo ?? undefined
           : undefined;
       const setupBackHref = originHref || managementReturn || ROUTES.ONE_SETUP;
       return {
