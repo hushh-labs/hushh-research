@@ -336,6 +336,7 @@ class SandboxEdgeGatewayManager:
                 ):
                     domain_rules: dict[str, str] = {
                         "oauth2.googleapis.com": "allow",
+                        "openidconnect.googleapis.com": "allow",
                         "gmail.googleapis.com": "allow",
                         "www.googleapis.com": "allow",
                     }

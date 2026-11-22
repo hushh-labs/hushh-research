@@ -199,6 +199,7 @@ from hushh_mcp.services.agent_task_context import (
     specialist_directive_fingerprint,
 )
 from hushh_mcp.services.crm_product_availability import crm_product_available
+from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -951,7 +952,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     )
     mail_core_instruction = mail_admission_instruction(
         admitted=mail_admitted,
-        mailbox_changes=mail_admitted and (not pod_mode() or owner_cloud_agent()),
+        mailbox_changes=mail_admitted
+        and (not pod_mode() or owner_cloud_agent() or hosted_ace_runtime()),
         timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
     )
     legacy_draft_instruction = legacy_draft_addressing(state_getter)
@@ -2204,7 +2206,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
         "gmail_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
-    if private_pod_runtime() and not owner_cloud_agent():
+    if private_pod_runtime() and not (owner_cloud_agent() or hosted_ace_runtime()):
         grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
         email_grant = (
             resolve_request_secret(grants.get("email")) if isinstance(grants, dict) else ""
@@ -2244,7 +2246,7 @@ async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[s
         "google_drive_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Drive chat reads are not available here."}
-    if private_pod_runtime() and not owner_cloud_agent():
+    if private_pod_runtime() and not (owner_cloud_agent() or hosted_ace_runtime()):
         message = (
             "Google Drive isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
             "an owner-cloud pod to connect Google Drive."
