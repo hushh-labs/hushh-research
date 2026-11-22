@@ -21,13 +21,18 @@ function largestPosition(model?: DashboardViewModel) {
   return position ? { name: position.name || position.displaySymbol, symbol: position.displaySymbol, weightPct: position.marketValue / model.hero.totalValue * 100 } : null;
 }
 
-/** A summary of the active saved portfolio, without assuming a market update or recommendation. */
-export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: { model?: DashboardViewModel; portfolio?: PortfolioData | null; onOpen?: () => void; advisorAction?: ReactNode }) {
+export function portfolioBriefingFacts(model?: DashboardViewModel, portfolio?: PortfolioData | null) {
   const largest = largestPosition(model);
   const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
   const cash = model ? overviewFacts(model, portfolio).cash : null;
   const cashShare = cash !== null && model && model.hero.totalValue > 0 ? cash / model.hero.totalValue * 100 : null;
   const ringReady = largest && Number.isFinite(largest.weightPct) && largest.weightPct <= 100;
+  return { largest, leadingSector, cashShare, ringReady };
+}
+
+/** A summary of the active saved portfolio, without assuming a market update or recommendation. */
+export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: { model?: DashboardViewModel; portfolio?: PortfolioData | null; onOpen?: () => void; advisorAction?: ReactNode }) {
+  const { largest, leadingSector, cashShare, ringReady } = portfolioBriefingFacts(model, portfolio);
   return <SurfaceCard className={`${styles.insightShell} ${!model ? styles.importEntry : ""}`} data-testid="portfolio-briefing">
     <SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
       <SectionLabel role="heading" aria-level={2}>Agent One’s briefing</SectionLabel>

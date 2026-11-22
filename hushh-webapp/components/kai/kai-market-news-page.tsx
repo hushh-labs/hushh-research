@@ -1,5 +1,6 @@
 "use client";
 
+import { marketNewsArticleUrl } from "@/lib/kai/market-news-diversity";
 import { Browser } from "@capacitor/browser";
 import { usePathname } from "next/navigation";
 import { useNativeWorkspaceImages } from "@/components/app-ui/use-native-workspace-portraits";
@@ -46,14 +47,6 @@ function formatPublishedAt(value: string | null | undefined): string {
   });
 }
 
-function validArticleUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
 
 function dedupePages(pages: Array<KaiMarketNewsPage | null>): KaiHomeNewsItem[] {
   const seen = new Set<string>();
@@ -119,7 +112,7 @@ function nativeStory(item: KaiHomeNewsItem, symbols: readonly string[], png?: st
 }
 
 function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
-  const href = validArticleUrl(item.url);
+  const href = marketNewsArticleUrl(item.url);
   const source = String(item.source_name || "Market news").trim() || "Market news";
   const linkedSymbols = extractNewsSymbols(item);
   const primarySymbol = linkedSymbols[0] || null;
@@ -421,7 +414,7 @@ export function KaiMarketNewsPage() {
   if (firstPageResource.loading && !rows.length) sections.push({ key: "loading", rows: [{ key: "loading", label: "Loading market news", pending: true }] });
   else if (!rows.length) sections.push({ key: "empty", rows: [{ key: "empty", label: "No market headlines are available yet.", detail: "Try refreshing in a moment." }] });
   else sections.push({ key: "headlines", title: "Headlines", rows: nativeStories.map(({ item, key, symbols }) => {
-    const href = validArticleUrl(item.url);
+    const href = marketNewsArticleUrl(item.url);
     return { key, label: item.title, enabled: Boolean(href), marketNews: nativeStory(item, symbols, artwork.get(key)),
       run: () => href ? Browser.open({ url: href }) : undefined };
   }) });

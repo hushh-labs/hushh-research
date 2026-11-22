@@ -1,3 +1,4 @@
+import { validNativeFinanceContent, validNativeSymbolRaster } from "./native-finance-content";
 import type { NativeFeedbackActionToken, NativePresentationFeedback } from "./native-feedback-sink";
 import { validNativeWalletProfileDraft, type NativeWalletProfileDraft } from "./native-wallet-profile-editor";
 import { validNativeWalletCollection, type NativeWalletCollection } from "./native-wallet-workspace";
@@ -111,18 +112,6 @@ function validCalendarTimeZone(value: string): boolean {
   try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; }
 }
 /** Match native PNG header bounds before any image decoder allocates pixels. */
-function validNewsLogo(png: string): boolean {
-  if (png.length > 40_000 || !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(png)) return false;
-  try {
-    const encoded = png.slice("data:image/png;base64,".length);
-    if (encoded.length % 4) return false;
-    const bytes = Uint8Array.from(atob(encoded), value => value.charCodeAt(0));
-    if (bytes.length < 24 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value) ||
-        String.fromCharCode(...bytes.slice(12, 16)) !== "IHDR") return false;
-    const view = new DataView(bytes.buffer), width = view.getUint32(16), height = view.getUint32(20);
-    return width > 0 && width <= 128 && height > 0 && height <= 128;
-  } catch { return false; }
-}
 
 /** Shared by News admission and the private bridge; unsupported feed text stays rich. */
 export function validNativeMarketNewsStory(label: unknown, candidate: unknown): candidate is NativeMarketNewsStory {
@@ -135,7 +124,7 @@ export function validNativeMarketNewsStory(label: unknown, candidate: unknown): 
       Boolean(story.symbols.length) !== Boolean(story.artwork) || story.artwork !== undefined && !story.artwork) return false;
   const art = story.artwork;
   return !art || closed(art, ["glyph", "hue", "png"]) && text(art.glyph, 8) && Number.isInteger(art.hue) && art.hue >= 0 && art.hue < 360 &&
-    (art.png === undefined || typeof art.png === "string" && validNewsLogo(art.png));
+    (art.png === undefined || typeof art.png === "string" && validNativeSymbolRaster(art.png));
 }
 
 export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean {
@@ -164,7 +153,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     frame.x + frame.width > frame.viewportWidth + 1 || frame.y + frame.height > frame.viewportHeight + 1 ||
     frame.contentInset !== undefined && (frame.contentInset < 0 || frame.contentInset > 64 || frame.contentInset * 2 >= frame.width) ||
     frame.bottomContentInset !== undefined && (frame.bottomContentInset < 0 || frame.bottomContentInset >= frame.height)) return false;
-  const ids = new Set<string>(); let count = 0, avatars = 0, avatarBytes = 0;
+  const ids = new Set<string>(); let count = 0, avatars = 0, avatarBytes = 0, financeCovers = 0, financePoints = 0;
   const insert = (key: unknown) => id(key) && !ids.has(key) && !!ids.add(key);
   const admitAvatar = (avatar: NonNullable<NativeDrawerRow["avatar"]>) => {
     if (!avatar || !closed(avatar, ["initials", "jpeg", "verified", "active"]) || ++avatars > 48 ||
@@ -179,19 +168,31 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
   };
   for (const section of value.sections) {
     if (!section || !closed(section, ["id", "title", "rows", "layout"]) || !insert(section.id) || section.title !== undefined && !text(section.title, 256) || !Array.isArray(section.rows)) return false;
-    if (section.layout !== undefined && (!(["location", "calendar"].includes(value.workspace)) ||
-        !["cards", "tiles", ...(value.workspace === "calendar" ? ["metrics", "toolbar"] : [])].includes(section.layout) ||
+    if (section.layout !== undefined && (!(["location", "calendar", "finance"].includes(value.workspace)) ||
+        !["cards", "tiles", ...(value.workspace === "calendar" ? ["metrics", "toolbar"] : value.workspace === "finance" ? ["toolbar"] : [])].includes(section.layout) ||
         section.layout === "tiles" && section.rows.length > 3 || section.layout === "metrics" &&
         (section.rows.length !== 3 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || row.options || row.inlineActions || row.avatar || !row.detail)) ||
-        section.layout === "toolbar" && (section.rows.length !== 1 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || !row.inlineActions?.length || row.options || row.avatar || row.formattedText || row.calendarEvent || row.detail || row.trailing || row.symbol || row.artworkId)))) return false;
+        section.layout === "toolbar" && (value.workspace === "finance" ? section.rows.length < 1 || section.rows.length > 4 || section.rows.some((row: NativeDrawerRow) => !row?.options || row.readOnly || row.finance || row.inlineActions || row.toggle) : section.rows.length !== 1 || section.rows.some((row: NativeDrawerRow) => !row || row.readOnly !== true || !row.inlineActions?.length || row.options || row.avatar || row.formattedText || row.calendarEvent || row.detail || row.trailing || row.symbol || row.artworkId)))) return false;
     for (const row of section.rows) {
-      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews"]) ||
+      if (++count > 200 || !row || !closed(row, ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews", "finance"]) ||
         !insert(row.id) || !text(row.label, 4096) || row.detail !== undefined && !text(row.detail, 4096) || row.trailing !== undefined && !text(row.trailing, 32) ||
         row.symbol !== undefined && !id(row.symbol) || row.artworkId !== undefined && !id(row.artworkId) || row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex) ||
         typeof row.enabled !== "boolean" || [row.chevron, row.destructive, row.selected, row.pending, row.readOnly].some(v => v !== undefined && typeof v !== "boolean")) return false;
       if (row.sosActivation !== undefined && (value.workspace !== "location" || !["hold", "countdown"].includes(row.sosActivation) || row.readOnly || row.options || row.toggle || row.inlineActions || row.menuOnTap)) return false;
       if (row.menuOnTap !== undefined && (!["location", "calendar"].includes(value.workspace) || typeof row.menuOnTap !== "boolean" || !row.inlineActions?.some((action: NativeWorkspaceInlineAction) => action.placement === "menu"))) return false;
-      if (row.choiceStyle !== undefined && (value.workspace !== "calendar" || row.choiceStyle !== "segmented" || !row.options || row.options.length > 4 || row.toggle)) return false;
+      if (row.choiceStyle !== undefined && (!["calendar", "finance"].includes(value.workspace) || row.choiceStyle !== "segmented" || !row.options || row.options.length > 4 || row.toggle)) return false;
+      if (row.finance !== undefined && (value.workspace !== "finance" || !validNativeFinanceContent(row.finance) || row.marketNews || row.avatar || row.formattedText || row.calendarEvent || row.options || row.toggle || row.inlineActions)) return false;
+      if (row.finance) {
+        const content = row.finance;
+        if (content.kind === "headline" && ++financeCovers > 4) return false;
+        if (content.kind === "index" || content.kind === "balance") financePoints += content.points.length;
+        if (financePoints > 5000) return false;
+        if (content.kind === "security" && content.artwork.png !== undefined) {
+          if (!validNativeSymbolRaster(content.artwork.png)) return false;
+          avatarBytes += content.artwork.png.length;
+          if (avatarBytes > 1_920_000) return false;
+        }
+      }
       if (row.marketNews !== undefined) {
         const story = row.marketNews;
         if (value.workspace !== "finance" || !validNativeMarketNewsStory(row.label, story) || row.readOnly === true || row.detail !== undefined || row.symbol !== undefined || row.artworkId !== undefined ||

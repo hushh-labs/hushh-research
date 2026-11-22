@@ -251,12 +251,13 @@ struct NativeWorkspaceProjection: Decodable {
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows", "layout"]), !(section["layout"] is NSNull), let rows = section["rows"] as? [[String: Any]] else { return false }
-            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews"]) { return false }
+            for row in rows where !Set(row.keys).isSubset(of: ["id", "label", "detail", "formattedText", "avatar", "inlineActions", "sosActivation", "menuOnTap", "locationShare", "milestone", "expanded", "symbol", "artworkId", "iconHex", "chevron", "trailing", "enabled", "destructive", "prominent", "selected", "pending", "readOnly", "toggle", "options", "choiceStyle", "calendarEvent", "marketNews", "finance"]) { return false }
             for row in rows {
                 if let raw = row["formattedText"], !NativeMemoryText.closed(raw) { return false }
                 if let raw = row["locationShare"], !NativeWorkspaceLocationShare.closed(raw) { return false }
                 if let raw = row["calendarEvent"], !NativeCalendarEvent.closed(raw) { return false }
                 if let raw = row["marketNews"], !NativeMarketNewsStory.closed(raw) { return false }
+                if let raw = row["finance"], !NativeFinanceContent.closed(raw) { return false }
                 if let raw = row["avatar"] {
                     guard NativeWorkspaceAvatar.closed(raw) else { return false }
                 }
@@ -314,15 +315,15 @@ struct NativeWorkspaceProjection: Decodable {
         guard circleEditor?.customTypes == nil || workspace == "connect" else { return false }
         guard memoryEditor == nil || (workspace == "memory" && page == "overview" && circleEditor == nil && walletProfileEditor == nil && memoryEditor?.valid == true) else { return false }
         guard (workspace != "memory" && workspace != "consent") || (page == "overview" && circleEditor == nil && walletProfileEditor == nil && HushhNativeControlAppearance.color(canvasHex) != nil) else { return false }
-        var ids = Set<String>(); var count = 0; var avatars = 0; var avatarBytes = 0
+        var ids = Set<String>(); var count = 0; var avatars = 0; var avatarBytes = 0; var financeCovers = 0; var financePoints = 0
         if let wallet { ids.formUnion(wallet.cards.map(\.id) + [wallet.addId, wallet.closeId] + (wallet.accessId.map { [$0] } ?? [])) }
         for section in sections {
             guard NativeDrawerIdentity.identifier(section.id), ids.insert(section.id).inserted, section.title == nil || NativeDrawerProjection.text(section.title!, 256) else { return false }
-            guard section.layout == nil || (["location", "calendar"].contains(workspace) &&
-                (["cards", "tiles"] + (workspace == "calendar" ? ["metrics", "toolbar"] : [])).contains(section.layout!) &&
+            guard section.layout == nil || (["location", "calendar", "finance"].contains(workspace) &&
+                (["cards", "tiles"] + (workspace == "calendar" ? ["metrics", "toolbar"] : workspace == "finance" ? ["toolbar"] : [])).contains(section.layout!) &&
                 (section.layout != "tiles" || section.rows.count <= 3) &&
                 (section.layout != "metrics" || section.rows.count == 3 && section.rows.allSatisfy { $0.readOnly == true && $0.options == nil && $0.inlineActions == nil && $0.avatar == nil && $0.detail != nil }) &&
-                (section.layout != "toolbar" || section.rows.count == 1 && section.rows.allSatisfy { $0.readOnly == true && $0.inlineActions?.isEmpty == false && $0.options == nil && $0.avatar == nil && $0.formattedText == nil && $0.calendarEvent == nil && $0.detail == nil && $0.trailing == nil && $0.symbol == nil && $0.artworkId == nil })) else { return false }
+                (section.layout != "toolbar" || (workspace == "finance" ? (1...4).contains(section.rows.count) && section.rows.allSatisfy { $0.options != nil && $0.readOnly != true && $0.finance == nil && $0.inlineActions == nil && $0.toggle != true } : section.rows.count == 1 && section.rows.allSatisfy { $0.readOnly == true && $0.inlineActions?.isEmpty == false && $0.options == nil && $0.avatar == nil && $0.formattedText == nil && $0.calendarEvent == nil && $0.detail == nil && $0.trailing == nil && $0.symbol == nil && $0.artworkId == nil }))) else { return false }
             for row in section.rows {
                 count += 1
                 guard count <= 200, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted, NativeDrawerProjection.text(row.label, 4096),
@@ -331,7 +332,15 @@ struct NativeWorkspaceProjection: Decodable {
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil else { return false }
                 if let activation = row.sosActivation { guard workspace == "location", ["hold", "countdown"].contains(activation), row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.menuOnTap == nil else { return false } }
                 if row.menuOnTap != nil { guard ["location", "calendar"].contains(workspace), row.inlineActions?.contains(where: { $0.placement == "menu" }) == true else { return false } }
-                if let style = row.choiceStyle { guard workspace == "calendar", style == "segmented", let options = row.options, options.count <= 4, row.toggle != true else { return false } }
+                if let style = row.choiceStyle { guard ["calendar", "finance"].contains(workspace), style == "segmented", let options = row.options, options.count <= 4, row.toggle != true else { return false } }
+                if let finance = row.finance {
+                    guard workspace == "finance", finance.valid, row.marketNews == nil, row.avatar == nil, row.inlineActions == nil, row.options == nil, row.toggle == nil, row.formattedText == nil, row.calendarEvent == nil else { return false }
+                    if finance.kind == "headline" { financeCovers += 1 }
+                    financePoints += (finance.points?.count ?? 0) + (finance.history?.count ?? 0)
+                    guard financeCovers <= 4, financePoints <= 5000 else { return false }
+                    avatarBytes += finance.artwork?.png?.utf16.count ?? 0
+                    guard avatarBytes <= 1_920_000 else { return false }
+                }
                 if let story = row.marketNews {
                     guard workspace == "finance", story.valid, row.readOnly != true, row.detail == nil, row.symbol == nil, row.artworkId == nil,
                           row.avatar == nil, row.inlineActions == nil, row.options == nil, row.toggle == nil, row.formattedText == nil, row.calendarEvent == nil else { return false }
@@ -1095,7 +1104,9 @@ private struct NativeWorkspaceCollectionRow: View {
     @ObservedObject var model: NativeWorkspaceModel
     var toolbar: Bool = false
     var body: some View {
-        if let story = row.marketNews {
+        if let finance = row.finance {
+            NativeFinanceRow(row: row, model: model, content: finance)
+        } else if let story = row.marketNews {
             NativeMarketNewsRow(row: row, story: story, enabled: model.pending == nil) { model.choice("row", row: row.id) }
         } else if toolbar {
             NativeWorkspaceRichRow(row: row, enabled: model.pending == nil, accentHex: model.state.accentHex, workspace: model.state.workspace, toolbar: true) { model.choice("row", row: $0) }
@@ -1252,8 +1263,14 @@ private struct NativeWorkspaceCollectionRow: View {
     private func sectionContent(_ section: NativeDrawerSection) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title = section.title { Text(title).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 6).accessibilityAddTraits(.isHeader) }
-            if section.layout == "metrics" {
+            if section.layout == "toolbar" && model.state.workspace == "finance" {
+                NativeFinanceFilters(rows: section.rows, model: model)
+            } else if section.layout == "metrics" {
                 NativeCalendarMetrics(rows: section.rows)
+            } else if section.layout == "tiles" && model.state.workspace == "finance" {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(section.rows) { row in NativeWorkspaceCollectionRow(row: row, model: model).frame(maxWidth: .infinity, alignment: .topLeading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18)) }
+                }
             } else if section.layout == "tiles" {
                 NativeLocationActionTiles(rows: section.rows, enabled: model.pending == nil, accentHex: model.state.accentHex) { model.choice("row", row: $0) }
             } else {
@@ -1736,7 +1753,7 @@ enum NativeCircleCodeSelection {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard textField.markedTextRange == nil else { return false }
         submit()
-        if search.live == true && ["memory", "consent", "connect", "mail", "calendar"].contains(model?.state.workspace ?? "") { textField.resignFirstResponder() }
+        if search.live == true && ["memory", "consent", "connect", "mail", "calendar", "finance"].contains(model?.state.workspace ?? "") { textField.resignFirstResponder() }
         return false
     }
     func textFieldDidChangeSelection(_ textField: UITextField) { queueCommittedEdit() }
