@@ -51,10 +51,15 @@ or malformed policy is rejected. Disabled, deprovisioned and deleted accounts
 remain ineligible. These settings remain disabled until separately
 reconciled and accepted; UAT activity is test activity, not customer adoption.
 
+An approved UAT binding can include `provisionalUtcDay` for one UTC date. On
+that date, a request whose start and end both match it uses the request time as
+the cutoff and returns `provisional` coverage. The response watermark is that
+cutoff. This option expires at UTC midnight and is unavailable in production.
+
 The request contains exactly `period: {startDate,endDate,timezone}`,
-`definitionVersion`, `sourceGeneration`, `scopeDigest`. Dates use complete source
-calendar days and a half-open timestamp interval, including DST days. Only recent
-windows within seven days and the explicitly reviewed coverage start are admitted.
+`definitionVersion`, `sourceGeneration`, `scopeDigest`. Closed dates use complete
+source calendar days and a half-open timestamp interval, including DST days.
+All requests must be within seven days and the explicitly reviewed coverage start.
 There is no owner/account override or source URL/query supplied by the caller.
 
 The proposed meaningful-activity definition is a persisted successful assistant
@@ -83,9 +88,10 @@ can reserve two existing pool connections; qualify concurrency accordingly.
 
 The response contains only the two aggregate metric values and their
 `coverage/unit/basis`, source generation/scope/definition, requested period,
-source snapshot/check timestamps and reconciliation status. Coverage remains
-**partial**: retained positive records do not prove complete capture or historical
-deletion/identity coverage. Missing observations never establish inactivity.
+source snapshot/check timestamps and reconciliation status. Closed periods have
+**partial** coverage, and the still-open UTC day has **provisional** coverage.
+Retained positive records cannot establish complete capture or historical
+deletion and identity coverage. Missing observations never establish inactivity.
 No user ID, email/phone, prompt, result body, effect key or resource handle leaves
 the backend. The database snapshot time is not an all-device ingestion watermark.
 
