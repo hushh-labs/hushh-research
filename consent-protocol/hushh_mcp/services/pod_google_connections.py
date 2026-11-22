@@ -219,10 +219,12 @@ class PodCalendarProposalStore:
 
 
 def calendar_runs_locally() -> bool:
-    """True inside an owner-cloud agent: Calendar is read and changed here, never via the hub."""
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent  # noqa: PLC0415
+    """True inside an owner-cloud pod or activated Personal Sandbox: Calendar runs locally."""
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        personal_sandbox_workspace_runtime,
+    )
 
-    return bool(owner_cloud_agent())
+    return bool(personal_sandbox_workspace_runtime())
 
 
 def calendar_reads_via_door() -> bool:

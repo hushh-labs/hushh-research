@@ -109,6 +109,17 @@ def owner_cloud_agent() -> bool:
     return owner_cloud_provider() is not None
 
 
+def personal_sandbox_workspace_runtime() -> bool:
+    """True inside an owner-cloud pod OR an activated Personal Sandbox (`virgin_pool_v1`).
+
+    Both runtimes isolate the owner's encrypted connector credentials inside their
+    own pod storage boundary and enforce per-owner session authority. Legacy
+    hosted pods stay excluded, and Google Contacts stays strictly
+    `owner_cloud_agent()`-only.
+    """
+    return owner_cloud_agent() or hosted_ace_runtime()
+
+
 def private_pod_runtime() -> bool:
     """Require private custody/session behavior without claiming owner-cloud placement.
 
@@ -152,6 +163,7 @@ __all__ = [
     "hosted_azure_runtime",
     "owner_cloud_agent",
     "owner_cloud_provider",
+    "personal_sandbox_workspace_runtime",
     "pod_owner_user_id",
     "private_pod_runtime",
 ]

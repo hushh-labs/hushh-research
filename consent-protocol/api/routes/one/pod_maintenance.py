@@ -125,9 +125,9 @@ async def gmail_notification_job(
 ) -> dict[str, Any]:
     """Renew an opted-in watch and continue bounded durable notification work."""
     from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         return {"status": "disabled"}
     try:
         bell: _GmailNotificationWork = doorbell if doorbell is not None else pod_gmail_doorbell()

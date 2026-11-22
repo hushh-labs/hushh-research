@@ -376,9 +376,15 @@ async def arm_watch_after_connect() -> None:
         BACKEND_USER_AZURE,
         BACKEND_USER_GCP,
     )
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_provider  # noqa: PLC0415
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        hosted_ace_runtime,
+        owner_cloud_provider,
+    )
 
-    if owner_cloud_provider() not in (BACKEND_USER_GCP, BACKEND_USER_AZURE):
+    if (
+        owner_cloud_provider() not in (BACKEND_USER_GCP, BACKEND_USER_AZURE)
+        and not hosted_ace_runtime()
+    ):
         return
     try:
         await pod_gmail_doorbell().renew_watch()
