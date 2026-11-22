@@ -147,6 +147,17 @@ describe("waking a sleeping private agent", () => {
 describe("what counts as still waking", () => {
   it("is a gateway status that is not the agent's own JSON, or a pre-send network failure", () => {
     expect(isAgentStillWaking(gateway(503))).toBe(true);
+    expect(
+      isAgentStillWaking(
+        new Response(JSON.stringify({ code: "SANDBOX_WAKING" }), {
+          status: 503,
+          headers: {
+            "content-type": "application/json",
+            "x-hussh-pod-state": "waking",
+          },
+        }),
+      ),
+    ).toBe(true);
     expect(isAgentStillWaking(agentRefusal())).toBe(false);
     expect(isAgentStillWaking(new Response("", { status: 500 }))).toBe(false);
     expect(isAgentStillWaking(new PodNotReachedError())).toBe(true);

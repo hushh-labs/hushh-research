@@ -3,7 +3,14 @@
 import { useMemo, useState } from "react";
 import type { NativeDrawerRow, NativeDrawerSection, NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { canInstallUpdate, releaseLabel, updateProgressStage } from "@/lib/feed/agent-update-status";
-import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import {
+  HOSTED_POD_PROVIDER_LABELS,
+  hostedPodDisplayLabel,
+  hostedPodProvider,
+  isHostedPodTierUnderMaintenance,
+  isOwnerCloudTarget,
+  ownerCloudProvider,
+} from "@/lib/one/owner-cloud";
 import { AZURE_UPDATE_COPY, azureUpdatedLabel } from "@/lib/one/azure-update-outcome";
 import { agentSettingsSummary, HOST_LABELS, type AgentSettingsController } from "./use-agent-settings-controller";
 import { HOSTING_RECLAIMED_SENTENCE, HOSTING_UNCONFIRMED_SENTENCE, REBUILDING_SENTENCE, REBUILD_FAILED_FALLBACK } from "./azure-hosting-notice";
@@ -26,7 +33,14 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
   const pages: NativeProfilePage[] = [];
   const website = "Continue on the Hussh website with your vault unlocked.";
   if (model.kind === "hosting") {
-    const current: NativeDrawerRow[] = [read("hosting-current", "Current hosting", status ? HOST_LABELS[mode] : "Checking hosting…")];
+    const activeHostedProvider = hostedPodProvider(status?.deploymentTarget);
+    const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
+    const currentLabel = !status
+      ? "Checking hosting…"
+      : mode === "hussh_pods"
+        ? hostedPodDisplayLabel(status.deploymentTarget)
+        : HOST_LABELS[mode];
+    const current: NativeDrawerRow[] = [read("hosting-current", "Current hosting", currentLabel)];
     if (mode === "byoc" && status?.cloudProject) current.push(read("hosting-project", "Your cloud project", [status.cloudProject, status.cloudRegion].filter(Boolean).join(" · ")));
     if (model.inspection) {
       const health = model.inspection;
@@ -45,10 +59,19 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
     }
     sections.push({ id: "hosting-status-section", rows: current });
     const canChoose = status?.featureEnabled === true && ["shared", "pending", "byoc", "unplaced"].includes(mode);
+    const canChooseHosted = !hostedUnderMaintenance && status?.featureEnabled === true && ["shared", "pending", "unplaced"].includes(mode);
     sections.push({ id: "hosting-choices-section", title: "Hosting choices", rows: [
       { ...action("hosting-shared", "Hussh Shared", model.chooseHosting, mode !== "unplaced"), detail: mode === "byoc" ? "To switch, remove your current cloud below. Your account stays." : "Hussh runs and updates it for you.", ...(mode === "shared" ? { trailing: "Current" } : {}) },
       { ...(canChoose ? action("hosting-own-cloud", "Bring your own cloud", model.chooseHosting) : read("hosting-own-cloud", "Bring your own cloud")), detail: status && !status.featureEnabled ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged." : "Runs in your cloud. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : status && !status.featureEnabled ? { trailing: "Unavailable" } : mode === "pending" ? { trailing: "Continue" } : {}) },
-      { ...read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? "Your dedicated pod. You approve updates." : "Closed to new setups."), trailing: mode === "hussh_pods" ? "Current" : "Unavailable" },
+      {
+        ...(canChooseHosted ? action("hosting-pods", "Hussh Pods", model.chooseHosting) : read("hosting-pods", "Hussh Pods", mode === "hussh_pods" ? (activeHostedProvider ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.` : "Your dedicated pod. You approve updates.") : hostedUnderMaintenance ? "Closed to new setups." : "Dedicated Personal Sandbox managed by Hussh.")),
+        detail: mode === "hussh_pods"
+          ? (activeHostedProvider ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.` : "Your dedicated pod. You approve updates.")
+          : hostedUnderMaintenance
+            ? "Closed to new setups."
+            : "Dedicated Personal Sandbox managed by Hussh.",
+        trailing: mode === "hussh_pods" ? "Current" : hostedUnderMaintenance ? "Unavailable" : "Available",
+      },
     ] });
     const actions = [action("hosting-check", "Check hosting", model.checkStatus, busy)];
     if (mode === "byoc") actions.push(action("hosting-reconnect", model.needsLinkRecovery ? "Link existing pod" : "Reconnect your pod", model.needsLinkRecovery ? model.recoverExistingPod : model.reconnectDirectPod, busy));

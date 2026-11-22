@@ -17,6 +17,10 @@ export const OWNER_CLOUD_TARGETS = ["user_gcp", "user_azure"] as const;
 
 export type OwnerCloudTarget = (typeof OWNER_CLOUD_TARGETS)[number];
 
+export const HOSTED_POD_TARGETS = ["gcp", "azure"] as const;
+
+export type HostedPodTarget = (typeof HOSTED_POD_TARGETS)[number];
+
 export type OwnerCloudProvider = "gcp" | "azure";
 
 const PROVIDER_BY_TARGET: Readonly<Record<OwnerCloudTarget, OwnerCloudProvider>> = {
@@ -24,9 +28,20 @@ const PROVIDER_BY_TARGET: Readonly<Record<OwnerCloudTarget, OwnerCloudProvider>>
   user_azure: "azure",
 };
 
+const HOSTED_PROVIDER_BY_TARGET: Readonly<Record<HostedPodTarget, OwnerCloudProvider>> = {
+  gcp: "gcp",
+  azure: "azure",
+};
+
 /** The provider's name as a person reads it. */
 export const OWNER_CLOUD_PROVIDER_LABELS: Readonly<Record<OwnerCloudProvider, string>> = {
   gcp: "Google Cloud Platform",
+  azure: "Microsoft Azure",
+};
+
+/** Concise cloud provider label used on Hussh Pods badges and summaries. */
+export const HOSTED_POD_PROVIDER_LABELS: Readonly<Record<OwnerCloudProvider, string>> = {
+  gcp: "Google Cloud",
   azure: "Microsoft Azure",
 };
 
@@ -40,6 +55,25 @@ export function isOwnerCloudTarget(target: unknown): target is OwnerCloudTarget 
 /** Which owner cloud a deployment target names, or `null` for any other home. */
 export function ownerCloudProvider(target: unknown): OwnerCloudProvider | null {
   return isOwnerCloudTarget(target) ? PROVIDER_BY_TARGET[target] : null;
+}
+
+/** Which cloud hosts a Hussh Pods deployment target (`gcp` or `azure`), or `null`. */
+export function hostedPodProvider(target: unknown): OwnerCloudProvider | null {
+  return typeof target === "string" && target in HOSTED_PROVIDER_BY_TARGET
+    ? HOSTED_PROVIDER_BY_TARGET[target as HostedPodTarget]
+    : null;
+}
+
+/** Which cloud provider hosts any private pod target (owner BYOC or Hussh Pods). */
+export function podCloudProvider(target: unknown): OwnerCloudProvider | null {
+  return ownerCloudProvider(target) ?? hostedPodProvider(target);
+}
+
+/** Display title identifying both Hussh Pods and its backing cloud provider when known. */
+export function hostedPodDisplayLabel(target: unknown): string {
+  if (target === "ace") return "Hussh Pods · Personal Sandbox";
+  const provider = hostedPodProvider(target);
+  return provider ? `Hussh Pods · ${HOSTED_POD_PROVIDER_LABELS[provider]}` : "Hussh Pods";
 }
 
 /**
@@ -58,6 +92,36 @@ export function isAzureHomeSelectable(): boolean {
   return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }
 
+/**
+ * Whether the Hussh Pods card is paused for maintenance on this build.
+ *
+ * Explicit `NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE` ("0"/"false" vs "1"/"true")
+ * always wins. When unset, the hosted `dev` and `uat` lanes open the card for
+ * Personal Sandbox qualification while `production` and unconfigured builds
+ * remain fail-closed.
+ */
+export function isHostedPodTierUnderMaintenance(): boolean {
+  const explicit = String(process.env.NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE ?? "")
+    .trim()
+    .toLowerCase();
+  if (explicit === "0" || explicit === "false") return false;
+  if (explicit === "1" || explicit === "true") return true;
+  const appEnv = String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase();
+  return appEnv !== "dev" && appEnv !== "uat";
+}
+
+/** Whether migrating an active pod onto Dev Hussh Pods (Azure Umbrella Cell) is available. */
+export function isHostedAzureMigrationAvailable(): boolean {
+  if (process.env.NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED === "1") return true;
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
+}
+
+/** Whether switching onto Pooled Personal Sandbox is available on this build. */
+export function isPooledSandboxSwitchAvailable(): boolean {
+  const appEnv = String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase();
+  return appEnv === "dev" || appEnv === "uat";
+}
+
 /** A private mode chooses direct admission; it never establishes authority. */
 export function isPrivateHostingMode(mode: unknown): boolean {
   return mode === "byoc" || mode === "hussh_pods";
@@ -68,7 +132,12 @@ export function isPrivatePodBinding(binding: Record<string, unknown>): boolean {
   if (isOwnerCloudTarget(binding.deployment_target)) {
     return !("hosting_mode" in binding);
   }
-  return binding.deployment_target === "gcp"
+  if (binding.deployment_target === "ace" && !("hosting_mode" in binding)) {
+    return binding.environment === "dev" || binding.environment === "uat";
+  }
+  return (
+    (binding.deployment_target === "gcp" || binding.deployment_target === "azure")
     && binding.hosting_mode === "hussh_hosted"
-    && binding.environment === "dev";
+    && binding.environment === "dev"
+  );
 }
