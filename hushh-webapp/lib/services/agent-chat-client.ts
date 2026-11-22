@@ -1199,6 +1199,8 @@ async function streamAgentChatAttempt(input: {
   screenContext?: Record<string, unknown> | null;
   /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
   specialistFocus?: "email" | "location" | "information" | "finance";
+  /** True when this turn belongs to the user's canonical rolling Main chat stream. */
+  mainChat?: boolean;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
   /** A keyed native interrupt recovered from the pod; never a new user turn. */
@@ -2190,6 +2192,7 @@ async function streamAgentChatAttempt(input: {
           receipt: input.resumeMcpReview.approval.receipt,
         } } : {}),
         ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
+        ...(input.mainChat ? { mainChat: true } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),

@@ -35,7 +35,14 @@ def active_library() -> FilesLibrary:
         from hushh_mcp.services.pod_memory_service import _resolve_log
         from hushh_mcp.services.pod_session_authority import active_session_authority
 
-        log = _resolve_log()
+        owner_id = os.environ["HUSSH_ID"]
+        key = resolve_pod_log_key()
+        authority = active_session_authority()
+        authority_log = getattr(getattr(authority, "_store", None), "_log", None)
+        if authority_log is not None and getattr(authority_log, "_owner_id", None) == owner_id:
+            log = authority_log
+        else:
+            log = _resolve_log(log_key=key)
         if log is None:
             raise FilesRefused("FILES_RECOVERY_UNAVAILABLE", 503)
 
@@ -45,10 +52,10 @@ def active_library() -> FilesLibrary:
             await require_serving_role()
             await require_files_access()
             await log.require_open()
-            authority = active_session_authority()
-            if authority is None:
+            current_authority = active_session_authority()
+            if current_authority is None:
                 raise FilesRefused("FILES_AUTHORITY_UNAVAILABLE", 503)
-            await authority.require_held()
+            await current_authority.require_held()
 
         from hushh_mcp.services.pod_platform import workload_platform
 
@@ -63,8 +70,8 @@ def active_library() -> FilesLibrary:
             prefix = os.environ["POD_STORAGE_GCS_PREFIX"].strip("/") + "/files/v1"
             store = FilesGcsStore(os.environ["POD_STORAGE_GCS_BUCKET"], prefix)
         _library = FilesLibrary(
-            owner=os.environ["HUSSH_ID"],
-            key=resolve_pod_log_key(),
+            owner=owner_id,
+            key=key,
             store=store,
             check=check,
         )

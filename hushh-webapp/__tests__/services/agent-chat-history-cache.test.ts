@@ -174,4 +174,25 @@ describe("agent chat history memory cache", () => {
       expect(peekAgentChatHistoryCache(input.userId)).toBeNull();
     } finally { clock.mockRestore(); }
   });
+
+  it("prefetches only the canonical One main chat on cold load and avoids force-refresh history storms", async () => {
+    const mainChat = { ...conversation, id: "conv-main", title: "One" };
+    const side1 = { ...conversation, id: "conv-side-1", title: "Portfolio review" };
+    const side2 = { ...conversation, id: "conv-side-2", title: "Tax planning" };
+    mocks.list.mockResolvedValue([side1, mainChat, side2]);
+    mocks.history.mockResolvedValue(messages);
+
+    const input = { userId: "user-1", vaultOwnerToken: "token", vaultKey: "synthetic-key" };
+    await warmAgentChatHistoryCache(input);
+    expect(mocks.history).toHaveBeenCalledTimes(1);
+    expect(mocks.history).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "conv-main" }),
+    );
+
+    mocks.history.mockClear();
+    await warmAgentChatHistoryCache({ ...input, force: true });
+    // Main chat is already cached; force-refreshing the sidebar list must not
+    // fan out parallel GET /history calls across conversations.
+    expect(mocks.history).not.toHaveBeenCalled();
+  });
 });

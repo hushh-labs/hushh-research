@@ -180,6 +180,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "hussh:voice_context": screen,
         "hussh:pkm_context": store_request_secret(options.pkm_context or "", ttl_seconds=240),
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=True),
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
     return state, options
 

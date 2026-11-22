@@ -418,3 +418,11 @@ def test_a_rating_needs_an_existing_conversation_and_closed_enums(monkeypatch):
     )
     assert invalid.status_code == 422
     assert log.records == []
+
+
+async def test_main_chat_forwarded_prop_sets_canonical_one_title():
+    main_state, _ = pod_agent_chat.trusted_state(_turn(mainChat=True), _owner())
+    assert main_state.get("hussh:thread_title") == "One"
+
+    side_state, _ = pod_agent_chat.trusted_state(_turn(), _owner())
+    assert "hussh:thread_title" not in side_state
