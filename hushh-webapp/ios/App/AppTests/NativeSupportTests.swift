@@ -678,7 +678,8 @@ final class NativeSupportTests: XCTestCase {
         window.rootViewController = parent
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        let scene = NativeProfileNameScene(publicNameScene())
+        var quarantined = false
+        let scene = NativeProfileNameScene(publicNameScene(), isQuarantined: { quarantined })
         let shown = expectation(description: "Public ordinary scene presented")
         XCTAssertTrue(scene.present(from: parent) { admitted in XCTAssertTrue(admitted); shown.fulfill() })
         await fulfillment(of: [shown], timeout: 3)
@@ -691,6 +692,12 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(presented.isModalInPresentation)
         XCTAssertTrue(scene.settle(pending))
         XCTAssertFalse(presented.isModalInPresentation, "Rejected/refused Save must restore native drag dismissal")
+        quarantined = true
+        scene.refreshPrivacy()
+        XCTAssertTrue(presented.isModalInPresentation, "Privacy quarantine must re-lock native drag dismissal")
+        quarantined = false
+        scene.refreshPrivacy()
+        XCTAssertFalse(presented.isModalInPresentation)
         let first = expectation(description: "First actual dismissal observer")
         let second = expectation(description: "Joined actual dismissal observer")
         scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
