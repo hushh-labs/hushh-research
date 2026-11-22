@@ -83,6 +83,9 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   if (model?.catalog.status !== "ready") catalog.push({ id: "connectors-state", rows: [read("state", model?.catalog.status === "locked" ?
     "Unlock your vault to manage connectors." : model?.catalog.status === "unavailable" ? "Connector catalog unavailable." : "Loading connectors…"),
     ...(model?.catalog.status === "unavailable" ? [bind("catalog-retry", "Retry", model.catalog.retry)] : [])] });
+  if (model?.catalog.status === "ready" && model.catalog.notice) {
+    catalog.push({ id: "connectors-notice", rows: text("google-clearance", model.catalog.notice) });
+  }
   for (const group of model?.catalog.groups ?? []) catalog.push({ id: `connectors-${group.title.toLowerCase()}`, title: group.title,
     rows: pageRows(`catalog:${group.title}`, group.entries, entry => [bind(`connector:${entry.id}`, entry.name,
       entry.onOpen ?? entry.action?.onClick ?? (() => undefined), { chevron: Boolean(entry.onOpen),
@@ -111,7 +114,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     let detailRows: NativeDrawerRow[] = [];
     if (detail.kind === "private-google" || detail.kind === "private-stripe") detailRows = [read("private-status", detail.status), ...text("private-purpose", detail.purpose),
       ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)), ...detail.actions.flatMap((item, index) => action(`private-action-${index}`, item)), ...text("private-message", detail.message)];
-    else if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...action("mail-connect", detail.connect), ...action("mail-disconnect", detail.disconnect),
+    else if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...text("mail-clearance", detail.note ?? ""), ...action("mail-connect", detail.connect), ...action("mail-disconnect", detail.disconnect),
       ...action("mail-retry", detail.retry), ...(detail.connected ? [read("mail-read", "Read mail", "Allowed"), read("mail-send", "Send mail", detail.sendAllowed ? "Allowed · review required" : "Not enabled"),
         ...(detail.draftsAllowed ? [read("mail-drafts", "Drafts", "Allowed · review required")] : action("mail-drafts", detail.enableDrafts))] : []), ...action("mail-cancel", detail.cancelSignIn), ...text("mail-message", detail.message)];
     else if (detail.kind === "calendar") detailRows = [...text("calendar-description", detail.description), read("calendar-status", detail.status), ...action("calendar-connection", detail.connection),
