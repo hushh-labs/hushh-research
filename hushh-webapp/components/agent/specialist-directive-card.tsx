@@ -1,11 +1,20 @@
 "use client";
 
 import React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ConsentAgentIcon, ExternalLink, ShieldCheck, ShieldOff, WalletAgentIcon } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
+import { AuthService } from "@/lib/services/auth-service";
+import {
+  ScopeCommerceService,
+  formatCommerceMicroUsd,
+  formatCommerceMoney,
+  type NegativeNetAcknowledgement,
+  type ScopeCommerceRequest,
+} from "@/lib/services/scope-commerce-service";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
@@ -506,7 +515,10 @@ export type SpecialistPendingConsentRequestItem = {
 export type SpecialistPendingConsentRequestCardProps = {
   item: SpecialistPendingConsentRequestItem;
   busy?: boolean;
-  onApprove: (item: SpecialistPendingConsentRequestItem) => void;
+  onApprove: (
+    item: SpecialistPendingConsentRequestItem,
+    negativeNetAcknowledgement?: NegativeNetAcknowledgement,
+  ) => void;
   onDeny: (item: SpecialistPendingConsentRequestItem) => void;
   onDetails: (item: SpecialistPendingConsentRequestItem) => void;
 };
@@ -546,16 +558,90 @@ export function SpecialistPendingConsentRequestCard({
   onDetails,
 }: SpecialistPendingConsentRequestCardProps) {
   const [overrideHours, setOverrideHours] = useState<number | null>(null);
+  const [commerceDetails, setCommerceDetails] = useState<ScopeCommerceRequest | null>(null);
+  const [acknowledgedBinding, setAcknowledgedBinding] = useState<string | null>(null);
+  const negativeAckId = useId();
   useEffect(() => {
     setOverrideHours(null);
   }, [item.expiryHours]);
 
-  const effectiveHours = overrideHours ?? item.expiryHours;
+  const metadata = item.metadata ?? null;
+  const isCommercial = metadata?.commercial_required === true;
+  const fundedDurationLocked = isCommercial && metadata?.upfront_price_reviewed === true;
+  const metadataPriceCoins =
+    typeof metadata?.bundle_price_coins === "number" &&
+    Number.isFinite(metadata.bundle_price_coins) &&
+    metadata.bundle_price_coins > 0
+      ? Math.round(metadata.bundle_price_coins)
+      : typeof metadata?.request_price_coins === "number" &&
+          Number.isFinite(metadata.request_price_coins) &&
+          metadata.request_price_coins > 0
+        ? Math.round(metadata.request_price_coins)
+        : 0;
+  const effectiveHours = fundedDurationLocked ? item.expiryHours : (overrideHours ?? item.expiryHours);
   const duration = pendingDurationLabel(effectiveHours);
   const decideBy = formatDecideBy(item.approvalTimeoutAt);
   const status = normalizePendingConsentCardStatus(item.status);
   const resolved = status !== "pending";
   const stagedByAgent = !resolved && item.metadata?.staged_by_agent === true;
+
+  // Hydrate server-authoritative paid fee/net-earnings terms asynchronously for
+  // commercial pending cards so the owner sees exact earnings and any required
+  // negative-net acknowledgement inline inside Main Chat without leaving the thread.
+  useEffect(() => {
+    if (!isCommercial || resolved || !item.id) {
+      setCommerceDetails(null);
+      setAcknowledgedBinding(null);
+      return;
+    }
+    let cancelled = false;
+    void AuthService.getIdToken()
+      .then((token) => {
+        if (!token || cancelled || typeof ScopeCommerceService?.scopeRequest !== "function") {
+          return null;
+        }
+        return ScopeCommerceService.scopeRequest(token, item.id);
+      })
+      .then((details) => {
+        if (!cancelled && details) {
+          setCommerceDetails(details);
+        }
+      })
+      .catch(() => {
+        // Metadata price pill remains visible; Details stays available as fallback.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCommercial, resolved, item.id]);
+
+  const purchase = commerceDetails?.purchase ?? null;
+  const displayCoins = purchase?.amount_cents ?? commerceDetails?.tariff?.price_cents ?? metadataPriceCoins;
+  const negativeTerms = commerceDetails?.negative_net_acknowledgement ?? null;
+  const isNegativeNet = Boolean(purchase && (purchase.net_earnings_micro_usd ?? 0) < 0);
+  const negativeAccepted = Boolean(negativeTerms && acknowledgedBinding === negativeTerms.binding);
+  const paidStatusCopy = (() => {
+    if (!isCommercial && displayCoins <= 0) return null;
+    if (resolved) {
+      if (status === "approved") return "Paid · Access active";
+      if (status === "denied") return "Declined · Funds refunded";
+      return "Paid request";
+    }
+    const rawCommerceStatus = String(
+      purchase?.status || metadata?.commerce_status || "",
+    ).toLowerCase();
+    if (
+      rawCommerceStatus === "reserved" ||
+      rawCommerceStatus === "preparing" ||
+      rawCommerceStatus === "awaiting_owner"
+    ) {
+      return "Funds reserved";
+    }
+    if (rawCommerceStatus === "awaiting_payment" || rawCommerceStatus === "approved_awaiting_payment") {
+      return "Buyer pays after approval";
+    }
+    return "Paid request";
+  })();
 
   const parsedEffectiveHours =
     effectiveHours == null || effectiveHours === ""
@@ -635,6 +721,53 @@ export function SpecialistPendingConsentRequestCard({
               {meta.join(" · ")}
             </p>
           ) : null}
+          {isCommercial || displayCoins > 0 ? (
+            <div
+              data-testid="specialist-pending-consent-commerce"
+              className="mt-2 space-y-1.5 rounded-[var(--app-card-radius-compact)] bg-muted/45 px-3 py-2 text-xs"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-foreground tabular-nums">
+                  {displayCoins > 0 ? formatCommerceMoney(displayCoins) : "Paid access"}
+                </span>
+                {paidStatusCopy ? (
+                  <span className="font-medium text-muted-foreground">{paidStatusCopy}</span>
+                ) : null}
+              </div>
+              {!resolved &&
+              purchase &&
+              purchase.net_earnings_micro_usd !== undefined &&
+              ((purchase.processing_fee_micro_usd ?? 0) > 0 ||
+                purchase.net_earnings_micro_usd !== 0) ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground tabular-nums">
+                  <span>Estimated net earnings</span>
+                  <span className={isNegativeNet ? "font-semibold text-destructive" : "font-medium text-foreground"}>
+                    {formatCommerceMicroUsd(purchase.net_earnings_micro_usd)}
+                  </span>
+                </div>
+              ) : null}
+              {!resolved && isNegativeNet && negativeTerms ? (
+                <label
+                  htmlFor={negativeAckId}
+                  data-testid="specialist-pending-consent-negative-ack"
+                  className="flex cursor-pointer items-start gap-2.5 pt-1 text-xs leading-4 text-foreground"
+                >
+                  <Checkbox
+                    id={negativeAckId}
+                    checked={negativeAccepted}
+                    disabled={busy}
+                    onCheckedChange={(checked) =>
+                      setAcknowledgedBinding(checked === true ? negativeTerms.binding : null)
+                    }
+                  />
+                  <span>
+                    Fees exceed this price. I accept net earnings of{" "}
+                    {formatCommerceMicroUsd(negativeTerms.net_earnings_micro_usd)} and any fee balance.
+                  </span>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           {stagedByAgent && duration ? (
             <p
               className="text-[13px] font-medium leading-[18px] text-[color:var(--app-accent)]"
@@ -666,58 +799,67 @@ export function SpecialistPendingConsentRequestCard({
       </div>
       <div className="mt-3.5 flex min-h-11 flex-wrap items-center justify-end gap-2">
         {!resolved ? (
-          <div className="relative mr-auto inline-flex items-center">
-            <select
-              aria-label="For how long"
-              data-testid="specialist-pending-consent-term-select"
-              disabled={busy}
-              value={selectedOptionValue}
-              onChange={(event) => {
-                const raw = event.target.value;
-                if (!raw) {
-                  setOverrideHours(null);
-                  return;
-                }
-                const parsed = Number(raw);
-                if (Number.isFinite(parsed) && parsed > 0) {
-                  setOverrideHours(Math.round(parsed));
-                }
-              }}
-              className="h-9 min-h-9 cursor-pointer appearance-none rounded-full border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] pl-3.5 pr-8 text-[16px] font-medium leading-[18px] tracking-[-0.008em] text-foreground transition-colors duration-[140ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none focus-visible:border-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-[13.5px] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]"
+          fundedDurationLocked && duration ? (
+            <span
+              data-testid="specialist-pending-consent-locked-term"
+              className="mr-auto inline-flex h-10 items-center rounded-full border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)]/70 px-3.5 text-[13.5px] font-medium text-muted-foreground"
             >
-              {!selectedOptionValue ? <option value="">Default term</option> : null}
-              {hasCustomDurationOption && duration ? (
-                <option value={selectedOptionValue}>{duration}</option>
-              ) : null}
-              {REQUEST_DURATION_OPTIONS.map((option) => (
-                <option key={option.hours} value={String(option.hours)}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="pointer-events-none absolute right-3 size-3.5 text-[color:var(--app-secondary-label)]"
-            >
-              <path
-                d="M4.25 6.25L8 10L11.75 6.25"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+              {duration} · Funded
+            </span>
+          ) : (
+            <div className="relative mr-auto inline-flex items-center">
+              <select
+                aria-label="For how long"
+                data-testid="specialist-pending-consent-term-select"
+                disabled={busy}
+                value={selectedOptionValue}
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  if (!raw) {
+                    setOverrideHours(null);
+                    return;
+                  }
+                  const parsed = Number(raw);
+                  if (Number.isFinite(parsed) && parsed > 0) {
+                    setOverrideHours(Math.round(parsed));
+                  }
+                }}
+                className="h-10 min-h-10 cursor-pointer appearance-none rounded-full border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] pl-3.5 pr-8 text-[16px] font-medium leading-[18px] tracking-[-0.008em] text-foreground transition-colors duration-[140ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none focus-visible:border-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-[13.5px] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill-strong)]"
+              >
+                {!selectedOptionValue ? <option value="">Default term</option> : null}
+                {hasCustomDurationOption && duration ? (
+                  <option value={selectedOptionValue}>{duration}</option>
+                ) : null}
+                {REQUEST_DURATION_OPTIONS.map((option) => (
+                  <option key={option.hours} value={String(option.hours)}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="pointer-events-none absolute right-3 size-3.5 text-[color:var(--app-secondary-label)]"
+              >
+                <path
+                  d="M4.25 6.25L8 10L11.75 6.25"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          )
         ) : null}
         <Button
           data-testid="specialist-pending-consent-details"
           size="sm"
           variant="outline"
-          className="px-4 font-medium"
+          className="h-10 min-h-10 px-4 font-medium"
           disabled={busy}
-          onClick={() => onDetails(overrideHours !== null ? { ...item, expiryHours: overrideHours } : item)}
+          onClick={() => onDetails(overrideHours !== null && !fundedDurationLocked ? { ...item, expiryHours: overrideHours } : item)}
         >
           Details
         </Button>
@@ -727,7 +869,7 @@ export function SpecialistPendingConsentRequestCard({
               data-testid="specialist-pending-consent-deny"
               size="sm"
               variant={denyArmed ? "destructive" : "subdued"}
-              className="px-4"
+              className="h-10 min-h-10 px-4"
               disabled={busy}
               aria-label={denyTap.ariaLabel("Don't allow")}
               data-armed={denyArmed ? "true" : undefined}
@@ -741,18 +883,26 @@ export function SpecialistPendingConsentRequestCard({
             <Button
               data-testid="specialist-pending-consent-approve"
               size="sm"
-              className="px-4"
-              disabled={busy}
+              className="h-10 min-h-10 px-4"
+              disabled={busy || (isNegativeNet && !negativeAccepted)}
               isLoading={busy}
-              onClick={() =>
-                onApprove(
-                  overrideHours !== null
+              onClick={() => {
+                const nextItem =
+                  overrideHours !== null && !fundedDurationLocked
                     ? { ...item, expiryHours: overrideHours }
-                    : item,
-                )
-              }
+                    : item;
+                if (isNegativeNet && negativeTerms) {
+                  onApprove(nextItem, {
+                    version: 1,
+                    binding: negativeTerms.binding,
+                    acknowledged: true,
+                  });
+                } else {
+                  onApprove(nextItem);
+                }
+              }}
             >
-              Allow
+              {isCommercial && displayCoins > 0 ? "Allow & Share" : "Allow"}
             </Button>
           </>
         )}

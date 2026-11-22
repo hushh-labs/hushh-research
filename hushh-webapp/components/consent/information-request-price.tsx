@@ -31,15 +31,31 @@ function AddRequestCoins({
   refresh: () => void;
 }) {
   const state = useScopeCommerceAccount({ suggestedCents });
-  return <div className="motion-step-enter space-y-3 border-t border-border/60 pt-3">
+  const fundingEnabled = state.account?.readiness?.capabilities.start_funding === true;
+  const checkBalanceButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      data-consent-role="compact-action"
+      data-consent-quiet-action="true"
+      className="whitespace-nowrap"
+      disabled={state.busy}
+      onClick={() => { void Promise.resolve(state.refresh()).finally(refresh); }}
+    >
+      Check balance
+    </Button>
+  );
+  return <div className="motion-step-enter space-y-2.5 border-t border-border/60 pt-2.5">
     {state.account?.sandboxVerified === true ? <p data-consent-role="disclosure" className="text-xs text-muted-foreground">{COMMERCE_SANDBOX_COPY}</p> : null}
-    <CommerceFundingControls enabled={state.account?.readiness?.capabilities.start_funding === true}
+    <CommerceFundingControls enabled={fundingEnabled}
       busy={state.busy || state.loading} amount={state.amount} changeAmount={state.changeAmount}
       maxCents={state.account?.sandboxRemainingCents ?? null}
-      checkout={() => { void state.checkout()?.then(refresh); }} />
+      checkout={() => { void state.checkout()?.then(refresh); }}
+      secondaryAction={fundingEnabled ? checkBalanceButton : null} />
+    {!fundingEnabled ? <div>{checkBalanceButton}</div> : null}
     {state.hostedPending ? <p role="status" data-consent-role="status" className="text-sm">Finish checkout in Stripe, then return here.</p> : null}
     {state.message ? <p role="alert" data-consent-role="status" className="text-sm text-destructive">{state.message}</p> : null}
-    <Button type="button" variant="ghost" size="sm" disabled={state.busy} onClick={() => { void state.refresh().then(refresh); }}>Check balance</Button>
   </div>;
 }
 
@@ -73,7 +89,20 @@ export function InformationRequestPriceReview({ personRef, scopeRefs, durationHo
   }, [cacheKey]);
 
   useEffect(() => {
-    const clearOnMutation = () => {
+    const clearOnMutation = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown> | undefined>).detail;
+      const source = typeof detail?.source === "string" ? detail.source : "";
+      // Only invalidate cached price quotes when tariffs or coin balances change;
+      // unrelated consent reads/approvals otherwise trigger redundant 5-15s preview storms.
+      if (
+        source &&
+        !source.startsWith("scope_payment_") &&
+        !source.startsWith("tariff") &&
+        !source.startsWith("funding") &&
+        !source.includes("commerce")
+      ) {
+        return;
+      }
       pricePreviewCache.clear();
       setRevision(value => value + 1);
     };
@@ -113,20 +142,31 @@ export function InformationRequestPriceReview({ personRef, scopeRefs, durationHo
     return () => { window.clearTimeout(timeout); controller.abort(); };
   }, [key, cacheKey, userId, personRef, selection, durationHours, isVaultUnlocked, vaultOwnerToken, revision]);
 
-  return <div className="space-y-3 rounded-[var(--app-card-radius-compact)] bg-muted/50 p-3" aria-live="polite" data-testid="information-request-price">
+  return <div className="space-y-2.5 rounded-[var(--app-card-radius-compact)] bg-muted/45 px-3.5 py-2.5" aria-live="polite" data-testid="information-request-price">
     {!price ? <>
-      <p data-consent-role="status" className="text-sm">{failed ? "Couldn’t check the price." : "Checking price…"}</p>
-      {failed ? <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check again</Button> : null}
+      <div className="flex items-center justify-between gap-2">
+        <p data-consent-role="status" className="text-xs font-medium text-muted-foreground">{failed ? "Couldn’t check the price." : "Checking price…"}</p>
+        {failed ? <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check again</Button> : null}
+      </div>
     </> : <>
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <div>
-          <span data-consent-role="fact-label" className="text-muted-foreground">Total · </span>
-          <strong data-consent-role="fact-value" className="tabular-nums">{price.totalCoins ? formatCommerceMoney(price.totalCoins) : "Free"}</strong>
+        <div className="flex items-center gap-1.5">
+          <span data-consent-role="fact-label" className="text-muted-foreground">Total ·</span>
+          <strong data-consent-role="fact-value" className="font-semibold tabular-nums">{price.totalCoins ? formatCommerceMoney(price.totalCoins) : "Free"}</strong>
         </div>
         {price.totalCoins > 0 ? (
-          <span data-consent-role="body" className="text-xs text-muted-foreground tabular-nums">
-            Balance: {formatCommerceMoney(price.availableCoins)}
-          </span>
+          <div className="flex items-center gap-2.5">
+            <span data-consent-role="body" className="text-xs text-muted-foreground tabular-nums">
+              Balance: {formatCommerceMoney(price.availableCoins)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFunding(value => !value)}
+              className="inline-flex min-h-8 items-center rounded-full px-2.5 text-xs font-medium text-[color:var(--app-accent)] transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {funding ? "Hide" : "Add coins"}
+            </button>
+          </div>
         ) : null}
       </div>
       {price.totalCoins > 0 ? <>
@@ -139,16 +179,8 @@ export function InformationRequestPriceReview({ personRef, scopeRefs, durationHo
             Covered by your balance. Reserved on send; refunded if declined or unused.
           </p>
         )}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={() => setFunding(value => !value)}>
-            {funding ? "Close" : "Add coins"}
-          </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check price</Button>
-        </div>
         {funding ? <AddRequestCoins suggestedCents={price.shortfallCoins} refresh={refresh} /> : null}
-      </> : (
-        <Button type="button" variant="ghost" size="sm" onClick={refresh}>Check price</Button>
-      )}
+      </> : null}
     </>}
   </div>;
 }

@@ -104,15 +104,18 @@ def consent_continuation_instruction(state_getter: Callable[[str], Any] | None) 
             "unless the person wants to."
         )
     if outcome == "expired":
+        object_name = "them" if name.lower() == "they" else name
         return (
-            f"\n\nINFORMATION REQUEST ANSWERED: the person's earlier request to {name} expired, "
-            "or access to what was shared ran out. Tell the person plainly and offer to ask "
-            "again. Do not use or repeat anything shared earlier, and do not guess any values."
+            f"\n\nINFORMATION REQUEST ANSWERED: the person's earlier request to {object_name} expired, "
+            "or access to what was shared ran out. Tell the person plainly in your own natural words and offer to ask "
+            "again. Do not use or repeat anything shared earlier, do not guess any values, and never repeat "
+            "any internal history redaction note ending in 'do not use or repeat it.' verbatim."
         )
     if outcome == "revoked":
         return (
             f"\n\nINFORMATION REQUEST UPDATE: {name} ended the person's access to what they "
-            "shared. Tell the person plainly and calmly. Do not use or repeat anything shared "
-            "earlier. If they need it again, offer to send a new request."
+            "shared. Tell the person plainly and calmly in your own natural words. Do not use or repeat anything shared "
+            "earlier, and never repeat any internal history redaction note ending in 'do not use or repeat it.' verbatim. "
+            "If they need it again, offer to send a new request."
         )
     return ""

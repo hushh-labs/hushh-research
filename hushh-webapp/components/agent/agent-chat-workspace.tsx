@@ -554,6 +554,12 @@ import {
   agentMessagesToStoredMessages,
 } from "./workspace/agent-message-transforms";
 import {
+  readResolvedConsentCardReceipts,
+  removeResolvedConsentCardReceipt,
+  saveResolvedConsentCardReceipt,
+  serializeVisibleIncomingConsentCards,
+} from "@/lib/agent/consent-card-receipts";
+import {
   GmailInformationRequestAttachment,
   AgentBubble,
   ChatTimeSeparatorRow,
@@ -3312,6 +3318,55 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const token = getVaultOwnerToken() || vaultOwnerToken;
       if (!token) return;
       try {
+        const reconcileResolvedReceipts = () => {
+          const receipts = readResolvedConsentCardReceipts(applicationOwnerId);
+          if (!receipts.length || cancelled) return;
+          setMessages((current) => {
+            let next = current;
+            for (const receipt of receipts) {
+              const receiptId = receipt.item.id;
+              const alreadyPresent = next.some((msg) => {
+                const payload = getPendingConsentRequestPayload(
+                  msg.specialistDirective ?? null,
+                );
+                if (!payload) return false;
+                return (
+                  pendingConsentCardRequestIds(payload.item).includes(receiptId) ||
+                  (Boolean(receipt.item.bundleId) &&
+                    payload.item.bundleId === receipt.item.bundleId)
+                );
+              });
+              if (alreadyPresent) continue;
+              const directive: SpecialistDirectiveEvent = {
+                delegateAgentId: "agent_nav",
+                directive: {
+                  kind: "prompt",
+                  payload: {
+                    kind: "pending_consent_request",
+                    item: receipt.item,
+                  },
+                },
+                message: "",
+                stateChanged: false,
+              };
+              next = [
+                ...next,
+                {
+                  id: `msg-receipt-${receipt.decidedAtMs}-${receiptId}`,
+                  role: "assistant",
+                  text: "",
+                  ...stampNow(),
+                  status: "done",
+                  specialistDirective: directive,
+                },
+              ];
+            }
+            return next;
+          });
+        };
+
+        reconcileResolvedReceipts();
+
         const response = await ApiService.getPendingConsents(applicationOwnerId, token);
         const payload = (await response.json().catch(() => ({}))) as {
           pending?: Array<{
@@ -3436,7 +3491,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               requiresScopeReview: hasScopes,
               status: "pending",
             },
-            `${actor} sent you a connection request.`,
+            "",
           );
         }
 
@@ -3464,7 +3519,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 href: `${ROUTES.CONSENTS}?tab=active&from=${pathname || ROUTES.ONE_HOME}`,
                 status: "pending",
               },
-              `${actor} shared access with you.`,
+              "",
             );
           } else if (item.event_type === "funding_transfer_status") {
             const summary =
@@ -3481,7 +3536,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 href: ROUTES.ONE_FEED,
                 status: "pending",
               },
-              "Payment settlement updated.",
+              "",
             );
           }
         }
@@ -3525,6 +3580,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken,
     applicationOwnerId,
   ]);
+
+  useEffect(() => {
+    const focusRequestId = String(
+      searchParams?.get("focusConsentRequest") || "",
+    ).trim();
+    if (!focusRequestId || !applicationOwnerId || !isVaultUnlocked || !rootChatReady) {
+      return;
+    }
+    void appendPendingConsentRequestRef.current?.(focusRequestId);
+    const next = new URLSearchParams(searchParams?.toString() || "");
+    next.delete("focusConsentRequest");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname || ROUTES.HOME}?${qs}` : pathname || ROUTES.HOME, {
+      scroll: false,
+    });
+  }, [applicationOwnerId, isVaultUnlocked, pathname, rootChatReady, router, searchParams]);
 
   const appendDebugEvent = useCallback(
     (
@@ -6022,8 +6093,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           const plaidCount = cachedFinancial
             ? Object.keys(vaultConnections(cachedFinancial)).length
             : 0;
+          const visibleConsentCards = serializeVisibleIncomingConsentCards(
+            messagesRef.current,
+          );
           return {
             ...context,
+            ...(visibleConsentCards.length > 0
+              ? { visible_incoming_consent_cards: visibleConsentCards }
+              : {}),
             screen_state: {
               ...context.one_voice_context?.screen_state,
               ...(isVaultUnlocked && cachedFinancial
@@ -6657,6 +6734,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     message: string,
     extra: {
       consentContinuation?: AgentChatConsentContinuation;
+      consentOutcomeMessageId?: string;
       feedAttention?: { itemId: string };
       pkmContext?: string;
       communicationPreferences?: OwnerStyleSettings;
@@ -6687,6 +6765,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (!failure || !consentBundleId) return "failed";
       const threadId = conversationIdRef.current;
       const key = vaultKeyRef.current;
+      const errStatus =
+        typeof (failure.error as { status?: unknown } | undefined)?.status === "number"
+          ? (failure.error as { status: number }).status
+          : null;
+      const isConflict409 =
+        errStatus === 409 || /\b409\b|conflict/i.test(failure.reason || "");
+      const dropOptimisticContinuationBubbles = () => {
+        if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+        setMessages((current) =>
+          chatSessionRef.current.isCurrent(chatEpoch)
+            ? current.filter(
+                (item) =>
+                  item.id !== assistantMessageId &&
+                  (!extra.consentOutcomeMessageId ||
+                    item.id !== extra.consentOutcomeMessageId),
+              )
+            : current,
+        );
+      };
       if (threadId && key && await continuedElsewhere({
         conversationId: threadId,
         bundleId: consentBundleId,
@@ -6694,14 +6791,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey: key,
       })) {
         if (!chatSessionRef.current.isCurrent(chatEpoch)) return "failed";
-        setMessages((current) => chatSessionRef.current.isCurrent(chatEpoch)
-          ? current.filter((item) => item.id !== assistantMessageId) : current);
+        dropOptimisticContinuationBubbles();
         clearAgentChatHistoryCache(userId);
         dispatchAgentChatHistoryInvalidated(userId);
         if (conversationIdRef.current === threadId) {
           void restoreConversationMessages(threadId, token, () => chatSessionRef.current.isCurrent(chatEpoch) && conversationIdRef.current === threadId)
             .catch(() => undefined);
         }
+        return "continued_elsewhere";
+      }
+      // If a continuation was already settled or collided on the same
+      // conversation (HTTP 409), coalesce cleanly without leaving a stray red
+      // error bubble or re-arming a retry loop.
+      if (isConflict409) {
+        dropOptimisticContinuationBubbles();
         return "continued_elsewhere";
       }
       updateMessage(assistantMessageId, (current) =>
@@ -7961,11 +8064,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       userScrolled: transcriptUserScrollRef,
       scrollToSubmittedTurn: scrollToSubmittedTurnRef,
     });
+    const outcomeChipMessageId = `msg-${crypto.randomUUID()}-consent-outcome`;
     setMessages((current) => {
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return current;
       const card = collectOutgoingRequestCards(current).find((entry) => entry.bundleId === bundleId);
       return [...current, {
-        id: `msg-${crypto.randomUUID()}-consent-outcome`,
+        id: outcomeChipMessageId,
         role: "user",
         text: sent.message,
         consentBundleId: bundleId,
@@ -7986,7 +8090,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           userScrolled: transcriptUserScrollRef,
           scrollToSubmittedTurn: scrollToSubmittedTurnRef,
         });
-        const settled = await sendFollowUpTurn(sent.message, { consentContinuation: sent.continuation });
+        const settled = await sendFollowUpTurn(sent.message, {
+          consentContinuation: sent.continuation,
+          consentOutcomeMessageId: outcomeChipMessageId,
+        });
         setInformationRequestPhase(ownerId, input.bundleId, settled === "failed" ? null : "answered");
       },
     });
@@ -9947,7 +10054,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                         );
                       }}
-                      onPendingConsentApprove={async (item) => {
+                      onPendingConsentApprove={async (item, negativeNetAcknowledgement) => {
                         // Partial notifications, oversized batches, or locked vaults
                         // open the full Consent Center review without ever granting
                         // partial access or injecting a chat error bubble.
@@ -10006,10 +10113,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                                   expiryHours: chosenHours,
                                 }))
                               : targets;
+                          const negativeNetAcknowledgements = negativeNetAcknowledgement
+                            ? Object.fromEntries(
+                                preparedTargets.map((target) => [
+                                  target.id,
+                                  negativeNetAcknowledgement,
+                                ]),
+                              )
+                            : undefined;
                           await consentActions.handleApproveBundle(preparedTargets, {
                             bundleId: item.bundleId || item.id,
                             bundleLabel: item.bundleLabel || undefined,
+                            ...(negativeNetAcknowledgements
+                              ? { negativeNetAcknowledgements }
+                              : {}),
                           });
+                          saveResolvedConsentCardReceipt(
+                            applicationOwnerId,
+                            item,
+                            "approved",
+                            chosenHours,
+                          );
                           updateMessage(message.id, (current) => ({
                             ...current,
                             specialistDirective:
@@ -10067,11 +10191,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           // The card reads declined at once; nothing is sent
                           // until the Undo window closes, and Undo sends nothing.
                           setCardStatus("denied");
+                          saveResolvedConsentCardReceipt(
+                            applicationOwnerId,
+                            item,
+                            "denied",
+                          );
                           scheduleConsentDecline({
                             key: `chat:${bundleId}`,
                             message: declinedChatRequestMessage(item.requesterLabel),
-                            onUndo: () => setCardStatus("pending"),
+                            onUndo: () => {
+                              removeResolvedConsentCardReceipt(applicationOwnerId, item.id);
+                              setCardStatus("pending");
+                            },
                             send: () => deny(requestIds, { quiet: true, bundleId }).catch(() => {
+                              removeResolvedConsentCardReceipt(applicationOwnerId, item.id);
                               setCardStatus("pending");
                               addErrorMessage("Could not decline that request. Try again.");
                             }),

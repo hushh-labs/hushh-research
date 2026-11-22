@@ -455,7 +455,50 @@ class PersonProfileService:
         raise ValueError("The information catalog is too large to load safely.")
 
     @staticmethod
-    def _scope_projection(public_person_ref: str, item: dict[str, Any]) -> dict[str, Any] | None:
+    async def _subject_tariff_map(subject_user_id: str) -> dict[str, tuple[int, int]]:
+        """Map machine_scope -> (price_cents, base_duration_hours) for paid tariffs."""
+        if not subject_user_id:
+            return {}
+        try:
+            from hushh_mcp.services.scope_commerce import ScopeCommerceService
+
+            tariffs = await ScopeCommerceService().list_tariffs(owner_user_id=subject_user_id)
+        except Exception:  # noqa: BLE001 - catalog remains readable if commerce lookup is unavailable
+            return {}
+        mapping: dict[str, tuple[int, int]] = {}
+        for tariff in tariffs or []:
+            if not isinstance(tariff, dict):
+                continue
+            raw_price = tariff.get("priceCents", tariff.get("price_cents"))
+            price_cents = (
+                int(raw_price)
+                if isinstance(raw_price, (int, float)) and not isinstance(raw_price, bool)
+                else 0
+            )
+            if price_cents <= 0:
+                continue
+            machine_scope = str(
+                tariff.get("machineScope") or tariff.get("machine_scope") or ""
+            ).strip()
+            if not machine_scope:
+                continue
+            raw_duration = tariff.get("baseDurationSeconds", tariff.get("base_duration_seconds"))
+            base_seconds = (
+                int(raw_duration)
+                if isinstance(raw_duration, (int, float))
+                and not isinstance(raw_duration, bool)
+                and int(raw_duration) >= 3600
+                else 604800
+            )
+            mapping[machine_scope] = (price_cents, max(1, round(base_seconds / 3600)))
+        return mapping
+
+    @staticmethod
+    def _scope_projection(
+        public_person_ref: str,
+        item: dict[str, Any],
+        tariff_by_scope: dict[str, tuple[int, int]] | None = None,
+    ) -> dict[str, Any] | None:
         """The only shape a viewer sees for one requestable row: no raw scope, no value."""
         from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
 
@@ -465,7 +508,8 @@ class PersonProfileService:
         domain = str(item.get("domain") or "") or None
         label = human_scope_label(scope, str(item.get("label") or ""))
         description = item.get("description")
-        return {
+        pricing = (tariff_by_scope or {}).get(scope)
+        projection: dict[str, Any] = {
             "scopeRef": _scope_ref(public_person_ref, scope),
             "label": label,
             "description": description,
@@ -483,6 +527,10 @@ class PersonProfileService:
             "wildcard": bool(item.get("wildcard")),
             "pathSegments": [part for part in scope.split(".")[2:] if part != "*"],
         }
+        if pricing is not None:
+            projection["priceCents"] = pricing[0]
+            projection["baseDurationHours"] = pricing[1]
+        return projection
 
     async def get_requestable_catalog(
         self, *, viewer_user_id: str, public_person_ref: str
@@ -498,13 +546,15 @@ class PersonProfileService:
         subject_user_id = str(row.get("user_id") or "")
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
-        scope_items = await asyncio.to_thread(
-            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        scope_items, tariff_map = await asyncio.gather(
+            asyncio.to_thread(self._requestable_scope_entries, viewer_user_id, subject_user_id),
+            self._subject_tariff_map(subject_user_id),
         )
         scopes = [
             projection
             for item in presentable_scope_entries(scope_items)
-            if (projection := self._scope_projection(public_person_ref, item)) is not None
+            if (projection := self._scope_projection(public_person_ref, item, tariff_map))
+            is not None
         ]
         return {**self._public_projection(row), "requestableScopes": scopes}
 
@@ -580,15 +630,16 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
 
-        scope_items = await asyncio.to_thread(
-            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        scope_items, tariff_map = await asyncio.gather(
+            asyncio.to_thread(self._requestable_scope_entries, viewer_user_id, subject_user_id),
+            self._subject_tariff_map(subject_user_id),
         )
         scope_by_name: dict[str, dict[str, Any]] = {}
         for item in scope_items:
             scope = str(item.get("scope") or "")
             if not scope:
                 continue
-            projection = self._scope_projection(public_person_ref, item)
+            projection = self._scope_projection(public_person_ref, item, tariff_map)
             if projection is None:
                 continue
             scope_by_name[scope] = projection

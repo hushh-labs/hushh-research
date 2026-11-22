@@ -279,6 +279,60 @@ def build_request_progress(
     decided = [state["decided_ms"] for state in states if state["decided_ms"] is not None]
     access_ends = [state["ends_ms"] for state in states if state["ends_ms"] is not None]
     ended = [state["ended_ms"] for state in states if state["ended_ms"] is not None]
+
+    # Summarize server-authoritative coin reservation / paid status from the
+    # bundle's ledger metadata so the requester card shows clear money state.
+    total_coins = 0
+    latest_commerce_status = ""
+    any_commercial = False
+    for row in sorted(ledger_rows, key=lambda r: _int_or_none(r.get("issued_at")) or 0):
+        raw_meta = row.get("metadata")
+        if isinstance(raw_meta, str):
+            try:
+                meta = json.loads(raw_meta)
+            except ValueError:
+                meta = {}
+        elif isinstance(raw_meta, dict):
+            meta = raw_meta
+        else:
+            meta = {}
+        if meta.get("commercial_required") is True:
+            any_commercial = True
+        bundle_coins = meta.get("bundle_price_coins")
+        req_coins = meta.get("request_price_coins")
+        if (
+            isinstance(bundle_coins, int)
+            and not isinstance(bundle_coins, bool)
+            and bundle_coins > total_coins
+        ):
+            total_coins = bundle_coins
+        elif (
+            isinstance(req_coins, int)
+            and not isinstance(req_coins, bool)
+            and req_coins > total_coins
+        ):
+            total_coins = req_coins
+        c_status = str(meta.get("commerce_status") or "").strip().lower()
+        if c_status:
+            latest_commerce_status = c_status
+
+    commerce: dict[str, Any] | None = None
+    if any_commercial or total_coins > 0:
+        if outcome in {"denied", "cancelled"} or (outcome == "expired" and not decided):
+            derived_status = "refunded"
+        elif outcome in {"granted", "partially_granted"}:
+            derived_status = "active"
+        elif outcome in {"revoked", "expired"}:
+            derived_status = "ended"
+        elif latest_commerce_status == "awaiting_payment":
+            derived_status = "awaiting_payment"
+        else:
+            derived_status = "reserved"
+        commerce = {
+            "total_coins": total_coins,
+            "status": derived_status,
+        }
+
     return {
         "requested_at": _iso_any(bundle.get("created_at")),
         "delivered_at": first("NOTIFICATION_SENT"),
@@ -288,6 +342,7 @@ def build_request_progress(
         "access_ends_at": _iso_ms(max(access_ends)) if access_ends else None,
         "ended_at": _iso_ms(max(ended)) if ended else None,
         "fields": fields,
+        **({"commerce": commerce} if commerce is not None else {}),
     }
 
 

@@ -782,8 +782,18 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const failures = results.filter((result) => !result.ok);
         if (failures.length === 0) {
           if (!options.quiet) {
+            const awaitingBuyerPayment = requestIds.some((id) =>
+              paidPendingPayment.current.has(id),
+            );
+            const activatedPaidShare =
+              !awaitingBuyerPayment &&
+              requestIds.some((id) => paidApprovals.current.has(id));
             toast.success(
-              (requestIds.some(id => paidApprovals.current.has(id)) ? "Approved. Open sharing details to finish sharing." : options.successMessage) ||
+              (awaitingBuyerPayment
+                ? "Approved. Waiting for payment before sharing."
+                : activatedPaidShare
+                  ? "Shared. Access is active now."
+                  : options.successMessage) ||
                 (kind === "approve"
                   ? "Allowed. They can open it now."
                   : kind === "deny"
@@ -800,7 +810,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const message =
           succeeded > 0
             ? kind === "approve"
-              ? `${requestIds.some(id => paidApprovals.current.has(id)) ? "Approved" : "Shared"} ${succeeded} of ${total}. Try the rest again.`
+              ? `${requestIds.some((id) => paidPendingPayment.current.has(id)) ? "Approved" : "Shared"} ${succeeded} of ${total}. Try the rest again.`
               : kind === "deny"
                 ? `Declined ${succeeded} of ${total}. Try the rest again.`
                 : `Saved ${succeeded} of ${total} choices. Try the rest again.`
@@ -815,7 +825,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         );
       }
     },
-    [paidApprovals]
+    [paidApprovals, paidPendingPayment]
   );
 
   const handleApproveBundle = useCallback(

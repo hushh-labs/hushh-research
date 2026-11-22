@@ -39,6 +39,11 @@ import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Capacitor } from "@capacitor/core";
 import { useVault } from "@/lib/vault/vault-context";
 import { type PendingConsent } from "@/lib/consent";
+import { consentInformationLabel } from "@/lib/consent/consent-owner-copy";
+import {
+  IncomingConsentChatBanner,
+  type IncomingConsentBannerItem,
+} from "@/components/consent/incoming-consent-chat-banner";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -673,6 +678,12 @@ export function ConsentNotificationProvider({
   const isNativePlatform = Capacitor.isNativePlatform();
   const router = useRouter();
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+  const [chatShortcutBanner, setChatShortcutBanner] =
+    useState<IncomingConsentBannerItem | null>(null);
   const searchParams = useSearchParams();
   const consentRouteRequestId = String(
     searchParams.get("requestId") || "",
@@ -2117,6 +2128,38 @@ export function ConsentNotificationProvider({
         if (isNewPendingRequest) {
           setPendingCount((prev) => Math.max(prev, 0) + 1);
         }
+        const activePath = String(pathnameRef.current || "").trim().toLowerCase();
+        const showChatShortcut =
+          isNewPendingRequest &&
+          activePath !== ROUTES.HOME &&
+          !isConsentWorkspaceRoute(activePath) &&
+          activePath !== ROUTES.ONE_FEED;
+        if (showChatShortcut) {
+          const meta = consent.metadata ?? {};
+          const rawBundleCoins = Number(
+            meta.bundle_price_coins ?? data.bundle_price_coins ?? 0,
+          );
+          const rawRequestCoins = Number(
+            meta.request_price_coins ?? data.request_price_coins ?? 0,
+          );
+          const priceCoins =
+            Number.isFinite(rawBundleCoins) && rawBundleCoins > 0
+              ? Math.round(rawBundleCoins)
+              : Number.isFinite(rawRequestCoins) && rawRequestCoins > 0
+                ? Math.round(rawRequestCoins)
+                : 0;
+          setChatShortcutBanner({
+            requestId: consent.id,
+            bundleId: consent.bundleId ?? null,
+            requesterLabel:
+              String(consent.developer || data.requester_label || "Someone").trim() || "Someone",
+            scopeLabel: consentInformationLabel({
+              scope: consent.scope,
+              label: consent.scopeDescription || data.scope_description || data.human_label,
+            }),
+            ...(priceCoins > 0 ? { priceCoins } : {}),
+          });
+        }
         dispatchConsentStateChanged({
           source: "fcm_live",
           requestId: consent.id,
@@ -2142,6 +2185,13 @@ export function ConsentNotificationProvider({
         if (toastKey) {
           toast.dismiss(toastKey);
         }
+        setChatShortcutBanner((current) =>
+          current &&
+          (current.requestId === requestId ||
+            (bundleId && current.bundleId === bundleId))
+            ? null
+            : current,
+        );
         if (isNativePlatform) {
           void clearDeliveredConsentNotifications({
             requestId,
@@ -2171,6 +2221,13 @@ export function ConsentNotificationProvider({
           toast.dismiss(toastKey);
           setPendingCount((prev) => Math.max(0, prev - 1));
         }
+        setChatShortcutBanner((current) =>
+          current &&
+          (current.requestId === requestId ||
+            (data.bundle_id && current.bundleId === data.bundle_id))
+            ? null
+            : current,
+        );
         if (applicationOwnerId) {
           const queued = removeQueuedPendingConsent(
             applicationOwnerId,
@@ -2595,6 +2652,18 @@ export function ConsentNotificationProvider({
     };
   }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, applicationOwnerId]);
 
+  useEffect(() => {
+    const normalized = String(pathname || "").trim().toLowerCase();
+    if (
+      !isVaultUnlocked ||
+      normalized === ROUTES.HOME ||
+      isConsentWorkspaceRoute(normalized) ||
+      normalized === ROUTES.ONE_FEED
+    ) {
+      setChatShortcutBanner(null);
+    }
+  }, [isVaultUnlocked, pathname]);
+
   return (
     <ConsentNotificationStateContext.Provider
       value={{
@@ -2605,6 +2674,16 @@ export function ConsentNotificationProvider({
         isRetryingPushRegistration,
       }}
     >
+      <IncomingConsentChatBanner
+        item={chatShortcutBanner}
+        onReviewInChat={(banner) => {
+          setChatShortcutBanner(null);
+          router.push(
+            `${ROUTES.HOME}?focusConsentRequest=${encodeURIComponent(banner.requestId)}`,
+          );
+        }}
+        onDismiss={() => setChatShortcutBanner(null)}
+      />
       {children}
     </ConsentNotificationStateContext.Provider>
   );
