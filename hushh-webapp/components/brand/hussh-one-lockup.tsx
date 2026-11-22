@@ -45,7 +45,7 @@ export function HusshWordmarkSvg({
       <path d={HUSSH_HU_PATH} className="fill-foreground" />
       <path
         d={HUSSH_SSH_PATH}
-        className="fill-[color:var(--app-accent,#b8894d)] dark:fill-[color:var(--app-accent-bright,var(--app-accent,#d8a657))]"
+        className="fill-[color:var(--app-accent)] dark:fill-[color:var(--app-accent-bright,var(--app-accent))]"
       />
     </svg>
   );
@@ -83,7 +83,7 @@ export function HusshOneLockup({
         >
           <path
             d={HUSSH_SSH_PATH}
-            className="fill-[color:var(--app-accent,#b8894d)] dark:fill-[color:var(--app-accent-bright,var(--app-accent,#d8a657))]"
+            className="fill-[color:var(--app-accent)] dark:fill-[color:var(--app-accent-bright,var(--app-accent))]"
           />
         </svg>
       </span>

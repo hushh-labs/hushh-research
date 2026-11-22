@@ -312,6 +312,32 @@ class LiveK8sSandboxClaimClient:
         if status not in {200, 202, 404}:
             raise RuntimeError(f"SandboxClaim delete failed ({status}): {body}")
 
+    def extend_claim_shutdown(
+        self,
+        claim_name: str,
+        *,
+        idle_shutdown_seconds: int = 600,
+    ) -> bool:
+        """Slide `spec.lifecycle.shutdownTime` forward so active leases outlive initial TTL."""
+        import datetime  # noqa: PLC0415
+
+        clamped = max(60, min(3600, int(idle_shutdown_seconds)))
+        shutdown_iso = datetime.datetime.fromtimestamp(
+            int(time.time()) + clamped,
+            tz=datetime.timezone.utc,
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        base = f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}/sandboxclaims"
+        try:
+            status, _body = self._request_json(
+                "PATCH",
+                f"{base}/{claim_name}",
+                {"spec": {"lifecycle": {"shutdownTime": shutdown_iso}}},
+                content_type="application/merge-patch+json",
+            )
+            return status in {200, 201, 202}
+        except Exception:  # noqa: BLE001 - caller rotates cleanly if claim PATCH is unsupported
+            return False
+
 
 class SentinelControlClient:
     """Typed Hub client talking to Sentinel proxy control endpoint (:8081)."""

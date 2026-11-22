@@ -376,7 +376,7 @@ export function CustomConnectorsSettings(props: CustomConnectorSettingsProps & {
             {model.canSignIn && item.authenticationKind !== "api_key" && (item.hasOAuthRegistration || item.authenticationKind === "oauth" || authRequired[item.connectorId])
               ? <Button size="compact" variant="none" effect="fade" data-connector-action="primary" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
             <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
-            <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => model.requestRemove(item)}>Remove</Button>
+            <Button size="compact" variant="none" effect="fade" data-connector-action="destructive" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => model.requestRemove(item)}>Remove</Button>
           </div>
           {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-10 cursor-pointer py-2 text-xs font-medium text-muted-foreground">{catalogs[item.connectorId]?.length} tools</summary>
             <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t border-border/50 py-1.5">
@@ -393,8 +393,9 @@ export function CustomConnectorsSettings(props: CustomConnectorSettingsProps & {
         <SettingsRow
           title="Custom MCP server"
           description="Connect a server you trust"
+          textOverflow="truncate"
           trailing={
-            <Button size="compact" variant="none" effect="fade" disabled={status !== "ready"} onClick={model.openEditor}>
+            <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" disabled={status !== "ready"} onClick={model.openEditor}>
               Add connector
             </Button>
           }
