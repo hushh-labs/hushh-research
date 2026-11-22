@@ -505,7 +505,7 @@ export const AgentBubble = memo(function AgentBubble({
         title={isThinkingStreaming ? "Thought process (live)" : "Thought process"}
         onClick={() => setThoughtOpen(true)}
         className={cn(
-          "grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[background-color,color,transform,opacity] duration-[140ms] ease-[var(--ease-out)] after:absolute after:-inset-2 after:content-[''] motion-reduce:transition-none active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
+          "grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[background-color,color,opacity] duration-[140ms] ease-[var(--ease-out)] after:absolute after:-inset-2 after:content-[''] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
           floating ? "absolute top-2 right-2 z-10" : "relative",
           isThinkingStreaming
             ? "bg-[color:var(--app-accent)]/14 text-[color:var(--app-accent)]"
@@ -520,6 +520,7 @@ export const AgentBubble = memo(function AgentBubble({
             isThinkingStreaming && "motion-safe:animate-pulse",
           )}
         />
+        <MaterialRipple variant="none" effect="glass" />
       </button>
     );
   };

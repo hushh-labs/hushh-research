@@ -106,7 +106,7 @@ function ThoughtProcessBody({
             aria-label={copied ? "Thought process copied" : "Copy thought process"}
             title={copied ? "Copied" : "Copy"}
             data-testid="agent-thought-copy"
-            className="relative grid size-8 shrink-0 place-items-center rounded-full text-[color:var(--app-secondary-label)] transition-[color,background-color,transform] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none active:scale-[0.96] hover:bg-foreground/[0.05] hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+            className="relative grid size-8 shrink-0 place-items-center rounded-full text-[color:var(--app-secondary-label)] transition-[color,background-color,opacity] duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 hover:bg-foreground/[0.05] hover:text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
           >
             {copied ? (
               <Check className="size-4 text-[color:var(--app-accent)]" />
