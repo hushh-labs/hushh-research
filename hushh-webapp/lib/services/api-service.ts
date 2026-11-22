@@ -2026,6 +2026,7 @@ export class ApiService {
       body: JSON.stringify({}),
     });
     if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+    ApiService.clearRoutingHostingBurstCache();
     return response.json();
   }
 
@@ -2055,6 +2056,7 @@ export class ApiService {
         ),
       );
     }
+    ApiService.clearRoutingHostingBurstCache();
     return payload;
   }
 
@@ -2097,6 +2099,7 @@ export class ApiService {
         ),
       );
     }
+    ApiService.clearRoutingHostingBurstCache();
     return payload;
   }
 

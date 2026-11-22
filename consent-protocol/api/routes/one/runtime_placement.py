@@ -220,7 +220,19 @@ async def switch_hosting_placement(
                     "Hosting changed while switching. Refresh and try again.",
                 )
             detached_prior = True
-            return {"hostingMode": "unplaced", "detachedPriorHost": True}
+            try:
+                await HostingChoiceRepo().record_shared(user_id, after_detach=True)
+            except Exception as exc:  # noqa: BLE001 - keep owner placed on Shared if BYOC setup is cancelled
+                logger.warning(
+                    "hosting_switch.own_cloud_fallback_shared_failed err=%s", type(exc).__name__
+                )
+                raise _refuse(
+                    503,
+                    "HOSTING_CHOICE_UNAVAILABLE",
+                    "We could not prepare cloud setup right now. Try again.",
+                ) from exc
+            await runtime._write_cloud_setup_marker(user_id)
+            return {"hostingMode": "shared", "detachedPriorHost": True}
     return {"hostingMode": mode, "detachedPriorHost": detached_prior}
 
 

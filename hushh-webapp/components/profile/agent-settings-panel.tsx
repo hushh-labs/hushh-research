@@ -508,9 +508,11 @@ function AgentSettingsBody({
               <AlertDialogAction
                 disabled={busy}
                 data-testid="hosting-switch-shared-confirm"
-                onClick={() => {
-                  setConfirmSwitch(null);
-                  void switchToSharedHosting();
+                onClick={(event) => {
+                  event.preventDefault();
+                  void Promise.resolve(switchToSharedHosting()).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
                 }}
               >
                 {busy ? "Switching…" : "Switch to Hussh Shared"}
@@ -535,9 +537,11 @@ function AgentSettingsBody({
               <AlertDialogAction
                 disabled={busy}
                 data-testid="hosting-switch-own-cloud-confirm"
-                onClick={() => {
-                  setConfirmSwitch(null);
-                  void switchToOwnCloud();
+                onClick={(event) => {
+                  event.preventDefault();
+                  void Promise.resolve(switchToOwnCloud()).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
                 }}
               >
                 {busy ? "Preparing…" : "Continue to cloud setup"}
@@ -574,10 +578,14 @@ function AgentSettingsBody({
               <AlertDialogAction
                 disabled={busy}
                 data-testid="hosting-switch-sandbox-confirm"
-                onClick={() => {
+                onClick={(event) => {
+                  event.preventDefault();
                   const removeCloud = mode === "byoc" && removePriorCloudOnSandboxSwitch;
-                  setConfirmSwitch(null);
-                  void switchToPersonalSandbox({ removePriorCloudResources: removeCloud });
+                  void Promise.resolve(
+                    switchToPersonalSandbox({ removePriorCloudResources: removeCloud }),
+                  ).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
                 }}
               >
                 {busy ? "Switching…" : "Switch to Personal Sandbox"}

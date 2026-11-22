@@ -1243,9 +1243,11 @@ async def test_switch_hosting_mode_route_detaches_ace_to_shared_and_own_cloud_wh
         body=runtime.HostingSwitchRequest(target="own_cloud"),
         firebase_uid="uid-ace-2",
     )
-    assert own_resp.hostingMode == "unplaced"
+    assert own_resp.hostingMode == "shared"
     assert own_resp.detachedPriorHost is True
     assert detached_calls[-1] == ("uid-ace-2", "owner switched to Bring your own cloud")
+    assert recorded_shared[-1] == ("uid-ace-2", True)
+    assert marked[-1] == "uid-ace-2"
 
     current_mode["value"] = "byoc"
     with pytest.raises(HTTPException) as exc:

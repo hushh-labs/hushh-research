@@ -322,23 +322,26 @@ export function useAgentSettingsController({
     router.push(profileHostingSetupHref(resolvePaneOrigin()));
   }
 
-  async function clearLocalPodPin() {
+  function syncLocalPodDisconnectInBackground() {
     if (!userId) return;
-    await import("@/lib/services/owner-pod-endpoint")
-      .then((mod) => mod.clearPinnedPodEndpoint?.(userId))
+    const targetOwnerId = userId;
+    void import("@/lib/services/owner-pod-endpoint")
+      .then((mod) => mod.clearPinnedPodEndpoint?.(targetOwnerId))
       .catch(() => undefined);
-    await import("@/lib/services/pre-vault-user-state-service")
-      .then((mod) => mod.PreVaultUserStateService?.bootstrapState?.(userId, { force: true }))
+    void import("@/lib/services/pre-vault-user-state-service")
+      .then((mod) => mod.PreVaultUserStateService?.bootstrapState?.(targetOwnerId, { force: true }))
       .catch(() => undefined);
   }
 
-  async function switchToSharedHosting() {
-    if (busyRef.current || !current() || typeof ApiService.switchHostingMode !== "function") return;
+  async function switchToSharedHosting(): Promise<boolean> {
+    if (busyRef.current || !current() || typeof ApiService.switchHostingMode !== "function") {
+      return false;
+    }
     const owner = snapshotValidatedAuthSessionOwner();
     const isEffectCurrent = () => Boolean(
       current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
     );
-    if (!isEffectCurrent()) return;
+    if (!isEffectCurrent()) return false;
     busyRef.current = true;
     setBusy(true);
     try {
@@ -355,12 +358,15 @@ export function useAgentSettingsController({
         isEffectCurrent,
       ).unwrap();
       if (isEffectCurrent()) {
-        await clearLocalPodPin();
+        syncLocalPodDisconnectInBackground();
         refresh();
         dispatchFeedStateChanged();
+        return true;
       }
+      return false;
     } catch {
       // Promise toast reports failure.
+      return false;
     } finally {
       if (current()) {
         busyRef.current = false;
@@ -369,8 +375,8 @@ export function useAgentSettingsController({
     }
   }
 
-  async function switchToOwnCloud() {
-    if (busyRef.current || !current()) return;
+  async function switchToOwnCloud(): Promise<boolean> {
+    if (busyRef.current || !current()) return false;
     if (mode !== "hussh_pods") {
       router.push(
         profileHostingSetupHref(
@@ -378,17 +384,17 @@ export function useAgentSettingsController({
           mode === "shared" ? { intent: "own" } : undefined,
         ),
       );
-      return;
+      return true;
     }
     if (typeof ApiService.switchHostingMode !== "function") {
       router.push(profileHostingSetupHref(resolvePaneOrigin(), { intent: "own" }));
-      return;
+      return true;
     }
     const owner = snapshotValidatedAuthSessionOwner();
     const isEffectCurrent = () => Boolean(
       current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
     );
-    if (!isEffectCurrent()) return;
+    if (!isEffectCurrent()) return false;
     busyRef.current = true;
     setBusy(true);
     try {
@@ -405,13 +411,16 @@ export function useAgentSettingsController({
         isEffectCurrent,
       ).unwrap();
       if (isEffectCurrent()) {
-        await clearLocalPodPin();
+        syncLocalPodDisconnectInBackground();
         refresh();
         dispatchFeedStateChanged();
         router.push(profileHostingSetupHref(resolvePaneOrigin(), { intent: "own" }));
+        return true;
       }
+      return false;
     } catch {
       // Promise toast reports failure.
+      return false;
     } finally {
       if (current()) {
         busyRef.current = false;
@@ -420,13 +429,17 @@ export function useAgentSettingsController({
     }
   }
 
-  async function switchToPersonalSandbox(options?: { removePriorCloudResources?: boolean }) {
-    if (busyRef.current || !current() || typeof ApiService.adoptPooledSandbox !== "function") return;
+  async function switchToPersonalSandbox(options?: {
+    removePriorCloudResources?: boolean;
+  }): Promise<boolean> {
+    if (busyRef.current || !current() || typeof ApiService.adoptPooledSandbox !== "function") {
+      return false;
+    }
     const owner = snapshotValidatedAuthSessionOwner();
     const isEffectCurrent = () => Boolean(
       current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
     );
-    if (!isEffectCurrent()) return;
+    if (!isEffectCurrent()) return false;
     busyRef.current = true;
     setBusy(true);
     try {
@@ -449,19 +462,25 @@ export function useAgentSettingsController({
         isEffectCurrent,
       ).unwrap();
       if (isEffectCurrent()) {
-        if (typeof ApiService.reconnectOwnerPod === "function") {
-          await ApiService.reconnectOwnerPod().catch(() => undefined);
-        }
-        if (userId) {
-          await import("@/lib/services/pre-vault-user-state-service")
-            .then((mod) => mod.PreVaultUserStateService?.bootstrapState?.(userId, { force: true }))
-            .catch(() => undefined);
-        }
         refresh();
         dispatchFeedStateChanged();
+        const targetOwnerId = userId;
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          void ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
+        if (targetOwnerId) {
+          void import("@/lib/services/pre-vault-user-state-service")
+            .then((mod) =>
+              mod.PreVaultUserStateService?.bootstrapState?.(targetOwnerId, { force: true }),
+            )
+            .catch(() => undefined);
+        }
+        return true;
       }
+      return false;
     } catch {
       // Promise toast reports failure.
+      return false;
     } finally {
       if (current()) {
         busyRef.current = false;

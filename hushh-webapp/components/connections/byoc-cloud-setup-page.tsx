@@ -513,17 +513,19 @@ function OwnerCloudSetupPage({ user, owner }: {
     reservedProjectId && setupStatusReadOk && job?.status === "recorded" &&
       job.projectId === reservedProjectId,
   );
-  const authorized =
-    connectedBefore || recordedReservedProject || hostedChosen || (sharedChosen && hostingMode === "shared" && job === null) ||
-    hostingMode === "hussh_pods";
-  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
-  // One alert, whichever cloud's authorization refused.
-  const shownError = error ?? azureSignIn.error;
-
   // Shared is the confirmed default when the server says so or this session chose it.
   const sharedConfirmed = hostingMode === "shared" || sharedChosen;
   const selectedHosting: HostingChoice | null =
     choice ?? (sharedConfirmed ? "shared" : null);
+  const authorized =
+    connectedBefore ||
+    recordedReservedProject ||
+    hostedChosen ||
+    (sharedChosen && selectedHosting === "shared" && hostingMode === "shared" && job === null) ||
+    hostingMode === "hussh_pods";
+  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
+  // One alert, whichever cloud's authorization refused.
+  const shownError = error ?? azureSignIn.error;
   // Azure is named only on a build where it can actually be chosen.
   const azureSelectable = isAzureHomeSelectable();
   const hostingOptions = hostingOptionsFor({ azureSelectable, hostedUnderMaintenance, ownCloudAvailable });
