@@ -19,7 +19,10 @@ The bar for how the private agent moves on a phone, in numbers, and the
 program that measures and defends it. It complements the motion duration
 contract (the 150ms ceiling in `hushh-webapp/app/globals.css` and
 `.agents/skills/improve-animations/AUDIT.md`): that contract says how long an
-animation may run; this one says whether the frames inside it arrive.
+animation may run; this one says whether the frames inside it arrive. For
+route-readiness, warm-cache revisit, single-flight catalog, and hub traffic
+hygiene budgets across Web and native clients, see the
+[Cache Coherence Reference](../contracts/cache-coherence.md).
 
 ## The bar
 

@@ -86,6 +86,8 @@ Rules:
    those props is visible to the row.
 9. Avoid long text in trailing slots.
 10. Row padding and gaps should inherit from the shared compact density variables so Profile, Consent, and similar row-based managers stay visually aligned.
+11. Top-level grouped lists keep multi-action integrations (such as Stripe under Payments) as one compact scannable `SettingsRow` that drills into a dedicated detail panel rather than embedding stacked multi-button cards directly on the root list.
+12. Trailing row action pills share one uniform compact 32px pill height (using neutral secondary styling rather than primary CTA blue for destructive or disconnect actions like Plaid Disconnect), while detail-panel action bars share one uniform 36px height and 13px/500 weight with clear primary-versus-secondary contrast.
 
 ### `SettingsDetailPanel`
 
