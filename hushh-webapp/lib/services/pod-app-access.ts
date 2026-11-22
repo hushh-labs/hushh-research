@@ -97,6 +97,10 @@ const OWNER_POD_ROUTES = new Set([
   "answers/compose",
   "memory/status",
   "memory/provider-consent",
+  "status",
+  "config",
+  "circle-rules",
+  "circle-rules/preview",
   "turn/stream",
   "turn/cancel",
   "puppy/models",
@@ -122,6 +126,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
+  /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
   /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
@@ -316,6 +321,48 @@ export async function ownerPodRequest(
       method !== "POST")
   ) {
     throw new Error("POD_ACTION_REQUEST_REFUSED");
+  }
+  if (route === "status") {
+    if (
+      method !== "GET" ||
+      (body !== undefined && body !== null) ||
+      session.role !== "app" ||
+      !session.scopes.includes("pod.status")
+    ) {
+      throw new Error("POD_STATUS_REQUEST_REFUSED");
+    }
+  }
+  if (route === "config") {
+    if (
+      method !== "POST" ||
+      session.role !== "app" ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_CONFIG_REQUEST_REFUSED");
+    }
+  }
+  if (
+    route === "circle-rules" ||
+    route === "circle-rules/preview" ||
+    /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/.test(route)
+  ) {
+    const isRead =
+      (route === "circle-rules" && method === "GET") ||
+      (route === "circle-rules/preview" && method === "POST");
+    const isWrite =
+      (route === "circle-rules" && method === "PUT") ||
+      (/^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}$/.test(route) &&
+        method === "DELETE") ||
+      (/^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}\/toggle$/.test(route) &&
+        method === "POST");
+    const requiredScope = isRead ? "pod.status" : "pod.config";
+    if (
+      (!isRead && !isWrite) ||
+      session.role !== "app" ||
+      !session.scopes.includes(requiredScope)
+    ) {
+      throw new Error("POD_CIRCLE_RULES_REQUEST_REFUSED");
+    }
   }
   if (/^connectors\/(gmail|calendar|drive|contacts)$/.test(route)) {
     if (

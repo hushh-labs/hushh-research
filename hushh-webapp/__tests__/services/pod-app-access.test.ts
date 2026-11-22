@@ -358,3 +358,34 @@ it("admits owner pod browser download save route only when browser.control and f
   expect(ok.ok).toBe(true);
   expect(fetch).toHaveBeenCalledOnce();
 });
+
+it("admits status, config, and circle-rules routes only with app role and exact scopes", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = {
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "device", scopes: ["pod.status", "pod.config"] },
+  };
+  pod.currentPodConnection.mockResolvedValue(connection);
+
+  await expect(ownerPodRequest("status", { method: "GET" }, ports)).rejects.toThrow("POD_STATUS_REQUEST_REFUSED");
+  await expect(ownerPodRequest("config", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_CONFIG_REQUEST_REFUSED");
+  await expect(ownerPodRequest("circle-rules", { method: "GET" }, ports)).rejects.toThrow("POD_CIRCLE_RULES_REQUEST_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+
+  connection.session.role = "app";
+  connection.session.scopes = ["pod.status"];
+  expect((await ownerPodRequest("status", { method: "GET" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules", { method: "GET" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules/preview", { method: "POST", body: "{}" }, ports)).ok).toBe(true);
+  await expect(ownerPodRequest("circle-rules", { method: "PUT", body: "{}" }, ports)).rejects.toThrow("POD_CIRCLE_RULES_REQUEST_REFUSED");
+  await expect(ownerPodRequest("config", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_CONFIG_REQUEST_REFUSED");
+
+  connection.session.scopes = ["pod.status", "pod.config"];
+  expect((await ownerPodRequest("config", { method: "POST", body: "{}" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules", { method: "PUT", body: "{}" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules/rule_abcd1234ef/toggle", { method: "POST", body: "{}" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules/rule_abcd1234ef", { method: "DELETE" }, ports)).ok).toBe(true);
+  await expect(ownerPodRequest("circle-rules/not-a-valid-id", { method: "DELETE" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  expect(fetch).toHaveBeenCalledTimes(7);
+});
