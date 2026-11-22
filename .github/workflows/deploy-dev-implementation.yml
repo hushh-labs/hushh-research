@@ -555,6 +555,9 @@ jobs:
             --one-location-read-only-state-enabled "false"
             --hushh-trusted-device-enabled "false"
           )
+          if grep -q -- '--consent-center-summary-v2-enabled' <<<"${backend_sync_help}"; then
+            backend_sync_args+=(--consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}")
+          fi
           drive_group_args=()
           if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
             drive_group_args=(--drive-four-group-index "false")
@@ -1896,6 +1899,62 @@ jobs:
             --cloudsql-instance "${{ env.DEV_CLOUDSQL_INSTANCE }}" --db-name "${DEV_DB_NAME}" \
             --fence-required true --evidence-prefix /tmp/dev-account-deletion
           echo "activated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Sync Hosted Dev Sandbox Edge Gateway image
+        id: sync-sandbox-edge-gateway
+        if: env.DEV_TARGET == 'shared-dev' && steps.classify-dev-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.activate-answer-work-drain.outcome != 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          edge_service="sandbox-edge-gateway"
+          expected_image="${{ steps.build-backend-image.outputs.image_reference }}"
+          if ! gcloud run services describe "${edge_service}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-predeploy-state-edge.json 2>/dev/null; then
+            echo "status=absent" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          prev_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-predeploy-state-edge.json)"
+          prev_revision="$(printf '%s' "${prev_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          prev_image="$(python3 -c 'import json; d=json.load(open("/tmp/dev-predeploy-state-edge.json")); print((d.get("spec",{}).get("template",{}).get("spec",{}).get("containers") or [{}])[0].get("image",""))')"
+          echo "previous_revision=${prev_revision}" >> "$GITHUB_OUTPUT"
+          if [ "${prev_image}" = "${expected_image}" ]; then
+            echo "status=already-current" >> "$GITHUB_OUTPUT"
+            echo "revision=${prev_revision}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gcloud run services update "${edge_service}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --image="${expected_image}" \
+            --update-labels="deploy-sha=${{ steps.resolve-sha.outputs.sha }},deploy-run-id=${{ github.run_id }}"
+          gcloud run services describe "${edge_service}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-final-state-edge.json
+          edge_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-final-state-edge.json)"
+          edge_revision="$(printf '%s' "${edge_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          edge_url="$(printf '%s' "${edge_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          actual_image="$(python3 -c 'import json; d=json.load(open("/tmp/dev-final-state-edge.json")); print((d.get("spec",{}).get("template",{}).get("spec",{}).get("containers") or [{}])[0].get("image",""))')"
+          healthy=false
+          if [ "${actual_image}" = "${expected_image}" ] && [ -n "${edge_url}" ]; then
+            for attempt in $(seq 1 6); do
+              http_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${edge_url%/}/health" || echo "000")"
+              if [ "${http_code}" = "200" ]; then
+                healthy=true
+                break
+              fi
+              sleep 5
+            done
+          fi
+          if [ "${healthy}" != true ]; then
+            if [ -n "${prev_revision}" ]; then
+              bash scripts/ci/cloudrun-rollback.sh "${edge_service}" "${{ env.GCP_REGION }}" "${prev_revision}" || true
+            fi
+            echo "sandbox_edge_gateway_sync_failed expected_image=${expected_image} actual_image=${actual_image}" >&2
+            exit 1
+          fi
+          echo "status=updated" >> "$GITHUB_OUTPUT"
+          echo "revision=${edge_revision}" >> "$GITHUB_OUTPUT"
 
       - name: Write dev release status artifact
         if: always()
