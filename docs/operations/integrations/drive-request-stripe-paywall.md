@@ -534,7 +534,7 @@ other payout doorbell: `kinds` (here `earnings` and `wallet`) and an optional
 `balance`; missing or unknown kinds mean all of them. v1 Feed streams turn a
 burst of payout doorbells into one `feed_reset`; v2 streams send
 `payout_changed` with the kinds and request IDs. See the
-[Feed stream frames](../../development/contracts/api-contracts.md#sse-server-sent-events).
+[Feed stream frames](../../development/contracts/api-route-catalog.md#sse-server-sent-events).
 
 The rollback drops the trigger, its function and readiness cache without
 changing requests, charges, refunds, transfers or balances. Reapplying starts
