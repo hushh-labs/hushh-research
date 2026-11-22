@@ -1669,7 +1669,8 @@ final class NativeSupportTests: XCTestCase {
         window.rootViewController = parent
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        let scene = NativeProfileNameScene(publicNameScene())
+        var quarantined = false
+        let scene = NativeProfileNameScene(publicNameScene(), isQuarantined: { quarantined })
         let shown = expectation(description: "Public ordinary scene presented")
         XCTAssertTrue(scene.present(from: parent) { admitted in XCTAssertTrue(admitted); shown.fulfill() })
         await fulfillment(of: [shown], timeout: 3)
@@ -1682,10 +1683,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(scene.model.canEdit, "A pending Save keeps the owned sheet locked")
         XCTAssertTrue(presented.isModalInPresentation)
         XCTAssertTrue(scene.settle(pending))
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
         XCTAssertTrue(scene.model.canEdit, "A settled Save restores editing authority")
-        XCTAssertEqual(presented.isModalInPresentation, !privacy.appIsActive || privacy.shielded,
-            "A settled Save unlocks native drag dismissal only while the app is active and unshielded; active=\(privacy.appIsActive) shielded=\(privacy.shielded)")
+        XCTAssertFalse(presented.isModalInPresentation, "A settled Save unlocks native drag dismissal when unquarantined")
+        quarantined = true
+        scene.refreshPrivacy()
+        XCTAssertTrue(presented.isModalInPresentation, "Privacy quarantine must re-lock native drag dismissal")
+        quarantined = false
+        scene.refreshPrivacy()
+        XCTAssertFalse(presented.isModalInPresentation, "Clearing privacy quarantine restores native drag dismissal")
         let first = expectation(description: "First actual dismissal observer")
         let second = expectation(description: "Joined actual dismissal observer")
         scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
