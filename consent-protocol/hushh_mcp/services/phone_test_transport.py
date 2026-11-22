@@ -100,30 +100,16 @@ def _configured_dev_phone_test_code() -> str:
     return _clean_env("HUSHH_DEV_PHONE_TEST_CODE") if simulation_permitted() else ""
 
 
-def _dev_phone_code_is_optional() -> bool:
-    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
-
-    if not simulation_permitted():
-        return False
-    return bool(
-        _configured_dev_phone_test_numbers() and not _clean_env("HUSHH_DEV_PHONE_TEST_CODE")
-    )
-
-
 def _phone_test_expected_code(phone: str) -> tuple[str, bool]:
     """Return (expected_code, is_optional) for a phone number.
 
-    Dev synthetic numbers: optional when no HUSHH_DEV_PHONE_TEST_CODE is set,
-    otherwise use the dev code.
-    UAT numbers that appear in the dev merged set: always use the UAT code
-    (the reserved-range guard on the dev allowlist never applies to UAT numbers).
+    Dev synthetic numbers require HUSHH_DEV_PHONE_TEST_CODE.
+    UAT and production numbers require their respective configured code.
+    Test code verification is fail-closed and never optional.
     """
     dev_numbers = _configured_dev_phone_test_numbers()
     if dev_numbers and phone in dev_numbers:
-        if _dev_phone_code_is_optional():
-            return ("", True)
         return (_configured_dev_phone_test_code(), False)
-    # Phone is from the UAT allowlist (merged into dev lane or on real UAT).
     uat_code = _configured_uat_phone_test_code()
     if uat_code:
         return (uat_code, False)
@@ -145,10 +131,8 @@ def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
     dev_numbers = _configured_dev_phone_test_numbers()
     if dev_numbers:
-        # On the dev simulation lane, also include the operator-curated UAT
-        # allowlist so the founder's standing +1 989 898 9894 / 000000 pair
-        # remains reachable without touching the reserved-range guard.
-        return dev_numbers | _configured_uat_phone_test_numbers()
+        # Hosted Dev is decoupled: only synthetic dev numbers are admitted.
+        return dev_numbers
     if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
@@ -189,7 +173,7 @@ def _phone_test_enabled() -> bool:
             and _configured_prod_phone_test_challenge_secret()
         )
     if _configured_dev_phone_test_numbers():
-        return bool(_configured_dev_phone_test_code() or _dev_phone_code_is_optional())
+        return bool(_configured_dev_phone_test_code() and _phone_test_challenge_key())
     return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
 
 
@@ -264,8 +248,8 @@ def validate_phone_test_confirmation(owner: str, phone: str, challenge: str, cod
                 "message": "The UAT phone verification challenge is invalid.",
             },
         )
-    expected_code, optional_code = _phone_test_expected_code(phone)
-    if not optional_code and not secrets.compare_digest(code.strip(), expected_code):
+    expected_code, _ = _phone_test_expected_code(phone)
+    if not expected_code or not secrets.compare_digest(code.strip(), expected_code):
         raise HTTPException(
             status_code=401,
             detail={

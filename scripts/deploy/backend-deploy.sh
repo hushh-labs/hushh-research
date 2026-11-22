@@ -323,6 +323,8 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # Temporary owner-bound reviewer phone transport. No UAT/production binding;
   # absent or expired configuration fails closed in the application.
   append_optional_secret HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON
+  append_optional_secret HUSHH_DEV_PHONE_TEST_CODE HUSHH_DEV_PHONE_TEST_CODE
+  append_optional_secret HUSHH_DEV_PHONE_TEST_CHALLENGE_SECRET HUSHH_DEV_PHONE_TEST_CHALLENGE_SECRET
   _REVIEWER_COUNTERPART_UID_SECRET="${_REVIEWER_COUNTERPART_UID_SECRET:-REVIEWER_COUNTERPART_UID}"
   _REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET="${_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET:-REVIEWER_COUNTERPART_VAULT_PASSPHRASE}"
 fi

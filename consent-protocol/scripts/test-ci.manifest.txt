@@ -502,6 +502,7 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
+tests/test_simulation_phone_lane.py
 tests/test_auth_health_lease_rest.py
 tests/test_auth_health_read_diagnostics.py
 tests/test_auth_health_deployment.py

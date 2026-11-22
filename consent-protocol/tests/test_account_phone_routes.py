@@ -480,3 +480,88 @@ def test_unlink_preserves_other_credentials_and_requires_independent_recovery(
         ):
             mutations.unlink_phone(app, "previous", phone)
         post.assert_not_called()
+
+
+def test_dev_phone_verification_fails_closed_when_code_is_unset(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
+    monkeypatch.delenv("HUSHH_DEV_PHONE_TEST_CODE", raising=False)
+    monkeypatch.delenv("HUSSH_DEV_PHONE_TEST_CODE", raising=False)
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+12025550100"}
+    )
+    assert response.status_code == 200
+    assert response.json()["eligible"] is False
+
+
+def test_dev_phone_verification_refuses_routable_number(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+19898989894")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_CODE", "123456")
+
+    from hushh_mcp.services.phone_test_transport import _configured_dev_phone_test_numbers
+
+    with pytest.raises(RuntimeError, match="may only contain reserved fictitious numbers"):
+        _configured_dev_phone_test_numbers()
+
+
+def test_dev_phone_verification_refuses_uat_allowlist_number(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_CODE", "123456")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_CHALLENGE_SECRET", "dev-secret")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+12025550109")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+12025550109"}
+    )
+    assert response.status_code == 200
+    assert response.json()["eligible"] is False
+
+
+def test_dev_phone_verification_succeeds_with_configured_dev_code(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+12025550100")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_CODE", "654321")
+    monkeypatch.setenv("HUSHH_DEV_PHONE_TEST_CHALLENGE_SECRET", "dev-secret")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+12025550100"}
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["eligible"] is True
+    assert payload["verification_id"].startswith("uat-test-phone:")
+
+    bad_confirm = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+12025550100",
+            "verification_id": payload["verification_id"],
+            "verification_code": "wrong-code",
+        },
+    )
+    assert bad_confirm.status_code == 401
+    assert bad_confirm.json()["detail"]["code"] == "UAT_PHONE_TEST_INVALID_CODE"
