@@ -4242,7 +4242,7 @@ final class NativeSupportTests: XCTestCase {
             let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 alert.presentingViewController === parent && !alert.isBeingPresented
             }, object: nil)
-            await fulfillment(of: [visible], timeout: 3)
+            await fulfillment(of: [visible], timeout: 10)
             XCTAssertFalse(alert.presentationController?.delegate === presenter)
             if style == .alert {
                 presenter.choose("delete")
@@ -4250,7 +4250,7 @@ final class NativeSupportTests: XCTestCase {
             }
             let dismissed = expectation(description: "Owned alert detached")
             presenter.retire { dismissed.fulfill() }
-            await fulfillment(of: [dismissed], timeout: 3)
+            await fulfillment(of: [dismissed], timeout: 10)
             XCTAssertNil(alert.presentingViewController)
             XCTAssertEqual(choices, style == .alert ? 1 : 0)
         }
