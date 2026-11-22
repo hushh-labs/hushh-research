@@ -77,7 +77,10 @@ describe("Release notices", () => {
     await screen.findByRole("button", { name: "What’s new in One" });
     fireEvent.click(screen.getByRole("button"));
     await screen.findByRole("button", { name: "Agent One is updated" });
-    expect(state.seen.size).toBe(2);
+    await waitFor(() => expect(state.seen).toEqual(new Set([
+      `owner-a:${currentManagedAppRelease()!.id}`,
+      `owner-a:${completedPodNotice(receipt)!.id}`,
+    ])));
   });
 
   it("shows existing owners once across sibling instances and refresh", async () => {
