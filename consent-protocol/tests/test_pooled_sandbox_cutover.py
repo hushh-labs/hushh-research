@@ -1173,3 +1173,86 @@ async def test_ensure_pooled_sandbox_placement_writes_cloud_setup_marker_except_
     )
     assert byoc is not None and byoc["deployment_target"] == "user_azure"
     assert "uid-byoc-preserve" not in marked
+
+
+async def test_switch_hosting_mode_route_detaches_ace_to_shared_and_own_cloud_while_protecting_byoc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes.one import runtime_placement
+
+    detached_calls: list[tuple[str, str]] = []
+    recorded_shared: list[tuple[str, bool]] = []
+    marked: list[str] = []
+    current_mode = {"value": "hussh_pods"}
+
+    async def _fake_placement(_uid: str) -> str:
+        return current_mode["value"]
+
+    async def _fake_get_row(self: Any, uid: str) -> dict[str, Any] | None:
+        return {
+            "user_id": uid,
+            "hushh_id": "ha1_sandbox0000000000000000000000",
+            "status": "provisioned",
+            "deployment_target": "ace",
+            "external_agent_id": "ace:ha1_sandbox0000000000000000000000",
+            "updated_at": "2026-11-22T12:00:00Z",
+        }
+
+    async def _fake_detach(*, row: dict[str, Any], reason: str, **kwargs: Any) -> dict[str, Any]:
+        detached_calls.append((str(row["user_id"]), reason))
+        return {"user_id": row["user_id"], "detached_count": 1}
+
+    async def _fake_record_shared(
+        self: Any, uid: str, *, after_detach: bool = False
+    ) -> dict[str, Any]:
+        recorded_shared.append((uid, after_detach))
+        return {"tier": "shared"}
+
+    async def _fake_mark(uid: str) -> None:
+        marked.append(uid)
+
+    monkeypatch.setattr(runtime_placement, "_placement", _fake_placement)
+    monkeypatch.setattr(runtime_placement, "require_byoc_setup_enabled", lambda: None)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo.get",
+        _fake_get_row,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_placement_detach.detach_placement",
+        _fake_detach,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_hosting_choice.HostingChoiceRepo.record_shared",
+        _fake_record_shared,
+    )
+    monkeypatch.setattr(runtime, "_write_cloud_setup_marker", _fake_mark)
+
+    shared_resp = await runtime.switch_hosting_mode_route.__wrapped__(  # type: ignore[attr-defined]
+        request=None,
+        body=runtime.HostingSwitchRequest(target="shared"),
+        firebase_uid="uid-ace-1",
+    )
+    assert shared_resp.hostingMode == "shared"
+    assert shared_resp.detachedPriorHost is True
+    assert detached_calls == [("uid-ace-1", "owner switched to Hussh Shared")]
+    assert recorded_shared == [("uid-ace-1", True)]
+    assert marked == ["uid-ace-1"]
+
+    own_resp = await runtime.switch_hosting_mode_route.__wrapped__(  # type: ignore[attr-defined]
+        request=None,
+        body=runtime.HostingSwitchRequest(target="own_cloud"),
+        firebase_uid="uid-ace-2",
+    )
+    assert own_resp.hostingMode == "unplaced"
+    assert own_resp.detachedPriorHost is True
+    assert detached_calls[-1] == ("uid-ace-2", "owner switched to Bring your own cloud")
+
+    current_mode["value"] = "byoc"
+    with pytest.raises(HTTPException) as exc:
+        await runtime.switch_hosting_mode_route.__wrapped__(  # type: ignore[attr-defined]
+            request=None,
+            body=runtime.HostingSwitchRequest(target="shared"),
+            firebase_uid="uid-byoc-1",
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "CLOUD_REMOVAL_REVIEW_REQUIRED"

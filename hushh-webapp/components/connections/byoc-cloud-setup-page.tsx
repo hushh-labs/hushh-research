@@ -119,7 +119,9 @@ function OwnerCloudSetupPage({ user, owner }: {
     rationale: string;
   } | null>(null);
   // Which hosting card is picked. Null falls back to the confirmed Shared state.
-  const [choice, setChoice] = useState<HostingChoice | null>(null);
+  const [choice, setChoice] = useState<HostingChoice | null>(() =>
+    searchParams.get("intent") === "own" ? "own" : null,
+  );
   // The hosted door stays paused outside Dev unless NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0;
   // on Dev (`NEXT_PUBLIC_APP_ENV=dev`) it opens for fixed-cohort pilot owners.
   const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
@@ -421,6 +423,28 @@ function OwnerCloudSetupPage({ user, owner }: {
     setError(null);
     setHostedSaving(true);
     try {
+      if (
+        isPooledSandboxSwitchAvailable() &&
+        typeof ApiService.adoptPooledSandbox === "function"
+      ) {
+        const adopted = await ApiService.adoptPooledSandbox({
+          allowCleanSlate: true,
+          isEffectCurrent: ownerCurrent,
+        });
+        if (!ownerCurrent()) return;
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
+        setHostingMode("hussh_pods");
+        setAgentState("active");
+        setAgentTarget(adopted.deploymentTarget || "ace");
+        if (ownerId) {
+          await PreVaultUserStateService.bootstrapState(ownerId, {
+            force: true,
+          }).catch(() => undefined);
+        }
+        return;
+      }
       const result = await ApiService.selectHostedCloud();
       if (!ownerCurrent()) return;
       setHosted(result);

@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   hostedMigrationStatus: vi.fn(),
   migrateToHostedAzure: vi.fn(),
   adoptPooledSandbox: vi.fn(),
+  switchHostingMode: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -58,6 +59,7 @@ vi.mock("@/lib/services/api-service", () => ({
     getHostedAzureMigrationStatus: mocks.hostedMigrationStatus,
     migrateToHostedAzure: mocks.migrateToHostedAzure,
     adoptPooledSandbox: mocks.adoptPooledSandbox,
+    switchHostingMode: mocks.switchHostingMode,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -91,6 +93,10 @@ beforeEach(() => {
     deploymentTarget: "ace",
     hushhId: "ha1_sandbox",
     podUrl: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_sandbox",
+    detachedPriorHost: true,
+  });
+  mocks.switchHostingMode.mockResolvedValue({
+    hostingMode: "shared",
     detachedPriorHost: true,
   });
 });
@@ -770,5 +776,70 @@ describe("owner hosting and software settings", () => {
     fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
     expect(screen.getByTestId("update-details-view")).toBeTruthy();
     expect(screen.getByText(rawSha)).toBeTruthy();
+  });
+
+  it("enables switching from Personal Sandbox (ace) to Hussh Shared and Bring your own cloud with confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.getByTestId("hosting-choice-pods")).toHaveTextContent("Current");
+
+    // 1. Switch to Hussh Shared requires confirmation
+    fireEvent.click(screen.getByTestId("hosting-choice-shared").querySelector("button")!);
+    expect(mocks.switchHostingMode).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId("hosting-switch-shared-confirm"));
+    await waitFor(() =>
+      expect(mocks.switchHostingMode).toHaveBeenCalledWith({
+        target: "shared",
+        isEffectCurrent: expect.any(Function),
+      }),
+    );
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+
+    // 2. Switch to Bring your own cloud detaches and navigates with intent=own
+    mocks.switchHostingMode.mockResolvedValueOnce({
+      hostingMode: "unplaced",
+      detachedPriorHost: true,
+    });
+    fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
+    fireEvent.click(await screen.findByTestId("hosting-switch-own-cloud-confirm"));
+    await waitFor(() =>
+      expect(mocks.switchHostingMode).toHaveBeenCalledWith({
+        target: "own_cloud",
+        isEffectCurrent: expect.any(Function),
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",
+      ),
+    );
+  });
+
+  it("enables switching from Hussh Shared to Personal Sandbox or Bring your own cloud directly in Profile Hosting", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    mocks.reconnect.mockResolvedValue({});
+    status("shared", { featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.getByTestId("hosting-choice-shared")).toHaveTextContent("Current");
+
+    fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",
+    );
+
+    fireEvent.click(screen.getByTestId("hosting-choice-pods").querySelector("button")!);
+    expect(mocks.adoptPooledSandbox).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId("hosting-switch-sandbox-confirm"));
+    await waitFor(() =>
+      expect(mocks.adoptPooledSandbox).toHaveBeenCalledWith({
+        allowCleanSlate: true,
+        isEffectCurrent: expect.any(Function),
+      }),
+    );
+    await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
   });
 });
