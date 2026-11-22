@@ -216,6 +216,7 @@ from hushh_mcp.services.agent_task_context import (
     record_pending_specialist_directive,
     specialist_directive_fingerprint,
 )
+from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -879,13 +880,14 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     )
     mail_instruction = mail_admission_instruction(
         admitted=mail_admitted,
-        mailbox_changes=mail_admitted and (not pod_mode() or owner_cloud_agent()),
+        mailbox_changes=mail_admitted
+        and (not pod_mode() or owner_cloud_agent() or hosted_ace_runtime()),
         timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
     ) + legacy_draft_addressing(state_getter)
     if (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
-        and owner_cloud_agent()
+        and (owner_cloud_agent() or hosted_ace_runtime())
     ):
         mail_instruction += (
             "\n\nCALENDAR AND CONTACTS: For a guest explicitly selected from a Calendar "
@@ -2672,9 +2674,18 @@ def _one_roster_tools(
             browser_task_hand_available,
             start_browser_task,
         )
+        from hushh_mcp.one_adk.terminal_tools import (
+            terminal_hand_available,
+            terminal_poll,
+            terminal_start,
+            terminal_stop,
+            terminal_write,
+        )
 
         if browser_task_hand_available():
             tools.append(start_browser_task)
+        if terminal_hand_available():
+            tools.extend([terminal_start, terminal_poll, terminal_write, terminal_stop])
     if allow_receipt_tools:
         from ag_ui_adk import AGUIToolset
 

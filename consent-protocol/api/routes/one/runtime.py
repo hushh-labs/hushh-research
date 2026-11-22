@@ -1380,3 +1380,201 @@ async def byoc_authorization_instructions(
         # Proven, never asserted -- the same rule the save route follows.
         authorized=bool(cloud and cloud.authorized),
     )
+
+
+class HostedAzureMigrationRequest(BaseModel):
+    cellId: str | None = Field(default=None, max_length=80)
+    allowFreshPodLog: bool = Field(default=False)
+
+
+class HostedSourceRetirementConfirmRequest(BaseModel):
+    placementId: str | None = Field(default=None, max_length=64)
+
+
+def _require_dev_hosted_azure_lane() -> None:
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane
+
+    if deploy_lane() != "dev":
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "HOSTED_AZURE_UNAVAILABLE",
+                "message": "Hosted Azure cells are dev-only",
+            },
+        )
+
+
+@router.post("/byoc/hosted/azure/migrate")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def migrate_owner_pod_to_hosted_azure(
+    request: Request,
+    body: HostedAzureMigrationRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Migrate an owner's provisioned BYOC/GCP pod onto a pre-warmed HushOne Inc. Azure cell slot."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        execute_owner_migration_to_hosted_azure,
+    )
+    from hushh_mcp.services.pod_umbrella_cell_pool import (
+        CellCapacityExceededError,
+        NoWarmSkeletonAvailableError,
+    )
+
+    try:
+        return dict(
+            await execute_owner_migration_to_hosted_azure(
+                firebase_uid,
+                cell_id=(body.cellId if body else None),
+                allow_fresh_pod_log=bool(body.allowFreshPodLog if body else False),
+            )
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail={"code": "HOSTED_AZURE_UNAVAILABLE"}) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "HOSTED_AZURE_PRECONDITION_FAILED", "message": str(exc)},
+        ) from exc
+    except (CellCapacityExceededError, NoWarmSkeletonAvailableError) as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "UMBRELLA_CELL_EXHAUSTED", "message": str(exc)}
+        ) from exc
+
+
+@router.get("/byoc/hosted/azure/migrate/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_azure_migration_status_route(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Return Hosted Azure migration job status, Relay-First cutover state, and direct readiness."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        get_owner_hosted_azure_migration_status,
+    )
+
+    return dict(await get_owner_hosted_azure_migration_status(firebase_uid))
+
+
+@router.get("/byoc/hosted/cells/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_umbrella_cells_status(
+    request: Request,
+    cell_id: str | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Inspect Umbrella Compute Cell capacity watermarks and warm skeleton availability."""
+    _require_dev_hosted_azure_lane()
+    del firebase_uid  # Authenticated caller only; returns non-PII cell pool inventory.
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        get_hosted_umbrella_cells_snapshot,
+    )
+
+    return dict(await get_hosted_umbrella_cells_snapshot(cell_id=cell_id))
+
+
+@router.get("/byoc/hosted/source-retirement/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_source_retirement_status_route(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Read the owner's 3-day source-pod retirement window & confirmation state."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.source_pod_retirement import (
+        get_owner_source_pod_retirement_status,
+    )
+
+    return dict(await get_owner_source_pod_retirement_status(firebase_uid))
+
+
+@router.post("/byoc/hosted/source-retirement/confirm")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def confirm_hosted_source_retirement_route(
+    request: Request,
+    body: HostedSourceRetirementConfirmRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Record explicit owner confirmation to retire the prior pod once the 3-day window expires."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.source_pod_retirement import (
+        confirm_owner_source_pod_retirement,
+    )
+
+    try:
+        return dict(
+            await confirm_owner_source_pod_retirement(
+                firebase_uid,
+                placement_id=(body.placementId if body else None),
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SOURCE_RETIREMENT_PRECONDITION_FAILED", "message": str(exc)},
+        ) from exc
+
+
+class PooledSandboxAdoptRequest(BaseModel):
+    allowCleanSlate: bool = Field(default=False)
+    removePriorCloudResources: bool = Field(default=False)
+
+
+class PooledSandboxAdoptResponse(BaseModel):
+    status: str
+    hostingMode: str
+    deploymentTarget: str
+    hushhId: str
+    podUrl: str
+    detachedPriorHost: bool
+    migrationMode: str = "fresh_start"
+    syncedRecordCount: int = 0
+    backgroundCleanupQueued: bool = False
+
+
+@router.post("/pooled-sandbox/adopt", response_model=PooledSandboxAdoptResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def adopt_pooled_sandbox_route(
+    request: Request,
+    body: PooledSandboxAdoptRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> PooledSandboxAdoptResponse:
+    """Switch an owner (including stalled/expired BYOC or fenced setup) onto Pooled Personal Sandbox."""
+    del request
+    from hushh_mcp.services.pooled_sandbox_cutover import adopt_pooled_sandbox_for_owner
+
+    adopt_kwargs: dict[str, Any] = {
+        "user_id": firebase_uid,
+        "allow_clean_slate": bool(body.allowCleanSlate if body else False),
+    }
+    if bool(body and body.removePriorCloudResources):
+        adopt_kwargs["remove_prior_cloud_resources"] = True
+
+    try:
+        verdict = await adopt_pooled_sandbox_for_owner(**adopt_kwargs)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "POOLED_SANDBOX_UNAVAILABLE",
+                "message": "Pooled Personal Sandboxes are not enabled in this environment.",
+            },
+        ) from exc
+    except ValueError as exc:
+        message = str(exc)
+        if message == "CLEAN_SLATE_CONFIRMATION_REQUIRED":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "CLEAN_SLATE_CONFIRMATION_REQUIRED",
+                    "message": "Confirm switching to a fresh Hussh Personal Sandbox.",
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "POOLED_SANDBOX_SWITCH_BLOCKED", "message": message},
+        ) from exc
+
+    await _write_cloud_setup_marker(firebase_uid)
+    return PooledSandboxAdoptResponse(**verdict)

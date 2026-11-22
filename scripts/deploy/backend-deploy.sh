@@ -670,6 +670,19 @@ pod_data_door=""
 consent_audit_chain=""
 trusted_device_enabled=""
 pod_files_enabled=""
+# Dev and UAT Personal Sandbox (ACE) runtime parity. Pre-initialized for `set -u`
+# and assigned ONLY inside the existence-gated Dev or UAT blocks when the Edge
+# Gateway and both custody/identity secrets exist, so Production and commerce
+# preview stay byte-identical by construction.
+agent_sandbox_cutover_enabled=""
+hub_storage_prefix_base_url=""
+hub_storage_token_provider=""
+pod_storage_gateway_gcs_bucket=""
+sandbox_edge_public_url=""
+source_pod_retirement_sweep_enabled=""
+ace_custody_broker_seal_key_secret=""
+ace_sandbox_identity_master_key_secret=""
+uat_ace_hub_url=""
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # The owner-pilot enrollment screen is a dev-only capability. Keep the
   # trusted-device gate explicit here; it is unrelated to Puppy inference
@@ -910,6 +923,27 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   else
     echo "Owner feeds: independent signing secrets absent; feeds remain unavailable." >&2
   fi
+  # BEGIN DEV ACE SANDBOX PARITY
+  # Preserve Dev Personal Sandbox (ACE) custody, storage-gateway, and edge-routing
+  # bindings across every Dev backend deploy. Existence-gated on the Edge Gateway
+  # URL and both Secret Manager keys so bootstrap deploys never fail.
+  _dev_ace_edge_url="$(gcloud run services describe "sandbox-edge-gateway" \
+    --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+  if [[ -n "${_dev_ace_edge_url}" ]] \
+    && gcloud secrets describe "hussh-custody-broker-seal-key" --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe "sandbox-edge-identity-master-key" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    agent_sandbox_cutover_enabled="1"
+    hub_storage_prefix_base_url="${hub_url:+${hub_url}/api/one/pod/storage-gateway}"
+    hub_storage_token_provider="ace_prefix_bearer"
+    pod_storage_gateway_gcs_bucket="hussh-hosted-pods-dev"
+    sandbox_edge_public_url="${_dev_ace_edge_url}"
+    source_pod_retirement_sweep_enabled="true"
+    ace_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
+    ace_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
+  else
+    echo "Dev ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
+  fi
+  # END DEV ACE SANDBOX PARITY
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -943,6 +977,61 @@ append_optional_env "HUSSH_POD_MIGRATION_ENABLED" "${pod_migration}"
 append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
 append_optional_env "HUSSH_TRUSTED_DEVICE_ENABLED" "${trusted_device_enabled}"
 append_optional_env "HUSSH_POD_FILES_ENABLED" "${pod_files_enabled}"
+# BEGIN UAT ACE SANDBOX PARITY
+# Preserve UAT Personal Sandbox (ACE) zero-role runtime bindings across every UAT
+# backend deploy once the UAT Edge Gateway and UAT custody/identity secrets exist.
+# Kept outside the Dev-only personal-agent block so Dev consent-signing lane
+# contracts stay untouched; never sets Dev simulation flags or shared-SA pod auth,
+# and emits zero bindings on Production or commerce preview.
+uat_ace_personal_agent_enabled=""
+uat_ace_personal_agent_backend=""
+uat_ace_pod_turn_enabled=""
+uat_ace_pod_directive_transport=""
+uat_ace_pod_local_pkm=""
+uat_ace_pod_durable_identity=""
+if [[ "${_DEPLOY_ENV}" == "uat" && -z "${commerce_preview_prefix:-}" ]]; then
+  _uat_ace_edge_url="$(gcloud run services describe "sandbox-edge-gateway" \
+    --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+  if [[ -n "${_uat_ace_edge_url}" ]] \
+    && gcloud secrets describe "hussh-custody-broker-seal-key" --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe "sandbox-edge-identity-master-key" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    _uat_resolved_hub_url="$(gcloud run services describe "${_BACKEND_SERVICE}" \
+      --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+    uat_ace_personal_agent_enabled="true"
+    uat_ace_personal_agent_backend="ace"
+    uat_ace_pod_turn_enabled="true"
+    uat_ace_pod_directive_transport="true"
+    uat_ace_pod_local_pkm="true"
+    uat_ace_pod_durable_identity="true"
+    agent_sandbox_cutover_enabled="1"
+    uat_ace_hub_url="${_uat_resolved_hub_url}"
+    hub_storage_prefix_base_url="${_uat_resolved_hub_url:+${_uat_resolved_hub_url}/api/one/pod/storage-gateway}"
+    hub_storage_token_provider="ace_prefix_bearer"
+    pod_storage_gateway_gcs_bucket="hussh-hosted-pods-uat"
+    sandbox_edge_public_url="${_uat_ace_edge_url}"
+    ace_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
+    ace_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
+  else
+    echo "UAT ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
+  fi
+fi
+# END UAT ACE SANDBOX PARITY
+# Personal Sandbox (ACE) runtime bindings (Dev & existence-gated UAT; empty on Production).
+append_optional_env "PERSONAL_AGENT_ENABLED" "${uat_ace_personal_agent_enabled}"
+append_optional_env "PERSONAL_AGENT_BACKEND" "${uat_ace_personal_agent_backend}"
+append_optional_env "HUSSH_POD_TURN_ENABLED" "${uat_ace_pod_turn_enabled}"
+append_optional_env "POD_DIRECTIVE_TRANSPORT_ENABLED" "${uat_ace_pod_directive_transport}"
+append_optional_env "POD_LOCAL_PKM_ENABLED" "${uat_ace_pod_local_pkm}"
+append_optional_env "POD_DURABLE_IDENTITY_ENABLED" "${uat_ace_pod_durable_identity}"
+append_optional_env "HUSSH_HUB_BASE_URL" "${uat_ace_hub_url}"
+append_optional_env "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED" "${agent_sandbox_cutover_enabled}"
+append_optional_env "HUSSH_HUB_STORAGE_PREFIX_BASE_URL" "${hub_storage_prefix_base_url}"
+append_optional_env "HUSSH_HUB_STORAGE_TOKEN_PROVIDER" "${hub_storage_token_provider}"
+append_optional_env "HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET" "${pod_storage_gateway_gcs_bucket}"
+append_optional_env "HUSSH_SANDBOX_EDGE_PUBLIC_URL" "${sandbox_edge_public_url}"
+append_optional_env "HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED" "${source_pod_retirement_sweep_enabled}"
+append_optional_secret "${ace_custody_broker_seal_key_secret}" "HUSSH_CUSTODY_BROKER_SEAL_KEY"
+append_optional_secret "${ace_sandbox_identity_master_key_secret}" "HUSSH_SANDBOX_IDENTITY_MASTER_KEY"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is
 # mounted as hub env, which is exactly what gcp_backend's pod render reads to hand

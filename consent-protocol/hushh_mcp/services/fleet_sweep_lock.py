@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from collections.abc import AsyncIterator, Callable
 from contextlib import (
     AbstractAsyncContextManager,
@@ -90,6 +91,9 @@ Connect = Callable[[], AbstractAsyncContextManager[Any]]
 
 #: The tasks holding a turn right now, so shutdown can release them deliberately.
 _HOLDERS: set[asyncio.Task[Any]] = set()
+_SHARED_SESSIONS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _SharedSweepSession] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _dedicated_connection() -> AbstractAsyncContextManager[Any]:
@@ -98,6 +102,85 @@ def _dedicated_connection() -> AbstractAsyncContextManager[Any]:
     from db.connection import dedicated_connection  # noqa: PLC0415
 
     return dedicated_connection()
+
+
+class _SharedSweepSession:
+    """Multiplex all default fleet-sweep advisory locks onto one dedicated connection per process."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._stack: AsyncExitStack | None = None
+        self._conn: Any = None
+        self._active_sweeps: set[int] = set()
+
+    async def try_lock(self, sweep_id: int, name: str) -> Any:
+        async with self._lock:
+            opened_here = False
+            try:
+                if self._conn is None:
+                    stack = AsyncExitStack()
+                    conn = await stack.enter_async_context(_dedicated_connection())
+                    self._stack = stack
+                    self._conn = conn
+                    opened_here = True
+                acquired = await self._conn.fetchval(
+                    _TRY_LOCK_SQL, FLEET_SWEEP_LOCK_NAMESPACE, sweep_id
+                )
+            except Exception as exc:  # noqa: BLE001 - unreachable means skip, never unlocked
+                logger.warning(
+                    "fleet_sweep.skip sweep=%s reason=lock_unavailable error=%s",
+                    name,
+                    type(exc).__name__,
+                )
+                if opened_here or not self._active_sweeps:
+                    await self._discard_locked(name, terminate=not opened_here)
+                return None
+            if acquired is not True:
+                logger.debug("fleet_sweep.skip sweep=%s reason=held_elsewhere", name)
+                if not self._active_sweeps:
+                    await self._discard_locked(name, terminate=False)
+                return None
+            self._active_sweeps.add(sweep_id)
+            logger.debug("fleet_sweep.turn sweep=%s", name)
+            return self._conn
+
+    async def unlock(self, sweep_id: int, name: str, conn: Any) -> None:
+        async with self._lock:
+            self._active_sweeps.discard(sweep_id)
+            if self._conn is not conn:
+                return
+            try:
+                await asyncio.wait_for(
+                    conn.execute(_UNLOCK_SQL, FLEET_SWEEP_LOCK_NAMESPACE, sweep_id),
+                    _UNLOCK_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:  # noqa: BLE001 - ending the session releases it anyway
+                logger.warning(
+                    "fleet_sweep.unlock_failed sweep=%s error=%s", name, type(exc).__name__
+                )
+                await self._discard_locked(name, terminate=True)
+                return
+            if not self._active_sweeps:
+                await self._discard_locked(name, terminate=False)
+
+    async def _discard_locked(self, name: str, *, terminate: bool) -> None:
+        conn, stack = self._conn, self._stack
+        self._conn = None
+        self._stack = None
+        self._active_sweeps.clear()
+        if terminate and conn is not None:
+            _terminate(conn, name)
+        if stack is not None:
+            await _close(stack, name)
+
+
+def _shared_session_for_loop() -> _SharedSweepSession:
+    loop = asyncio.get_running_loop()
+    session = _SHARED_SESSIONS.get(loop)
+    if session is None:
+        session = _SharedSweepSession()
+        _SHARED_SESSIONS[loop] = session
+    return session
 
 
 @dataclass(frozen=True)
@@ -116,9 +199,23 @@ class FleetSweepLock:
         be taken at all, and no connection is kept open. Whatever the body does,
         leaving releases the lock and closes the connection.
         """
+        holder = asyncio.current_task()
+        if self.connect is _dedicated_connection:
+            session = _shared_session_for_loop()
+            conn = await session.try_lock(self.sweep_id, self.name)
+            try:
+                if conn is not None and holder is not None:
+                    _HOLDERS.add(holder)
+                yield conn is not None
+            finally:
+                if holder is not None:
+                    _HOLDERS.discard(holder)
+                if conn is not None:
+                    await session.unlock(self.sweep_id, self.name, conn)
+            return
+
         stack = AsyncExitStack()
         conn: Any = None
-        holder = asyncio.current_task()
         try:
             conn = await self._try_lock(stack)
             if conn is None:
@@ -218,3 +315,5 @@ async def release_held_turns(timeout_seconds: float = 5.0) -> int:
 
 POD_LIVENESS = FleetSweepLock(name="pod_liveness", sweep_id=1)
 PERSONAL_AGENT_RECONCILE = FleetSweepLock(name="personal_agent_reconcile", sweep_id=2)
+UMBRELLA_CELL_REPLENISH = FleetSweepLock(name="umbrella_cell_replenish", sweep_id=3)
+SOURCE_POD_RETIREMENT = FleetSweepLock(name="source_pod_retirement", sweep_id=4)

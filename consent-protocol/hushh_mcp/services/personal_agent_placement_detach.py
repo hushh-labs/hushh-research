@@ -50,17 +50,35 @@ class DetachPlan:
     refusal: Optional[str]
 
 
-def plan_detach(row: Optional[dict]) -> Optional[DetachPlan]:
+def plan_detach(row: Optional[dict], *, allow_stalled_states: bool = False) -> Optional[DetachPlan]:
     """Read-only: describe the detach, or the reason it must not run."""
     if not row:
         return None
     metadata = row.get("backend_metadata") or {}
     attempt = metadata.get("provisionAttempt") if isinstance(metadata, dict) else None
+    vm_power = metadata.get("vmPower") if isinstance(metadata, dict) else None
+    allowed_statuses = (
+        {"provisioned", "migrating", "provisioning_failed", "needs_reinit"}
+        if allow_stalled_states
+        else {"provisioned"}
+    )
     refusal = None
-    if row.get("status") != "provisioned" or not row.get("external_agent_id"):
-        refusal = "only a provisioned, assigned agent can be detached"
+    if row.get("status") not in allowed_statuses or not row.get("external_agent_id"):
+        refusal = (
+            "only an assigned agent placement can be detached"
+            if allow_stalled_states
+            else "only a provisioned, assigned agent can be detached"
+        )
     elif isinstance(metadata, dict) and "erasure" in metadata:
         refusal = "the agent is under erasure"
+    elif allow_stalled_states and isinstance(metadata, dict) and metadata.get("upgradeLease"):
+        refusal = "an upgrade lease is still active"
+    elif (
+        allow_stalled_states
+        and isinstance(vm_power, dict)
+        and str(vm_power.get("phase") or "").strip() not in {"", "ready"}
+    ):
+        refusal = "a VM power operation is still pending"
     elif isinstance(attempt, dict) and attempt.get("phase") != "provisioned":
         refusal = "a provision attempt is still unfinished"
     return DetachPlan(
@@ -129,18 +147,74 @@ RETURNING r.user_id, jsonb_array_length(r.backend_metadata -> 'detachedPlacement
 """
 
 
-async def detach_placement(*, row: dict, reason: str, db: Any = None) -> Optional[dict[str, Any]]:
+_DETACH_ALLOW_STALLED_SQL = """
+UPDATE personal_agent_registry AS r
+SET status = 'unprovisioned',
+    backend = NULL,
+    external_agent_id = NULL,
+    region = NULL,
+    provisioned_at = NULL,
+    pod_pubkey = NULL,
+    pod_key_id = NULL,
+    pod_key_wrapping_alg = NULL,
+    runtime_version = NULL,
+    prompt_version = NULL,
+    last_heartbeat_at = NULL,
+    health_state = 'unknown',
+    last_probe_at = NULL,
+    liveness_failures = 0,
+    last_healed_at = NULL,
+    deployment_target = NULL,
+    model_credential_mode = NULL,
+    user_cloud_project = NULL,
+    user_cloud_region = NULL,
+    user_cloud_bootstrap_sa = NULL,
+    user_cloud_authorized_at = NULL,
+    user_cloud_tenant_id = NULL,
+    user_cloud_subscription_id = NULL,
+    user_cloud_resource_group = NULL,
+    backend_metadata = jsonb_build_object(
+        'detachedPlacements',
+        coalesce(r.backend_metadata -> 'detachedPlacements', '[]'::jsonb)
+        || jsonb_build_array(
+            (to_jsonb(r) - 'backend_metadata')
+            || jsonb_build_object(
+                'backend_metadata', coalesce(r.backend_metadata, '{}'::jsonb) - 'detachedPlacements',
+                'detachedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                'reason', CAST(:reason AS text)
+            )
+        )
+    ),
+    updated_at = now()
+WHERE r.user_id = :user_id
+  AND r.status IN ('provisioned', 'migrating', 'provisioning_failed', 'needs_reinit')
+  AND r.external_agent_id = :external_agent_id
+  AND r.updated_at = CAST(:observed_updated_at AS timestamptz)
+  AND NOT (coalesce(r.backend_metadata, '{}'::jsonb) ? 'erasure')
+  AND NOT (coalesce(r.backend_metadata, '{}'::jsonb) ? 'upgradeLease')
+  AND (
+    NOT (coalesce(r.backend_metadata, '{}'::jsonb) ? 'provisionAttempt')
+    OR r.backend_metadata -> 'provisionAttempt' ->> 'phase' = 'provisioned'
+  )
+RETURNING r.user_id, jsonb_array_length(r.backend_metadata -> 'detachedPlacements') AS detached_count
+"""
+
+
+async def detach_placement(
+    *, row: dict, reason: str, db: Any = None, allow_stalled_states: bool = False
+) -> Optional[dict[str, Any]]:
     """Detach the observed row. Returns ``{user_id, detached_count}`` or None if fenced out."""
-    plan = plan_detach(row)
+    plan = plan_detach(row, allow_stalled_states=allow_stalled_states)
     if plan is None or plan.refusal:
         raise ValueError(plan.refusal if plan else "no agent record")
     reason = str(reason or "").strip()[:DETACH_REASON_MAX]
     if not reason:
         raise ValueError("a detach needs a stated reason")
     client = db or get_db()
+    sql = _DETACH_ALLOW_STALLED_SQL if allow_stalled_states else _DETACH_SQL
     response = await asyncio.to_thread(
         client.execute_raw,
-        _DETACH_SQL,
+        sql,
         {
             "user_id": plan.user_id,
             "external_agent_id": str(row["external_agent_id"]),
