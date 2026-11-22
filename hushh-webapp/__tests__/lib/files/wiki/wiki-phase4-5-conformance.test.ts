@@ -278,6 +278,16 @@ describe("SharedWikiOwnerMigrator, Maintenance, and Adapter Conformance (Phase 4
     expect(ovRes.captureOptIn).toBe(true);
     expect(ovRes.pages).toHaveLength(1);
 
+    const optimizeRes = await (
+      await adapter.request("wiki/optimize", {
+        method: "POST",
+        body: JSON.stringify({ request_id: "shared-opt-1" }),
+      })
+    ).json();
+    expect(optimizeRes.optimizationRunId).toMatch(/^wopt_/);
+    expect(optimizeRes.inspectedPageCount).toBe(1);
+    expect(optimizeRes.hotDigestWithinBudget).toBe(true);
+
     // Locking vault immediately fences SharedFilesAdapter `/wiki/*` reads
     setUnlocked(false);
     await expect(adapter.request("wiki/overview")).rejects.toMatchObject({

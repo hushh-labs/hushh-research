@@ -418,6 +418,7 @@ export class CacheSyncService {
     } else {
       cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     }
+    cache.invalidate(`pkm_domain_resource_${userId}_available_scopes`);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -467,6 +468,7 @@ export class CacheSyncService {
     options?: { emitEvent?: boolean; eventId?: string },
   ): void {
     const cache = CacheService.getInstance();
+    cache.invalidate(`pkm_domain_resource_${userId}_available_scopes`);
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));

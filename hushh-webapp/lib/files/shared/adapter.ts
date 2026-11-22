@@ -7,6 +7,7 @@ import {
   SharedWikiArchiveImporter,
   SharedWikiKnowledgeWriter,
   SharedWikiLibrary,
+  SharedWikiMaintenanceRunner,
   SharedWikiOwnerMigrator,
   SharedWikiProjectionEngine,
   type ArchiveSourceProvider,
@@ -563,6 +564,28 @@ export class SharedFilesAdapter {
           claimsDeduplicated: res.claims_deduplicated,
           claimsSkippedTombstoned: res.claims_skipped_tombstoned,
           candidateCount: res.candidate_receipt_ids.length,
+        };
+        break;
+      }
+      case "/wiki/optimize": {
+        const res = await new SharedWikiMaintenanceRunner(
+          this.wiki,
+        ).optimizeKnowledgeBase({
+          idempotencyKey: String(body.request_id ?? crypto.randomUUID()),
+          signal,
+        });
+        result = {
+          optimizationRunId: res.optimization_run_id,
+          inspectedPageCount: res.inspected_page_count,
+          deduplicatedClaimCount: res.deduplicated_claim_count,
+          staleRetiredCount: res.stale_retired_count,
+          structureRepairsCount: res.structure_repairs_count,
+          protectedGrantScopes: res.protected_grant_scopes,
+          protectedGrantPagesCount: res.protected_grant_pages_count,
+          protectedClaimsPreservedCount: res.protected_claims_preserved_count,
+          contradictions: res.contradictions,
+          hotDigestChars: res.hot_digest_chars,
+          hotDigestWithinBudget: res.hot_digest_within_budget,
         };
         break;
       }

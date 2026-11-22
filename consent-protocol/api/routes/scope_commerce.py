@@ -169,10 +169,16 @@ async def tariff(
     try:
         service = _service()
         if scope_handle is None and machine_scope is None:
-            items = await service.list_tariffs(owner_user_id=user_id)
+            if hasattr(service, "list_tariffs_with_readiness"):
+                items, readiness_payload = await service.list_tariffs_with_readiness(
+                    owner_user_id=user_id
+                )
+            else:
+                items = await service.list_tariffs(owner_user_id=user_id)
+                readiness_payload = await service.readiness(viewer_user_id=user_id)
             return {
                 "tariffs": [_snake(item) for item in items],
-                "readiness": await service.readiness(viewer_user_id=user_id),
+                "readiness": readiness_payload,
             }
         if not scope_handle or not machine_scope:
             raise HTTPException(
