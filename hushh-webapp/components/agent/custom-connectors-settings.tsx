@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Capacitor } from "@capacitor/core";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
@@ -335,46 +336,72 @@ export function CustomConnectorsSettings(props: CustomConnectorSettingsProps & {
     save, connect, refresh, setToolBlocked, remove, removeInvalid } = model;
   const { name, endpoint, credential, oauthIssuer, oauthClientId, oauthClientSecret, oauthAuthMethod } = model.draft;
   const webBody = <section aria-label="Custom connectors" className="space-y-3">
-    <h3 className="text-sm font-medium text-muted-foreground">Custom connectors</h3>
-    {status === "loading" ? <p role="status" className="text-sm">Loading saved connectors…</p> : null}
-    {status === "failed" ? <p role="status" className="text-sm">Could not load saved connectors. Close and reopen to retry.</p> : null}
-    {invalid.length > 0 ? <div role="status" className="rounded-xl bg-foreground/10 px-3 py-2 text-sm">
-      <p>{invalid.length} saved {invalid.length === 1 ? "connector needs" : "connectors need"} repair. Other connectors remain available.</p>
-      {invalid.map((item, index) => <div key={item.connectorId} className="flex min-h-11 items-center justify-between gap-3">
-        <span>Saved connector {index + 1}</span>
-        {item.removable ? <Button size="compact" variant="none" effect="fade" disabled={busy} onClick={() => model.requestRemoveInvalid(item)}>Remove</Button>
-          : <span className="text-xs text-muted-foreground">Needs repair</span>}
-      </div>)}
-    </div> : null}
-    <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
-      <div className="flex items-center gap-2.5">
-        <ConnectorVectorGlyph id={item.displayName || item.connectorId} variant="profile" />
-        <p className="text-sm font-normal">{item.displayName}</p>
-      </div>
-      <p className="text-xs text-muted-foreground">{!item.enabled ? "Blocked for new turns"
-        : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
-          ? "Saved credential rejected · remove and add again"
-          : "Sign in needed"
-        : checkFailed[item.connectorId] ? "Connection check failed · verify server address and credential"
-        : catalogs[item.connectorId] ? `${catalogs[item.connectorId]?.length ?? 0} tools discovered`
-        : item.authenticationKind === "none" ? "Sign in or refresh tools to verify" : "Tools not checked"}</p>
-      <div className="flex flex-wrap gap-2">
-        {model.canSignIn && item.authenticationKind !== "api_key" && (item.hasOAuthRegistration || item.authenticationKind === "oauth" || authRequired[item.connectorId])
-          ? <Button size="compact" variant="none" effect="fade" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
-        <Button size="compact" variant="none" effect="fade" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
-        <Button size="compact" variant="none" effect="fade" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => model.requestRemove(item)}>Remove</Button>
-      </div>
-      {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools</summary>
-        <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t py-1">
-          <span className="min-w-0 break-words">{tool.name}</span>
-          <Button size="compact" variant="none" effect="fade" disabled={busy || !item.enabled}
-            aria-label={`${tool.permission === "blocked" ? "Allow" : "Block"} ${tool.name} in ${item.displayName}`}
-            onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow"
-              : tool.review === "not_required" ? "Runs without asking · Block" : "Ask first · Block"}</Button>
-        </li>)}</ul>
-      </details> : null}
-    </li>)}</ul>
-    {editing ? <form className="space-y-3" onSubmit={event => { event.preventDefault(); void save(); }}>
+    <SettingsGroup title="Custom connectors" separatorInset>
+      {status === "loading" ? <SettingsRow title="Loading saved connectors…" /> : null}
+      {status === "failed" ? <SettingsRow title="Could not load saved connectors" description="Close and reopen to retry." /> : null}
+      {invalid.map((item, index) => (
+        <SettingsRow
+          key={item.connectorId}
+          title={`Saved connector ${index + 1}`}
+          description="Needs repair · other connectors remain available"
+          trailing={
+            item.removable ? (
+              <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" disabled={busy} onClick={() => model.requestRemoveInvalid(item)}>
+                Remove
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">Needs repair</span>
+            )
+          }
+        />
+      ))}
+      {items.map(item => (
+        <div key={item.connectorId} className="space-y-2.5 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <ConnectorVectorGlyph id={item.displayName || item.connectorId} variant="profile" className="mt-0.5" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{item.displayName}</p>
+                <p className="text-xs text-muted-foreground">{!item.enabled ? "Blocked for new turns"
+                  : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
+                    ? "Saved credential rejected · remove and add again"
+                    : "Sign in needed"
+                  : checkFailed[item.connectorId] ? "Connection check failed · verify server address and credential"
+                  : catalogs[item.connectorId] ? `${catalogs[item.connectorId]?.length ?? 0} tools discovered`
+                  : item.authenticationKind === "none" ? "Sign in or refresh tools to verify" : "Tools not checked"}</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
+            {model.canSignIn && item.authenticationKind !== "api_key" && (item.hasOAuthRegistration || item.authenticationKind === "oauth" || authRequired[item.connectorId])
+              ? <Button size="compact" variant="none" effect="fade" data-connector-action="primary" aria-label={`Sign in to ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void connect(item)}>Sign in</Button> : null}
+            <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" aria-label={`Refresh tools for ${item.displayName}`} disabled={busy || !item.enabled} onClick={() => void refresh(item)}>Refresh tools</Button>
+            <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" aria-label={`Remove ${item.displayName}`} disabled={busy} onClick={() => model.requestRemove(item)}>Remove</Button>
+          </div>
+          {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-10 cursor-pointer py-2 text-xs font-medium text-muted-foreground">{catalogs[item.connectorId]?.length} tools</summary>
+            <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t border-border/50 py-1.5">
+              <span className="min-w-0 break-words text-xs">{tool.name}</span>
+              <Button size="compact" variant="none" effect="fade" data-connector-action="secondary" disabled={busy || !item.enabled}
+                aria-label={`${tool.permission === "blocked" ? "Allow" : "Block"} ${tool.name} in ${item.displayName}`}
+                onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow"
+                  : tool.review === "not_required" ? "Runs without asking · Block" : "Ask first · Block"}</Button>
+            </li>)}</ul>
+          </details> : null}
+        </div>
+      ))}
+      {!editing ? (
+        <SettingsRow
+          title="Custom MCP server"
+          description="Connect a server you trust"
+          trailing={
+            <Button size="compact" variant="none" effect="fade" disabled={status !== "ready"} onClick={model.openEditor}>
+              Add connector
+            </Button>
+          }
+        />
+      ) : null}
+    </SettingsGroup>
+    {editing ? <form className="space-y-3 rounded-[var(--settings-group-radius,17px)] border border-border/60 bg-card/70 p-4" onSubmit={event => { event.preventDefault(); void save(); }}>
       <label className="block space-y-1 text-sm">Name<Input required maxLength={100} value={name} disabled={busy} onChange={event => model.field("name", event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Server URL<Input required type="url" placeholder="https://example.com/mcp" value={endpoint} disabled={busy} onChange={event => model.field("endpoint", event.target.value)} /></label>
       <label className="block space-y-1 text-sm">Access token (optional)<Input type="password" autoComplete="off" maxLength={8192} value={credential} disabled={busy} onChange={event => model.field("credential", event.target.value)} /></label>
@@ -388,11 +415,11 @@ export function CustomConnectorsSettings(props: CustomConnectorSettingsProps & {
         </div>
       </details>
       <p className="text-xs text-muted-foreground">Only add servers you trust. One uses this server’s tools without asking each time. Block any tool you don’t want it to use.</p>
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="compact" effect="fade" disabled={busy}>Add</Button>
-        <Button type="button" size="compact" variant="none" effect="fade" disabled={busy} onClick={model.cancelEditor}>Cancel</Button>
+      <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
+        <Button type="submit" size="compact" effect="fade" data-connector-action="primary" disabled={busy}>Add</Button>
+        <Button type="button" size="compact" variant="none" effect="fade" data-connector-action="secondary" disabled={busy} onClick={model.cancelEditor}>Cancel</Button>
       </div>
-    </form> : <Button size="compact" variant="none" effect="fade" disabled={status !== "ready"} onClick={model.openEditor}>Add connector</Button>}
+    </form> : null}
     <AlertDialog open={Boolean(removing)} onOpenChange={open => { if (!open && !busy) model.cancelRemove(); }}>
       <AlertDialogContent>
         <AlertDialogHeader><AlertDialogTitle>Remove {removing?.displayName}?</AlertDialogTitle>

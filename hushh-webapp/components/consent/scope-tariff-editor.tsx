@@ -93,15 +93,15 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
           const snap = await ScopeCommerceService.tariffCatalog(token, ownerId);
           if (!current()) return;
           const key = `${scopeHandle}::${machineScope}`;
-          if (Object.prototype.hasOwnProperty.call(snap.tariffsByKey, key)) {
-            const found = snap.tariffsByKey[key] ?? null;
-            setSavedTariff({ price: found?.price_cents ?? 0, hours: (found?.base_duration_seconds ?? 604800) / 3600 });
-            setPrice(((found?.price_cents ?? 0) / 100).toFixed(2));
-            setHours(String((found?.base_duration_seconds ?? 604800) / 3600));
-            setReadiness(snap.readiness);
-            setReady(snap.readiness.capabilities.set_free_tariff || snap.readiness.capabilities.set_paid_tariff);
-            return;
-          }
+          // The owner tariff catalog is authoritative for all authored scopes:
+          // absence from tariffsByKey means free ($0.00 / 168h default), not a cache miss.
+          const found = snap.tariffsByKey[key] ?? null;
+          setSavedTariff({ price: found?.price_cents ?? 0, hours: (found?.base_duration_seconds ?? 604800) / 3600 });
+          setPrice(((found?.price_cents ?? 0) / 100).toFixed(2));
+          setHours(String((found?.base_duration_seconds ?? 604800) / 3600));
+          setReadiness(snap.readiness);
+          setReady(snap.readiness.capabilities.set_free_tariff || snap.readiness.capabilities.set_paid_tariff);
+          return;
         } catch {
           // Fall back to direct per-scope tariff + readiness verification when catalog read is unavailable or mocked out.
         }

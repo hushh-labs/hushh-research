@@ -724,4 +724,31 @@ describe("answer payout hosted continuity", () => {
     expect(screen.queryByText(/remaining in sandbox test allowance/)).toBeNull();
     expect(screen.getByRole("button", { name: "Continue to secure checkout" })).toBeEnabled();
   });
+
+  it("resolves free scopes directly from the batched tariff catalog without per-scope fallback calls", async () => {
+    const { ScopeCommerceService } = await import("@/lib/services/scope-commerce-service");
+    const catalogSpy = vi.fn().mockResolvedValue({
+      tariffsByKey: {},
+      readiness: readiness(),
+      fetchedAt: Date.now(),
+    });
+    const originalCatalog = ScopeCommerceService.tariffCatalog;
+    ScopeCommerceService.tariffCatalog = catalogSpy;
+    try {
+      render(
+        <ScopeTariffEditor
+          scopeHandle="scope_free"
+          machineScope="attr.financial.portfolio.*"
+          label="Financial · Portfolio"
+          showSavedPrice
+        />,
+      );
+      expect(await screen.findByRole("button", { name: "Set sharing price for Financial · Portfolio" })).toHaveTextContent("Free · Set price");
+      expect(catalogSpy).toHaveBeenCalledTimes(1);
+      expect(mocks.tariff).not.toHaveBeenCalled();
+      expect(mocks.readiness).not.toHaveBeenCalled();
+    } finally {
+      ScopeCommerceService.tariffCatalog = originalCatalog;
+    }
+  });
 });

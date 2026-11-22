@@ -18,6 +18,7 @@ import { findSecretSpans } from "@/lib/pkm/secret-patterns";
 import {
   WIKI_HOT_MAX_CHARS,
   type WikiClaim,
+  type WikiLinkEdge,
   WikiRefusedError,
   extractInlineLinks,
   sha256Hex,
@@ -1363,6 +1364,290 @@ export class SharedWikiMaintenanceRunner {
       hot_digest_chars: hotMd.length,
       hot_digest_within_budget: hotMd.length <= WIKI_HOT_MAX_CHARS,
       cursor_revision: saved.revision,
+    };
+  }
+
+  /** Full on-demand signal consolidation, structure/link repair, and grant-safe stale pruning. */
+  async optimizeKnowledgeBase(input: {
+    idempotencyKey: string;
+    protectedScopes?: Iterable<string>;
+    referenceDate?: string;
+    signal?: AbortSignal;
+  }) {
+    const { referenceDate, protectedScopes, signal } = input;
+    signal?.throwIfAborted();
+    this.library.store.check();
+    const idem = validateIdempotencyKey(input.idempotencyKey);
+    const refDate = (referenceDate ?? todayUtc()).slice(0, 10);
+    const pinnedScopes = new Set(
+      Array.from(protectedScopes ?? [])
+        .map((s) => String(s || "").trim())
+        .filter(Boolean),
+    );
+    const pinnedLower = Array.from(pinnedScopes).map((s) => s.toLowerCase());
+
+    const isPageGrantPinned = (
+      pageId: string,
+      folder: string,
+      projectedDomains: Set<string>,
+    ): boolean => {
+      if (pinnedLower.length === 0) return false;
+      const folderLower = folder.toLowerCase();
+      const pageLower = pageId.toLowerCase();
+      for (const scope of pinnedLower) {
+        if (scope === "pkm.read" || scope === "attr.*" || scope === "*") return true;
+        if (folderLower && (scope === folderLower || scope.startsWith(`attr.${folderLower}.`) || scope === `attr.${folderLower}`)) {
+          return true;
+        }
+        if (pageLower && scope.includes(pageLower)) return true;
+        for (const dom of projectedDomains) {
+          const domLower = dom.toLowerCase();
+          if (scope === domLower || scope.startsWith(`attr.${domLower}.`) || scope === `attr.${domLower}`) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const projDomainsByPage = new Map<string, Set<string>>();
+    for (const receipt of await this.library.listProjectionReceipts(undefined, signal)) {
+      const rPid = String(receipt.page_id || "");
+      const rDom = String(receipt.domain || "");
+      if (rPid && rDom && receipt.state === "materialized") {
+        let doms = projDomainsByPage.get(rPid);
+        if (!doms) {
+          doms = new Set<string>();
+          projDomainsByPage.set(rPid, doms);
+        }
+        doms.add(rDom);
+      }
+    }
+
+    const allSummaries = (await this.library.listPages(undefined, signal)).sort(
+      (a, b) => a.page_id.localeCompare(b.page_id),
+    );
+    const allPageIds = allSummaries.map((p) => p.page_id);
+    const allPageIdSet = new Set(allPageIds);
+
+    const slugToUniquePageId = new Map<string, string | null>();
+    for (const pid of allPageIds) {
+      const leaf = (pid.split("/").pop() ?? "").trim().toLowerCase();
+      if (!leaf) continue;
+      if (slugToUniquePageId.has(leaf)) {
+        slugToUniquePageId.set(leaf, null);
+      } else {
+        slugToUniquePageId.set(leaf, pid);
+      }
+    }
+
+    const tombstones = await this.library.listTombstones(signal);
+    const fpSnap =
+      await this.library.readNamedCheckpoint<StoredTombstoneFingerprints>(
+        TOMBSTONE_FPS_CHECKPOINT_NAME,
+        signal,
+      );
+    const tombSources = new Set(
+      tombstones
+        .filter((tb) => tb.target_kind === "source" && tb.target_id)
+        .map((tb) => tb.target_id),
+    );
+    const tombFps = new Set(fpSnap.payload?.fingerprints ?? []);
+
+    let deduplicatedCount = 0;
+    let staleRetiredCount = 0;
+    let structureRepairsCount = 0;
+    let protectedPagesCount = 0;
+    let protectedClaimsPreservedCount = 0;
+    const contradictions: Array<{
+      page_id: string;
+      slot: string;
+      claim_ids: string[];
+    }> = [];
+    const folderSeenClaims = new Map<string, { pageId: string; claimId: string }>();
+
+    for (const pid of allPageIds) {
+      signal?.throwIfAborted();
+      const page = await this.library.readPage(
+        pid,
+        { requireSettled: true },
+        signal,
+      );
+      const folder = String(page.folder || "").trim() || pid.split("/")[0] || "notes";
+      const pagePinned = isPageGrantPinned(
+        pid,
+        folder,
+        projDomainsByPage.get(pid) ?? new Set<string>(),
+      );
+      if (pagePinned) protectedPagesCount += 1;
+
+      const claimFps = await Promise.all(
+        page.claims.map((cl) => normalizeStatementFingerprint(cl.statement)),
+      );
+      let nonExpiredActiveCount = 0;
+      for (let idx = 0; idx < page.claims.length; idx++) {
+        const cl = page.claims[idx]!;
+        if (
+          (cl.status ?? "active") === "active" &&
+          !(cl.valid_until && cl.valid_until.slice(0, 10) < refDate) &&
+          !tombFps.has(claimFps[idx]!)
+        ) {
+          nonExpiredActiveCount += 1;
+        }
+      }
+
+      let changed = false;
+      const seenNorm = new Map<string, number>();
+      const newClaims: WikiClaim[] = [];
+
+      for (let idx = 0; idx < page.claims.length; idx++) {
+        const claim = page.claims[idx]!;
+        const srcList = [...(claim.source_ids ?? [])];
+        const copy: WikiClaim = { ...claim, source_ids: srcList };
+        const fp = claimFps[idx]!;
+        const folderKey = `${folder}::${fp}`;
+
+        if ((copy.status ?? "active") === "active") {
+          const allSourcesTombstoned =
+            srcList.length > 0 && srcList.every((sid) => tombSources.has(sid));
+          if (tombFps.has(fp) || allSourcesTombstoned) {
+            copy.status = "retracted";
+            copy.valid_until = refDate;
+            staleRetiredCount += 1;
+            changed = true;
+          } else if (copy.valid_until && copy.valid_until.slice(0, 10) < refDate) {
+            if (pagePinned && nonExpiredActiveCount === 0) {
+              protectedClaimsPreservedCount += 1;
+              nonExpiredActiveCount += 1;
+              seenNorm.set(fp, newClaims.length);
+            } else {
+              copy.status = "retracted";
+              staleRetiredCount += 1;
+              changed = true;
+            }
+          } else if (seenNorm.has(fp)) {
+            const keeperIdx = seenNorm.get(fp)!;
+            const keeper = newClaims[keeperIdx]!;
+            keeper.source_ids = [
+              ...new Set([...(keeper.source_ids ?? []), ...srcList]),
+            ].sort();
+            if (copy.claim_id === keeper.claim_id) {
+              deduplicatedCount += 1;
+              changed = true;
+              continue;
+            }
+            copy.status = "superseded";
+            copy.superseded_by = keeper.claim_id;
+            copy.valid_until = refDate;
+            deduplicatedCount += 1;
+            changed = true;
+          } else if (folderSeenClaims.has(folderKey) && !pagePinned) {
+            const canonical = folderSeenClaims.get(folderKey)!;
+            copy.status = "superseded";
+            copy.superseded_by = canonical.claimId;
+            copy.valid_until = refDate;
+            deduplicatedCount += 1;
+            changed = true;
+          } else {
+            seenNorm.set(fp, newClaims.length);
+            folderSeenClaims.set(folderKey, { pageId: pid, claimId: copy.claim_id });
+          }
+        }
+        newClaims.push(copy);
+      }
+
+      const slotSeen = new Map<string, { claimId: string; negated: boolean }>();
+      for (const cItem of newClaims) {
+        if ((cItem.status ?? "active") !== "active") continue;
+        const info = subjectSlotKey(cItem.statement);
+        if (!info) continue;
+        const prev = slotSeen.get(info.slot);
+        if (prev) {
+          if (prev.negated !== info.negated) {
+            contradictions.push({
+              page_id: pid,
+              slot: info.slot,
+              claim_ids: [prev.claimId, cItem.claim_id].sort(),
+            });
+          }
+        } else {
+          slotSeen.set(info.slot, { claimId: cItem.claim_id, negated: info.negated });
+        }
+      }
+
+      const repairedLinks: WikiLinkEdge[] = [];
+      const seenLinkKeys = new Set<string>();
+      let linksChanged = false;
+      for (const link of page.links ?? []) {
+        let targetId = String(link.target_page_id || "").trim();
+        const relation = link.relation ?? "related";
+        if (!allPageIdSet.has(targetId)) {
+          const leaf = (targetId.split("/").pop() ?? "").trim().toLowerCase();
+          const relinked = slugToUniquePageId.get(leaf);
+          if (relinked && relinked !== pid) {
+            targetId = relinked;
+            linksChanged = true;
+            structureRepairsCount += 1;
+          } else {
+            linksChanged = true;
+            structureRepairsCount += 1;
+            continue;
+          }
+        }
+        const linkKey = `${targetId}::${relation}`;
+        if (targetId === pid || seenLinkKeys.has(linkKey)) {
+          linksChanged = true;
+          continue;
+        }
+        seenLinkKeys.add(linkKey);
+        repairedLinks.push({ ...link, target_page_id: targetId, relation });
+      }
+
+      const activeStmts = newClaims
+        .filter((c) => (c.status ?? "active") === "active")
+        .map((c) => c.statement);
+      const currentTldr = String(page.tldr || "").trim();
+      let nextTldr: string | undefined;
+      if (activeStmts.length > 0 && !currentTldr) {
+        nextTldr = activeStmts[0]!.slice(0, 240);
+        structureRepairsCount += 1;
+        changed = true;
+      } else if (changed) {
+        nextTldr = activeStmts[0]?.slice(0, 240) ?? currentTldr;
+      }
+
+      if (changed || linksChanged) {
+        await this.library.editPage(
+          pid,
+          {
+            expected_revision: page.revision,
+            idempotency_key: `${idem}:opt:${pid}:${page.revision}`.slice(0, 120),
+            tldr: nextTldr ?? currentTldr,
+            status_as_of: refDate,
+            claims: newClaims,
+            ...(linksChanged ? { links: repairedLinks } : {}),
+          },
+          signal,
+        );
+        await this.projections.syncPageLifecycle(pid, undefined, signal);
+      }
+    }
+
+    await this.library.rebuildIndexes(signal);
+    const hotMd = await this.writer.refreshHotDigest(signal);
+    const runHex = await sha256Hex(`${idem}:opt:${refDate}`);
+    return {
+      optimization_run_id: `wopt_${runHex.slice(0, 16)}`,
+      inspected_page_count: allPageIds.length,
+      deduplicated_claim_count: deduplicatedCount,
+      stale_retired_count: staleRetiredCount,
+      structure_repairs_count: structureRepairsCount,
+      protected_grant_scopes: Array.from(pinnedScopes).sort(),
+      protected_grant_pages_count: protectedPagesCount,
+      protected_claims_preserved_count: protectedClaimsPreservedCount,
+      contradictions,
+      hot_digest_chars: hotMd.length,
+      hot_digest_within_budget: hotMd.length <= WIKI_HOT_MAX_CHARS,
     };
   }
 }

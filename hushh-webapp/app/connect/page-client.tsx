@@ -637,11 +637,18 @@ export default function ConnectPageClient() {
     circleFlowId,
   );
   useEffect(() => {
-    if (user && userId && !isFocusedCircleTask && !mutualPersonRef && navigator.onLine !== false) {
+    if (
+      user &&
+      userId &&
+      connectionView === "discover" &&
+      !isFocusedCircleTask &&
+      !mutualPersonRef &&
+      navigator.onLine !== false
+    ) {
       void loadNetworkPreviewList().catch(() => {});
       preloadNetworkDiscovery(userId, () => user.getIdToken());
     }
-  }, [user, userId, isFocusedCircleTask, mutualPersonRef]);
+  }, [user, userId, connectionView, isFocusedCircleTask, mutualPersonRef]);
 
   // Every navigation on this page passes `scroll: false`, because the surface
   // strip and the Circle flows are query-only states that must not jump the
