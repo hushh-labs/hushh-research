@@ -231,7 +231,7 @@ async def wake_signal(
     """Zero-content wake doorbell across Personal Sandbox, GCP BYOC, and Azure BYOC."""
     _require_enabled()
     try:
-        return await WAKE_COALESCER.ingest_signal(owner_user_id=user_id, signal=payload)
+        return dict(await WAKE_COALESCER.ingest_signal(owner_user_id=user_id, signal=payload))
     except ZeroContentViolationError as exc:
         raise HTTPException(
             status_code=400,
@@ -255,4 +255,4 @@ async def drain_coalesced_wakes(
     quiet_lifted = bool(payload.get("quietHoursLifted", True))
     limit = int(payload.get("limit", 50))
     limit = max(1, min(200, limit))
-    return await WAKE_COALESCER.drain_due(quiet_hours_lifted=quiet_lifted, limit=limit)
+    return dict(await WAKE_COALESCER.drain_due(quiet_hours_lifted=quiet_lifted, limit=limit))

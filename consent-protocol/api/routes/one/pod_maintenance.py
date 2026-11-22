@@ -108,7 +108,7 @@ async def background_prep_job(*, wake_payload: dict[str, Any] | None = None) -> 
     from hushh_mcp.services.pod_background_prep import run_pod_background_prep  # noqa: PLC0415
 
     try:
-        return await run_pod_background_prep(wake_payload=wake_payload)
+        return dict(await run_pod_background_prep(wake_payload=wake_payload))
     except Exception as exc:  # noqa: BLE001 - tick never fails closed past auth on prep error
         logger.warning("pod_maintenance.background_prep_failed reason=%s", type(exc).__name__)
         return {"status": "failed", "reason": type(exc).__name__, "quarantineActive": True}
