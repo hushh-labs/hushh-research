@@ -23,6 +23,7 @@ final class NativeProfileOwnedSheet: NSObject, UIAdaptivePresentationControllerD
     private let cancel: () -> Void
     private let clear: () -> Void
     private let dismissPopups: (@escaping () -> Void) -> Void
+    private let isQuarantined: @MainActor () -> Bool
     private var host: UIViewController?
     private var presenting = false
     private var presentationCompleted = false
@@ -47,14 +48,20 @@ final class NativeProfileOwnedSheet: NSObject, UIAdaptivePresentationControllerD
         host?.presentingViewController != nil || presenting || retiring || hasPending()
     }
 
+    static func sharedPrivacyQuarantined() -> Bool {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        return privacy.shielded || !privacy.appIsActive
+    }
+
     init(makeHost: @escaping () -> UIViewController?, canPresent: @escaping () -> Bool,
          canDismiss: @escaping () -> Bool, hasPending: @escaping () -> Bool,
          appearance: @escaping () -> HushhNativeControlAppearance?,
          cancel: @escaping () -> Void, clear: @escaping () -> Void,
-         dismissPopups: @escaping (@escaping () -> Void) -> Void = { $0() }) {
+         dismissPopups: @escaping (@escaping () -> Void) -> Void = { $0() },
+         isQuarantined: @escaping @MainActor () -> Bool = NativeProfileOwnedSheet.sharedPrivacyQuarantined) {
         self.makeHost = makeHost; self.canPresent = canPresent; self.canDismiss = canDismiss
         self.hasPending = hasPending; self.appearance = appearance; self.cancel = cancel
-        self.clear = clear; self.dismissPopups = dismissPopups
+        self.clear = clear; self.dismissPopups = dismissPopups; self.isQuarantined = isQuarantined
     }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool {
         guard host == nil, parent.presentedViewController == nil, parent.view.window != nil,
@@ -109,16 +116,14 @@ final class NativeProfileOwnedSheet: NSObject, UIAdaptivePresentationControllerD
             host.overrideUserInterfaceStyle = appearance.style
             host.view.tintColor = appearance.accent
         }
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
-        let quarantined = privacy.shielded || !privacy.appIsActive
+        let quarantined = isQuarantined()
         host.view.isUserInteractionEnabled = !quarantined
         host.view.accessibilityElementsHidden = quarantined
         if quarantined { host.view.endEditing(true) }
         host.isModalInPresentation = quarantined || !canDismiss()
     }
     func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
-        return privacy.appIsActive && !privacy.shielded && canDismiss()
+        !isQuarantined() && canDismiss()
     }
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         expectedPresenter = nil

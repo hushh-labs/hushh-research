@@ -249,8 +249,10 @@ final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
     var identity: NativeDrawerIdentity { model.projection.identity }
     var sceneName: String { model.projection.scene }
     func receipt(_ phase: String) -> [String: Any] { model.projection.receipt(phase: phase) }
+    private let isQuarantined: @MainActor () -> Bool
     private lazy var sheet: NativeProfileOwnedSheet = {
         let model = model
+        let isQuarantined = isQuarantined
         return NativeProfileOwnedSheet(makeHost: { [weak model] in
             guard #available(iOS 26.0, *), let model else { return nil }
             return UIHostingController(rootView: NativeProfileNameContent(model: model))
@@ -262,14 +264,19 @@ final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
                return HushhNativeControlAppearance(appearance: model.projection.appearance,
                    accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex)
            }, cancel: { [weak model] in model?.action("cancel") },
-           clear: { [weak model] in model?.clear() })
+           clear: { [weak model] in model?.clear() },
+           isQuarantined: isQuarantined)
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
     var presentationSettled: Bool { sheet.presentationSettled }
     var feedbackPresenter: UIViewController? { sheet.feedbackPresenter }
     func refreshPrivacy() { sheet.refresh() }
-    init(_ projection: NativeProfileNameProjection) { model = NativeProfileNameModel(projection) }
+    init(_ projection: NativeProfileNameProjection,
+         isQuarantined: @escaping @MainActor () -> Bool = NativeProfileOwnedSheet.sharedPrivacyQuarantined) {
+        self.model = NativeProfileNameModel(projection)
+        self.isQuarantined = isQuarantined
+    }
 
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool {
         sheet.present(from: parent, completion: completion)
