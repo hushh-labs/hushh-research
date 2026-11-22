@@ -43,6 +43,8 @@ import {
 
 const PROFILE_DETAIL_TITLES: Record<string, string> = {
   phone: "Phone number",
+  "hosting-details": "Hosting details",
+  "update-details": "Version details",
   sharing: "Access & sharing",
   "kai-preferences": "Finance preferences",
   gemini: "Gemini",

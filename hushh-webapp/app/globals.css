@@ -1240,6 +1240,8 @@ html.native-keyboard-inset.kb-open
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
+  --app-border: var(--app-card-border-standard);
+  --app-text-secondary: var(--app-secondary-label, var(--muted-foreground));
   --app-card-shadow-standard: none;
   --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.04);
   --app-list-row-surface: color-mix(
@@ -2589,8 +2591,16 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 .profile-pane-scroll-root {
+  --app-border: var(--profile-pane-hair);
+  --app-text-secondary: var(--ios-account-secondary-label);
   z-index: 2 !important;
   background: transparent !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.profile-pane-scroll-root::-webkit-scrollbar {
+  display: none;
 }
 
 .profile-pane-scroll-root .profile-home-screen--pane {
@@ -2854,8 +2864,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"]::after {
-  left: 0 !important;
-  right: 0 !important;
+  left: var(--settings-row-px, 14px) !important;
+  right: var(--settings-row-px, 14px) !important;
   background: var(--profile-pane-hair) !important;
 }
 
@@ -5255,6 +5265,8 @@ body:has([data-testid="one-location-onboarding"])
   --app-card-surface-sticky-header-solid: #2f2f31;
   --app-card-border-standard: var(--app-separator);
   --app-card-border-strong: rgba(255, 255, 255, 0.18);
+  --app-border: var(--app-card-border-standard);
+  --app-text-secondary: var(--app-secondary-label, var(--muted-foreground));
   --app-card-shadow-standard: none;
   --app-card-shadow-feature: none;
   --app-segmented-track-surface: var(--app-neutral-fill);

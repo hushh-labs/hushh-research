@@ -12,7 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hushh_mcp.services.agent_sandbox.edge_gateway_app import (
+    SANDBOX_HYDRATION_FAILED_CODE,
     ActiveOwnerLease,
+    SandboxActivationError,
     SandboxEdgeGatewayManager,
     create_sandbox_edge_gateway_app,
 )
@@ -150,3 +152,34 @@ async def test_ensure_pooled_sandbox_placement_preserves_endpoint_version_floor(
     )
     assert next_ep is not None
     assert next_ep["version"] == 4
+
+
+def test_edge_gateway_fails_fast_with_unavailable_on_terminal_hydration_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SandboxEdgeGatewayManager(
+        claim_client=_StubClaimClient(),
+        master_seed=b"m" * 32,
+        allowed_app_origins="https://dev.one.hussh.ai",
+    )
+
+    async def _fail_activation(_hushh_id: str) -> ActiveOwnerLease:
+        raise SandboxActivationError(
+            "Hub storage gateway returned 503",
+            code=SANDBOX_HYDRATION_FAILED_CODE,
+            phase="unlocking",
+        )
+
+    monkeypatch.setattr(manager, "ensure_owner_lease", _fail_activation)
+    app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    with TestClient(app) as client:
+        resp = client.get(
+            "/u/ha1_testowner1234567890/health",
+            headers={"Origin": "https://dev.one.hussh.ai"},
+        )
+
+    assert resp.status_code == 503
+    assert resp.headers.get("x-hussh-pod-state") == "unavailable"
+    assert resp.headers.get("access-control-allow-origin") == "https://dev.one.hussh.ai"
+    assert resp.json()["detail"]["code"] == SANDBOX_HYDRATION_FAILED_CODE
+    assert resp.json()["detail"]["phase"] == "unlocking"

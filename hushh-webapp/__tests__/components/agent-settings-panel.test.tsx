@@ -216,7 +216,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText("Hussh Shared")).toBeTruthy();
     expect(screen.getByText("Hussh Pods")).toBeTruthy();
     expect(
-      screen.getByText("Closed to new setups."),
+      screen.getByText("Unavailable for new setups."),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Bring your own cloud/ }),
@@ -397,6 +397,10 @@ describe("owner hosting and software settings", () => {
 
     expect(screen.getByText("Sep 2026 · Dev 1")).toBeTruthy();
     expect(screen.getByText("27.09.26 · Dev 2")).toBeTruthy();
+    expect(screen.queryByText("What’s in this update")).toBeNull();
+    expect(screen.queryByText("abcdef123456")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Current version/ }));
     expect(screen.getByText("What’s in this update")).toBeTruthy();
     expect(screen.queryByText("abcdef123456")).toBeNull();
   });
