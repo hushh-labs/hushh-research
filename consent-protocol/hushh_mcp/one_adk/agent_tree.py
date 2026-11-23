@@ -1016,12 +1016,9 @@ def _compose_one_instruction_parts(
         else "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim Drive is disconnected or a file is absent without a current status check."
     )
     pod_files_instruction = (
-        "\n\nPRIVATE FILES LIBRARY (/one/files): The `files` tool is active for this owner's "
-        "private encrypted /one/files library. When the owner asks about uploaded files, "
-        "/one/files, or a named private file, document, or key (such as 'hushh recovery key') "
-        "without specifying Google Drive, call `files` first with their request. Never route "
-        "/one/files queries to `ask_documents_agent` (Google Drive) or `/workspace` (ephemeral "
-        "sandbox terminal)."
+        "\n\nPRIVATE FILES LIBRARY (/one/files): Call `files` first for uploaded files, "
+        "/one/files, or named private files/keys unless Google Drive is specified. Never "
+        "route /one/files queries to `ask_documents_agent` (Drive) or `/workspace`."
         if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}
         else ""
     )
