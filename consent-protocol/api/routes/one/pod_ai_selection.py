@@ -174,7 +174,7 @@ async def _verify_default_for_clear(
     await _admit_owner_local(
         consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
     )
-    return verified
+    return dict(verified)
 
 
 async def run_ai_selection_deactivate(
